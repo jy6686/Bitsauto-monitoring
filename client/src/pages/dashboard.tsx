@@ -1,0 +1,206 @@
+import { useDashboardStats } from "@/hooks/use-dashboard";
+import { useCalls } from "@/hooks/use-calls";
+import { useAlerts } from "@/hooks/use-alerts";
+import { StatCard } from "@/components/stat-card";
+import { MosBadge } from "@/components/mos-badge";
+import { Link } from "wouter";
+import { 
+  Activity, 
+  Server, 
+  Users, 
+  AlertTriangle, 
+  PhoneCall, 
+  Clock, 
+  ArrowRight
+} from "lucide-react";
+import { 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer 
+} from "recharts";
+import { format } from "date-fns";
+
+export default function DashboardPage() {
+  const { data: stats } = useDashboardStats();
+  const { data: recentCalls } = useCalls(5);
+  const { data: recentAlerts } = useAlerts();
+
+  // Mock data for the chart since we don't have historical aggregates in this simple MVP schema yet
+  // In a real app, this would come from a dedicated historical metrics endpoint
+  const chartData = [
+    { time: '10:00', mos: 4.2 },
+    { time: '10:05', mos: 4.1 },
+    { time: '10:10', mos: 3.8 },
+    { time: '10:15', mos: 4.3 },
+    { time: '10:20', mos: 4.4 },
+    { time: '10:25', mos: 4.2 },
+    { time: '10:30', mos: 4.5 },
+  ];
+
+  if (!stats) return <div className="p-8">Loading dashboard...</div>;
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-3xl font-bold tracking-tight">System Overview</h2>
+        <p className="text-muted-foreground mt-2">Real-time monitoring of VoIP infrastructure.</p>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard 
+          title="Active Calls" 
+          value={stats.activeCalls} 
+          icon={PhoneCall}
+          className="border-blue-500/20"
+          description="Currently connected sessions"
+        />
+        <StatCard 
+          title="Average MOS" 
+          value={stats.avgMos.toFixed(2)} 
+          icon={Activity}
+          className={stats.avgMos > 4 ? "border-emerald-500/20" : "border-amber-500/20"}
+          description="Mean Opinion Score (5.0 scale)"
+        />
+        <StatCard 
+          title="System Health" 
+          value={stats.systemHealth} 
+          icon={Server}
+          className={stats.systemHealth === 'Healthy' ? "border-emerald-500/20" : "border-rose-500/20"}
+          description="Infrastructure status"
+        />
+        <StatCard 
+          title="Alerts Today" 
+          value={stats.alertsToday} 
+          icon={AlertTriangle}
+          className={stats.alertsToday > 5 ? "border-rose-500/20" : "border-border/50"}
+          description="Threshold breaches detected"
+        />
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-7">
+        {/* Main Chart Area */}
+        <div className="col-span-4 rounded-xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="font-semibold flex items-center gap-2">
+              <Activity className="w-4 h-4 text-primary" />
+              Network Quality Trend
+            </h3>
+            <select className="bg-background border border-border rounded-md text-xs px-2 py-1">
+              <option>Last Hour</option>
+              <option>Last 24 Hours</option>
+            </select>
+          </div>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="colorMos" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
+                <XAxis dataKey="time" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="#666" fontSize={12} tickLine={false} axisLine={false} domain={[1, 5]} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#111', borderColor: '#333' }}
+                  itemStyle={{ color: '#fff' }}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="mos" 
+                  stroke="#10b981" 
+                  strokeWidth={2}
+                  fillOpacity={1} 
+                  fill="url(#colorMos)" 
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Recent Alerts Feed */}
+        <div className="col-span-3 rounded-xl border border-border bg-card p-6 shadow-sm flex flex-col">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="font-semibold flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />
+              Recent Alerts
+            </h3>
+            <Link href="/alerts" className="text-xs text-primary hover:underline">View All</Link>
+          </div>
+          <div className="space-y-4 flex-1 overflow-auto pr-2 custom-scrollbar">
+            {recentAlerts?.slice(0, 5).map((alert) => (
+              <div key={alert.id} className="flex gap-3 items-start p-3 rounded-lg bg-muted/30 border border-border/50 hover:bg-muted/50 transition-colors">
+                <div className={cn(
+                  "mt-1 w-2 h-2 rounded-full flex-shrink-0",
+                  alert.severity === 'critical' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]' : 'bg-amber-500'
+                )} />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium leading-none">{alert.type.replace('_', ' ').toUpperCase()}</p>
+                  <p className="text-xs text-muted-foreground line-clamp-2">{alert.message}</p>
+                  <p className="text-[10px] text-muted-foreground/60">
+                    {format(new Date(alert.createdAt!), 'MMM d, HH:mm:ss')}
+                  </p>
+                </div>
+              </div>
+            ))}
+            {(!recentAlerts || recentAlerts.length === 0) && (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                No active alerts. System healthy.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Active Calls Table */}
+      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-border/50 flex items-center justify-between">
+          <h3 className="font-semibold flex items-center gap-2">
+            <PhoneCall className="w-4 h-4 text-blue-500" />
+            Recent Active Calls
+          </h3>
+          <Link href="/calls" className="inline-flex items-center text-sm font-medium text-primary hover:text-primary/80 transition-colors">
+            View All Calls <ArrowRight className="ml-1 w-4 h-4" />
+          </Link>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-muted/50 text-muted-foreground font-medium">
+              <tr>
+                <th className="px-6 py-3">Caller</th>
+                <th className="px-6 py-3">Callee</th>
+                <th className="px-6 py-3">Started</th>
+                <th className="px-6 py-3">MOS Score</th>
+                <th className="px-6 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/50">
+              {recentCalls?.map((call) => (
+                <tr key={call.id} className="hover:bg-muted/30 transition-colors group">
+                  <td className="px-6 py-4 font-mono text-xs">{call.caller}</td>
+                  <td className="px-6 py-4 font-mono text-xs">{call.callee}</td>
+                  <td className="px-6 py-4 text-muted-foreground">
+                    {call.startTime ? format(new Date(call.startTime), 'HH:mm:ss') : '-'}
+                  </td>
+                  <td className="px-6 py-4">
+                    <MosBadge value={call.latestMetric?.mos || 0} />
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <Link href={`/calls/${call.id}`} className="text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
+                      Details
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
