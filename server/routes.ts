@@ -433,11 +433,12 @@ export async function registerRoutes(
 
   // POST /api/portal/login — complete VOS3000 login with CAPTCHA answer
   app.post('/api/portal/login', async (req, res) => {
-    const { username, password, challengeId, captchaCode } = req.body as {
+    const { username, password, challengeId, captchaCode, loginType } = req.body as {
       username?: string;
       password?: string;
       challengeId?: string;
       captchaCode?: string;
+      loginType?: number;
     };
     if (!username || !password || !challengeId || !captchaCode) {
       return res.status(400).json({ success: false, message: 'Missing required fields.' });
@@ -447,7 +448,7 @@ export async function registerRoutes(
     if (!portalUrl) {
       return res.status(400).json({ success: false, message: 'No portal URL configured in Settings.' });
     }
-    const result = await vos3000.loginWithCaptcha(portalUrl, username, password, challengeId, captchaCode);
+    const result = await vos3000.loginWithCaptcha(portalUrl, username, password, challengeId, captchaCode, loginType ?? 1);
     res.json(result);
   });
 

@@ -226,6 +226,7 @@ export async function loginWithCaptcha(
   password: string,
   challengeId: string,
   captchaCode: string,
+  loginType?: number,
 ): Promise<{ success: boolean; message: string }> {
   const challenge = pendingCaptchas.get(challengeId);
   if (!challenge) {
@@ -234,7 +235,7 @@ export async function loginWithCaptcha(
 
   const base = portalBase(portalUrl);
   const bodyStr = new URLSearchParams({
-    loginType: '0',
+    loginType: String(loginType ?? 1),
     textFieldName: username,
     textFieldPwd: password,
     vcode: captchaCode.trim(),

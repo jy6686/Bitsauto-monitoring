@@ -34,10 +34,19 @@ function usePortalSession() {
 }
 
 // ── Portal Login Panel ────────────────────────────────────────────────────────
+const VOS3000_LOGIN_TYPES = [
+  { value: 0, label: 'Phone' },
+  { value: 1, label: 'Mapping Gateway' },
+  { value: 2, label: 'PhoneCard' },
+  { value: 3, label: 'Clearing Gateway' },
+  { value: 4, label: 'Binded Number' },
+];
+
 function PortalLoginPanel({ username, password }: { username: string; password: string }) {
   const qc = useQueryClient();
   const { data: session, isLoading: sessionLoading } = usePortalSession();
 
+  const [loginType, setLoginType] = useState(1); // default: Mapping Gateway
   const [captchaImg, setCaptchaImg] = useState<string | null>(null);
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [captchaCode, setCaptchaCode] = useState('');
@@ -77,7 +86,7 @@ function PortalLoginPanel({ username, password }: { username: string; password: 
       const resp = await fetch('/api/portal/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, challengeId, captchaCode }),
+        body: JSON.stringify({ username, password, challengeId, captchaCode, loginType }),
       });
       const data = await resp.json();
       setLoginResult({ ok: data.success, message: data.message });
@@ -165,6 +174,28 @@ function PortalLoginPanel({ username, password }: { username: string; password: 
           <span data-testid="text-portal-login-result">{loginResult.message}</span>
         </div>
       )}
+
+      {/* Account Type Selector */}
+      <div className="grid gap-2">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Account Type</label>
+        <div className="flex flex-wrap gap-2">
+          {VOS3000_LOGIN_TYPES.map(t => (
+            <button
+              key={t.value}
+              type="button"
+              data-testid={`button-login-type-${t.value}`}
+              onClick={() => setLoginType(t.value)}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                loginType === t.value
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-background border-border text-muted-foreground hover:text-foreground hover:border-primary/50'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Explanation */}
       {!captchaImg && !fetchingCaptcha && (
