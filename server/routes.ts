@@ -94,7 +94,7 @@ function probeIp(ip: string, priorityPorts: number[] = []): Promise<{ latency: n
 }
 
 // In-memory store for latest IP probe result
-let lastProbeResult: { latency: number; reachable: boolean; timestamp: Date } | null = null;
+let lastProbeResult: { latency: number; reachable: boolean; port?: number; host?: string; timestamp: Date } | null = null;
 
 export async function registerRoutes(
   httpServer: Server,

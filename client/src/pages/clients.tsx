@@ -1258,6 +1258,14 @@ export default function ClientsPage() {
           </div>
         </>
       )}
+
+      {/* New Sippy Account modal */}
+      {newSippyOpen && (
+        <NewSippyAccountModal
+          onClose={() => setNewSippyOpen(false)}
+          switches={allSwitches}
+        />
+      )}
     </div>
   );
 }
@@ -1376,14 +1384,6 @@ function ProfileTable({
             </div>
           ))}
         </div>
-      )}
-
-      {/* New Sippy Account modal */}
-      {newSippyOpen && (
-        <NewSippyAccountModal
-          onClose={() => setNewSippyOpen(false)}
-          switches={allSwitches}
-        />
       )}
     </div>
   );
