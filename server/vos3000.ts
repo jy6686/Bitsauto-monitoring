@@ -670,3 +670,135 @@ function parseLiveRow(r: any): LiveCallRecord {
     duration: Number(r.duration || r.elapsed || r.seconds || 0),
   };
 }
+
+// ─── Rate / Account Push ──────────────────────────────────────────────────────
+
+export interface PushRateOptions {
+  accountName: string;     // terminal / client name on the switch
+  prefix: string;          // dialling prefix / destination (e.g. "+1", "44")
+  ratePerMin: number;      // USD per minute
+  effectiveFrom?: Date;    // UTC
+  effectiveTo?: Date;      // UTC (null = no expiry)
+  format?: 'full' | 'partial' | 'default';
+}
+
+export interface PushResult {
+  success: boolean;
+  message: string;
+  detail?: string;
+  endpoint?: string;
+}
+
+/**
+ * Attempts to push a rate / account config to VOS3000.
+ * Tries several endpoint variants covering different VOS3000 versions.
+ */
+export async function pushRateToVos3000(opts: PushRateOptions): Promise<PushResult> {
+  if (!activeSession) return { success: false, message: 'Not logged in to VOS3000 portal.' };
+
+  const effectiveFromStr = opts.effectiveFrom ? formatVosDate(opts.effectiveFrom) : formatVosDate(new Date());
+  const effectiveToStr   = opts.effectiveTo   ? formatVosDate(opts.effectiveTo)   : '';
+
+  // Common params shared across endpoint attempts
+  const baseParams: Record<string, string> = {
+    terminalName:    opts.accountName,
+    prefix:          opts.prefix,
+    ratePerMinute:   String(opts.ratePerMin),
+    rate:            String(opts.ratePerMin),
+    effectiveDate:   effectiveFromStr,
+    startDate:       effectiveFromStr,
+    ...(effectiveToStr ? { endDate: effectiveToStr, expiryDate: effectiveToStr } : {}),
+  };
+
+  const rateEndpoints = [
+    // Standard pricing endpoints
+    { path: 'gateway/setPricing.action',      params: baseParams },
+    { path: 'pricing/savePricing.action',     params: baseParams },
+    { path: 'pricing/pricingSave.action',     params: baseParams },
+    { path: 'rate/saveRate.action',           params: { ...baseParams, type: '0' } },
+    { path: 'terminal/setRate.action',        params: baseParams },
+    { path: 'billing/setRate.action',         params: baseParams },
+    // Account-level rate update
+    { path: 'terminal/modifyTerminal.action', params: { ...baseParams, terminalPassword: '' } },
+    { path: 'gateway/modifyGateway.action',   params: baseParams },
+  ];
+
+  for (const { path, params } of rateEndpoints) {
+    try {
+      const json = await portalPost(path, params);
+      const text = JSON.stringify(json);
+      const ok =
+        json.retCode === 0 || json.success === true ||
+        json.result === 'ok' || json.status === 'success' ||
+        text.includes('"retCode":0') || text.toLowerCase().includes('"success":true');
+      if (ok) {
+        console.log(`[VOS3000] pushRate succeeded via ${path} for ${opts.accountName}/${opts.prefix}`);
+        return { success: true, message: 'Rate pushed to VOS3000', endpoint: path };
+      }
+      // Explicit failure (not a network/parse error — server replied with error code)
+      const msg = json.exception || json.message || json.msg || text.slice(0, 120);
+      console.warn(`[VOS3000] pushRate ${path} returned error:`, msg);
+    } catch (err: any) {
+      if (err.message === 'SESSION_EXPIRED') {
+        return { success: false, message: 'Session expired. Please reconnect to VOS3000.' };
+      }
+      console.warn(`[VOS3000] pushRate tried ${path}:`, err.message);
+    }
+  }
+
+  return {
+    success: false,
+    message: 'Could not push rate to VOS3000',
+    detail: 'None of the pricing endpoints accepted the request. This account type may not have rate-write permission.',
+  };
+}
+
+/**
+ * Attempts to create or update a terminal/client account on VOS3000.
+ */
+export async function pushAccountToVos3000(opts: {
+  name: string;
+  type: 'client' | 'vendor';
+  ipAddress?: string;
+  ratePerMin?: number;
+}): Promise<PushResult> {
+  if (!activeSession) return { success: false, message: 'Not logged in to VOS3000 portal.' };
+
+  const params: Record<string, string> = {
+    terminalName:    opts.name,
+    terminalType:    opts.type === 'vendor' ? '2' : '1',
+    ...(opts.ipAddress  ? { ip: opts.ipAddress, terminalIp: opts.ipAddress } : {}),
+    ...(opts.ratePerMin ? { ratePerMinute: String(opts.ratePerMin), rate: String(opts.ratePerMin) } : {}),
+  };
+
+  const accountEndpoints = [
+    'terminal/addTerminal.action',
+    'terminal/terminalAdd.action',
+    'terminal/save.action',
+    'gateway/addGateway.action',
+    'gateway/save.action',
+    'account/addAccount.action',
+    'customer/addCustomer.action',
+  ];
+
+  for (const path of accountEndpoints) {
+    try {
+      const json = await portalPost(path, params);
+      const ok = json.retCode === 0 || json.success === true || json.result === 'ok';
+      if (ok) {
+        console.log(`[VOS3000] pushAccount succeeded via ${path} for "${opts.name}"`);
+        return { success: true, message: `Account "${opts.name}" created/updated on VOS3000`, endpoint: path };
+      }
+      console.warn(`[VOS3000] pushAccount ${path}:`, json.exception || json.message || '');
+    } catch (err: any) {
+      if (err.message === 'SESSION_EXPIRED') return { success: false, message: 'Session expired. Please reconnect.' };
+      console.warn(`[VOS3000] pushAccount tried ${path}:`, err.message);
+    }
+  }
+
+  return {
+    success: false,
+    message: 'Could not create account on VOS3000',
+    detail: 'The portal account may not have write permissions for terminal accounts.',
+  };
+}

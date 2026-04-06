@@ -407,6 +407,136 @@ export async function registerRoutes(
     } catch { res.status(500).json({ message: 'Failed to delete profile' }); }
   });
 
+  // Sync a client/vendor profile + rate to connected switches
+  app.post('/api/clients/:id/sync', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const profile = (await storage.getClientProfiles()).find(p => p.id === id);
+      if (!profile) return res.status(404).json({ message: 'Profile not found' });
+
+      const settings = await storage.getSettings();
+      const switchType = settings.switchType || 'none';
+      const results: Record<string, { success: boolean; message: string }> = {};
+
+      if (switchType === 'vos3000') {
+        // Push account
+        const accountRes = await vos3000.pushAccountToVos3000({
+          name: profile.name,
+          type: profile.type as 'client' | 'vendor',
+          ipAddress: profile.ipAddress || undefined,
+          ratePerMin: profile.ratePerMin || undefined,
+        });
+        results.vos3000 = accountRes;
+        // Also push rate if prefix is set
+        if (profile.prefix && profile.ratePerMin) {
+          const rateRes = await vos3000.pushRateToVos3000({
+            accountName: profile.name,
+            prefix: profile.prefix,
+            ratePerMin: profile.ratePerMin,
+            effectiveFrom: profile.rateEffectiveFrom ? new Date(profile.rateEffectiveFrom) : undefined,
+            effectiveTo:   profile.rateEffectiveTo   ? new Date(profile.rateEffectiveTo)   : undefined,
+          });
+          if (!rateRes.success) results.vos3000 = rateRes; // surface rate error if account ok
+        }
+      } else if (switchType === 'sippy') {
+        const creds = { username: settings.portalUsername || '', password: settings.portalPassword || '' };
+        const accountRes = await sippy.pushAccountToSippy({
+          name: profile.name,
+          type: profile.type as 'client' | 'vendor',
+          ipAddress: profile.ipAddress || undefined,
+          ratePerMin: profile.ratePerMin || undefined,
+        }, creds);
+        results.sippy = accountRes;
+        if (profile.prefix && profile.ratePerMin) {
+          const rateRes = await sippy.pushRateToSippy({
+            accountName: profile.name,
+            prefix: profile.prefix,
+            ratePerMin: profile.ratePerMin,
+            effectiveFrom: profile.rateEffectiveFrom ? new Date(profile.rateEffectiveFrom) : undefined,
+            effectiveTo:   profile.rateEffectiveTo   ? new Date(profile.rateEffectiveTo)   : undefined,
+          }, creds);
+          if (!rateRes.success) results.sippy = rateRes;
+        }
+      } else {
+        return res.json({ success: false, message: 'No switch configured. Set up VOS3000 or Sippy in Settings.' });
+      }
+
+      // Persist sync status
+      const statusMap: { vos3000?: string; sippy?: string; syncedAt?: string } = {
+        syncedAt: new Date().toISOString(),
+      };
+      if (results.vos3000) statusMap.vos3000 = results.vos3000.success ? 'synced' : `failed: ${results.vos3000.message}`;
+      if (results.sippy)   statusMap.sippy   = results.sippy.success   ? 'synced' : `failed: ${results.sippy.message}`;
+      await storage.updateClientProfile(id, { switchSyncStatus: statusMap });
+
+      const allOk = Object.values(results).every(r => r.success);
+      res.json({ success: allOk, results, switchSyncStatus: statusMap });
+    } catch (err: any) {
+      console.error('[sync]', err);
+      res.status(500).json({ message: `Sync error: ${err.message}` });
+    }
+  });
+
+  // Push a rate for a specific profile/destination combination
+  app.post('/api/portal/push-rate', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const {
+        profileId, accountName, prefix, ratePerMin,
+        effectiveFrom, effectiveTo, format,
+      } = req.body as {
+        profileId?: number;
+        accountName: string;
+        prefix: string;
+        ratePerMin: number;
+        effectiveFrom?: string;
+        effectiveTo?: string;
+        format?: 'full' | 'partial' | 'default';
+      };
+
+      if (!accountName || !prefix || ratePerMin === undefined) {
+        return res.status(400).json({ success: false, message: 'accountName, prefix, and ratePerMin are required.' });
+      }
+
+      const settings = await storage.getSettings();
+      const switchType = settings.switchType || 'none';
+
+      const pushOpts: vos3000.PushRateOptions = {
+        accountName,
+        prefix,
+        ratePerMin: Number(ratePerMin),
+        effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
+        effectiveTo:   effectiveTo   ? new Date(effectiveTo)   : undefined,
+        format,
+      };
+
+      if (switchType === 'vos3000') {
+        const result = await vos3000.pushRateToVos3000(pushOpts);
+        if (profileId) {
+          const statusEntry = result.success ? 'synced' : `failed: ${result.message}`;
+          await storage.updateClientProfile(profileId, {
+            switchSyncStatus: { vos3000: statusEntry, syncedAt: new Date().toISOString() },
+          });
+        }
+        return res.json(result);
+      } else if (switchType === 'sippy') {
+        const creds = { username: settings.portalUsername || '', password: settings.portalPassword || '' };
+        const result = await sippy.pushRateToSippy(pushOpts, creds);
+        if (profileId) {
+          const statusEntry = result.success ? 'synced' : `failed: ${result.message}`;
+          await storage.updateClientProfile(profileId, {
+            switchSyncStatus: { sippy: statusEntry, syncedAt: new Date().toISOString() },
+          });
+        }
+        return res.json(result);
+      } else {
+        return res.json({ success: false, message: 'No switch configured. Set up VOS3000 or Sippy in Settings first.' });
+      }
+    } catch (err: any) {
+      console.error('[push-rate]', err);
+      res.status(500).json({ success: false, message: `Push error: ${err.message}` });
+    }
+  });
+
   // Portal connection test — tries to reach the configured management portal URL
   app.post('/api/portal/test', async (req, res) => {
     const { url, username } = req.body as { url?: string; username?: string; password?: string };
