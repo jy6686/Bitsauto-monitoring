@@ -34,6 +34,7 @@ export interface CdrRecord {
   status: string;
   cause: string;
   gateway: string;
+  clientName?: string;
   cost?: number;
 }
 
@@ -43,6 +44,7 @@ export interface LiveCallRecord {
   caller: string;
   callee: string;
   gateway: string;
+  clientName?: string;
   duration: number;
 }
 
@@ -471,6 +473,115 @@ export async function fetchStats(): Promise<{
   }
 }
 
+export interface VosClient {
+  id: string;
+  name: string;
+  balance: number;
+  status: string;
+  type: string;
+}
+
+export interface ClientStatRow {
+  clientId: string;
+  clientName: string;
+  totalCalls: number;
+  successCalls: number;
+  failedCalls: number;
+  totalMinutes: number;
+  totalCost: number;
+  asr: number;
+}
+
+/**
+ * Fetches terminal account (client) list from VOS3000.
+ * Tries multiple endpoint paths used by different VOS3000 versions.
+ */
+export async function fetchVosClients(): Promise<{ clients: VosClient[]; error?: string }> {
+  if (!activeSession) return { clients: [], error: 'Not logged in to portal.' };
+
+  const endpoints = [
+    { path: 'terminal/terminalQuery.action', params: { page: '1', rows: '200' } },
+    { path: 'account/terminalQuery.action', params: { page: '1', rows: '200' } },
+    { path: 'customer/customerQuery.action', params: { page: '1', rows: '200' } },
+    { path: 'gateway/terminalQuery.action', params: { page: '1', rows: '200' } },
+  ];
+
+  for (const { path, params } of endpoints) {
+    try {
+      const json = await portalPost(path, params);
+      const rows: any[] = json.rows || (Array.isArray(json) ? json : []);
+      if (rows.length > 0) {
+        console.log(`[VOS3000] fetchVosClients: found ${rows.length} clients via ${path}`);
+        return {
+          clients: rows.map((r: any) => ({
+            id: String(r.id || r.terminalId || r.accountId || r.customerId || ''),
+            name: r.terminalName || r.name || r.accountName || r.customerName || r.loginName || String(r.id || 'Unknown'),
+            balance: parseFloat(String(r.balance || r.amount || r.credit || 0)),
+            status: String(r.status || r.state || r.enabled || ''),
+            type: String(r.terminalType || r.type || r.accountType || ''),
+          })),
+        };
+      }
+    } catch (err: any) {
+      if (err.message === 'SESSION_EXPIRED') return { clients: [], error: 'Session expired. Please log in again.' };
+      console.warn(`[VOS3000] fetchVosClients ${path}:`, err.message);
+    }
+  }
+
+  return { clients: [], error: 'No client data found. Your VOS3000 account may not have permission to list terminal accounts.' };
+}
+
+/**
+ * Fetches per-client call statistics from VOS3000 expenditure summary.
+ * Each row in the result represents one client/terminal with their traffic stats.
+ */
+export async function fetchClientStats(): Promise<{ clients: ClientStatRow[]; error?: string }> {
+  if (!activeSession) return { clients: [], error: 'Not logged in to portal.' };
+
+  const now = new Date();
+  const start = new Date(now.getTime() - 24 * 3600 * 1000);
+
+  try {
+    const json = await portalPost('gateway/expenditureSummary.action', {
+      starttime: formatVosDate(start),
+      endtime: formatVosDate(now),
+      page: '1',
+      rows: '200',
+    });
+
+    const rows: any[] = json.rows || (Array.isArray(json) ? json : []);
+    const clients: ClientStatRow[] = rows
+      .map((r: any) => {
+        const totalCalls = Number(r.total_calls || r.totalCalls || r.callCount || r.call_count || 0);
+        const successCalls = Number(r.success_calls || r.successCalls || r.answerCall || r.answer_call || 0);
+        const rawMinutes = Number(r.total_minutes || r.totalMinutes || r.talkTime || r.talk_time || 0);
+        // VOS3000 may return talkTime in seconds; if very large treat as seconds
+        const totalMinutes = rawMinutes > 10000 ? Math.round(rawMinutes / 60) : Math.round(rawMinutes);
+        const totalCost = parseFloat(String(r.total_cost || r.totalCost || r.amount || r.fee || 0));
+        const clientName = r.terminalName || r.name || r.accountName || r.customerName || r.loginName || String(r.terminalId || r.id || 'Unknown');
+        return {
+          clientId: String(r.terminalId || r.id || r.accountId || ''),
+          clientName,
+          totalCalls,
+          successCalls,
+          failedCalls: Math.max(0, totalCalls - successCalls),
+          totalMinutes,
+          totalCost,
+          asr: totalCalls > 0 ? parseFloat(((successCalls / totalCalls) * 100).toFixed(1)) : 0,
+        };
+      })
+      .filter(c => c.clientName !== 'Unknown' || c.totalCalls > 0)
+      .sort((a, b) => b.totalCalls - a.totalCalls);
+
+    console.log(`[VOS3000] fetchClientStats: ${clients.length} client rows`);
+    return { clients };
+  } catch (err: any) {
+    if (err.message === 'SESSION_EXPIRED') return { clients: [], error: 'Session expired.' };
+    console.error('[VOS3000] fetchClientStats:', err.message);
+    return { clients: [], error: 'Could not fetch client stats.' };
+  }
+}
+
 // ─── Parsers ──────────────────────────────────────────────────────────────────
 
 function formatVosDate(d: Date): string {
@@ -489,6 +600,7 @@ function parseCdrRow(r: any): CdrRecord {
     status: r.status || r.result || '',
     cause: r.cause || r.disconnect_cause || r.reason || '',
     gateway: r.gateway || r.gw_name || r.gwName || '',
+    clientName: r.terminalName || r.accountName || r.customerName || r.clientName || r.name || undefined,
     cost: Number(r.cost || r.amount || r.fee || 0),
   };
 }
@@ -500,6 +612,7 @@ function parseLiveRow(r: any): LiveCallRecord {
     caller: r.caller || r.cli || '',
     callee: r.callee || r.cld || '',
     gateway: r.gateway || r.gw || '',
+    clientName: r.terminalName || r.accountName || r.customerName || r.clientName || r.name || undefined,
     duration: Number(r.duration || r.elapsed || r.seconds || 0),
   };
 }

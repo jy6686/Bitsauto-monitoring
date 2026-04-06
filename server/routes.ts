@@ -485,6 +485,18 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // GET /api/portal/clients — list terminal accounts (clients) from VOS3000
+  app.get('/api/portal/clients', async (_req, res) => {
+    const result = await vos3000.fetchVosClients();
+    res.json(result);
+  });
+
+  // GET /api/portal/client-stats — per-client call stats from VOS3000 (24h)
+  app.get('/api/portal/client-stats', async (_req, res) => {
+    const result = await vos3000.fetchClientStats();
+    res.json(result);
+  });
+
   // ── Sippy Softswitch Routes ──────────────────────────────────────────────
 
   // POST /api/sippy/test — test connection

@@ -554,6 +554,7 @@ export default function DashboardPage() {
                   <table className="w-full text-sm text-left">
                     <thead className="bg-muted/30 text-muted-foreground text-xs">
                       <tr>
+                        <th className="px-4 py-2">Client</th>
                         <th className="px-4 py-2">Caller</th>
                         <th className="px-4 py-2">Callee</th>
                         <th className="px-4 py-2">Gateway</th>
@@ -561,8 +562,14 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/30">
-                      {portalLiveCalls!.calls.slice(0, 10).map((call, i) => (
+                      {portalLiveCalls!.calls.slice(0, 10).map((call: any, i: number) => (
                         <tr key={i} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-2 text-xs">
+                            {call.clientName
+                              ? <span className="text-violet-400 font-medium">{call.clientName}</span>
+                              : <span className="text-muted-foreground/50">—</span>
+                            }
+                          </td>
                           <td className="px-4 py-2 font-mono text-xs">{call.caller || '—'}</td>
                           <td className="px-4 py-2 font-mono text-xs">{call.callee || '—'}</td>
                           <td className="px-4 py-2 text-xs text-muted-foreground">{call.gateway || '—'}</td>
@@ -585,6 +592,7 @@ export default function DashboardPage() {
                   <table className="w-full text-sm text-left">
                     <thead className="bg-muted/30 text-muted-foreground text-xs">
                       <tr>
+                        <th className="px-4 py-2">Client</th>
                         <th className="px-4 py-2">Start Time</th>
                         <th className="px-4 py-2">Caller</th>
                         <th className="px-4 py-2">Callee</th>
@@ -594,8 +602,14 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/30">
-                      {portalCdr!.records.slice(0, 10).map((rec, i) => (
+                      {portalCdr!.records.slice(0, 10).map((rec: any, i: number) => (
                         <tr key={i} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-2 text-xs">
+                            {rec.clientName
+                              ? <span className="text-violet-400 font-medium">{rec.clientName}</span>
+                              : <span className="text-muted-foreground/50">—</span>
+                            }
+                          </td>
                           <td className="px-4 py-2 text-xs text-muted-foreground">{rec.startTime || '—'}</td>
                           <td className="px-4 py-2 font-mono text-xs">{rec.caller || '—'}</td>
                           <td className="px-4 py-2 font-mono text-xs">{rec.callee || '—'}</td>

@@ -1,11 +1,16 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   format, subMinutes, subHours, subDays, startOfDay, endOfDay,
   startOfWeek, endOfWeek, startOfMonth, endOfMonth,
   subWeeks, subMonths,
 } from "date-fns";
-import { Download, RefreshCw, Filter, TrendingUp, TrendingDown, Minus, Calendar, Clock } from "lucide-react";
+import {
+  Download, RefreshCw, Filter, TrendingUp, TrendingDown, Minus,
+  Calendar, Clock, Globe, Building2, PhoneCall, CheckCircle2, PhoneOff,
+  AlertTriangle, Users,
+} from "lucide-react";
+import { Link } from "wouter";
 import type { AsrAcdReportRow, ClientProfile } from "@shared/schema";
 import { cn } from "@/lib/utils";
 
@@ -76,8 +81,20 @@ function matchProfile(number: string, profiles: ClientProfile[], type: 'client' 
   return best;
 }
 
+interface VosClientStat {
+  clientId: string;
+  clientName: string;
+  totalCalls: number;
+  successCalls: number;
+  failedCalls: number;
+  totalMinutes: number;
+  totalCost: number;
+  asr: number;
+}
+
 export default function ReportsPage() {
   const now = new Date();
+  const qc = useQueryClient();
 
   const [startTime, setStartTime] = useState(toInput(subHours(now, 3)));
   const [endTime,   setEndTime]   = useState(toInput(now));
@@ -96,6 +113,17 @@ export default function ReportsPage() {
 
   const { data: profiles = [] } = useQuery<ClientProfile[]>({
     queryKey: ['/api/clients'],
+  });
+
+  // VOS3000 portal queries
+  const { data: portalSession } = useQuery<{ active: boolean; username?: string }>({
+    queryKey: ['/api/portal/session'],
+    refetchInterval: 30000,
+  });
+  const { data: clientStatsData, isLoading: clientStatsLoading, refetch: refetchClientStats } = useQuery<{ clients: VosClientStat[]; error?: string }>({
+    queryKey: ['/api/portal/client-stats'],
+    refetchInterval: 120000,
+    enabled: portalSession?.active === true,
   });
 
   const { data: rows = [], isLoading, dataUpdatedAt } = useQuery<AsrAcdReportRow[]>({
@@ -384,6 +412,145 @@ export default function ReportsPage() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* ── VOS3000 Portal Client Stats ─────────────────────────── */}
+      <div className="rounded-xl border overflow-hidden bg-card/60 shadow-sm"
+           style={{ borderColor: portalSession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-muted/20">
+          <div className="flex items-center gap-3">
+            <Globe className={`w-4 h-4 ${portalSession?.active ? 'text-violet-400' : 'text-muted-foreground'}`} />
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-sm">VOS3000 Client Stats</h3>
+                {portalSession?.active ? (
+                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                    Live · Last 24h
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                    Not Connected
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {portalSession?.active
+                  ? `Per-client traffic stats from VOS3000 — last 24 hours`
+                  : 'Connect to VOS3000 in Settings to see per-client traffic data here'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {portalSession?.active && (
+              <button
+                data-testid="button-refresh-client-stats"
+                onClick={() => refetchClientStats()}
+                disabled={clientStatsLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${clientStatsLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            )}
+            {!portalSession?.active && (
+              <Link href="/settings"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+                Connect
+              </Link>
+            )}
+          </div>
+        </div>
+
+        {!portalSession?.active ? (
+          <div className="flex flex-col items-center justify-center py-14 gap-3 text-muted-foreground">
+            <Users className="w-8 h-8 opacity-30" />
+            <p className="text-sm">Connect to VOS3000 to see client-by-client traffic breakdown.</p>
+          </div>
+        ) : clientStatsLoading ? (
+          <div className="flex items-center justify-center py-14 gap-2 text-muted-foreground text-sm">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            Fetching client stats from portal…
+          </div>
+        ) : clientStatsData?.error ? (
+          <div className="flex items-center justify-center py-10 gap-2 text-amber-400 text-sm">
+            <AlertTriangle className="w-4 h-4" />
+            {clientStatsData.error}
+          </div>
+        ) : !clientStatsData?.clients?.length ? (
+          <div className="flex flex-col items-center justify-center py-14 gap-2 text-muted-foreground text-sm">
+            <Users className="w-7 h-7 opacity-30" />
+            <p>No client traffic data returned for the last 24 hours.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/50 bg-muted/30 text-xs uppercase tracking-wider text-muted-foreground">
+                  <th className="px-4 py-3 text-left font-semibold">Client Name</th>
+                  <th className="px-4 py-3 text-right font-semibold">Total Calls</th>
+                  <th className="px-4 py-3 text-right font-semibold">Answered</th>
+                  <th className="px-4 py-3 text-right font-semibold">Failed</th>
+                  <th className="px-4 py-3 text-right font-semibold">Minutes</th>
+                  <th className="px-4 py-3 text-right font-semibold">ASR %</th>
+                  <th className="px-4 py-3 text-right font-semibold">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clientStatsData.clients.map((c, i) => (
+                  <tr key={c.clientId || i}
+                      data-testid={`row-client-stat-${i}`}
+                      className="border-b border-border/30 hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" />
+                        <span className="font-medium text-sm">{c.clientName}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{c.totalCalls.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-emerald-400">{c.successCalls.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-rose-400">{c.failedCalls.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-violet-400">{c.totalMinutes.toLocaleString()}</td>
+                    <td className={cn("px-4 py-2.5 text-right tabular-nums font-semibold",
+                      c.asr >= 70 ? 'text-emerald-400' : c.asr >= 50 ? 'text-amber-400' : 'text-rose-400')}>
+                      <span className="flex items-center justify-end gap-1">
+                        {c.asr >= 70 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                        {c.asr.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                      {c.totalCost > 0 ? `$${c.totalCost.toFixed(4)}` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border bg-muted/30 font-semibold">
+                  <td className="px-4 py-3 text-xs uppercase tracking-wider text-muted-foreground">
+                    Totals — {clientStatsData.clients.length} clients
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums">
+                    {clientStatsData.clients.reduce((s, c) => s + c.totalCalls, 0).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-emerald-400">
+                    {clientStatsData.clients.reduce((s, c) => s + c.successCalls, 0).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-rose-400">
+                    {clientStatsData.clients.reduce((s, c) => s + c.failedCalls, 0).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-violet-400">
+                    {clientStatsData.clients.reduce((s, c) => s + c.totalMinutes, 0).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-emerald-400">
+                    {(clientStatsData.clients.reduce((s, c) => s + c.asr, 0) / clientStatsData.clients.length).toFixed(1)}%
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                    ${clientStatsData.clients.reduce((s, c) => s + c.totalCost, 0).toFixed(4)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Table */}

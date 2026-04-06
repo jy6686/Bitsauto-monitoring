@@ -1,0 +1,63 @@
+# VoIP Monitoring Platform
+
+## Overview
+Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting, team management, and live softswitch integration.
+
+## Architecture
+- **Backend**: Express + TypeScript (`server/`)
+- **Frontend**: React + Vite + TailwindCSS (`client/src/`)
+- **Database**: PostgreSQL via Drizzle ORM (`shared/schema.ts`)
+- **Auth**: Replit Auth (OpenID Connect)
+
+## Key Features
+- Real-time call quality metrics (Jitter, Latency, Packet Loss, MOS)
+- Telecom KPIs: ASR, ACD, PDD, Call Back Ratio
+- Live IP endpoint probe (TCP SIP port check)
+- VOS3000 softswitch integration (CAPTCHA login, CDR, live calls, stats)
+- Sippy Softswitch integration (XML-RPC, HTTP Basic Auth)
+- Per-client stats from VOS3000 terminal accounts
+- ASR/ACD origination reports with client/vendor profiles
+- Role-based access control (admin > management > viewer)
+- Alert engine with threshold-based triggers
+
+## VOS3000 Integration (`server/vos3000.ts`)
+- CAPTCHA fetched from `verifyimage.jsp` using `node:http` (native fetch drops Set-Cookie)
+- Login: POST to `login.jsp?randCode=<captcha>` with JSON body `{terminalName, terminalPassword, terminalType}`
+- Session stored in memory (`activeSession`)
+- Endpoints: CDR, live calls, summary stats, per-client stats, terminal account list
+- `fetchVosClients()` — queries terminal accounts (tries 4 endpoint variants)
+- `fetchClientStats()` — per-client traffic via `expenditureSummary.action`
+- `clientName` extracted from CDR and live call records
+
+## Sippy Integration (`server/sippy.ts`)
+- XML-RPC POST to `/xmlapi/xmlapi`, HTTP Basic Auth
+- No CAPTCHA required
+
+## Important State
+- Simulation is **disabled** (`simulationEnabled = false` in DB)
+- Dashboard shows "Connect Softswitch" banner when simulation off and portal not connected
+- Dashboard stat cards use real portal data when VOS3000 is connected
+- All stat cards show `—` when not connected to avoid misleading zeros
+
+## Pages
+- `/` — Dashboard with live stats, KPIs, IP probe, portal data
+- `/calls` — Call list with metrics
+- `/calls/:id` — Call detail page
+- `/alerts` — Alert feed
+- `/reports` — ASR/ACD report + VOS3000 Client Stats table
+- `/clients` — Client/vendor profiles + VOS3000 terminal account sync
+- `/settings` — Thresholds, IP probe, softswitch connection
+- `/team` — Team member management
+- `/account` — User profile
+
+## API Routes (portal)
+- `GET /api/portal/session` — current VOS3000 session status
+- `GET /api/portal/stats` — 24h summary stats
+- `GET /api/portal/live-calls` — active calls
+- `GET /api/portal/cdr` — CDR records
+- `GET /api/portal/clients` — terminal account list
+- `GET /api/portal/client-stats` — per-client 24h traffic stats
+
+## Database Schema (`shared/schema.ts`)
+Key tables: `calls`, `callMetrics`, `alerts`, `settings`, `clientProfiles`, `userConfig`
+Settings table has `switchType` column (vos3000 | sippy).
