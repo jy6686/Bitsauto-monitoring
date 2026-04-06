@@ -1256,13 +1256,29 @@ export default function SettingsPage() {
               <p className="text-xs text-muted-foreground">
                 IP address to probe every 10 seconds for live reachability and latency.
               </p>
-              <input
-                {...form.register("monitoredIp")}
-                data-testid="input-monitored-ip"
-                type="text"
-                placeholder="45.59.163.182"
-                className="w-full bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-              />
+              <div className="flex gap-2">
+                <input
+                  {...form.register("monitoredIp")}
+                  data-testid="input-monitored-ip"
+                  type="text"
+                  placeholder="45.59.163.182"
+                  className="flex-1 bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                />
+                {form.watch("monitoredIp") && (
+                  <button
+                    type="button"
+                    data-testid="button-disconnect-ip"
+                    onClick={() => {
+                      form.setValue("monitoredIp", "");
+                      updateMutation.mutate({ ...form.getValues(), monitoredIp: "" });
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-rose-500/40 text-xs text-rose-400 hover:bg-rose-500/10 transition-colors whitespace-nowrap"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    Disconnect
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="grid gap-2">
