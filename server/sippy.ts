@@ -1105,6 +1105,11 @@ export interface SippyPushResult {
   message: string;
   detail?: string;
   method?: string;
+  // Returned by createAccount() on success
+  username?: string;
+  authname?: string;
+  web_password?: string;
+  voip_password?: string;
 }
 
 function fmtSippyDate(d: Date): string {
@@ -1250,30 +1255,37 @@ export async function pushRateToSippy(opts: {
 }
 
 /**
- * Create or update a customer account on Sippy.
+ * Options for creating a SIP account on Sippy via createAccount() XML-RPC API.
+ * Official docs: https://support.sippysoft.com/support/solutions/articles/107312
  */
 export interface SippyAccountOpts {
-  name: string;
+  name: string;               // Display / company name
   type: 'client' | 'vendor';
+  // SIP credentials — used as authname/voip_password for the SIP endpoint
+  username?: string;          // Self-care login (web portal). Auto-derived from name if omitted.
+  authname?: string;          // VoIP login / SIP username. Defaults to username.
+  voipPassword?: string;      // SIP password. Auto-generated if omitted.
+  webPassword?: string;       // Self-care portal password. Auto-generated if omitted.
+  // Network
   ipAddress?: string;
   ratePerMin?: number;
-  // Basic Parameters
-  timezone?: string;          // e.g. "Etc/UTC"
-  language?: string;          // e.g. "English"
-  sipClass?: string;          // e.g. "404 & 500 sip CC to"
-  routingGroup?: string;      // e.g. "Banglades IGW OR"
+  // Basic
+  timezone?: string;          // i_time_zone integer ID. Defaults to 1 (UTC).
+  language?: string;          // Two-char code, e.g. "en". Defaults to "en".
+  routingGroup?: string;      // i_routing_group integer ID.
   // Rating & Billing
-  servicePlan?: string;       // tariff plan name
-  creditLimit?: number;       // prepaid credit limit
-  // Advanced Parameters
-  maxSessions?: number;       // Max concurrent sessions (e.g. 1000)
-  maxCallsPerSecond?: number; // CPS limit (e.g. 45)
-  maxSessionTime?: number;    // max call time in seconds (e.g. 7200)
-  preferredCodec?: string;    // e.g. "G.729"
-  cldTranslationRule?: string; // CLD Tr. Rule, e.g. "s/^6043//"
-  cliTranslationRule?: string; // CLI Tr. Rule, e.g. "s/^[+]//"
-  // Address Info
+  servicePlan?: string;       // i_billing_plan integer ID (required, >= Sippy v1.8).
+  creditLimit?: number;       // credit_limit double. Defaults to 0.
+  balance?: number;           // Starting balance. Defaults to 0.
+  // Advanced
+  maxSessions?: number;       // max_sessions. Defaults to 0 (unlimited).
+  maxCallsPerSecond?: number; // max_calls_per_second. Optional.
+  maxSessionTime?: number;    // max_credit_time seconds. Defaults to 0 (unlimited).
+  cldTranslationRule?: string;
+  cliTranslationRule?: string;
+  // Contact / Address
   companyName?: string;
+  email?: string;
   description?: string;
 }
 
@@ -1290,62 +1302,103 @@ export async function pushAccountToSippy(
   const auth   = { Authorization: basicAuth(credentials.username, credentials.password) };
   const isVendor = opts.type === 'vendor';
 
-  // ── Build parameter set using official Sippy field names ─────────────────
-  // Customer:  createCustomer() — docs 107417 — params: name, web_password, i_tariff, ...
-  // Vendor:    createVendor()   — docs 107434 — params: name, web_password, web_login, i_time_zone, ...
-  // Account:   createAccount()  — docs 107312 — params: username, web_password, authname, ...
+  // ── Derive auto-values ────────────────────────────────────────────────────
+  const safeName   = opts.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const username   = opts.username   || safeName;
+  const authname   = opts.authname   || username;
+  const webPass    = opts.webPassword  || (safeName + '@' + Math.random().toString(36).slice(2, 8));
+  const voipPass   = opts.voipPassword || Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase();
+  const nameParts  = opts.name.trim().split(/\s+/);
+  const firstName  = nameParts[0] ?? opts.name;
+  const lastName   = nameParts.slice(1).join(' ');
+
+  // ── Build parameter set per official Sippy API docs ──────────────────────
+  // createAccount() docs: https://support.sippysoft.com/a/solutions/articles/107312
+  // All "Required" fields are provided with safe defaults when not supplied by caller.
   const params: Record<string, string | number | boolean> = {
-    name: opts.name,
-    web_password: opts.name.toLowerCase().replace(/\s+/g, '') + '@123', // placeholder — admin should change
+    // SIP / self-care credentials
+    username,
+    web_password:          webPass,
+    authname,
+    voip_password:         voipPass,
+    // Required fields with sensible defaults
+    max_sessions:          opts.maxSessions       ?? 0,   // 0 = unlimited
+    max_credit_time:       opts.maxSessionTime     ?? 0,   // 0 = unlimited
+    translation_rule:      opts.cldTranslationRule ?? '',
+    cli_translation_rule:  opts.cliTranslationRule ?? '',
+    credit_limit:          opts.creditLimit        ?? 0,
+    i_time_zone:           opts.timezone ? (Number(opts.timezone) || 1) : 1,
+    balance:               opts.balance            ?? 0,
+    cpe_number:            '',
+    vm_enabled:            0,
+    vm_password:           Math.floor(Math.random() * 90000 + 10000).toString(),  // 5-digit PIN
+    blocked:               0,
+    i_lang:                opts.language           ?? 'en',
+    payment_currency:      'USD',
+    payment_method:        0,
+    i_export_type:         0,
+    lifetime:              -1,   // unlimited
+    use_preferred_codec_only: 0,
+    reg_allowed:           1,
+    welcome_call_ivr:      0,
+    min_payment_amount:    0,
+    trust_cli:             0,
+    disallow_loops:        0,
+    vm_notify_emails:      '',
+    vm_forward_emails:     '',
+    vm_del_after_fwd:      0,
+    company_name:          opts.companyName ?? '',
+    salutation:            '',
+    first_name:            firstName,
+    last_name:             lastName,
+    mid_init:              '',
+    street_addr:           '',
+    state:                 '',
+    postal_code:           '',
+    city:                  '',
+    country:               '',
+    contact:               '',
+    phone:                 '',
+    fax:                   '',
+    alt_phone:             '',
+    alt_contact:           '',
+    email:                 opts.email ?? '',
+    cc:                    '',
+    bcc:                   '',
+    i_password_policy:     0,
+    i_media_relay_type:    0,
   };
-  if (isVendor) {
-    params.web_login   = opts.name.toLowerCase().replace(/\s+/g, '.');
-    params.i_time_zone = 1; // UTC default
-  } else {
-    // createCustomer() mandatory params (Sippy docs 107417)
-    params.i_tariff = 0; // 0 = own tariff; override with servicePlan below if set
-  }
-  if (opts.companyName)        params.company_name        = opts.companyName;
-  if (opts.description)        params.description         = opts.description;
-  if (opts.language)           params.i_lang              = opts.language;
-  if (opts.timezone)           params.i_time_zone         = Number(opts.timezone) || 1;
-  if (opts.cldTranslationRule) params.translation_rule    = opts.cldTranslationRule;
-  if (opts.cliTranslationRule) params.cli_translation_rule= opts.cliTranslationRule;
-  if (opts.creditLimit !== undefined) params.credit_limit = opts.creditLimit;
-  if (opts.maxSessions !== undefined) params.max_sessions = opts.maxSessions;
-  if (opts.maxCallsPerSecond !== undefined) {
-    // createCustomer uses no standard CPS field; use for createAccount
-    params.max_calls_per_second = opts.maxCallsPerSecond;
-  }
-  if (opts.maxSessionTime !== undefined) params.max_credit_time = opts.maxSessionTime;
+
+  // Routing group (Required for root-customer accounts)
   if (opts.routingGroup) {
     const rg = parseInt(opts.routingGroup, 10);
     if (!isNaN(rg)) params.i_routing_group = rg;
   }
+
+  // Billing plan — i_billing_plan is required since Sippy v1.8 (i_tariff deprecated)
   if (opts.servicePlan) {
     const sp = parseInt(opts.servicePlan, 10);
     if (!isNaN(sp)) {
-      params.i_tariff      = sp;  // for createCustomer
-      params.i_billing_plan= sp;  // for createAccount
+      params.i_billing_plan = sp;
+      params.i_tariff       = sp;  // fallback for older Sippy builds
     }
   }
 
-  // ── Attempt list: official first, then legacy aliases ────────────────────
-  // Official API (Sippy docs 107417 / 107434): createCustomer / createVendor
-  // Legacy aliases kept for older Sippy builds
-  const wrapKey = isVendor ? 'vendor_info' : 'customer_info';
+  // Optional extras
+  if (opts.maxCallsPerSecond !== undefined) params.max_calls_per_second = opts.maxCallsPerSecond;
+  if (opts.description)                     params.description           = opts.description;
+
+  // ── Attempt list ─────────────────────────────────────────────────────────
+  // createAccount() — official Sippy API (docs 107312). Creates an account under
+  // the authenticated customer. Does NOT require admin credentials.
+  // For vendors, createVendor() requires admin; listed as fallback.
   const attempts: Array<{ method: string; body: string }> = isVendor
     ? [
-        { method: 'createVendor',          body: xmlRpcCall('createVendor', params) },
-        { method: 'addVendor',             body: xmlRpcCall('addVendor', params) },        // alias
-        { method: 'vendor.add-nested',     body: xmlRpcCallNested('vendor.add', wrapKey, params) },
-        { method: 'vendor.add-flat',       body: xmlRpcCall('vendor.add', params) },
+        { method: 'createVendor', body: xmlRpcCall('createVendor', { name: opts.name, web_login: username, web_password: webPass, i_time_zone: Number(opts.timezone) || 1 }) },
+        { method: 'addVendor',    body: xmlRpcCall('addVendor',    { name: opts.name, web_login: username, web_password: webPass }) },
       ]
     : [
-        { method: 'createCustomer',        body: xmlRpcCall('createCustomer', params) },   // official
-        { method: 'createAccount',         body: xmlRpcCall('createAccount',  params) },   // official account
-        { method: 'customer.add-nested',   body: xmlRpcCallNested('customer.add', wrapKey, params) },
-        { method: 'customer.add-flat',     body: xmlRpcCall('customer.add', params) },
+        { method: 'createAccount', body: xmlRpcCall('createAccount', params) },  // official — works with customer session
       ];
 
   let lastFault = '';
@@ -1360,7 +1413,27 @@ export async function pushAccountToSippy(
       console.log(`[Sippy] ${method} → HTTP ${resp.statusCode}, body: ${text.slice(0, 600)}`);
       if (resp.statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode') && !text.includes('faultString')) {
         console.log(`[Sippy] ${method} succeeded for "${opts.name}"`);
-        return { success: true, message: `Account "${opts.name}" created successfully on Sippy.`, method };
+        // Extract the returned credentials from the XML-RPC response
+        // createAccount() returns: result, i_account, username, web_password, authname, voip_password
+        const extractValue = (xml: string, fieldName: string): string | undefined => {
+          const memberRe = new RegExp(`<name>${fieldName}</name>\\s*<value>[^<]*(?:<[a-z]+>)?([^<]*)<`, 'i');
+          const m = xml.match(memberRe);
+          return m?.[1]?.trim() || undefined;
+        };
+        const retUsername    = extractValue(text, 'username');
+        const retAuthname    = extractValue(text, 'authname');
+        const retWebPassword = extractValue(text, 'web_password');
+        const retVoipPass    = extractValue(text, 'voip_password');
+        const retIAccount    = extractValue(text, 'i_account');
+        return {
+          success: true,
+          message: `Account "${opts.name}" created successfully on Sippy.${retIAccount ? ` (ID: ${retIAccount})` : ''}`,
+          method,
+          username:      retUsername,
+          authname:      retAuthname,
+          web_password:  retWebPassword,
+          voip_password: retVoipPass,
+        };
       }
       // Extract Sippy fault string from XML-RPC fault response
       const faultStr = extractTag(text, 'faultString');
@@ -1396,9 +1469,9 @@ export async function pushAccountToSippy(
   }
 
   const detail = xmlFailed
-    ? `The connected Sippy account (${credentials.username}) does not have admin privileges. Account creation requires admin-level credentials. Enter your Sippy admin username and password in the form to proceed.`
-    : (lastFault || `No response from Sippy at ${apiUrl} — check the URL and credentials in Settings.`);
-  return { success: false, message: 'Admin credentials required to create accounts on Sippy.', detail };
+    ? `Authentication failed (HTTP 401). The Sippy XML-RPC API is blocking requests from "${credentials.username}". Verify the credentials in Settings or ask your Sippy administrator to enable API access for this account.`
+    : (lastFault || `No response from Sippy at ${apiUrl} — check the URL in Settings.`);
+  return { success: false, message: 'Could not create account on Sippy.', detail };
 }
 
 // ── Routing Groups & Tariffs ───────────────────────────────────────────────────

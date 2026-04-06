@@ -761,13 +761,9 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [maxCps, setMaxCps] = useState('');
   const [routingGroupId, setRoutingGroupId] = useState('');
   const [tariffId, setTariffId] = useState('');
+  const [authname, setAuthname] = useState('');
   const [description, setDescription] = useState('');
-  const [result, setResult] = useState<{ success: boolean; message: string; detail?: string } | null>(null);
-  // Admin credential override — needed for account creation when session is customer-level only
-  const [adminUser, setAdminUser] = useState('');
-  const [adminPass, setAdminPass] = useState('');
-  const [showAdminPass, setShowAdminPass] = useState(false);
-  const [showAdminCreds, setShowAdminCreds] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string; detail?: string; username?: string; authname?: string; voip_password?: string; web_password?: string } | null>(null);
 
   // Query the active Sippy session — if connected via Settings, use it directly
   const { data: sippySession } = useQuery<{ active: boolean; mode?: string; username?: string }>({
@@ -804,35 +800,25 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const tariffs = tariffData?.tariffs ?? [];
 
   const createMut = useMutation({
-    mutationFn: () => {
-      // Admin credential override: if admin creds are entered, use them for XML-RPC (as inlineUser/inlinePass)
-      const useAdminOverride = adminUser.trim() && adminPass.trim();
-      return apiRequest('POST', '/api/sippy/accounts', {
-        name, type,
-        switchId: switchId ? Number(switchId) : undefined,
-        inlineUrl:  useAdminOverride ? (inlineUrl || undefined)
-                  : useInlineCreds   ? inlineUrl  : undefined,
-        inlineUser: useAdminOverride ? adminUser
-                  : useInlineCreds   ? inlineUser : undefined,
-        inlinePass: useAdminOverride ? adminPass
-                  : useInlineCreds   ? inlinePass : undefined,
-        ipAddress: ipAddress || undefined,
-        ratePerMin: ratePerMin ? Number(ratePerMin) : undefined,
-        creditLimit: creditLimit ? Number(creditLimit) : undefined,
-        maxSessions: maxSessions ? Number(maxSessions) : undefined,
-        maxCallsPerSecond: maxCps ? Number(maxCps) : undefined,
-        routingGroup: routingGroupId || undefined,
-        servicePlan: tariffId || undefined,
-        description: description || undefined,
-      });
-    },
+    mutationFn: () => apiRequest('POST', '/api/sippy/accounts', {
+      name, type,
+      authname: authname.trim() || undefined,
+      switchId: switchId ? Number(switchId) : undefined,
+      inlineUrl:  useInlineCreds ? inlineUrl  : undefined,
+      inlineUser: useInlineCreds ? inlineUser : undefined,
+      inlinePass: useInlineCreds ? inlinePass : undefined,
+      ipAddress: ipAddress || undefined,
+      ratePerMin: ratePerMin ? Number(ratePerMin) : undefined,
+      creditLimit: creditLimit ? Number(creditLimit) : undefined,
+      maxSessions: maxSessions ? Number(maxSessions) : undefined,
+      maxCallsPerSecond: maxCps ? Number(maxCps) : undefined,
+      routingGroup: routingGroupId || undefined,
+      servicePlan: tariffId || undefined,
+      description: description || undefined,
+    }),
     onSuccess: async (res: any) => {
       const data = await res.json();
       setResult(data);
-      // Auto-expand admin credentials section if admin access is needed
-      if (!data.success && data.message?.toLowerCase().includes('admin')) {
-        setShowAdminCreds(true);
-      }
     },
     onError: (err: any) => {
       const msg = err.message ?? '';
@@ -840,7 +826,6 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
       try {
         const parsed = JSON.parse(json);
         setResult({ success: false, message: parsed.message ?? msg, detail: parsed.detail });
-        if (parsed.message?.toLowerCase().includes('admin')) setShowAdminCreds(true);
       } catch {
         setResult({ success: false, message: msg || 'Failed to create account.' });
       }
@@ -883,64 +868,15 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               )}
             </div>
           ) : hasActiveSession ? (
-            /* Active session from Settings — show session info + optional admin override */
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] p-4 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                <div className="flex-1">
-                  <p className="text-xs font-semibold text-emerald-300">Connected Sippy session active</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Connected as <strong>{sippySession?.username ?? 'your account'}</strong>. Account creation requires <strong>admin-level credentials</strong> — enter them below.
-                  </p>
-                </div>
+            /* Active session — createAccount() uses the session credentials directly */
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-4 py-3 flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-emerald-300">Using connected Sippy session</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Connected as <strong>{sippySession?.username ?? 'your account'}</strong>. The new account will be created under this customer.
+                </p>
               </div>
-              {/* Admin credentials toggle */}
-              <button
-                type="button"
-                onClick={() => setShowAdminCreds(v => !v)}
-                className="w-full text-left text-xs text-violet-300 hover:text-violet-200 flex items-center gap-1.5 transition-colors"
-              >
-                <span className={`transition-transform ${showAdminCreds ? 'rotate-90' : ''}`}>▶</span>
-                {showAdminCreds ? 'Hide admin credentials' : 'Enter Sippy admin credentials (required)'}
-              </button>
-              {showAdminCreds && (
-                <div className="space-y-2 pt-1 border-t border-emerald-500/20">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className={labelCls}>Admin Username <span className="text-rose-400">*</span></label>
-                      <input
-                        data-testid="input-sippy-admin-user"
-                        value={adminUser}
-                        onChange={e => setAdminUser(e.target.value)}
-                        placeholder="admin"
-                        className={fieldCls}
-                        autoComplete="off"
-                      />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Admin Password <span className="text-rose-400">*</span></label>
-                      <div className="relative">
-                        <input
-                          data-testid="input-sippy-admin-pass"
-                          value={adminPass}
-                          type={showAdminPass ? 'text' : 'password'}
-                          onChange={e => setAdminPass(e.target.value)}
-                          placeholder="••••••••"
-                          className={`${fieldCls} pr-8`}
-                          autoComplete="off"
-                        />
-                        <button type="button" onClick={() => setShowAdminPass(p => !p)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                          {showAdminPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    These are your Sippy <strong>admin</strong> credentials (not the same as the portal session). They are used only for this request and never stored.
-                  </p>
-                </div>
-              )}
             </div>
           ) : (
             <div className="rounded-lg border border-violet-500/30 bg-violet-500/[0.08] p-4 space-y-3">
@@ -984,6 +920,13 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               <label className={labelCls}>Account Name <span className="text-rose-400">*</span></label>
               <input data-testid="input-sippy-name" value={name} onChange={e => setName(e.target.value)}
                 placeholder="e.g. Acme Corp" className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>SIP Username (authname)</label>
+              <input data-testid="input-sippy-authname" value={authname} onChange={e => setAuthname(e.target.value)}
+                placeholder={name ? name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'sipuser' : 'auto-generated from name'}
+                className={fieldCls} />
+              <p className="text-xs text-muted-foreground mt-1">VoIP login used for SIP registration. Leave blank to auto-generate.</p>
             </div>
             <div>
               <label className={labelCls}>Type</label>
@@ -1062,12 +1005,24 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
           </div>
 
           {result && (
-            <div className={`rounded-lg px-4 py-3 text-sm flex items-start gap-2 ${result.success ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'}`}>
-              {result.success ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
-              <span data-testid="text-sippy-create-result">
-                {result.message}
-                {result.detail && <span className="block text-xs mt-1 opacity-80">{result.detail}</span>}
-              </span>
+            <div className={`rounded-lg px-4 py-3 text-sm space-y-2 ${result.success ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'}`}>
+              <div className="flex items-start gap-2">
+                {result.success ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
+                <span data-testid="text-sippy-create-result">
+                  {result.message}
+                  {result.detail && <span className="block text-xs mt-1 opacity-80">{result.detail}</span>}
+                </span>
+              </div>
+              {/* Show generated SIP credentials on success */}
+              {result.success && (result.username || result.authname || result.voip_password) && (
+                <div className="mt-2 rounded-md bg-emerald-900/30 border border-emerald-500/20 p-3 space-y-1.5 text-xs">
+                  <p className="font-semibold text-emerald-300 mb-1">Generated SIP Credentials — save these now:</p>
+                  {result.username    && <div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">Self-care login:</span><strong className="font-mono">{result.username}</strong></div>}
+                  {result.web_password&& <div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">Portal password:</span><strong className="font-mono">{result.web_password}</strong></div>}
+                  {result.authname    && <div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">SIP authname:</span><strong className="font-mono">{result.authname}</strong></div>}
+                  {result.voip_password&&<div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">SIP password:</span><strong className="font-mono">{result.voip_password}</strong></div>}
+                </div>
+              )}
             </div>
           )}
         </div>

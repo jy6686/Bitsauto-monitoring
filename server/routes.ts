@@ -1185,19 +1185,30 @@ export async function registerRoutes(
       const opts: sippy.SippyAccountOpts = {
         name:               req.body.name,
         type:               req.body.type ?? 'client',
+        // SIP credentials
+        username:           req.body.username   || undefined,
+        authname:           req.body.authname   || undefined,
+        voipPassword:       req.body.voipPassword || undefined,
+        webPassword:        req.body.webPassword  || undefined,
+        // Network
         ipAddress:          req.body.ipAddress,
         ratePerMin:         req.body.ratePerMin !== undefined ? Number(req.body.ratePerMin) : undefined,
+        // Billing
         creditLimit:        req.body.creditLimit !== undefined ? Number(req.body.creditLimit) : undefined,
+        balance:            req.body.balance     !== undefined ? Number(req.body.balance)     : undefined,
+        // Advanced
         maxSessions:        req.body.maxSessions !== undefined ? Number(req.body.maxSessions) : undefined,
         maxCallsPerSecond:  req.body.maxCallsPerSecond !== undefined ? Number(req.body.maxCallsPerSecond) : undefined,
         maxSessionTime:     req.body.maxSessionTime !== undefined ? Number(req.body.maxSessionTime) : undefined,
         timezone:           req.body.timezone,
+        language:           req.body.language,
         routingGroup:       req.body.routingGroup,
         servicePlan:        req.body.servicePlan,
-        preferredCodec:     req.body.preferredCodec,
         cliTranslationRule: req.body.cliTranslationRule,
         cldTranslationRule: req.body.cldTranslationRule,
+        // Contact
         companyName:        req.body.companyName,
+        email:              req.body.email || undefined,
         description:        req.body.description,
       };
       if (!opts.name) return res.status(400).json({ success: false, message: 'Account name is required.' });
