@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Shield } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import type { Role } from "@shared/schema";
@@ -23,8 +23,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/calls",   label: "Active Calls",    icon: Phone,           roles: ['admin','management']          },
     { href: "/alerts",  label: "Alerts",          icon: Bell,            roles: ['admin','management','viewer'] },
     { href: "/reports", label: "ASR/ACD Reports", icon: BarChart2,       roles: ['admin','management']          },
-    { href: "/settings",label: "Settings",        icon: Settings,        roles: ['admin']                       },
-    { href: "/team",    label: "Team",             icon: Users,           roles: ['admin']                       },
+    { href: "/clients", label: "Clients & Vendors", icon: Building2,       roles: ['admin','management']          },
+    { href: "/settings",label: "Settings",         icon: Settings,        roles: ['admin']                       },
+    { href: "/team",    label: "Team",              icon: Users,           roles: ['admin']                       },
   ];
 
   const navItems = allNavItems.filter(item => item.roles.includes(role));

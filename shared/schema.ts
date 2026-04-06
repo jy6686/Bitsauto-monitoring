@@ -55,6 +55,21 @@ export const settings = pgTable("settings", {
   portalPassword: varchar("portal_password", { length: 255 }),
 });
 
+// Client & Vendor Profiles: named parties used to label CLI/CLD in reports
+export const clientProfiles = pgTable("client_profiles", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  type: varchar("type", { length: 10 }).notNull().default('client'), // client | vendor
+  prefix: varchar("prefix", { length: 50 }), // CLI prefix for clients, CLD prefix for vendors
+  ratePerMin: real("rate_per_min").default(0.025), // billing rate per minute USD
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type ClientProfile = typeof clientProfiles.$inferSelect;
+export type InsertClientProfile = typeof clientProfiles.$inferInsert;
+export const insertClientProfileSchema = createInsertSchema(clientProfiles).omit({ id: true, createdAt: true });
+
 // Team Roles: maps each user to their access role
 export const userRoles = pgTable("user_roles", {
   userId: varchar("user_id").primaryKey(), // references users.id

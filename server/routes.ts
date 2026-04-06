@@ -319,6 +319,36 @@ export async function registerRoutes(
     }
   });
 
+  // ── Client & Vendor Profiles API ─────────────────────────────────────────
+
+  app.get('/api/clients', async (req, res) => {
+    try { res.json(await storage.getClientProfiles()); }
+    catch { res.status(500).json({ message: 'Failed to fetch profiles' }); }
+  });
+
+  app.post('/api/clients', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const profile = req.body;
+      const created = await storage.createClientProfile(profile);
+      res.status(201).json(created);
+    } catch { res.status(500).json({ message: 'Failed to create profile' }); }
+  });
+
+  app.patch('/api/clients/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const updated = await storage.updateClientProfile(id, req.body);
+      res.json(updated);
+    } catch { res.status(500).json({ message: 'Failed to update profile' }); }
+  });
+
+  app.delete('/api/clients/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      await storage.deleteClientProfile(Number(req.params.id));
+      res.json({ message: 'Deleted' });
+    } catch { res.status(500).json({ message: 'Failed to delete profile' }); }
+  });
+
   // Portal connection test — tries to reach the configured management portal URL
   app.post('/api/portal/test', async (req, res) => {
     const { url, username } = req.body as { url?: string; username?: string; password?: string };

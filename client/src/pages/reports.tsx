@@ -1,11 +1,14 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { format, subMinutes, subHours } from "date-fns";
-import { Download, RefreshCw, Filter, TrendingUp, TrendingDown, Minus } from "lucide-react";
-import type { AsrAcdReportRow } from "@shared/schema";
+import {
+  format, subMinutes, subHours, subDays, startOfDay, endOfDay,
+  startOfWeek, endOfWeek, startOfMonth, endOfMonth,
+  subWeeks, subMonths,
+} from "date-fns";
+import { Download, RefreshCw, Filter, TrendingUp, TrendingDown, Minus, Calendar, Clock } from "lucide-react";
+import type { AsrAcdReportRow, ClientProfile } from "@shared/schema";
 import { cn } from "@/lib/utils";
 
-// Format seconds → mm:ss or h:mm:ss
 function fmtDuration(seconds: number): string {
   const s = Math.round(seconds);
   if (s <= 0) return "00:00";
@@ -16,39 +19,86 @@ function fmtDuration(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
-// Quick preset time windows
-const PRESETS = [
-  { label: "Last 30 min", value: () => subMinutes(new Date(), 30) },
-  { label: "Last 1 hr",   value: () => subHours(new Date(), 1) },
-  { label: "Last 3 hr",   value: () => subHours(new Date(), 3) },
-  { label: "Last 6 hr",   value: () => subHours(new Date(), 6) },
-  { label: "Last 24 hr",  value: () => subHours(new Date(), 24) },
-  { label: "Today",       value: () => { const d = new Date(); d.setHours(0,0,0,0); return d; } },
+function toInput(d: Date): string {
+  return format(d, "yyyy-MM-dd'T'HH:mm");
+}
+
+const PRESET_GROUPS = [
+  {
+    label: "Quick",
+    presets: [
+      { label: "Last 15 min",  fn: () => [subMinutes(new Date(), 15), new Date()] },
+      { label: "Last 30 min",  fn: () => [subMinutes(new Date(), 30), new Date()] },
+      { label: "Last 1 hr",    fn: () => [subHours(new Date(), 1),   new Date()] },
+      { label: "Last 3 hr",    fn: () => [subHours(new Date(), 3),   new Date()] },
+      { label: "Last 6 hr",    fn: () => [subHours(new Date(), 6),   new Date()] },
+      { label: "Last 12 hr",   fn: () => [subHours(new Date(), 12),  new Date()] },
+      { label: "Last 24 hr",   fn: () => [subHours(new Date(), 24),  new Date()] },
+    ],
+  },
+  {
+    label: "Daily",
+    presets: [
+      { label: "Today",       fn: () => [startOfDay(new Date()), new Date()] },
+      { label: "Yesterday",   fn: () => [startOfDay(subDays(new Date(), 1)), endOfDay(subDays(new Date(), 1))] },
+      { label: "Last 2 days", fn: () => [startOfDay(subDays(new Date(), 1)), new Date()] },
+      { label: "Last 7 days", fn: () => [startOfDay(subDays(new Date(), 6)), new Date()] },
+    ],
+  },
+  {
+    label: "Weekly",
+    presets: [
+      { label: "This week",  fn: () => [startOfWeek(new Date(), { weekStartsOn: 1 }), new Date()] },
+      { label: "Last week",  fn: () => [startOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 }), endOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 })] },
+    ],
+  },
+  {
+    label: "Monthly",
+    presets: [
+      { label: "This month",  fn: () => [startOfMonth(new Date()), new Date()] },
+      { label: "Last month",  fn: () => [startOfMonth(subMonths(new Date(), 1)), endOfMonth(subMonths(new Date(), 1))] },
+    ],
+  },
 ];
 
-function toInputValue(d: Date): string {
-  return format(d, "yyyy-MM-dd'T'HH:mm");
+// Match a number to a profile by prefix
+function matchProfile(number: string, profiles: ClientProfile[], type: 'client' | 'vendor'): ClientProfile | null {
+  const candidates = profiles.filter(p => p.type === type && p.prefix);
+  // longest prefix wins
+  let best: ClientProfile | null = null;
+  let bestLen = 0;
+  for (const p of candidates) {
+    if (p.prefix && number.startsWith(p.prefix) && p.prefix.length > bestLen) {
+      best = p;
+      bestLen = p.prefix.length;
+    }
+  }
+  return best;
 }
 
 export default function ReportsPage() {
   const now = new Date();
-  const defaultStart = subMinutes(now, 90);
 
-  const [cliFilter, setCliFilter] = useState("");
-  const [cldFilter, setCldFilter] = useState("");
-  const [startTime, setStartTime] = useState(toInputValue(defaultStart));
-  const [endTime, setEndTime]     = useState(toInputValue(now));
+  const [startTime, setStartTime] = useState(toInput(subHours(now, 3)));
+  const [endTime,   setEndTime]   = useState(toInput(now));
+  const [activePreset, setActivePreset] = useState("Last 3 hr");
+  const [cliFilter, setCliFilter]  = useState("");
+  const [cldFilter, setCldFilter]  = useState("");
+  const [partyType, setPartyType]  = useState<'all' | 'client' | 'vendor'>('all');
   const [highlightBelow, setHighlightBelow] = useState(10);
-  const [groupBy, setGroupBy]     = useState<'caller' | 'callee'>("caller");
-  const [sortBy, setSortBy]       = useState<'totalCalls' | 'asr' | 'billableCalls' | 'revenueUsd'>("totalCalls");
+  const [groupBy, setGroupBy]  = useState<'caller' | 'callee'>("caller");
+  const [sortBy, setSortBy]    = useState<'totalCalls' | 'asr' | 'billableCalls' | 'revenueUsd'>("totalCalls");
   const [hideEmpty, setHideEmpty] = useState(true);
 
-  // Applied (committed) filters — only change when "Update Report" is clicked
   const [applied, setApplied] = useState({
     cliFilter, cldFilter, startTime, endTime, groupBy, sortBy, hideEmpty,
   });
 
-  const { data: rows = [], isLoading, refetch, dataUpdatedAt } = useQuery<AsrAcdReportRow[]>({
+  const { data: profiles = [] } = useQuery<ClientProfile[]>({
+    queryKey: ['/api/clients'],
+  });
+
+  const { data: rows = [], isLoading, dataUpdatedAt } = useQuery<AsrAcdReportRow[]>({
     queryKey: ['/api/reports/asr-acd', applied],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -65,29 +115,52 @@ export default function ReportsPage() {
     },
   });
 
+  // Filter rows by party type if selected
+  const displayRows = useMemo(() => {
+    if (partyType === 'all') return rows;
+    return rows.filter(r => {
+      const profileType = groupBy === 'caller' ? 'client' : 'vendor';
+      const matched = matchProfile(r.caller, profiles, profileType);
+      if (partyType === 'client') return matchProfile(r.caller, profiles, 'client') !== null;
+      if (partyType === 'vendor') return matchProfile(r.caller, profiles, 'vendor') !== null;
+      return true;
+    });
+  }, [rows, partyType, profiles, groupBy]);
+
   function applyFilters() {
     setApplied({ cliFilter, cldFilter, startTime, endTime, groupBy, sortBy, hideEmpty });
   }
 
-  function applyPreset(presetFn: () => Date) {
-    const start = presetFn();
-    setStartTime(toInputValue(start));
-    setEndTime(toInputValue(new Date()));
+  function applyPreset(label: string, fn: () => [Date, Date]) {
+    const [start, end] = fn();
+    setStartTime(toInput(start));
+    setEndTime(toInput(end));
+    setActivePreset(label);
+    // Auto-apply immediately
+    setApplied(prev => ({
+      ...prev,
+      startTime: toInput(start),
+      endTime:   toInput(end),
+    }));
   }
 
-  // CSV Export
   function downloadCsv() {
-    const headers = ['Caller','Total Calls','Billable Calls','Billed Duration','ACD mm:ss','ASR %','Avg PDD sec','Revenue USD'];
-    const csvRows = rows.map(r => [
-      r.caller,
-      r.totalCalls,
-      r.billableCalls,
-      fmtDuration(r.billedDurationSeconds),
-      fmtDuration(r.acdSeconds),
-      r.asr.toFixed(4),
-      r.avgPdd.toFixed(7),
-      r.revenueUsd.toFixed(7),
-    ].join(','));
+    const headers = ['Caller/Callee', 'Profile Name', 'Type', 'Total Calls', 'Billable Calls', 'Billed Duration', 'ACD mm:ss', 'ASR %', 'Avg PDD sec', 'Revenue USD'];
+    const csvRows = displayRows.map(r => {
+      const matched = matchProfile(r.caller, profiles, groupBy === 'caller' ? 'client' : 'vendor');
+      return [
+        r.caller,
+        matched?.name || '',
+        matched?.type || '',
+        r.totalCalls,
+        r.billableCalls,
+        fmtDuration(r.billedDurationSeconds),
+        fmtDuration(r.acdSeconds),
+        r.asr.toFixed(4),
+        r.avgPdd.toFixed(3),
+        r.revenueUsd.toFixed(4),
+      ].join(',');
+    });
     const csv = [headers.join(','), ...csvRows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -98,142 +171,169 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url);
   }
 
-  // Totals row
   const totals = useMemo(() => ({
-    totalCalls: rows.reduce((s, r) => s + r.totalCalls, 0),
-    billableCalls: rows.reduce((s, r) => s + r.billableCalls, 0),
-    billedDurationSeconds: rows.reduce((s, r) => s + r.billedDurationSeconds, 0),
-    revenueUsd: rows.reduce((s, r) => s + r.revenueUsd, 0),
-    asr: rows.length > 0
-      ? rows.reduce((s, r) => s + r.asr, 0) / rows.length
-      : 0,
-    acdSeconds: rows.length > 0
-      ? rows.reduce((s, r) => s + r.acdSeconds, 0) / rows.length
-      : 0,
-    avgPdd: rows.length > 0
-      ? rows.reduce((s, r) => s + r.avgPdd, 0) / rows.length
-      : 0,
-  }), [rows]);
+    totalCalls: displayRows.reduce((s, r) => s + r.totalCalls, 0),
+    billableCalls: displayRows.reduce((s, r) => s + r.billableCalls, 0),
+    billedDurationSeconds: displayRows.reduce((s, r) => s + r.billedDurationSeconds, 0),
+    revenueUsd: displayRows.reduce((s, r) => s + r.revenueUsd, 0),
+    asr: displayRows.length > 0 ? displayRows.reduce((s, r) => s + r.asr, 0) / displayRows.length : 0,
+    acdSeconds: displayRows.length > 0 ? displayRows.reduce((s, r) => s + r.acdSeconds, 0) / displayRows.length : 0,
+    avgPdd: displayRows.length > 0 ? displayRows.reduce((s, r) => s + r.avgPdd, 0) / displayRows.length : 0,
+  }), [displayRows]);
+
+  const rangeLabel = `${format(new Date(startTime), 'd MMM HH:mm')} → ${format(new Date(endTime), 'd MMM HH:mm')}`;
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      {/* Header */}
+      <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">ASR / ACD Reports</h2>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Per-client origination breakdown — {format(new Date(), "d MMM yyyy HH:mm:ss")} (UTC)
+          <p className="text-muted-foreground mt-1 text-sm flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5" />
+            {rangeLabel}
+            {dataUpdatedAt > 0 && (
+              <span className="text-muted-foreground/50 ml-2">· Updated {format(new Date(dataUpdatedAt), 'HH:mm:ss')}</span>
+            )}
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
-          {dataUpdatedAt > 0 && (
-            <span>Last updated: {format(new Date(dataUpdatedAt), 'HH:mm:ss')}</span>
-          )}
-        </div>
+        <button
+          data-testid="button-download-csv"
+          onClick={downloadCsv}
+          disabled={displayRows.length === 0}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-card text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-40"
+        >
+          <Download className="w-3.5 h-3.5" />
+          Export CSV
+        </button>
       </div>
 
       {/* Filter Panel */}
       <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
         <div className="flex items-center gap-2 px-6 py-3 border-b border-border/50 bg-muted/20">
           <Filter className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Filter</span>
+          <span className="text-sm font-medium">Filters & Time Range</span>
         </div>
-        <div className="p-6 space-y-4">
-          {/* Row 1 — CLI / CLD */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">CLI</label>
-              <div className="flex gap-2 items-center">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">is like</span>
+        <div className="p-5 space-y-5">
+
+          {/* ── Date/Time Range ── */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Time Range</span>
+            </div>
+
+            {/* Preset groups */}
+            <div className="space-y-2 mb-4">
+              {PRESET_GROUPS.map(group => (
+                <div key={group.label} className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-muted-foreground/60 w-14 flex-shrink-0">{group.label}</span>
+                  {group.presets.map(p => (
+                    <button
+                      key={p.label}
+                      data-testid={`preset-${p.label.replace(/\s/g, '-').toLowerCase()}`}
+                      onClick={() => applyPreset(p.label, p.fn as any)}
+                      className={cn(
+                        "px-3 py-1 rounded-md text-xs border transition-colors",
+                        activePreset === p.label
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-border/60 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      )}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            {/* Custom date inputs */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground uppercase tracking-wider">From</label>
                 <input
-                  data-testid="input-cli-filter"
-                  value={cliFilter}
-                  onChange={e => setCliFilter(e.target.value)}
-                  placeholder="e.g. +1212"
-                  className="flex-1 h-8 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  data-testid="input-start-time"
+                  type="datetime-local"
+                  value={startTime}
+                  onChange={e => { setStartTime(e.target.value); setActivePreset(''); }}
+                  className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                 />
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">CLD</label>
-              <div className="flex gap-2 items-center">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">is like</span>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground uppercase tracking-wider">To</label>
                 <input
-                  data-testid="input-cld-filter"
-                  value={cldFilter}
-                  onChange={e => setCldFilter(e.target.value)}
-                  placeholder="e.g. +44"
-                  className="flex-1 h-8 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  data-testid="input-end-time"
+                  type="datetime-local"
+                  value={endTime}
+                  onChange={e => { setEndTime(e.target.value); setActivePreset(''); }}
+                  className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                 />
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">Start Date/Time</label>
-              <input
-                data-testid="input-start-time"
-                type="datetime-local"
-                value={startTime}
-                onChange={e => setStartTime(e.target.value)}
-                className="w-full h-8 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">End Date/Time</label>
-              <input
-                data-testid="input-end-time"
-                type="datetime-local"
-                value={endTime}
-                onChange={e => setEndTime(e.target.value)}
-                className="w-full h-8 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-              />
             </div>
           </div>
 
-          {/* Quick presets */}
-          <div className="flex flex-wrap gap-2">
-            {PRESETS.map(p => (
-              <button
-                key={p.label}
-                onClick={() => applyPreset(p.value)}
-                className="px-3 py-1 rounded-md text-xs border border-border/60 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+          <div className="border-t border-border/40 pt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* CLI filter */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">CLI (Caller)</label>
+              <input
+                data-testid="input-cli-filter"
+                value={cliFilter}
+                onChange={e => setCliFilter(e.target.value)}
+                placeholder="e.g. +1212"
+                className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </div>
+
+            {/* CLD filter */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">CLD (Destination)</label>
+              <input
+                data-testid="input-cld-filter"
+                value={cldFilter}
+                onChange={e => setCldFilter(e.target.value)}
+                placeholder="e.g. +44"
+                className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </div>
+
+            {/* Party type */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">Show Party</label>
+              <select
+                data-testid="select-party-type"
+                value={partyType}
+                onChange={e => setPartyType(e.target.value as any)}
+                className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               >
-                {p.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Row 2 — Options */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">Highlight ASR below %</label>
-              <input
-                data-testid="input-highlight-asr"
-                type="number"
-                value={highlightBelow}
-                onChange={e => setHighlightBelow(Number(e.target.value))}
-                min={0} max={100} step={1}
-                className="w-full h-8 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-              />
+                <option value="all">All parties</option>
+                <option value="client">Clients only</option>
+                <option value="vendor">Vendors only</option>
+              </select>
             </div>
+
+            {/* Group by */}
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">Origination Group by</label>
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">Group By</label>
               <select
                 data-testid="select-group-by"
                 value={groupBy}
-                onChange={e => setGroupBy(e.target.value as 'caller' | 'callee')}
-                className="w-full h-8 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                onChange={e => setGroupBy(e.target.value as any)}
+                className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               >
-                <option value="caller">Caller (CLI)</option>
-                <option value="callee">Callee (CLD)</option>
+                <option value="caller">Caller / CLI</option>
+                <option value="callee">Callee / CLD</option>
               </select>
             </div>
+
+            {/* Sort */}
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">Sort by</label>
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">Sort By</label>
               <select
                 data-testid="select-sort-by"
                 value={sortBy}
                 onChange={e => setSortBy(e.target.value as any)}
-                className="w-full h-8 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               >
                 <option value="totalCalls">Number of Calls</option>
                 <option value="billableCalls">Billable Calls</option>
@@ -241,9 +341,24 @@ export default function ReportsPage() {
                 <option value="revenueUsd">Revenue</option>
               </select>
             </div>
+
+            {/* Highlight ASR */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">Highlight ASR below %</label>
+              <input
+                data-testid="input-highlight-asr"
+                type="number"
+                value={highlightBelow}
+                onChange={e => setHighlightBelow(Number(e.target.value))}
+                min={0} max={100}
+                className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </div>
+
+            {/* Hide empty */}
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground uppercase tracking-wider">Hide Entries w/o Calls</label>
-              <div className="flex items-center h-8 gap-2">
+              <div className="flex items-center h-9 gap-2">
                 <input
                   data-testid="checkbox-hide-empty"
                   type="checkbox"
@@ -256,8 +371,8 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          {/* Action buttons */}
-          <div className="flex gap-3 pt-2">
+          {/* Apply button */}
+          <div className="flex gap-3 pt-1">
             <button
               data-testid="button-update-report"
               onClick={applyFilters}
@@ -267,25 +382,17 @@ export default function ReportsPage() {
               <RefreshCw className={cn("w-3.5 h-3.5", isLoading && "animate-spin")} />
               Update Report
             </button>
-            <button
-              data-testid="button-download-csv"
-              onClick={downloadCsv}
-              disabled={rows.length === 0}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg border border-border bg-card text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-40"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Download
-            </button>
           </div>
         </div>
       </div>
 
-      {/* Report Table */}
+      {/* Table */}
       <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
-        {/* Table title bar */}
-        <div className="px-6 py-3 border-b border-border/50 bg-muted/20 flex items-center justify-between">
-          <span className="text-sm font-semibold">ASR/ACD Report — Origination</span>
-          <span className="text-xs text-muted-foreground">{rows.length} callers · {totals.totalCalls.toLocaleString()} total calls</span>
+        <div className="px-6 py-3 border-b border-border/50 bg-muted/20 flex items-center justify-between flex-wrap gap-2">
+          <span className="text-sm font-semibold">ASR / ACD Origination Report</span>
+          <span className="text-xs text-muted-foreground">
+            {displayRows.length} parties · {totals.totalCalls.toLocaleString()} calls
+          </span>
         </div>
 
         {isLoading ? (
@@ -293,7 +400,7 @@ export default function ReportsPage() {
             <RefreshCw className="w-4 h-4 animate-spin" />
             Generating report…
           </div>
-        ) : rows.length === 0 ? (
+        ) : displayRows.length === 0 ? (
           <div className="py-16 text-center text-muted-foreground text-sm">
             No data found for the selected filters.
           </div>
@@ -302,30 +409,42 @@ export default function ReportsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border/50 bg-muted/30 text-xs uppercase tracking-wider text-muted-foreground">
-                  <th className="px-4 py-3 text-left font-semibold">Caller</th>
-                  <th className="px-4 py-3 text-right font-semibold">Number of Calls</th>
-                  <th className="px-4 py-3 text-right font-semibold">Billable Calls</th>
-                  <th className="px-4 py-3 text-right font-semibold">Billed Duration, mm:ss</th>
-                  <th className="px-4 py-3 text-right font-semibold">ACD, mm:ss</th>
-                  <th className="px-4 py-3 text-right font-semibold">ASR, %</th>
-                  <th className="px-4 py-3 text-right font-semibold">Average PDD, sec</th>
-                  <th className="px-4 py-3 text-right font-semibold">Revenue, USD</th>
+                  <th className="px-4 py-3 text-left font-semibold">
+                    {groupBy === 'caller' ? 'Client / CLI' : 'Vendor / CLD'}
+                  </th>
+                  <th className="px-4 py-3 text-right font-semibold">Calls</th>
+                  <th className="px-4 py-3 text-right font-semibold">Billable</th>
+                  <th className="px-4 py-3 text-right font-semibold">Billed Duration</th>
+                  <th className="px-4 py-3 text-right font-semibold">ACD</th>
+                  <th className="px-4 py-3 text-right font-semibold">ASR %</th>
+                  <th className="px-4 py-3 text-right font-semibold">Avg PDD</th>
+                  <th className="px-4 py-3 text-right font-semibold">Revenue USD</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, i) => {
+                {displayRows.map((row, i) => {
                   const isLowAsr = row.asr < highlightBelow;
+                  const matched = matchProfile(row.caller, profiles, groupBy === 'caller' ? 'client' : 'vendor');
                   return (
                     <tr
                       key={row.caller}
                       data-testid={`row-report-${i}`}
                       className={cn(
                         "border-b border-border/30 transition-colors hover:bg-muted/20",
-                        isLowAsr ? "bg-rose-500/8 hover:bg-rose-500/12" : ""
+                        isLowAsr ? "bg-rose-500/5" : ""
                       )}
                     >
-                      <td className={cn("px-4 py-2.5 font-mono text-xs font-medium", isLowAsr ? "text-rose-400" : "text-blue-400 hover:underline cursor-pointer")}>
-                        {row.caller}
+                      <td className="px-4 py-2.5">
+                        <div className="flex flex-col">
+                          {matched && (
+                            <span className={cn("text-xs font-semibold", matched.type === 'client' ? 'text-emerald-400' : 'text-violet-400')}>
+                              {matched.name}
+                            </span>
+                          )}
+                          <span className={cn("font-mono text-xs", isLowAsr ? "text-rose-400" : "text-blue-400")}>
+                            {row.caller}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">{row.totalCalls.toLocaleString()}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums">{row.billableCalls.toLocaleString()}</td>
@@ -335,33 +454,30 @@ export default function ReportsPage() {
                         <span className="flex items-center justify-end gap-1">
                           {isLowAsr
                             ? <TrendingDown className="w-3 h-3" />
-                            : row.asr >= 80
-                            ? <TrendingUp className="w-3 h-3" />
-                            : <Minus className="w-3 h-3" />}
-                          {row.asr.toFixed(4)}
+                            : row.asr >= 80 ? <TrendingUp className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
+                          {row.asr.toFixed(2)}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">{row.avgPdd.toFixed(7)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">{row.avgPdd.toFixed(2)}s</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-emerald-400 font-medium">
-                        {row.revenueUsd.toFixed(7)}
+                        ${row.revenueUsd.toFixed(4)}
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
-              {/* Totals row */}
               <tfoot>
-                <tr className="border-t-2 border-border bg-muted/30 font-semibold text-foreground">
+                <tr className="border-t-2 border-border bg-muted/30 font-semibold">
                   <td className="px-4 py-3 text-xs uppercase tracking-wider text-muted-foreground">Totals / Avg</td>
                   <td className="px-4 py-3 text-right tabular-nums">{totals.totalCalls.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{totals.billableCalls.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right tabular-nums font-mono">{fmtDuration(totals.billedDurationSeconds)}</td>
                   <td className="px-4 py-3 text-right tabular-nums font-mono">{fmtDuration(totals.acdSeconds)}</td>
                   <td className={cn("px-4 py-3 text-right tabular-nums", totals.asr < highlightBelow ? "text-rose-400" : "text-emerald-400")}>
-                    {totals.asr.toFixed(4)}
+                    {totals.asr.toFixed(2)}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">{totals.avgPdd.toFixed(7)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-emerald-400">{totals.revenueUsd.toFixed(7)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{totals.avgPdd.toFixed(2)}s</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-emerald-400">${totals.revenueUsd.toFixed(4)}</td>
                 </tr>
               </tfoot>
             </table>

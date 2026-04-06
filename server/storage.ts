@@ -1,11 +1,11 @@
 
 import { 
-  calls, metrics, alerts, settings, userRoles,
+  calls, metrics, alerts, settings, userRoles, clientProfiles,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
   type AsrAcdReportRow, type AsrAcdReportFilters,
-  type Role
+  type Role, type ClientProfile, type InsertClientProfile
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -41,6 +41,12 @@ export interface IStorage {
   setUserRole(userId: string, role: Role, assignedBy?: string): Promise<void>;
   getAllUsersWithRoles(): Promise<Array<User & { role: Role }>>;
   countRoleEntries(): Promise<number>;
+
+  // Client & Vendor Profiles
+  getClientProfiles(): Promise<ClientProfile[]>;
+  createClientProfile(profile: InsertClientProfile): Promise<ClientProfile>;
+  updateClientProfile(id: number, profile: Partial<InsertClientProfile>): Promise<ClientProfile>;
+  deleteClientProfile(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -319,6 +325,26 @@ export class DatabaseStorage implements IStorage {
     const allRoles = await db.select().from(userRoles);
     const roleMap = new Map(allRoles.map(r => [r.userId, r.role as Role]));
     return allUsers.map(u => ({ ...u, role: roleMap.get(u.id) ?? 'viewer' as Role }));
+  }
+
+  // ── Client & Vendor Profiles ───────────────────────────────────────────────
+
+  async getClientProfiles(): Promise<ClientProfile[]> {
+    return await db.select().from(clientProfiles).orderBy(clientProfiles.type, clientProfiles.name);
+  }
+
+  async createClientProfile(profile: InsertClientProfile): Promise<ClientProfile> {
+    const [created] = await db.insert(clientProfiles).values(profile).returning();
+    return created;
+  }
+
+  async updateClientProfile(id: number, updates: Partial<InsertClientProfile>): Promise<ClientProfile> {
+    const [updated] = await db.update(clientProfiles).set(updates).where(eq(clientProfiles.id, id)).returning();
+    return updated;
+  }
+
+  async deleteClientProfile(id: number): Promise<void> {
+    await db.delete(clientProfiles).where(eq(clientProfiles.id, id));
   }
 }
 
