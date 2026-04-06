@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -15,6 +15,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/calls", label: "Active Calls", icon: Phone },
     { href: "/alerts", label: "Alerts", icon: Bell },
+    { href: "/reports", label: "ASR/ACD Reports", icon: BarChart2 },
     { href: "/settings", label: "Settings", icon: Settings },
   ];
 

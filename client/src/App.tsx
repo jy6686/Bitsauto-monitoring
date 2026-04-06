@@ -13,6 +13,7 @@ import CallsListPage from "@/pages/calls-list";
 import CallDetailPage from "@/pages/call-detail";
 import AlertsPage from "@/pages/alerts";
 import SettingsPage from "@/pages/settings";
+import ReportsPage from "@/pages/reports";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
 
@@ -63,6 +64,9 @@ function Router() {
       </Route>
       <Route path="/settings">
         {() => <ProtectedRoute component={SettingsPage} />}
+      </Route>
+      <Route path="/reports">
+        {() => <ProtectedRoute component={ReportsPage} />}
       </Route>
       
       {/* Fallback */}

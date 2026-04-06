@@ -95,3 +95,26 @@ export type DashboardStats = {
 export type CallWithLatestMetric = Call & {
   latestMetric?: Metric;
 };
+
+// ASR/ACD Report row — one row per caller (CLI)
+export type AsrAcdReportRow = {
+  caller: string;
+  totalCalls: number;
+  billableCalls: number;
+  billedDurationSeconds: number; // total answered duration in seconds
+  acdSeconds: number;            // avg call duration in seconds
+  asr: number;                   // answer-seizure ratio %
+  avgPdd: number;                // average post-dial delay seconds
+  revenueUsd: number;            // estimated revenue
+};
+
+export type AsrAcdReportFilters = {
+  cliFilter?: string;     // substring match on caller
+  cldFilter?: string;     // substring match on callee
+  startTime?: string;     // ISO date string
+  endTime?: string;       // ISO date string
+  highlightAsrBelow?: number;
+  groupBy?: 'caller' | 'callee';
+  sortBy?: 'totalCalls' | 'asr' | 'billableCalls' | 'revenueUsd';
+  hideEmpty?: boolean;
+};

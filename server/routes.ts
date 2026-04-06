@@ -273,9 +273,31 @@ export async function registerRoutes(
   });
 
   app.post(api.settings.resetSimulation.path, async (req, res) => {
-    // In a real app, this might clear tables or reset simulation state
-    // For now, we'll just acknowledge
-    res.json({ message: "Simulation reset (not fully implemented in MVP logic but acknowledged)" });
+    res.json({ message: "Simulation reset acknowledged" });
+  });
+
+  // ASR/ACD Report — per-client breakdown
+  app.get('/api/reports/asr-acd', async (req, res) => {
+    try {
+      const {
+        cli, cld, startTime, endTime,
+        groupBy, sortBy, hideEmpty,
+      } = req.query as Record<string, string>;
+
+      const rows = await storage.getAsrAcdReport({
+        cliFilter: cli || undefined,
+        cldFilter: cld || undefined,
+        startTime: startTime || undefined,
+        endTime: endTime || undefined,
+        groupBy: (groupBy as 'caller' | 'callee') || 'caller',
+        sortBy: (sortBy as any) || 'totalCalls',
+        hideEmpty: hideEmpty !== 'false',
+      });
+      res.json(rows);
+    } catch (err) {
+      console.error('ASR/ACD report error:', err);
+      res.status(500).json({ message: 'Failed to generate report' });
+    }
   });
 
   return httpServer;

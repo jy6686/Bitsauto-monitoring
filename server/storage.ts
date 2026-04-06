@@ -3,7 +3,8 @@ import {
   calls, metrics, alerts, settings,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
-  type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric 
+  type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
+  type AsrAcdReportRow, type AsrAcdReportFilters
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -29,6 +30,9 @@ export interface IStorage {
   
   // Dashboard
   getDashboardStats(): Promise<DashboardStats>;
+
+  // Reports
+  getAsrAcdReport(filters: AsrAcdReportFilters): Promise<AsrAcdReportRow[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -210,6 +214,78 @@ export class DatabaseStorage implements IStorage {
         total: ckTotal,
       },
     };
+  }
+
+  async getAsrAcdReport(filters: AsrAcdReportFilters): Promise<AsrAcdReportRow[]> {
+    const {
+      cliFilter,
+      cldFilter,
+      startTime,
+      endTime,
+      groupBy = 'caller',
+      sortBy = 'totalCalls',
+      hideEmpty = true,
+    } = filters;
+
+    const RATE_PER_MIN = 0.025;
+    const groupColName = groupBy === 'callee' ? 'callee' : 'caller';
+
+    const orderMap: Record<string, string> = {
+      totalCalls: 'total_calls DESC',
+      asr: 'asr DESC',
+      billableCalls: 'billable_calls DESC',
+      revenueUsd: 'revenue_usd DESC',
+    };
+    const orderClause = orderMap[sortBy] || 'total_calls DESC';
+
+    // Build parameterized WHERE conditions using sql template tag
+    const condParts: ReturnType<typeof sql>[] = [
+      sql`status IN ('completed', 'failed')`,
+    ];
+    if (startTime) condParts.push(sql`start_time >= ${new Date(startTime)}`);
+    if (endTime)   condParts.push(sql`start_time <= ${new Date(endTime)}`);
+    if (cliFilter) condParts.push(sql`caller ILIKE ${'%' + cliFilter + '%'}`);
+    if (cldFilter) condParts.push(sql`callee ILIKE ${'%' + cldFilter + '%'}`);
+
+    const whereClause = sql`WHERE ${sql.join(condParts, sql` AND `)}`;
+    const havingClause = hideEmpty ? sql`HAVING COUNT(*) > 0` : sql``;
+
+    const rows = await db.execute(sql`
+      SELECT
+        ${sql.raw(groupColName)} AS caller,
+        COUNT(*) AS total_calls,
+        COUNT(CASE WHEN status = 'completed' THEN 1 END) AS billable_calls,
+        COALESCE(SUM(CASE WHEN status = 'completed' AND end_time IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (end_time - start_time)) ELSE 0 END), 0) AS billed_duration_seconds,
+        COALESCE(AVG(CASE WHEN status = 'completed' AND end_time IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (end_time - start_time)) END), 0) AS acd_seconds,
+        ROUND(
+          (COUNT(CASE WHEN status = 'completed' THEN 1 END)::numeric /
+           NULLIF(COUNT(*), 0) * 100), 4
+        ) AS asr,
+        COALESCE(AVG(pdd), 0) AS avg_pdd,
+        ROUND(
+          (COALESCE(SUM(CASE WHEN status = 'completed' AND end_time IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (end_time - start_time)) ELSE 0 END), 0) / 60.0 * ${RATE_PER_MIN})::numeric, 7
+        ) AS revenue_usd
+      FROM calls
+      ${whereClause}
+      GROUP BY ${sql.raw(groupColName)}
+      ${havingClause}
+      ORDER BY ${sql.raw(orderClause)}
+      LIMIT 200
+    `);
+
+    return (rows.rows as any[]).map(r => ({
+      caller: r.caller ?? '',
+      totalCalls: Number(r.total_calls),
+      billableCalls: Number(r.billable_calls),
+      billedDurationSeconds: Number(r.billed_duration_seconds),
+      acdSeconds: Number(r.acd_seconds),
+      asr: Number(r.asr),
+      avgPdd: Number(r.avg_pdd),
+      revenueUsd: Number(r.revenue_usd),
+    }));
   }
 }
 
