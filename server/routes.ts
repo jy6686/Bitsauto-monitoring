@@ -148,6 +148,24 @@ export async function registerRoutes(
     }
   })();
 
+  // === SIPPY AUTO-CONNECT ON STARTUP ===
+  (async () => {
+    try {
+      const s = await storage.getSettings();
+      if (s.portalUrl && s.portalUsername && s.portalPassword && s.switchType === 'sippy') {
+        console.log('[startup] Sippy credentials found — attempting auto-connect to portal...');
+        const result = await sippy.connectSippy(s.portalUrl, s.portalUsername, s.portalPassword);
+        if (result.success) {
+          console.log('[startup] Sippy auto-connected:', result.message);
+        } else {
+          console.warn('[startup] Sippy auto-connect failed:', result.message);
+        }
+      }
+    } catch (err) {
+      console.error('[startup] Sippy auto-connect error:', err);
+    }
+  })();
+
   // === VOS3000 SESSION RESTORE ON STARTUP ===
   (async () => {
     try {

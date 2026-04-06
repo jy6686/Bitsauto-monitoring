@@ -1,14 +1,44 @@
 /**
  * Sippy Softswitch Integration
  *
- * Sippy uses an XML-RPC style API over HTTP.
- * All requests POST to /xmlapi/xmlapi with HTTP Basic Auth.
- * Responses are XML wrapped in <methodResponse><params><param><value>...</value>
+ * Dual-mode integration:
+ * 1. XML-RPC API at /xmlapi/xmlapi with HTTP Basic Auth (for admin/API accounts)
+ * 2. Web portal session scraping (for customer/reseller web accounts like RTST1)
+ *
+ * The web portal mode authenticates via POST /main.php then scrapes HTML pages
+ * using session cookies. This works when XML-RPC credentials are unavailable.
  */
 
 import http from 'node:http';
 import https from 'node:https';
 import { URL } from 'node:url';
+
+// ── Cookie jar type ───────────────────────────────────────────────────────────
+
+type CookieJar = Map<string, string>;
+
+function parseCookies(setCookieHeaders: string[]): CookieJar {
+  const jar: CookieJar = new Map();
+  for (const header of setCookieHeaders) {
+    const parts = header.split(';');
+    const pair = (parts[0] || '').trim();
+    const eqIdx = pair.indexOf('=');
+    if (eqIdx > 0) {
+      jar.set(pair.substring(0, eqIdx).trim(), pair.substring(eqIdx + 1).trim());
+    }
+  }
+  return jar;
+}
+
+function mergeCookies(base: CookieJar, incoming: CookieJar): CookieJar {
+  const merged = new Map(base);
+  for (const [k, v] of incoming) merged.set(k, v);
+  return merged;
+}
+
+function serializeCookies(jar: CookieJar): string {
+  return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+}
 
 // ── In-memory session state ───────────────────────────────────────────────────
 
@@ -16,6 +46,9 @@ interface SippySession {
   portalUrl: string;
   username: string;
   connectedAt: Date;
+  mode: 'xmlrpc' | 'portal';
+  cookies?: CookieJar;
+  accountType?: string;
 }
 
 let activeSession: SippySession | null = null;
@@ -27,6 +60,7 @@ export function getSippySessionStatus() {
     username: activeSession.username,
     connectedAt: activeSession.connectedAt.toISOString(),
     portalBase: activeSession.portalUrl,
+    mode: activeSession.mode,
   };
 }
 
@@ -145,6 +179,280 @@ function sippyBase(portalUrl: string): string {
   return portalUrl.replace(/\/$/, '');
 }
 
+// ── Cookie-aware HTTP helpers (for web portal session mode) ───────────────────
+
+function rawRequest(
+  method: 'GET' | 'POST',
+  url: string,
+  body: string | null,
+  extraHeaders: Record<string, string>,
+  jar: CookieJar,
+  redirectsLeft = 5,
+): Promise<{ statusCode: number; body: string; cookies: CookieJar }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const isHttps = parsed.protocol === 'https:';
+    const mod = isHttps ? https : http;
+    const cookieStr = serializeCookies(jar);
+
+    const baseOpts: http.RequestOptions = {
+      hostname: parsed.hostname,
+      port: parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method,
+      headers: {
+        ...(cookieStr ? { Cookie: cookieStr } : {}),
+        'User-Agent': 'Mozilla/5.0 (compatible; VoIPMonitor/1.0)',
+        ...(body != null ? { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) } : {}),
+        ...extraHeaders,
+      },
+      timeout: 15000,
+    };
+    const opts = isHttps ? { ...baseOpts, agent: lenientHttpsAgent } : baseOpts;
+
+    const req = mod.request(opts as http.RequestOptions, (res) => {
+      const sc = res.statusCode ?? 0;
+      const setCookies = (res.headers['set-cookie'] as string[] | undefined) || [];
+      const newJar = mergeCookies(jar, parseCookies(setCookies));
+
+      if ((sc === 301 || sc === 302 || sc === 303 || sc === 307 || sc === 308) && res.headers.location && redirectsLeft > 0) {
+        res.resume();
+        const next = new URL(res.headers.location, url).toString();
+        const nextMethod = (sc === 301 || sc === 302 || sc === 303) ? 'GET' : method;
+        rawRequest(nextMethod, next, nextMethod === 'GET' ? null : body, extraHeaders, newJar, redirectsLeft - 1).then(resolve).catch(reject);
+        return;
+      }
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => resolve({ statusCode: sc, body: data, cookies: newJar }));
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+    if (body != null) req.write(body);
+    req.end();
+  });
+}
+
+function encodeForm(fields: Record<string, string>): string {
+  return Object.entries(fields)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&');
+}
+
+// ── Web Portal Login & Scraping ───────────────────────────────────────────────
+
+const PORTAL_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0';
+
+async function portalLogin(
+  base: string,
+  username: string,
+  password: string,
+  accountType: 'customer' | 'reseller' | 'admin' = 'customer',
+): Promise<{ success: boolean; cookies: CookieJar; message: string }> {
+  const loginUrl = `${base}/main.php`;
+  const formData = encodeForm({
+    username,
+    password,
+    acct_type: accountType,
+    login_page: 'all',
+    Login: 'Login',
+  });
+
+  try {
+    const resp = await rawRequest('POST', loginUrl, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map());
+    if (resp.statusCode === 401) {
+      return { success: false, cookies: new Map(), message: 'Authentication failed (401).' };
+    }
+    // Check if we ended up on the login page again (failed login = ShowErrorDialog with message)
+    const isLoginPage = resp.body.includes('ShowErrorDialog(') && !resp.body.includes('ShowErrorDialog(\'\')') && !resp.body.includes('ShowErrorDialog("")');
+    // Also check if we have a logout link (success) or just a login form
+    const hasLogout = resp.body.includes('logout') || resp.body.includes('Logout') || resp.body.includes('My Preferences') || resp.body.includes('my_calls') || resp.body.includes('cdrs_customer');
+    if (!hasLogout || isLoginPage) {
+      return { success: false, cookies: new Map(), message: `Login rejected — wrong username, password, or account type (${accountType}).` };
+    }
+    return { success: true, cookies: resp.cookies, message: `Authenticated via web portal as ${accountType}` };
+  } catch (err: any) {
+    return { success: false, cookies: new Map(), message: err.message ?? 'Portal login failed.' };
+  }
+}
+
+async function portalGet(path: string, cookies: CookieJar, base: string): Promise<{ html: string; cookies: CookieJar }> {
+  const url = `${base}${path}`;
+  try {
+    const resp = await rawRequest('GET', url, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies);
+    return { html: resp.body, cookies: resp.cookies };
+  } catch {
+    return { html: '', cookies };
+  }
+}
+
+function scrapeHtmlTable(html: string): string[][] {
+  const rows: string[][] = [];
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let trMatch;
+  while ((trMatch = trRe.exec(html)) !== null) {
+    const rowHtml = trMatch[1];
+    const tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+    const cells: string[] = [];
+    let tdMatch;
+    while ((tdMatch = tdRe.exec(rowHtml)) !== null) {
+      const text = tdMatch[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+      cells.push(text);
+    }
+    if (cells.length > 0) rows.push(cells);
+  }
+  return rows;
+}
+
+export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string): Promise<SippyActiveCall[]> {
+  const { html } = await portalGet('/c2/activecalls.php', cookies, base);
+  if (!html) return [];
+
+  const rows = scrapeHtmlTable(html);
+  const calls: SippyActiveCall[] = [];
+  let headerRow = -1;
+
+  // Find the ACTUAL calls table header — it must have 'caller' AND ('state' OR 'duration')
+  // to distinguish from the CLI/CLD filter form rows that only have one keyword
+  for (let i = 0; i < rows.length; i++) {
+    const lower = rows[i].map(c => c.toLowerCase());
+    const hasCaller = lower.some(c => c === 'caller' || c === 'cli');
+    const hasDur = lower.some(c => c.includes('duration') || c.includes('state') || c.includes('delay'));
+    if (hasCaller && hasDur) {
+      headerRow = i;
+      break;
+    }
+  }
+
+  if (headerRow < 0) return calls;
+
+  const headers = rows[headerRow].map(c => c.toLowerCase().trim());
+  const colIdx = (names: string[]) => names.map(n => headers.findIndex(h => h === n || h.includes(n))).find(i => i >= 0) ?? -1;
+  const callerCol = colIdx(['caller', 'cli', 'from']);
+  const calleeCol = colIdx(['cld', 'callee', 'to', 'destination']);
+  const stateCol  = colIdx(['state', 'status']);
+  const delayCol  = colIdx(['delay', 'pdd']);
+  const durCol    = colIdx(['duration', 'dur']);
+
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i];
+    const joined = row.join('').trim().toLowerCase();
+    if (!row.length || joined === '' || joined.includes('list is empty') || joined.startsWith('page ')) continue;
+    // Skip rows that look like column headers repeated (pagination-style)
+    if (row.some(c => c.toLowerCase() === 'caller' || c.toLowerCase() === 'cli')) continue;
+
+    const get = (idx: number) => (idx >= 0 && idx < row.length) ? row[idx] : '';
+    const durStr = get(durCol);
+    const durParts = durStr.split(':');
+    const durationSec = durParts.length >= 2
+      ? (parseInt(durParts[0] || '0') * 60 + parseInt(durParts[1] || '0'))
+      : parseInt(durStr || '0') || 0;
+
+    const caller = get(callerCol);
+    const callee = get(calleeCol);
+    if (!caller && !callee) continue;
+
+    calls.push({
+      callId: `portal-${i}`,
+      caller: caller || '-',
+      callee: callee || '-',
+      duration: durationSec,
+      codec: '-',
+      status: get(stateCol) || 'active',
+      delay: parseFloat(get(delayCol)) || 0,
+    });
+  }
+  return calls;
+}
+
+export async function getPortalSubcustomers(cookies: CookieJar, base: string): Promise<Array<{ name: string; status: string; description: string; balance: string; creditLimit: string; tariff: string }>> {
+  const { html } = await portalGet('/c2/subcustomers.php', cookies, base);
+  if (!html) return [];
+
+  const rows = scrapeHtmlTable(html);
+  const results: Array<{ name: string; status: string; description: string; balance: string; creditLimit: string; tariff: string }> = [];
+  let headerRow = -1;
+
+  for (let i = 0; i < rows.length; i++) {
+    const lower = rows[i].map(c => c.toLowerCase());
+    if (lower.some(c => c.includes('name') || c.includes('description'))) {
+      if (lower.some(c => c.includes('status') || c.includes('balance') || c.includes('tariff'))) {
+        headerRow = i;
+        break;
+      }
+    }
+  }
+  if (headerRow < 0) return results;
+
+  const headers = rows[headerRow].map(c => c.toLowerCase());
+  const colIdx = (names: string[]) => names.map(n => headers.findIndex(h => h.includes(n))).find(i => i >= 0) ?? -1;
+  const statusCol = colIdx(['status']);
+  const nameCol   = colIdx(['name']);
+  const descCol   = colIdx(['description', 'descr']);
+  const balCol    = colIdx(['balance']);
+  const limitCol  = colIdx(['credit', 'limit']);
+  const tariffCol = colIdx(['tariff']);
+
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row.length || row.join('').trim() === '' || row[0].toLowerCase().includes('list is empty') || row[0].toLowerCase().includes('page')) continue;
+    const get = (idx: number) => (idx >= 0 && idx < row.length) ? row[idx] : '';
+    if (!get(nameCol)) continue;
+    results.push({
+      name: get(nameCol),
+      status: get(statusCol),
+      description: get(descCol),
+      balance: get(balCol),
+      creditLimit: get(limitCol),
+      tariff: get(tariffCol),
+    });
+  }
+  return results;
+}
+
+export async function getPortalAccounts(cookies: CookieJar, base: string): Promise<Array<{ id: string; account: string; type: string; balance: string; tariff: string; status: string }>> {
+  const { html } = await portalGet('/c2/accounts.php', cookies, base);
+  if (!html) return [];
+
+  const rows = scrapeHtmlTable(html);
+  const results: Array<{ id: string; account: string; type: string; balance: string; tariff: string; status: string }> = [];
+  let headerRow = -1;
+
+  for (let i = 0; i < rows.length; i++) {
+    const lower = rows[i].map(c => c.toLowerCase());
+    if (lower.some(c => c.includes('account') || c.includes('id'))) {
+      headerRow = i;
+      break;
+    }
+  }
+  if (headerRow < 0) return results;
+
+  const headers = rows[headerRow].map(c => c.toLowerCase());
+  const colIdx = (names: string[]) => names.map(n => headers.findIndex(h => h.includes(n))).find(i => i >= 0) ?? -1;
+  const idCol      = colIdx(['id', 'account id']);
+  const accountCol = colIdx(['account', 'name', 'login']);
+  const typeCol    = colIdx(['type']);
+  const balanceCol = colIdx(['balance']);
+  const tariffCol  = colIdx(['tariff']);
+  const statusCol  = colIdx(['status', 'state']);
+
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row.length || row.join('').trim() === '' || row[0].toLowerCase().includes('list is empty') || row[0].toLowerCase().includes('page')) continue;
+    const get = (idx: number) => (idx >= 0 && idx < row.length) ? row[idx] : '';
+    results.push({
+      id: get(idCol),
+      account: get(accountCol),
+      type: get(typeCol),
+      balance: get(balanceCol),
+      tariff: get(tariffCol),
+      status: get(statusCol),
+    });
+  }
+  return results;
+}
+
 // ── XML-RPC builder ───────────────────────────────────────────────────────────
 
 function buildStructMembers(params: Record<string, string | number | boolean>): string {
@@ -231,7 +539,7 @@ export async function testSippyConnection(
   portalUrl: string,
   username: string,
   password: string,
-): Promise<{ reachable: boolean; authenticated: boolean; message: string; latencyMs?: number }> {
+): Promise<{ reachable: boolean; authenticated: boolean; message: string; latencyMs?: number; mode?: 'xmlrpc' | 'portal'; cookies?: CookieJar }> {
   const base = sippyBase(portalUrl);
   const auth = { Authorization: basicAuth(username, password) };
   const start = Date.now();
@@ -239,34 +547,20 @@ export async function testSippyConnection(
   // Try standard XML-RPC path first
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const body = xmlRpcCall('i_version.listAvailableMethods');
+  let xmlRpcReachable = false;
 
   try {
     const resp = await rawPost(apiUrl, body, auth);
     const latencyMs = Date.now() - start;
+    xmlRpcReachable = true;
 
-    if (resp.statusCode === 401) {
-      return { reachable: true, authenticated: false, message: 'Server is reachable but authentication failed — the API Login or API Password is incorrect. Open your Sippy portal → My Account → API Credentials to find the correct values.', latencyMs };
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      return { reachable: true, authenticated: true, message: `Connected to Sippy API successfully (${latencyMs}ms)`, latencyMs, mode: 'xmlrpc' };
     }
     if (resp.statusCode === 403) {
-      return { reachable: true, authenticated: false, message: 'Access forbidden — this account may not have API access enabled. Check your Sippy portal administrator settings.', latencyMs };
+      // Fall through to portal login below
     }
-    if (resp.statusCode === 404) {
-      // Try alternate API paths some Sippy versions use
-      for (const alt of ['/api/xmlrpc', '/xmlrpc', '/api']) {
-        try {
-          const r2 = await rawPost(`${base}${alt}`, body, auth);
-          if (r2.statusCode >= 200 && r2.statusCode < 300) {
-            return { reachable: true, authenticated: true, message: `Connected via alternate path ${alt} (${latencyMs}ms)`, latencyMs };
-          }
-        } catch { }
-      }
-      return { reachable: true, authenticated: false, message: `Portal is reachable but XML-RPC path not found — confirm the portal URL includes the correct port.`, latencyMs };
-    }
-    if (resp.statusCode >= 200 && resp.statusCode < 300) {
-      // Even a fault XML response means we reached the API and are authenticated
-      return { reachable: true, authenticated: true, message: `Connected to Sippy successfully (${latencyMs}ms)`, latencyMs };
-    }
-    return { reachable: false, authenticated: false, message: `Unexpected HTTP ${resp.statusCode} from portal — try a different port or path.` };
+    // 401 or other failure — try web portal login as fallback
   } catch (err: any) {
     const latencyMs = Date.now() - start;
     if (err.code === 'ECONNREFUSED') return { reachable: false, authenticated: false, message: 'Connection refused — verify the URL and port number.', latencyMs };
@@ -274,12 +568,38 @@ export async function testSippyConnection(
     if (err.code === 'ETIMEDOUT' || err.message?.includes('timed out')) {
       return { reachable: false, authenticated: false, message: 'Connection timed out — the server may be unreachable or blocked by a firewall.', latencyMs };
     }
-    // Certificate errors are now bypassed by lenientHttpsAgent, but just in case:
     if (err.message?.includes('certificate') || err.code === 'CERT_HAS_EXPIRED' || err.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
-      return { reachable: false, authenticated: false, message: `SSL certificate error: ${err.message} — try using the HTTP URL instead.`, latencyMs };
+      return { reachable: false, authenticated: false, message: `SSL certificate error: ${err.message}`, latencyMs };
     }
-    return { reachable: false, authenticated: false, message: err.message ?? 'Unknown connection error.', latencyMs };
+    xmlRpcReachable = false;
   }
+
+  // ── Fallback: try web portal login ────────────────────────────────────────
+  // Try account types in order: customer (RTST1 type), reseller, admin
+  for (const acctType of ['customer', 'reseller'] as const) {
+    const loginResult = await portalLogin(base, username, password, acctType);
+    if (loginResult.success) {
+      const latencyMs = Date.now() - start;
+      return {
+        reachable: true,
+        authenticated: true,
+        message: `Connected via web portal (${acctType} account) in ${latencyMs}ms. Note: XML-RPC API unavailable — using portal session mode.`,
+        latencyMs,
+        mode: 'portal',
+        cookies: loginResult.cookies,
+      };
+    }
+  }
+
+  const latencyMs = Date.now() - start;
+  return {
+    reachable: xmlRpcReachable,
+    authenticated: false,
+    message: xmlRpcReachable
+      ? 'Server is reachable but authentication failed for both XML-RPC API and web portal. Check your credentials.'
+      : 'Portal is not reachable. Verify the URL is correct.',
+    latencyMs,
+  };
 }
 
 // ── Login (connect and store session) ────────────────────────────────────────
@@ -293,7 +613,13 @@ export async function connectSippy(
   if (!result.reachable || !result.authenticated) {
     return { success: false, message: result.message };
   }
-  activeSession = { portalUrl: sippyBase(portalUrl), username, connectedAt: new Date() };
+  activeSession = {
+    portalUrl: sippyBase(portalUrl),
+    username,
+    connectedAt: new Date(),
+    mode: result.mode ?? 'xmlrpc',
+    cookies: result.cookies,
+  };
   return { success: true, message: result.message };
 }
 
@@ -319,6 +645,14 @@ export interface SippyActiveCall {
 export async function getSippyActiveCalls(username: string, password: string, explicitPortalUrl?: string): Promise<SippyActiveCall[]> {
   const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
   if (!base) return [];
+
+  // ── Portal session mode (web scraping fallback) ───────────────────────────
+  const session = activeSession;
+  if (session?.mode === 'portal' && session.cookies) {
+    return getPortalActiveCallsHtml(session.cookies, base);
+  }
+
+  // ── XML-RPC mode ──────────────────────────────────────────────────────────
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const body = xmlRpcCall('call_control.listActiveCalls');
 
@@ -326,7 +660,12 @@ export async function getSippyActiveCalls(username: string, password: string, ex
     const resp = await rawPost(apiUrl, body, {
       Authorization: basicAuth(username, password),
     });
-    if (resp.statusCode !== 200) return [];
+    if (resp.statusCode !== 200) {
+      // Try portal scraping as last resort even without stored session
+      const loginRes = await portalLogin(base, username, password, 'customer');
+      if (loginRes.success) return getPortalActiveCallsHtml(loginRes.cookies, base);
+      return [];
+    }
 
     // Parse array of structs from XML
     const structs = extractAllTags(resp.body, 'struct');
@@ -437,6 +776,21 @@ export interface SippyPortalUserInput {
 export async function listSippyUsers(username: string, password: string, portalUrl?: string): Promise<{ users: SippyPortalUser[]; error?: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { users: [], error: 'Not connected to Sippy.' };
+
+  // ── Portal session mode: use subcustomer scraping ─────────────────────────
+  const session = activeSession;
+  if (session?.mode === 'portal' && session.cookies) {
+    const subcustomers = await getPortalSubcustomers(session.cookies, base);
+    const users: SippyPortalUser[] = subcustomers.map((sc, i) => ({
+      userId: String(i + 1),
+      name: sc.name,
+      login: sc.name.toLowerCase().replace(/\s+/g, '.'),
+      accessLevel: 'Customer',
+      description: sc.description || undefined,
+    }));
+    return { users };
+  }
+
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const auth = { Authorization: basicAuth(username, password) };
 
@@ -946,6 +1300,17 @@ export async function listSippyTariffs(
 export async function getSippyStats(username: string, password: string, explicitPortalUrl?: string): Promise<SippyStats> {
   const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
   if (!base) return { totalCalls: 0, activeCalls: 0, successRate: 0, totalMinutes: 0 };
+
+  // ── Portal mode: derive stats from live active calls count ─────────────────
+  const session = activeSession;
+  if (session?.mode === 'portal' && session.cookies) {
+    const liveCalls = await getPortalActiveCallsHtml(session.cookies, base);
+    const activeCalls = liveCalls.length;
+    const totalMinutes = liveCalls.reduce((sum, c) => sum + Math.round(c.duration / 60), 0);
+    return { totalCalls: activeCalls, activeCalls, successRate: activeCalls > 0 ? 100 : 0, totalMinutes };
+  }
+
+  // ── XML-RPC mode ──────────────────────────────────────────────────────────
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const body = xmlRpcCall('call_control.getCountersStats');
 
