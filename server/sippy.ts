@@ -147,17 +147,21 @@ function sippyBase(portalUrl: string): string {
 
 // ── XML-RPC builder ───────────────────────────────────────────────────────────
 
-function xmlRpcCall(method: string, params: Record<string, string | number | boolean> = {}): string {
-  const members = Object.entries(params)
+function buildStructMembers(params: Record<string, string | number | boolean>): string {
+  return Object.entries(params)
     .map(([k, v]) => {
       let valTag: string;
       if (typeof v === 'boolean') valTag = `<boolean>${v ? 1 : 0}</boolean>`;
       else if (typeof v === 'number') valTag = `<int>${v}</int>`;
-      else valTag = `<string>${v}</string>`;
+      else valTag = `<string>${String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</string>`;
       return `<member><name>${k}</name><value>${valTag}</value></member>`;
     })
     .join('');
+}
 
+// Flat struct: <struct><member>...</member></struct>
+function xmlRpcCall(method: string, params: Record<string, string | number | boolean> = {}): string {
+  const members = buildStructMembers(params);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <methodCall>
   <methodName>${method}</methodName>
@@ -165,6 +169,28 @@ function xmlRpcCall(method: string, params: Record<string, string | number | boo
     <param>
       <value>
         <struct>${members}</struct>
+      </value>
+    </param>
+  </params>
+</methodCall>`;
+}
+
+// Nested struct: wraps all params under a named key, e.g. customer_info or vendor_info
+// This is the standard Sippy XML-RPC format for customer.add / vendor.add
+function xmlRpcCallNested(method: string, wrapKey: string, params: Record<string, string | number | boolean>): string {
+  const innerMembers = buildStructMembers(params);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<methodCall>
+  <methodName>${method}</methodName>
+  <params>
+    <param>
+      <value>
+        <struct>
+          <member>
+            <name>${wrapKey}</name>
+            <value><struct>${innerMembers}</struct></value>
+          </member>
+        </struct>
       </value>
     </param>
   </params>
@@ -733,6 +759,7 @@ export interface SippyAccountOpts {
   cliTranslationRule?: string; // CLI Tr. Rule, e.g. "s/^[+]//"
   // Address Info
   companyName?: string;
+  description?: string;
 }
 
 export async function pushAccountToSippy(
@@ -757,6 +784,7 @@ export async function pushAccountToSippy(
   if (opts.language)            accountParams.language              = opts.language;
   if (opts.sipClass)            accountParams.i_class               = opts.sipClass;
   if (opts.companyName)         accountParams.company_name          = opts.companyName;
+  if (opts.description)         accountParams.description           = opts.description;
   if (opts.preferredCodec)      accountParams.preferred_codec       = opts.preferredCodec;
   if (opts.cldTranslationRule)  accountParams.cld_translation_rule  = opts.cldTranslationRule;
   if (opts.cliTranslationRule)  accountParams.cli_translation_rule  = opts.cliTranslationRule;
@@ -774,37 +802,61 @@ export async function pushAccountToSippy(
     if (!isNaN(spInt)) accountParams.i_tariff = spInt;
   }
 
-  // Sippy uses different top-level methods for customers vs vendors
+  // Sippy uses different top-level methods for customers vs vendors.
+  // We try the nested customer_info/vendor_info format first (standard Sippy XML-RPC),
+  // then fall back to flat params for older/variant Sippy builds.
   const isVendor = opts.type === 'vendor';
-  const methods = isVendor
-    ? ['vendor.add', 'vendor.addVendor', 'customer.add']
-    : ['customer.add', 'customer.addCustomer', 'customer.addAccount'];
+  const wrapKey = isVendor ? 'vendor_info' : 'customer_info';
+
+  const attempts: Array<{ method: string; body: string }> = isVendor
+    ? [
+        { method: 'vendor.add',       body: xmlRpcCallNested('vendor.add', wrapKey, accountParams) },
+        { method: 'vendor.add-flat',  body: xmlRpcCall('vendor.add', accountParams) },
+        { method: 'customer.add',     body: xmlRpcCallNested('customer.add', wrapKey, accountParams) },
+        { method: 'customer.add-flat',body: xmlRpcCall('customer.add', accountParams) },
+      ]
+    : [
+        { method: 'customer.add',           body: xmlRpcCallNested('customer.add', wrapKey, accountParams) },
+        { method: 'customer.add-flat',      body: xmlRpcCall('customer.add', accountParams) },
+        { method: 'customer.addCustomer',   body: xmlRpcCallNested('customer.addCustomer', wrapKey, accountParams) },
+        { method: 'customer.addAccount',    body: xmlRpcCall('customer.addAccount', accountParams) },
+      ];
 
   let lastFault = '';
 
-  console.log(`[Sippy] pushAccountToSippy → url: ${apiUrl}, params:`, JSON.stringify(accountParams));
+  console.log(`[Sippy] pushAccountToSippy → url: ${apiUrl}, wrapKey: ${wrapKey}, params:`, JSON.stringify(accountParams));
 
-  for (const method of methods) {
+  for (const { method, body } of attempts) {
     try {
-      const body = xmlRpcCall(method, accountParams);
-      console.log(`[Sippy] Trying ${method} with XML:\n${body}`);
+      console.log(`[Sippy] Trying ${method}:\n${body}`);
       const resp = await rawPost(apiUrl, body, auth);
-      console.log(`[Sippy] ${method} → HTTP ${resp.statusCode}, body: ${resp.body.slice(0, 800)}`);
       const text = resp.body;
+      console.log(`[Sippy] ${method} → HTTP ${resp.statusCode}, body: ${text.slice(0, 600)}`);
       if (resp.statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode') && !text.includes('faultString')) {
         console.log(`[Sippy] ${method} succeeded for "${opts.name}"`);
-        return { success: true, message: `Account "${opts.name}" created on Sippy (method: ${method})`, method };
+        return { success: true, message: `Account "${opts.name}" created successfully on Sippy.`, method };
       }
-      const fault = extractTag(text, 'faultString') ?? extractTag(text, 'string');
-      if (fault) lastFault = fault.replace(/<[^>]+>/g, '').trim();
-      console.warn(`[Sippy] ${method} fault:`, lastFault || `HTTP ${resp.statusCode}`);
+      // Extract Sippy fault string from XML-RPC fault response
+      const faultStr = extractTag(text, 'faultString');
+      if (faultStr) {
+        lastFault = faultStr.replace(/<[^>]+>/g, '').trim();
+        console.warn(`[Sippy] ${method} fault: ${lastFault}`);
+        // A meaningful fault means the method name is correct — stop trying other formats
+        if (!lastFault.toLowerCase().includes('no such method') && !lastFault.toLowerCase().includes('unknown method')) {
+          break;
+        }
+      } else {
+        console.warn(`[Sippy] ${method} non-fault failure: HTTP ${resp.statusCode}`);
+        if (resp.statusCode === 401) { lastFault = 'Authentication failed — check Sippy username and password.'; break; }
+        if (resp.statusCode === 403) { lastFault = 'Access denied — check Sippy API permissions.'; break; }
+      }
     } catch (e: any) {
       console.warn(`[Sippy] ${method} error:`, e.message);
       lastFault = e.message;
     }
   }
 
-  const detail = lastFault ? `Sippy: ${lastFault}` : `No response from Sippy at ${apiUrl} — check URL and credentials.`;
+  const detail = lastFault || `No response from Sippy at ${apiUrl} — check the URL and credentials in Settings.`;
   return { success: false, message: 'Could not create account on Sippy.', detail };
 }
 

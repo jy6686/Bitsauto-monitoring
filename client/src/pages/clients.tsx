@@ -757,6 +757,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [maxCps, setMaxCps] = useState('');
   const [routingGroupId, setRoutingGroupId] = useState('');
   const [tariffId, setTariffId] = useState('');
+  const [description, setDescription] = useState('');
   const [result, setResult] = useState<{ success: boolean; message: string; detail?: string } | null>(null);
 
   const switchQs = switchId ? `?switchId=${switchId}` : '';
@@ -787,6 +788,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
       maxCallsPerSecond: maxCps ? Number(maxCps) : undefined,
       routingGroup: routingGroupId || undefined,
       servicePlan: tariffId || undefined,
+      description: description || undefined,
     }),
     onSuccess: async (res: any) => {
       const data = await res.json();
@@ -871,6 +873,12 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               <label className={labelCls}>Max CPS</label>
               <input data-testid="input-sippy-cps" type="number" min="1" value={maxCps}
                 onChange={e => setMaxCps(e.target.value)} placeholder="10" className={fieldCls} />
+            </div>
+            <div className="col-span-2">
+              <label className={labelCls}>Description</label>
+              <input data-testid="input-sippy-description" value={description}
+                onChange={e => setDescription(e.target.value)}
+                placeholder="Optional account description" className={fieldCls} />
             </div>
             <div>
               <label className={labelCls}>Routing Group</label>

@@ -1170,6 +1170,7 @@ export async function registerRoutes(
         cliTranslationRule: req.body.cliTranslationRule,
         cldTranslationRule: req.body.cldTranslationRule,
         companyName:        req.body.companyName,
+        description:        req.body.description,
       };
       if (!opts.name) return res.status(400).json({ success: false, message: 'Account name is required.' });
       const result = await sippy.pushAccountToSippy(opts, { username, password }, targetUrl);
