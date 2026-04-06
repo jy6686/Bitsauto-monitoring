@@ -749,30 +749,44 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [name, setName] = useState('');
   const [type, setType] = useState<'client' | 'vendor'>('client');
   const [switchId, setSwitchId] = useState<string>('');
+  const selectedSwitch = sippySwitches.find((s: SwitchOption) => String(s.id) === switchId);
   const [ipAddress, setIpAddress] = useState('');
   const [ratePerMin, setRatePerMin] = useState('');
   const [creditLimit, setCreditLimit] = useState('');
   const [maxSessions, setMaxSessions] = useState('');
   const [maxCps, setMaxCps] = useState('');
-  const [routingGroup, setRoutingGroup] = useState('');
-  const [servicePlan, setServicePlan] = useState('');
+  const [routingGroupId, setRoutingGroupId] = useState('');
+  const [tariffId, setTariffId] = useState('');
   const [result, setResult] = useState<{ success: boolean; message: string; detail?: string } | null>(null);
 
-  // Sanitise a text field — treat "null", "0", "-" as empty
-  const clean = (v: string) => (v && v !== 'null' && v !== '-' ? v : undefined);
+  const switchQs = switchId ? `?switchId=${switchId}` : '';
+
+  const { data: rgData } = useQuery<{ groups: { id: number; name: string }[]; error?: string }>({
+    queryKey: ['/api/sippy/routing-groups', switchId],
+    queryFn: () => fetch(`/api/sippy/routing-groups${switchQs}`).then(r => r.json()),
+    staleTime: 60_000,
+  });
+
+  const { data: tariffData } = useQuery<{ tariffs: { id: number; name: string; currency?: string }[]; error?: string }>({
+    queryKey: ['/api/sippy/tariffs', switchId],
+    queryFn: () => fetch(`/api/sippy/tariffs${switchQs}`).then(r => r.json()),
+    staleTime: 60_000,
+  });
+
+  const routingGroups = rgData?.groups ?? [];
+  const tariffs = tariffData?.tariffs ?? [];
 
   const createMut = useMutation({
     mutationFn: () => apiRequest('POST', '/api/sippy/accounts', {
       name, type,
       switchId: switchId ? Number(switchId) : undefined,
-      ipAddress: clean(ipAddress),
+      ipAddress: ipAddress || undefined,
       ratePerMin: ratePerMin ? Number(ratePerMin) : undefined,
       creditLimit: creditLimit ? Number(creditLimit) : undefined,
       maxSessions: maxSessions ? Number(maxSessions) : undefined,
       maxCallsPerSecond: maxCps ? Number(maxCps) : undefined,
-      // Routing group and tariff — send as string; backend converts to integer
-      routingGroup: clean(routingGroup),
-      servicePlan: clean(servicePlan),
+      routingGroup: routingGroupId || undefined,
+      servicePlan: tariffId || undefined,
     }),
     onSuccess: async (res: any) => {
       const data = await res.json();
@@ -851,14 +865,40 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                 onChange={e => setMaxCps(e.target.value)} placeholder="10" className={fieldCls} />
             </div>
             <div>
-              <label className={labelCls}>Routing Group ID <span className="text-muted-foreground/60 font-normal">(numeric)</span></label>
-              <input data-testid="input-sippy-routing" value={routingGroup} onChange={e => setRoutingGroup(e.target.value)}
-                placeholder="e.g. 1" type="number" min="1" className={fieldCls} />
+              <label className={labelCls}>Routing Group</label>
+              {routingGroups.length > 0 ? (
+                <select data-testid="select-sippy-routing" value={routingGroupId} onChange={e => setRoutingGroupId(e.target.value)} className={fieldCls}>
+                  <option value="">— None —</option>
+                  {routingGroups.map(g => (
+                    <option key={g.id} value={String(g.id)}>{g.name} (#{g.id})</option>
+                  ))}
+                </select>
+              ) : (
+                <input data-testid="input-sippy-routing" value={routingGroupId} onChange={e => setRoutingGroupId(e.target.value)}
+                  placeholder="ID (numeric) — loading…" type="number" min="1" className={fieldCls} />
+              )}
             </div>
             <div>
-              <label className={labelCls}>Tariff / Service Plan ID <span className="text-muted-foreground/60 font-normal">(numeric)</span></label>
-              <input data-testid="input-sippy-plan" value={servicePlan} onChange={e => setServicePlan(e.target.value)}
-                placeholder="e.g. 2" type="number" min="1" className={fieldCls} />
+              <label className={labelCls}>Tariff / Service Plan</label>
+              {tariffs.length > 0 ? (
+                <select data-testid="select-sippy-tariff" value={tariffId} onChange={e => setTariffId(e.target.value)} className={fieldCls}>
+                  <option value="">— None —</option>
+                  {tariffs.map(t => (
+                    <option key={t.id} value={String(t.id)}>{t.name}{t.currency ? ` (${t.currency})` : ''} (#{t.id})</option>
+                  ))}
+                </select>
+              ) : (
+                <>
+                  <input data-testid="input-sippy-plan" value={tariffId} onChange={e => setTariffId(e.target.value)}
+                    placeholder="Enter ID manually" type="number" min="1" className={fieldCls} />
+                  <div className="mt-2 rounded-lg px-3 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs flex items-start gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                    <span>
+                      <strong>Sippy prerequisite:</strong> Service Plans must be created in your Sippy portal before accounts can be created. If no tariffs appear above, go to your Sippy portal → <em>Billing → Service Plans</em> and create one first.
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 

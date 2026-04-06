@@ -747,10 +747,9 @@ export async function pushAccountToSippy(
   const auth   = { Authorization: basicAuth(credentials.username, credentials.password) };
 
   // Build the account parameter set (only include non-empty / non-null values)
+  // NOTE: 'type' is NOT a valid Sippy customer.add param — account type is implied by the method
   const accountParams: Record<string, string | number | boolean> = {
     name: opts.name,
-    // Sippy uses 'customer' / 'vendor' for account type
-    type: opts.type === 'vendor' ? 'vendor' : 'customer',
   };
   if (opts.ipAddress)           accountParams.ip                    = opts.ipAddress;
   if (opts.ratePerMin !== undefined) accountParams.rate             = opts.ratePerMin;
@@ -775,8 +774,12 @@ export async function pushAccountToSippy(
     if (!isNaN(spInt)) accountParams.i_tariff = spInt;
   }
 
-  // Try the known Sippy XML-RPC method names in order of likelihood
-  const methods = ['customer.add', 'customer.addCustomer', 'customer.addAccount', 'customer.update'];
+  // Sippy uses different top-level methods for customers vs vendors
+  const isVendor = opts.type === 'vendor';
+  const methods = isVendor
+    ? ['vendor.add', 'vendor.addVendor', 'customer.add']
+    : ['customer.add', 'customer.addCustomer', 'customer.addAccount'];
+
   let lastFault = '';
 
   for (const method of methods) {
@@ -788,8 +791,7 @@ export async function pushAccountToSippy(
         console.log(`[Sippy] ${method} succeeded for "${opts.name}"`);
         return { success: true, message: `Account "${opts.name}" created on Sippy (method: ${method})`, method };
       }
-      // Capture the fault message for the final error
-      const fault = extractTag(text, 'faultString') || extractTag(text, 'value');
+      const fault = extractTag(text, 'faultString');
       if (fault) lastFault = fault.replace(/<[^>]+>/g, '').trim();
       console.warn(`[Sippy] ${method} fault:`, lastFault || `HTTP ${resp.statusCode}`);
     } catch (e: any) {
@@ -800,6 +802,88 @@ export async function pushAccountToSippy(
 
   const detail = lastFault ? `Sippy said: ${lastFault}` : 'Check Sippy API permissions and account configuration.';
   return { success: false, message: 'Could not create account on Sippy.', detail };
+}
+
+// ── Routing Groups & Tariffs ───────────────────────────────────────────────────
+
+export interface SippyRoutingGroup {
+  id: number;
+  name: string;
+}
+
+export interface SippyTariffOption {
+  id: number;
+  name: string;
+  currency?: string;
+}
+
+export async function listSippyRoutingGroups(
+  username: string,
+  password: string,
+  portalUrl?: string,
+): Promise<{ groups: SippyRoutingGroup[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { groups: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth = { Authorization: basicAuth(username, password) };
+
+  const methods = ['routing_group.getRoutingGroupList', 'routing_group.getList', 'routing.getGroupList'];
+  for (const method of methods) {
+    try {
+      const body = xmlRpcCall(method);
+      const resp = await rawPost(apiUrl, body, auth);
+      if (resp.statusCode !== 200) continue;
+      const text = resp.body;
+      if (text.includes('faultCode')) continue;
+      const structs = extractAllTags(text, 'struct');
+      if (structs.length === 0) return { groups: [] };
+      const groups: SippyRoutingGroup[] = [];
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        const id = parseInt(m['i_routing_group'] || m['id'] || '0', 10);
+        const name = m['name'] || m['routing_group_name'] || `Group ${id}`;
+        if (id) groups.push({ id, name });
+      }
+      console.log(`[Sippy] listSippyRoutingGroups: found ${groups.length} groups via ${method}`);
+      return { groups };
+    } catch { continue; }
+  }
+  return { groups: [], error: 'Could not fetch routing groups from Sippy.' };
+}
+
+export async function listSippyTariffs(
+  username: string,
+  password: string,
+  portalUrl?: string,
+): Promise<{ tariffs: SippyTariffOption[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { tariffs: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth = { Authorization: basicAuth(username, password) };
+
+  const methods = ['tariff.getTariffList', 'tariff.getList', 'billing.getTariffList'];
+  for (const method of methods) {
+    try {
+      const body = xmlRpcCall(method);
+      const resp = await rawPost(apiUrl, body, auth);
+      if (resp.statusCode !== 200) continue;
+      const text = resp.body;
+      if (text.includes('faultCode')) continue;
+      const structs = extractAllTags(text, 'struct');
+      if (structs.length === 0) return { tariffs: [] };
+      const tariffs: SippyTariffOption[] = [];
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        const id = parseInt(m['i_tariff'] || m['id'] || '0', 10);
+        const name = m['name'] || m['tariff_name'] || `Tariff ${id}`;
+        const currency: string | undefined = m['currency'] || m['i_currency'] || undefined;
+        if (id) tariffs.push({ id, name, ...(currency ? { currency } : {}) });
+      }
+      console.log(`[Sippy] listSippyTariffs: found ${tariffs.length} tariffs via ${method}`);
+      return { tariffs };
+    } catch { continue; }
+  }
+  return { tariffs: [], error: 'Could not fetch tariffs from Sippy.' };
 }
 
 export async function getSippyStats(username: string, password: string, explicitPortalUrl?: string): Promise<SippyStats> {

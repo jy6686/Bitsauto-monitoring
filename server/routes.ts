@@ -1099,6 +1099,42 @@ export async function registerRoutes(
     res.json({ cdrs });
   });
 
+  // GET /api/sippy/routing-groups — list routing groups from Sippy
+  app.get('/api/sippy/routing-groups', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      let username = settings.portalUsername ?? '';
+      let password = settings.portalPassword ?? '';
+      let portalUrl: string | undefined = settings.portalUrl ?? undefined;
+      if (req.query.switchId) {
+        const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
+        if (sw) { username = sw.portalUsername ?? ''; password = sw.portalPassword ?? ''; portalUrl = sw.portalUrl ?? undefined; }
+      }
+      const result = await sippy.listSippyRoutingGroups(username, password, portalUrl);
+      res.json(result);
+    } catch (err: any) {
+      res.json({ groups: [], error: err.message });
+    }
+  });
+
+  // GET /api/sippy/tariffs — list tariffs from Sippy
+  app.get('/api/sippy/tariffs', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      let username = settings.portalUsername ?? '';
+      let password = settings.portalPassword ?? '';
+      let portalUrl: string | undefined = settings.portalUrl ?? undefined;
+      if (req.query.switchId) {
+        const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
+        if (sw) { username = sw.portalUsername ?? ''; password = sw.portalPassword ?? ''; portalUrl = sw.portalUrl ?? undefined; }
+      }
+      const result = await sippy.listSippyTariffs(username, password, portalUrl);
+      res.json(result);
+    } catch (err: any) {
+      res.json({ tariffs: [], error: err.message });
+    }
+  });
+
   // POST /api/sippy/accounts — create a new Sippy customer account directly on the switch
   app.post('/api/sippy/accounts', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {
