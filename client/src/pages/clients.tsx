@@ -298,7 +298,9 @@ export default function ClientsPage() {
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {portalSession?.active
-                  ? 'Client accounts configured in your VOS3000 switch — import any as a local profile'
+                  ? vosClientsData?.source === 'expenditure-summary'
+                    ? 'Client names extracted from your call traffic records'
+                    : 'Client accounts configured in your VOS3000 switch — import any as a local profile'
                   : 'Connect to VOS3000 in Settings to load client accounts from the switch'}
               </p>
             </div>
@@ -338,7 +340,10 @@ export default function ClientsPage() {
           <div className="flex flex-col items-center justify-center py-10 gap-2 text-amber-400 text-sm text-center px-6">
             <AlertTriangle className="w-5 h-5" />
             <p>{vosClientsData.error}</p>
-            <p className="text-xs text-muted-foreground">The portal user account may not have permission to list terminal accounts.</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              This can happen if no call data has been recorded yet, or if the portal account lacks list permissions.
+              Try generating some call traffic and refreshing.
+            </p>
           </div>
         ) : !vosClientsData?.clients?.length ? (
           <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
@@ -347,6 +352,12 @@ export default function ClientsPage() {
           </div>
         ) : (
           <div className="divide-y divide-border/30">
+            {vosClientsData?.source === 'expenditure-summary' && (
+              <div className="flex items-center gap-2 px-6 py-2.5 bg-violet-500/5 border-b border-violet-500/10 text-xs text-violet-300/70">
+                <AlertTriangle className="w-3 h-3 text-violet-400 flex-shrink-0" />
+                Clients derived from call traffic records — direct terminal list not available for this account type
+              </div>
+            )}
             {vosClientsData.clients.map((c) => {
               const alreadyImported = importedNames.has(c.name);
               return (

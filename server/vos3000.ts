@@ -494,38 +494,92 @@ export interface ClientStatRow {
 
 /**
  * Fetches terminal account (client) list from VOS3000.
- * Tries multiple endpoint paths used by different VOS3000 versions.
+ * Tries multiple endpoint paths used by different VOS3000 versions / login types.
+ * Falls back to deriving the client list from the expenditure-summary rows
+ * (which work for all account types including Mapping Gateway logins).
  */
-export async function fetchVosClients(): Promise<{ clients: VosClient[]; error?: string }> {
+export async function fetchVosClients(): Promise<{ clients: VosClient[]; source?: string; error?: string }> {
   if (!activeSession) return { clients: [], error: 'Not logged in to portal.' };
 
-  const endpoints = [
-    { path: 'terminal/terminalQuery.action', params: { page: '1', rows: '200' } },
-    { path: 'account/terminalQuery.action', params: { page: '1', rows: '200' } },
-    { path: 'customer/customerQuery.action', params: { page: '1', rows: '200' } },
-    { path: 'gateway/terminalQuery.action', params: { page: '1', rows: '200' } },
+  const listEndpoints = [
+    // Admin / reseller endpoints
+    { path: 'terminal/terminalQuery.action',        params: { page: '1', rows: '500' } },
+    { path: 'account/terminalQuery.action',          params: { page: '1', rows: '500' } },
+    { path: 'customer/customerQuery.action',         params: { page: '1', rows: '500' } },
+    { path: 'gateway/terminalQuery.action',          params: { page: '1', rows: '500' } },
+    // Gateway / mapping account endpoints
+    { path: 'mapping/terminalQuery.action',          params: { page: '1', rows: '500' } },
+    { path: 'gateway/gatewayQuery.action',           params: { page: '1', rows: '500' } },
+    { path: 'mapping/mappingGatewayQuery.action',    params: { page: '1', rows: '500' } },
+    { path: 'reseller/terminalQuery.action',         params: { page: '1', rows: '500' } },
+    { path: 'user/userQuery.action',                 params: { page: '1', rows: '500' } },
+    { path: 'terminal/query.action',                 params: { page: '1', rows: '500' } },
+    // GET variants some VOS3000 builds use
   ];
 
-  for (const { path, params } of endpoints) {
+  for (const { path, params } of listEndpoints) {
     try {
       const json = await portalPost(path, params);
       const rows: any[] = json.rows || (Array.isArray(json) ? json : []);
       if (rows.length > 0) {
         console.log(`[VOS3000] fetchVosClients: found ${rows.length} clients via ${path}`);
         return {
+          source: path,
           clients: rows.map((r: any) => ({
-            id: String(r.id || r.terminalId || r.accountId || r.customerId || ''),
-            name: r.terminalName || r.name || r.accountName || r.customerName || r.loginName || String(r.id || 'Unknown'),
-            balance: parseFloat(String(r.balance || r.amount || r.credit || 0)),
-            status: String(r.status || r.state || r.enabled || ''),
-            type: String(r.terminalType || r.type || r.accountType || ''),
+            id: String(r.id || r.terminalId || r.accountId || r.customerId || r.gatewayId || ''),
+            name: r.terminalName || r.name || r.accountName || r.customerName || r.loginName || r.gatewayName || String(r.id || 'Unknown'),
+            balance: parseFloat(String(r.balance || r.amount || r.credit || r.fee || 0)),
+            status: String(r.status || r.state || r.enabled || r.active || ''),
+            type: String(r.terminalType || r.type || r.accountType || r.gatewayType || ''),
           })),
         };
       }
     } catch (err: any) {
       if (err.message === 'SESSION_EXPIRED') return { clients: [], error: 'Session expired. Please log in again.' };
-      console.warn(`[VOS3000] fetchVosClients ${path}:`, err.message);
+      console.warn(`[VOS3000] fetchVosClients tried ${path}: ${err.message}`);
     }
+  }
+
+  // ── Fallback: derive clients from expenditure summary ───────────────────────
+  // The expenditure summary works for all account types. Each row is one
+  // gateway / terminal with accumulated call stats — enough to build a client list.
+  console.log('[VOS3000] fetchVosClients: falling back to expenditure-summary client extraction');
+  try {
+    const now = new Date();
+    const start = new Date(now.getTime() - 30 * 24 * 3600 * 1000); // last 30 days
+    const json = await portalPost('gateway/expenditureSummary.action', {
+      starttime: formatVosDate(start),
+      endtime: formatVosDate(now),
+      page: '1',
+      rows: '500',
+    });
+
+    const rows: any[] = json.rows || (Array.isArray(json) ? json : []);
+    if (rows.length > 0) {
+      const seen = new Set<string>();
+      const clients: VosClient[] = [];
+      for (const r of rows) {
+        const id   = String(r.terminalId || r.id || r.accountId || '');
+        const name = r.terminalName || r.name || r.accountName || r.loginName || id || 'Unknown';
+        if (!id && name === 'Unknown') continue;
+        const key = id || name;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        clients.push({
+          id,
+          name,
+          balance: parseFloat(String(r.balance || r.amount || r.fee || 0)),
+          status: 'active',
+          type: String(r.terminalType || r.type || ''),
+        });
+      }
+      if (clients.length > 0) {
+        console.log(`[VOS3000] fetchVosClients fallback: extracted ${clients.length} clients from expenditure summary`);
+        return { clients, source: 'expenditure-summary' };
+      }
+    }
+  } catch (err: any) {
+    console.warn('[VOS3000] fetchVosClients fallback error:', err.message);
   }
 
   return { clients: [], error: 'No client data found. Your VOS3000 account may not have permission to list terminal accounts.' };
