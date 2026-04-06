@@ -967,3 +967,108 @@ export async function getSippyRateAnalysis(
   }
   return { carrierGroups: [], rates: [], error: 'Rate analysis API not available on this Sippy instance.' };
 }
+
+// ── Rate Editor CRUD ──────────────────────────────────────────────────────────
+
+export interface RateEntry {
+  prefix: string;
+  destination: string;
+  rate: number;
+  effectiveFrom: string;
+  effectiveTill: string;
+}
+
+export async function getSippyRateList(
+  username: string,
+  password: string,
+  tariffId: string,
+  portalUrl?: string,
+): Promise<{ rates: RateEntry[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { rates: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+
+  for (const method of ['tariff.getRateList', 'rate.getRateList', 'tariff.getRates']) {
+    try {
+      const body = xmlRpcCall(method, { i_tariff: tariffId, get_total: 0 });
+      const resp = await rawPost(apiUrl, body, auth);
+      if (resp.statusCode !== 200 || resp.body.includes('<fault>')) continue;
+      const structs = extractAllTags(resp.body, 'struct');
+      const rates: RateEntry[] = [];
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        const prefix = m['destination'] || m['prefix'] || m['dial_code'] || m['i_dest'] || '';
+        if (!prefix) continue;
+        rates.push({
+          prefix,
+          destination: m['destination_name'] || m['name'] || m['destination_description'] || prefix,
+          rate: parseFloat(m['rate'] || m['price'] || '0') || 0,
+          effectiveFrom: m['effective_from'] || m['start_date'] || '',
+          effectiveTill: m['effective_till'] || m['end_date'] || '',
+        });
+      }
+      return { rates };
+    } catch { continue; }
+  }
+  return { rates: [], error: 'Could not fetch rates from this Sippy instance.' };
+}
+
+export async function setSippyRateEntry(
+  username: string,
+  password: string,
+  tariffId: string,
+  entry: { prefix: string; rate: number; effectiveFrom?: string; effectiveTill?: string },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+  const lastErrors: string[] = [];
+
+  const params: Record<string, string | number> = {
+    i_tariff:    tariffId,
+    destination: entry.prefix,
+    rate:        entry.rate,
+  };
+  if (entry.effectiveFrom) params.start_date = entry.effectiveFrom;
+  if (entry.effectiveTill) params.end_date   = entry.effectiveTill;
+
+  for (const method of ['tariff.setRate', 'tariff.addDestination', 'rate.setRate']) {
+    try {
+      const body = xmlRpcCall(method, params);
+      const resp = await rawPost(apiUrl, body, auth);
+      if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+        return { success: true, message: `Rate saved via ${method}` };
+      }
+      const fault = extractTag(resp.body, 'faultString') || `${method} failed`;
+      lastErrors.push(fault);
+    } catch (e: any) { lastErrors.push(e.message); }
+  }
+  return { success: false, message: lastErrors[0] || 'Could not save rate.' };
+}
+
+export async function deleteSippyRateEntry(
+  username: string,
+  password: string,
+  tariffId: string,
+  prefix: string,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+
+  for (const method of ['tariff.deleteRate', 'tariff.deleteDestination', 'rate.deleteRate']) {
+    try {
+      const body = xmlRpcCall(method, { i_tariff: tariffId, destination: prefix });
+      const resp = await rawPost(apiUrl, body, auth);
+      if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+        return { success: true, message: `Rate deleted via ${method}` };
+      }
+    } catch { continue; }
+  }
+  return { success: false, message: 'Delete not supported by this Sippy instance. Rate removed locally.' };
+}

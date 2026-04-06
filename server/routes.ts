@@ -1158,6 +1158,61 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/sippy/rates?tariffId=xxx&switchId=yyy
+  app.get('/api/sippy/rates', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const tariffId = String(req.query.tariffId || '');
+      const switchId = req.query.switchId ? Number(req.query.switchId) : null;
+      let portalUrl = settings.portalUrl ?? undefined;
+      let u = settings.portalUsername ?? '';
+      let p = settings.portalPassword ?? '';
+      if (switchId) {
+        const sw = (await storage.getSwitches()).find(s => s.id === switchId);
+        if (sw) { portalUrl = sw.portalUrl ?? undefined; u = sw.portalUsername ?? ''; p = sw.portalPassword ?? ''; }
+      }
+      if (!tariffId) return res.json({ rates: [], error: 'tariffId required' });
+      const result = await sippy.getSippyRateList(u, p, tariffId, portalUrl);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ rates: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/rates — add or update a single rate entry
+  app.post('/api/sippy/rates', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { tariffId, prefix, rate, effectiveFrom, effectiveTill, switchId } = req.body;
+      let portalUrl = settings.portalUrl ?? undefined;
+      let u = settings.portalUsername ?? '';
+      let p = settings.portalPassword ?? '';
+      if (switchId) {
+        const sw = (await storage.getSwitches()).find(s => s.id === switchId);
+        if (sw) { portalUrl = sw.portalUrl ?? undefined; u = sw.portalUsername ?? ''; p = sw.portalPassword ?? ''; }
+      }
+      if (!tariffId || !prefix || rate === undefined) return res.status(400).json({ success: false, message: 'tariffId, prefix, rate required' });
+      const result = await sippy.setSippyRateEntry(u, p, tariffId, { prefix, rate: Number(rate), effectiveFrom, effectiveTill }, portalUrl);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/rates — remove a rate entry
+  app.delete('/api/sippy/rates', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { tariffId, prefix, switchId } = req.body;
+      let portalUrl = settings.portalUrl ?? undefined;
+      let u = settings.portalUsername ?? '';
+      let p = settings.portalPassword ?? '';
+      if (switchId) {
+        const sw = (await storage.getSwitches()).find(s => s.id === switchId);
+        if (sw) { portalUrl = sw.portalUrl ?? undefined; u = sw.portalUsername ?? ''; p = sw.portalPassword ?? ''; }
+      }
+      if (!tariffId || !prefix) return res.status(400).json({ success: false, message: 'tariffId and prefix required' });
+      const result = await sippy.deleteSippyRateEntry(u, p, tariffId, prefix, portalUrl);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // GET /api/sippy/tariffs — list tariff plans (products)
   app.get('/api/sippy/tariffs', async (_req, res) => {
     try {
