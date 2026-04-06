@@ -54,6 +54,10 @@ export const settings = pgTable("settings", {
   portalUrl: varchar("portal_url", { length: 255 }), // e.g. http://45.59.163.182:8080
   portalUsername: varchar("portal_username", { length: 128 }),
   portalPassword: varchar("portal_password", { length: 255 }),
+  // Persisted VOS3000 session (survives server restarts)
+  portalSessionToken: varchar("portal_session_token", { length: 512 }),
+  portalSessionUser: varchar("portal_session_user", { length: 128 }),
+  portalSessionBase: varchar("portal_session_base", { length: 512 }),
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports

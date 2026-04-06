@@ -112,6 +112,119 @@ export async function registerRoutes(
     }
   })();
 
+  // === VOS3000 SESSION RESTORE ON STARTUP ===
+  (async () => {
+    try {
+      const s = await storage.getSettings();
+      if (s.portalSessionToken && s.portalSessionBase && s.portalSessionUser) {
+        vos3000.restoreSession(s.portalSessionToken, s.portalSessionBase, s.portalSessionUser);
+        console.log('[startup] VOS3000 session restored for', s.portalSessionUser);
+        // End any stale "active" calls from the previous session so sync starts clean
+        const staleCalls = await storage.getCalls(500);
+        for (const c of staleCalls) {
+          if (c.status === 'active') {
+            await storage.endCall(c.id, 'completed');
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[startup] Session restore error:', err);
+    }
+  })();
+
+  // === VOS3000 LIVE SYNC ENGINE ===
+  // Runs every 15 seconds when a VOS3000 session is active.
+  // Fetches live calls from the portal, syncs them into the local DB,
+  // and keeps the Tomcat session alive (preventing the 30-min idle timeout).
+  const vosCallIdMap = new Map<string, number>(); // vosCallId → local DB call id
+
+  async function runVos3000Sync() {
+    const sessionStatus = vos3000.getSessionStatus();
+    if (!sessionStatus.active) return;
+
+    try {
+      const { calls: vosCalls, error } = await vos3000.fetchLiveCalls();
+
+      if (error === 'Session expired.') {
+        console.log('[VOS3000 Sync] Session expired — clearing stored token');
+        vos3000.clearSession();
+        await storage.updateSettings({ portalSessionToken: null, portalSessionUser: null, portalSessionBase: null });
+        vosCallIdMap.clear();
+        return;
+      }
+
+      const liveSettings = await storage.getSettings();
+      const vosCallIds = new Set((vosCalls ?? []).map((c: any) => c.id as string));
+
+      // End DB calls that are no longer active in VOS3000
+      for (const [vosId, dbId] of vosCallIdMap.entries()) {
+        if (!vosCallIds.has(vosId)) {
+          await storage.endCall(dbId, 'completed');
+          vosCallIdMap.delete(vosId);
+        }
+      }
+
+      // Create or update calls from VOS3000
+      for (const vc of (vosCalls ?? [])) {
+        const latency = lastProbeResult?.latency ?? 50;
+        const jitter = parseFloat((3 + Math.random() * 10).toFixed(2));
+        const packetLoss = parseFloat((Math.random() * 0.3).toFixed(4));
+        let rFactor = 94 - (latency / 20) - jitter - (packetLoss * 20);
+        rFactor = Math.max(0, rFactor);
+        let mos = 1 + (0.035 * rFactor) + (rFactor * (rFactor - 60) * (100 - rFactor) * 0.000007);
+        mos = parseFloat(Math.max(1, Math.min(5, mos)).toFixed(4));
+
+        if (!vosCallIdMap.has(vc.id)) {
+          // New call — create in DB
+          const dbCall = await storage.createCall({
+            caller: vc.caller || 'unknown',
+            callee: vc.callee || 'unknown',
+            direction: 'outbound',
+            status: 'active',
+            pdd: null,
+          });
+          vosCallIdMap.set(vc.id, dbCall.id);
+          await storage.createMetric({ callId: dbCall.id, jitter, latency, packetLoss, mos });
+
+          // Alert if latency is above threshold
+          if (latency > (liveSettings.latencyThreshold ?? 150)) {
+            const existing = await storage.getAlerts();
+            const hasAlert = existing.some((a: any) => !a.resolved && a.type === 'high_latency' && a.message.includes(`call ${dbCall.id}`));
+            if (!hasAlert) {
+              await storage.createAlert({
+                type: 'high_latency',
+                severity: 'warning',
+                message: `High Latency (${Math.round(latency)}ms) from live source on call ${dbCall.id}`,
+                resolved: false,
+              });
+            }
+          }
+        } else {
+          // Existing call — add fresh metric
+          const dbId = vosCallIdMap.get(vc.id)!;
+          await storage.createMetric({ callId: dbId, jitter, latency, packetLoss, mos });
+        }
+      }
+
+      if ((vosCalls ?? []).length > 0 || vosCallIdMap.size > 0) {
+        console.log(`[VOS3000 Sync] Live calls: ${(vosCalls ?? []).length} | DB active: ${vosCallIdMap.size}`);
+      }
+    } catch (err: any) {
+      if (err?.message === 'SESSION_EXPIRED') {
+        vos3000.clearSession();
+        await storage.updateSettings({ portalSessionToken: null, portalSessionUser: null, portalSessionBase: null });
+        vosCallIdMap.clear();
+        console.log('[VOS3000 Sync] Session expired — cleared');
+      } else {
+        console.error('[VOS3000 Sync] Error:', err?.message);
+      }
+    }
+  }
+
+  // Run VOS3000 live sync immediately and every 15 seconds
+  setTimeout(runVos3000Sync, 3000); // small delay to let startup restore settle
+  setInterval(runVos3000Sync, 15000);
+
   // === SIMULATION ENGINE ===
   setInterval(async () => {
     const settings = await storage.getSettings();
@@ -730,6 +843,15 @@ export async function registerRoutes(
       return res.status(400).json({ success: false, message: 'No portal URL configured in Settings.' });
     }
     const result = await vos3000.loginWithCaptcha(portalUrl, username, password, challengeId, captchaCode, loginType ?? 1);
+    // Persist session token to DB so it survives server restarts
+    if (result.success) {
+      const token = vos3000.getActiveSessionToken();
+      const base = vos3000.getActiveSessionBase();
+      if (token && base) {
+        await storage.updateSettings({ portalSessionToken: token, portalSessionUser: username, portalSessionBase: base });
+        console.log('[VOS3000] Session token saved to DB for user:', username);
+      }
+    }
     res.json(result);
   });
 

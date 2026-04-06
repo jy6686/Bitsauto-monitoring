@@ -350,6 +350,32 @@ export function clearSession(): void {
   activeSession = null;
 }
 
+/**
+ * Restores a persisted session from stored credentials (e.g. after server restart).
+ * The session is marked as restored — the next live-call fetch will validate it.
+ */
+export function restoreSession(jsessionid: string, base: string, username: string): void {
+  const session: Vos3000Session = {
+    jsessionid,
+    portalBase: base.endsWith('/') ? base : base + '/',
+    username,
+    loggedInAt: new Date(),
+  };
+  activeSession = session;
+  sessionsByUrl.set(session.portalBase, session);
+  console.log('[VOS3000] Session restored from DB for', username, 'at', session.portalBase);
+}
+
+/** Returns the raw JSESSIONID of the current active session, or null. */
+export function getActiveSessionToken(): string | null {
+  return activeSession?.jsessionid ?? null;
+}
+
+/** Returns portalBase of the current active session, or null. */
+export function getActiveSessionBase(): string | null {
+  return activeSession?.portalBase ?? null;
+}
+
 // ─── Data Fetching ────────────────────────────────────────────────────────────
 
 async function portalPost(path: string, params: Record<string, string>): Promise<any> {
