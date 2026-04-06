@@ -63,14 +63,29 @@ function fmtUTC(val: string | null | undefined): string {
   } catch { return val; }
 }
 
+function resolveSyncStatus(ss: Record<string, string> | null | undefined): { status?: string; syncedAt?: string } {
+  if (!ss) return {};
+  const syncedAt = ss.syncedAt;
+  const statusKeys = Object.keys(ss).filter(k => k !== 'syncedAt');
+  if (statusKeys.length === 0) return { syncedAt };
+  // Prefer a 'synced' entry; if any key is synced, show synced. Otherwise show the first failure.
+  const synced = statusKeys.find(k => ss[k] === 'synced');
+  if (synced) return { status: 'synced', syncedAt };
+  return { status: ss[statusKeys[0]], syncedAt };
+}
+
 function SyncBadge({ status, syncedAt }: { status?: string; syncedAt?: string }) {
   if (!status) return (
     <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider font-medium">Not synced</span>
   );
   const ok = status === 'synced';
+  const errorReason = !ok && status.startsWith('failed: ') ? status.slice('failed: '.length) : (!ok ? status : '');
+  const tooltipText = ok
+    ? (syncedAt ? `Last sync: ${fmtUTC(syncedAt)}` : 'Synced')
+    : [syncedAt ? `Last sync: ${fmtUTC(syncedAt)}` : '', errorReason].filter(Boolean).join('\n');
   return (
-    <span title={syncedAt ? `Last sync: ${fmtUTC(syncedAt)}` : undefined}
-      className={`flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded ${
+    <span title={tooltipText || undefined}
+      className={`flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded cursor-help ${
         ok ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
       }`}>
       {ok ? <CheckCircle2 className="w-2.5 h-2.5" /> : <XCircle className="w-2.5 h-2.5" />}
@@ -619,8 +634,7 @@ function SendRatePanel({ profiles }: { profiles: ClientProfile[] }) {
             {selected.switchSyncStatus && (
               <div className="flex items-center gap-2 mt-1">
                 <SyncBadge
-                  status={selected.switchSyncStatus.vos3000 || selected.switchSyncStatus.sippy}
-                  syncedAt={selected.switchSyncStatus.syncedAt}
+                  {...resolveSyncStatus(selected.switchSyncStatus as any)}
                 />
               </div>
             )}
@@ -1125,8 +1139,7 @@ function ProfileTable({
                       {p.switchSyncStatus && (
                         <div className="mt-1">
                           <SyncBadge
-                            status={p.switchSyncStatus.vos3000 || p.switchSyncStatus.sippy}
-                            syncedAt={p.switchSyncStatus.syncedAt}
+                            {...resolveSyncStatus(p.switchSyncStatus as any)}
                           />
                         </div>
                       )}

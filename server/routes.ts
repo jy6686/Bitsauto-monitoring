@@ -732,18 +732,25 @@ export async function registerRoutes(
     return { success: false, message: `Unknown switch type: ${sw.type}` };
   }
 
-  // Resolve which switches to target: if switchIds provided use those, otherwise fall back to primary settings switch
+  // Resolve which switches to target: if switchIds provided use those, otherwise
+  // try primary settings switch first, then fall back to ALL enabled secondary switches.
   async function resolveSwitches(switchIds?: number[]): Promise<Array<{ id: number; name: string; type: string; portalUrl: string | null; portalUsername: string | null; portalPassword: string | null }>> {
     if (switchIds && switchIds.length > 0) {
       const allSwitches = await storage.getSwitches();
       return allSwitches.filter(s => switchIds.includes(s.id) && s.enabled);
     }
-    // Fall back to the primary switch from Settings
+    const targets: Array<{ id: number; name: string; type: string; portalUrl: string | null; portalUsername: string | null; portalPassword: string | null }> = [];
+    // Primary switch from Settings (if configured)
     const settings = await storage.getSettings();
     if (settings.switchType && settings.switchType !== 'none' && settings.portalUrl) {
-      return [{ id: 0, name: 'Primary Switch', type: settings.switchType, portalUrl: settings.portalUrl, portalUsername: settings.portalUsername || null, portalPassword: settings.portalPassword || null }];
+      targets.push({ id: 0, name: 'Primary Switch', type: settings.switchType, portalUrl: settings.portalUrl, portalUsername: settings.portalUsername || null, portalPassword: settings.portalPassword || null });
     }
-    return [];
+    // All enabled secondary switches (added via Settings → Switches panel)
+    const secondary = await storage.getSwitches();
+    for (const sw of secondary) {
+      if (sw.enabled && sw.portalUrl) targets.push(sw);
+    }
+    return targets;
   }
 
   // ── Sync a client/vendor profile + rate to one or more switches ────────────
