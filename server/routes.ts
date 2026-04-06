@@ -1,6 +1,7 @@
 
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import * as net from "net";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
@@ -11,6 +12,49 @@ const SIMULATION_INTERVAL = 2000; // 2 seconds
 const MAX_ACTIVE_CALLS = 10;
 const CALL_DURATION_PROBABILITY = 0.1; // 10% chance to end a call each tick
 
+// SIP probe ports to try in order
+const SIP_PORTS = [5060, 5061, 80, 443];
+
+// Probe an IP address by attempting TCP connections and measuring round-trip time
+// Returns latency in ms, or null if unreachable
+function probeIp(ip: string): Promise<{ latency: number; reachable: boolean }> {
+  return new Promise((resolve) => {
+    let portIdx = 0;
+    
+    function tryPort(portIndex: number) {
+      if (portIndex >= SIP_PORTS.length) {
+        resolve({ latency: 999, reachable: false });
+        return;
+      }
+      const port = SIP_PORTS[portIndex];
+      const start = Date.now();
+      const socket = new net.Socket();
+      socket.setTimeout(2000);
+      
+      socket.connect(port, ip, () => {
+        const latency = Date.now() - start;
+        socket.destroy();
+        resolve({ latency, reachable: true });
+      });
+      
+      socket.on('timeout', () => {
+        socket.destroy();
+        tryPort(portIndex + 1);
+      });
+      
+      socket.on('error', () => {
+        socket.destroy();
+        tryPort(portIndex + 1);
+      });
+    }
+    
+    tryPort(0);
+  });
+}
+
+// In-memory store for latest IP probe result
+let lastProbeResult: { latency: number; reachable: boolean; timestamp: Date } | null = null;
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -19,10 +63,25 @@ export async function registerRoutes(
   await setupAuth(app);
   registerAuthRoutes(app);
 
+  // === IP PROBE ENGINE ===
+  // Runs independently to measure real latency to the monitored IP
+  async function runIpProbe() {
+    const settings = await storage.getSettings();
+    const ip = settings.monitoredIp;
+    if (!ip) return;
+    const result = await probeIp(ip);
+    lastProbeResult = { ...result, timestamp: new Date() };
+  }
+  // Run probe immediately on startup, then every 10 seconds
+  runIpProbe();
+  setInterval(runIpProbe, 10000);
+
   // === SIMULATION ENGINE ===
   setInterval(async () => {
     const settings = await storage.getSettings();
     if (!settings.simulationEnabled) return;
+
+    const monitoredIp = settings.monitoredIp || null;
 
     // 1. Manage Active Calls (Create/End)
     const calls = await storage.getCalls(100);
@@ -39,8 +98,14 @@ export async function registerRoutes(
     if (activeCalls.length < MAX_ACTIVE_CALLS) {
       const newCallsNeeded = MAX_ACTIVE_CALLS - activeCalls.length;
       if (newCallsNeeded > 0 && Math.random() > 0.3) {
-        const caller = `+1${Math.floor(Math.random() * 9000000000) + 1000000000}`;
-        const callee = `+1${Math.floor(Math.random() * 9000000000) + 1000000000}`;
+        // ~30% of new calls originate from / go to the monitored IP (live source)
+        const useMonitoredIp = monitoredIp && Math.random() < 0.3;
+        const caller = useMonitoredIp
+          ? monitoredIp
+          : `+1${Math.floor(Math.random() * 9000000000) + 1000000000}`;
+        const callee = useMonitoredIp && Math.random() > 0.5
+          ? monitoredIp
+          : `+1${Math.floor(Math.random() * 9000000000) + 1000000000}`;
         await storage.createCall({
           caller,
           callee,
@@ -54,25 +119,33 @@ export async function registerRoutes(
     const currentActiveCalls = (await storage.getCalls(100)).filter(c => c.status === 'active');
     
     for (const call of currentActiveCalls) {
+      // For calls involving the monitored IP, use real probe latency as the base
+      const isLiveSourceCall = monitoredIp && (call.caller === monitoredIp || call.callee === monitoredIp);
+      const probeLatency = lastProbeResult?.latency ?? null;
+
       // Simulate Jitter (0-50ms usually, spikes occasionally)
       let jitter = Math.random() * 20; // Normal jitter
       if (Math.random() > 0.9) jitter += 50; // Spike
 
-      // Simulate Latency (20-100ms usually)
-      let latency = 20 + Math.random() * 80;
-      if (Math.random() > 0.95) latency += 200; // Spike
+      // Simulate Latency — use real probe result for live-source calls if available
+      let latency: number;
+      if (isLiveSourceCall && probeLatency !== null) {
+        // Add small variance (±10%) around the real measured latency
+        latency = probeLatency * (0.9 + Math.random() * 0.2);
+      } else {
+        latency = 20 + Math.random() * 80;
+        if (Math.random() > 0.95) latency += 200; // Spike
+      }
 
       // Simulate Packet Loss (0-1% usually)
       let packetLoss = Math.random() * 0.5;
       if (Math.random() > 0.95) packetLoss += 5; // Spike
 
       // Calculate MOS (Mean Opinion Score)
-      // Simplified formula: MOS = 4.4 - 0.024*latency - 0.1*jitter - 2.5*packetLoss
-      // Capped between 1 and 5
       let rFactor = 94 - (latency / 20) - jitter - (packetLoss * 20);
       if (rFactor < 0) rFactor = 0;
       let mos = 1 + (0.035 * rFactor) + (rFactor * (rFactor - 60) * (100 - rFactor) * 0.000007);
-      if (mos > 4.5) mos = 4.5; // Cap at realistic max
+      if (mos > 4.5) mos = 4.5;
       if (mos < 1) mos = 1;
       
       // Add metric
@@ -101,6 +174,15 @@ export async function registerRoutes(
           resolved: false
         });
       }
+      // Alert if live-source latency is very high
+      if (isLiveSourceCall && latency > (settings.latencyThreshold || 150)) {
+        await storage.createAlert({
+          type: 'high_latency',
+          severity: 'warning',
+          message: `High Latency (${latency.toFixed(0)}ms) from live source ${monitoredIp} on call ${call.id}`,
+          resolved: false
+        });
+      }
     }
   }, SIMULATION_INTERVAL);
 
@@ -111,6 +193,21 @@ export async function registerRoutes(
   app.get(api.dashboard.stats.path, async (req, res) => {
     const stats = await storage.getDashboardStats();
     res.json(stats);
+  });
+
+  // Live IP Probe Status
+  app.get('/api/probe/status', async (req, res) => {
+    const settings = await storage.getSettings();
+    res.json({
+      ip: settings.monitoredIp || null,
+      ...lastProbeResult,
+    });
+  });
+
+  // Trigger an on-demand probe
+  app.post('/api/probe/run', async (req, res) => {
+    await runIpProbe();
+    res.json({ ...lastProbeResult });
   });
 
   // Calls

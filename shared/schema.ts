@@ -46,6 +46,7 @@ export const settings = pgTable("settings", {
   latencyThreshold: integer("latency_threshold").default(150), // ms
   packetLossThreshold: real("packet_loss_threshold").default(1.0), // %
   simulationEnabled: boolean("simulation_enabled").default(true),
+  monitoredIp: varchar("monitored_ip", { length: 45 }).default('45.59.163.182'), // IP to probe for live calls
 });
 
 // === SCHEMAS ===

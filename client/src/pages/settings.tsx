@@ -11,6 +11,7 @@ const formSchema = insertSettingsSchema.pick({
   latencyThreshold: true,
   packetLossThreshold: true,
   simulationEnabled: true,
+  monitoredIp: true,
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -27,6 +28,7 @@ export default function SettingsPage() {
       latencyThreshold: 150,
       packetLossThreshold: 1.0,
       simulationEnabled: true,
+      monitoredIp: '45.59.163.182',
     },
   });
 
@@ -46,6 +48,20 @@ export default function SettingsPage() {
       <div className="bg-card border border-border rounded-xl shadow-sm p-6 md:p-8">
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
           <div className="grid gap-6">
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Monitored IP Address</label>
+              <p className="text-xs text-muted-foreground">
+                IP address to probe for live call extraction and real latency measurements.
+              </p>
+              <input 
+                {...form.register("monitoredIp")}
+                className="w-full bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                type="text"
+                placeholder="e.g. 45.59.163.182"
+                data-testid="input-monitored-ip"
+              />
+            </div>
+
             <div className="grid gap-2">
               <label className="text-sm font-medium">Jitter Threshold (ms)</label>
               <p className="text-xs text-muted-foreground">Alert when jitter exceeds this value.</p>

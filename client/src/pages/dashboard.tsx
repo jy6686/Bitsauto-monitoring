@@ -4,14 +4,17 @@ import { useAlerts } from "@/hooks/use-alerts";
 import { StatCard } from "@/components/stat-card";
 import { MosBadge } from "@/components/mos-badge";
 import { Link } from "wouter";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { 
   Activity, 
   Server, 
-  Users, 
   AlertTriangle, 
   PhoneCall, 
-  Clock, 
-  ArrowRight
+  ArrowRight,
+  Wifi,
+  WifiOff,
+  RefreshCw
 } from "lucide-react";
 import { 
   AreaChart, 
@@ -23,14 +26,32 @@ import {
   ResponsiveContainer 
 } from "recharts";
 import { format } from "date-fns";
+import { cn } from "@/lib/utils";
+
+type ProbeStatus = {
+  ip: string | null;
+  latency: number;
+  reachable: boolean;
+  timestamp: string;
+};
 
 export default function DashboardPage() {
+  const queryClient = useQueryClient();
   const { data: stats } = useDashboardStats();
   const { data: recentCalls } = useCalls(5);
   const { data: recentAlerts } = useAlerts();
 
+  const { data: probe, isLoading: probeLoading } = useQuery<ProbeStatus>({
+    queryKey: ['/api/probe/status'],
+    refetchInterval: 15000,
+  });
+
+  const probeMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/probe/run'),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/probe/status'] }),
+  });
+
   // Mock data for the chart since we don't have historical aggregates in this simple MVP schema yet
-  // In a real app, this would come from a dedicated historical metrics endpoint
   const chartData = [
     { time: '10:00', mos: 4.2 },
     { time: '10:05', mos: 4.1 },
@@ -80,6 +101,71 @@ export default function DashboardPage() {
           description="Threshold breaches detected"
         />
       </div>
+
+      {/* Live IP Source Panel */}
+      {probe?.ip && (
+        <div className={`rounded-xl border p-4 flex items-center justify-between gap-4 ${
+          probe.reachable
+            ? 'border-emerald-500/30 bg-emerald-500/5'
+            : 'border-rose-500/30 bg-rose-500/5'
+        }`}>
+          <div className="flex items-center gap-3">
+            {probe.reachable ? (
+              <Wifi className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+            ) : (
+              <WifiOff className="w-5 h-5 text-rose-400 flex-shrink-0" />
+            )}
+            <div>
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Live Source</p>
+              <p className="font-mono text-sm font-semibold" data-testid="text-live-ip">{probe.ip}</p>
+            </div>
+            <div className="h-8 w-px bg-border/50 mx-2" />
+            <div>
+              <p className="text-xs text-muted-foreground">Status</p>
+              <p className={`text-sm font-semibold ${probe.reachable ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {probe.reachable ? 'Reachable' : 'Unreachable'}
+              </p>
+            </div>
+            {probe.reachable && (
+              <>
+                <div className="h-8 w-px bg-border/50 mx-2" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Probe Latency</p>
+                  <p className="text-sm font-semibold font-mono" data-testid="text-probe-latency">
+                    {probe.latency.toFixed(0)} ms
+                  </p>
+                </div>
+              </>
+            )}
+            {probe.timestamp && (
+              <>
+                <div className="h-8 w-px bg-border/50 mx-2" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Last Checked</p>
+                  <p className="text-xs text-muted-foreground/80">
+                    {format(new Date(probe.timestamp), 'HH:mm:ss')}
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+          <button
+            data-testid="button-probe-refresh"
+            onClick={() => probeMutation.mutate()}
+            disabled={probeMutation.isPending}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border hover:bg-muted/50 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${probeMutation.isPending ? 'animate-spin' : ''}`} />
+            Probe Now
+          </button>
+        </div>
+      )}
+      {!probe?.ip && !probeLoading && (
+        <div className="rounded-xl border border-border/50 bg-muted/10 p-4 text-sm text-muted-foreground flex items-center gap-2">
+          <WifiOff className="w-4 h-4" />
+          No monitored IP configured. Set one in Settings.
+        </div>
+      )}
 
       <div className="grid gap-6 md:grid-cols-7">
         {/* Main Chart Area */}
