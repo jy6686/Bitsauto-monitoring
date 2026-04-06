@@ -62,6 +62,7 @@ export const clientProfiles = pgTable("client_profiles", {
   name: varchar("name", { length: 128 }).notNull(),
   type: varchar("type", { length: 10 }).notNull().default('client'), // client | vendor
   prefix: varchar("prefix", { length: 50 }), // CLI prefix for clients, CLD prefix for vendors
+  ipAddress: varchar("ip_address", { length: 45 }), // source IP for matching (IPv4 or IPv6)
   ratePerMin: real("rate_per_min").default(0.025), // billing rate per minute USD
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),

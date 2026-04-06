@@ -34,7 +34,7 @@ const TYPE_META = {
   },
 };
 
-const empty: Partial<ClientProfile> = { name: '', type: 'client', prefix: '', ratePerMin: 0.025, notes: '' };
+const empty: Partial<ClientProfile> = { name: '', type: 'client', prefix: '', ipAddress: '', ratePerMin: 0.025, notes: '' };
 
 function ProfileForm({
   initial,
@@ -100,6 +100,20 @@ function ProfileForm({
           onChange={e => set('ratePerMin', parseFloat(e.target.value))}
           className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
         />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">IP Address</label>
+        <input
+          data-testid="input-profile-ip"
+          value={form.ipAddress || ''}
+          onChange={e => set('ipAddress', e.target.value)}
+          placeholder="e.g. 45.59.163.182 or 10.0.0.0/24"
+          className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+        />
+        <p className="text-xs text-muted-foreground">
+          Calls originating from this IP will be matched to this {form.type || 'profile'}.
+          Supports exact IP or CIDR range.
+        </p>
       </div>
       <div className="sm:col-span-2 space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Notes</label>
@@ -451,7 +465,7 @@ function ProfileTable({
                   data-testid={`row-profile-${p.id}`}
                   className="flex items-center justify-between px-6 py-4 hover:bg-muted/20 transition-colors"
                 >
-                  <div className="flex-1 min-w-0 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1">
+                  <div className="flex-1 min-w-0 grid grid-cols-2 sm:grid-cols-5 gap-x-4 gap-y-1">
                     <div>
                       <p className="font-medium text-sm truncate">{p.name}</p>
                       {p.notes && <p className="text-xs text-muted-foreground truncate">{p.notes}</p>}
@@ -459,6 +473,15 @@ function ProfileTable({
                     <div>
                       <p className="text-xs text-muted-foreground">Prefix</p>
                       <p className="font-mono text-sm">{p.prefix || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">IP Address</p>
+                      <p className="font-mono text-sm">
+                        {p.ipAddress
+                          ? <span className="text-violet-400">{p.ipAddress}</span>
+                          : <span className="text-muted-foreground/50">—</span>
+                        }
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Rate / min</p>

@@ -66,10 +66,22 @@ const PRESET_GROUPS = [
   },
 ];
 
-// Match a number to a profile by prefix
-function matchProfile(number: string, profiles: ClientProfile[], type: 'client' | 'vendor'): ClientProfile | null {
-  const candidates = profiles.filter(p => p.type === type && p.prefix);
-  // longest prefix wins
+// Match a number/IP to a profile. IP match takes priority over prefix match.
+function matchProfile(
+  number: string,
+  profiles: ClientProfile[],
+  type: 'client' | 'vendor',
+  ip?: string,
+): ClientProfile | null {
+  const candidates = profiles.filter(p => p.type === type);
+
+  // 1. Exact IP match (highest priority)
+  if (ip) {
+    const ipMatch = candidates.find(p => (p as any).ipAddress && (p as any).ipAddress === ip);
+    if (ipMatch) return ipMatch;
+  }
+
+  // 2. Longest CLI/CLD prefix match
   let best: ClientProfile | null = null;
   let bestLen = 0;
   for (const p of candidates) {
@@ -148,9 +160,9 @@ export default function ReportsPage() {
     if (partyType === 'all') return rows;
     return rows.filter(r => {
       const profileType = groupBy === 'caller' ? 'client' : 'vendor';
-      const matched = matchProfile(r.caller, profiles, profileType);
-      if (partyType === 'client') return matchProfile(r.caller, profiles, 'client') !== null;
-      if (partyType === 'vendor') return matchProfile(r.caller, profiles, 'vendor') !== null;
+      const matched = matchProfile(r.caller, profiles, profileType, r.caller);
+      if (partyType === 'client') return matchProfile(r.caller, profiles, 'client', r.caller) !== null;
+      if (partyType === 'vendor') return matchProfile(r.caller, profiles, 'vendor', r.caller) !== null;
       return true;
     });
   }, [rows, partyType, profiles, groupBy]);
@@ -175,7 +187,7 @@ export default function ReportsPage() {
   function downloadCsv() {
     const headers = ['Caller/Callee', 'Profile Name', 'Type', 'Total Calls', 'Billable Calls', 'Billed Duration', 'ACD mm:ss', 'ASR %', 'Avg PDD sec', 'Revenue USD'];
     const csvRows = displayRows.map(r => {
-      const matched = matchProfile(r.caller, profiles, groupBy === 'caller' ? 'client' : 'vendor');
+      const matched = matchProfile(r.caller, profiles, groupBy === 'caller' ? 'client' : 'vendor', r.caller);
       return [
         r.caller,
         matched?.name || '',
@@ -591,7 +603,7 @@ export default function ReportsPage() {
               <tbody>
                 {displayRows.map((row, i) => {
                   const isLowAsr = row.asr < highlightBelow;
-                  const matched = matchProfile(row.caller, profiles, groupBy === 'caller' ? 'client' : 'vendor');
+                  const matched = matchProfile(row.caller, profiles, groupBy === 'caller' ? 'client' : 'vendor', row.caller);
                   return (
                     <tr
                       key={row.caller}
