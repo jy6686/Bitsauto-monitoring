@@ -856,32 +856,42 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               )}
             </div>
           ) : (
-            <div className="rounded-lg border border-violet-500/30 bg-violet-500/8 p-4 space-y-3">
-              <div className="flex items-center gap-2 mb-1">
+            <div className="rounded-lg border border-violet-500/30 bg-violet-500/[0.08] p-4 space-y-3">
+              <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-violet-400" />
                 <span className="text-xs font-semibold text-violet-300 uppercase tracking-wide">Sippy Connection</span>
               </div>
-              <p className="text-xs text-muted-foreground">Enter your Sippy switch credentials. These are only used for this request.</p>
+              <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-xs text-amber-300 space-y-1.5">
+                <p className="font-semibold">How to find your Sippy credentials:</p>
+                <ol className="list-decimal list-inside space-y-1 text-amber-200/90">
+                  <li>Open your Sippy web portal (e.g. <span className="font-mono bg-black/30 px-1 rounded">http://your-server:8088</span>)</li>
+                  <li>Log in as an administrator</li>
+                  <li>Go to <strong>My Account</strong> → <strong>API Credentials</strong></li>
+                  <li>Copy the <strong>API Username</strong> and <strong>API Password</strong> shown there</li>
+                  <li>The URL is your Sippy server address (same one you use to log in)</li>
+                </ol>
+                <p className="text-amber-200/70 mt-1">Tip: It's the same URL you use to log in. Common ports are 8088 or 443. Example: <span className="font-mono bg-black/30 px-1 rounded">http://45.59.163.182:8088</span></p>
+              </div>
               <div>
                 <label className={labelCls}>Sippy URL <span className="text-rose-400">*</span></label>
                 <input data-testid="input-sippy-inline-url" value={inlineUrl}
                   onChange={e => setInlineUrl(e.target.value)}
-                  placeholder="https://your-sippy.example.com" className={fieldCls} />
+                  placeholder="http://45.59.163.182:8088" className={fieldCls} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={labelCls}>Username <span className="text-rose-400">*</span></label>
+                  <label className={labelCls}>API Username <span className="text-rose-400">*</span></label>
                   <input data-testid="input-sippy-inline-user" value={inlineUser}
                     onChange={e => setInlineUser(e.target.value)}
-                    placeholder="admin" className={fieldCls} autoComplete="username" />
+                    placeholder="admin" className={fieldCls} autoComplete="off" />
                 </div>
                 <div>
-                  <label className={labelCls}>Password <span className="text-rose-400">*</span></label>
+                  <label className={labelCls}>API Password <span className="text-rose-400">*</span></label>
                   <div className="relative">
                     <input data-testid="input-sippy-inline-pass" value={inlinePass}
                       type={showPass ? 'text' : 'password'}
                       onChange={e => setInlinePass(e.target.value)}
-                      placeholder="••••••••" className={`${fieldCls} pr-8`} autoComplete="current-password" />
+                      placeholder="••••••••" className={`${fieldCls} pr-8`} autoComplete="off" />
                     <button type="button" onClick={() => setShowPass(p => !p)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                       {showPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -889,6 +899,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                   </div>
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground">These credentials are sent securely to your Sippy server only. They are never stored.</p>
             </div>
           )}
 

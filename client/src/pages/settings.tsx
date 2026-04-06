@@ -1115,8 +1115,17 @@ export default function SettingsPage() {
             <div className="grid gap-2">
               <label className="text-sm font-medium">Portal URL</label>
               <p className="text-xs text-muted-foreground">
-                Full URL including port if needed — e.g. <span className="font-mono text-xs">http://45.59.163.182:8080</span> or <span className="font-mono text-xs">https://portal.carrier.com</span>
+                Full URL including port — e.g. <span className="font-mono text-xs">http://45.59.163.182:8088</span> (Sippy default port is <strong>8088</strong>)
               </p>
+              {switchType === 'sippy' && (
+                <div className="rounded-md bg-blue-500/10 border border-blue-500/20 px-3 py-2.5 text-xs text-blue-300 space-y-1">
+                  <p className="font-semibold">How to find your Sippy API credentials:</p>
+                  <p>1. Log into your Sippy web portal as an administrator</p>
+                  <p>2. Go to <strong>My Account</strong> → <strong>API Credentials</strong> (top-right menu)</p>
+                  <p>3. Copy the <strong>API Login</strong> and <strong>API Password</strong> from that page</p>
+                  <p className="text-blue-200/70">These are different from your regular login — they are specifically for API access.</p>
+                </div>
+              )}
               <div className="flex gap-2">
                 <input
                   {...form.register("portalUrl")}
@@ -1141,20 +1150,27 @@ export default function SettingsPage() {
 
             {/* Username */}
             <div className="grid gap-2">
-              <label className="text-sm font-medium">Admin Username</label>
+              <label className="text-sm font-medium">
+                {switchType === 'sippy' ? 'API Login (Username)' : 'Admin Username'}
+              </label>
+              {switchType === 'sippy' && (
+                <p className="text-xs text-muted-foreground">Found under <strong>My Account → API Credentials</strong> in your Sippy portal</p>
+              )}
               <input
                 {...form.register("portalUsername")}
                 data-testid="input-portal-username"
                 type="text"
                 autoComplete="username"
-                placeholder="admin"
+                placeholder={switchType === 'sippy' ? 'API login from Sippy portal' : 'admin'}
                 className="w-full bg-background border border-border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
               />
             </div>
 
             {/* Password */}
             <div className="grid gap-2">
-              <label className="text-sm font-medium">Admin Password</label>
+              <label className="text-sm font-medium">
+                {switchType === 'sippy' ? 'API Password' : 'Admin Password'}
+              </label>
               <div className="relative">
                 <input
                   {...form.register("portalPassword")}
