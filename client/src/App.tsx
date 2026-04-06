@@ -17,6 +17,7 @@ import SettingsPage from "@/pages/settings";
 import ReportsPage from "@/pages/reports";
 import TeamPage from "@/pages/team";
 import ClientsPage from "@/pages/clients";
+import AccountPage from "@/pages/account";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
 
@@ -104,6 +105,9 @@ function Router() {
       </Route>
       <Route path="/team">
         {() => <ProtectedRoute component={TeamPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/account">
+        {() => <ProtectedRoute component={AccountPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
 
       <Route component={NotFound} />

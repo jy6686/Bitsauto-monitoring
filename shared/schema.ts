@@ -70,6 +70,23 @@ export type ClientProfile = typeof clientProfiles.$inferSelect;
 export type InsertClientProfile = typeof clientProfiles.$inferInsert;
 export const insertClientProfileSchema = createInsertSchema(clientProfiles).omit({ id: true, createdAt: true });
 
+// User Configuration: per-user personal settings beyond what Replit Auth provides
+export const userConfig = pgTable("user_config", {
+  userId: varchar("user_id").primaryKey(),
+  displayName: varchar("display_name", { length: 128 }),         // override shown name
+  phone: varchar("phone", { length: 30 }),                       // contact phone / extension
+  department: varchar("department", { length: 128 }),            // e.g. NOC, Support, Finance
+  timezone: varchar("timezone", { length: 64 }).default('UTC'),  // IANA timezone
+  notificationEmail: varchar("notification_email", { length: 255 }), // alert email (if different)
+  defaultReportRange: varchar("default_report_range", { length: 30 }).default('Last 3 hr'),
+  bio: text("bio"),                                              // short notes / role description
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type UserConfig = typeof userConfig.$inferSelect;
+export type InsertUserConfig = typeof userConfig.$inferInsert;
+export const insertUserConfigSchema = createInsertSchema(userConfig).omit({ userId: true, updatedAt: true });
+
 // Team Roles: maps each user to their access role
 export const userRoles = pgTable("user_roles", {
   userId: varchar("user_id").primaryKey(), // references users.id

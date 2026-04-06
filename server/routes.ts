@@ -319,6 +319,28 @@ export async function registerRoutes(
     }
   });
 
+  // ── User Configuration API ────────────────────────────────────────────────
+
+  // GET /api/user/config — returns the logged-in user's personal config
+  app.get('/api/user/config', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const config = await storage.getUserConfig(userId);
+      res.json(config ?? {});
+    } catch { res.status(500).json({ message: 'Failed to fetch config' }); }
+  });
+
+  // PATCH /api/user/config — saves the logged-in user's personal config
+  app.patch('/api/user/config', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const saved = await storage.upsertUserConfig(userId, req.body);
+      res.json(saved);
+    } catch { res.status(500).json({ message: 'Failed to save config' }); }
+  });
+
   // ── Client & Vendor Profiles API ─────────────────────────────────────────
 
   app.get('/api/clients', async (req, res) => {

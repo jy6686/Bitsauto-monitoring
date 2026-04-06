@@ -1,11 +1,12 @@
 
 import { 
-  calls, metrics, alerts, settings, userRoles, clientProfiles,
+  calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
   type AsrAcdReportRow, type AsrAcdReportFilters,
-  type Role, type ClientProfile, type InsertClientProfile
+  type Role, type ClientProfile, type InsertClientProfile,
+  type UserConfig, type InsertUserConfig
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -47,6 +48,10 @@ export interface IStorage {
   createClientProfile(profile: InsertClientProfile): Promise<ClientProfile>;
   updateClientProfile(id: number, profile: Partial<InsertClientProfile>): Promise<ClientProfile>;
   deleteClientProfile(id: number): Promise<void>;
+
+  // User Configuration
+  getUserConfig(userId: string): Promise<UserConfig | null>;
+  upsertUserConfig(userId: string, config: Partial<InsertUserConfig>): Promise<UserConfig>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -345,6 +350,25 @@ export class DatabaseStorage implements IStorage {
 
   async deleteClientProfile(id: number): Promise<void> {
     await db.delete(clientProfiles).where(eq(clientProfiles.id, id));
+  }
+
+  // ── User Configuration ─────────────────────────────────────────────────────
+
+  async getUserConfig(userId: string): Promise<UserConfig | null> {
+    const [row] = await db.select().from(userConfig).where(eq(userConfig.userId, userId));
+    return row ?? null;
+  }
+
+  async upsertUserConfig(userId: string, config: Partial<InsertUserConfig>): Promise<UserConfig> {
+    const [row] = await db
+      .insert(userConfig)
+      .values({ ...config, userId, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: userConfig.userId,
+        set: { ...config, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
   }
 }
 
