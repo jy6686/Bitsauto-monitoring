@@ -30,6 +30,7 @@ import {
 } from "recharts";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { lookupCountry } from "@/lib/country-lookup";
 
 type ProbeStatus = {
   ip: string | null;
@@ -298,23 +299,33 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/50">
-              {recentCalls?.map((call) => (
-                <tr key={call.id} className="hover:bg-muted/30 transition-colors group">
-                  <td className="px-6 py-4 font-mono text-xs">{call.caller}</td>
-                  <td className="px-6 py-4 font-mono text-xs">{call.callee}</td>
-                  <td className="px-6 py-4 text-muted-foreground">
-                    {call.startTime ? format(new Date(call.startTime), 'HH:mm:ss') : '-'}
-                  </td>
-                  <td className="px-6 py-4">
-                    <MosBadge value={call.latestMetric?.mos || 0} />
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <Link href={`/calls/${call.id}`} className="text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
-                      Details
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {recentCalls?.map((call) => {
+                const calleeCountry = lookupCountry(call.callee);
+                return (
+                  <tr key={call.id} className="hover:bg-muted/30 transition-colors group">
+                    <td className="px-6 py-4 font-mono text-xs">{call.caller}</td>
+                    <td className="px-6 py-4">
+                      <span className="font-mono text-xs">{call.callee}</span>
+                      {calleeCountry && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {calleeCountry.flag} {calleeCountry.name}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-muted-foreground">
+                      {call.startTime ? format(new Date(call.startTime), 'HH:mm:ss') : '-'}
+                    </td>
+                    <td className="px-6 py-4">
+                      <MosBadge value={call.latestMetric?.mos || 0} />
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <Link href={`/calls/${call.id}`} className="text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
+                        Details
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { lookupCountry } from "@/lib/country-lookup";
 
 export default function CallDetailPage() {
   const [, params] = useRoute("/calls/:id");
@@ -24,6 +25,9 @@ export default function CallDetailPage() {
 
   if (callLoading || metricsLoading) return <div className="p-8">Loading analysis...</div>;
   if (!call) return <div className="p-8">Call not found</div>;
+
+  const callerCountry = lookupCountry(call.caller);
+  const calleeCountry = lookupCountry(call.callee);
 
   // Transform metrics for the chart
   const chartData = metrics?.map(m => ({
@@ -44,8 +48,18 @@ export default function CallDetailPage() {
           <h2 className="text-2xl font-bold tracking-tight">Call Analysis</h2>
           <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
             <span className="font-mono text-foreground">{call.caller}</span>
+            {callerCountry && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                {callerCountry.flag} {callerCountry.name}
+              </span>
+            )}
             <span>→</span>
             <span className="font-mono text-foreground">{call.callee}</span>
+            {calleeCountry && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                {calleeCountry.flag} {calleeCountry.name}
+              </span>
+            )}
           </div>
         </div>
         <div className="ml-auto flex items-center gap-3">
