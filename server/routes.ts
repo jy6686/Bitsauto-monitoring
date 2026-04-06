@@ -106,11 +106,14 @@ export async function registerRoutes(
         const callee = useMonitoredIp && Math.random() > 0.5
           ? monitoredIp
           : `+1${Math.floor(Math.random() * 9000000000) + 1000000000}`;
+        // PDD: Post-Dial Delay — typically 0.3–3.0 seconds, spikes occasionally
+        const pdd = Math.round((0.3 + Math.random() * 2.0) * 100) / 100;
         await storage.createCall({
           caller,
           callee,
           direction: Math.random() > 0.5 ? 'inbound' : 'outbound',
-          status: 'active'
+          status: 'active',
+          pdd,
         });
       }
     }

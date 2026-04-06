@@ -113,7 +113,7 @@ export class DatabaseStorage implements IStorage {
       .from(calls)
       .where(eq(calls.status, 'active'));
       
-    // 2. Calculate Avg MOS for active calls (approximate from latest metrics)
+    // 2. Calculate Avg MOS from latest metrics
     const latestMetrics = await db
       .select({ mos: metrics.mos })
       .from(metrics)
@@ -125,7 +125,7 @@ export class DatabaseStorage implements IStorage {
       
     // 3. Count alerts created today
     const startOfDay = new Date();
-    startOfDay.setHours(0,0,0,0);
+    startOfDay.setHours(0, 0, 0, 0);
     
     const [alertsCount] = await db
       .select({ count: sql<number>`count(*)` })
@@ -138,11 +138,49 @@ export class DatabaseStorage implements IStorage {
     if (alertsNum > 50) systemHealth = 'Critical';
     else if (alertsNum > 10) systemHealth = 'Degraded';
 
+    // 5. ASR (Answer-Seizure Ratio): completed / (completed + failed) * 100
+    //    Using last 200 non-active calls as the sample window
+    const recentFinishedCalls = await db
+      .select({ status: calls.status, startTime: calls.startTime, endTime: calls.endTime, pdd: calls.pdd })
+      .from(calls)
+      .where(sql`${calls.status} IN ('completed', 'failed')`)
+      .orderBy(desc(calls.startTime))
+      .limit(200);
+
+    const completedCalls = recentFinishedCalls.filter(c => c.status === 'completed');
+    const totalAttempted = recentFinishedCalls.length;
+    const asr = totalAttempted > 0
+      ? Math.round((completedCalls.length / totalAttempted) * 100 * 10) / 10
+      : 100;
+
+    // 6. ACD (Average Call Duration) in seconds for completed calls
+    const durationsSeconds = completedCalls
+      .filter(c => c.startTime && c.endTime)
+      .map(c => (new Date(c.endTime!).getTime() - new Date(c.startTime!).getTime()) / 1000);
+    const acd = durationsSeconds.length > 0
+      ? Math.round(durationsSeconds.reduce((s, d) => s + d, 0) / durationsSeconds.length)
+      : 0;
+
+    // 7. PDD (Post-Dial Delay) average in seconds from all calls with pdd recorded
+    const pddValues = recentFinishedCalls
+      .concat(
+        (await db.select({ status: calls.status, startTime: calls.startTime, endTime: calls.endTime, pdd: calls.pdd })
+          .from(calls).where(eq(calls.status, 'active')).limit(50))
+      )
+      .filter(c => c.pdd !== null && c.pdd !== undefined)
+      .map(c => c.pdd as number);
+    const pdd = pddValues.length > 0
+      ? Math.round((pddValues.reduce((s, v) => s + v, 0) / pddValues.length) * 100) / 100
+      : 0;
+
     return {
       activeCalls: Number(activeCallsCount?.count || 0),
-      avgMos: Number(avgMos || 4.5), // Default to 4.5 if no metrics
+      avgMos: Number(avgMos || 4.5),
       alertsToday: alertsNum,
-      systemHealth
+      systemHealth,
+      asr,
+      acd,
+      pdd,
     };
   }
 }

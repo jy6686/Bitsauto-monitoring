@@ -16,6 +16,7 @@ export const calls = pgTable("calls", {
   startTime: timestamp("start_time").defaultNow(),
   endTime: timestamp("end_time"),
   direction: varchar("direction", { length: 10 }).default('inbound'), // inbound, outbound
+  pdd: real("pdd"), // Post-Dial Delay in seconds (time from dial to first ringback)
 });
 
 // Metrics: Time-series data for call quality
@@ -77,6 +78,9 @@ export type DashboardStats = {
   avgMos: number;
   alertsToday: number;
   systemHealth: 'Healthy' | 'Degraded' | 'Critical';
+  asr: number;   // Answer-Seizure Ratio (%)
+  acd: number;   // Average Call Duration (seconds)
+  pdd: number;   // Post-Dial Delay (seconds)
 };
 
 export type CallWithLatestMetric = Call & {

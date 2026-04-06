@@ -14,7 +14,10 @@ import {
   ArrowRight,
   Wifi,
   WifiOff,
-  RefreshCw
+  RefreshCw,
+  BarChart2,
+  Clock,
+  Timer
 } from "lucide-react";
 import { 
   AreaChart, 
@@ -99,6 +102,35 @@ export default function DashboardPage() {
           icon={AlertTriangle}
           className={stats.alertsToday > 5 ? "border-rose-500/20" : "border-border/50"}
           description="Threshold breaches detected"
+        />
+      </div>
+
+      {/* Telecom KPI Row */}
+      <div className="grid gap-6 md:grid-cols-3">
+        <StatCard
+          title="ASR"
+          value={`${stats.asr.toFixed(1)}%`}
+          icon={BarChart2}
+          className={stats.asr >= 70 ? "border-emerald-500/20" : stats.asr >= 50 ? "border-amber-500/20" : "border-rose-500/20"}
+          description="Answer-Seizure Ratio — calls answered vs attempted"
+        />
+        <StatCard
+          title="ACD"
+          value={
+            stats.acd >= 60
+              ? `${Math.floor(stats.acd / 60)}m ${stats.acd % 60}s`
+              : `${stats.acd}s`
+          }
+          icon={Clock}
+          className="border-violet-500/20"
+          description="Avg Call Duration — mean length of completed calls"
+        />
+        <StatCard
+          title="PDD"
+          value={stats.pdd > 0 ? `${stats.pdd.toFixed(2)}s` : '—'}
+          icon={Timer}
+          className={stats.pdd > 0 && stats.pdd <= 1.5 ? "border-emerald-500/20" : stats.pdd > 1.5 ? "border-amber-500/20" : "border-border/50"}
+          description="Post-Dial Delay — avg time from dial to first ringback"
         />
       </div>
 
