@@ -50,6 +50,7 @@ export const settings = pgTable("settings", {
   simulationEnabled: boolean("simulation_enabled").default(true),
   monitoredIp: varchar("monitored_ip", { length: 45 }).default('45.59.163.182'), // IP to probe for live calls
   // Management portal access
+  switchType: varchar("switch_type", { length: 50 }).default('vos3000'), // 'vos3000' | 'sippy'
   portalUrl: varchar("portal_url", { length: 255 }), // e.g. http://45.59.163.182:8080
   portalUsername: varchar("portal_username", { length: 128 }),
   portalPassword: varchar("portal_password", { length: 255 }),

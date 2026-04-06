@@ -17,6 +17,7 @@ const formSchema = insertSettingsSchema.pick({
   packetLossThreshold: true,
   simulationEnabled: true,
   monitoredIp: true,
+  switchType: true,
   portalUrl: true,
   portalUsername: true,
   portalPassword: true,
@@ -25,10 +26,33 @@ const formSchema = insertSettingsSchema.pick({
 type FormValues = z.infer<typeof formSchema>;
 type TestResult = { ok: boolean; message: string } | null;
 
+// ── Switch type definitions ───────────────────────────────────────────────────
+const SWITCH_TYPES = [
+  {
+    id: 'vos3000',
+    label: 'VOS3000',
+    description: 'Linknat VOS3000 carrier softswitch (CAPTCHA-based login)',
+    color: 'blue',
+  },
+  {
+    id: 'sippy',
+    label: 'Sippy Softswitch',
+    description: 'Sippy Software softswitch (HTTP Basic Auth, XML-RPC API)',
+    color: 'violet',
+  },
+] as const;
+
 // ── Portal Session Status ─────────────────────────────────────────────────────
 function usePortalSession() {
   return useQuery<{ active: boolean; username?: string; loggedInAt?: string; portalBase?: string }>({
     queryKey: ['/api/portal/session'],
+    refetchInterval: 30000,
+  });
+}
+
+function useSippySession() {
+  return useQuery<{ active: boolean; username?: string; connectedAt?: string; portalBase?: string }>({
+    queryKey: ['/api/sippy/session'],
     refetchInterval: 30000,
   });
 }
@@ -279,6 +303,112 @@ function PortalLoginPanel({ username, password }: { username: string; password: 
   );
 }
 
+// ── Sippy Connect Panel ────────────────────────────────────────────────────────
+function SippyConnectPanel({ username, password }: { username: string; password: string }) {
+  const qc = useQueryClient();
+  const { data: session, isLoading: sessionLoading } = useSippySession();
+  const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  async function handleConnect() {
+    setConnecting(true);
+    setResult(null);
+    try {
+      const resp = await fetch('/api/sippy/connect', { method: 'POST' });
+      const data = await resp.json();
+      setResult({ ok: data.success, message: data.message });
+      if (data.success) qc.invalidateQueries({ queryKey: ['/api/sippy/session'] });
+    } catch {
+      setResult({ ok: false, message: 'Network error — could not reach the server.' });
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    setDisconnecting(true);
+    try {
+      await fetch('/api/sippy/session', { method: 'DELETE' });
+      qc.invalidateQueries({ queryKey: ['/api/sippy/session'] });
+      setResult(null);
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  if (sessionLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+        <Loader2 className="w-4 h-4 animate-spin" /> Checking session…
+      </div>
+    );
+  }
+
+  if (session?.active) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+          <div className="flex items-center gap-3">
+            <ShieldCheck className="w-5 h-5 text-emerald-400" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-400">Connected to Sippy Softswitch</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Logged in as <span className="font-mono">{session.username}</span>
+                {session.connectedAt && (
+                  <> · since {new Date(session.connectedAt).toLocaleTimeString()}</>
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            data-testid="button-sippy-disconnect"
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-rose-400 hover:border-rose-400/50 transition-colors disabled:opacity-50"
+          >
+            {disconnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <LogOut className="w-3 h-3" />}
+            Disconnect
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Live call data and CDR records from your Sippy Softswitch are now available on the Dashboard.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {result && (
+        <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border ${result.ok ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-rose-400 border-rose-500/30 bg-rose-500/10'}`}>
+          {result.ok ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <XCircle className="w-4 h-4 flex-shrink-0" />}
+          <span data-testid="text-sippy-connect-result">{result.message}</span>
+        </div>
+      )}
+
+      <div className="rounded-lg bg-violet-500/5 border border-violet-500/20 p-4 space-y-2">
+        <p className="text-xs font-semibold text-violet-400 uppercase tracking-wider">HTTP Basic Auth</p>
+        <p className="text-xs text-muted-foreground">
+          Sippy uses standard HTTP Basic Auth — no CAPTCHA needed. Click Connect to authenticate immediately using your saved credentials.
+          The session stays active until you disconnect or the server restarts.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        data-testid="button-sippy-connect"
+        onClick={handleConnect}
+        disabled={connecting}
+        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors disabled:opacity-50"
+      >
+        {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
+        {connecting ? 'Connecting…' : 'Connect to Sippy'}
+      </button>
+    </div>
+  );
+}
+
 // ── Main Settings Page ────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
@@ -296,6 +426,7 @@ export default function SettingsPage() {
       packetLossThreshold: 1.0,
       simulationEnabled: true,
       monitoredIp: '45.59.163.182',
+      switchType: 'vos3000',
       portalUrl: '',
       portalUsername: '',
       portalPassword: '',
@@ -308,18 +439,19 @@ export default function SettingsPage() {
 
   async function testPortalConnection() {
     const url = form.getValues('portalUrl');
-    const username = form.getValues('portalUsername');
+    const switchType = form.getValues('switchType');
     if (!url) {
       setTestResult({ ok: false, message: 'Please enter a Portal URL first.' });
       return;
     }
     setIsTesting(true);
     setTestResult(null);
+    const endpoint = switchType === 'sippy' ? '/api/sippy/test' : '/api/portal/test';
     try {
-      const res = await fetch('/api/portal/test', {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, username, password: form.getValues('portalPassword') }),
+        body: JSON.stringify({ url, username: form.getValues('portalUsername'), password: form.getValues('portalPassword') }),
       });
       const data = await res.json();
       setTestResult({ ok: res.ok && data.reachable, message: data.message || (res.ok ? 'Connected successfully' : 'Connection failed') });
@@ -335,6 +467,7 @@ export default function SettingsPage() {
   const portalUrl = form.watch('portalUrl');
   const portalUsername = form.watch('portalUsername');
   const portalPassword = form.watch('portalPassword');
+  const switchType = form.watch('switchType') ?? 'vos3000';
   const hasSavedPortal = !!(settings?.portalUrl && settings?.portalUsername && settings?.portalPassword);
 
   return (
@@ -351,13 +484,46 @@ export default function SettingsPage() {
           <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20">
             <Globe className="w-4 h-4 text-blue-400" />
             <div>
-              <h3 className="font-semibold text-sm">Management Portal Access</h3>
+              <h3 className="font-semibold text-sm">Softswitch Integration</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Connect to the carrier web portal to pull real call logs, traffic reports, routing tables, and billing records.
+                Connect to your carrier softswitch to pull live call data, CDR records, traffic reports, and billing records.
               </p>
             </div>
           </div>
           <div className="p-6 space-y-5">
+
+            {/* Switch Type Selector */}
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Softswitch Type</label>
+              <p className="text-xs text-muted-foreground">Select the type of softswitch you are connecting to.</p>
+              <div className="grid grid-cols-2 gap-3">
+                {SWITCH_TYPES.map(sw => (
+                  <button
+                    key={sw.id}
+                    type="button"
+                    data-testid={`button-switch-type-${sw.id}`}
+                    onClick={() => form.setValue('switchType', sw.id, { shouldDirty: true })}
+                    className={`text-left p-4 rounded-xl border-2 transition-all ${
+                      switchType === sw.id
+                        ? sw.id === 'vos3000'
+                          ? 'border-blue-500 bg-blue-500/10'
+                          : 'border-violet-500 bg-violet-500/10'
+                        : 'border-border bg-background hover:border-muted-foreground/30'
+                    }`}
+                  >
+                    <div className={`text-sm font-semibold mb-1 ${
+                      switchType === sw.id
+                        ? sw.id === 'vos3000' ? 'text-blue-400' : 'text-violet-400'
+                        : 'text-foreground'
+                    }`}>
+                      {sw.label}
+                    </div>
+                    <div className="text-xs text-muted-foreground leading-relaxed">{sw.description}</div>
+                  </button>
+                ))}
+              </div>
+              <input type="hidden" {...form.register('switchType')} />
+            </div>
 
             {/* Portal URL */}
             <div className="grid gap-2">
@@ -457,12 +623,14 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* ── VOS3000 Portal Sign-In ── */}
+        {/* ── Switch Sign-In ── */}
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20">
-            <ShieldCheck className="w-4 h-4 text-violet-400" />
+            <ShieldCheck className={`w-4 h-4 ${switchType === 'sippy' ? 'text-violet-400' : 'text-blue-400'}`} />
             <div>
-              <h3 className="font-semibold text-sm">Portal Sign-In (VOS3000)</h3>
+              <h3 className="font-semibold text-sm">
+                {switchType === 'sippy' ? 'Sippy Softswitch Sign-In' : 'VOS3000 Portal Sign-In'}
+              </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Authenticate to start pulling live calls and CDR data into this dashboard.
               </p>
@@ -470,10 +638,17 @@ export default function SettingsPage() {
           </div>
           <div className="p-6">
             {hasSavedPortal ? (
-              <PortalLoginPanel
-                username={settings!.portalUsername!}
-                password={settings!.portalPassword!}
-              />
+              switchType === 'sippy' ? (
+                <SippyConnectPanel
+                  username={settings!.portalUsername!}
+                  password={settings!.portalPassword!}
+                />
+              ) : (
+                <PortalLoginPanel
+                  username={settings!.portalUsername!}
+                  password={settings!.portalPassword!}
+                />
+              )
             ) : (
               <p className="text-sm text-muted-foreground">
                 Enter your Portal URL, username, and password above, then click <strong>Save Changes</strong> to unlock sign-in.

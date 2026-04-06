@@ -7,6 +7,7 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import * as vos3000 from "./vos3000";
+import * as sippy from "./sippy";
 
 // Simulation Constants
 const SIMULATION_INTERVAL = 2000; // 2 seconds
@@ -482,6 +483,60 @@ export async function registerRoutes(
   app.get('/api/portal/stats', async (_req, res) => {
     const result = await vos3000.fetchStats();
     res.json(result);
+  });
+
+  // ── Sippy Softswitch Routes ──────────────────────────────────────────────
+
+  // POST /api/sippy/test — test connection
+  app.post('/api/sippy/test', async (req, res) => {
+    const { url, username, password } = req.body as { url?: string; username?: string; password?: string };
+    if (!url) return res.status(400).json({ reachable: false, message: 'No URL provided.' });
+    const result = await sippy.testSippyConnection(url, username ?? '', password ?? '');
+    res.json(result);
+  });
+
+  // POST /api/sippy/connect — authenticate and store session
+  app.post('/api/sippy/connect', async (req, res) => {
+    const settings = await storage.getSettings();
+    const { portalUrl, portalUsername, portalPassword } = settings;
+    if (!portalUrl || !portalUsername || !portalPassword) {
+      return res.status(400).json({ success: false, message: 'Portal credentials not saved in Settings.' });
+    }
+    const result = await sippy.connectSippy(portalUrl, portalUsername, portalPassword);
+    res.json(result);
+  });
+
+  // GET /api/sippy/session — current Sippy session status
+  app.get('/api/sippy/session', (_req, res) => {
+    res.json(sippy.getSippySessionStatus());
+  });
+
+  // DELETE /api/sippy/session — disconnect Sippy session
+  app.delete('/api/sippy/session', (_req, res) => {
+    sippy.clearSippySession();
+    res.json({ success: true, message: 'Disconnected from Sippy.' });
+  });
+
+  // GET /api/sippy/live-calls — active calls from Sippy
+  app.get('/api/sippy/live-calls', async (_req, res) => {
+    const settings = await storage.getSettings();
+    const calls = await sippy.getSippyActiveCalls(settings.portalUsername ?? '', settings.portalPassword ?? '');
+    res.json({ calls });
+  });
+
+  // GET /api/sippy/cdr — CDR records from Sippy
+  app.get('/api/sippy/cdr', async (req, res) => {
+    const settings = await storage.getSettings();
+    const limit = Number(req.query.limit) || 50;
+    const cdrs = await sippy.getSippyCDRs(settings.portalUsername ?? '', settings.portalPassword ?? '', limit);
+    res.json({ cdrs });
+  });
+
+  // GET /api/sippy/stats — Sippy call counters
+  app.get('/api/sippy/stats', async (_req, res) => {
+    const settings = await storage.getSettings();
+    const stats = await sippy.getSippyStats(settings.portalUsername ?? '', settings.portalPassword ?? '');
+    res.json(stats);
   });
 
   // ASR/ACD Report — per-client breakdown
