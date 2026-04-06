@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -64,7 +64,10 @@ export const clientProfiles = pgTable("client_profiles", {
   prefix: varchar("prefix", { length: 50 }), // CLI prefix for clients, CLD prefix for vendors
   ipAddress: varchar("ip_address", { length: 45 }), // source IP for matching (IPv4 or IPv6)
   ratePerMin: real("rate_per_min").default(0.025), // billing rate per minute USD
+  rateEffectiveFrom: timestamp("rate_effective_from"), // UTC — rate is active from this datetime
+  rateEffectiveTo: timestamp("rate_effective_to"),   // UTC — rate expires at this datetime (null = no expiry)
   notes: text("notes"),
+  switchSyncStatus: json("switch_sync_status").$type<{ vos3000?: string; sippy?: string; syncedAt?: string }>(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
