@@ -1048,6 +1048,77 @@ export async function registerRoutes(
     res.json(stats);
   });
 
+  // ── Sippy User Management ──────────────────────────────────────────────────
+
+  // GET /api/sippy/users?switchId=<id> — list portal users (optional switchId for secondary switches)
+  app.get('/api/sippy/users', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      let username = settings.portalUsername ?? '';
+      let password = settings.portalPassword ?? '';
+      let portalUrl: string | undefined = undefined;
+      if (req.query.switchId) {
+        const sw = (await storage.getSwitches()).find(s => s.id === Number(req.query.switchId) && s.type === 'sippy');
+        if (!sw) return res.status(404).json({ users: [], error: 'Switch not found.' });
+        username = sw.portalUsername ?? '';
+        password = sw.portalPassword ?? '';
+        portalUrl = sw.portalUrl ?? undefined;
+      }
+      const result = await sippy.listSippyUsers(username, password, portalUrl);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ users: [], error: err.message }); }
+  });
+
+  // POST /api/sippy/users — create a new Sippy portal user
+  app.post('/api/sippy/users', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      let username = settings.portalUsername ?? '';
+      let password = settings.portalPassword ?? '';
+      let portalUrl: string | undefined = undefined;
+      const { switchId, ...userData } = req.body;
+      if (switchId) {
+        const sw = (await storage.getSwitches()).find(s => s.id === Number(switchId) && s.type === 'sippy');
+        if (sw) { username = sw.portalUsername ?? ''; password = sw.portalPassword ?? ''; portalUrl = sw.portalUrl ?? undefined; }
+      }
+      const result = await sippy.addSippyUser(username, password, userData, portalUrl);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
+  });
+
+  // PATCH /api/sippy/users/:id — update a Sippy portal user
+  app.patch('/api/sippy/users/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      let username = settings.portalUsername ?? '';
+      let password = settings.portalPassword ?? '';
+      let portalUrl: string | undefined = undefined;
+      const { switchId, ...userData } = req.body;
+      if (switchId) {
+        const sw = (await storage.getSwitches()).find(s => s.id === Number(switchId) && s.type === 'sippy');
+        if (sw) { username = sw.portalUsername ?? ''; password = sw.portalPassword ?? ''; portalUrl = sw.portalUrl ?? undefined; }
+      }
+      const result = await sippy.updateSippyUser(username, password, req.params.id, userData, portalUrl);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
+  });
+
+  // DELETE /api/sippy/users/:id — delete a Sippy portal user
+  app.delete('/api/sippy/users/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      let username = settings.portalUsername ?? '';
+      let password = settings.portalPassword ?? '';
+      let portalUrl: string | undefined = undefined;
+      if (req.query.switchId) {
+        const sw = (await storage.getSwitches()).find(s => s.id === Number(req.query.switchId) && s.type === 'sippy');
+        if (sw) { username = sw.portalUsername ?? ''; password = sw.portalPassword ?? ''; portalUrl = sw.portalUrl ?? undefined; }
+      }
+      const result = await sippy.deleteSippyUser(username, password, req.params.id, portalUrl);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
+  });
+
   // ASR/ACD Report — per-client breakdown
   app.get('/api/reports/asr-acd', async (req, res) => {
     try {

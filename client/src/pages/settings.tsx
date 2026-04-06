@@ -7,7 +7,7 @@ import { useState, useEffect } from "react";
 import {
   Loader2, Save, RefreshCw, Eye, EyeOff, Globe, CheckCircle2,
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
-  Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp,
+  Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp, Users, UserPlus, X, AlertCircle,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -406,6 +406,361 @@ function SippyConnectPanel({ username, password }: { username: string; password:
         {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
         {connecting ? 'Connecting…' : 'Connect to Sippy'}
       </button>
+    </div>
+  );
+}
+
+// ── Sippy Users Panel ─────────────────────────────────────────────────────────
+
+interface SippyPortalUser {
+  userId: string;
+  name: string;
+  login: string;
+  accessLevel: string;
+  description?: string;
+  email?: string;
+  timezone?: string;
+  language?: string;
+  allowedHosts?: string;
+  startPage?: string;
+}
+
+const EMPTY_USER_FORM = {
+  name: '',
+  login: '',
+  password: '',
+  accessLevel: 'Administrator',
+  description: '',
+  email: '',
+  timezone: 'Etc/UTC',
+  language: 'English',
+  allowedHosts: '',
+  startPage: 'Monitoring',
+};
+
+const ACCESS_LEVELS = ['Administrator', 'Billing', 'Support', 'Read-Only', 'Custom'];
+const TIMEZONES = ['Etc/UTC', 'America/New_York', 'America/Los_Angeles', 'America/Chicago', 'Europe/London', 'Europe/Berlin', 'Asia/Karachi', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Tokyo', 'Australia/Sydney'];
+const START_PAGES = ['Monitoring', 'Dashboard', 'Customers', 'Accounts', 'CDRs', 'Reports'];
+const LANGUAGES = ['English', 'French', 'German', 'Spanish', 'Arabic', 'Russian', 'Chinese'];
+
+function SippyUsersPanel() {
+  const qc = useQueryClient();
+  const [expanded, setExpanded] = useState(true);
+  const [editing, setEditing] = useState<SippyPortalUser | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [form, setForm] = useState({ ...EMPTY_USER_FORM });
+  const [showPassword, setShowPassword] = useState(false);
+  const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const { data: usersData, isLoading, refetch } = useQuery<{ users: SippyPortalUser[]; error?: string }>({
+    queryKey: ['/api/sippy/users'],
+    enabled: expanded,
+  });
+
+  const users = usersData?.users ?? [];
+  const apiError = usersData?.error;
+
+  function openNew() {
+    setEditing(null);
+    setForm({ ...EMPTY_USER_FORM });
+    setFeedback(null);
+    setIsAdding(true);
+  }
+  function openEdit(u: SippyPortalUser) {
+    setEditing(u);
+    setForm({
+      name: u.name, login: u.login, password: '',
+      accessLevel: u.accessLevel || 'Administrator',
+      description: u.description || '', email: u.email || '',
+      timezone: u.timezone || 'Etc/UTC', language: u.language || 'English',
+      allowedHosts: u.allowedHosts || '', startPage: u.startPage || 'Monitoring',
+    });
+    setFeedback(null);
+    setIsAdding(true);
+  }
+  function closeForm() { setIsAdding(false); setEditing(null); setFeedback(null); }
+
+  async function save() {
+    if (!form.name.trim()) { setFeedback({ ok: false, msg: 'Name is required.' }); return; }
+    if (!form.login.trim()) { setFeedback({ ok: false, msg: 'Web Login is required.' }); return; }
+    if (!editing && !form.password.trim()) { setFeedback({ ok: false, msg: 'Password is required for new users.' }); return; }
+    try {
+      const payload = { ...form };
+      if (!payload.password) delete (payload as any).password;
+      let result: any;
+      if (editing) {
+        result = await apiRequest('PATCH', `/api/sippy/users/${editing.userId}`, payload);
+      } else {
+        result = await apiRequest('POST', '/api/sippy/users', payload);
+      }
+      if (result.success) {
+        setFeedback({ ok: true, msg: result.message });
+        qc.invalidateQueries({ queryKey: ['/api/sippy/users'] });
+        setTimeout(closeForm, 1200);
+      } else {
+        setFeedback({ ok: false, msg: result.message || 'Operation failed.' });
+      }
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Request failed.' });
+    }
+  }
+
+  async function deleteUser(userId: string) {
+    setDeletingId(userId);
+    try {
+      await apiRequest('DELETE', `/api/sippy/users/${userId}`);
+      qc.invalidateQueries({ queryKey: ['/api/sippy/users'] });
+    } catch { } finally { setDeletingId(null); }
+  }
+
+  const field = (label: string, key: keyof typeof EMPTY_USER_FORM, opts?: { type?: string; placeholder?: string; required?: boolean }) => (
+    <div className="grid gap-1.5">
+      <label className="text-xs font-medium text-muted-foreground">{label}{opts?.required && <span className="text-rose-400 ml-0.5">*</span>}</label>
+      <input
+        type={opts?.type || 'text'}
+        placeholder={opts?.placeholder}
+        value={(form as any)[key] || ''}
+        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+        data-testid={`input-sippy-user-${key}`}
+      />
+    </div>
+  );
+
+  const select = (label: string, key: keyof typeof EMPTY_USER_FORM, options: string[]) => (
+    <div className="grid gap-1.5">
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <select
+        value={(form as any)[key] || ''}
+        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+        data-testid={`select-sippy-user-${key}`}
+      >
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+
+  return (
+    <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+      {/* Header */}
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20 hover:bg-muted/30 transition-colors"
+        data-testid="accordion-sippy-users"
+      >
+        <Users className="w-4 h-4 text-violet-400 flex-shrink-0" />
+        <div className="flex-1 text-left">
+          <h3 className="font-semibold text-sm">Sippy Portal Users</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Manage web portal users for your Sippy softswitch (Name, Login, Access Level, etc.)
+          </p>
+        </div>
+        {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="p-6 space-y-4">
+          {/* Add New + Refresh */}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {isLoading ? 'Loading users...' : apiError ? '' : `${users.length} user${users.length !== 1 ? 's' : ''} configured`}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => refetch()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-muted/40 border border-border hover:bg-muted/60 transition-colors"
+                data-testid="button-refresh-sippy-users"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Refresh
+              </button>
+              <button
+                type="button"
+                onClick={openNew}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                data-testid="button-add-sippy-user"
+              >
+                <UserPlus className="w-3 h-3" />
+                Add New
+              </button>
+            </div>
+          </div>
+
+          {/* API error */}
+          {apiError && (
+            <div className="flex items-center gap-3 p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl text-sm text-amber-400">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{apiError}</span>
+            </div>
+          )}
+
+          {/* Users table */}
+          {!isLoading && !apiError && (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-muted-foreground border-b border-border/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium">Name</th>
+                    <th className="px-4 py-3 text-left font-medium">Web Login</th>
+                    <th className="px-4 py-3 text-left font-medium">Description</th>
+                    <th className="px-4 py-3 text-left font-medium">Access Level</th>
+                    <th className="px-4 py-3 text-right font-medium">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {users.map((u, i) => (
+                    <tr key={u.userId} className="hover:bg-muted/20 transition-colors" data-testid={`row-sippy-user-${i}`}>
+                      <td className="px-4 py-3 font-medium">{u.name}</td>
+                      <td className="px-4 py-3 font-mono text-sm text-muted-foreground">{u.login}</td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs">{u.description || '—'}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                          {u.accessLevel}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(u)}
+                            className="p-1.5 rounded hover:bg-muted/40 text-muted-foreground hover:text-foreground transition-colors"
+                            data-testid={`button-edit-sippy-user-${i}`}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteUser(u.userId)}
+                            disabled={deletingId === u.userId}
+                            className="p-1.5 rounded hover:bg-rose-500/10 text-muted-foreground hover:text-rose-400 transition-colors disabled:opacity-50"
+                            data-testid={`button-delete-sippy-user-${i}`}
+                          >
+                            {deletingId === u.userId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {users.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                        No users found. Make sure Sippy is connected, then click Refresh.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {isLoading && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {/* Add/Edit User Form */}
+          {isAdding && (
+            <div className="border border-primary/20 bg-primary/5 rounded-xl p-5 space-y-4">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="font-semibold text-sm">{editing ? 'Edit User' : 'New User'}</h4>
+                <button type="button" onClick={closeForm} className="p-1 rounded hover:bg-muted/40 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Row 1: Name + Web Login */}
+              <div className="grid grid-cols-2 gap-3">
+                {field('Name', 'name', { required: true, placeholder: 'Display name' })}
+                {field('Web Login', 'login', { required: true, placeholder: 'username' })}
+              </div>
+
+              {/* Row 2: Web Password */}
+              <div className="grid gap-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Web Password{!editing && <span className="text-rose-400 ml-0.5">*</span>}
+                  {editing && <span className="text-muted-foreground/50 ml-1">(leave blank to keep current)</span>}
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder={editing ? 'Leave blank to keep unchanged' : 'Enter password'}
+                    value={form.password}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    data-testid="input-sippy-user-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Row 3: Access Level + Time Zone */}
+              <div className="grid grid-cols-2 gap-3">
+                {select('Access Level', 'accessLevel', ACCESS_LEVELS)}
+                {select('Time Zone', 'timezone', TIMEZONES)}
+              </div>
+
+              {/* Row 4: Language + Start Page */}
+              <div className="grid grid-cols-2 gap-3">
+                {select('Language', 'language', LANGUAGES)}
+                {select('Start Page', 'startPage', START_PAGES)}
+              </div>
+
+              {/* Row 5: Description + Email */}
+              <div className="grid grid-cols-2 gap-3">
+                {field('Description', 'description', { placeholder: 'Optional description' })}
+                {field('E-Mail', 'email', { type: 'email', placeholder: 'user@example.com' })}
+              </div>
+
+              {/* Row 6: Allowed Hosts */}
+              <div className="grid gap-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Allowed Hosts</label>
+                <input
+                  type="text"
+                  placeholder="175.107.203.134, 118.103.235.186"
+                  value={form.allowedHosts}
+                  onChange={e => setForm(f => ({ ...f, allowedHosts: e.target.value }))}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  data-testid="input-sippy-user-allowedHosts"
+                />
+                <p className="text-xs text-muted-foreground/60">Comma-separated IP addresses allowed to log in. Leave blank to allow all.</p>
+              </div>
+
+              {feedback && (
+                <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border ${feedback.ok ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-rose-400 bg-rose-500/10 border-rose-500/20'}`}>
+                  {feedback.ok ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+                  {feedback.msg}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-3 pt-1">
+                <button type="button" onClick={closeForm} className="px-4 py-2 rounded-lg text-sm border border-border hover:bg-muted/40 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={save}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  data-testid="button-save-sippy-user"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  {editing ? 'Save Changes' : 'Create User'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -986,6 +1341,9 @@ export default function SettingsPage() {
           )}
         </div>
       </form>
+
+      {/* Sippy Users */}
+      <SippyUsersPanel />
 
       {/* Additional Switches */}
       <SwitchesPanel />

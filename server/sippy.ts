@@ -308,6 +308,175 @@ export async function getSippyCDRs(username: string, password: string, limit = 5
   }
 }
 
+// ── Portal User Management ────────────────────────────────────────────────────
+
+export interface SippyPortalUser {
+  userId: string;
+  name: string;
+  login: string;
+  accessLevel: string;
+  description?: string;
+  email?: string;
+  timezone?: string;
+  language?: string;
+  allowedHosts?: string;
+  startPage?: string;
+}
+
+export interface SippyPortalUserInput {
+  name: string;
+  login: string;
+  password?: string;
+  accessLevel?: string;
+  description?: string;
+  email?: string;
+  timezone?: string;
+  language?: string;
+  allowedHosts?: string;
+  startPage?: string;
+}
+
+export async function listSippyUsers(username: string, password: string, portalUrl?: string): Promise<{ users: SippyPortalUser[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { users: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth = { Authorization: basicAuth(username, password) };
+
+  // Try multiple known Sippy API method names for listing web portal users
+  const methods = ['user.getUsersList', 'user.getList', 'user.get_users', 'admin.getAdminList'];
+  for (const method of methods) {
+    try {
+      const body = xmlRpcCall(method);
+      const resp = await rawPost(apiUrl, body, auth);
+      if (resp.statusCode !== 200) continue;
+      const text = resp.body.toString('utf-8');
+      if (text.includes('faultCode')) continue; // Method not found / fault
+      const structs = extractAllTags(text, 'struct');
+      if (structs.length === 0) return { users: [] };
+      const users: SippyPortalUser[] = [];
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        const userId = m['i_user'] || m['user_id'] || m['id'] || '';
+        if (!userId) continue;
+        users.push({
+          userId,
+          name: m['name'] || m['login'] || userId,
+          login: m['login'] || m['web_login'] || '',
+          accessLevel: m['access_level'] || m['i_role'] || m['role'] || 'User',
+          description: m['description'] || m['descr'] || undefined,
+          email: m['email'] || undefined,
+          timezone: m['time_zone'] || m['timezone'] || m['i_time_zone'] || undefined,
+          language: m['language'] || m['i_lang'] || undefined,
+          allowedHosts: m['allowed_hosts'] || undefined,
+          startPage: m['start_page'] || undefined,
+        });
+      }
+      return { users };
+    } catch { continue; }
+  }
+  return { users: [], error: 'User management API not available on this Sippy instance.' };
+}
+
+export async function addSippyUser(username: string, password: string, user: SippyPortalUserInput, portalUrl?: string): Promise<{ success: boolean; message: string; userId?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth = { Authorization: basicAuth(username, password) };
+
+  const params: Record<string, string | number> = {
+    name: user.name,
+    login: user.login,
+  };
+  if (user.password) params.password = user.password;
+  if (user.accessLevel) params.access_level = user.accessLevel;
+  if (user.description) params.description = user.description;
+  if (user.email) params.email = user.email;
+  if (user.timezone) params.time_zone = user.timezone;
+  if (user.language) params.language = user.language;
+  if (user.allowedHosts) params.allowed_hosts = user.allowedHosts;
+  if (user.startPage) params.start_page = user.startPage;
+
+  const methods = ['user.addUser', 'user.add', 'user.createUser', 'admin.addAdmin'];
+  for (const method of methods) {
+    try {
+      const body = xmlRpcCall(method, params);
+      const resp = await rawPost(apiUrl, body, auth);
+      if (resp.statusCode !== 200) continue;
+      const text = resp.body.toString('utf-8');
+      if (text.includes('faultCode')) {
+        const fm = extractStructMembers(text);
+        const msg = fm['faultString'] || 'Unknown fault';
+        if (msg.includes('not found') || msg.includes('undefined')) continue;
+        return { success: false, message: msg };
+      }
+      const m = extractStructMembers(text);
+      const newId = m['i_user'] || m['user_id'] || m['id'] || '';
+      return { success: true, message: `User "${user.login}" created successfully.`, userId: newId };
+    } catch { continue; }
+  }
+  return { success: false, message: 'User creation API not available on this Sippy instance.' };
+}
+
+export async function updateSippyUser(username: string, password: string, userId: string, user: SippyPortalUserInput, portalUrl?: string): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth = { Authorization: basicAuth(username, password) };
+
+  const params: Record<string, string | number> = { i_user: userId };
+  if (user.name) params.name = user.name;
+  if (user.login) params.login = user.login;
+  if (user.password) params.password = user.password;
+  if (user.accessLevel) params.access_level = user.accessLevel;
+  if (user.description !== undefined) params.description = user.description;
+  if (user.email !== undefined) params.email = user.email;
+  if (user.timezone) params.time_zone = user.timezone;
+  if (user.allowedHosts !== undefined) params.allowed_hosts = user.allowedHosts;
+
+  const methods = ['user.updateUser', 'user.update', 'admin.updateAdmin'];
+  for (const method of methods) {
+    try {
+      const body = xmlRpcCall(method, params);
+      const resp = await rawPost(apiUrl, body, auth);
+      if (resp.statusCode !== 200) continue;
+      const text = resp.body.toString('utf-8');
+      if (text.includes('faultCode')) {
+        const fm = extractStructMembers(text);
+        const msg = fm['faultString'] || '';
+        if (msg.includes('not found') || msg.includes('undefined')) continue;
+        return { success: false, message: msg };
+      }
+      return { success: true, message: `User "${user.login}" updated.` };
+    } catch { continue; }
+  }
+  return { success: false, message: 'User update API not available on this Sippy instance.' };
+}
+
+export async function deleteSippyUser(username: string, password: string, userId: string, portalUrl?: string): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth = { Authorization: basicAuth(username, password) };
+
+  const methods = ['user.deleteUser', 'user.delete', 'admin.deleteAdmin'];
+  for (const method of methods) {
+    try {
+      const body = xmlRpcCall(method, { i_user: userId });
+      const resp = await rawPost(apiUrl, body, auth);
+      if (resp.statusCode !== 200) continue;
+      const text = resp.body.toString('utf-8');
+      if (text.includes('faultCode')) {
+        const fm = extractStructMembers(text);
+        const msg = fm['faultString'] || '';
+        if (msg.includes('not found') || msg.includes('undefined')) continue;
+        return { success: false, message: msg };
+      }
+      return { success: true, message: 'User deleted.' };
+    } catch { continue; }
+  }
+  return { success: false, message: 'User delete API not available on this Sippy instance.' };
+}
+
 // ── Stats ─────────────────────────────────────────────────────────────────────
 
 export interface SippyStats {
