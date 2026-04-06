@@ -87,10 +87,11 @@ export async function registerRoutes(
     const calls = await storage.getCalls(100);
     const activeCalls = calls.filter(c => c.status === 'active');
 
-    // End random calls
+    // End random calls — ~12% fail (realistic ASR ~85-92%)
     for (const call of activeCalls) {
       if (Math.random() < CALL_DURATION_PROBABILITY) {
-        await storage.endCall(call.id);
+        const callStatus = Math.random() < 0.12 ? 'failed' : 'completed';
+        await storage.endCall(call.id, callStatus);
       }
     }
 

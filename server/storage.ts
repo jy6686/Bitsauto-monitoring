@@ -13,7 +13,7 @@ export interface IStorage {
   getCalls(limit?: number): Promise<CallWithLatestMetric[]>;
   getCall(id: number): Promise<Call | undefined>;
   createCall(call: InsertCall): Promise<Call>;
-  endCall(id: number): Promise<void>;
+  endCall(id: number, status?: 'completed' | 'failed'): Promise<void>;
   
   // Metrics
   getMetricsForCall(callId: number): Promise<Metric[]>; // Returns last 50 metrics
@@ -59,9 +59,9 @@ export class DatabaseStorage implements IStorage {
     return newCall;
   }
 
-  async endCall(id: number): Promise<void> {
+  async endCall(id: number, status: 'completed' | 'failed' = 'completed'): Promise<void> {
     await db.update(calls)
-      .set({ status: 'completed', endTime: new Date() })
+      .set({ status, endTime: new Date() })
       .where(eq(calls.id, id));
   }
 
@@ -139,13 +139,15 @@ export class DatabaseStorage implements IStorage {
     else if (alertsNum > 10) systemHealth = 'Degraded';
 
     // 5. ASR (Answer-Seizure Ratio): completed / (completed + failed) * 100
-    //    Using last 200 non-active calls as the sample window
+    //    Standard telecom definition: answered seizures / total seizures
+    //    Use a rolling 30-minute window so new failures surface immediately
+    const windowStart = new Date(Date.now() - 30 * 60 * 1000);
     const recentFinishedCalls = await db
       .select({ status: calls.status, startTime: calls.startTime, endTime: calls.endTime, pdd: calls.pdd })
       .from(calls)
-      .where(sql`${calls.status} IN ('completed', 'failed')`)
+      .where(sql`${calls.status} IN ('completed', 'failed') AND ${calls.startTime} >= ${windowStart}`)
       .orderBy(desc(calls.startTime))
-      .limit(200);
+      .limit(500);
 
     const completedCalls = recentFinishedCalls.filter(c => c.status === 'completed');
     const totalAttempted = recentFinishedCalls.length;
