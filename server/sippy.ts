@@ -705,6 +705,123 @@ export async function getSippyActiveCalls(username: string, password: string, ex
   return [];
 }
 
+// ── Portal Account / Subcustomer Creation ────────────────────────────────────
+
+/**
+ * Create a subcustomer/account via the Sippy web portal form.
+ * Used as fallback when XML-RPC API is unavailable (portal mode).
+ *
+ * Strategy:
+ *  1. GET the subcustomers add-page to find the form action & CSRF token.
+ *  2. POST the form fields.
+ *  3. Detect success/failure from the response HTML.
+ */
+async function createAccountViaPortal(
+  cookies: CookieJar,
+  base: string,
+  opts: SippyAccountOpts,
+): Promise<{ success: boolean; message: string; cookies: CookieJar }> {
+
+  // ── 1. Discover the add-form page ─────────────────────────────────────────
+  // Sippy portals expose subcustomer creation at one of these paths:
+  const addPaths = [
+    '/c2/subcustomers.php?cmd=add',
+    '/c2/subcustomers.php?action=add',
+    '/c2/customer.php?cmd=add',
+    '/c2/accounts.php?cmd=add',
+  ];
+
+  let formHtml = '';
+  let formCookies = cookies;
+  let foundFormPath = '';
+
+  for (const path of addPaths) {
+    const { html, cookies: c } = await portalGet(path, cookies, base);
+    if (html && (html.toLowerCase().includes('<form') || html.toLowerCase().includes('input'))) {
+      formHtml = html;
+      formCookies = c;
+      foundFormPath = path;
+      break;
+    }
+  }
+
+  // If no dedicated add page, fall back to the main subcustomers page
+  if (!formHtml) {
+    const { html, cookies: c } = await portalGet('/c2/subcustomers.php', cookies, base);
+    formHtml = html;
+    formCookies = c;
+    foundFormPath = '/c2/subcustomers.php';
+  }
+
+  // ── 2. Extract CSRF / form token ──────────────────────────────────────────
+  // Sippy uses a hidden input whose name is often 'token', 'csrf_token', or '_token'
+  let csrfToken = '';
+  const tokenMatch = formHtml.match(/<input[^>]+name=["'](token|csrf_token|_token|form_token)["'][^>]+value=["']([^"']*)["']/i)
+                  || formHtml.match(/<input[^>]+value=["']([^"']{8,})["'][^>]+name=["'](token|csrf_token|_token|form_token)["']/i);
+  if (tokenMatch) {
+    // match[2] if first form, match[1] if second form
+    csrfToken = tokenMatch[2] || tokenMatch[1] || '';
+  }
+
+  // ── 3. Build form fields ──────────────────────────────────────────────────
+  const webPass = opts.name.toLowerCase().replace(/\s+/g, '') + '@Sippy1';
+  const webLogin = opts.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const fields: Record<string, string> = {
+    cmd:          'add',
+    name:         opts.name,
+    web_password: webPass,
+    web_login:    webLogin,
+    i_tariff:     opts.servicePlan  || '0',
+    max_sessions: String(opts.maxSessions  ?? ''),
+    credit_limit: String(opts.creditLimit  ?? ''),
+    description:  opts.description  || '',
+    submit:       'Save',
+    ...(csrfToken ? { token: csrfToken } : {}),
+  };
+  if (opts.type === 'vendor') {
+    fields.i_time_zone = '1'; // UTC default
+  }
+
+  const postBody = encodeForm(fields);
+
+  // ── 4. POST the form ──────────────────────────────────────────────────────
+  // Try each possible form-action path
+  const postPaths = [
+    foundFormPath.split('?')[0],   // same page without query
+    '/c2/subcustomers.php',
+    '/c2/customer.php',
+  ];
+
+  for (const postPath of [...new Set(postPaths)]) {
+    try {
+      const postUrl = `${base}${postPath}`;
+      const resp = await rawRequest('POST', postUrl, postBody, { 'User-Agent': PORTAL_USER_AGENT }, formCookies);
+      const body = resp.body || '';
+      console.log(`[Sippy] Portal account create POST ${postUrl} → HTTP ${resp.statusCode}, body snippet: ${body.slice(0, 300)}`);
+
+      // Detect success: no visible error, and either a redirect or the account now appears in list
+      const lower = body.toLowerCase();
+      const hasError = lower.includes('already exists') || lower.includes('error') && lower.includes('class="error"') || lower.includes('invalid') || lower.includes('required field');
+      const hasSuccess = resp.statusCode === 200 && !lower.includes('class="error"')
+                      || resp.statusCode === 302;
+
+      if (hasError) {
+        // Try to extract the error message from HTML
+        const errMatch = body.match(/class="error[^"]*"[^>]*>([\s\S]{0,200}?)<\/[^>]+>/i);
+        const errMsg = errMatch ? errMatch[1].replace(/<[^>]+>/g, '').trim() : 'Portal returned an error.';
+        return { success: false, message: errMsg, cookies: resp.cookies };
+      }
+      if (hasSuccess) {
+        return { success: true, message: `Account "${opts.name}" created via portal.`, cookies: resp.cookies };
+      }
+    } catch (e: any) {
+      console.warn(`[Sippy] Portal create POST error (${postPath}):`, e.message);
+    }
+  }
+
+  return { success: false, message: 'Portal account creation form not available on this Sippy instance.', cookies: formCookies };
+}
+
 // ── CDR Records ───────────────────────────────────────────────────────────────
 
 export interface SippyCDR {
@@ -1153,16 +1270,7 @@ export async function pushAccountToSippy(
   const baseUrl = targetUrl ?? activeSession?.portalUrl;
   if (!baseUrl) return { success: false, message: 'Not connected to Sippy — configure and connect your Sippy switch first.' };
 
-  // ── Portal mode cannot create accounts (customer-level access only) ──────
   const session = activeSession;
-  if (session?.mode === 'portal') {
-    return {
-      success: false,
-      message: 'XML-RPC API required for account creation.',
-      detail: 'Your Sippy switch is connected via web portal (portal mode), which does not support account creation. To create accounts, you need working XML-RPC API credentials. Ask your Sippy administrator to enable the XML-RPC API and provide separate API credentials.',
-    };
-  }
-
   const apiUrl = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
   const auth   = { Authorization: basicAuth(credentials.username, credentials.password) };
   const isVendor = opts.type === 'vendor';
@@ -1259,7 +1367,22 @@ export async function pushAccountToSippy(
     }
   }
 
-  const detail = lastFault || `No response from Sippy at ${apiUrl} — check the URL and credentials in Settings.`;
+  // ── Portal fallback: if XML-RPC failed (e.g. 401 / no API access) ──────────
+  // Try creating the account by submitting the Sippy web-portal form instead.
+  const xmlFailed = !lastFault || lastFault.includes('Authentication failed') || lastFault.includes('Access denied') || lastFault.includes('401');
+  if (session?.cookies && session.portalUrl) {
+    console.log('[Sippy] XML-RPC failed — trying portal form fallback for account creation');
+    const portalResult = await createAccountViaPortal(session.cookies, session.portalUrl, opts);
+    if (portalResult.success) return { success: true, message: portalResult.message };
+    // Portal gave us a real error message — surface it
+    if (!portalResult.message.includes('not available')) {
+      return { success: false, message: portalResult.message };
+    }
+  }
+
+  const detail = xmlFailed
+    ? `XML-RPC API returned 401 (access denied). Portal form fallback also failed. Ensure the Sippy API is enabled for this account, or ask your Sippy administrator.`
+    : (lastFault || `No response from Sippy at ${apiUrl} — check the URL and credentials in Settings.`);
   return { success: false, message: 'Could not create account on Sippy.', detail };
 }
 
