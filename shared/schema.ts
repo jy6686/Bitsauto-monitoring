@@ -47,7 +47,7 @@ export const settings = pgTable("settings", {
   jitterThreshold: integer("jitter_threshold").default(30), // ms
   latencyThreshold: integer("latency_threshold").default(150), // ms
   packetLossThreshold: real("packet_loss_threshold").default(1.0), // %
-  simulationEnabled: boolean("simulation_enabled").default(true),
+  simulationEnabled: boolean("simulation_enabled").default(false),
   monitoredIp: varchar("monitored_ip", { length: 45 }).default('45.59.163.182'), // IP to probe for live calls
   // Management portal access
   switchType: varchar("switch_type", { length: 50 }).default('vos3000'), // 'vos3000' | 'sippy'

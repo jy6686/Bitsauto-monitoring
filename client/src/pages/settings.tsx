@@ -710,10 +710,23 @@ export default function SettingsPage() {
               />
             </div>
 
+            {form.watch('simulationEnabled') && portalUrl && (
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
+                <span className="flex-shrink-0 mt-0.5">⚠</span>
+                <span>
+                  <strong>Conflict:</strong> Simulation is on but a softswitch portal is also configured.
+                  Simulation will be automatically disabled on the next server restart to prevent fake data mixing with live traffic.
+                  Turn off Simulation below to fix this now.
+                </span>
+              </div>
+            )}
             <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border border-border/50">
               <div>
-                <label className="text-sm font-medium block">Simulation Enabled</label>
-                <p className="text-xs text-muted-foreground mt-0.5">Generate synthetic VoIP traffic for testing.</p>
+                <label className="text-sm font-medium block">Simulation Mode</label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Generate synthetic VoIP traffic for testing.
+                  {portalUrl ? ' Disable this when using a live softswitch.' : ''}
+                </p>
               </div>
               <input
                 {...form.register("simulationEnabled")}

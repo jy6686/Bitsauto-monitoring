@@ -87,6 +87,31 @@ export async function registerRoutes(
   runIpProbe();
   setInterval(runIpProbe, 10000);
 
+  // === STARTUP GUARD: disable simulation if a real portal is configured ===
+  // This corrects any mis-matched state (e.g. settings migrated from a demo DB).
+  // Also purges all active simulated calls so the dashboard starts clean.
+  (async () => {
+    try {
+      const settings = await storage.getSettings();
+      if (settings.simulationEnabled && settings.portalUrl) {
+        console.log('[startup] Portal URL is configured — automatically disabling simulation mode.');
+        await storage.updateSettings({ simulationEnabled: false });
+
+        // Delete all active calls left over from simulation so they don't linger
+        const calls = await storage.getCalls(500);
+        const probeCaller = settings.monitoredIp || '';
+        for (const call of calls) {
+          if (call.status === 'active' && call.caller !== probeCaller) {
+            await storage.endCall(call.id, 'completed', 'simulation_disabled');
+          }
+        }
+        console.log('[startup] Cleared active simulated calls.');
+      }
+    } catch (err) {
+      console.error('[startup] Guard error:', err);
+    }
+  })();
+
   // === SIMULATION ENGINE ===
   setInterval(async () => {
     const settings = await storage.getSettings();
