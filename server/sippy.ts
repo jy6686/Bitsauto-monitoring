@@ -231,7 +231,7 @@ export async function testSippyConnection(
   portalUrl: string,
   username: string,
   password: string,
-): Promise<{ reachable: boolean; message: string; latencyMs?: number }> {
+): Promise<{ reachable: boolean; authenticated: boolean; message: string; latencyMs?: number }> {
   const base = sippyBase(portalUrl);
   const auth = { Authorization: basicAuth(username, password) };
   const start = Date.now();
@@ -245,10 +245,10 @@ export async function testSippyConnection(
     const latencyMs = Date.now() - start;
 
     if (resp.statusCode === 401) {
-      return { reachable: true, message: 'Reached the portal but authentication failed — check username/password.', latencyMs };
+      return { reachable: true, authenticated: false, message: 'Server is reachable but authentication failed — the API Login or API Password is incorrect. Open your Sippy portal → My Account → API Credentials to find the correct values.', latencyMs };
     }
     if (resp.statusCode === 403) {
-      return { reachable: true, message: 'Access forbidden — the account may not have API access.', latencyMs };
+      return { reachable: true, authenticated: false, message: 'Access forbidden — this account may not have API access enabled. Check your Sippy portal administrator settings.', latencyMs };
     }
     if (resp.statusCode === 404) {
       // Try alternate API paths some Sippy versions use
@@ -256,29 +256,29 @@ export async function testSippyConnection(
         try {
           const r2 = await rawPost(`${base}${alt}`, body, auth);
           if (r2.statusCode >= 200 && r2.statusCode < 300) {
-            return { reachable: true, message: `Connected via alternate path ${alt} (${latencyMs}ms)`, latencyMs };
+            return { reachable: true, authenticated: true, message: `Connected via alternate path ${alt} (${latencyMs}ms)`, latencyMs };
           }
         } catch { }
       }
-      return { reachable: true, message: `Portal is reachable but XML-RPC path not found — confirm the portal URL includes the correct port.`, latencyMs };
+      return { reachable: true, authenticated: false, message: `Portal is reachable but XML-RPC path not found — confirm the portal URL includes the correct port.`, latencyMs };
     }
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
-      // Even a fault XML response means we reached the API
-      return { reachable: true, message: `Connected to Sippy successfully (${latencyMs}ms)`, latencyMs };
+      // Even a fault XML response means we reached the API and are authenticated
+      return { reachable: true, authenticated: true, message: `Connected to Sippy successfully (${latencyMs}ms)`, latencyMs };
     }
-    return { reachable: false, message: `Unexpected HTTP ${resp.statusCode} from portal — try a different port or path.` };
+    return { reachable: false, authenticated: false, message: `Unexpected HTTP ${resp.statusCode} from portal — try a different port or path.` };
   } catch (err: any) {
     const latencyMs = Date.now() - start;
-    if (err.code === 'ECONNREFUSED') return { reachable: false, message: 'Connection refused — verify the URL and port number.', latencyMs };
-    if (err.code === 'ENOTFOUND')    return { reachable: false, message: 'Host not found — check the Portal URL hostname.', latencyMs };
+    if (err.code === 'ECONNREFUSED') return { reachable: false, authenticated: false, message: 'Connection refused — verify the URL and port number.', latencyMs };
+    if (err.code === 'ENOTFOUND')    return { reachable: false, authenticated: false, message: 'Host not found — check the Portal URL hostname.', latencyMs };
     if (err.code === 'ETIMEDOUT' || err.message?.includes('timed out')) {
-      return { reachable: false, message: 'Connection timed out — the server may be unreachable or blocked by a firewall.', latencyMs };
+      return { reachable: false, authenticated: false, message: 'Connection timed out — the server may be unreachable or blocked by a firewall.', latencyMs };
     }
     // Certificate errors are now bypassed by lenientHttpsAgent, but just in case:
     if (err.message?.includes('certificate') || err.code === 'CERT_HAS_EXPIRED' || err.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
-      return { reachable: false, message: `SSL certificate error: ${err.message} — try using the HTTP URL instead.`, latencyMs };
+      return { reachable: false, authenticated: false, message: `SSL certificate error: ${err.message} — try using the HTTP URL instead.`, latencyMs };
     }
-    return { reachable: false, message: err.message ?? 'Unknown connection error.', latencyMs };
+    return { reachable: false, authenticated: false, message: err.message ?? 'Unknown connection error.', latencyMs };
   }
 }
 
@@ -290,8 +290,9 @@ export async function connectSippy(
   password: string,
 ): Promise<{ success: boolean; message: string }> {
   const result = await testSippyConnection(portalUrl, username, password);
-  if (!result.reachable) return { success: false, message: result.message };
-
+  if (!result.reachable || !result.authenticated) {
+    return { success: false, message: result.message };
+  }
   activeSession = { portalUrl: sippyBase(portalUrl), username, connectedAt: new Date() };
   return { success: true, message: result.message };
 }

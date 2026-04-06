@@ -379,19 +379,32 @@ function SippyConnectPanel({ username, password }: { username: string; password:
     );
   }
 
+  const isAuthError = result && !result.ok && result.message.toLowerCase().includes('authentication failed');
+
   return (
     <div className="space-y-4">
       {result && (
-        <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border ${result.ok ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-rose-400 border-rose-500/30 bg-rose-500/10'}`}>
-          {result.ok ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <XCircle className="w-4 h-4 flex-shrink-0" />}
-          <span data-testid="text-sippy-connect-result">{result.message}</span>
+        <div className={`text-sm px-3 py-2.5 rounded-lg border space-y-1 ${result.ok ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-rose-400 border-rose-500/30 bg-rose-500/10'}`}>
+          <div className="flex items-start gap-2">
+            {result.ok ? <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" /> : <XCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />}
+            <span data-testid="text-sippy-connect-result">{result.message}</span>
+          </div>
+          {isAuthError && (
+            <p className="text-xs text-rose-300/80 pl-6">
+              Open{' '}
+              <a href="https://191.101.30.107/" target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+                your Sippy portal
+              </a>
+              {' '}→ click your username (top-right) → <strong>My Account</strong> → <strong>API Credentials</strong> to get the correct API Login and Password.
+            </p>
+          )}
         </div>
       )}
 
       <div className="rounded-lg bg-violet-500/5 border border-violet-500/20 p-4 space-y-2">
-        <p className="text-xs font-semibold text-violet-400 uppercase tracking-wider">HTTP Basic Auth</p>
+        <p className="text-xs font-semibold text-violet-400 uppercase tracking-wider">No CAPTCHA Required</p>
         <p className="text-xs text-muted-foreground">
-          Sippy uses standard HTTP Basic Auth — no CAPTCHA needed. Click Connect to authenticate immediately using your saved credentials.
+          Sippy uses API key authentication — click Connect to authenticate immediately using the API Login and Password saved above.
           The session stays active until you disconnect or the server restarts.
         </p>
       </div>
@@ -1040,7 +1053,11 @@ export default function SettingsPage() {
         body: JSON.stringify({ url, username: form.getValues('portalUsername'), password: form.getValues('portalPassword') }),
       });
       const data = await res.json();
-      setTestResult({ ok: res.ok && data.reachable, message: data.message || (res.ok ? 'Connected successfully' : 'Connection failed') });
+      // For Sippy, success requires both reachable AND authenticated
+      const ok = switchType === 'sippy'
+        ? (res.ok && data.reachable && data.authenticated)
+        : (res.ok && data.reachable);
+      setTestResult({ ok, message: data.message || (ok ? 'Connected successfully' : 'Connection failed') });
     } catch {
       setTestResult({ ok: false, message: 'Network error — could not reach the portal.' });
     } finally {
@@ -1118,12 +1135,21 @@ export default function SettingsPage() {
                 Full URL including port — e.g. <span className="font-mono text-xs">http://45.59.163.182:8088</span> (Sippy default port is <strong>8088</strong>)
               </p>
               {switchType === 'sippy' && (
-                <div className="rounded-md bg-blue-500/10 border border-blue-500/20 px-3 py-2.5 text-xs text-blue-300 space-y-1">
-                  <p className="font-semibold">How to find your Sippy API credentials:</p>
-                  <p>1. Log into your Sippy web portal as an administrator</p>
-                  <p>2. Go to <strong>My Account</strong> → <strong>API Credentials</strong> (top-right menu)</p>
-                  <p>3. Copy the <strong>API Login</strong> and <strong>API Password</strong> from that page</p>
-                  <p className="text-blue-200/70">These are different from your regular login — they are specifically for API access.</p>
+                <div className="rounded-md bg-violet-500/10 border border-violet-500/20 px-3 py-2.5 text-xs text-violet-300 space-y-1.5">
+                  <p className="font-semibold text-violet-200">How to find your Sippy API credentials:</p>
+                  <p>1. Open your Sippy portal:{' '}
+                    <a
+                      href="https://191.101.30.107/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline text-violet-200 hover:text-white"
+                    >
+                      https://191.101.30.107/
+                    </a>
+                  </p>
+                  <p>2. Log in as an administrator, then click your username (top-right) → <strong>My Account</strong></p>
+                  <p>3. Find the <strong>API Credentials</strong> tab — copy the <strong>API Login</strong> and <strong>API Password</strong></p>
+                  <p className="text-violet-300/70">These are different from your regular web login — they are dedicated API-only credentials.</p>
                 </div>
               )}
               <div className="flex gap-2">
