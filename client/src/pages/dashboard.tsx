@@ -17,7 +17,11 @@ import {
   RefreshCw,
   BarChart2,
   Clock,
-  Timer
+  Timer,
+  PhoneMissed,
+  PhoneOff,
+  Signal,
+  CheckCircle2
 } from "lucide-react";
 import { 
   AreaChart, 
@@ -132,6 +136,92 @@ export default function DashboardPage() {
           className={(stats.pdd ?? 0) > 0 && (stats.pdd ?? 0) <= 1.5 ? "border-emerald-500/20" : (stats.pdd ?? 0) > 1.5 ? "border-amber-500/20" : "border-border/50"}
           description="Post-Dial Delay — avg time from dial to first ringback"
         />
+      </div>
+
+      {/* CK Ratio — Connection Rate Panel */}
+      <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
+          <div>
+            <h3 className="font-semibold text-sm tracking-wide uppercase text-muted-foreground">CK Ratio — Connection Rate</h3>
+            <p className="text-xs text-muted-foreground/70 mt-0.5">Confirmed connected calls vs total attempted (today)</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              data-testid="text-ck-ratio"
+              className={`text-3xl font-bold font-mono ${
+                (stats.ckRatio ?? 0) >= 80 ? 'text-emerald-400' :
+                (stats.ckRatio ?? 0) >= 60 ? 'text-amber-400' : 'text-rose-400'
+              }`}
+            >
+              {(stats.ckRatio ?? 0).toFixed(1)}%
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/50">
+          {/* Connected */}
+          <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+            <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Connected</span>
+            <span data-testid="text-ck-connected" className="text-2xl font-bold text-emerald-400">
+              {(stats.ckBreakdown?.connected ?? 0).toLocaleString()}
+            </span>
+            <span className="text-xs text-muted-foreground">Answered by user</span>
+          </div>
+          {/* Wrong Number */}
+          <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+            <PhoneMissed className="w-5 h-5 text-rose-400" />
+            <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Wrong Number</span>
+            <span data-testid="text-ck-wrong" className="text-2xl font-bold text-rose-400">
+              {(stats.ckBreakdown?.wrongNumber ?? 0).toLocaleString()}
+            </span>
+            <span className="text-xs text-muted-foreground">Invalid destination</span>
+          </div>
+          {/* Switched Off */}
+          <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+            <PhoneOff className="w-5 h-5 text-orange-400" />
+            <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Switched Off</span>
+            <span data-testid="text-ck-off" className="text-2xl font-bold text-orange-400">
+              {(stats.ckBreakdown?.switchedOff ?? 0).toLocaleString()}
+            </span>
+            <span className="text-xs text-muted-foreground">Device unreachable</span>
+          </div>
+          {/* Untraceable */}
+          <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+            <Signal className="w-5 h-5 text-amber-400" />
+            <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Untraceable</span>
+            <span data-testid="text-ck-untraceable" className="text-2xl font-bold text-amber-400">
+              {(stats.ckBreakdown?.untraceable ?? 0).toLocaleString()}
+            </span>
+            <span className="text-xs text-muted-foreground">No network signal</span>
+          </div>
+        </div>
+        {/* Progress bar showing connected vs failed */}
+        {(stats.ckBreakdown?.total ?? 0) > 0 && (
+          <div className="px-6 pb-4">
+            <div className="h-2 rounded-full overflow-hidden bg-muted/30 flex">
+              <div
+                className="bg-emerald-500 h-full transition-all duration-500"
+                style={{ width: `${(stats.ckBreakdown?.connected ?? 0) / (stats.ckBreakdown?.total ?? 1) * 100}%` }}
+              />
+              <div
+                className="bg-rose-500 h-full transition-all duration-500"
+                style={{ width: `${(stats.ckBreakdown?.wrongNumber ?? 0) / (stats.ckBreakdown?.total ?? 1) * 100}%` }}
+              />
+              <div
+                className="bg-orange-500 h-full transition-all duration-500"
+                style={{ width: `${(stats.ckBreakdown?.switchedOff ?? 0) / (stats.ckBreakdown?.total ?? 1) * 100}%` }}
+              />
+              <div
+                className="bg-amber-500 h-full transition-all duration-500"
+                style={{ width: `${(stats.ckBreakdown?.untraceable ?? 0) / (stats.ckBreakdown?.total ?? 1) * 100}%` }}
+              />
+            </div>
+            <div className="flex justify-between mt-1.5 text-xs text-muted-foreground/60">
+              <span>{(stats.ckBreakdown?.total ?? 0).toLocaleString()} total attempts today</span>
+              <span>{(stats.ckBreakdown?.total ?? 0) - (stats.ckBreakdown?.connected ?? 0)} failed</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Live IP Source Panel */}

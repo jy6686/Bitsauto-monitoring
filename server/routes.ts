@@ -87,11 +87,23 @@ export async function registerRoutes(
     const calls = await storage.getCalls(100);
     const activeCalls = calls.filter(c => c.status === 'active');
 
-    // End random calls — ~12% fail (realistic ASR ~85-92%)
+    // End random calls — ~15% fail with specific reasons matching CK Ratio definition
     for (const call of activeCalls) {
       if (Math.random() < CALL_DURATION_PROBABILITY) {
-        const callStatus = Math.random() < 0.12 ? 'failed' : 'completed';
-        await storage.endCall(call.id, callStatus);
+        const rand = Math.random();
+        if (rand < 0.15) {
+          // Fail with a reason: wrong_number (5%), switched_off (6%), untraceable (4%)
+          const failRand = Math.random();
+          const failReason = failRand < 0.33
+            ? 'wrong_number'
+            : failRand < 0.72
+            ? 'switched_off'
+            : 'untraceable';
+          // Store fail reason directly in the call record
+          await storage.endCall(call.id, 'failed', failReason);
+        } else {
+          await storage.endCall(call.id, 'completed');
+        }
       }
     }
 

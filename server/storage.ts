@@ -13,7 +13,7 @@ export interface IStorage {
   getCalls(limit?: number): Promise<CallWithLatestMetric[]>;
   getCall(id: number): Promise<Call | undefined>;
   createCall(call: InsertCall): Promise<Call>;
-  endCall(id: number, status?: 'completed' | 'failed'): Promise<void>;
+  endCall(id: number, status?: 'completed' | 'failed', failReason?: string): Promise<void>;
   
   // Metrics
   getMetricsForCall(callId: number): Promise<Metric[]>; // Returns last 50 metrics
@@ -59,9 +59,9 @@ export class DatabaseStorage implements IStorage {
     return newCall;
   }
 
-  async endCall(id: number, status: 'completed' | 'failed' = 'completed'): Promise<void> {
+  async endCall(id: number, status: 'completed' | 'failed' = 'completed', failReason?: string): Promise<void> {
     await db.update(calls)
-      .set({ status, endTime: new Date() })
+      .set({ status, endTime: new Date(), ...(failReason ? { failReason } : {}) })
       .where(eq(calls.id, id));
   }
 
@@ -175,6 +175,24 @@ export class DatabaseStorage implements IStorage {
       ? Math.round((pddValues.reduce((s, v) => s + v, 0) / pddValues.length) * 100) / 100
       : 0;
 
+    // 8. CK Ratio — Connection Rate: confirmed connected / total attempted (today's window)
+    //    Connected = completed (answered by user)
+    //    Failed = wrong_number | switched_off | untraceable
+    const todayAllCalls = await db
+      .select({ status: calls.status, failReason: calls.failReason })
+      .from(calls)
+      .where(sql`${calls.startTime} >= ${startOfDay}`)
+      .limit(5000);
+
+    const ckConnected = todayAllCalls.filter(c => c.status === 'completed').length;
+    const ckWrongNumber = todayAllCalls.filter(c => c.failReason === 'wrong_number').length;
+    const ckSwitchedOff = todayAllCalls.filter(c => c.failReason === 'switched_off').length;
+    const ckUntraceable = todayAllCalls.filter(c => c.failReason === 'untraceable').length;
+    const ckTotal = todayAllCalls.length; // includes active calls as "attempts"
+    const ckRatio = ckTotal > 0
+      ? Math.round((ckConnected / ckTotal) * 100 * 10) / 10
+      : 0;
+
     return {
       activeCalls: Number(activeCallsCount?.count || 0),
       avgMos: Number(avgMos || 4.5),
@@ -183,6 +201,14 @@ export class DatabaseStorage implements IStorage {
       asr,
       acd,
       pdd,
+      ckRatio,
+      ckBreakdown: {
+        connected: ckConnected,
+        wrongNumber: ckWrongNumber,
+        switchedOff: ckSwitchedOff,
+        untraceable: ckUntraceable,
+        total: ckTotal,
+      },
     };
   }
 }

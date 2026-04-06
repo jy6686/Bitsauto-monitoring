@@ -17,6 +17,7 @@ export const calls = pgTable("calls", {
   endTime: timestamp("end_time"),
   direction: varchar("direction", { length: 10 }).default('inbound'), // inbound, outbound
   pdd: real("pdd"), // Post-Dial Delay in seconds (time from dial to first ringback)
+  failReason: varchar("fail_reason", { length: 30 }), // wrong_number | switched_off | untraceable
 });
 
 // Metrics: Time-series data for call quality
@@ -81,6 +82,14 @@ export type DashboardStats = {
   asr: number;   // Answer-Seizure Ratio (%)
   acd: number;   // Average Call Duration (seconds)
   pdd: number;   // Post-Dial Delay (seconds)
+  ckRatio: number;  // Connection Rate (%) — confirmed connected vs total attempted
+  ckBreakdown: {
+    connected: number;
+    wrongNumber: number;
+    switchedOff: number;
+    untraceable: number;
+    total: number;
+  };
 };
 
 export type CallWithLatestMetric = Call & {
