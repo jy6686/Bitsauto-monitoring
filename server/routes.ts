@@ -560,6 +560,97 @@ export async function registerRoutes(
     } catch { res.status(500).json({ active: false }); }
   });
 
+  // ── Per-switch live monitoring ──────────────────────────────────────────────
+
+  // GET /api/switches/:id/live-calls — get live active calls from any switch
+  app.get('/api/switches/:id/live-calls', async (req, res) => {
+    try {
+      const allSwitches = await storage.getSwitches();
+      const sw = allSwitches.find(s => s.id === Number(req.params.id));
+      if (!sw) return res.status(404).json({ calls: [], error: 'Switch not found' });
+      if (!sw.portalUrl) return res.json({ calls: [], error: 'No portal URL configured for this switch.' });
+
+      if (sw.type === 'sippy') {
+        if (!sw.portalUsername || !sw.portalPassword) return res.json({ calls: [], error: 'Sippy credentials not configured.' });
+        const raw = await sippy.getSippyActiveCalls(sw.portalUsername, sw.portalPassword, sw.portalUrl);
+        const calls = raw.map(c => ({
+          id: c.callId,
+          caller: c.caller,
+          callee: c.callee,
+          gateway: '',
+          duration: c.duration,
+          callStatus: c.duration > 0 ? 'connected' : 'routing',
+          clientName: undefined,
+        }));
+        return res.json({ calls, switchType: 'sippy', switchName: sw.name });
+      }
+
+      if (sw.type === 'vos3000') {
+        const session = vos3000.getSessionForUrl(sw.portalUrl);
+        if (!session) return res.json({ calls: [], error: 'Not logged in to this VOS3000 switch. Connect via Settings.', needsLogin: true });
+        const result = await vos3000.fetchLiveCallsForSession(session as any);
+        return res.json({ ...result, switchType: 'vos3000', switchName: sw.name });
+      }
+
+      return res.json({ calls: [], error: 'Unsupported switch type.' });
+    } catch (err: any) {
+      res.status(500).json({ calls: [], error: err.message });
+    }
+  });
+
+  // GET /api/switches/:id/stats — get stats from any switch
+  app.get('/api/switches/:id/stats', async (req, res) => {
+    try {
+      const allSwitches = await storage.getSwitches();
+      const sw = allSwitches.find(s => s.id === Number(req.params.id));
+      if (!sw || !sw.portalUrl) return res.status(404).json({ error: 'Switch not found or no URL' });
+
+      if (sw.type === 'sippy') {
+        if (!sw.portalUsername || !sw.portalPassword) return res.json({ error: 'Sippy credentials missing.' });
+        const stats = await sippy.getSippyStats(sw.portalUsername, sw.portalPassword, sw.portalUrl);
+        return res.json(stats);
+      }
+
+      if (sw.type === 'vos3000') {
+        const session = vos3000.getSessionForUrl(sw.portalUrl);
+        if (!session) return res.json({ error: 'Not logged in.' });
+        const stats = await vos3000.fetchStats();
+        return res.json(stats);
+      }
+
+      return res.json({ error: 'Unsupported switch type.' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/switches/:id/captcha — get CAPTCHA for secondary VOS3000 switch login
+  app.get('/api/switches/:id/captcha', async (req, res) => {
+    try {
+      const allSwitches = await storage.getSwitches();
+      const sw = allSwitches.find(s => s.id === Number(req.params.id));
+      if (!sw || sw.type !== 'vos3000' || !sw.portalUrl) return res.status(400).json({ error: 'Switch not found or not VOS3000.' });
+      const result = await vos3000.fetchCaptcha(sw.portalUrl);
+      if (!result) return res.status(502).json({ error: 'Could not fetch CAPTCHA from switch portal.' });
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // POST /api/switches/:id/login — login to secondary VOS3000 switch with CAPTCHA
+  app.post('/api/switches/:id/login', async (req, res) => {
+    try {
+      const allSwitches = await storage.getSwitches();
+      const sw = allSwitches.find(s => s.id === Number(req.params.id));
+      if (!sw || sw.type !== 'vos3000' || !sw.portalUrl) return res.status(400).json({ success: false, message: 'Switch not found or not VOS3000.' });
+      const { challengeId, captchaCode } = req.body as { challengeId?: string; captchaCode?: string };
+      if (!challengeId || !captchaCode) return res.status(400).json({ success: false, message: 'CAPTCHA challenge required.' });
+      const username = sw.portalUsername || '';
+      const password = sw.portalPassword || '';
+      const result = await vos3000.loginWithCaptcha(sw.portalUrl, username, password, challengeId, captchaCode, sw.loginType ?? 1);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
+  });
+
   // ── Shared helper: push profile + rate to a single switch ──────────────────
 
   async function pushProfileToOneSwitch(

@@ -430,6 +430,27 @@ async function portalPostForSession(session: Vos3000Session, path: string, param
   return JSON.parse(resp.body.toString('utf-8'));
 }
 
+/** GET using an explicitly provided session (for multi-switch monitoring) */
+async function portalGetForSession(session: Vos3000Session, path: string): Promise<any> {
+  const resp = await rawRequest({
+    url: `${session.portalBase}${path}`,
+    method: 'GET',
+    headers: {
+      'Cookie': cookieHeader(session.jsessionid),
+      'User-Agent': 'Mozilla/5.0',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Referer': session.portalBase,
+    },
+    timeout: 12000,
+  });
+  if (resp.statusCode === 302 || resp.statusCode === 403) {
+    sessionsByUrl.delete(session.portalBase);
+    if (activeSession?.portalBase === session.portalBase) activeSession = null;
+    throw new Error('SESSION_EXPIRED');
+  }
+  return JSON.parse(resp.body.toString('utf-8'));
+}
+
 async function portalGet(path: string): Promise<any> {
   if (!activeSession) throw new Error('No active session');
   const resp = await rawRequest({
@@ -501,6 +522,27 @@ export async function fetchLiveCalls(): Promise<{ calls: LiveCallRecord[]; error
 
   return { calls: [] };
 }
+
+/** Fetch live calls using an explicitly provided session (for secondary VOS3000 switches) */
+export async function fetchLiveCallsForSession(session: Vos3000Session): Promise<{ calls: LiveCallRecord[]; error?: string }> {
+  const endpoints = [
+    'monitor/liveCallQuery.action',
+    'gateway/liveCallQuery.action',
+  ];
+  for (const ep of endpoints) {
+    try {
+      const json = await portalGetForSession(session, ep);
+      const rows = json.rows || (Array.isArray(json) ? json : []);
+      return { calls: rows.map(parseLiveRow) };
+    } catch (err: any) {
+      if (err.message === 'SESSION_EXPIRED') return { calls: [], error: 'Session expired.' };
+    }
+  }
+  return { calls: [] };
+}
+
+/** Expose Vos3000Session type for use in routes.ts */
+export type { Vos3000Session };
 
 export async function fetchStats(): Promise<{
   totalCalls: number;

@@ -222,9 +222,10 @@ export interface SippyActiveCall {
   status: string;
 }
 
-export async function getSippyActiveCalls(username: string, password: string): Promise<SippyActiveCall[]> {
-  if (!activeSession) return [];
-  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+export async function getSippyActiveCalls(username: string, password: string, explicitPortalUrl?: string): Promise<SippyActiveCall[]> {
+  const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
+  if (!base) return [];
+  const apiUrl = `${base}/xmlapi/xmlapi`;
   const body = xmlRpcCall('call_control.listActiveCalls');
 
   try {
@@ -484,9 +485,10 @@ export async function pushAccountToSippy(
   return { success: false, message: 'Could not push account to Sippy', detail: 'Check Sippy API permissions and account type.' };
 }
 
-export async function getSippyStats(username: string, password: string): Promise<SippyStats> {
-  if (!activeSession) return { totalCalls: 0, activeCalls: 0, successRate: 0, totalMinutes: 0 };
-  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+export async function getSippyStats(username: string, password: string, explicitPortalUrl?: string): Promise<SippyStats> {
+  const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
+  if (!base) return { totalCalls: 0, activeCalls: 0, successRate: 0, totalMinutes: 0 };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
   const body = xmlRpcCall('call_control.getCountersStats');
 
   try {
