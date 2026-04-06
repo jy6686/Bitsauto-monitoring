@@ -61,7 +61,7 @@ const REPORT_RANGES = [
 const ROLE_META: Record<string, { label: string; color: string; desc: string }> = {
   admin:      { label: "Admin",      color: "text-rose-400 bg-rose-500/10 border-rose-500/30",    desc: "Full system access including settings and team management." },
   management: { label: "Management", color: "text-amber-400 bg-amber-500/10 border-amber-500/30", desc: "Access to dashboard, calls, alerts, reports, and client profiles." },
-  viewer:     { label: "Viewer",     color: "text-blue-400 bg-blue-500/10 border-blue-500/30",    desc: "Read-only access to dashboard and alerts." },
+  viewer:     { label: "Viewer",     color: "text-blue-400 bg-blue-500/10 border-blue-500/30",    desc: "Read-only access to dashboard and active calls." },
 };
 
 function Field({ label, hint, icon: Icon, children }: {

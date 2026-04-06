@@ -20,8 +20,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   const allNavItems = [
     { href: "/",        label: "Dashboard",       icon: LayoutDashboard, roles: ['admin','management','viewer'] },
-    { href: "/calls",   label: "Active Calls",    icon: Phone,           roles: ['admin','management']          },
-    { href: "/alerts",  label: "Alerts",          icon: Bell,            roles: ['admin','management','viewer'] },
+    { href: "/calls",   label: "Active Calls",    icon: Phone,           roles: ['admin','management','viewer'] },
+    { href: "/alerts",  label: "Alerts",          icon: Bell,            roles: ['admin','management']          },
     { href: "/reports", label: "ASR/ACD Reports", icon: BarChart2,       roles: ['admin','management']          },
     { href: "/clients", label: "Clients & Vendors", icon: Building2,       roles: ['admin','management']            },
     { href: "/settings",label: "Settings",          icon: Settings,        roles: ['admin']                         },

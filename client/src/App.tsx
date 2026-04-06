@@ -25,7 +25,7 @@ import NotFound from "@/pages/not-found";
 const ROLE_PATHS: Record<Role, string[]> = {
   admin:      ['/', '/calls', '/alerts', '/reports', '/settings', '/team'],
   management: ['/', '/calls', '/alerts', '/reports'],
-  viewer:     ['/', '/alerts'],
+  viewer:     ['/', '/calls'],
 };
 
 function ProtectedRoute({
@@ -86,13 +86,13 @@ function Router() {
         {() => <ProtectedRoute component={DashboardPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
       <Route path="/calls">
-        {() => <ProtectedRoute component={CallsListPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={CallsListPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
       <Route path="/calls/:id">
-        {() => <ProtectedRoute component={CallDetailPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={CallDetailPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
       <Route path="/alerts">
-        {() => <ProtectedRoute component={AlertsPage} requiredRoles={['admin','management','viewer']} />}
+        {() => <ProtectedRoute component={AlertsPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/reports">
         {() => <ProtectedRoute component={ReportsPage} requiredRoles={['admin','management']} />}

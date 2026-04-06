@@ -155,8 +155,8 @@ export default function TeamPage() {
             <tbody>
               {[
                 ["Dashboard", true, true, true],
-                ["Active Calls", true, true, false],
-                ["Alerts", true, true, true],
+                ["Active Calls", true, true, true],
+                ["Alerts", true, true, false],
                 ["ASR/ACD Reports", true, true, false],
                 ["Settings", true, false, false],
                 ["Team Management", true, false, false],
