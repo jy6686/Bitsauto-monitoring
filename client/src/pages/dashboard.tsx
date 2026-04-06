@@ -1,6 +1,7 @@
 import { useDashboardStats } from "@/hooks/use-dashboard";
 import { useCalls } from "@/hooks/use-calls";
 import { useAlerts } from "@/hooks/use-alerts";
+import { useSettings } from "@/hooks/use-settings";
 import { StatCard } from "@/components/stat-card";
 import { MosBadge } from "@/components/mos-badge";
 import { Link } from "wouter";
@@ -53,6 +54,7 @@ export default function DashboardPage() {
   const { data: stats } = useDashboardStats();
   const { data: recentCalls } = useCalls(5);
   const { data: recentAlerts } = useAlerts();
+  const { data: settings } = useSettings();
 
   const { data: probe, isLoading: probeLoading } = useQuery<ProbeStatus>({
     queryKey: ['/api/probe/status'],
@@ -88,16 +90,28 @@ export default function DashboardPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/probe/status'] }),
   });
 
-  // Mock data for the chart since we don't have historical aggregates in this simple MVP schema yet
-  const chartData = [
-    { time: '10:00', mos: 4.2 },
-    { time: '10:05', mos: 4.1 },
-    { time: '10:10', mos: 3.8 },
-    { time: '10:15', mos: 4.3 },
-    { time: '10:20', mos: 4.4 },
-    { time: '10:25', mos: 4.2 },
-    { time: '10:30', mos: 4.5 },
-  ];
+  const simulationOff = settings && !settings.simulationEnabled;
+  const notConnected = simulationOff && !portalSession?.active;
+
+  // Build chart data from recent call metrics (real or simulated)
+  const chartData = (recentCalls ?? [])
+    .filter((c: any) => c.latestMetric)
+    .map((c: any) => ({
+      time: format(new Date(c.startTime), 'HH:mm'),
+      mos: parseFloat((c.latestMetric?.mos ?? 0).toFixed(2)),
+    }))
+    .reverse();
+
+  // Use portal stats for main cards when portal is active
+  const displayActiveCalls = portalSession?.active
+    ? (portalLiveCalls?.calls?.length ?? stats?.activeCalls ?? 0)
+    : (stats?.activeCalls ?? 0);
+  const displayAsr = portalSession?.active
+    ? (portalStats?.asr ?? stats?.asr ?? 0)
+    : (stats?.asr ?? 0);
+  const displayAcd = portalSession?.active
+    ? (portalStats ? Math.round(portalStats.totalMinutes * 60 / Math.max(portalStats.successCalls, 1)) : (stats?.acd ?? 0))
+    : (stats?.acd ?? 0);
 
   if (!stats) return <div className="p-8">Loading dashboard...</div>;
 
@@ -108,34 +122,73 @@ export default function DashboardPage() {
         <p className="text-muted-foreground mt-2">Real-time monitoring of VoIP infrastructure.</p>
       </div>
 
+      {/* Connection required banner — shown when simulation is off and portal not connected */}
+      {notConnected && (
+        <div className="rounded-xl border-2 border-dashed border-violet-500/40 bg-violet-500/5 p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-full bg-violet-500/15 flex items-center justify-center flex-shrink-0">
+              <Globe className="w-5 h-5 text-violet-400" />
+            </div>
+            <div>
+              <p className="font-semibold text-sm">No live data source connected</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Simulation is disabled. Connect to your VOS3000 or Sippy softswitch to see real call data, CDR records, and traffic stats here.
+              </p>
+            </div>
+          </div>
+          <Link href="/settings"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors whitespace-nowrap flex-shrink-0">
+            <Settings className="w-3.5 h-3.5" />
+            Connect Softswitch
+          </Link>
+        </div>
+      )}
+
+      {/* Connected source badge — shown when portal is active */}
+      {portalSession?.active && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-5 py-3 flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <p className="text-sm text-emerald-400 font-medium">
+            Live data — connected to VOS3000 as <span className="font-mono">{portalSession.username}</span>
+          </p>
+          <span className="text-xs text-muted-foreground ml-auto">All stats below reflect your real switch traffic</span>
+        </div>
+      )}
+
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <StatCard 
           title="Active Calls" 
-          value={stats.activeCalls} 
+          value={notConnected ? '—' : displayActiveCalls} 
           icon={PhoneCall}
           className="border-blue-500/20"
-          description="Currently connected sessions"
+          description={portalSession?.active ? "Live calls on portal" : "Currently connected sessions"}
         />
         <StatCard 
-          title="Average MOS" 
-          value={stats.avgMos.toFixed(2)} 
-          icon={Activity}
-          className={stats.avgMos > 4 ? "border-emerald-500/20" : "border-amber-500/20"}
-          description="Mean Opinion Score (5.0 scale)"
+          title={portalSession?.active ? "Total Calls (24h)" : "Average MOS"}
+          value={portalSession?.active
+            ? (portalStats?.totalCalls?.toLocaleString() ?? '—')
+            : (notConnected ? '—' : stats.avgMos.toFixed(2))}
+          icon={portalSession?.active ? PhoneCall : Activity}
+          className={portalSession?.active ? "border-blue-500/20" : (stats.avgMos > 4 ? "border-emerald-500/20" : "border-amber-500/20")}
+          description={portalSession?.active ? "Total call attempts in last 24h" : "Mean Opinion Score (5.0 scale)"}
         />
         <StatCard 
-          title="System Health" 
-          value={stats.systemHealth} 
-          icon={Server}
-          className={stats.systemHealth === 'Healthy' ? "border-emerald-500/20" : "border-rose-500/20"}
-          description="Infrastructure status"
+          title={portalSession?.active ? "Answered" : "System Health"}
+          value={portalSession?.active
+            ? (portalStats?.successCalls?.toLocaleString() ?? '—')
+            : (notConnected ? '—' : stats.systemHealth)}
+          icon={portalSession?.active ? CheckCircle2 : Server}
+          className={portalSession?.active ? "border-emerald-500/20" : (stats.systemHealth === 'Healthy' ? "border-emerald-500/20" : "border-rose-500/20")}
+          description={portalSession?.active ? "Successfully answered calls" : "Infrastructure status"}
         />
         <StatCard 
-          title="Alerts Today" 
-          value={stats.alertsToday} 
-          icon={AlertTriangle}
-          className={stats.alertsToday > 5 ? "border-rose-500/20" : "border-border/50"}
-          description="Threshold breaches detected"
+          title={portalSession?.active ? "Total Minutes" : "Alerts Today"}
+          value={portalSession?.active
+            ? (portalStats?.totalMinutes?.toLocaleString() ?? '—')
+            : (notConnected ? '—' : stats.alertsToday)}
+          icon={portalSession?.active ? Clock : AlertTriangle}
+          className={portalSession?.active ? "border-violet-500/20" : (stats.alertsToday > 5 ? "border-rose-500/20" : "border-border/50")}
+          description={portalSession?.active ? "Total call minutes in last 24h" : "Threshold breaches detected"}
         />
       </div>
 
@@ -143,15 +196,15 @@ export default function DashboardPage() {
       <div className="grid gap-6 md:grid-cols-3">
         <StatCard
           title="ASR"
-          value={`${(stats.asr ?? 0).toFixed(1)}%`}
+          value={notConnected ? '—' : `${displayAsr.toFixed(1)}%`}
           icon={BarChart2}
-          className={(stats.asr ?? 0) >= 70 ? "border-emerald-500/20" : (stats.asr ?? 0) >= 50 ? "border-amber-500/20" : "border-rose-500/20"}
+          className={displayAsr >= 70 ? "border-emerald-500/20" : displayAsr >= 50 ? "border-amber-500/20" : (notConnected ? "border-border/50" : "border-rose-500/20")}
           description="Answer-Seizure Ratio — calls answered vs attempted"
         />
         <StatCard
           title="ACD"
-          value={(() => {
-            const acd = stats.acd ?? 0;
+          value={notConnected ? '—' : (() => {
+            const acd = displayAcd;
             return acd >= 60 ? `${Math.floor(acd / 60)}m ${acd % 60}s` : `${acd}s`;
           })()}
           icon={Clock}
@@ -160,7 +213,7 @@ export default function DashboardPage() {
         />
         <StatCard
           title="PDD"
-          value={(stats.pdd ?? 0) > 0 ? `${(stats.pdd ?? 0).toFixed(2)}s` : '—'}
+          value={notConnected ? '—' : ((stats.pdd ?? 0) > 0 ? `${(stats.pdd ?? 0).toFixed(2)}s` : '—')}
           icon={Timer}
           className={(stats.pdd ?? 0) > 0 && (stats.pdd ?? 0) <= 1.5 ? "border-emerald-500/20" : (stats.pdd ?? 0) > 1.5 ? "border-amber-500/20" : "border-border/50"}
           description="Post-Dial Delay — avg time from dial to first ringback"
@@ -186,17 +239,24 @@ export default function DashboardPage() {
             <span
               data-testid="text-ck-ratio"
               className={`text-4xl font-bold font-mono tabular-nums ${
+                notConnected ? 'text-muted-foreground/40' :
                 (stats.ckRatio ?? 0) >= 80 ? 'text-emerald-400' :
                 (stats.ckRatio ?? 0) >= 60 ? 'text-amber-400' : 'text-rose-400'
               }`}
             >
-              {(stats.ckRatio ?? 0).toFixed(1)}%
+              {notConnected ? '—' : `${(stats.ckRatio ?? 0).toFixed(1)}%`}
             </span>
             <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">connection rate today</span>
           </div>
         </div>
 
-        {/* Breakdown columns */}
+        {notConnected ? (
+          <div className="flex items-center justify-center py-10 text-sm text-muted-foreground gap-2">
+            <Globe className="w-4 h-4" />
+            Connect to your softswitch to see call breakdown data
+          </div>
+        ) : (
+        <>{/* Breakdown columns */}
         <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/50">
           {/* Connected */}
           <div className="flex flex-col items-center gap-1.5 py-5 px-4">
@@ -268,6 +328,8 @@ export default function DashboardPage() {
               </span>
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
 
@@ -350,6 +412,13 @@ export default function DashboardPage() {
             </select>
           </div>
           <div className="h-[300px] w-full">
+            {chartData.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                <Activity className="w-8 h-8 opacity-30" />
+                <p className="text-sm">No quality trend data yet.</p>
+                <p className="text-xs opacity-60">{notConnected ? 'Connect to your softswitch to see live MOS trends.' : 'Data will appear as calls are processed.'}</p>
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData}>
                 <defs>
@@ -375,6 +444,7 @@ export default function DashboardPage() {
                 />
               </AreaChart>
             </ResponsiveContainer>
+            )}
           </div>
         </div>
 
