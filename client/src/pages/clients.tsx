@@ -756,19 +756,23 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [maxCps, setMaxCps] = useState('');
   const [routingGroup, setRoutingGroup] = useState('');
   const [servicePlan, setServicePlan] = useState('');
-  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [result, setResult] = useState<{ success: boolean; message: string; detail?: string } | null>(null);
+
+  // Sanitise a text field — treat "null", "0", "-" as empty
+  const clean = (v: string) => (v && v !== 'null' && v !== '-' ? v : undefined);
 
   const createMut = useMutation({
     mutationFn: () => apiRequest('POST', '/api/sippy/accounts', {
       name, type,
       switchId: switchId ? Number(switchId) : undefined,
-      ipAddress: ipAddress || undefined,
+      ipAddress: clean(ipAddress),
       ratePerMin: ratePerMin ? Number(ratePerMin) : undefined,
       creditLimit: creditLimit ? Number(creditLimit) : undefined,
       maxSessions: maxSessions ? Number(maxSessions) : undefined,
       maxCallsPerSecond: maxCps ? Number(maxCps) : undefined,
-      routingGroup: routingGroup || undefined,
-      servicePlan: servicePlan || undefined,
+      // Routing group and tariff — send as string; backend converts to integer
+      routingGroup: clean(routingGroup),
+      servicePlan: clean(servicePlan),
     }),
     onSuccess: async (res: any) => {
       const data = await res.json();
@@ -847,21 +851,24 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                 onChange={e => setMaxCps(e.target.value)} placeholder="10" className={fieldCls} />
             </div>
             <div>
-              <label className={labelCls}>Routing Group</label>
+              <label className={labelCls}>Routing Group ID <span className="text-muted-foreground/60 font-normal">(numeric)</span></label>
               <input data-testid="input-sippy-routing" value={routingGroup} onChange={e => setRoutingGroup(e.target.value)}
-                placeholder="e.g. Default" className={fieldCls} />
+                placeholder="e.g. 1" type="number" min="1" className={fieldCls} />
             </div>
             <div>
-              <label className={labelCls}>Service Plan / Tariff</label>
+              <label className={labelCls}>Tariff / Service Plan ID <span className="text-muted-foreground/60 font-normal">(numeric)</span></label>
               <input data-testid="input-sippy-plan" value={servicePlan} onChange={e => setServicePlan(e.target.value)}
-                placeholder="e.g. Standard" className={fieldCls} />
+                placeholder="e.g. 2" type="number" min="1" className={fieldCls} />
             </div>
           </div>
 
           {result && (
             <div className={`rounded-lg px-4 py-3 text-sm flex items-start gap-2 ${result.success ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'}`}>
               {result.success ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
-              <span data-testid="text-sippy-create-result">{result.message}</span>
+              <span data-testid="text-sippy-create-result">
+                {result.message}
+                {result.detail && <span className="block text-xs mt-1 opacity-80">{result.detail}</span>}
+              </span>
             </div>
           )}
         </div>

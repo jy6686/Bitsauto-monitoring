@@ -1106,7 +1106,8 @@ export async function registerRoutes(
       // Support optional switchId to target a secondary Sippy switch
       let username = settings.portalUsername ?? '';
       let password = settings.portalPassword ?? '';
-      let targetUrl: string | undefined = undefined;
+      // Default to primary portalUrl so pushAccountToSippy has a URL even if no active session
+      let targetUrl: string | undefined = settings.portalUrl ?? undefined;
       if (req.body.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.body.switchId) && s.type === 'sippy');
         if (!sw) return res.status(404).json({ success: false, message: 'Sippy switch not found.' });
