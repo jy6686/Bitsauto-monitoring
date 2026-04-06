@@ -820,7 +820,12 @@ async function createAccountViaPortal(
 
       if (verifyLower.includes(accountNameLower)) {
         console.log(`[Sippy] Portal account create VERIFIED — "${opts.name}" appears in subcustomers list.`);
-        return { success: true, message: `Account "${opts.name}" created via portal.`, cookies: resp.cookies };
+        return {
+          success: true,
+          portalSubcustomer: true,
+          message: `Sub-account "${opts.name}" created in portal under your connected user. NOTE: This is a portal sub-account only — it does NOT have SIP credentials or appear as a full Sippy system account. To create proper SIP accounts, add Admin API Credentials in Settings.`,
+          cookies: resp.cookies,
+        };
       }
 
       // Account not found after POST — this portal/account level does not support creation
@@ -1105,11 +1110,13 @@ export interface SippyPushResult {
   message: string;
   detail?: string;
   method?: string;
-  // Returned by createAccount() on success
+  // Returned by createAccount() on success (XML-RPC path)
   username?: string;
   authname?: string;
   web_password?: string;
   voip_password?: string;
+  // True when account was created via portal sub-account form (not a real SIP account)
+  portalSubcustomer?: boolean;
 }
 
 function fmtSippyDate(d: Date): string {
@@ -1461,7 +1468,13 @@ export async function pushAccountToSippy(
   if (session?.cookies && session.portalUrl) {
     console.log('[Sippy] XML-RPC failed — trying portal form fallback for account creation');
     const portalResult = await createAccountViaPortal(session.cookies, session.portalUrl, opts);
-    if (portalResult.success) return { success: true, message: portalResult.message };
+    if (portalResult.success) {
+      return {
+        success: true,
+        message: portalResult.message,
+        portalSubcustomer: portalResult.portalSubcustomer ?? true,
+      };
+    }
     // Portal gave us a real error message — surface it
     if (!portalResult.message.includes('not available')) {
       return { success: false, message: portalResult.message };

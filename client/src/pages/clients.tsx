@@ -763,7 +763,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [tariffId, setTariffId] = useState('');
   const [authname, setAuthname] = useState('');
   const [description, setDescription] = useState('');
-  const [result, setResult] = useState<{ success: boolean; message: string; detail?: string; username?: string; authname?: string; voip_password?: string; web_password?: string } | null>(null);
+  const [result, setResult] = useState<{ success: boolean; message: string; detail?: string; username?: string; authname?: string; voip_password?: string; web_password?: string; portalSubcustomer?: boolean } | null>(null);
 
   // Query the active Sippy session — if connected via Settings, use it directly
   const { data: sippySession } = useQuery<{ active: boolean; mode?: string; username?: string }>({
@@ -874,7 +874,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               <div>
                 <p className="text-xs font-semibold text-emerald-300">Using connected Sippy session</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Connected as <strong>{sippySession?.username ?? 'your account'}</strong>. The new account will be created under this customer.
+                  Connected as <strong>{sippySession?.username ?? 'your account'}</strong>. Account creation requires Admin API Credentials in Settings for a proper SIP account.
                 </p>
               </div>
             </div>
@@ -1005,16 +1005,40 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
           </div>
 
           {result && (
-            <div className={`rounded-lg px-4 py-3 text-sm space-y-2 ${result.success ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'}`}>
+            <div className={`rounded-lg px-4 py-3 text-sm space-y-2 ${
+              result.portalSubcustomer
+                ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
+                : result.success
+                  ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                  : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
+            }`}>
               <div className="flex items-start gap-2">
-                {result.success ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
+                {result.portalSubcustomer
+                  ? <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-400" />
+                  : result.success
+                    ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
                 <span data-testid="text-sippy-create-result">
-                  {result.message}
-                  {result.detail && <span className="block text-xs mt-1 opacity-80">{result.detail}</span>}
+                  {result.portalSubcustomer ? (
+                    <span className="space-y-1.5 block">
+                      <strong className="block text-amber-200">Portal sub-account created — not a full SIP account</strong>
+                      <span className="block text-xs text-amber-300/80">
+                        A sub-account entry was added under your connected portal user, but <strong>this is not a proper Sippy SIP account</strong>. It will not appear in the main accounts list and has no SIP credentials.
+                      </span>
+                      <span className="block text-xs text-amber-300/80">
+                        To create real Sippy accounts with SIP credentials, go to <strong>Settings → Sippy Admin API Credentials</strong> and enter your administrator username and password.
+                      </span>
+                    </span>
+                  ) : (
+                    <>
+                      {result.message}
+                      {result.detail && <span className="block text-xs mt-1 opacity-80">{result.detail}</span>}
+                    </>
+                  )}
                 </span>
               </div>
-              {/* Show generated SIP credentials on success */}
-              {result.success && (result.username || result.authname || result.voip_password) && (
+              {/* Show generated SIP credentials on real success (XML-RPC path) */}
+              {result.success && !result.portalSubcustomer && (result.username || result.authname || result.voip_password) && (
                 <div className="mt-2 rounded-md bg-emerald-900/30 border border-emerald-500/20 p-3 space-y-1.5 text-xs">
                   <p className="font-semibold text-emerald-300 mb-1">Generated SIP Credentials — save these now:</p>
                   {result.username    && <div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">Self-care login:</span><strong className="font-mono">{result.username}</strong></div>}
@@ -1023,15 +1047,27 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                   {result.voip_password&&<div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">SIP password:</span><strong className="font-mono">{result.voip_password}</strong></div>}
                 </div>
               )}
+              {/* When portal sub-account: show a direct link to Settings */}
+              {result.portalSubcustomer && (
+                <div className="mt-2 pt-2 border-t border-amber-500/20">
+                  <Link
+                    to="/settings"
+                    onClick={onClose}
+                    className="inline-flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                  >
+                    Go to Settings → Add Admin API Credentials
+                  </Link>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         <div className="px-6 pb-6 flex items-center gap-3 justify-end">
           <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors">
-            {result?.success ? 'Close' : 'Cancel'}
+            {(result?.success || result?.portalSubcustomer) ? 'Close' : 'Cancel'}
           </button>
-          {!result?.success && (
+          {!(result?.success || result?.portalSubcustomer) && (
             <button
               data-testid="button-sippy-create-account"
               disabled={!name.trim() || createMut.isPending
