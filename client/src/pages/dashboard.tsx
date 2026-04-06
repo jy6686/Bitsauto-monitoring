@@ -138,67 +138,79 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* CK Ratio — Connection Rate Panel */}
+      {/* Call Back Ratio — FAS Deduction Panel */}
       <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
-          <div>
-            <h3 className="font-semibold text-sm tracking-wide uppercase text-muted-foreground">CK Ratio — Connection Rate</h3>
-            <p className="text-xs text-muted-foreground/70 mt-0.5">Confirmed connected calls vs total attempted (today)</p>
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-4 border-b border-border/50">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-sm tracking-wide uppercase text-muted-foreground">Call Back Ratio</h3>
+              <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                FAS Deduction
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground/70">
+              Calls answered by the actual user ÷ total call attempts · Failed calls (wrong number, switched off, untraceable) are deducted
+            </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col items-end gap-0.5">
             <span
               data-testid="text-ck-ratio"
-              className={`text-3xl font-bold font-mono ${
+              className={`text-4xl font-bold font-mono tabular-nums ${
                 (stats.ckRatio ?? 0) >= 80 ? 'text-emerald-400' :
                 (stats.ckRatio ?? 0) >= 60 ? 'text-amber-400' : 'text-rose-400'
               }`}
             >
               {(stats.ckRatio ?? 0).toFixed(1)}%
             </span>
+            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">connection rate today</span>
           </div>
         </div>
+
+        {/* Breakdown columns */}
         <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/50">
           {/* Connected */}
           <div className="flex flex-col items-center gap-1.5 py-5 px-4">
             <CheckCircle2 className="w-5 h-5 text-emerald-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Connected</span>
-            <span data-testid="text-ck-connected" className="text-2xl font-bold text-emerald-400">
+            <span data-testid="text-ck-connected" className="text-2xl font-bold text-emerald-400 tabular-nums">
               {(stats.ckBreakdown?.connected ?? 0).toLocaleString()}
             </span>
-            <span className="text-xs text-muted-foreground">Answered by user</span>
+            <span className="text-xs text-center text-muted-foreground">Answered by user</span>
           </div>
           {/* Wrong Number */}
           <div className="flex flex-col items-center gap-1.5 py-5 px-4">
             <PhoneMissed className="w-5 h-5 text-rose-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Wrong Number</span>
-            <span data-testid="text-ck-wrong" className="text-2xl font-bold text-rose-400">
+            <span data-testid="text-ck-wrong" className="text-2xl font-bold text-rose-400 tabular-nums">
               {(stats.ckBreakdown?.wrongNumber ?? 0).toLocaleString()}
             </span>
-            <span className="text-xs text-muted-foreground">Invalid destination</span>
+            <span className="text-xs text-center text-muted-foreground">Invalid / misrouted</span>
           </div>
           {/* Switched Off */}
           <div className="flex flex-col items-center gap-1.5 py-5 px-4">
             <PhoneOff className="w-5 h-5 text-orange-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Switched Off</span>
-            <span data-testid="text-ck-off" className="text-2xl font-bold text-orange-400">
+            <span data-testid="text-ck-off" className="text-2xl font-bold text-orange-400 tabular-nums">
               {(stats.ckBreakdown?.switchedOff ?? 0).toLocaleString()}
             </span>
-            <span className="text-xs text-muted-foreground">Device unreachable</span>
+            <span className="text-xs text-center text-muted-foreground">Device unreachable</span>
           </div>
           {/* Untraceable */}
           <div className="flex flex-col items-center gap-1.5 py-5 px-4">
             <Signal className="w-5 h-5 text-amber-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Untraceable</span>
-            <span data-testid="text-ck-untraceable" className="text-2xl font-bold text-amber-400">
+            <span data-testid="text-ck-untraceable" className="text-2xl font-bold text-amber-400 tabular-nums">
               {(stats.ckBreakdown?.untraceable ?? 0).toLocaleString()}
             </span>
-            <span className="text-xs text-muted-foreground">No network signal</span>
+            <span className="text-xs text-center text-muted-foreground">No network / signal</span>
           </div>
         </div>
-        {/* Progress bar showing connected vs failed */}
+
+        {/* Progress bar + legend */}
         {(stats.ckBreakdown?.total ?? 0) > 0 && (
-          <div className="px-6 pb-4">
-            <div className="h-2 rounded-full overflow-hidden bg-muted/30 flex">
+          <div className="px-6 pb-5 pt-2 space-y-2">
+            <div className="h-2.5 rounded-full overflow-hidden bg-muted/30 flex">
               <div
                 className="bg-emerald-500 h-full transition-all duration-500"
                 style={{ width: `${(stats.ckBreakdown?.connected ?? 0) / (stats.ckBreakdown?.total ?? 1) * 100}%` }}
@@ -216,9 +228,15 @@ export default function DashboardPage() {
                 style={{ width: `${(stats.ckBreakdown?.untraceable ?? 0) / (stats.ckBreakdown?.total ?? 1) * 100}%` }}
               />
             </div>
-            <div className="flex justify-between mt-1.5 text-xs text-muted-foreground/60">
-              <span>{(stats.ckBreakdown?.total ?? 0).toLocaleString()} total attempts today</span>
-              <span>{(stats.ckBreakdown?.total ?? 0) - (stats.ckBreakdown?.connected ?? 0)} failed</span>
+            <div className="flex items-center justify-between text-xs text-muted-foreground/60">
+              <span>
+                <span className="text-muted-foreground font-medium">{(stats.ckBreakdown?.total ?? 0).toLocaleString()}</span> total attempts today
+              </span>
+              <span>
+                FAS deductions: <span className="text-rose-400 font-medium">
+                  {((stats.ckBreakdown?.total ?? 0) - (stats.ckBreakdown?.connected ?? 0)).toLocaleString()}
+                </span>
+              </span>
             </div>
           </div>
         )}
