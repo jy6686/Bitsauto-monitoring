@@ -11,6 +11,7 @@
 
 import http from 'node:http';
 import https from 'node:https';
+import crypto from 'node:crypto';
 import { URL } from 'node:url';
 
 // ── Cookie jar type ───────────────────────────────────────────────────────────
@@ -173,6 +174,97 @@ function rawGet(
 
 function basicAuth(username: string, password: string) {
   return 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+}
+
+/**
+ * Two-step Digest-auth POST for the Sippy XML-RPC endpoint.
+ *
+ * Step 1 — send the request with no credentials; the server responds 401 with
+ *           a WWW-Authenticate: Digest challenge (realm, nonce, qop, opaque).
+ * Step 2 — compute the RFC-2617 digest response and resend with proper header.
+ *
+ * Falls back to HTTP Basic auth if the server does not issue a Digest challenge.
+ */
+async function sippyPost(
+  url: string,
+  body: string,
+  username: string,
+  password: string,
+): Promise<{ statusCode: number; body: string }> {
+  const parsed  = new URL(url);
+  const uri     = parsed.pathname + (parsed.search || '');
+  const isHttps = parsed.protocol === 'https:';
+
+  function makeReq(
+    extraHeaders: Record<string, string | number>,
+  ): Promise<{ statusCode: number; body: string; wwwAuth?: string }> {
+    return new Promise((resolve, reject) => {
+      const opts: http.RequestOptions = {
+        hostname: parsed.hostname,
+        port:     parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80),
+        path:     uri,
+        method:   'POST',
+        headers:  {
+          'Content-Type':   'text/xml',
+          'Content-Length': Buffer.byteLength(body),
+          'User-Agent':     'SippyAPI/1.0',
+          ...extraHeaders,
+        },
+        timeout: 12000,
+        ...(isHttps ? { agent: lenientHttpsAgent, rejectUnauthorized: false } : {}),
+      };
+      let data = '';
+      const req = (isHttps ? https : http).request(opts, (res) => {
+        const wwwAuth = res.headers['www-authenticate'] as string | undefined;
+        res.on('data',  (chunk) => { data += chunk; });
+        res.on('end',   () => resolve({ statusCode: res.statusCode ?? 0, body: data, wwwAuth }));
+      });
+      req.on('error',   reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.write(body);
+      req.end();
+    });
+  }
+
+  // ── Step 1: probe for auth challenge ──────────────────────────────────────
+  const probe = await makeReq({});
+  if (probe.statusCode !== 401 || !probe.wwwAuth) {
+    return { statusCode: probe.statusCode, body: probe.body };
+  }
+
+  // ── Step 2: Digest auth ───────────────────────────────────────────────────
+  if (probe.wwwAuth.toLowerCase().includes('digest')) {
+    const realm   = (probe.wwwAuth.match(/realm="([^"]+)"/)  || [])[1] || '';
+    const nonce   = (probe.wwwAuth.match(/nonce="([^"]+)"/)  || [])[1] || '';
+    const qopRaw  = (probe.wwwAuth.match(/qop=(?:"([^"]+)"|([^,\s]+))/) || []);
+    const qop     = qopRaw[1] || qopRaw[2] || '';
+    const opaque  = (probe.wwwAuth.match(/opaque="([^"]+)"/) || [])[1] || '';
+
+    const ha1 = crypto.createHash('md5').update(`${username}:${realm}:${password}`).digest('hex');
+    const ha2 = crypto.createHash('md5').update(`POST:${uri}`).digest('hex');
+
+    let response: string;
+    let authValue: string;
+    const effectiveQop = (qop === 'auth' || qop === 'auth-int') ? qop : '';
+
+    if (effectiveQop) {
+      const nc     = '00000001';
+      const cnonce = crypto.randomBytes(8).toString('hex');
+      response  = crypto.createHash('md5')
+        .update(`${ha1}:${nonce}:${nc}:${cnonce}:${effectiveQop}:${ha2}`).digest('hex');
+      authValue = `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", qop=${effectiveQop}, nc=${nc}, cnonce="${cnonce}", response="${response}"${opaque ? `, opaque="${opaque}"` : ''}`;
+    } else {
+      response  = crypto.createHash('md5').update(`${ha1}:${nonce}:${ha2}`).digest('hex');
+      authValue = `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", response="${response}"${opaque ? `, opaque="${opaque}"` : ''}`;
+    }
+
+    const final = await makeReq({ Authorization: authValue });
+    return { statusCode: final.statusCode, body: final.body };
+  }
+
+  // ── Fallback: Basic auth ───────────────────────────────────────────────────
+  const basic = await makeReq({ Authorization: basicAuth(username, password) });
+  return { statusCode: basic.statusCode, body: basic.body };
 }
 
 function sippyBase(portalUrl: string): string {
@@ -541,7 +633,6 @@ export async function testSippyConnection(
   password: string,
 ): Promise<{ reachable: boolean; authenticated: boolean; message: string; latencyMs?: number; mode?: 'xmlrpc' | 'portal'; cookies?: CookieJar }> {
   const base = sippyBase(portalUrl);
-  const auth = { Authorization: basicAuth(username, password) };
   const start = Date.now();
 
   // Try standard XML-RPC path first
@@ -550,7 +641,7 @@ export async function testSippyConnection(
   let xmlRpcReachable = false;
 
   try {
-    const resp = await rawPost(apiUrl, body, auth);
+    const resp = await sippyPost(apiUrl, body, username, password);
     const latencyMs = Date.now() - start;
     xmlRpcReachable = true;
 
@@ -656,12 +747,11 @@ export async function getSippyActiveCalls(username: string, password: string, ex
   // Returns fields in UPPERCASE: CLI, CLD, CALL_ID, DELAY, DURATION, CC_STATE,
   // I_ACCOUNT, I_CUSTOMER, CALLER_MEDIA_IP, CALLEE_MEDIA_IP, DIRECTION, NODE_ID
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   // Try official method first, fall back to legacy alias
   for (const method of ['listAllCalls', 'call_control.listActiveCalls']) {
     try {
-      const resp = await rawPost(apiUrl, xmlRpcCall(method), auth);
+      const resp = await sippyPost(apiUrl, xmlRpcCall(method), username, password);
       if (resp.statusCode === 401 || resp.statusCode === 403) {
         // Auth failure — try portal scraping
         const loginRes = await portalLogin(base, username, password, 'customer');
@@ -866,7 +956,6 @@ export async function getSippyCDRs(
 ): Promise<SippyCDR[]> {
   if (!activeSession) return [];
   const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   const params: Record<string, unknown> = { limit, type: opts.type || 'all' };
   if (opts.iAccount)   params.i_account   = opts.iAccount;
@@ -881,7 +970,7 @@ export async function getSippyCDRs(
 
   for (const method of methods) {
     try {
-      const resp = await rawPost(apiUrl, xmlRpcCall(method, params), auth);
+      const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password);
       if (resp.statusCode !== 200) continue;
       const text = resp.body.toString?.() ?? resp.body;
       if (text.includes('faultCode')) continue;
@@ -954,7 +1043,6 @@ export async function listSippyUsers(username: string, password: string, portalU
   }
 
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth = { Authorization: basicAuth(username, password) };
 
   // Official method: listCustomers() (Sippy docs 107423)
   // Returns: i_customer, name, web_login, description, balance, credit_limit, base_currency
@@ -963,7 +1051,7 @@ export async function listSippyUsers(username: string, password: string, portalU
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method, { limit: 200 });
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode !== 200) continue;
       const text = resp.body.toString('utf-8');
       if (text.includes('faultCode')) continue;
@@ -998,7 +1086,6 @@ export async function addSippyUser(username: string, password: string, user: Sip
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth = { Authorization: basicAuth(username, password) };
 
   const params: Record<string, string | number> = {
     name: user.name,
@@ -1017,7 +1104,7 @@ export async function addSippyUser(username: string, password: string, user: Sip
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method, params);
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode !== 200) continue;
       const text = resp.body.toString('utf-8');
       if (text.includes('faultCode')) {
@@ -1038,7 +1125,6 @@ export async function updateSippyUser(username: string, password: string, userId
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth = { Authorization: basicAuth(username, password) };
 
   const params: Record<string, string | number> = { i_user: userId };
   if (user.name) params.name = user.name;
@@ -1054,7 +1140,7 @@ export async function updateSippyUser(username: string, password: string, userId
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method, params);
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode !== 200) continue;
       const text = resp.body.toString('utf-8');
       if (text.includes('faultCode')) {
@@ -1073,13 +1159,12 @@ export async function deleteSippyUser(username: string, password: string, userId
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth = { Authorization: basicAuth(username, password) };
 
   const methods = ['user.deleteUser', 'user.delete', 'admin.deleteAdmin'];
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method, { i_user: userId });
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode !== 200) continue;
       const text = resp.body.toString('utf-8');
       if (text.includes('faultCode')) {
@@ -1129,14 +1214,15 @@ function fmtSippyDate(d: Date): string {
  */
 async function findSippyCustomer(
   apiUrl: string,
-  auth: Record<string, string>,
+  username: string,
+  password: string,
   accountName: string,
 ): Promise<{ i_account: string; i_tariff: string } | null> {
   const methods = ['customer.getAccountList', 'customer.listAccounts'];
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method, { name: accountName, get_total: 0 });
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode !== 200 || resp.body.includes('<fault>')) continue;
       const structs = extractAllTags(resp.body, 'struct');
       for (const s of structs) {
@@ -1172,12 +1258,11 @@ export async function pushRateToSippy(opts: {
   if (!baseUrl) return { success: false, message: 'Not connected to Sippy.' };
 
   const apiUrl  = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
-  const auth    = { Authorization: basicAuth(credentials.username, credentials.password) };
-  const effFrom = opts.effectiveFrom ? fmtSippyDate(opts.effectiveFrom) : fmtSippyDate(new Date());
+    const effFrom = opts.effectiveFrom ? fmtSippyDate(opts.effectiveFrom) : fmtSippyDate(new Date());
   const lastErrors: string[] = [];
 
   // Step 1 — find the customer + their tariff ID
-  const customer = await findSippyCustomer(apiUrl, auth, opts.accountName);
+  const customer = await findSippyCustomer(apiUrl, credentials.username, credentials.password, opts.accountName);
   console.log(`[Sippy] pushRate customer lookup for "${opts.accountName}":`, customer);
 
   // Step 2a — if we have a tariff ID, call tariff.setRate with i_tariff
@@ -1190,7 +1275,7 @@ export async function pushRateToSippy(opts: {
         start_date:  effFrom,
         ...(opts.effectiveTo ? { end_date: fmtSippyDate(opts.effectiveTo) } : {}),
       });
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
         return { success: true, message: `Rate ${opts.prefix}=${opts.ratePerMin} pushed to Sippy tariff`, method: 'tariff.setRate' };
       }
@@ -1210,7 +1295,7 @@ export async function pushRateToSippy(opts: {
         start_date:  effFrom,
         ...(opts.effectiveTo ? { end_date: fmtSippyDate(opts.effectiveTo) } : {}),
       });
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
         return { success: true, message: `Rate ${opts.prefix}=${opts.ratePerMin} pushed to account tariff`, method: 'tariff.setRate(i_account)' };
       }
@@ -1228,7 +1313,7 @@ export async function pushRateToSippy(opts: {
     };
     if (customer?.i_tariff) params.i_tariff = customer.i_tariff;
     const body = xmlRpcCall('tariff.addDestination', params);
-    const resp = await rawPost(apiUrl, body, auth);
+    const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       return { success: true, message: `Destination ${opts.prefix} added via tariff.addDestination`, method: 'tariff.addDestination' };
     }
@@ -1243,7 +1328,7 @@ export async function pushRateToSippy(opts: {
         i_account: customer.i_account,
         ...(opts.ratePerMin !== undefined ? { rate: opts.ratePerMin } : {}),
       });
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
         return { success: true, message: `Account rate updated via customer.updateAccount`, method: 'customer.updateAccount' };
       }
@@ -1306,7 +1391,6 @@ export async function pushAccountToSippy(
 
   const session = activeSession;
   const apiUrl = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(credentials.username, credentials.password) };
   const isVendor = opts.type === 'vendor';
 
   // ── Derive auto-values ────────────────────────────────────────────────────
@@ -1415,7 +1499,7 @@ export async function pushAccountToSippy(
   for (const { method, body } of attempts) {
     try {
       console.log(`[Sippy] Trying ${method}:\n${body}`);
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
       const text = resp.body;
       console.log(`[Sippy] ${method} → HTTP ${resp.statusCode}, body: ${text.slice(0, 600)}`);
       if (resp.statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode') && !text.includes('faultString')) {
@@ -1508,7 +1592,6 @@ export async function listSippyRoutingGroups(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { groups: [], error: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth = { Authorization: basicAuth(username, password) };
 
   // Official method: getRoutingGroupsList() — also try legacy names for older builds
   const methods = [
@@ -1520,7 +1603,7 @@ export async function listSippyRoutingGroups(
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method);
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode !== 200) continue;
       const text = resp.body;
       if (text.includes('faultCode')) continue;
@@ -1548,7 +1631,6 @@ export async function listSippyTariffs(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { tariffs: [], error: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth = { Authorization: basicAuth(username, password) };
 
   // Official method: getTariffsList() (Sippy docs 3000098586, available since Sippy 2020)
   // Returns: tariffs array with i_tariff, name, currency, i_tariff_type
@@ -1562,7 +1644,7 @@ export async function listSippyTariffs(
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method, { limit: 500 });
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode !== 200) continue;
       const text = resp.body;
       if (text.includes('faultCode')) continue;
@@ -1601,9 +1683,7 @@ export async function getSippyStats(username: string, password: string, explicit
   const body = xmlRpcCall('call_control.getCountersStats');
 
   try {
-    const resp = await rawPost(apiUrl, body, {
-      Authorization: basicAuth(username, password),
-    });
+    const resp = await sippyPost(apiUrl, body, username, password);
     if (resp.statusCode !== 200) return { totalCalls: 0, activeCalls: 0, successRate: 0, totalMinutes: 0 };
 
     const m = extractStructMembers(resp.body);
@@ -1690,7 +1770,7 @@ export async function getSippyTariffList(username: string, password: string): Pr
   for (const [method, params] of methods) {
     try {
       const body = xmlRpcCall(method as string, params as Record<string, any>);
-      const resp = await rawPost(apiUrl, body, { Authorization: basicAuth(username, password) });
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode !== 200) continue;
       const text = resp.body.toString('utf-8');
       if (text.includes('faultCode')) continue;
@@ -1716,7 +1796,7 @@ export async function getSippyCarrierList(username: string, password: string): P
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method, {});
-      const resp = await rawPost(apiUrl, body, { Authorization: basicAuth(username, password) });
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode !== 200) continue;
       const text = resp.body.toString('utf-8');
       if (text.includes('faultCode')) continue;
@@ -1751,7 +1831,7 @@ export async function getSippyRateAnalysis(
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method, reqParams);
-      const resp = await rawPost(apiUrl, body, { Authorization: basicAuth(username, password) });
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode !== 200) continue;
       const text = resp.body.toString('utf-8');
       if (text.includes('faultCode')) {
@@ -1838,7 +1918,6 @@ export async function getSippyRateList(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { rates: [], error: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   // Official method: getTariffRatesList() (Sippy docs 3000118878, available since Sippy 2022)
   // Returns: i_rate, prefix, price_1, price_n, interval_1, interval_n,
@@ -1853,7 +1932,7 @@ export async function getSippyRateList(
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method, { i_tariff: tariffId, limit: 1000, offset: 0 });
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode !== 200 || resp.body.includes('<fault>')) continue;
       const structs = extractAllTags(resp.body, 'struct');
       const rates: RateEntry[] = [];
@@ -1888,7 +1967,6 @@ export async function setSippyRateEntry(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
   const lastErrors: string[] = [];
 
   const params: Record<string, string | number> = {
@@ -1904,7 +1982,7 @@ export async function setSippyRateEntry(
   for (const method of ['addRateTariff', 'tariff.setRate', 'tariff.addDestination', 'rate.setRate']) {
     try {
       const body = xmlRpcCall(method, params);
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
         return { success: true, message: `Rate saved via ${method}` };
       }
@@ -1925,13 +2003,12 @@ export async function deleteSippyRateEntry(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   // Official: deleteRateTariff() — also try legacy aliases
   for (const method of ['deleteRateTariff', 'tariff.deleteRate', 'tariff.deleteDestination', 'rate.deleteRate']) {
     try {
       const body = xmlRpcCall(method, { i_tariff: tariffId, destination: prefix });
-      const resp = await rawPost(apiUrl, body, auth);
+      const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
         return { success: true, message: `Rate deleted via ${method}` };
       }
@@ -1957,7 +2034,6 @@ export async function updateSippyCustomer(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   const params: Record<string, string | number | boolean> = { i_customer: iCustomer };
   if (fields.companyName)    params.company_name          = fields.companyName;
@@ -1975,7 +2051,7 @@ export async function updateSippyCustomer(
   }
 
   try {
-    const resp = await rawPost(apiUrl, xmlRpcCall('updateCustomer', params), auth);
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateCustomer', params), username, password);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       return { success: true, message: 'Customer updated successfully.' };
     }
@@ -2000,10 +2076,9 @@ export async function deleteSippyCustomer(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   try {
-    const resp = await rawPost(apiUrl, xmlRpcCall('deleteCustomer', { i_customer: iCustomer }), auth);
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteCustomer', { i_customer: iCustomer }), username, password);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       return { success: true, message: 'Customer deleted successfully.' };
     }
@@ -2028,10 +2103,9 @@ export async function blockSippyCustomer(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   try {
-    const resp = await rawPost(apiUrl, xmlRpcCall('blockCustomer', { i_customer: iCustomer }), auth);
+    const resp = await sippyPost(apiUrl, xmlRpcCall('blockCustomer', { i_customer: iCustomer }), username, password);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       return { success: true, message: 'Customer blocked.' };
     }
@@ -2056,10 +2130,9 @@ export async function unblockSippyCustomer(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   try {
-    const resp = await rawPost(apiUrl, xmlRpcCall('unblockCustomer', { i_customer: iCustomer }), auth);
+    const resp = await sippyPost(apiUrl, xmlRpcCall('unblockCustomer', { i_customer: iCustomer }), username, password);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       return { success: true, message: 'Customer unblocked.' };
     }
@@ -2087,10 +2160,9 @@ export async function deleteSippyAccount(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   try {
-    const resp = await rawPost(apiUrl, xmlRpcCall('deleteAccount', { i_account: iAccount }), auth);
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteAccount', { i_account: iAccount }), username, password);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       return { success: true, message: 'Account deleted successfully.' };
     }
@@ -2118,7 +2190,6 @@ export async function updateSippyVendor(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   const params: Record<string, string | number> = { i_vendor: iVendor };
   if (fields.name)        params.name         = fields.name;
@@ -2127,7 +2198,7 @@ export async function updateSippyVendor(
   if (fields.email)       params.email        = fields.email;
 
   try {
-    const resp = await rawPost(apiUrl, xmlRpcCall('updateVendor', params), auth);
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateVendor', params), username, password);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       return { success: true, message: 'Vendor updated successfully.' };
     }
@@ -2152,10 +2223,9 @@ export async function deleteSippyVendor(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   try {
-    const resp = await rawPost(apiUrl, xmlRpcCall('deleteVendor', { i_vendor: iVendor }), auth);
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteVendor', { i_vendor: iVendor }), username, password);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       return { success: true, message: 'Vendor deleted successfully.' };
     }
@@ -2181,7 +2251,6 @@ export async function createSippyTariff(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   const params: Record<string, string | number | boolean> = {
     name: opts.name,
@@ -2191,7 +2260,7 @@ export async function createSippyTariff(
   if (opts.freeSeconds !== undefined) params.free_seconds = opts.freeSeconds;
 
   try {
-    const resp = await rawPost(apiUrl, xmlRpcCall('createTariff', params), auth);
+    const resp = await sippyPost(apiUrl, xmlRpcCall('createTariff', params), username, password);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       const m = extractStructMembers(resp.body);
       const iTariff = parseInt(m['i_tariff'] || '0', 10);
@@ -2217,10 +2286,9 @@ export async function deleteSippyTariff(
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const auth   = { Authorization: basicAuth(username, password) };
 
   try {
-    const resp = await rawPost(apiUrl, xmlRpcCall('deleteTariff', { i_tariff: iTariff }), auth);
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteTariff', { i_tariff: iTariff }), username, password);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       return { success: true, message: 'Tariff deleted.' };
     }
