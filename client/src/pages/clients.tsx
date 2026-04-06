@@ -6,7 +6,7 @@ import {
   Plus, Pencil, Trash2, Loader2, Building2, Server, X, Check,
   Globe, RefreshCw, Download, AlertTriangle, Send, Upload,
   Clock, CalendarClock, CheckCircle2, XCircle, Activity,
-  ChevronUp, ChevronDown,
+  ChevronUp, ChevronDown, Eye, EyeOff,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { ClientProfile } from "@shared/schema";
@@ -746,10 +746,14 @@ function SendRatePanel({ profiles }: { profiles: ClientProfile[] }) {
 // ── New Sippy Account Modal ──────────────────────────────────────────────────
 function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; switches: SwitchOption[] }) {
   const sippySwitches = switches.filter((s: SwitchOption) => s.type === 'sippy');
+  const useInlineCreds = sippySwitches.length === 0;
   const [name, setName] = useState('');
   const [type, setType] = useState<'client' | 'vendor'>('client');
   const [switchId, setSwitchId] = useState<string>('');
-  const selectedSwitch = sippySwitches.find((s: SwitchOption) => String(s.id) === switchId);
+  const [inlineUrl, setInlineUrl] = useState('');
+  const [inlineUser, setInlineUser] = useState('');
+  const [inlinePass, setInlinePass] = useState('');
+  const [showPass, setShowPass] = useState(false);
   const [ipAddress, setIpAddress] = useState('');
   const [ratePerMin, setRatePerMin] = useState('');
   const [creditLimit, setCreditLimit] = useState('');
@@ -760,18 +764,25 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [description, setDescription] = useState('');
   const [result, setResult] = useState<{ success: boolean; message: string; detail?: string } | null>(null);
 
-  const switchQs = switchId ? `?switchId=${switchId}` : '';
+  const inlineReady = useInlineCreds && !!inlineUrl.trim() && !!inlineUser.trim() && !!inlinePass.trim();
+  const switchQs = switchId
+    ? `?switchId=${switchId}`
+    : inlineReady
+      ? `?inlineUrl=${encodeURIComponent(inlineUrl)}&inlineUser=${encodeURIComponent(inlineUser)}&inlinePass=${encodeURIComponent(inlinePass)}`
+      : '';
 
   const { data: rgData } = useQuery<{ groups: { id: number; name: string }[]; error?: string }>({
-    queryKey: ['/api/sippy/routing-groups', switchId],
+    queryKey: ['/api/sippy/routing-groups', switchId, inlineUrl, inlineUser],
     queryFn: () => fetch(`/api/sippy/routing-groups${switchQs}`).then(r => r.json()),
     staleTime: 60_000,
+    enabled: !!(switchId || inlineReady),
   });
 
   const { data: tariffData } = useQuery<{ tariffs: { id: number; name: string; currency?: string }[]; error?: string }>({
-    queryKey: ['/api/sippy/tariffs', switchId],
+    queryKey: ['/api/sippy/tariffs', switchId, inlineUrl, inlineUser],
     queryFn: () => fetch(`/api/sippy/tariffs${switchQs}`).then(r => r.json()),
     staleTime: 60_000,
+    enabled: !!(switchId || inlineReady),
   });
 
   const routingGroups = rgData?.groups ?? [];
@@ -781,6 +792,9 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
     mutationFn: () => apiRequest('POST', '/api/sippy/accounts', {
       name, type,
       switchId: switchId ? Number(switchId) : undefined,
+      inlineUrl:  useInlineCreds ? inlineUrl  : undefined,
+      inlineUser: useInlineCreds ? inlineUser : undefined,
+      inlinePass: useInlineCreds ? inlinePass : undefined,
       ipAddress: ipAddress || undefined,
       ratePerMin: ratePerMin ? Number(ratePerMin) : undefined,
       creditLimit: creditLimit ? Number(creditLimit) : undefined,
@@ -795,7 +809,14 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
       setResult(data);
     },
     onError: (err: any) => {
-      setResult({ success: false, message: err.message ?? 'Failed to create account.' });
+      const msg = err.message ?? '';
+      const json = msg.replace(/^\d+:\s*/, '');
+      try {
+        const parsed = JSON.parse(json);
+        setResult({ success: false, message: parsed.message ?? msg, detail: parsed.detail });
+      } catch {
+        setResult({ success: false, message: msg || 'Failed to create account.' });
+      }
     },
   });
 
@@ -816,7 +837,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
         </div>
 
         <div className="p-6 space-y-4">
-          {sippySwitches.length > 0 && (
+          {sippySwitches.length > 0 ? (
             <div>
               <label className={labelCls}>Target Sippy Switch <span className="text-rose-400">*</span></label>
               <select
@@ -833,6 +854,41 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               {!switchId && (
                 <p className="text-xs text-amber-400 mt-1">Select the Sippy switch to create this account on.</p>
               )}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-violet-500/30 bg-violet-500/8 p-4 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-2 h-2 rounded-full bg-violet-400" />
+                <span className="text-xs font-semibold text-violet-300 uppercase tracking-wide">Sippy Connection</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Enter your Sippy switch credentials. These are only used for this request.</p>
+              <div>
+                <label className={labelCls}>Sippy URL <span className="text-rose-400">*</span></label>
+                <input data-testid="input-sippy-inline-url" value={inlineUrl}
+                  onChange={e => setInlineUrl(e.target.value)}
+                  placeholder="https://your-sippy.example.com" className={fieldCls} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Username <span className="text-rose-400">*</span></label>
+                  <input data-testid="input-sippy-inline-user" value={inlineUser}
+                    onChange={e => setInlineUser(e.target.value)}
+                    placeholder="admin" className={fieldCls} autoComplete="username" />
+                </div>
+                <div>
+                  <label className={labelCls}>Password <span className="text-rose-400">*</span></label>
+                  <div className="relative">
+                    <input data-testid="input-sippy-inline-pass" value={inlinePass}
+                      type={showPass ? 'text' : 'password'}
+                      onChange={e => setInlinePass(e.target.value)}
+                      placeholder="••••••••" className={`${fieldCls} pr-8`} autoComplete="current-password" />
+                    <button type="button" onClick={() => setShowPass(p => !p)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                      {showPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -936,7 +992,9 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
           {!result?.success && (
             <button
               data-testid="button-sippy-create-account"
-              disabled={!name.trim() || createMut.isPending || (sippySwitches.length > 0 && !switchId)}
+              disabled={!name.trim() || createMut.isPending
+                || (sippySwitches.length > 0 && !switchId)
+                || (useInlineCreds && (!inlineUrl.trim() || !inlineUser.trim() || !inlinePass.trim()))}
               onClick={() => createMut.mutate()}
               className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
             >

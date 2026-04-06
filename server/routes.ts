@@ -1103,9 +1103,9 @@ export async function registerRoutes(
   app.get('/api/sippy/routing-groups', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
-      let username = settings.portalUsername ?? '';
-      let password = settings.portalPassword ?? '';
-      let portalUrl: string | undefined = settings.portalUrl ?? undefined;
+      let username = (req.query.inlineUser as string) || settings.portalUsername || '';
+      let password = (req.query.inlinePass as string) || settings.portalPassword || '';
+      let portalUrl: string | undefined = (req.query.inlineUrl as string) || settings.portalUrl || undefined;
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
         if (sw) { username = sw.portalUsername ?? ''; password = sw.portalPassword ?? ''; portalUrl = sw.portalUrl ?? undefined; }
@@ -1121,9 +1121,9 @@ export async function registerRoutes(
   app.get('/api/sippy/tariffs', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
-      let username = settings.portalUsername ?? '';
-      let password = settings.portalPassword ?? '';
-      let portalUrl: string | undefined = settings.portalUrl ?? undefined;
+      let username = (req.query.inlineUser as string) || settings.portalUsername || '';
+      let password = (req.query.inlinePass as string) || settings.portalPassword || '';
+      let portalUrl: string | undefined = (req.query.inlineUrl as string) || settings.portalUrl || undefined;
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
         if (sw) { username = sw.portalUsername ?? ''; password = sw.portalPassword ?? ''; portalUrl = sw.portalUrl ?? undefined; }
@@ -1139,20 +1139,30 @@ export async function registerRoutes(
   app.post('/api/sippy/accounts', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      // Support optional switchId to target a secondary Sippy switch
-      let username = settings.portalUsername ?? '';
-      let password = settings.portalPassword ?? '';
-      // Default to primary portalUrl so pushAccountToSippy has a URL even if no active session
-      let targetUrl: string | undefined = settings.portalUrl ?? undefined;
-      if (req.body.switchId) {
-        const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.body.switchId) && s.type === 'sippy');
-        if (!sw) return res.status(404).json({ success: false, message: 'Sippy switch not found.' });
-        username = sw.portalUsername ?? '';
-        password = sw.portalPassword ?? '';
-        targetUrl = sw.portalUrl ?? undefined;
+      // Support inline credentials passed directly in the request body (when no switch configured)
+      let username = (req.body.inlineUser as string) || '';
+      let password = (req.body.inlinePass as string) || '';
+      let targetUrl: string | undefined = (req.body.inlineUrl as string) || undefined;
+
+      if (!username || !password || !targetUrl) {
+        // Fall back to configured switch or global settings
+        username = settings.portalUsername ?? '';
+        password = settings.portalPassword ?? '';
+        targetUrl = settings.portalUrl ?? undefined;
+        if (req.body.switchId) {
+          const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.body.switchId) && s.type === 'sippy');
+          if (!sw) return res.status(404).json({ success: false, message: 'Sippy switch not found.' });
+          username = sw.portalUsername ?? '';
+          password = sw.portalPassword ?? '';
+          targetUrl = sw.portalUrl ?? undefined;
+        }
       }
+
       if (!username || !password) {
-        return res.status(400).json({ success: false, message: 'Sippy credentials not configured in Settings.' });
+        return res.status(400).json({ success: false, message: 'Sippy credentials are required. Enter your Sippy URL, username, and password in the form above.' });
+      }
+      if (!targetUrl) {
+        return res.status(400).json({ success: false, message: 'Sippy URL is required. Enter your Sippy switch URL in the form above.' });
       }
       const opts: sippy.SippyAccountOpts = {
         name:               req.body.name,
