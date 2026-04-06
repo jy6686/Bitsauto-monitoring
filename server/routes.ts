@@ -276,6 +276,49 @@ export async function registerRoutes(
     res.json({ message: "Simulation reset acknowledged" });
   });
 
+  // ── Team Management API ───────────────────────────────────────────────────
+
+  // Middleware: require a minimum role
+  async function requireRole(roles: string[], req: any, res: any, next: any) {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    const role = await storage.getUserRole(userId);
+    if (!role || !roles.includes(role)) {
+      return res.status(403).json({ message: 'Forbidden — insufficient permissions' });
+    }
+    next();
+  }
+
+  // GET /api/team — list all users + their roles (admin only)
+  app.get('/api/team', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const members = await storage.getAllUsersWithRoles();
+      res.json(members);
+    } catch (err) {
+      res.status(500).json({ message: 'Failed to fetch team members' });
+    }
+  });
+
+  // PATCH /api/team/:userId/role — change a user's role (admin only)
+  app.patch('/api/team/:userId/role', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    const { userId } = req.params;
+    const { role } = req.body as { role: string };
+    if (!['admin', 'management', 'viewer'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role. Must be admin, management, or viewer.' });
+    }
+    const requesterId = req.user.claims.sub;
+    // Prevent admin from demoting themselves
+    if (userId === requesterId && role !== 'admin') {
+      return res.status(400).json({ message: 'You cannot change your own role.' });
+    }
+    try {
+      await storage.setUserRole(userId, role as any, requesterId);
+      res.json({ message: 'Role updated', userId, role });
+    } catch (err) {
+      res.status(500).json({ message: 'Failed to update role' });
+    }
+  });
+
   // Portal connection test — tries to reach the configured management portal URL
   app.post('/api/portal/test', async (req, res) => {
     const { url, username } = req.body as { url?: string; username?: string; password?: string };

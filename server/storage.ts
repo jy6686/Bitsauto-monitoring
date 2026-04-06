@@ -1,11 +1,13 @@
 
 import { 
-  calls, metrics, alerts, settings,
+  calls, metrics, alerts, settings, userRoles,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
-  type AsrAcdReportRow, type AsrAcdReportFilters
+  type AsrAcdReportRow, type AsrAcdReportFilters,
+  type Role
 } from "@shared/schema";
+import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
 
@@ -33,6 +35,12 @@ export interface IStorage {
 
   // Reports
   getAsrAcdReport(filters: AsrAcdReportFilters): Promise<AsrAcdReportRow[]>;
+
+  // Team / Roles
+  getUserRole(userId: string): Promise<Role | null>;
+  setUserRole(userId: string, role: Role, assignedBy?: string): Promise<void>;
+  getAllUsersWithRoles(): Promise<Array<User & { role: Role }>>;
+  countRoleEntries(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -286,6 +294,31 @@ export class DatabaseStorage implements IStorage {
       avgPdd: Number(r.avg_pdd),
       revenueUsd: Number(r.revenue_usd),
     }));
+  }
+
+  // ── Team / Roles ──────────────────────────────────────────────────────────
+
+  async getUserRole(userId: string): Promise<Role | null> {
+    const [row] = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
+    return (row?.role as Role) ?? null;
+  }
+
+  async setUserRole(userId: string, role: Role, assignedBy?: string): Promise<void> {
+    await db.insert(userRoles)
+      .values({ userId, role, assignedBy })
+      .onConflictDoUpdate({ target: userRoles.userId, set: { role, assignedBy, assignedAt: new Date() } });
+  }
+
+  async countRoleEntries(): Promise<number> {
+    const [row] = await db.select({ count: sql<number>`count(*)` }).from(userRoles);
+    return Number(row?.count ?? 0);
+  }
+
+  async getAllUsersWithRoles(): Promise<Array<User & { role: Role }>> {
+    const allUsers = await db.select().from(users);
+    const allRoles = await db.select().from(userRoles);
+    const roleMap = new Map(allRoles.map(r => [r.userId, r.role as Role]));
+    return allUsers.map(u => ({ ...u, role: roleMap.get(u.id) ?? 'viewer' as Role }));
   }
 }
 

@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, real, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -54,6 +54,18 @@ export const settings = pgTable("settings", {
   portalUsername: varchar("portal_username", { length: 128 }),
   portalPassword: varchar("portal_password", { length: 255 }),
 });
+
+// Team Roles: maps each user to their access role
+export const userRoles = pgTable("user_roles", {
+  userId: varchar("user_id").primaryKey(), // references users.id
+  role: varchar("role", { length: 20 }).default('viewer').notNull(), // admin | management | viewer
+  assignedAt: timestamp("assigned_at").defaultNow(),
+  assignedBy: varchar("assigned_by"), // userId of admin who assigned (null = auto)
+});
+
+export type UserRole = typeof userRoles.$inferSelect;
+export type InsertUserRole = typeof userRoles.$inferInsert;
+export type Role = 'admin' | 'management' | 'viewer';
 
 // === SCHEMAS ===
 

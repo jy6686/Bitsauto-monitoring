@@ -1,7 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { User } from "@shared/models/auth";
+import type { Role } from "@shared/schema";
 
-async function fetchUser(): Promise<User | null> {
+export type AuthUser = User & { role: Role };
+
+async function fetchUser(): Promise<AuthUser | null> {
   const response = await fetch("/api/auth/user", {
     credentials: "include",
   });
@@ -23,7 +26,7 @@ async function logout(): Promise<void> {
 
 export function useAuth() {
   const queryClient = useQueryClient();
-  const { data: user, isLoading } = useQuery<User | null>({
+  const { data: user, isLoading } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/user"],
     queryFn: fetchUser,
     retry: false,
@@ -37,10 +40,15 @@ export function useAuth() {
     },
   });
 
+  const role: Role = user?.role ?? 'viewer';
+
   return {
     user,
+    role,
     isLoading,
     isAuthenticated: !!user,
+    isAdmin: role === 'admin',
+    isManagement: role === 'admin' || role === 'management',
     logout: logoutMutation.mutate,
     isLoggingOut: logoutMutation.isPending,
   };
