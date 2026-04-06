@@ -764,6 +764,12 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [description, setDescription] = useState('');
   const [result, setResult] = useState<{ success: boolean; message: string; detail?: string } | null>(null);
 
+  const { data: sippySession } = useQuery<{ active: boolean; mode?: string }>({
+    queryKey: ['/api/sippy/session'],
+    staleTime: 30_000,
+  });
+  const isPortalMode = sippySession?.active && sippySession?.mode === 'portal';
+
   const inlineReady = useInlineCreds && !!inlineUrl.trim() && !!inlineUser.trim() && !!inlinePass.trim();
   const switchQs = switchId
     ? `?switchId=${switchId}`
@@ -837,6 +843,21 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
         </div>
 
         <div className="p-6 space-y-4">
+          {/* Portal mode warning — account creation requires XML-RPC API */}
+          {isPortalMode && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 flex gap-3">
+              <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-amber-300">XML-RPC API Required</p>
+                <p className="text-xs text-amber-200/80">
+                  Your Sippy switch is connected in <strong>portal mode</strong> (web session only). Account creation requires
+                  the XML-RPC API. Ask your Sippy administrator to enable the API and provide separate API credentials,
+                  then re-connect in Settings.
+                </p>
+              </div>
+            </div>
+          )}
+
           {sippySwitches.length > 0 ? (
             <div>
               <label className={labelCls}>Target Sippy Switch <span className="text-rose-400">*</span></label>

@@ -1125,6 +1125,16 @@ export async function pushAccountToSippy(
   const baseUrl = targetUrl ?? activeSession?.portalUrl;
   if (!baseUrl) return { success: false, message: 'Not connected to Sippy — configure and connect your Sippy switch first.' };
 
+  // ── Portal mode cannot create accounts (customer-level access only) ──────
+  const session = activeSession;
+  if (session?.mode === 'portal') {
+    return {
+      success: false,
+      message: 'XML-RPC API required for account creation.',
+      detail: 'Your Sippy switch is connected via web portal (portal mode), which does not support account creation. To create accounts, you need working XML-RPC API credentials. Ask your Sippy administrator to enable the XML-RPC API and provide separate API credentials.',
+    };
+  }
+
   const apiUrl = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
   const auth   = { Authorization: basicAuth(credentials.username, credentials.password) };
 
