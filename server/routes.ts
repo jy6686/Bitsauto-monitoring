@@ -29,6 +29,39 @@ function portFromUrl(url: string | null | undefined): number | null {
   }
 }
 
+/**
+ * Normalise an arbitrary "monitored IP" value into a bare hostname/IP.
+ * Accepts:
+ *   - Plain IPs:            "45.59.163.182"          → "45.59.163.182"
+ *   - IP with port:         "45.59.163.182:8081"      → "45.59.163.182"
+ *   - Full URLs:            "https://191.101.30.107"  → "191.101.30.107"
+ *   - URL with port/path:   "http://1.2.3.4:8081/eng" → "1.2.3.4"
+ * Also returns any explicit port found in the value (for priority probing).
+ */
+function normalizeMonitoredIp(raw: string): { host: string; explicitPort: number | null } {
+  const s = raw.trim();
+  // If it starts with a scheme, parse as URL
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      const u = new URL(s);
+      const p = Number(u.port);
+      return { host: u.hostname, explicitPort: p > 0 ? p : null };
+    } catch {
+      // fall through to plain-text parse
+    }
+  }
+  // Otherwise treat as "host" or "host:port"
+  const colonIdx = s.lastIndexOf(':');
+  if (colonIdx > 0) {
+    const maybePart = s.slice(colonIdx + 1);
+    const maybePort = Number(maybePart);
+    if (Number.isInteger(maybePort) && maybePort > 0) {
+      return { host: s.slice(0, colonIdx), explicitPort: maybePort };
+    }
+  }
+  return { host: s, explicitPort: null };
+}
+
 // Probe an IP address by attempting TCP connections on a prioritised port list.
 // Returns the first port that responds, with its round-trip latency.
 function probeIp(ip: string, priorityPorts: number[] = []): Promise<{ latency: number; reachable: boolean; port?: number }> {
@@ -75,13 +108,16 @@ export async function registerRoutes(
   // Runs independently to measure real latency to the monitored IP
   async function runIpProbe() {
     const settings = await storage.getSettings();
-    const ip = settings.monitoredIp;
-    if (!ip) return;
-    // Prioritise the port from the configured portal URL (e.g. 8081 for VOS3000)
+    const raw = settings.monitoredIp;
+    if (!raw) return;
+    // Strip protocol / path from the monitored IP so net.Socket can connect
+    const { host, explicitPort } = normalizeMonitoredIp(raw);
+    if (!host) return;
+    // Priority ports: any port in the monitoredIp value + any port in portalUrl
     const portalPort = portFromUrl(settings.portalUrl);
-    const priorityPorts = portalPort ? [portalPort] : [];
-    const result = await probeIp(ip, priorityPorts);
-    lastProbeResult = { ...result, timestamp: new Date() };
+    const priorityPorts = [explicitPort, portalPort].filter((p): p is number => p !== null);
+    const result = await probeIp(host, priorityPorts);
+    lastProbeResult = { ...result, host, timestamp: new Date() };
   }
   // Run probe immediately on startup, then every 10 seconds
   runIpProbe();
@@ -99,7 +135,7 @@ export async function registerRoutes(
 
         // Delete all active calls left over from simulation so they don't linger
         const calls = await storage.getCalls(500);
-        const probeCaller = settings.monitoredIp || '';
+        const probeCaller = settings.monitoredIp ? normalizeMonitoredIp(settings.monitoredIp).host : '';
         for (const call of calls) {
           if (call.status === 'active' && call.caller !== probeCaller) {
             await storage.endCall(call.id, 'completed', 'simulation_disabled');
@@ -230,7 +266,10 @@ export async function registerRoutes(
     const settings = await storage.getSettings();
     if (!settings.simulationEnabled) return;
 
-    const monitoredIp = settings.monitoredIp || null;
+    // Always use the normalised host (strip https://, port, path) so callers are plain IPs
+    const monitoredIp = settings.monitoredIp
+      ? normalizeMonitoredIp(settings.monitoredIp).host
+      : null;
 
     // 1. Manage Active Calls (Create/End)
     const calls = await storage.getCalls(100);
@@ -363,8 +402,12 @@ export async function registerRoutes(
   // Live IP Probe Status
   app.get('/api/probe/status', async (req, res) => {
     const settings = await storage.getSettings();
+    const raw = settings.monitoredIp || null;
+    // Return the normalised host so the UI shows a clean IP/hostname
+    const displayIp = raw ? normalizeMonitoredIp(raw).host : null;
     res.json({
-      ip: settings.monitoredIp || null,
+      ip: displayIp,
+      rawIp: raw,
       ...lastProbeResult,
     });
   });
