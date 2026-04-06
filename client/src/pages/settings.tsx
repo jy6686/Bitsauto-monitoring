@@ -3,9 +3,12 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertSettingsSchema } from "@shared/schema";
 import { z } from "zod";
-import { useState } from "react";
-import { Loader2, Save, RefreshCw, Eye, EyeOff, Globe, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
-import { useMutation } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import {
+  Loader2, Save, RefreshCw, Eye, EyeOff, Globe, CheckCircle2,
+  XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
+} from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
 const formSchema = insertSettingsSchema.pick({
@@ -20,9 +23,232 @@ const formSchema = insertSettingsSchema.pick({
 });
 
 type FormValues = z.infer<typeof formSchema>;
-
 type TestResult = { ok: boolean; message: string } | null;
 
+// ── Portal Session Status ─────────────────────────────────────────────────────
+function usePortalSession() {
+  return useQuery<{ active: boolean; username?: string; loggedInAt?: string; portalBase?: string }>({
+    queryKey: ['/api/portal/session'],
+    refetchInterval: 30000,
+  });
+}
+
+// ── Portal Login Panel ────────────────────────────────────────────────────────
+function PortalLoginPanel({ username, password }: { username: string; password: string }) {
+  const qc = useQueryClient();
+  const { data: session, isLoading: sessionLoading } = usePortalSession();
+
+  const [captchaImg, setCaptchaImg] = useState<string | null>(null);
+  const [challengeId, setChallengeId] = useState<string | null>(null);
+  const [captchaCode, setCaptchaCode] = useState('');
+  const [fetchingCaptcha, setFetchingCaptcha] = useState(false);
+  const [loginResult, setLoginResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function loadCaptcha() {
+    setFetchingCaptcha(true);
+    setCaptchaImg(null);
+    setChallengeId(null);
+    setLoginResult(null);
+    setCaptchaCode('');
+    try {
+      const resp = await fetch('/api/portal/captcha');
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        setLoginResult({ ok: false, message: body.error || 'Failed to fetch CAPTCHA from portal.' });
+        return;
+      }
+      const data = await resp.json();
+      setCaptchaImg(data.imageBase64);
+      setChallengeId(data.challengeId);
+    } catch {
+      setLoginResult({ ok: false, message: 'Network error contacting portal.' });
+    } finally {
+      setFetchingCaptcha(false);
+    }
+  }
+
+  async function handleLogin() {
+    if (!challengeId || !captchaCode.trim()) return;
+    setLoggingIn(true);
+    setLoginResult(null);
+    try {
+      const resp = await fetch('/api/portal/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, challengeId, captchaCode }),
+      });
+      const data = await resp.json();
+      setLoginResult({ ok: data.success, message: data.message });
+      if (data.success) {
+        qc.invalidateQueries({ queryKey: ['/api/portal/session'] });
+        setCaptchaImg(null);
+        setChallengeId(null);
+        setCaptchaCode('');
+      } else {
+        // Wrong captcha — load a new one automatically
+        loadCaptcha();
+      }
+    } catch {
+      setLoginResult({ ok: false, message: 'Network error during login.' });
+    } finally {
+      setLoggingIn(false);
+    }
+  }
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await fetch('/api/portal/session', { method: 'DELETE' });
+      qc.invalidateQueries({ queryKey: ['/api/portal/session'] });
+      setLoginResult(null);
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
+  if (sessionLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+        <Loader2 className="w-4 h-4 animate-spin" /> Checking session…
+      </div>
+    );
+  }
+
+  if (session?.active) {
+    return (
+      <div className="space-y-4">
+        {/* Active session badge */}
+        <div className="flex items-center justify-between p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+          <div className="flex items-center gap-3">
+            <ShieldCheck className="w-5 h-5 text-emerald-400" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-400">Connected to VOS3000</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Logged in as <span className="font-mono">{session.username}</span>
+                {session.loggedInAt && (
+                  <> · since {new Date(session.loggedInAt).toLocaleTimeString()}</>
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            data-testid="button-portal-logout"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-rose-400 hover:border-rose-400/50 transition-colors disabled:opacity-50"
+          >
+            {loggingOut ? <Loader2 className="w-3 h-3 animate-spin" /> : <LogOut className="w-3 h-3" />}
+            Logout
+          </button>
+        </div>
+
+        {/* Info: live data is flowing */}
+        <p className="text-xs text-muted-foreground">
+          Live CDR records and call stats are now being pulled from the VOS3000 portal.
+          Check the <strong>Dashboard</strong> and <strong>Reports</strong> pages.
+        </p>
+      </div>
+    );
+  }
+
+  // Not logged in — show CAPTCHA login flow
+  return (
+    <div className="space-y-4">
+      {/* Status / result */}
+      {loginResult && (
+        <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border ${loginResult.ok ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-rose-400 border-rose-500/30 bg-rose-500/10'}`}>
+          {loginResult.ok
+            ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+            : <XCircle className="w-4 h-4 flex-shrink-0" />}
+          <span data-testid="text-portal-login-result">{loginResult.message}</span>
+        </div>
+      )}
+
+      {/* Explanation */}
+      {!captchaImg && !fetchingCaptcha && (
+        <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-4 space-y-2">
+          <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">One-Time Login Required</p>
+          <p className="text-xs text-muted-foreground">
+            VOS3000 requires a visual verification code (CAPTCHA) for every login.
+            Click the button below to load the code from the portal — you'll type what you see to complete sign-in.
+            Your session stays active until the server restarts.
+          </p>
+        </div>
+      )}
+
+      {/* CAPTCHA display */}
+      {captchaImg && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="border border-border rounded-lg p-2 bg-white">
+              <img
+                src={captchaImg}
+                alt="CAPTCHA verification code"
+                className="h-10 object-contain"
+                style={{ imageRendering: 'pixelated' }}
+                data-testid="img-captcha"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={loadCaptcha}
+              disabled={fetchingCaptcha}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              data-testid="button-refresh-captcha"
+            >
+              <RefreshCcw className="w-3.5 h-3.5" />
+              New code
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              value={captchaCode}
+              onChange={e => setCaptchaCode(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              type="text"
+              placeholder="Type the code you see above"
+              maxLength={10}
+              autoFocus
+              data-testid="input-captcha-code"
+              className="flex-1 bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+            />
+            <button
+              type="button"
+              onClick={handleLogin}
+              disabled={loggingIn || !captchaCode.trim()}
+              data-testid="button-portal-login"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {loggingIn ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
+              Sign in
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Load captcha button */}
+      {!captchaImg && (
+        <button
+          type="button"
+          onClick={loadCaptcha}
+          disabled={fetchingCaptcha}
+          data-testid="button-load-captcha"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
+        >
+          {fetchingCaptcha
+            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : <LogIn className="w-3.5 h-3.5" />}
+          {fetchingCaptcha ? 'Loading verification code…' : 'Load Verification Code & Sign In'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Main Settings Page ────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
   const updateMutation = useUpdateSettings();
@@ -73,7 +299,12 @@ export default function SettingsPage() {
     }
   }
 
-  if (isLoading) return <div className="p-8">Loading settings...</div>;
+  if (isLoading) return <div className="p-8">Loading settings…</div>;
+
+  const portalUrl = form.watch('portalUrl');
+  const portalUsername = form.watch('portalUsername');
+  const portalPassword = form.watch('portalPassword');
+  const hasSavedPortal = !!(settings?.portalUrl && settings?.portalUsername && settings?.portalPassword);
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
@@ -111,9 +342,9 @@ export default function SettingsPage() {
                   placeholder="http://45.59.163.182:8080"
                   className="flex-1 bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
                 />
-                {form.watch("portalUrl") && (
+                {portalUrl && (
                   <a
-                    href={form.watch("portalUrl") || '#'}
+                    href={portalUrl || '#'}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
@@ -186,16 +417,37 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* What this unlocks */}
-            <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-4 space-y-2">
-              <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider">When connected, you get access to:</p>
-              <ul className="space-y-1 text-xs text-muted-foreground">
-                <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />Full CDR call logs with real timestamps, durations, and routes</li>
-                <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />Live traffic reports and active call counts</li>
-                <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />Routing tables showing call paths and carrier trunks</li>
-                <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />Billing records and per-minute rate details</li>
-              </ul>
+            {/* Save reminder if not yet saved */}
+            {!hasSavedPortal && (portalUrl || portalUsername) && (
+              <p className="text-xs text-amber-400">
+                Save Changes below to store your credentials, then use the Sign In section to connect.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* ── VOS3000 Portal Sign-In ── */}
+        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20">
+            <ShieldCheck className="w-4 h-4 text-violet-400" />
+            <div>
+              <h3 className="font-semibold text-sm">Portal Sign-In (VOS3000)</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Authenticate to start pulling live calls and CDR data into this dashboard.
+              </p>
             </div>
+          </div>
+          <div className="p-6">
+            {hasSavedPortal ? (
+              <PortalLoginPanel
+                username={settings!.portalUsername!}
+                password={settings!.portalPassword!}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Enter your Portal URL, username, and password above, then click <strong>Save Changes</strong> to unlock sign-in.
+              </p>
+            )}
           </div>
         </div>
 

@@ -6,6 +6,7 @@ import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
+import * as vos3000 from "./vos3000";
 
 // Simulation Constants
 const SIMULATION_INTERVAL = 2000; // 2 seconds
@@ -412,6 +413,74 @@ export async function registerRoutes(
     } catch (err) {
       res.json({ reachable: false, message: `Invalid URL format. Use http://IP:PORT or https://domain.` });
     }
+  });
+
+  // ── VOS3000 Portal Integration ──────────────────────────────────────────────
+
+  // GET /api/portal/captcha — fetch a fresh CAPTCHA image from VOS3000
+  app.get('/api/portal/captcha', async (req, res) => {
+    const settings = await storage.getSettings();
+    const portalUrl = settings.portalUrl;
+    if (!portalUrl) {
+      return res.status(400).json({ error: 'No portal URL configured in Settings.' });
+    }
+    const result = await vos3000.fetchCaptcha(portalUrl);
+    if (!result) {
+      return res.status(502).json({ error: 'Could not fetch CAPTCHA from portal. Check the Portal URL.' });
+    }
+    res.json(result);
+  });
+
+  // POST /api/portal/login — complete VOS3000 login with CAPTCHA answer
+  app.post('/api/portal/login', async (req, res) => {
+    const { username, password, challengeId, captchaCode } = req.body as {
+      username?: string;
+      password?: string;
+      challengeId?: string;
+      captchaCode?: string;
+    };
+    if (!username || !password || !challengeId || !captchaCode) {
+      return res.status(400).json({ success: false, message: 'Missing required fields.' });
+    }
+    const settings = await storage.getSettings();
+    const portalUrl = settings.portalUrl;
+    if (!portalUrl) {
+      return res.status(400).json({ success: false, message: 'No portal URL configured in Settings.' });
+    }
+    const result = await vos3000.loginWithCaptcha(portalUrl, username, password, challengeId, captchaCode);
+    res.json(result);
+  });
+
+  // GET /api/portal/session — return current portal session status
+  app.get('/api/portal/session', (_req, res) => {
+    const status = vos3000.getSessionStatus();
+    res.json(status);
+  });
+
+  // DELETE /api/portal/session — logout from portal
+  app.delete('/api/portal/session', (_req, res) => {
+    vos3000.clearSession();
+    res.json({ success: true, message: 'Logged out from portal.' });
+  });
+
+  // GET /api/portal/live-calls — fetch active calls from VOS3000
+  app.get('/api/portal/live-calls', async (_req, res) => {
+    const result = await vos3000.fetchLiveCalls();
+    res.json(result);
+  });
+
+  // GET /api/portal/cdr — fetch CDR records from VOS3000
+  app.get('/api/portal/cdr', async (req, res) => {
+    const limit = Number(req.query.limit) || 100;
+    const hoursAgo = Number(req.query.hoursAgo) || 24;
+    const result = await vos3000.fetchCdrRecords({ limit, startHoursAgo: hoursAgo });
+    res.json(result);
+  });
+
+  // GET /api/portal/stats — fetch summary stats from VOS3000
+  app.get('/api/portal/stats', async (_req, res) => {
+    const result = await vos3000.fetchStats();
+    res.json(result);
   });
 
   // ASR/ACD Report — per-client breakdown

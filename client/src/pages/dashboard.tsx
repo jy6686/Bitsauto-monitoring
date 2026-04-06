@@ -21,7 +21,12 @@ import {
   PhoneMissed,
   PhoneOff,
   Signal,
-  CheckCircle2
+  CheckCircle2,
+  Globe,
+  TrendingUp,
+  DollarSign,
+  PhoneIncoming,
+  Settings,
 } from "lucide-react";
 import { 
   AreaChart, 
@@ -52,6 +57,30 @@ export default function DashboardPage() {
   const { data: probe, isLoading: probeLoading } = useQuery<ProbeStatus>({
     queryKey: ['/api/probe/status'],
     refetchInterval: 15000,
+  });
+
+  // VOS3000 portal data
+  const { data: portalSession } = useQuery<{ active: boolean; username?: string; loggedInAt?: string }>({
+    queryKey: ['/api/portal/session'],
+    refetchInterval: 30000,
+  });
+  const { data: portalStats } = useQuery<{
+    totalCalls: number; successCalls: number; failedCalls: number;
+    totalMinutes: number; totalCost: number; asr: number; error?: string;
+  }>({
+    queryKey: ['/api/portal/stats'],
+    refetchInterval: 60000,
+    enabled: !!portalSession?.active,
+  });
+  const { data: portalLiveCalls } = useQuery<{ calls: any[]; error?: string }>({
+    queryKey: ['/api/portal/live-calls'],
+    refetchInterval: 15000,
+    enabled: !!portalSession?.active,
+  });
+  const { data: portalCdr } = useQuery<{ records: any[]; error?: string }>({
+    queryKey: ['/api/portal/cdr'],
+    refetchInterval: 60000,
+    enabled: !!portalSession?.active,
   });
 
   const probeMutation = useMutation({
@@ -381,6 +410,158 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* VOS3000 Portal Live Data */}
+      <div className="rounded-xl border overflow-hidden bg-card shadow-sm" style={{ borderColor: portalSession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-muted/20">
+          <div className="flex items-center gap-3">
+            <Globe className={`w-4 h-4 ${portalSession?.active ? 'text-violet-400' : 'text-muted-foreground'}`} />
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-sm">VOS3000 Portal Data</h3>
+                {portalSession?.active ? (
+                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                    Live
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                    Not Connected
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {portalSession?.active
+                  ? `Live CDR & stats from VOS3000 — logged in as ${portalSession.username}`
+                  : 'Connect via Settings → Portal Sign-In to see real call data here'}
+              </p>
+            </div>
+          </div>
+          {!portalSession?.active && (
+            <Link href="/settings"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+              <Settings className="w-3 h-3" />
+              Connect
+            </Link>
+          )}
+        </div>
+
+        {portalSession?.active ? (
+          <div className="p-6 space-y-6">
+            {/* Stats strip */}
+            {portalStats && !portalStats.error && (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                {[
+                  { label: 'Total Calls (24h)', value: portalStats.totalCalls.toLocaleString(), icon: PhoneCall, color: 'text-blue-400' },
+                  { label: 'Answered', value: portalStats.successCalls.toLocaleString(), icon: CheckCircle2, color: 'text-emerald-400' },
+                  { label: 'Failed', value: portalStats.failedCalls.toLocaleString(), icon: PhoneOff, color: 'text-rose-400' },
+                  { label: 'Total Minutes', value: portalStats.totalMinutes.toLocaleString(), icon: Clock, color: 'text-violet-400' },
+                  { label: 'ASR', value: `${portalStats.asr}%`, icon: TrendingUp, color: portalStats.asr >= 70 ? 'text-emerald-400' : 'text-amber-400' },
+                ].map(({ label, value, icon: Icon, color }) => (
+                  <div key={label} className="bg-muted/30 rounded-lg p-3 border border-border/50">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Icon className={`w-3 h-3 ${color}`} />
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</span>
+                    </div>
+                    <span className={`text-xl font-bold font-mono ${color}`}>{value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {portalStats?.error && (
+              <p className="text-sm text-amber-400 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" /> {portalStats.error}
+              </p>
+            )}
+
+            {/* Live calls from portal */}
+            {(portalLiveCalls?.calls?.length ?? 0) > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  Active Calls on Portal ({portalLiveCalls!.calls.length})
+                </h4>
+                <div className="overflow-x-auto rounded-lg border border-border/50">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-muted/30 text-muted-foreground text-xs">
+                      <tr>
+                        <th className="px-4 py-2">Caller</th>
+                        <th className="px-4 py-2">Callee</th>
+                        <th className="px-4 py-2">Gateway</th>
+                        <th className="px-4 py-2">Duration</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {portalLiveCalls!.calls.slice(0, 10).map((call, i) => (
+                        <tr key={i} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-2 font-mono text-xs">{call.caller || '—'}</td>
+                          <td className="px-4 py-2 font-mono text-xs">{call.callee || '—'}</td>
+                          <td className="px-4 py-2 text-xs text-muted-foreground">{call.gateway || '—'}</td>
+                          <td className="px-4 py-2 text-xs text-muted-foreground">{call.duration > 0 ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Recent CDRs from portal */}
+            {(portalCdr?.records?.length ?? 0) > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  Recent CDR Records from Portal ({portalCdr!.records.length})
+                </h4>
+                <div className="overflow-x-auto rounded-lg border border-border/50">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-muted/30 text-muted-foreground text-xs">
+                      <tr>
+                        <th className="px-4 py-2">Start Time</th>
+                        <th className="px-4 py-2">Caller</th>
+                        <th className="px-4 py-2">Callee</th>
+                        <th className="px-4 py-2">Duration</th>
+                        <th className="px-4 py-2">Status</th>
+                        <th className="px-4 py-2">Gateway</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {portalCdr!.records.slice(0, 10).map((rec, i) => (
+                        <tr key={i} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-2 text-xs text-muted-foreground">{rec.startTime || '—'}</td>
+                          <td className="px-4 py-2 font-mono text-xs">{rec.caller || '—'}</td>
+                          <td className="px-4 py-2 font-mono text-xs">{rec.callee || '—'}</td>
+                          <td className="px-4 py-2 text-xs">{rec.duration > 0 ? `${Math.floor(rec.duration / 60)}m ${rec.duration % 60}s` : '0s'}</td>
+                          <td className="px-4 py-2 text-xs">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              rec.status?.toLowerCase().includes('answer') || rec.status === '200' || rec.cause === '16'
+                                ? 'bg-emerald-500/15 text-emerald-400'
+                                : 'bg-rose-500/15 text-rose-400'
+                            }`}>
+                              {rec.status || rec.cause || '—'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-xs text-muted-foreground">{rec.gateway || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* No data yet */}
+            {!portalStats?.error && (portalCdr?.records?.length ?? 0) === 0 && (portalLiveCalls?.calls?.length ?? 0) === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Fetching data from VOS3000… This may take a moment on the first load.
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="p-6 text-center text-sm text-muted-foreground py-8">
+            <Globe className="w-8 h-8 mx-auto mb-3 opacity-20" />
+            <p>No portal session active.</p>
+            <p className="text-xs mt-1">Go to <Link href="/settings" className="text-primary hover:underline">Settings → Portal Sign-In</Link> to connect to your VOS3000 carrier portal.</p>
+          </div>
+        )}
       </div>
 
       {/* Active Calls Table */}
