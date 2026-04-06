@@ -15,12 +15,21 @@ import { apiRequest } from "@/lib/queryClient";
 
 interface LiveCall {
   id: string;
-  caller: string;
-  callee: string;
+  caller: string;        // CLI (calling number)
+  callee: string;        // CLD (destination number)
   gateway: string;
-  clientName?: string;
+  clientName?: string;   // Account / customer name
   duration: number;
   callStatus: 'connected' | 'routing';
+  // Sippy-specific fields
+  vendor?: string;
+  connection?: string;
+  direction?: string;
+  mediaIpCaller?: string;
+  mediaIpCallee?: string;
+  delay?: number;
+  codec?: string;
+  state?: string;
 }
 
 interface SummaryRow {
@@ -191,6 +200,12 @@ function SwitchPanel({
   const { data: calls } = useCalls(200);
   const [callViewTab, setCallViewTab] = useState<'summary' | 'details'>('summary');
   const [search, setSearch] = useState('');
+  const [filterCli, setFilterCli] = useState('');
+  const [filterCld, setFilterCld] = useState('');
+  const [filterState, setFilterState] = useState('all');
+  const [filterVendor, setFilterVendor] = useState('all');
+  const [filterConnection, setFilterConnection] = useState('all');
+  const [showLatestFirst, setShowLatestFirst] = useState(false);
   const [captchaOpen, setCaptchaOpen] = useState(false);
   const qc = useQueryClient();
 
@@ -542,76 +557,193 @@ function SwitchPanel({
                 </tbody>
               </table>
             </div>
-          ) : (
-            // Secondary switch: show live call records
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-muted/40 text-muted-foreground border-b border-border/50">
-                  <tr>
-                    <th className="px-6 py-4 font-medium">User</th>
-                    <th className="px-6 py-4 font-medium">Caller</th>
-                    <th className="px-6 py-4 font-medium">Destination</th>
-                    <th className="px-6 py-4 font-medium text-center">Duration</th>
-                    <th className="px-6 py-4 font-medium text-center">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {liveCalls.filter(c => !search || c.caller.includes(search) || c.callee.includes(search) || (c.clientName || '').toLowerCase().includes(search.toLowerCase())).map((call, i) => {
-                    const callerCountry = lookupCountry(call.caller);
-                    const calleeCountry = lookupCountry(call.callee);
-                    return (
-                      <tr key={call.id || i} className="hover:bg-muted/20 transition-colors" data-testid={`row-live-${i}`}>
-                        <td className="px-6 py-4">
-                          {call.clientName ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-medium border border-primary/20" data-testid={`cell-user-${i}`}>
-                              {call.clientName}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground/40 text-xs">—</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
-                              <Phone className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <span className="font-mono text-sm">{call.caller}</span>
-                              {callerCountry && <p className="text-xs text-muted-foreground mt-0.5">{callerCountry.flag} {callerCountry.name}</p>}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="font-mono text-sm">{call.callee}</span>
-                          {calleeCountry && <p className="text-xs text-muted-foreground mt-0.5">{calleeCountry.flag} {calleeCountry.name}</p>}
-                        </td>
-                        <td className="px-6 py-4 text-center text-muted-foreground font-mono">
-                          {formatDuration(call.duration)}
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            call.callStatus === 'connected'
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                              : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${call.callStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-                            {call.callStatus === 'connected' ? 'Connected' : 'Routing'}
-                          </span>
-                        </td>
+          ) : (() => {
+            // Build unique vendor/connection lists for dropdowns
+            const vendors = Array.from(new Set(liveCalls.map(c => c.vendor).filter(Boolean))) as string[];
+            const connections = Array.from(new Set(liveCalls.map(c => c.connection).filter(Boolean))) as string[];
+
+            // Apply filters
+            let displayed = liveCalls.filter(c => {
+              if (filterCli && !c.caller.toLowerCase().includes(filterCli.toLowerCase())) return false;
+              if (filterCld && !c.callee.toLowerCase().includes(filterCld.toLowerCase())) return false;
+              if (filterState !== 'all' && c.callStatus !== filterState) return false;
+              if (filterVendor !== 'all' && c.vendor !== filterVendor) return false;
+              if (filterConnection !== 'all' && c.connection !== filterConnection) return false;
+              if (search && !c.caller.includes(search) && !c.callee.includes(search) && !(c.clientName || '').toLowerCase().includes(search.toLowerCase())) return false;
+              return true;
+            });
+            if (showLatestFirst) displayed = [...displayed].reverse();
+
+            return (
+              <div>
+                {/* ── Filter Panel ── */}
+                <div className="border-b border-border/50 bg-muted/10 px-5 py-4 space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filter</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-muted-foreground">CLI</label>
+                      <input
+                        type="text"
+                        placeholder="contains..."
+                        value={filterCli}
+                        onChange={e => setFilterCli(e.target.value)}
+                        className="bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary transition-all font-mono"
+                        data-testid="input-filter-cli"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-muted-foreground">CLD</label>
+                      <input
+                        type="text"
+                        placeholder="contains..."
+                        value={filterCld}
+                        onChange={e => setFilterCld(e.target.value)}
+                        className="bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary transition-all font-mono"
+                        data-testid="input-filter-cld"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-muted-foreground">State</label>
+                      <select
+                        value={filterState}
+                        onChange={e => setFilterState(e.target.value)}
+                        className="bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary transition-all"
+                        data-testid="select-filter-state"
+                      >
+                        <option value="all">All</option>
+                        <option value="connected">Connected</option>
+                        <option value="routing">Routing</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-muted-foreground">Vendor</label>
+                      <select
+                        value={filterVendor}
+                        onChange={e => setFilterVendor(e.target.value)}
+                        className="bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary transition-all"
+                        data-testid="select-filter-vendor"
+                      >
+                        <option value="all">All</option>
+                        {vendors.map(v => <option key={v} value={v}>{v}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-muted-foreground">Connection</label>
+                      <select
+                        value={filterConnection}
+                        onChange={e => setFilterConnection(e.target.value)}
+                        className="bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary transition-all"
+                        data-testid="select-filter-connection"
+                      >
+                        <option value="all">All</option>
+                        {connections.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex items-end gap-2 col-span-2 md:col-span-1">
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none pb-0.5">
+                        <input
+                          type="checkbox"
+                          checked={showLatestFirst}
+                          onChange={e => setShowLatestFirst(e.target.checked)}
+                          className="rounded border-border"
+                          data-testid="checkbox-latest-first"
+                        />
+                        Show Latest First
+                      </label>
+                    </div>
+                    <div className="flex items-end col-span-2 md:col-span-1">
+                      <button
+                        onClick={() => { setFilterCli(''); setFilterCld(''); setFilterState('all'); setFilterVendor('all'); setFilterConnection('all'); setShowLatestFirst(false); }}
+                        className="px-4 py-1.5 rounded-lg bg-muted/60 border border-border text-xs hover:bg-muted transition-colors"
+                        data-testid="button-filter-clear"
+                      >
+                        Clear Filters
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Table ── */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-muted/40 text-muted-foreground border-b border-border/50 text-xs">
+                      <tr>
+                        <th className="px-3 py-3 font-medium w-10 text-center">#</th>
+                        <th className="px-4 py-3 font-medium">Caller</th>
+                        <th className="px-4 py-3 font-medium">CLI</th>
+                        <th className="px-4 py-3 font-medium">CLD</th>
+                        <th className="px-4 py-3 font-medium">State</th>
+                        <th className="px-4 py-3 font-medium">Vendor</th>
+                        <th className="px-4 py-3 font-medium">Connection</th>
+                        <th className="px-4 py-3 font-medium">Direction</th>
+                        <th className="px-4 py-3 font-medium text-center" colSpan={2}>Media IP</th>
+                        <th className="px-4 py-3 font-medium text-right">Delay</th>
+                        <th className="px-4 py-3 font-medium text-right">Duration</th>
                       </tr>
-                    );
-                  })}
-                  {liveCalls.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
-                        {needsLogin ? 'Connect to this switch to see live calls.' : 'No active calls right now.'}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
+                      <tr className="border-b border-border/30">
+                        <th />
+                        <th />
+                        <th />
+                        <th />
+                        <th />
+                        <th />
+                        <th />
+                        <th />
+                        <th className="px-4 py-1.5 text-center text-muted-foreground/60 font-normal text-xs">Caller</th>
+                        <th className="px-4 py-1.5 text-center text-muted-foreground/60 font-normal text-xs">Callee</th>
+                        <th />
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {displayed.map((call, i) => (
+                        <tr key={call.id || i} className="hover:bg-muted/20 transition-colors text-xs" data-testid={`row-live-${i}`}>
+                          <td className="px-3 py-3 text-center text-muted-foreground/50">{i + 1}</td>
+                          <td className="px-4 py-3">
+                            {call.clientName ? (
+                              <span className="font-medium text-foreground" data-testid={`cell-caller-${i}`}>{call.clientName}</span>
+                            ) : (
+                              <span className="text-muted-foreground/40">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-foreground/80" data-testid={`cell-cli-${i}`}>{call.caller || '—'}</td>
+                          <td className="px-4 py-3 font-mono text-foreground/80" data-testid={`cell-cld-${i}`}>{call.callee || '—'}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                              call.callStatus === 'connected'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${call.callStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                              {call.callStatus === 'connected' ? 'Connected' : 'Routing'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-vendor-${i}`}>{call.vendor || <span className="text-muted-foreground/30">—</span>}</td>
+                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-connection-${i}`}>{call.connection || <span className="text-muted-foreground/30">—</span>}</td>
+                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-direction-${i}`}>{call.direction || <span className="text-muted-foreground/30">—</span>}</td>
+                          <td className="px-4 py-3 font-mono text-muted-foreground text-center" data-testid={`cell-media-caller-${i}`}>{call.mediaIpCaller || <span className="text-muted-foreground/30">—</span>}</td>
+                          <td className="px-4 py-3 font-mono text-muted-foreground text-center" data-testid={`cell-media-callee-${i}`}>{call.mediaIpCallee || <span className="text-muted-foreground/30">—</span>}</td>
+                          <td className="px-4 py-3 text-right text-muted-foreground font-mono" data-testid={`cell-delay-${i}`}>
+                            {call.delay != null ? `${call.delay}ms` : <span className="text-muted-foreground/30">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono text-foreground/70" data-testid={`cell-duration-${i}`}>
+                            {formatDuration(call.duration)}
+                          </td>
+                        </tr>
+                      ))}
+                      {displayed.length === 0 && (
+                        <tr>
+                          <td colSpan={12} className="px-6 py-12 text-center text-muted-foreground">
+                            {needsLogin ? 'Connect to this switch to see live calls.' : 'No active calls match the current filters.'}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 

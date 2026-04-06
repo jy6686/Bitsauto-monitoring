@@ -215,13 +215,19 @@ export async function connectSippy(
 
 export interface SippyActiveCall {
   callId: string;
-  caller: string;
-  callee: string;
-  duration: number; // seconds
+  caller: string;       // CLI (calling number)
+  callee: string;       // CLD (destination number)
+  duration: number;     // seconds
   codec: string;
   status: string;
-  user?: string;       // Sippy account username (Web Login) — the "user" field
-  accountId?: string;  // i_account numeric ID
+  user?: string;        // account/customer name
+  accountId?: string;   // i_account numeric ID
+  vendor?: string;
+  connection?: string;
+  direction?: string;
+  mediaIpCaller?: string;
+  mediaIpCallee?: string;
+  delay?: number;
 }
 
 export async function getSippyActiveCalls(username: string, password: string, explicitPortalUrl?: string): Promise<SippyActiveCall[]> {
@@ -250,8 +256,14 @@ export async function getSippyActiveCalls(username: string, password: string, ex
         duration: parseInt(m['duration'] || m['time'] || '0') || 0,
         codec: m['codec'] || m['media_type'] || '-',
         status: m['status'] || 'active',
-        user: m['username'] || m['user'] || m['account_name'] || m['i_customer_name'] || undefined,
+        user: m['username'] || m['user'] || m['account_name'] || m['i_customer_name'] || m['customer_name'] || undefined,
         accountId: m['i_account'] || m['account_id'] || undefined,
+        vendor: m['vendor_name'] || m['i_vendor_name'] || m['vendor'] || undefined,
+        connection: m['i_connection_name'] || m['connection_name'] || m['connection'] || m['node_name'] || undefined,
+        direction: m['direction'] || m['call_direction'] || undefined,
+        mediaIpCaller: m['r_srtp'] || m['media_ip_caller'] || m['local_rtp_ip'] || undefined,
+        mediaIpCallee: m['media_ip_callee'] || m['remote_rtp_ip'] || m['p_srtp'] || undefined,
+        delay: m['delay'] != null ? (parseFloat(m['delay']) || 0) : undefined,
       });
     }
     return calls;

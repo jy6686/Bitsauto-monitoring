@@ -579,8 +579,16 @@ export async function registerRoutes(
           callee: c.callee,
           gateway: '',
           duration: c.duration,
-          callStatus: c.duration > 0 ? 'connected' : 'routing',
+          callStatus: (c.status === 'connected' || c.duration > 0) ? 'connected' : 'routing',
           clientName: c.user || c.accountId || undefined,
+          vendor: c.vendor,
+          connection: c.connection,
+          direction: c.direction,
+          mediaIpCaller: c.mediaIpCaller,
+          mediaIpCallee: c.mediaIpCallee,
+          delay: c.delay,
+          codec: c.codec,
+          state: c.status,
         }));
         return res.json({ calls, switchType: 'sippy', switchName: sw.name });
       }
