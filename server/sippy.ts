@@ -220,6 +220,8 @@ export interface SippyActiveCall {
   duration: number; // seconds
   codec: string;
   status: string;
+  user?: string;       // Sippy account username (Web Login) — the "user" field
+  accountId?: string;  // i_account numeric ID
 }
 
 export async function getSippyActiveCalls(username: string, password: string, explicitPortalUrl?: string): Promise<SippyActiveCall[]> {
@@ -248,6 +250,8 @@ export async function getSippyActiveCalls(username: string, password: string, ex
         duration: parseInt(m['duration'] || m['time'] || '0') || 0,
         codec: m['codec'] || m['media_type'] || '-',
         status: m['status'] || 'active',
+        user: m['username'] || m['user'] || m['account_name'] || m['i_customer_name'] || undefined,
+        accountId: m['i_account'] || m['account_id'] || undefined,
       });
     }
     return calls;

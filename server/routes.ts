@@ -580,7 +580,7 @@ export async function registerRoutes(
           gateway: '',
           duration: c.duration,
           callStatus: c.duration > 0 ? 'connected' : 'routing',
-          clientName: undefined,
+          clientName: c.user || c.accountId || undefined,
         }));
         return res.json({ calls, switchType: 'sippy', switchName: sw.name });
       }
@@ -1025,7 +1025,11 @@ export async function registerRoutes(
   // GET /api/sippy/live-calls — active calls from Sippy
   app.get('/api/sippy/live-calls', async (_req, res) => {
     const settings = await storage.getSettings();
-    const calls = await sippy.getSippyActiveCalls(settings.portalUsername ?? '', settings.portalPassword ?? '');
+    const raw = await sippy.getSippyActiveCalls(settings.portalUsername ?? '', settings.portalPassword ?? '');
+    const calls = raw.map(c => ({
+      ...c,
+      clientName: c.user || c.accountId || undefined,
+    }));
     res.json({ calls });
   });
 

@@ -548,6 +548,7 @@ function SwitchPanel({
               <table className="w-full text-sm text-left">
                 <thead className="bg-muted/40 text-muted-foreground border-b border-border/50">
                   <tr>
+                    <th className="px-6 py-4 font-medium">User</th>
                     <th className="px-6 py-4 font-medium">Caller</th>
                     <th className="px-6 py-4 font-medium">Destination</th>
                     <th className="px-6 py-4 font-medium text-center">Duration</th>
@@ -555,11 +556,20 @@ function SwitchPanel({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {liveCalls.filter(c => !search || c.caller.includes(search) || c.callee.includes(search)).map((call, i) => {
+                  {liveCalls.filter(c => !search || c.caller.includes(search) || c.callee.includes(search) || (c.clientName || '').toLowerCase().includes(search.toLowerCase())).map((call, i) => {
                     const callerCountry = lookupCountry(call.caller);
                     const calleeCountry = lookupCountry(call.callee);
                     return (
                       <tr key={call.id || i} className="hover:bg-muted/20 transition-colors" data-testid={`row-live-${i}`}>
+                        <td className="px-6 py-4">
+                          {call.clientName ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-medium border border-primary/20" data-testid={`cell-user-${i}`}>
+                              {call.clientName}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground/40 text-xs">—</span>
+                          )}
+                        </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
