@@ -1151,5 +1151,36 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/sippy/tariffs — list tariff plans (products)
+  app.get('/api/sippy/tariffs', async (_req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const tariffs = await sippy.getSippyTariffList(settings.portalUsername ?? '', settings.portalPassword ?? '');
+      res.json({ tariffs });
+    } catch (e: any) { res.status(500).json({ tariffs: [], error: e.message }); }
+  });
+
+  // GET /api/sippy/carrier-list — list carriers/nodes
+  app.get('/api/sippy/carrier-list', async (_req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const carriers = await sippy.getSippyCarrierList(settings.portalUsername ?? '', settings.portalPassword ?? '');
+      res.json({ carriers });
+    } catch (e: any) { res.status(500).json({ carriers: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/rate-analysis — perform rate analysis
+  app.post('/api/sippy/rate-analysis', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const result = await sippy.getSippyRateAnalysis(
+        settings.portalUsername ?? '',
+        settings.portalPassword ?? '',
+        req.body,
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ carrierGroups: [], rates: [], error: e.message }); }
+  });
+
   return httpServer;
 }

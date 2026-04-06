@@ -698,3 +698,199 @@ export async function getSippyStats(username: string, password: string, explicit
     return { totalCalls: 0, activeCalls: 0, successRate: 0, totalMinutes: 0 };
   }
 }
+
+// ── Rate Analysis ─────────────────────────────────────────────────────────────
+
+export interface SippyTariff {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface SippyCarrierEntry {
+  id: string;
+  name: string;
+}
+
+export interface SippyRateEntry {
+  code: string;
+  destination: string;
+  clientDestination: string;
+  rate: number;
+  activeFrom: string;
+  activeTill: string;
+  country: string;
+  isBlocked: boolean;
+  isSpecial: boolean;
+}
+
+export interface RateAnalysisCarrierGroup {
+  carrierName: string;
+  country: string;
+  totalDest: number;
+  specialDest: number;
+  blockDest: number;
+  changeDest: number;
+  totalCodes: number;
+}
+
+export interface RateAnalysisResult {
+  carrierGroups: RateAnalysisCarrierGroup[];
+  rates: SippyRateEntry[];
+  error?: string;
+}
+
+export interface RateAnalysisParams {
+  party?: 'client' | 'vendor';
+  tariffId?: string;
+  carrierIds?: string[];
+  countries?: string[];
+  operatorTypes?: string[];
+  details?: string[];
+  destination?: string;
+  groupBy?: string;
+  blockDest?: 'all' | 'block' | 'unblock';
+  specialDest?: 'all' | 'lock' | 'unlock';
+  ratesPeriod?: string;
+  format?: 'default' | 'partial' | 'full';
+}
+
+export async function getSippyTariffList(username: string, password: string): Promise<SippyTariff[]> {
+  if (!activeSession) return [];
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const methods = [
+    ['tariff.getTariffList', { type: 'customer', get_total: 1 }],
+    ['tariff.getTariffList', {}],
+    ['customer.getTariffList', {}],
+  ];
+  for (const [method, params] of methods) {
+    try {
+      const body = xmlRpcCall(method as string, params as Record<string, any>);
+      const resp = await rawPost(apiUrl, body, { Authorization: basicAuth(username, password) });
+      if (resp.statusCode !== 200) continue;
+      const text = resp.body.toString('utf-8');
+      if (text.includes('faultCode')) continue;
+      const structs = extractAllTags(text, 'struct');
+      const tariffs: SippyTariff[] = [];
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        const id = m['i_tariff'] || m['tariff_id'] || '';
+        const name = m['name'] || m['tariff_name'] || '';
+        if (!id && !name) continue;
+        tariffs.push({ id, name, type: m['type_name'] || m['type'] || 'customer' });
+      }
+      if (tariffs.length > 0) return tariffs;
+    } catch { continue; }
+  }
+  return [];
+}
+
+export async function getSippyCarrierList(username: string, password: string): Promise<SippyCarrierEntry[]> {
+  if (!activeSession) return [];
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const methods = ['node.getNodeList', 'connection.getConnectionList', 'vendor.getVendorList'];
+  for (const method of methods) {
+    try {
+      const body = xmlRpcCall(method, {});
+      const resp = await rawPost(apiUrl, body, { Authorization: basicAuth(username, password) });
+      if (resp.statusCode !== 200) continue;
+      const text = resp.body.toString('utf-8');
+      if (text.includes('faultCode')) continue;
+      const structs = extractAllTags(text, 'struct');
+      const carriers: SippyCarrierEntry[] = [];
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        const id = m['i_node'] || m['i_connection'] || m['i_vendor'] || m['node_id'] || '';
+        const name = m['name'] || m['node_name'] || m['vendor_name'] || m['connection_name'] || '';
+        if (!name) continue;
+        carriers.push({ id, name });
+      }
+      if (carriers.length > 0) return carriers;
+    } catch { continue; }
+  }
+  return [];
+}
+
+export async function getSippyRateAnalysis(
+  username: string,
+  password: string,
+  params: RateAnalysisParams,
+): Promise<RateAnalysisResult> {
+  if (!activeSession) return { carrierGroups: [], rates: [], error: 'Not connected to Sippy.' };
+  if (!params.tariffId) return { carrierGroups: [], rates: [], error: 'No product (tariff) selected.' };
+
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const reqParams: Record<string, any> = { i_tariff: params.tariffId, get_total: 1 };
+  if (params.destination) reqParams.destination = params.destination;
+
+  const methods = ['tariff.getRateList', 'rate.getRateList'];
+  for (const method of methods) {
+    try {
+      const body = xmlRpcCall(method, reqParams);
+      const resp = await rawPost(apiUrl, body, { Authorization: basicAuth(username, password) });
+      if (resp.statusCode !== 200) continue;
+      const text = resp.body.toString('utf-8');
+      if (text.includes('faultCode')) {
+        const fm = extractStructMembers(text);
+        const msg = fm['faultString'] || 'Sippy API error';
+        if (msg.includes('undefined') || msg.includes('not found')) continue;
+        return { carrierGroups: [], rates: [], error: msg };
+      }
+
+      const structs = extractAllTags(text, 'struct');
+      const rates: SippyRateEntry[] = [];
+
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        if (!m['i_dest'] && !m['destination'] && !m['rate']) continue;
+
+        const country = m['destination_group_name'] || m['country_code'] || m['country'] || '';
+        const isBlocked = m['blocked'] === '1' || m['is_blocked'] === '1';
+        const isSpecial = m['is_special'] === '1' || m['special'] === '1';
+
+        // Apply country filter
+        if (params.countries && params.countries.length > 0) {
+          const match = params.countries.some(c =>
+            country.toLowerCase().includes(c.toLowerCase()) ||
+            (m['destination'] || '').toLowerCase().includes(c.toLowerCase())
+          );
+          if (!match) continue;
+        }
+        // Apply block/special filters
+        if (params.blockDest === 'block' && !isBlocked) continue;
+        if (params.blockDest === 'unblock' && isBlocked) continue;
+        if (params.specialDest === 'lock' && !isSpecial) continue;
+        if (params.specialDest === 'unlock' && isSpecial) continue;
+
+        rates.push({
+          code: m['i_dest'] || m['dial_code'] || m['prefix'] || '-',
+          destination: m['destination'] || m['destination_name'] || '-',
+          clientDestination: m['client_destination'] || m['customer_destination'] || m['destination'] || '-',
+          rate: parseFloat(m['rate'] || m['price'] || '0') || 0,
+          activeFrom: m['effective_from'] || m['active_from'] || '-',
+          activeTill: m['effective_till'] || m['active_till'] || 'None',
+          country,
+          isBlocked,
+          isSpecial,
+        });
+      }
+
+      // Group by country → carrier-style rows
+      const countryMap = new Map<string, RateAnalysisCarrierGroup>();
+      for (const r of rates) {
+        const key = r.country || 'Unknown';
+        if (!countryMap.has(key)) {
+          countryMap.set(key, { carrierName: 'Quickcom', country: key, totalDest: 0, specialDest: 0, blockDest: 0, changeDest: 0, totalCodes: 0 });
+        }
+        const g = countryMap.get(key)!;
+        g.totalDest++;
+        if (r.isBlocked) g.blockDest++;
+        if (r.isSpecial) g.specialDest++;
+        g.totalCodes++;
+      }
+
+      return { carrierGroups: Array.from(countryMap.values()), rates };
+    } catch { continue; }
+  }
+  return { carrierGroups: [], rates: [], error: 'Rate analysis API not available on this Sippy instance.' };
+}
