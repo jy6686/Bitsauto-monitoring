@@ -755,7 +755,11 @@ export async function registerRoutes(
     }
 
     if (sw.type === 'sippy') {
-      const creds = { username: sw.portalUsername || '', password: sw.portalPassword || '' };
+      // Prefer global admin API credentials for XML-RPC; fall back to switch portal creds
+      const globalSettings = await storage.getSettings();
+      const adminUser = globalSettings.apiAdminUsername || sw.portalUsername || '';
+      const adminPass = globalSettings.apiAdminPassword || sw.portalPassword || '';
+      const creds = { username: adminUser, password: adminPass };
       const acctRes = await sippy.pushAccountToSippy({
         name: profile.name,
         type: profile.type as 'client' | 'vendor',
@@ -903,7 +907,11 @@ export async function registerRoutes(
           if (!session) { results[key] = { success: false, message: `Not logged in. Connect to ${sw.portalUrl} first.` }; continue; }
           results[key] = await vos3000.pushRateToVos3000(pushOpts, session);
         } else if (sw.type === 'sippy') {
-          const creds = { username: sw.portalUsername || '', password: sw.portalPassword || '' };
+          // Prefer global admin API credentials for XML-RPC; fall back to switch portal creds
+          const globalSettings = await storage.getSettings();
+          const adminUser = globalSettings.apiAdminUsername || sw.portalUsername || '';
+          const adminPass = globalSettings.apiAdminPassword || sw.portalPassword || '';
+          const creds = { username: adminUser, password: adminPass };
           results[key] = await sippy.pushRateToSippy(pushOpts, creds, sw.portalUrl);
         } else {
           results[key] = { success: false, message: `Unknown type: ${sw.type}` };
@@ -1121,8 +1129,9 @@ export async function registerRoutes(
   app.get('/api/sippy/routing-groups', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
-      let username = (req.query.inlineUser as string) || settings.portalUsername || '';
-      let password = (req.query.inlinePass as string) || settings.portalPassword || '';
+      // Prefer dedicated admin API credentials for XML-RPC; fall back to portal creds
+      let username = (req.query.inlineUser as string) || settings.apiAdminUsername || settings.portalUsername || '';
+      let password = (req.query.inlinePass as string) || settings.apiAdminPassword || settings.portalPassword || '';
       let portalUrl: string | undefined = (req.query.inlineUrl as string) || settings.portalUrl || undefined;
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
@@ -1139,8 +1148,9 @@ export async function registerRoutes(
   app.get('/api/sippy/tariffs', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
-      let username = (req.query.inlineUser as string) || settings.portalUsername || '';
-      let password = (req.query.inlinePass as string) || settings.portalPassword || '';
+      // Prefer dedicated admin API credentials for XML-RPC; fall back to portal creds
+      let username = (req.query.inlineUser as string) || settings.apiAdminUsername || settings.portalUsername || '';
+      let password = (req.query.inlinePass as string) || settings.apiAdminPassword || settings.portalPassword || '';
       let portalUrl: string | undefined = (req.query.inlineUrl as string) || settings.portalUrl || undefined;
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
@@ -1163,13 +1173,14 @@ export async function registerRoutes(
       let targetUrl: string | undefined = (req.body.inlineUrl as string) || undefined;
 
       if (!username || !password || !targetUrl) {
-        // Fall back to configured switch or global settings
-        username = settings.portalUsername ?? '';
-        password = settings.portalPassword ?? '';
+        // Prefer dedicated admin API credentials for XML-RPC; fall back to portal creds
+        username = settings.apiAdminUsername || settings.portalUsername || '';
+        password = settings.apiAdminPassword || settings.portalPassword || '';
         targetUrl = settings.portalUrl ?? undefined;
         if (req.body.switchId) {
           const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.body.switchId) && s.type === 'sippy');
           if (!sw) return res.status(404).json({ success: false, message: 'Sippy switch not found.' });
+          // For per-switch requests, use switch's own creds (no admin override)
           username = sw.portalUsername ?? '';
           password = sw.portalPassword ?? '';
           targetUrl = sw.portalUrl ?? undefined;

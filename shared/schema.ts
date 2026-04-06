@@ -58,6 +58,9 @@ export const settings = pgTable("settings", {
   portalSessionToken: varchar("portal_session_token", { length: 512 }),
   portalSessionUser: varchar("portal_session_user", { length: 128 }),
   portalSessionBase: varchar("portal_session_base", { length: 512 }),
+  // Sippy XML-RPC Admin API credentials (separate from portal login — required for API operations)
+  apiAdminUsername: varchar("api_admin_username", { length: 128 }),
+  apiAdminPassword: varchar("api_admin_password", { length: 255 }),
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports

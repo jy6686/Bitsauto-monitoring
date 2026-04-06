@@ -22,6 +22,8 @@ const formSchema = insertSettingsSchema.pick({
   portalUrl: true,
   portalUsername: true,
   portalPassword: true,
+  apiAdminUsername: true,
+  apiAdminPassword: true,
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -1029,6 +1031,8 @@ export default function SettingsPage() {
       portalUrl: '',
       portalUsername: '',
       portalPassword: '',
+      apiAdminUsername: '',
+      apiAdminPassword: '',
     },
   });
 
@@ -1250,6 +1254,58 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+
+        {/* ── Sippy XML-RPC Admin Credentials ── */}
+        {switchType === 'sippy' && (
+          <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20">
+              <ShieldCheck className="w-4 h-4 text-violet-400" />
+              <div>
+                <h3 className="font-semibold text-sm">Sippy Admin API Credentials</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Required for account creation, tariff lists, and all XML-RPC API operations. Separate from the portal login above.
+                </p>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="rounded-lg border border-violet-500/20 bg-violet-500/[0.06] px-4 py-3 text-xs text-muted-foreground space-y-1">
+                <p>Your <strong>portal login</strong> (above) is used for viewing calls and CDR data via the web portal session.</p>
+                <p>Your <strong>admin API credentials</strong> (here) are used for the Sippy XML-RPC API — required to create accounts, list tariffs, manage routing groups, etc.</p>
+                <p>To find these: log into your Sippy portal as an administrator → click your username (top-right) → <strong>My Account → API Credentials</strong>.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">Admin API Username</label>
+                  <input
+                    {...form.register("apiAdminUsername")}
+                    data-testid="input-api-admin-username"
+                    type="text"
+                    autoComplete="off"
+                    placeholder="e.g. admin"
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">Admin API Password</label>
+                  <input
+                    {...form.register("apiAdminPassword")}
+                    data-testid="input-api-admin-password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="••••••••"
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
+              </div>
+              {form.watch('apiAdminUsername') && (
+                <div className="flex items-center gap-2 text-xs text-emerald-400">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Admin API credentials set — will be used for all XML-RPC operations. Click <strong>Save Changes</strong> to store them.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Switch Sign-In ── */}
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
