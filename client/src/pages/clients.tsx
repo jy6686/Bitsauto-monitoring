@@ -763,6 +763,11 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [tariffId, setTariffId] = useState('');
   const [description, setDescription] = useState('');
   const [result, setResult] = useState<{ success: boolean; message: string; detail?: string } | null>(null);
+  // Admin credential override — needed for account creation when session is customer-level only
+  const [adminUser, setAdminUser] = useState('');
+  const [adminPass, setAdminPass] = useState('');
+  const [showAdminPass, setShowAdminPass] = useState(false);
+  const [showAdminCreds, setShowAdminCreds] = useState(false);
 
   // Query the active Sippy session — if connected via Settings, use it directly
   const { data: sippySession } = useQuery<{ active: boolean; mode?: string; username?: string }>({
@@ -799,24 +804,35 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const tariffs = tariffData?.tariffs ?? [];
 
   const createMut = useMutation({
-    mutationFn: () => apiRequest('POST', '/api/sippy/accounts', {
-      name, type,
-      switchId: switchId ? Number(switchId) : undefined,
-      inlineUrl:  useInlineCreds ? inlineUrl  : undefined,
-      inlineUser: useInlineCreds ? inlineUser : undefined,
-      inlinePass: useInlineCreds ? inlinePass : undefined,
-      ipAddress: ipAddress || undefined,
-      ratePerMin: ratePerMin ? Number(ratePerMin) : undefined,
-      creditLimit: creditLimit ? Number(creditLimit) : undefined,
-      maxSessions: maxSessions ? Number(maxSessions) : undefined,
-      maxCallsPerSecond: maxCps ? Number(maxCps) : undefined,
-      routingGroup: routingGroupId || undefined,
-      servicePlan: tariffId || undefined,
-      description: description || undefined,
-    }),
+    mutationFn: () => {
+      // Admin credential override: if admin creds are entered, use them for XML-RPC (as inlineUser/inlinePass)
+      const useAdminOverride = adminUser.trim() && adminPass.trim();
+      return apiRequest('POST', '/api/sippy/accounts', {
+        name, type,
+        switchId: switchId ? Number(switchId) : undefined,
+        inlineUrl:  useAdminOverride ? (inlineUrl || undefined)
+                  : useInlineCreds   ? inlineUrl  : undefined,
+        inlineUser: useAdminOverride ? adminUser
+                  : useInlineCreds   ? inlineUser : undefined,
+        inlinePass: useAdminOverride ? adminPass
+                  : useInlineCreds   ? inlinePass : undefined,
+        ipAddress: ipAddress || undefined,
+        ratePerMin: ratePerMin ? Number(ratePerMin) : undefined,
+        creditLimit: creditLimit ? Number(creditLimit) : undefined,
+        maxSessions: maxSessions ? Number(maxSessions) : undefined,
+        maxCallsPerSecond: maxCps ? Number(maxCps) : undefined,
+        routingGroup: routingGroupId || undefined,
+        servicePlan: tariffId || undefined,
+        description: description || undefined,
+      });
+    },
     onSuccess: async (res: any) => {
       const data = await res.json();
       setResult(data);
+      // Auto-expand admin credentials section if admin access is needed
+      if (!data.success && data.message?.toLowerCase().includes('admin')) {
+        setShowAdminCreds(true);
+      }
     },
     onError: (err: any) => {
       const msg = err.message ?? '';
@@ -824,6 +840,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
       try {
         const parsed = JSON.parse(json);
         setResult({ success: false, message: parsed.message ?? msg, detail: parsed.detail });
+        if (parsed.message?.toLowerCase().includes('admin')) setShowAdminCreds(true);
       } catch {
         setResult({ success: false, message: msg || 'Failed to create account.' });
       }
@@ -866,15 +883,64 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               )}
             </div>
           ) : hasActiveSession ? (
-            /* Active session from Settings — no extra credentials needed */
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-4 py-3 flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-              <div>
-                <p className="text-xs font-semibold text-emerald-300">Using connected Sippy session</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Connected as <strong>{sippySession?.username ?? 'your account'}</strong> via Settings. The account will be created on that switch.
-                </p>
+            /* Active session from Settings — show session info + optional admin override */
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] p-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-emerald-300">Connected Sippy session active</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Connected as <strong>{sippySession?.username ?? 'your account'}</strong>. Account creation requires <strong>admin-level credentials</strong> — enter them below.
+                  </p>
+                </div>
               </div>
+              {/* Admin credentials toggle */}
+              <button
+                type="button"
+                onClick={() => setShowAdminCreds(v => !v)}
+                className="w-full text-left text-xs text-violet-300 hover:text-violet-200 flex items-center gap-1.5 transition-colors"
+              >
+                <span className={`transition-transform ${showAdminCreds ? 'rotate-90' : ''}`}>▶</span>
+                {showAdminCreds ? 'Hide admin credentials' : 'Enter Sippy admin credentials (required)'}
+              </button>
+              {showAdminCreds && (
+                <div className="space-y-2 pt-1 border-t border-emerald-500/20">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={labelCls}>Admin Username <span className="text-rose-400">*</span></label>
+                      <input
+                        data-testid="input-sippy-admin-user"
+                        value={adminUser}
+                        onChange={e => setAdminUser(e.target.value)}
+                        placeholder="admin"
+                        className={fieldCls}
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Admin Password <span className="text-rose-400">*</span></label>
+                      <div className="relative">
+                        <input
+                          data-testid="input-sippy-admin-pass"
+                          value={adminPass}
+                          type={showAdminPass ? 'text' : 'password'}
+                          onChange={e => setAdminPass(e.target.value)}
+                          placeholder="••••••••"
+                          className={`${fieldCls} pr-8`}
+                          autoComplete="off"
+                        />
+                        <button type="button" onClick={() => setShowAdminPass(p => !p)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                          {showAdminPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    These are your Sippy <strong>admin</strong> credentials (not the same as the portal session). They are used only for this request and never stored.
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="rounded-lg border border-violet-500/30 bg-violet-500/[0.08] p-4 space-y-3">

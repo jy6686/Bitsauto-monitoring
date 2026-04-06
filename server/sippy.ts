@@ -797,29 +797,44 @@ async function createAccountViaPortal(
       const postUrl = `${base}${postPath}`;
       const resp = await rawRequest('POST', postUrl, postBody, { 'User-Agent': PORTAL_USER_AGENT }, formCookies);
       const body = resp.body || '';
-      console.log(`[Sippy] Portal account create POST ${postUrl} → HTTP ${resp.statusCode}, body snippet: ${body.slice(0, 300)}`);
+      console.log(`[Sippy] Portal account create POST ${postUrl} → HTTP ${resp.statusCode}, body snippet: ${body.slice(0, 400)}`);
 
-      // Detect success: no visible error, and either a redirect or the account now appears in list
       const lower = body.toLowerCase();
-      const hasError = lower.includes('already exists') || lower.includes('error') && lower.includes('class="error"') || lower.includes('invalid') || lower.includes('required field');
-      const hasSuccess = resp.statusCode === 200 && !lower.includes('class="error"')
-                      || resp.statusCode === 302;
 
+      // Check for explicit error indicators in the response
+      const hasError = lower.includes('class="error"') || lower.includes('class="err"')
+                    || lower.includes('required field') || lower.includes('invalid value');
       if (hasError) {
-        // Try to extract the error message from HTML
-        const errMatch = body.match(/class="error[^"]*"[^>]*>([\s\S]{0,200}?)<\/[^>]+>/i);
-        const errMsg = errMatch ? errMatch[1].replace(/<[^>]+>/g, '').trim() : 'Portal returned an error.';
+        const errMatch = body.match(/class="err(?:or)?[^"]*"[^>]*>([\s\S]{0,200}?)<\/[^>]+>/i);
+        const errMsg = errMatch ? errMatch[1].replace(/<[^>]+>/g, '').trim() : 'Portal returned a validation error.';
         return { success: false, message: errMsg, cookies: resp.cookies };
       }
-      if (hasSuccess) {
+
+      // ── VERIFY creation by re-fetching the subcustomers list ─────────────────
+      // We CANNOT trust HTTP 200 alone as success — a customer portal that doesn't
+      // support subcustomer creation also returns 200 (just shows the dashboard).
+      // Instead, check that the account name now appears in the subcustomers list.
+      const verifyResp = await rawRequest('GET', `${base}/c2/subcustomers.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies);
+      const verifyLower = (verifyResp.body || '').toLowerCase();
+      const accountNameLower = opts.name.toLowerCase();
+
+      if (verifyLower.includes(accountNameLower)) {
+        console.log(`[Sippy] Portal account create VERIFIED — "${opts.name}" appears in subcustomers list.`);
         return { success: true, message: `Account "${opts.name}" created via portal.`, cookies: resp.cookies };
       }
+
+      // Account not found after POST — this portal/account level does not support creation
+      console.warn(`[Sippy] Portal account create: POST returned ${resp.statusCode} but "${opts.name}" NOT found in subcustomers list. Likely insufficient permissions.`);
     } catch (e: any) {
       console.warn(`[Sippy] Portal create POST error (${postPath}):`, e.message);
     }
   }
 
-  return { success: false, message: 'Portal account creation form not available on this Sippy instance.', cookies: formCookies };
+  return {
+    success: false,
+    message: 'Portal account creation form not available on this Sippy instance.',
+    cookies: formCookies,
+  };
 }
 
 // ── CDR Records ───────────────────────────────────────────────────────────────
@@ -1381,9 +1396,9 @@ export async function pushAccountToSippy(
   }
 
   const detail = xmlFailed
-    ? `XML-RPC API returned 401 (access denied). Portal form fallback also failed. Ensure the Sippy API is enabled for this account, or ask your Sippy administrator.`
+    ? `The connected Sippy account (${credentials.username}) does not have admin privileges. Account creation requires admin-level credentials. Enter your Sippy admin username and password in the form to proceed.`
     : (lastFault || `No response from Sippy at ${apiUrl} — check the URL and credentials in Settings.`);
-  return { success: false, message: 'Could not create account on Sippy.', detail };
+  return { success: false, message: 'Admin credentials required to create accounts on Sippy.', detail };
 }
 
 // ── Routing Groups & Tariffs ───────────────────────────────────────────────────
