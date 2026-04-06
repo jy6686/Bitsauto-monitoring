@@ -1493,24 +1493,26 @@ export async function pushAccountToSippy(
       ];
 
   let lastFault = '';
+  let billingPlanAutoFetched = false;
 
   console.log(`[Sippy] pushAccountToSippy → url: ${apiUrl}, type: ${opts.type}, params:`, JSON.stringify(params));
 
-  for (const { method, body } of attempts) {
+  const extractValue = (xml: string, fieldName: string): string | undefined => {
+    const memberRe = new RegExp(`<name>${fieldName}</name>\\s*<value>[^<]*(?:<[a-z]+>)?([^<]*)<`, 'i');
+    const m = xml.match(memberRe);
+    return m?.[1]?.trim() || undefined;
+  };
+
+  for (const { method, body: initialBody } of attempts) {
+    let body = initialBody;
     try {
       console.log(`[Sippy] Trying ${method}:\n${body}`);
       const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
       const text = resp.body;
       console.log(`[Sippy] ${method} → HTTP ${resp.statusCode}, body: ${text.slice(0, 600)}`);
+
       if (resp.statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode') && !text.includes('faultString')) {
         console.log(`[Sippy] ${method} succeeded for "${opts.name}"`);
-        // Extract the returned credentials from the XML-RPC response
-        // createAccount() returns: result, i_account, username, web_password, authname, voip_password
-        const extractValue = (xml: string, fieldName: string): string | undefined => {
-          const memberRe = new RegExp(`<name>${fieldName}</name>\\s*<value>[^<]*(?:<[a-z]+>)?([^<]*)<`, 'i');
-          const m = xml.match(memberRe);
-          return m?.[1]?.trim() || undefined;
-        };
         const retUsername    = extractValue(text, 'username');
         const retAuthname    = extractValue(text, 'authname');
         const retWebPassword = extractValue(text, 'web_password');
@@ -1526,11 +1528,55 @@ export async function pushAccountToSippy(
           voip_password: retVoipPass,
         };
       }
+
       // Extract Sippy fault string from XML-RPC fault response
       const faultStr = extractTag(text, 'faultString');
       if (faultStr) {
         lastFault = faultStr.replace(/<[^>]+>/g, '').trim();
         console.warn(`[Sippy] ${method} fault: ${lastFault}`);
+
+        // Auto-fetch billing plan if "i_billing_plan is required" and we haven't tried yet
+        if (!billingPlanAutoFetched && lastFault.toLowerCase().includes('i_billing_plan') && !params.i_billing_plan) {
+          billingPlanAutoFetched = true;
+          console.log('[Sippy] Auto-fetching billing plans to satisfy i_billing_plan requirement...');
+          const bpResult = await listSippyBillingPlans(credentials.username, credentials.password, baseUrl);
+          if (bpResult.plans.length > 0) {
+            const firstPlan = bpResult.plans[0];
+            console.log(`[Sippy] Using auto-fetched billing plan: ${firstPlan.id} "${firstPlan.name}"`);
+            params.i_billing_plan = firstPlan.id;
+            params.i_tariff       = firstPlan.id;
+            body = xmlRpcCall(method, params);
+            const resp2 = await sippyPost(apiUrl, body, credentials.username, credentials.password);
+            const text2 = resp2.body;
+            console.log(`[Sippy] ${method} retry → HTTP ${resp2.statusCode}, body: ${text2.slice(0, 400)}`);
+            if (resp2.statusCode === 200 && !text2.includes('<fault>') && !text2.includes('faultCode')) {
+              const retUsername    = extractValue(text2, 'username');
+              const retAuthname    = extractValue(text2, 'authname');
+              const retWebPassword = extractValue(text2, 'web_password');
+              const retVoipPass    = extractValue(text2, 'voip_password');
+              const retIAccount    = extractValue(text2, 'i_account');
+              return {
+                success: true,
+                message: `Account "${opts.name}" created on Sippy (billing plan auto-selected: "${firstPlan.name}").${retIAccount ? ` (ID: ${retIAccount})` : ''}`,
+                method,
+                username:      retUsername,
+                authname:      retAuthname,
+                web_password:  retWebPassword,
+                voip_password: retVoipPass,
+              };
+            }
+            const fs2 = extractTag(text2, 'faultString');
+            if (fs2) lastFault = fs2.replace(/<[^>]+>/g, '').trim();
+          } else {
+            // No billing plans found — give actionable error
+            return {
+              success: false,
+              message: 'Could not create account: a Service Plan (Billing Plan) is required by your Sippy switch.',
+              detail: `Your Sippy instance has no billing plans configured. Log in to your Sippy admin portal, go to Billing → Service Plans, and create at least one plan. Then retry account creation here.${bpResult.error ? ' (' + bpResult.error + ')' : ''}`,
+            };
+          }
+        }
+
         // A meaningful fault means the method name is correct — stop trying other formats
         if (!lastFault.toLowerCase().includes('no such method') && !lastFault.toLowerCase().includes('unknown method')) {
           break;
@@ -1539,6 +1585,7 @@ export async function pushAccountToSippy(
         console.warn(`[Sippy] ${method} non-fault failure: HTTP ${resp.statusCode}`);
         if (resp.statusCode === 401) { lastFault = 'Authentication failed — check Sippy username and password.'; break; }
         if (resp.statusCode === 403) { lastFault = 'Access denied — check Sippy API permissions.'; break; }
+        if (resp.statusCode === 500) { lastFault = `Sippy server error (HTTP 500) — the switch returned an internal error. Check that the billing plan ID is valid, or create Service Plans in Sippy portal first.`; break; }
       }
     } catch (e: any) {
       console.warn(`[Sippy] ${method} error:`, e.message);
@@ -1582,6 +1629,58 @@ export interface SippyTariffOption {
   id: number;
   name: string;
   currency?: string;
+}
+
+export interface SippyBillingPlan {
+  id: number;
+  name: string;
+  currency?: string;
+}
+
+export async function listSippyBillingPlans(
+  username: string,
+  password: string,
+  portalUrl?: string,
+): Promise<{ plans: SippyBillingPlan[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { plans: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  // Try all known billing plan listing methods across Sippy versions
+  const methods = [
+    'getBillingPlanList',           // newer Sippy API
+    'getCustomerBillingPlanList',   // customer-scoped version
+    'listBillingPlans',             // alternate name
+    'billing_plan.getList',         // legacy
+    'billing.getBillingPlanList',   // older builds
+  ];
+
+  for (const method of methods) {
+    try {
+      const body = xmlRpcCall(method, { limit: 500 });
+      const resp = await sippyPost(apiUrl, body, username, password);
+      if (resp.statusCode !== 200) continue;
+      const text = resp.body;
+      if (text.includes('faultCode')) {
+        const fault = extractTag(text, 'faultString')?.replace(/<[^>]+>/g, '').trim() ?? '';
+        if (fault.toLowerCase().includes('not found') || fault.toLowerCase().includes('unknown method')) continue;
+        break;
+      }
+      const structs = extractAllTags(text, 'struct');
+      if (structs.length === 0) return { plans: [] };
+      const plans: SippyBillingPlan[] = [];
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        const id = parseInt(m['i_billing_plan'] || m['id'] || '0', 10);
+        const name = m['name'] || m['billing_plan_name'] || `Plan ${id}`;
+        const currency = m['currency'] || undefined;
+        if (id) plans.push({ id, name, ...(currency ? { currency } : {}) });
+      }
+      console.log(`[Sippy] listSippyBillingPlans: found ${plans.length} plans via ${method}`);
+      return { plans };
+    } catch { continue; }
+  }
+  return { plans: [], error: 'No billing plan list method found on this Sippy instance. Create Service Plans in your Sippy portal (Billing → Service Plans) first.' };
 }
 
 export async function listSippyRoutingGroups(

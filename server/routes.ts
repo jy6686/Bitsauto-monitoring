@@ -1163,6 +1163,24 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/sippy/billing-plans — list billing plans (Service Plans) from Sippy
+  app.get('/api/sippy/billing-plans', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      let username = (req.query.inlineUser as string) || settings.apiAdminUsername || settings.portalUsername || '';
+      let password = (req.query.inlinePass as string) || settings.apiAdminPassword || settings.portalPassword || '';
+      let portalUrl: string | undefined = (req.query.inlineUrl as string) || settings.portalUrl || undefined;
+      if (req.query.switchId) {
+        const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
+        if (sw) { username = sw.portalUsername ?? ''; password = sw.portalPassword ?? ''; portalUrl = sw.portalUrl ?? undefined; }
+      }
+      const result = await sippy.listSippyBillingPlans(username, password, portalUrl);
+      res.json(result);
+    } catch (err: any) {
+      res.json({ plans: [], error: err.message });
+    }
+  });
+
   // POST /api/sippy/accounts — create a new Sippy customer account directly on the switch
   app.post('/api/sippy/accounts', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {

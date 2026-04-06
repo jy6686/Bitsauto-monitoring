@@ -789,15 +789,15 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
     enabled: canProceed,
   });
 
-  const { data: tariffData } = useQuery<{ tariffs: { id: number; name: string; currency?: string }[]; error?: string }>({
-    queryKey: ['/api/sippy/tariffs', switchId, inlineUrl, inlineUser],
-    queryFn: () => fetch(`/api/sippy/tariffs${switchQs}`).then(r => r.json()),
+  const { data: billingPlanData, isLoading: bpLoading } = useQuery<{ plans: { id: number; name: string; currency?: string }[]; error?: string }>({
+    queryKey: ['/api/sippy/billing-plans', switchId, inlineUrl, inlineUser],
+    queryFn: () => fetch(`/api/sippy/billing-plans${switchQs}`).then(r => r.json()),
     staleTime: 60_000,
     enabled: canProceed,
   });
 
   const routingGroups = rgData?.groups ?? [];
-  const tariffs = tariffData?.tariffs ?? [];
+  const billingPlans = billingPlanData?.plans ?? [];
 
   const createMut = useMutation({
     mutationFn: () => apiRequest('POST', '/api/sippy/accounts', {
@@ -981,25 +981,33 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               )}
             </div>
             <div>
-              <label className={labelCls}>Tariff / Service Plan</label>
-              {tariffs.length > 0 ? (
+              <label className={labelCls}>Billing / Service Plan <span className="text-rose-400">*</span></label>
+              {bpLoading && canProceed ? (
+                <div className={`${fieldCls} text-muted-foreground flex items-center gap-2`}>
+                  <span className="animate-spin inline-block w-3 h-3 border border-current border-t-transparent rounded-full" />
+                  Loading service plans…
+                </div>
+              ) : billingPlans.length > 0 ? (
                 <select data-testid="select-sippy-tariff" value={tariffId} onChange={e => setTariffId(e.target.value)} className={fieldCls}>
-                  <option value="">— None —</option>
-                  {tariffs.map(t => (
-                    <option key={t.id} value={String(t.id)}>{t.name}{t.currency ? ` (${t.currency})` : ''} (#{t.id})</option>
+                  <option value="">— Select a service plan —</option>
+                  {billingPlans.map(p => (
+                    <option key={p.id} value={String(p.id)}>{p.name}{p.currency ? ` (${p.currency})` : ''} (#{p.id})</option>
                   ))}
                 </select>
               ) : (
                 <>
                   <input data-testid="input-sippy-plan" value={tariffId} onChange={e => setTariffId(e.target.value)}
-                    placeholder="Enter ID manually" type="number" min="1" className={fieldCls} />
+                    placeholder="Enter billing plan ID manually" type="number" min="1" className={fieldCls} />
                   <div className="mt-2 rounded-lg px-3 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs flex items-start gap-2">
                     <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                     <span>
-                      <strong>Sippy prerequisite:</strong> Service Plans must be created in your Sippy portal before accounts can be created. If no tariffs appear above, go to your Sippy portal → <em>Billing → Service Plans</em> and create one first.
+                      <strong>Service Plan required:</strong> Your Sippy switch requires a billing plan for account creation. Log in to your Sippy portal → <em>Billing → Service Plans</em>, create a plan, then reload this modal — it will appear in the dropdown above. You can also enter the plan ID manually if you know it.
                     </span>
                   </div>
                 </>
+              )}
+              {billingPlanData?.error && !billingPlans.length && canProceed && (
+                <p className="text-xs text-muted-foreground mt-1 italic">{billingPlanData.error}</p>
               )}
             </div>
           </div>
