@@ -1396,5 +1396,134 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ carrierGroups: [], rates: [], error: e.message }); }
   });
 
+  // ── Customer management (official Sippy API) ─────────────────────────────
+
+  // PATCH /api/sippy/customers/:id — update a customer
+  app.patch('/api/sippy/customers/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const result = await sippy.updateSippyCustomer(
+        settings.portalUsername ?? '',
+        settings.portalPassword ?? '',
+        parseInt(req.params.id, 10),
+        req.body,
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/customers/:id — delete a customer
+  app.delete('/api/sippy/customers/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const result = await sippy.deleteSippyCustomer(
+        settings.portalUsername ?? '',
+        settings.portalPassword ?? '',
+        parseInt(req.params.id, 10),
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/customers/:id/block — block a customer
+  app.post('/api/sippy/customers/:id/block', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const result = await sippy.blockSippyCustomer(
+        settings.portalUsername ?? '',
+        settings.portalPassword ?? '',
+        parseInt(req.params.id, 10),
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/customers/:id/unblock — unblock a customer
+  app.post('/api/sippy/customers/:id/unblock', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const result = await sippy.unblockSippyCustomer(
+        settings.portalUsername ?? '',
+        settings.portalPassword ?? '',
+        parseInt(req.params.id, 10),
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // ── Account management (official Sippy API) ───────────────────────────────
+
+  // DELETE /api/sippy/accounts/:id — delete an account
+  app.delete('/api/sippy/accounts/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const result = await sippy.deleteSippyAccount(
+        settings.portalUsername ?? '',
+        settings.portalPassword ?? '',
+        parseInt(req.params.id, 10),
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // ── Vendor management (official Sippy API) ────────────────────────────────
+
+  // PATCH /api/sippy/vendors/:id — update a vendor
+  app.patch('/api/sippy/vendors/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const result = await sippy.updateSippyVendor(
+        settings.portalUsername ?? '',
+        settings.portalPassword ?? '',
+        parseInt(req.params.id, 10),
+        req.body,
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/vendors/:id — delete a vendor
+  app.delete('/api/sippy/vendors/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const result = await sippy.deleteSippyVendor(
+        settings.portalUsername ?? '',
+        settings.portalPassword ?? '',
+        parseInt(req.params.id, 10),
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // ── Tariff management (official Sippy API) ────────────────────────────────
+
+  // POST /api/sippy/tariffs/create — create a new tariff
+  app.post('/api/sippy/tariffs/create', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { name, currency, connectFee, freeSeconds } = req.body;
+      if (!name || !currency) return res.status(400).json({ success: false, message: 'name and currency are required' });
+      const result = await sippy.createSippyTariff(
+        settings.portalUsername ?? '',
+        settings.portalPassword ?? '',
+        { name, currency, connectFee, freeSeconds },
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/tariffs/:id — delete a tariff
+  app.delete('/api/sippy/tariffs/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const result = await sippy.deleteSippyTariff(
+        settings.portalUsername ?? '',
+        settings.portalPassword ?? '',
+        parseInt(req.params.id, 10),
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   return httpServer;
 }

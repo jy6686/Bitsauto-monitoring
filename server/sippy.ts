@@ -652,49 +652,57 @@ export async function getSippyActiveCalls(username: string, password: string, ex
     return getPortalActiveCallsHtml(session.cookies, base);
   }
 
-  // ── XML-RPC mode ──────────────────────────────────────────────────────────
+  // ── XML-RPC mode: official API is listAllCalls() (Sippy docs 107462) ────────
+  // Returns fields in UPPERCASE: CLI, CLD, CALL_ID, DELAY, DURATION, CC_STATE,
+  // I_ACCOUNT, I_CUSTOMER, CALLER_MEDIA_IP, CALLEE_MEDIA_IP, DIRECTION, NODE_ID
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const body = xmlRpcCall('call_control.listActiveCalls');
+  const auth   = { Authorization: basicAuth(username, password) };
 
-  try {
-    const resp = await rawPost(apiUrl, body, {
-      Authorization: basicAuth(username, password),
-    });
-    if (resp.statusCode !== 200) {
-      // Try portal scraping as last resort even without stored session
-      const loginRes = await portalLogin(base, username, password, 'customer');
-      if (loginRes.success) return getPortalActiveCallsHtml(loginRes.cookies, base);
-      return [];
+  // Try official method first, fall back to legacy alias
+  for (const method of ['listAllCalls', 'call_control.listActiveCalls']) {
+    try {
+      const resp = await rawPost(apiUrl, xmlRpcCall(method), auth);
+      if (resp.statusCode === 401 || resp.statusCode === 403) {
+        // Auth failure — try portal scraping
+        const loginRes = await portalLogin(base, username, password, 'customer');
+        if (loginRes.success) return getPortalActiveCallsHtml(loginRes.cookies, base);
+        return [];
+      }
+      if (resp.statusCode !== 200) continue;
+
+      const structs = extractAllTags(resp.body, 'struct');
+      const calls: SippyActiveCall[] = [];
+
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        // Official response uses uppercase keys (CALL_ID, CLI, CLD, …)
+        const callId   = m['CALL_ID']   || m['call-id']   || m['call_id']   || m['CallID'];
+        const cli      = m['CLI']       || m['cli']       || m['from']      || m['caller'];
+        const cld      = m['CLD']       || m['cld']       || m['to']        || m['callee'];
+        if (!callId && !cli) continue;
+        calls.push({
+          callId:       callId  || '-',
+          caller:       cli     || '-',
+          callee:       cld     || '-',
+          duration:     parseFloat(m['DURATION']   || m['duration']  || '0') || 0,
+          codec:        m['codec'] || m['media_type'] || '-',
+          status:       m['CC_STATE'] || m['status'] || 'active',
+          user:         m['I_CUSTOMER'] || m['i_customer'] || m['username'] || m['account_name'] || undefined,
+          accountId:    m['I_ACCOUNT']  || m['i_account']  || m['account_id'] || undefined,
+          vendor:       m['vendor_name'] || m['I_VENDOR']  || undefined,
+          connection:   m['I_CONNECTION'] ? String(m['I_CONNECTION']) : (m['connection_name'] || m['NODE_ID'] || undefined),
+          direction:    m['DIRECTION']  || m['direction']  || undefined,
+          mediaIpCaller:m['CALLER_MEDIA_IP'] || m['caller_media_ip'] || m['local_rtp_ip'] || undefined,
+          mediaIpCallee:m['CALLEE_MEDIA_IP'] || m['callee_media_ip'] || m['remote_rtp_ip'] || undefined,
+          delay:        parseFloat(m['DELAY'] || m['delay'] || '') || 0,
+        });
+      }
+      return calls;
+    } catch {
+      continue;
     }
-
-    // Parse array of structs from XML
-    const structs = extractAllTags(resp.body, 'struct');
-    const calls: SippyActiveCall[] = [];
-
-    for (const s of structs) {
-      const m = extractStructMembers(s);
-      if (!m['call-id'] && !m['call_id'] && !m['CallID']) continue;
-      calls.push({
-        callId: m['call-id'] || m['call_id'] || m['CallID'] || '-',
-        caller: m['cli'] || m['from'] || m['caller'] || '-',
-        callee: m['cld'] || m['to'] || m['callee'] || '-',
-        duration: parseInt(m['duration'] || m['time'] || '0') || 0,
-        codec: m['codec'] || m['media_type'] || '-',
-        status: m['status'] || 'active',
-        user: m['username'] || m['user'] || m['account_name'] || m['i_customer_name'] || m['customer_name'] || undefined,
-        accountId: m['i_account'] || m['account_id'] || undefined,
-        vendor: m['vendor_name'] || m['i_vendor_name'] || m['vendor'] || undefined,
-        connection: m['i_connection_name'] || m['connection_name'] || m['connection'] || m['node_name'] || undefined,
-        direction: m['direction'] || m['call_direction'] || undefined,
-        mediaIpCaller: m['r_srtp'] || m['media_ip_caller'] || m['local_rtp_ip'] || undefined,
-        mediaIpCallee: m['media_ip_callee'] || m['remote_rtp_ip'] || m['p_srtp'] || undefined,
-        delay: m['delay'] != null ? (parseFloat(m['delay']) || 0) : undefined,
-      });
-    }
-    return calls;
-  } catch {
-    return [];
   }
+  return [];
 }
 
 // ── CDR Records ───────────────────────────────────────────────────────────────
@@ -709,40 +717,57 @@ export interface SippyCDR {
   result: string;
 }
 
-export async function getSippyCDRs(username: string, password: string, limit = 50): Promise<SippyCDR[]> {
+// getSippyCDRs — uses official getAccountCDRs() (docs 107367) or
+//               getCustomerCDRs() (docs 107429) with documented field names.
+// CDR response fields: call_id, cli, cld, connect_time, billed_duration,
+//   cost, country, description, remote_ip, result, disconnect_time, duration
+export async function getSippyCDRs(
+  username: string,
+  password: string,
+  limit = 50,
+  opts: { iAccount?: number; iCustomer?: number; startDate?: string; endDate?: string; type?: string } = {},
+): Promise<SippyCDR[]> {
   if (!activeSession) return [];
   const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
-  const body = xmlRpcCall('cdrs.getCDRs', {
-    limit,
-    type: 0,
-  });
+  const auth   = { Authorization: basicAuth(username, password) };
 
-  try {
-    const resp = await rawPost(apiUrl, body, {
-      Authorization: basicAuth(username, password),
-    });
-    if (resp.statusCode !== 200) return [];
+  const params: Record<string, unknown> = { limit, type: opts.type || 'all' };
+  if (opts.iAccount)   params.i_account   = opts.iAccount;
+  if (opts.iCustomer)  params.i_customer  = opts.iCustomer;
+  if (opts.startDate)  params.start_date  = opts.startDate;
+  if (opts.endDate)    params.end_date    = opts.endDate;
 
-    const structs = extractAllTags(resp.body, 'struct');
-    const cdrs: SippyCDR[] = [];
+  // Official methods: getAccountCDRs() / getCustomerCDRs() (Sippy docs 107367 / 107429)
+  const methods = opts.iCustomer
+    ? ['getCustomerCDRs', 'getAccountCDRs']
+    : ['getAccountCDRs', 'getCustomerCDRs'];
 
-    for (const s of structs) {
-      const m = extractStructMembers(s);
-      if (!m['call_id'] && !m['CallID'] && !m['cli']) continue;
-      cdrs.push({
-        callId: m['call_id'] || m['CallID'] || '-',
-        caller: m['cli'] || m['caller'] || '-',
-        callee: m['cld'] || m['callee'] || '-',
-        startTime: m['connect_time'] || m['start_time'] || m['time'] || '',
-        duration: parseInt(m['duration'] || '0') || 0,
-        cost: parseFloat(m['cost'] || '0') || 0,
-        result: m['disconnect_reason'] || m['reason'] || m['result'] || '',
-      });
-    }
-    return cdrs;
-  } catch {
-    return [];
+  for (const method of methods) {
+    try {
+      const resp = await rawPost(apiUrl, xmlRpcCall(method, params), auth);
+      if (resp.statusCode !== 200) continue;
+      const text = resp.body.toString?.() ?? resp.body;
+      if (text.includes('faultCode')) continue;
+
+      const structs = extractAllTags(text, 'struct');
+      const cdrs: SippyCDR[] = [];
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        if (!m['call_id'] && !m['i_call'] && !m['cli']) continue;
+        cdrs.push({
+          callId:    m['call_id']        || m['i_call']     || '-',
+          caller:    m['cli']            || m['cli_in']     || '-',
+          callee:    m['cld']            || m['cld_in']     || '-',
+          startTime: m['connect_time']   || m['setup_time'] || '',
+          duration:  parseFloat(m['billed_duration'] || m['duration'] || '0') || 0,
+          cost:      parseFloat(m['cost'] || '0') || 0,
+          result:    m['result']         || m['disconnect_reason'] || '',
+        });
+      }
+      return cdrs;
+    } catch { continue; }
   }
+  return [];
 }
 
 // ── Portal User Management ────────────────────────────────────────────────────
@@ -794,33 +819,36 @@ export async function listSippyUsers(username: string, password: string, portalU
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const auth = { Authorization: basicAuth(username, password) };
 
-  // Try multiple known Sippy API method names for listing web portal users
-  const methods = ['user.getUsersList', 'user.getList', 'user.get_users', 'admin.getAdminList'];
+  // Official method: listCustomers() (Sippy docs 107423)
+  // Returns: i_customer, name, web_login, description, balance, credit_limit, base_currency
+  // Fallback: legacy method names used in older Sippy versions
+  const methods = ['listCustomers', 'user.getUsersList', 'user.getList', 'admin.getAdminList'];
   for (const method of methods) {
     try {
-      const body = xmlRpcCall(method);
+      const body = xmlRpcCall(method, { limit: 200 });
       const resp = await rawPost(apiUrl, body, auth);
       if (resp.statusCode !== 200) continue;
       const text = resp.body.toString('utf-8');
-      if (text.includes('faultCode')) continue; // Method not found / fault
+      if (text.includes('faultCode')) continue;
       const structs = extractAllTags(text, 'struct');
       if (structs.length === 0) return { users: [] };
       const users: SippyPortalUser[] = [];
       for (const s of structs) {
         const m = extractStructMembers(s);
-        const userId = m['i_user'] || m['user_id'] || m['id'] || '';
+        // listCustomers() uses i_customer; legacy uses i_user
+        const userId = m['i_customer'] || m['i_user'] || m['user_id'] || m['id'] || '';
         if (!userId) continue;
         users.push({
           userId,
-          name: m['name'] || m['login'] || userId,
-          login: m['login'] || m['web_login'] || '',
-          accessLevel: m['access_level'] || m['i_role'] || m['role'] || 'User',
-          description: m['description'] || m['descr'] || undefined,
-          email: m['email'] || undefined,
-          timezone: m['time_zone'] || m['timezone'] || m['i_time_zone'] || undefined,
-          language: m['language'] || m['i_lang'] || undefined,
-          allowedHosts: m['allowed_hosts'] || undefined,
-          startPage: m['start_page'] || undefined,
+          name:        m['name']       || m['login']    || userId,
+          login:       m['web_login']  || m['login']    || '',
+          accessLevel: m['access_level'] || (m['i_customer'] ? 'Customer' : 'User'),
+          description: m['description'] || m['descr']  || undefined,
+          email:       m['email']       || undefined,
+          timezone:    m['i_time_zone'] || m['time_zone'] || undefined,
+          language:    m['i_lang']      || m['language']  || undefined,
+          allowedHosts:m['allowed_hosts'] || undefined,
+          startPage:   m['start_page']  || undefined,
         });
       }
       return { users };
@@ -1137,59 +1165,69 @@ export async function pushAccountToSippy(
 
   const apiUrl = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
   const auth   = { Authorization: basicAuth(credentials.username, credentials.password) };
+  const isVendor = opts.type === 'vendor';
 
-  // Build the account parameter set (only include non-empty / non-null values)
-  // NOTE: 'type' is NOT a valid Sippy customer.add param — account type is implied by the method
-  const accountParams: Record<string, string | number | boolean> = {
+  // ── Build parameter set using official Sippy field names ─────────────────
+  // Customer:  createCustomer() — docs 107417 — params: name, web_password, i_tariff, ...
+  // Vendor:    createVendor()   — docs 107434 — params: name, web_password, web_login, i_time_zone, ...
+  // Account:   createAccount()  — docs 107312 — params: username, web_password, authname, ...
+  const params: Record<string, string | number | boolean> = {
     name: opts.name,
+    web_password: opts.name.toLowerCase().replace(/\s+/g, '') + '@123', // placeholder — admin should change
   };
-  if (opts.ipAddress)           accountParams.ip                    = opts.ipAddress;
-  if (opts.ratePerMin !== undefined) accountParams.rate             = opts.ratePerMin;
-  if (opts.timezone)            accountParams.time_zone             = opts.timezone;
-  if (opts.language)            accountParams.language              = opts.language;
-  if (opts.sipClass)            accountParams.i_class               = opts.sipClass;
-  if (opts.companyName)         accountParams.company_name          = opts.companyName;
-  if (opts.description)         accountParams.description           = opts.description;
-  if (opts.preferredCodec)      accountParams.preferred_codec       = opts.preferredCodec;
-  if (opts.cldTranslationRule)  accountParams.cld_translation_rule  = opts.cldTranslationRule;
-  if (opts.cliTranslationRule)  accountParams.cli_translation_rule  = opts.cliTranslationRule;
-  if (opts.creditLimit !== undefined)    accountParams.credit_limit        = opts.creditLimit;
-  if (opts.maxSessions !== undefined)    accountParams.max_sessions        = opts.maxSessions;
-  if (opts.maxCallsPerSecond !== undefined) accountParams.max_calls_per_second = opts.maxCallsPerSecond;
-  if (opts.maxSessionTime !== undefined) accountParams.max_session_time    = opts.maxSessionTime;
-  // Routing group and tariff — Sippy needs integer IDs (i_routing_group, i_tariff)
+  if (isVendor) {
+    params.web_login   = opts.name.toLowerCase().replace(/\s+/g, '.');
+    params.i_time_zone = 1; // UTC default
+  } else {
+    // createCustomer() mandatory params (Sippy docs 107417)
+    params.i_tariff = 0; // 0 = own tariff; override with servicePlan below if set
+  }
+  if (opts.companyName)        params.company_name        = opts.companyName;
+  if (opts.description)        params.description         = opts.description;
+  if (opts.language)           params.i_lang              = opts.language;
+  if (opts.timezone)           params.i_time_zone         = Number(opts.timezone) || 1;
+  if (opts.cldTranslationRule) params.translation_rule    = opts.cldTranslationRule;
+  if (opts.cliTranslationRule) params.cli_translation_rule= opts.cliTranslationRule;
+  if (opts.creditLimit !== undefined) params.credit_limit = opts.creditLimit;
+  if (opts.maxSessions !== undefined) params.max_sessions = opts.maxSessions;
+  if (opts.maxCallsPerSecond !== undefined) {
+    // createCustomer uses no standard CPS field; use for createAccount
+    params.max_calls_per_second = opts.maxCallsPerSecond;
+  }
+  if (opts.maxSessionTime !== undefined) params.max_credit_time = opts.maxSessionTime;
   if (opts.routingGroup) {
-    const rgInt = parseInt(opts.routingGroup, 10);
-    if (!isNaN(rgInt)) accountParams.i_routing_group = rgInt;
+    const rg = parseInt(opts.routingGroup, 10);
+    if (!isNaN(rg)) params.i_routing_group = rg;
   }
   if (opts.servicePlan) {
-    const spInt = parseInt(opts.servicePlan, 10);
-    if (!isNaN(spInt)) accountParams.i_tariff = spInt;
+    const sp = parseInt(opts.servicePlan, 10);
+    if (!isNaN(sp)) {
+      params.i_tariff      = sp;  // for createCustomer
+      params.i_billing_plan= sp;  // for createAccount
+    }
   }
 
-  // Sippy uses different top-level methods for customers vs vendors.
-  // We try the nested customer_info/vendor_info format first (standard Sippy XML-RPC),
-  // then fall back to flat params for older/variant Sippy builds.
-  const isVendor = opts.type === 'vendor';
+  // ── Attempt list: official first, then legacy aliases ────────────────────
+  // Official API (Sippy docs 107417 / 107434): createCustomer / createVendor
+  // Legacy aliases kept for older Sippy builds
   const wrapKey = isVendor ? 'vendor_info' : 'customer_info';
-
   const attempts: Array<{ method: string; body: string }> = isVendor
     ? [
-        { method: 'vendor.add',       body: xmlRpcCallNested('vendor.add', wrapKey, accountParams) },
-        { method: 'vendor.add-flat',  body: xmlRpcCall('vendor.add', accountParams) },
-        { method: 'customer.add',     body: xmlRpcCallNested('customer.add', wrapKey, accountParams) },
-        { method: 'customer.add-flat',body: xmlRpcCall('customer.add', accountParams) },
+        { method: 'createVendor',          body: xmlRpcCall('createVendor', params) },
+        { method: 'addVendor',             body: xmlRpcCall('addVendor', params) },        // alias
+        { method: 'vendor.add-nested',     body: xmlRpcCallNested('vendor.add', wrapKey, params) },
+        { method: 'vendor.add-flat',       body: xmlRpcCall('vendor.add', params) },
       ]
     : [
-        { method: 'customer.add',           body: xmlRpcCallNested('customer.add', wrapKey, accountParams) },
-        { method: 'customer.add-flat',      body: xmlRpcCall('customer.add', accountParams) },
-        { method: 'customer.addCustomer',   body: xmlRpcCallNested('customer.addCustomer', wrapKey, accountParams) },
-        { method: 'customer.addAccount',    body: xmlRpcCall('customer.addAccount', accountParams) },
+        { method: 'createCustomer',        body: xmlRpcCall('createCustomer', params) },   // official
+        { method: 'createAccount',         body: xmlRpcCall('createAccount',  params) },   // official account
+        { method: 'customer.add-nested',   body: xmlRpcCallNested('customer.add', wrapKey, params) },
+        { method: 'customer.add-flat',     body: xmlRpcCall('customer.add', params) },
       ];
 
   let lastFault = '';
 
-  console.log(`[Sippy] pushAccountToSippy → url: ${apiUrl}, wrapKey: ${wrapKey}, params:`, JSON.stringify(accountParams));
+  console.log(`[Sippy] pushAccountToSippy → url: ${apiUrl}, type: ${opts.type}, params:`, JSON.stringify(params));
 
   for (const { method, body } of attempts) {
     try {
@@ -1248,7 +1286,13 @@ export async function listSippyRoutingGroups(
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const auth = { Authorization: basicAuth(username, password) };
 
-  const methods = ['routing_group.getRoutingGroupList', 'routing_group.getList', 'routing.getGroupList'];
+  // Official method: getRoutingGroupsList() — also try legacy names for older builds
+  const methods = [
+    'getRoutingGroupsList',                    // official (newer Sippy)
+    'routing_group.getRoutingGroupList',       // legacy
+    'routing_group.getList',                   // legacy variant
+    'routing.getGroupList',                    // older builds
+  ];
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method);
@@ -1282,10 +1326,18 @@ export async function listSippyTariffs(
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const auth = { Authorization: basicAuth(username, password) };
 
-  const methods = ['tariff.getTariffList', 'tariff.getList', 'billing.getTariffList'];
+  // Official method: getTariffsList() (Sippy docs 3000098586, available since Sippy 2020)
+  // Returns: tariffs array with i_tariff, name, currency, i_tariff_type
+  // Fallback to legacy methods for older Sippy builds
+  const methods = [
+    'getTariffsList',           // official (since Sippy 2020)
+    'tariff.getTariffList',     // legacy
+    'tariff.getList',           // legacy variant
+    'billing.getTariffList',    // older builds
+  ];
   for (const method of methods) {
     try {
-      const body = xmlRpcCall(method);
+      const body = xmlRpcCall(method, { limit: 500 });
       const resp = await rawPost(apiUrl, body, auth);
       if (resp.statusCode !== 200) continue;
       const text = resp.body;
@@ -1564,23 +1616,36 @@ export async function getSippyRateList(
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const auth   = { Authorization: basicAuth(username, password) };
 
-  for (const method of ['tariff.getRateList', 'rate.getRateList', 'tariff.getRates']) {
+  // Official method: getTariffRatesList() (Sippy docs 3000118878, available since Sippy 2022)
+  // Returns: i_rate, prefix, price_1, price_n, interval_1, interval_n,
+  //          forbidden, grace_period_enable, activation_date, expiration_date
+  // Fallback to older methods for pre-2022 builds
+  const methods = [
+    'getTariffRatesList',     // official (since Sippy 2022) — uses prefix, price_1, price_n
+    'tariff.getRateList',     // legacy
+    'rate.getRateList',       // legacy variant
+    'tariff.getRates',        // older builds
+  ];
+  for (const method of methods) {
     try {
-      const body = xmlRpcCall(method, { i_tariff: tariffId, get_total: 0 });
+      const body = xmlRpcCall(method, { i_tariff: tariffId, limit: 1000, offset: 0 });
       const resp = await rawPost(apiUrl, body, auth);
       if (resp.statusCode !== 200 || resp.body.includes('<fault>')) continue;
       const structs = extractAllTags(resp.body, 'struct');
       const rates: RateEntry[] = [];
       for (const s of structs) {
         const m = extractStructMembers(s);
-        const prefix = m['destination'] || m['prefix'] || m['dial_code'] || m['i_dest'] || '';
+        // getTariffRatesList uses 'prefix'; legacy methods use 'destination'
+        const prefix = m['prefix'] || m['destination'] || m['dial_code'] || m['i_dest'] || '';
         if (!prefix) continue;
+        // getTariffRatesList uses price_1 for per-min rate
+        const rate = parseFloat(m['price_1'] || m['rate'] || m['price'] || '0') || 0;
         rates.push({
           prefix,
           destination: m['destination_name'] || m['name'] || m['destination_description'] || prefix,
-          rate: parseFloat(m['rate'] || m['price'] || '0') || 0,
-          effectiveFrom: m['effective_from'] || m['start_date'] || '',
-          effectiveTill: m['effective_till'] || m['end_date'] || '',
+          rate,
+          effectiveFrom: m['activation_date']  || m['effective_from'] || m['start_date'] || '',
+          effectiveTill: m['expiration_date']  || m['effective_till'] || m['end_date']   || '',
         });
       }
       return { rates };
@@ -1610,7 +1675,9 @@ export async function setSippyRateEntry(
   if (entry.effectiveFrom) params.start_date = entry.effectiveFrom;
   if (entry.effectiveTill) params.end_date   = entry.effectiveTill;
 
-  for (const method of ['tariff.setRate', 'tariff.addDestination', 'rate.setRate']) {
+  // Official method: addRateTariff() (or setRate) from Sippy docs 3000118878
+  // Also covers legacy method names for older Sippy builds
+  for (const method of ['addRateTariff', 'tariff.setRate', 'tariff.addDestination', 'rate.setRate']) {
     try {
       const body = xmlRpcCall(method, params);
       const resp = await rawPost(apiUrl, body, auth);
@@ -1636,7 +1703,8 @@ export async function deleteSippyRateEntry(
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const auth   = { Authorization: basicAuth(username, password) };
 
-  for (const method of ['tariff.deleteRate', 'tariff.deleteDestination', 'rate.deleteRate']) {
+  // Official: deleteRateTariff() — also try legacy aliases
+  for (const method of ['deleteRateTariff', 'tariff.deleteRate', 'tariff.deleteDestination', 'rate.deleteRate']) {
     try {
       const body = xmlRpcCall(method, { i_tariff: tariffId, destination: prefix });
       const resp = await rawPost(apiUrl, body, auth);
@@ -1646,4 +1714,295 @@ export async function deleteSippyRateEntry(
     } catch { continue; }
   }
   return { success: false, message: 'Delete not supported by this Sippy instance. Rate removed locally.' };
+}
+
+// ── Customer Management (official Sippy docs 107417-107421) ──────────────────
+
+/**
+ * Update a customer on Sippy.
+ * Official method: updateCustomer() — docs 107419
+ * Parameters: i_customer (required) + any createCustomer() optional fields.
+ */
+export async function updateSippyCustomer(
+  username: string,
+  password: string,
+  iCustomer: number,
+  fields: Partial<SippyAccountOpts>,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+
+  const params: Record<string, string | number | boolean> = { i_customer: iCustomer };
+  if (fields.companyName)    params.company_name          = fields.companyName;
+  if (fields.description)    params.description           = fields.description;
+  if (fields.language)       params.i_lang                = fields.language;
+  if (fields.creditLimit !== undefined) params.credit_limit = fields.creditLimit;
+  if (fields.maxSessions !== undefined) params.max_sessions = fields.maxSessions;
+  if (fields.routingGroup) {
+    const rg = parseInt(fields.routingGroup, 10);
+    if (!isNaN(rg)) params.i_routing_group = rg;
+  }
+  if (fields.servicePlan) {
+    const sp = parseInt(fields.servicePlan, 10);
+    if (!isNaN(sp)) params.i_tariff = sp;
+  }
+
+  try {
+    const resp = await rawPost(apiUrl, xmlRpcCall('updateCustomer', params), auth);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      return { success: true, message: 'Customer updated successfully.' };
+    }
+    const fault = extractTag(resp.body, 'faultString') || 'updateCustomer failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a customer from Sippy.
+ * Official method: deleteCustomer() — docs 107421
+ * Parameters: i_customer (required)
+ */
+export async function deleteSippyCustomer(
+  username: string,
+  password: string,
+  iCustomer: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+
+  try {
+    const resp = await rawPost(apiUrl, xmlRpcCall('deleteCustomer', { i_customer: iCustomer }), auth);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      return { success: true, message: 'Customer deleted successfully.' };
+    }
+    const fault = extractTag(resp.body, 'faultString') || 'deleteCustomer failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Block a customer on Sippy.
+ * Official method: blockCustomer() — docs 3000083421 (available since 5.2)
+ * Parameters: i_customer (required)
+ */
+export async function blockSippyCustomer(
+  username: string,
+  password: string,
+  iCustomer: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+
+  try {
+    const resp = await rawPost(apiUrl, xmlRpcCall('blockCustomer', { i_customer: iCustomer }), auth);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      return { success: true, message: 'Customer blocked.' };
+    }
+    const fault = extractTag(resp.body, 'faultString') || 'blockCustomer failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Unblock a customer on Sippy.
+ * Official method: unblockCustomer() — docs 3000083421 (available since 5.2)
+ * Parameters: i_customer (required)
+ */
+export async function unblockSippyCustomer(
+  username: string,
+  password: string,
+  iCustomer: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+
+  try {
+    const resp = await rawPost(apiUrl, xmlRpcCall('unblockCustomer', { i_customer: iCustomer }), auth);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      return { success: true, message: 'Customer unblocked.' };
+    }
+    const fault = extractTag(resp.body, 'faultString') || 'unblockCustomer failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ── Account Management (official Sippy docs 107312 / 107321) ─────────────────
+
+/**
+ * Delete an account from Sippy.
+ * Official method: deleteAccount() — docs 107321
+ * Parameters: i_account (required)
+ * Active calls of the deleted account will be disconnected.
+ */
+export async function deleteSippyAccount(
+  username: string,
+  password: string,
+  iAccount: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+
+  try {
+    const resp = await rawPost(apiUrl, xmlRpcCall('deleteAccount', { i_account: iAccount }), auth);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      return { success: true, message: 'Account deleted successfully.' };
+    }
+    const fault = extractTag(resp.body, 'faultString') || 'deleteAccount failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ── Vendor Management (official Sippy docs 107434) ───────────────────────────
+
+/**
+ * Update a vendor on Sippy.
+ * Official method: updateVendor() — docs 107434
+ * Parameters: i_vendor (required) + any createVendor() optional fields.
+ */
+export async function updateSippyVendor(
+  username: string,
+  password: string,
+  iVendor: number,
+  fields: { name?: string; companyName?: string; description?: string; email?: string; balance?: number },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+
+  const params: Record<string, string | number> = { i_vendor: iVendor };
+  if (fields.name)        params.name         = fields.name;
+  if (fields.companyName) params.company_name = fields.companyName;
+  if (fields.description) params.description  = fields.description;
+  if (fields.email)       params.email        = fields.email;
+
+  try {
+    const resp = await rawPost(apiUrl, xmlRpcCall('updateVendor', params), auth);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      return { success: true, message: 'Vendor updated successfully.' };
+    }
+    const fault = extractTag(resp.body, 'faultString') || 'updateVendor failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a vendor from Sippy.
+ * Official method: deleteVendor() — docs 107434
+ * Parameters: i_vendor (required)
+ */
+export async function deleteSippyVendor(
+  username: string,
+  password: string,
+  iVendor: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+
+  try {
+    const resp = await rawPost(apiUrl, xmlRpcCall('deleteVendor', { i_vendor: iVendor }), auth);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      return { success: true, message: 'Vendor deleted successfully.' };
+    }
+    const fault = extractTag(resp.body, 'faultString') || 'deleteVendor failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ── Tariff Management (official Sippy docs 3000098586, since Sippy 2020) ─────
+
+/**
+ * Create a new tariff.
+ * Official method: createTariff() — docs 3000098586 (available since Sippy 2020)
+ */
+export async function createSippyTariff(
+  username: string,
+  password: string,
+  opts: { name: string; currency: string; connectFee?: number; freeSeconds?: number },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string; iTariff?: number }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+
+  const params: Record<string, string | number | boolean> = {
+    name: opts.name,
+    currency: opts.currency,
+  };
+  if (opts.connectFee  !== undefined) params.connect_fee  = opts.connectFee;
+  if (opts.freeSeconds !== undefined) params.free_seconds = opts.freeSeconds;
+
+  try {
+    const resp = await rawPost(apiUrl, xmlRpcCall('createTariff', params), auth);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      const m = extractStructMembers(resp.body);
+      const iTariff = parseInt(m['i_tariff'] || '0', 10);
+      return { success: true, message: 'Tariff created.', iTariff: iTariff || undefined };
+    }
+    const fault = extractTag(resp.body, 'faultString') || 'createTariff failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a tariff from Sippy.
+ * Official method: deleteTariff() — docs 3000098586 (available since Sippy 2020)
+ */
+export async function deleteSippyTariff(
+  username: string,
+  password: string,
+  iTariff: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const auth   = { Authorization: basicAuth(username, password) };
+
+  try {
+    const resp = await rawPost(apiUrl, xmlRpcCall('deleteTariff', { i_tariff: iTariff }), auth);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      return { success: true, message: 'Tariff deleted.' };
+    }
+    const fault = extractTag(resp.body, 'faultString') || 'deleteTariff failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
 }
