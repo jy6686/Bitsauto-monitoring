@@ -46,6 +46,7 @@ export interface LiveCallRecord {
   gateway: string;
   clientName?: string;
   duration: number;
+  callStatus: 'connected' | 'routing'; // connected = answered (duration>0), routing = in setup
 }
 
 // ─── In-memory state ──────────────────────────────────────────────────────────
@@ -733,14 +734,23 @@ function parseCdrRow(r: any): CdrRecord {
 }
 
 function parseLiveRow(r: any): LiveCallRecord {
+  const duration = Number(r.duration || r.elapsed || r.seconds || r.talk_time || 0);
+  const rawStatus = String(r.callStatus || r.call_status || r.status || r.state || '').toLowerCase();
+  // "connected" if duration > 0 OR status says answer/talk/connected
+  const isConnected = duration > 0
+    || rawStatus.includes('answer')
+    || rawStatus.includes('talk')
+    || rawStatus.includes('connect')
+    || rawStatus === 'active';
   return {
     id: String(r.id || r.call_id || Math.random()),
     startTime: new Date().toISOString(),
-    caller: r.caller || r.cli || '',
-    callee: r.callee || r.cld || '',
-    gateway: r.gateway || r.gw || '',
+    caller: r.caller || r.cli || r.callerNumber || '',
+    callee: r.callee || r.cld || r.calleeNumber || '',
+    gateway: r.gateway || r.gw || r.gatewayName || '',
     clientName: r.terminalName || r.accountName || r.customerName || r.clientName || r.name || undefined,
-    duration: Number(r.duration || r.elapsed || r.seconds || 0),
+    duration,
+    callStatus: isConnected ? 'connected' : 'routing',
   };
 }
 
