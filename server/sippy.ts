@@ -782,16 +782,20 @@ export async function pushAccountToSippy(
 
   let lastFault = '';
 
+  console.log(`[Sippy] pushAccountToSippy → url: ${apiUrl}, params:`, JSON.stringify(accountParams));
+
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method, accountParams);
+      console.log(`[Sippy] Trying ${method} with XML:\n${body}`);
       const resp = await rawPost(apiUrl, body, auth);
+      console.log(`[Sippy] ${method} → HTTP ${resp.statusCode}, body: ${resp.body.slice(0, 800)}`);
       const text = resp.body;
-      if (resp.statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode')) {
+      if (resp.statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode') && !text.includes('faultString')) {
         console.log(`[Sippy] ${method} succeeded for "${opts.name}"`);
         return { success: true, message: `Account "${opts.name}" created on Sippy (method: ${method})`, method };
       }
-      const fault = extractTag(text, 'faultString');
+      const fault = extractTag(text, 'faultString') ?? extractTag(text, 'string');
       if (fault) lastFault = fault.replace(/<[^>]+>/g, '').trim();
       console.warn(`[Sippy] ${method} fault:`, lastFault || `HTTP ${resp.statusCode}`);
     } catch (e: any) {
@@ -800,7 +804,7 @@ export async function pushAccountToSippy(
     }
   }
 
-  const detail = lastFault ? `Sippy said: ${lastFault}` : 'Check Sippy API permissions and account configuration.';
+  const detail = lastFault ? `Sippy: ${lastFault}` : `No response from Sippy at ${apiUrl} — check URL and credentials.`;
   return { success: false, message: 'Could not create account on Sippy.', detail };
 }
 

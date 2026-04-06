@@ -816,13 +816,21 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
         <div className="p-6 space-y-4">
           {sippySwitches.length > 0 && (
             <div>
-              <label className={labelCls}>Target Sippy Switch</label>
-              <select value={switchId} onChange={e => setSwitchId(e.target.value)} className={fieldCls}>
-                <option value="">Primary (from Settings)</option>
+              <label className={labelCls}>Target Sippy Switch <span className="text-rose-400">*</span></label>
+              <select
+                data-testid="select-sippy-switch"
+                value={switchId}
+                onChange={e => { setSwitchId(e.target.value); setRoutingGroupId(''); setTariffId(''); }}
+                className={`${fieldCls} ${!switchId ? 'border-amber-500/50 focus:ring-amber-500/50' : ''}`}
+              >
+                <option value="">— Select a Sippy switch —</option>
                 {sippySwitches.map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
+              {!switchId && (
+                <p className="text-xs text-amber-400 mt-1">Select the Sippy switch to create this account on.</p>
+              )}
             </div>
           )}
 
@@ -920,7 +928,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
           {!result?.success && (
             <button
               data-testid="button-sippy-create-account"
-              disabled={!name.trim() || createMut.isPending}
+              disabled={!name.trim() || createMut.isPending || (sippySwitches.length > 0 && !switchId)}
               onClick={() => createMut.mutate()}
               className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
             >
