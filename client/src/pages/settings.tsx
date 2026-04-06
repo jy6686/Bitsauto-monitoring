@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import {
   Loader2, Save, RefreshCw, Eye, EyeOff, Globe, CheckCircle2,
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
+  Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -409,6 +410,236 @@ function SippyConnectPanel({ username, password }: { username: string; password:
   );
 }
 
+// ── Additional Switches Panel ─────────────────────────────────────────────────
+type SwitchRow = {
+  id: number; name: string; type: string;
+  portalUrl: string | null; portalUsername: string | null; portalPassword: string | null;
+  enabled: boolean; notes: string | null;
+  lastSyncAt: string | null; lastSyncStatus: string | null;
+};
+
+const EMPTY_SWITCH: Omit<SwitchRow, 'id' | 'lastSyncAt' | 'lastSyncStatus'> = {
+  name: '', type: 'vos3000', portalUrl: '', portalUsername: '', portalPassword: '',
+  enabled: true, notes: '',
+};
+
+function SwitchesPanel() {
+  const qc = useQueryClient();
+  const { data: switches = [], isLoading } = useQuery<SwitchRow[]>({ queryKey: ['/api/switches'] });
+
+  const [expanded, setExpanded] = useState(true);
+  const [editing, setEditing] = useState<SwitchRow | null>(null);
+  const [form, setForm] = useState<Omit<SwitchRow, 'id' | 'lastSyncAt' | 'lastSyncStatus'>>({ ...EMPTY_SWITCH });
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function openNew() {
+    setEditing(null);
+    setForm({ ...EMPTY_SWITCH });
+    setError(null);
+  }
+  function openEdit(sw: SwitchRow) {
+    setEditing(sw);
+    setForm({ name: sw.name, type: sw.type, portalUrl: sw.portalUrl || '', portalUsername: sw.portalUsername || '', portalPassword: sw.portalPassword || '', enabled: sw.enabled, notes: sw.notes || '' });
+    setError(null);
+  }
+  function closeForm() { setEditing(null); setForm({ ...EMPTY_SWITCH }); setError(null); }
+
+  async function save() {
+    if (!form.name.trim()) { setError('Name is required'); return; }
+    if (!form.portalUrl?.trim()) { setError('URL is required'); return; }
+    setSaving(true); setError(null);
+    try {
+      if (editing) {
+        await apiRequest('PATCH', `/api/switches/${editing.id}`, form);
+      } else {
+        await apiRequest('POST', '/api/switches', form);
+      }
+      qc.invalidateQueries({ queryKey: ['/api/switches'] });
+      closeForm();
+    } catch (e: any) {
+      setError(e.message || 'Failed to save');
+    } finally { setSaving(false); }
+  }
+
+  async function deleteSw(id: number) {
+    setDeleting(id);
+    try {
+      await apiRequest('DELETE', `/api/switches/${id}`);
+      qc.invalidateQueries({ queryKey: ['/api/switches'] });
+    } catch { } finally { setDeleting(null); }
+  }
+
+  const isFormOpen = editing !== null || (form.name !== '' || form.portalUrl !== '');
+
+  return (
+    <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20 hover:bg-muted/30 transition-colors"
+      >
+        <Server className="w-4 h-4 text-violet-400 flex-shrink-0" />
+        <div className="flex-1 text-left">
+          <h3 className="font-semibold text-sm">Additional Switches</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Add extra VOS3000 or Sippy instances to push rates to multiple softswitches simultaneously.
+          </p>
+        </div>
+        {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="p-6 space-y-4">
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+          ) : switches.length === 0 && !isFormOpen ? (
+            <p className="text-sm text-muted-foreground">No additional switches configured. Click Add Switch to connect another softswitch.</p>
+          ) : (
+            <div className="space-y-2">
+              {switches.map(sw => (
+                <div key={sw.id} data-testid={`switch-row-${sw.id}`} className="flex items-center gap-3 p-3 rounded-lg bg-muted/20 border border-border/50">
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${sw.enabled ? 'bg-emerald-400' : 'bg-muted-foreground/30'}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{sw.name}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${sw.type === 'vos3000' ? 'bg-blue-500/20 text-blue-300' : 'bg-violet-500/20 text-violet-300'}`}>{sw.type}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">{sw.portalUrl}</p>
+                    {sw.lastSyncStatus && (
+                      <p className={`text-xs mt-0.5 ${sw.lastSyncStatus.startsWith('failed') ? 'text-rose-400' : 'text-emerald-400'}`}>{sw.lastSyncStatus}</p>
+                    )}
+                  </div>
+                  <button type="button" data-testid={`button-edit-switch-${sw.id}`} onClick={() => openEdit(sw)} className="p-1.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button type="button" data-testid={`button-delete-switch-${sw.id}`} onClick={() => deleteSw(sw.id)} disabled={deleting === sw.id} className="p-1.5 rounded hover:bg-rose-500/10 text-muted-foreground hover:text-rose-400 transition-colors disabled:opacity-40">
+                    {deleting === sw.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Inline add/edit form */}
+          {isFormOpen ? (
+            <div className="border border-border/80 rounded-lg p-4 space-y-3 bg-background/40">
+              <p className="text-sm font-semibold">{editing ? 'Edit Switch' : 'Add New Switch'}</p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium">Name</label>
+                  <input
+                    data-testid="input-switch-name"
+                    value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Primary US Switch"
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium">Type</label>
+                  <select
+                    data-testid="select-switch-type"
+                    value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  >
+                    <option value="vos3000">VOS3000</option>
+                    <option value="sippy">Sippy</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid gap-1.5">
+                <label className="text-xs font-medium">Portal URL</label>
+                <input
+                  data-testid="input-switch-url"
+                  value={form.portalUrl || ''} onChange={e => setForm(f => ({ ...f, portalUrl: e.target.value }))}
+                  placeholder="http://192.168.1.100:8081/eng/"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium">Username</label>
+                  <input
+                    data-testid="input-switch-username"
+                    value={form.portalUsername || ''} onChange={e => setForm(f => ({ ...f, portalUsername: e.target.value }))}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium">Password</label>
+                  <input
+                    data-testid="input-switch-password"
+                    type="password"
+                    value={form.portalPassword || ''} onChange={e => setForm(f => ({ ...f, portalPassword: e.target.value }))}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-1.5">
+                <label className="text-xs font-medium">Notes (optional)</label>
+                <input
+                  data-testid="input-switch-notes"
+                  value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                  placeholder="e.g. US West Coast, Customer A"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  id="switch-enabled"
+                  type="checkbox"
+                  checked={form.enabled}
+                  onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
+                  className="h-4 w-4 rounded border-border"
+                />
+                <label htmlFor="switch-enabled" className="text-xs text-muted-foreground">Enabled (include in multi-switch pushes)</label>
+              </div>
+
+              {error && <p className="text-xs text-rose-400">{error}</p>}
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  data-testid="button-save-switch"
+                  onClick={save}
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  {editing ? 'Save Changes' : 'Add Switch'}
+                </button>
+                <button
+                  type="button"
+                  data-testid="button-cancel-switch"
+                  onClick={closeForm}
+                  className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              data-testid="button-add-switch"
+              onClick={openNew}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-border/70 bg-muted/20 hover:bg-muted/40 transition-colors"
+            >
+              <Plus className="w-4 h-4" /> Add Switch
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Settings Page ────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
@@ -755,6 +986,9 @@ export default function SettingsPage() {
           )}
         </div>
       </form>
+
+      {/* Additional Switches */}
+      <SwitchesPanel />
 
       {/* Danger Zone */}
       <div className="bg-destructive/5 border border-destructive/20 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">

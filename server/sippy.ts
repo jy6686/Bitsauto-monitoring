@@ -337,10 +337,11 @@ export async function pushRateToSippy(opts: {
   effectiveFrom?: Date;
   effectiveTo?: Date;
   format?: 'full' | 'partial' | 'default';
-}, credentials: { username: string; password: string }): Promise<SippyPushResult> {
-  if (!activeSession) return { success: false, message: 'Not connected to Sippy.' };
+}, credentials: { username: string; password: string }, targetUrl?: string): Promise<SippyPushResult> {
+  const baseUrl = targetUrl ?? activeSession?.portalUrl;
+  if (!baseUrl) return { success: false, message: 'Not connected to Sippy.' };
 
-  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const apiUrl = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
   const auth   = { Authorization: basicAuth(credentials.username, credentials.password) };
   const effFrom = opts.effectiveFrom ? fmtSippyDate(opts.effectiveFrom) : fmtSippyDate(new Date());
 
@@ -397,10 +398,11 @@ export async function pushAccountToSippy(opts: {
   type: 'client' | 'vendor';
   ipAddress?: string;
   ratePerMin?: number;
-}, credentials: { username: string; password: string }): Promise<SippyPushResult> {
-  if (!activeSession) return { success: false, message: 'Not connected to Sippy.' };
+}, credentials: { username: string; password: string }, targetUrl?: string): Promise<SippyPushResult> {
+  const baseUrl = targetUrl ?? activeSession?.portalUrl;
+  if (!baseUrl) return { success: false, message: 'Not connected to Sippy.' };
 
-  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const apiUrl = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
   const auth   = { Authorization: basicAuth(credentials.username, credentials.password) };
 
   // Attempt: customer.addAccount

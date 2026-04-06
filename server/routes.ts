@@ -407,67 +407,151 @@ export async function registerRoutes(
     } catch { res.status(500).json({ message: 'Failed to delete profile' }); }
   });
 
-  // Sync a client/vendor profile + rate to connected switches
+  // ── Switches CRUD ──────────────────────────────────────────────────────────
+
+  app.get('/api/switches', async (_req, res) => {
+    try { res.json(await storage.getSwitches()); }
+    catch { res.status(500).json({ message: 'Failed to fetch switches' }); }
+  });
+
+  app.post('/api/switches', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const sw = await storage.createSwitch(req.body);
+      res.status(201).json(sw);
+    } catch { res.status(500).json({ message: 'Failed to create switch' }); }
+  });
+
+  app.patch('/api/switches/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const sw = await storage.updateSwitch(Number(req.params.id), req.body);
+      res.json(sw);
+    } catch { res.status(500).json({ message: 'Failed to update switch' }); }
+  });
+
+  app.delete('/api/switches/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      await storage.deleteSwitch(Number(req.params.id));
+      res.json({ message: 'Switch deleted' });
+    } catch { res.status(500).json({ message: 'Failed to delete switch' }); }
+  });
+
+  // Get session status for a specific switch
+  app.get('/api/switches/:id/session', async (req, res) => {
+    try {
+      const allSwitches = await storage.getSwitches();
+      const sw = allSwitches.find(s => s.id === Number(req.params.id));
+      if (!sw) return res.status(404).json({ active: false });
+      if (sw.type === 'sippy') return res.json({ active: true, note: 'Sippy uses Basic Auth — no login required' });
+      const session = sw.portalUrl ? vos3000.getSessionForUrl(sw.portalUrl) : null;
+      res.json({ active: !!session, loggedInAt: session ? (session as any).loggedInAt : undefined });
+    } catch { res.status(500).json({ active: false }); }
+  });
+
+  // ── Shared helper: push profile + rate to a single switch ──────────────────
+
+  async function pushProfileToOneSwitch(
+    profile: Awaited<ReturnType<typeof storage.getClientProfiles>>[number],
+    sw: { id: number; type: string; portalUrl: string | null; portalUsername: string | null; portalPassword: string | null },
+    pushOpts?: vos3000.PushRateOptions,
+  ): Promise<{ success: boolean; message: string; detail?: string }> {
+    if (!sw.portalUrl) return { success: false, message: `Switch "${sw.type}" has no URL configured.` };
+
+    if (sw.type === 'vos3000') {
+      const session = vos3000.getSessionForUrl(sw.portalUrl);
+      if (!session) return { success: false, message: `Not logged in to VOS3000 at ${sw.portalUrl}. Connect in Settings first.` };
+
+      const acctRes = await vos3000.pushAccountToVos3000({
+        name: profile.name,
+        type: profile.type as 'client' | 'vendor',
+        ipAddress: profile.ipAddress || undefined,
+        ratePerMin: profile.ratePerMin || undefined,
+      }, session);
+
+      if (pushOpts || (profile.prefix && profile.ratePerMin)) {
+        const rOpts = pushOpts ?? {
+          accountName: profile.name,
+          prefix: profile.prefix!,
+          ratePerMin: profile.ratePerMin!,
+          effectiveFrom: profile.rateEffectiveFrom ? new Date(profile.rateEffectiveFrom) : undefined,
+          effectiveTo:   profile.rateEffectiveTo   ? new Date(profile.rateEffectiveTo)   : undefined,
+        };
+        const rateRes = await vos3000.pushRateToVos3000(rOpts, session);
+        return rateRes.success ? rateRes : rateRes;
+      }
+      return acctRes;
+    }
+
+    if (sw.type === 'sippy') {
+      const creds = { username: sw.portalUsername || '', password: sw.portalPassword || '' };
+      const acctRes = await sippy.pushAccountToSippy({
+        name: profile.name,
+        type: profile.type as 'client' | 'vendor',
+        ipAddress: profile.ipAddress || undefined,
+        ratePerMin: profile.ratePerMin || undefined,
+      }, creds, sw.portalUrl);
+
+      if (pushOpts || (profile.prefix && profile.ratePerMin)) {
+        const rOpts = pushOpts ?? {
+          accountName: profile.name,
+          prefix: profile.prefix!,
+          ratePerMin: profile.ratePerMin!,
+          effectiveFrom: profile.rateEffectiveFrom ? new Date(profile.rateEffectiveFrom) : undefined,
+          effectiveTo:   profile.rateEffectiveTo   ? new Date(profile.rateEffectiveTo)   : undefined,
+        };
+        const rateRes = await sippy.pushRateToSippy(rOpts, creds, sw.portalUrl);
+        return rateRes.success ? rateRes : rateRes;
+      }
+      return acctRes;
+    }
+
+    return { success: false, message: `Unknown switch type: ${sw.type}` };
+  }
+
+  // Resolve which switches to target: if switchIds provided use those, otherwise fall back to primary settings switch
+  async function resolveSwitches(switchIds?: number[]): Promise<Array<{ id: number; name: string; type: string; portalUrl: string | null; portalUsername: string | null; portalPassword: string | null }>> {
+    if (switchIds && switchIds.length > 0) {
+      const allSwitches = await storage.getSwitches();
+      return allSwitches.filter(s => switchIds.includes(s.id) && s.enabled);
+    }
+    // Fall back to the primary switch from Settings
+    const settings = await storage.getSettings();
+    if (settings.switchType && settings.switchType !== 'none' && settings.portalUrl) {
+      return [{ id: 0, name: 'Primary Switch', type: settings.switchType, portalUrl: settings.portalUrl, portalUsername: settings.portalUsername || null, portalPassword: settings.portalPassword || null }];
+    }
+    return [];
+  }
+
+  // ── Sync a client/vendor profile + rate to one or more switches ────────────
+
   app.post('/api/clients/:id/sync', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {
       const id = Number(req.params.id);
       const profile = (await storage.getClientProfiles()).find(p => p.id === id);
       if (!profile) return res.status(404).json({ message: 'Profile not found' });
 
-      const settings = await storage.getSettings();
-      const switchType = settings.switchType || 'none';
-      const results: Record<string, { success: boolean; message: string }> = {};
+      const switchIds: number[] | undefined = req.body?.switchIds;
+      const targetSwitches = await resolveSwitches(switchIds);
 
-      if (switchType === 'vos3000') {
-        // Push account
-        const accountRes = await vos3000.pushAccountToVos3000({
-          name: profile.name,
-          type: profile.type as 'client' | 'vendor',
-          ipAddress: profile.ipAddress || undefined,
-          ratePerMin: profile.ratePerMin || undefined,
-        });
-        results.vos3000 = accountRes;
-        // Also push rate if prefix is set
-        if (profile.prefix && profile.ratePerMin) {
-          const rateRes = await vos3000.pushRateToVos3000({
-            accountName: profile.name,
-            prefix: profile.prefix,
-            ratePerMin: profile.ratePerMin,
-            effectiveFrom: profile.rateEffectiveFrom ? new Date(profile.rateEffectiveFrom) : undefined,
-            effectiveTo:   profile.rateEffectiveTo   ? new Date(profile.rateEffectiveTo)   : undefined,
-          });
-          if (!rateRes.success) results.vos3000 = rateRes; // surface rate error if account ok
-        }
-      } else if (switchType === 'sippy') {
-        const creds = { username: settings.portalUsername || '', password: settings.portalPassword || '' };
-        const accountRes = await sippy.pushAccountToSippy({
-          name: profile.name,
-          type: profile.type as 'client' | 'vendor',
-          ipAddress: profile.ipAddress || undefined,
-          ratePerMin: profile.ratePerMin || undefined,
-        }, creds);
-        results.sippy = accountRes;
-        if (profile.prefix && profile.ratePerMin) {
-          const rateRes = await sippy.pushRateToSippy({
-            accountName: profile.name,
-            prefix: profile.prefix,
-            ratePerMin: profile.ratePerMin,
-            effectiveFrom: profile.rateEffectiveFrom ? new Date(profile.rateEffectiveFrom) : undefined,
-            effectiveTo:   profile.rateEffectiveTo   ? new Date(profile.rateEffectiveTo)   : undefined,
-          }, creds);
-          if (!rateRes.success) results.sippy = rateRes;
-        }
-      } else {
-        return res.json({ success: false, message: 'No switch configured. Set up VOS3000 or Sippy in Settings.' });
+      if (targetSwitches.length === 0) {
+        return res.json({ success: false, message: 'No switches configured. Add a switch in Settings first.' });
       }
 
-      // Persist sync status
-      const statusMap: { vos3000?: string; sippy?: string; syncedAt?: string } = {
-        syncedAt: new Date().toISOString(),
-      };
-      if (results.vos3000) statusMap.vos3000 = results.vos3000.success ? 'synced' : `failed: ${results.vos3000.message}`;
-      if (results.sippy)   statusMap.sippy   = results.sippy.success   ? 'synced' : `failed: ${results.sippy.message}`;
-      await storage.updateClientProfile(id, { switchSyncStatus: statusMap });
+      const results: Record<string, { success: boolean; message: string }> = {};
+      for (const sw of targetSwitches) {
+        const key = sw.id === 0 ? sw.type : `${sw.type}-${sw.id}`;
+        results[key] = await pushProfileToOneSwitch(profile, sw);
+        // Update switch last sync status
+        if (sw.id !== 0) {
+          await storage.updateSwitch(sw.id, {
+            lastSyncAt: new Date() as any,
+            lastSyncStatus: results[key].success ? 'synced' : results[key].message,
+          });
+        }
+      }
+
+      const statusMap: Record<string, string> = { syncedAt: new Date().toISOString() };
+      for (const [key, r] of Object.entries(results)) statusMap[key] = r.success ? 'synced' : `failed: ${r.message}`;
+      await storage.updateClientProfile(id, { switchSyncStatus: statusMap as any });
 
       const allOk = Object.values(results).every(r => r.success);
       res.json({ success: allOk, results, switchSyncStatus: statusMap });
@@ -477,12 +561,13 @@ export async function registerRoutes(
     }
   });
 
-  // Push a rate for a specific profile/destination combination
+  // ── Push a rate for a specific profile/destination to one or more switches ──
+
   app.post('/api/portal/push-rate', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {
       const {
         profileId, accountName, prefix, ratePerMin,
-        effectiveFrom, effectiveTo, format,
+        effectiveFrom, effectiveTo, format, switchIds,
       } = req.body as {
         profileId?: number;
         accountName: string;
@@ -491,14 +576,12 @@ export async function registerRoutes(
         effectiveFrom?: string;
         effectiveTo?: string;
         format?: 'full' | 'partial' | 'default';
+        switchIds?: number[];
       };
 
       if (!accountName || !prefix || ratePerMin === undefined) {
         return res.status(400).json({ success: false, message: 'accountName, prefix, and ratePerMin are required.' });
       }
-
-      const settings = await storage.getSettings();
-      const switchType = settings.switchType || 'none';
 
       const pushOpts: vos3000.PushRateOptions = {
         accountName,
@@ -509,28 +592,48 @@ export async function registerRoutes(
         format,
       };
 
-      if (switchType === 'vos3000') {
-        const result = await vos3000.pushRateToVos3000(pushOpts);
-        if (profileId) {
-          const statusEntry = result.success ? 'synced' : `failed: ${result.message}`;
-          await storage.updateClientProfile(profileId, {
-            switchSyncStatus: { vos3000: statusEntry, syncedAt: new Date().toISOString() },
-          });
-        }
-        return res.json(result);
-      } else if (switchType === 'sippy') {
-        const creds = { username: settings.portalUsername || '', password: settings.portalPassword || '' };
-        const result = await sippy.pushRateToSippy(pushOpts, creds);
-        if (profileId) {
-          const statusEntry = result.success ? 'synced' : `failed: ${result.message}`;
-          await storage.updateClientProfile(profileId, {
-            switchSyncStatus: { sippy: statusEntry, syncedAt: new Date().toISOString() },
-          });
-        }
-        return res.json(result);
-      } else {
-        return res.json({ success: false, message: 'No switch configured. Set up VOS3000 or Sippy in Settings first.' });
+      const targetSwitches = await resolveSwitches(switchIds);
+      if (targetSwitches.length === 0) {
+        return res.json({ success: false, message: 'No switches configured or selected. Add a switch in Settings first.' });
       }
+
+      const results: Record<string, { success: boolean; message: string }> = {};
+      const allProfiles = profileId ? await storage.getClientProfiles() : [];
+      const profile = allProfiles.find(p => p.id === profileId);
+
+      for (const sw of targetSwitches) {
+        const key = sw.id === 0 ? sw.type : `${sw.name} (${sw.type})`;
+        if (!sw.portalUrl) { results[key] = { success: false, message: 'No URL configured' }; continue; }
+
+        if (sw.type === 'vos3000') {
+          const session = vos3000.getSessionForUrl(sw.portalUrl);
+          if (!session) { results[key] = { success: false, message: `Not logged in. Connect to ${sw.portalUrl} first.` }; continue; }
+          results[key] = await vos3000.pushRateToVos3000(pushOpts, session);
+        } else if (sw.type === 'sippy') {
+          const creds = { username: sw.portalUsername || '', password: sw.portalPassword || '' };
+          results[key] = await sippy.pushRateToSippy(pushOpts, creds, sw.portalUrl);
+        } else {
+          results[key] = { success: false, message: `Unknown type: ${sw.type}` };
+        }
+
+        // Update switch last sync
+        if (sw.id !== 0) {
+          await storage.updateSwitch(sw.id, {
+            lastSyncAt: new Date() as any,
+            lastSyncStatus: results[key].success ? 'rate pushed' : results[key].message,
+          });
+        }
+      }
+
+      // Persist sync status on profile if given
+      if (profileId) {
+        const statusMap: Record<string, string> = { syncedAt: new Date().toISOString() };
+        for (const [key, r] of Object.entries(results)) statusMap[key] = r.success ? 'synced' : `failed: ${r.message}`;
+        await storage.updateClientProfile(profileId, { switchSyncStatus: statusMap as any });
+      }
+
+      const allOk = Object.values(results).every(r => r.success);
+      res.json({ success: allOk, results, switchCount: targetSwitches.length });
     } catch (err: any) {
       console.error('[push-rate]', err);
       res.status(500).json({ success: false, message: `Push error: ${err.message}` });

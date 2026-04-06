@@ -53,6 +53,26 @@ export interface LiveCallRecord {
 let activeSession: Vos3000Session | null = null;
 const pendingCaptchas = new Map<string, CaptchaChallenge>();
 
+/** Per-URL session map — lets us push to multiple VOS3000 instances simultaneously */
+const sessionsByUrl = new Map<string, Vos3000Session>();
+
+export function getSessionForUrl(url: string): Vos3000Session | null {
+  const direct = sessionsByUrl.get(url);
+  if (direct) return direct;
+  // Fall back to primary session if URL matches
+  if (activeSession && activeSession.portalBase.startsWith(url)) return activeSession;
+  if (activeSession && url.startsWith(activeSession.portalBase)) return activeSession;
+  return null;
+}
+
+export function storeSessionForUrl(url: string, session: Vos3000Session) {
+  sessionsByUrl.set(url, session);
+}
+
+export function clearSessionForUrl(url: string) {
+  sessionsByUrl.delete(url);
+}
+
 // ─── Low-level HTTP helpers ───────────────────────────────────────────────────
 
 interface RawResponse {
@@ -281,12 +301,14 @@ export async function loginWithCaptcha(
 
     if (isSuccess) {
       pendingCaptchas.delete(challengeId);
-      activeSession = {
+      const newSession: Vos3000Session = {
         jsessionid: challenge.sessionCookie,
         portalBase: base,
         username,
         loggedInAt: new Date(),
       };
+      activeSession = newSession;
+      sessionsByUrl.set(base, newSession); // register in per-URL map
       console.log('[VOS3000] Login successful as', username);
       return { success: true, message: `Logged in to VOS3000 as ${username}` };
     }
@@ -353,6 +375,31 @@ async function portalPost(path: string, params: Record<string, string>): Promise
     throw new Error('SESSION_EXPIRED');
   }
 
+  return JSON.parse(resp.body.toString('utf-8'));
+}
+
+/** Same as portalPost but uses an explicitly provided session (for multi-switch push) */
+async function portalPostForSession(session: Vos3000Session, path: string, params: Record<string, string>): Promise<any> {
+  const body = new URLSearchParams(params).toString();
+  const resp = await rawRequest({
+    url: `${session.portalBase}${path}`,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookieHeader(session.jsessionid),
+      'User-Agent': 'Mozilla/5.0',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Referer': session.portalBase,
+      'Content-Length': String(Buffer.byteLength(body)),
+    },
+    body,
+    timeout: 12000,
+  });
+  if (resp.statusCode === 302 || resp.statusCode === 403) {
+    sessionsByUrl.delete(session.portalBase);
+    if (activeSession?.portalBase === session.portalBase) activeSession = null;
+    throw new Error('SESSION_EXPIRED');
+  }
   return JSON.parse(resp.body.toString('utf-8'));
 }
 
@@ -691,15 +738,16 @@ export interface PushResult {
 
 /**
  * Attempts to push a rate / account config to VOS3000.
- * Tries several endpoint variants covering different VOS3000 versions.
+ * @param opts  Rate push options
+ * @param session  Optional explicit session (for secondary switches). Defaults to activeSession.
  */
-export async function pushRateToVos3000(opts: PushRateOptions): Promise<PushResult> {
-  if (!activeSession) return { success: false, message: 'Not logged in to VOS3000 portal.' };
+export async function pushRateToVos3000(opts: PushRateOptions, session?: Vos3000Session | null): Promise<PushResult> {
+  const sess = session ?? activeSession;
+  if (!sess) return { success: false, message: 'Not logged in to VOS3000 portal.' };
 
   const effectiveFromStr = opts.effectiveFrom ? formatVosDate(opts.effectiveFrom) : formatVosDate(new Date());
   const effectiveToStr   = opts.effectiveTo   ? formatVosDate(opts.effectiveTo)   : '';
 
-  // Common params shared across endpoint attempts
   const baseParams: Record<string, string> = {
     terminalName:    opts.accountName,
     prefix:          opts.prefix,
@@ -711,21 +759,19 @@ export async function pushRateToVos3000(opts: PushRateOptions): Promise<PushResu
   };
 
   const rateEndpoints = [
-    // Standard pricing endpoints
     { path: 'gateway/setPricing.action',      params: baseParams },
     { path: 'pricing/savePricing.action',     params: baseParams },
     { path: 'pricing/pricingSave.action',     params: baseParams },
     { path: 'rate/saveRate.action',           params: { ...baseParams, type: '0' } },
     { path: 'terminal/setRate.action',        params: baseParams },
     { path: 'billing/setRate.action',         params: baseParams },
-    // Account-level rate update
     { path: 'terminal/modifyTerminal.action', params: { ...baseParams, terminalPassword: '' } },
     { path: 'gateway/modifyGateway.action',   params: baseParams },
   ];
 
   for (const { path, params } of rateEndpoints) {
     try {
-      const json = await portalPost(path, params);
+      const json = await portalPostForSession(sess, path, params);
       const text = JSON.stringify(json);
       const ok =
         json.retCode === 0 || json.success === true ||
@@ -735,7 +781,6 @@ export async function pushRateToVos3000(opts: PushRateOptions): Promise<PushResu
         console.log(`[VOS3000] pushRate succeeded via ${path} for ${opts.accountName}/${opts.prefix}`);
         return { success: true, message: 'Rate pushed to VOS3000', endpoint: path };
       }
-      // Explicit failure (not a network/parse error — server replied with error code)
       const msg = json.exception || json.message || json.msg || text.slice(0, 120);
       console.warn(`[VOS3000] pushRate ${path} returned error:`, msg);
     } catch (err: any) {
@@ -755,14 +800,17 @@ export async function pushRateToVos3000(opts: PushRateOptions): Promise<PushResu
 
 /**
  * Attempts to create or update a terminal/client account on VOS3000.
+ * @param opts      Account options
+ * @param session   Optional explicit session (for secondary switches). Defaults to activeSession.
  */
 export async function pushAccountToVos3000(opts: {
   name: string;
   type: 'client' | 'vendor';
   ipAddress?: string;
   ratePerMin?: number;
-}): Promise<PushResult> {
-  if (!activeSession) return { success: false, message: 'Not logged in to VOS3000 portal.' };
+}, session?: Vos3000Session | null): Promise<PushResult> {
+  const sess = session ?? activeSession;
+  if (!sess) return { success: false, message: 'Not logged in to VOS3000 portal.' };
 
   const params: Record<string, string> = {
     terminalName:    opts.name,
@@ -783,7 +831,7 @@ export async function pushAccountToVos3000(opts: {
 
   for (const path of accountEndpoints) {
     try {
-      const json = await portalPost(path, params);
+      const json = await portalPostForSession(sess, path, params);
       const ok = json.retCode === 0 || json.success === true || json.result === 'ok';
       if (ok) {
         console.log(`[VOS3000] pushAccount succeeded via ${path} for "${opts.name}"`);

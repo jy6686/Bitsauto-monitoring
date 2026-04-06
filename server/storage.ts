@@ -1,12 +1,14 @@
 
 import { 
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
+  switches,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
   type AsrAcdReportRow, type AsrAcdReportFilters,
   type Role, type ClientProfile, type InsertClientProfile,
-  type UserConfig, type InsertUserConfig
+  type UserConfig, type InsertUserConfig,
+  type Switch, type InsertSwitch,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -48,6 +50,12 @@ export interface IStorage {
   createClientProfile(profile: InsertClientProfile): Promise<ClientProfile>;
   updateClientProfile(id: number, profile: Partial<InsertClientProfile>): Promise<ClientProfile>;
   deleteClientProfile(id: number): Promise<void>;
+
+  // Switches
+  getSwitches(): Promise<Switch[]>;
+  createSwitch(sw: InsertSwitch): Promise<Switch>;
+  updateSwitch(id: number, updates: Partial<InsertSwitch>): Promise<Switch>;
+  deleteSwitch(id: number): Promise<void>;
 
   // User Configuration
   getUserConfig(userId: string): Promise<UserConfig | null>;
@@ -350,6 +358,26 @@ export class DatabaseStorage implements IStorage {
 
   async deleteClientProfile(id: number): Promise<void> {
     await db.delete(clientProfiles).where(eq(clientProfiles.id, id));
+  }
+
+  // ── Switches ───────────────────────────────────────────────────────────────
+
+  async getSwitches(): Promise<Switch[]> {
+    return db.select().from(switches).orderBy(switches.createdAt);
+  }
+
+  async createSwitch(sw: InsertSwitch): Promise<Switch> {
+    const [created] = await db.insert(switches).values(sw).returning();
+    return created;
+  }
+
+  async updateSwitch(id: number, updates: Partial<InsertSwitch>): Promise<Switch> {
+    const [updated] = await db.update(switches).set(updates).where(eq(switches.id, id)).returning();
+    return updated;
+  }
+
+  async deleteSwitch(id: number): Promise<void> {
+    await db.delete(switches).where(eq(switches.id, id));
   }
 
   // ── User Configuration ─────────────────────────────────────────────────────

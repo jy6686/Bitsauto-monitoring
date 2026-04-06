@@ -75,6 +75,25 @@ export type ClientProfile = typeof clientProfiles.$inferSelect;
 export type InsertClientProfile = typeof clientProfiles.$inferInsert;
 export const insertClientProfileSchema = createInsertSchema(clientProfiles).omit({ id: true, createdAt: true });
 
+// Switches: multiple VOS3000 / Sippy softswitch instances for multi-switch sync
+export const switches = pgTable("switches", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),              // friendly display name
+  type: varchar("type", { length: 20 }).notNull().default('vos3000'), // vos3000 | sippy
+  portalUrl: varchar("portal_url", { length: 512 }),
+  portalUsername: varchar("portal_username", { length: 128 }),
+  portalPassword: varchar("portal_password", { length: 255 }),
+  loginType: integer("login_type").default(1),                   // VOS3000 loginType (1=gateway)
+  enabled: boolean("enabled").default(true),
+  lastSyncAt: timestamp("last_sync_at"),
+  lastSyncStatus: varchar("last_sync_status", { length: 512 }),  // last push result summary
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type Switch = typeof switches.$inferSelect;
+export type InsertSwitch = typeof switches.$inferInsert;
+export const insertSwitchSchema = createInsertSchema(switches).omit({ id: true, createdAt: true, lastSyncAt: true });
+
 // User Configuration: per-user personal settings beyond what Replit Auth provides
 export const userConfig = pgTable("user_config", {
   userId: varchar("user_id").primaryKey(),

@@ -214,6 +214,8 @@ function ProfileForm({
 
 // ── Send Rate Panel ────────────────────────────────────────────────────────────
 
+type SwitchOption = { id: number; name: string; type: string; enabled: boolean };
+
 function SendRatePanel({ profiles }: { profiles: ClientProfile[] }) {
   const queryClient = useQueryClient();
   const [partyType, setPartyType] = useState<'client' | 'vendor'>('client');
@@ -223,12 +225,19 @@ function SendRatePanel({ profiles }: { profiles: ClientProfile[] }) {
   const [effectiveFrom, setEffectiveFrom] = useState('');
   const [effectiveTo, setEffectiveTo] = useState('');
   const [format, setFormat] = useState<'default' | 'partial' | 'full'>('default');
-  const [result, setResult] = useState<{ success: boolean; message: string; detail?: string } | null>(null);
+  const [result, setResult] = useState<{ success: boolean; message: string; detail?: string; results?: Record<string, any>; switchCount?: number } | null>(null);
+  const [selectedSwitchIds, setSelectedSwitchIds] = useState<number[]>([]);
+
+  const { data: extraSwitches = [] } = useQuery<SwitchOption[]>({ queryKey: ['/api/switches'] });
+  const enabledSwitches = extraSwitches.filter(s => s.enabled);
 
   const filtered = profiles.filter(p => p.type === partyType);
   const selected = filtered.find(p => String(p.id) === profileId);
 
-  // Pre-fill prefix and rate when profile is selected
+  function toggleSwitch(id: number) {
+    setSelectedSwitchIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+
   function selectProfile(id: string) {
     setProfileId(id);
     const p = filtered.find(x => String(x.id) === id);
@@ -249,6 +258,7 @@ function SendRatePanel({ profiles }: { profiles: ClientProfile[] }) {
       effectiveFrom: effectiveFrom ? new Date(effectiveFrom + ':00Z').toISOString() : undefined,
       effectiveTo:   effectiveTo   ? new Date(effectiveTo   + ':00Z').toISOString() : undefined,
       format,
+      switchIds: selectedSwitchIds.length > 0 ? selectedSwitchIds : undefined,
     }),
     onSuccess: (data: any) => {
       setResult(data);
@@ -258,7 +268,9 @@ function SendRatePanel({ profiles }: { profiles: ClientProfile[] }) {
   });
 
   const syncMut = useMutation({
-    mutationFn: (id: number) => apiRequest('POST', `/api/clients/${id}/sync`, {}),
+    mutationFn: (id: number) => apiRequest('POST', `/api/clients/${id}/sync`, {
+      switchIds: selectedSwitchIds.length > 0 ? selectedSwitchIds : undefined,
+    }),
     onSuccess: (data: any) => {
       setResult(data);
       queryClient.invalidateQueries({ queryKey: ['/api/clients'] });
@@ -447,13 +459,57 @@ function SendRatePanel({ profiles }: { profiles: ClientProfile[] }) {
           {result.success
             ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
             : <XCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
-          <div>
+          <div className="flex-1">
             <p className="text-sm font-medium">{result.message}</p>
             {result.detail && <p className="text-xs opacity-80 mt-0.5">{result.detail}</p>}
+            {result.results && Object.entries(result.results).length > 0 && (
+              <div className="mt-2 space-y-1">
+                {Object.entries(result.results).map(([key, r]: [string, any]) => (
+                  <div key={key} className={`flex items-center gap-2 text-xs ${r.success ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {r.success ? <CheckCircle2 className="w-3 h-3 flex-shrink-0" /> : <XCircle className="w-3 h-3 flex-shrink-0" />}
+                    <span className="font-medium">{key}:</span>
+                    <span className="opacity-80">{r.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <button onClick={() => setResult(null)} className="ml-auto text-muted-foreground hover:text-foreground">
             <X className="w-3.5 h-3.5" />
           </button>
+        </div>
+      )}
+
+      {/* Switch selector */}
+      {enabledSwitches.length > 0 && (
+        <div className="rounded-lg border border-border/50 bg-muted/10 px-4 py-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <Server className="w-3 h-3" />
+            Target Switches
+            <span className="text-muted-foreground/60 normal-case tracking-normal">(leave all unchecked to use Primary)</span>
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {enabledSwitches.map(sw => (
+              <button
+                key={sw.id}
+                type="button"
+                data-testid={`btn-switch-select-${sw.id}`}
+                onClick={() => toggleSwitch(sw.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                  selectedSwitchIds.includes(sw.id)
+                    ? sw.type === 'vos3000'
+                      ? 'bg-blue-500/15 border-blue-500/60 text-blue-300'
+                      : 'bg-violet-500/15 border-violet-500/60 text-violet-300'
+                    : 'border-border/50 text-muted-foreground hover:bg-muted/30'
+                }`}
+              >
+                {selectedSwitchIds.includes(sw.id) && <Check className="w-3 h-3" />}
+                <span className={`w-1.5 h-1.5 rounded-full ${sw.type === 'vos3000' ? 'bg-blue-400' : 'bg-violet-400'}`} />
+                {sw.name}
+                <span className="opacity-60 font-mono">{sw.type}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -466,7 +522,9 @@ function SendRatePanel({ profiles }: { profiles: ClientProfile[] }) {
           className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
           {pushMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          Send Rate to Switch
+          {selectedSwitchIds.length > 1
+            ? `Send Rate to ${selectedSwitchIds.length} Switches`
+            : 'Send Rate to Switch'}
         </button>
         <button
           data-testid="button-clear-send-rate"
