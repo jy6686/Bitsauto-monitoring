@@ -276,6 +276,49 @@ export async function registerRoutes(
     res.json({ message: "Simulation reset acknowledged" });
   });
 
+  // Portal connection test — tries to reach the configured management portal URL
+  app.post('/api/portal/test', async (req, res) => {
+    const { url, username } = req.body as { url?: string; username?: string; password?: string };
+    if (!url) return res.status(400).json({ reachable: false, message: 'No URL provided.' });
+
+    try {
+      const parsed = new URL(url);
+      const isHttps = parsed.protocol === 'https:';
+      const port = parsed.port
+        ? Number(parsed.port)
+        : isHttps ? 443 : 80;
+      const host = parsed.hostname;
+
+      const result = await new Promise<{ reachable: boolean; latency: number }>((resolve) => {
+        const start = Date.now();
+        const socket = new net.Socket();
+        socket.setTimeout(5000);
+        socket.connect(port, host, () => {
+          const latency = Date.now() - start;
+          socket.destroy();
+          resolve({ reachable: true, latency });
+        });
+        socket.on('timeout', () => { socket.destroy(); resolve({ reachable: false, latency: -1 }); });
+        socket.on('error', () => { socket.destroy(); resolve({ reachable: false, latency: -1 }); });
+      });
+
+      if (result.reachable) {
+        res.json({
+          reachable: true,
+          message: `Portal reachable at ${host}:${port} — latency ${result.latency}ms. Enter your credentials and save to enable data extraction.`,
+          latency: result.latency,
+        });
+      } else {
+        res.json({
+          reachable: false,
+          message: `Could not reach ${host}:${port}. Check the URL or ensure the portal allows connections from this server.`,
+        });
+      }
+    } catch (err) {
+      res.json({ reachable: false, message: `Invalid URL format. Use http://IP:PORT or https://domain.` });
+    }
+  });
+
   // ASR/ACD Report — per-client breakdown
   app.get('/api/reports/asr-acd', async (req, res) => {
     try {

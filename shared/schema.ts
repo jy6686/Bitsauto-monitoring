@@ -49,6 +49,10 @@ export const settings = pgTable("settings", {
   packetLossThreshold: real("packet_loss_threshold").default(1.0), // %
   simulationEnabled: boolean("simulation_enabled").default(true),
   monitoredIp: varchar("monitored_ip", { length: 45 }).default('45.59.163.182'), // IP to probe for live calls
+  // Management portal access
+  portalUrl: varchar("portal_url", { length: 255 }), // e.g. http://45.59.163.182:8080
+  portalUsername: varchar("portal_username", { length: 128 }),
+  portalPassword: varchar("portal_password", { length: 255 }),
 });
 
 // === SCHEMAS ===
