@@ -234,23 +234,27 @@ export async function loginWithCaptcha(
   }
 
   const base = portalBase(portalUrl);
-  const bodyStr = new URLSearchParams({
-    loginType: String(loginType ?? 1),
-    textFieldName: username,
-    textFieldPwd: password,
-    vcode: captchaCode.trim(),
-    submit: 'Login',
-  }).toString();
+
+  // VOS3000 login.jsp uses a hybrid ExtJS request:
+  //   - randCode (CAPTCHA answer) → URL query param
+  //   - credentials              → JSON body (terminalName, terminalPassword, terminalType)
+  const loginUrl = `${base}login.jsp?randCode=${encodeURIComponent(captchaCode.trim())}`;
+  const bodyStr = JSON.stringify({
+    terminalName: username,
+    terminalPassword: password,
+    terminalType: loginType ?? 1,
+  });
 
   try {
     const resp = await rawRequest({
-      url: `${base}login.jsp`,
+      url: loginUrl,
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': 'application/json',
         'Cookie': cookieHeader(challenge.sessionCookie),
-        'User-Agent': 'Mozilla/5.0',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': base,
+        'X-Requested-With': 'XMLHttpRequest',
         'Content-Length': String(Buffer.byteLength(bodyStr)),
       },
       body: bodyStr,
