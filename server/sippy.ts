@@ -36,13 +36,34 @@ export function clearSippySession() {
 
 // ── HTTP helper ───────────────────────────────────────────────────────────────
 
-function rawPost(url: string, body: string, headers: Record<string, string>): Promise<{ statusCode: number; body: string }> {
+// Shared HTTPS agent that ignores self-signed / untrusted certificates.
+// Sippy deployments frequently use self-signed certs on private IPs.
+const lenientHttpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+function makeHttpsOpts(parsed: URL, extra: http.RequestOptions): http.RequestOptions {
+  return {
+    ...extra,
+    hostname: parsed.hostname,
+    port: parsed.port ? parseInt(parsed.port) : 443,
+    path: parsed.pathname + parsed.search,
+    // Bypass self-signed certificate errors (common in on-prem Sippy installs)
+    agent: lenientHttpsAgent,
+    rejectUnauthorized: false,
+  } as http.RequestOptions;
+}
+
+function rawPost(
+  url: string,
+  body: string,
+  headers: Record<string, string>,
+  redirectsLeft = 5,
+): Promise<{ statusCode: number; body: string }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const isHttps = parsed.protocol === 'https:';
     const mod = isHttps ? https : http;
 
-    const opts: http.RequestOptions = {
+    const baseOpts: http.RequestOptions = {
       hostname: parsed.hostname,
       port: parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80),
       path: parsed.pathname + parsed.search,
@@ -52,13 +73,22 @@ function rawPost(url: string, body: string, headers: Record<string, string>): Pr
         'Content-Length': Buffer.byteLength(body),
         ...headers,
       },
-      timeout: 10000,
+      timeout: 12000,
     };
+    const opts = isHttps ? makeHttpsOpts(parsed, baseOpts) : baseOpts;
 
     const req = mod.request(opts, (res) => {
+      const sc = res.statusCode ?? 0;
+      // Follow 301/302/307/308 redirects automatically
+      if ((sc === 301 || sc === 302 || sc === 307 || sc === 308) && res.headers.location && redirectsLeft > 0) {
+        res.resume(); // drain
+        const next = new URL(res.headers.location, url).toString();
+        rawPost(next, body, headers, redirectsLeft - 1).then(resolve).catch(reject);
+        return;
+      }
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => resolve({ statusCode: res.statusCode ?? 0, body: data }));
+      res.on('end', () => resolve({ statusCode: sc, body: data }));
     });
 
     req.on('error', reject);
@@ -68,25 +98,37 @@ function rawPost(url: string, body: string, headers: Record<string, string>): Pr
   });
 }
 
-function rawGet(url: string, headers: Record<string, string>): Promise<{ statusCode: number; body: string }> {
+function rawGet(
+  url: string,
+  headers: Record<string, string>,
+  redirectsLeft = 5,
+): Promise<{ statusCode: number; body: string }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const isHttps = parsed.protocol === 'https:';
     const mod = isHttps ? https : http;
 
-    const opts: http.RequestOptions = {
+    const baseOpts: http.RequestOptions = {
       hostname: parsed.hostname,
       port: parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80),
       path: parsed.pathname + parsed.search,
       method: 'GET',
       headers,
-      timeout: 10000,
+      timeout: 12000,
     };
+    const opts = isHttps ? makeHttpsOpts(parsed, baseOpts) : baseOpts;
 
     const req = mod.request(opts, (res) => {
+      const sc = res.statusCode ?? 0;
+      if ((sc === 301 || sc === 302 || sc === 307 || sc === 308) && res.headers.location && redirectsLeft > 0) {
+        res.resume();
+        const next = new URL(res.headers.location, url).toString();
+        rawGet(next, headers, redirectsLeft - 1).then(resolve).catch(reject);
+        return;
+      }
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => resolve({ statusCode: res.statusCode ?? 0, body: data }));
+      res.on('end', () => resolve({ statusCode: sc, body: data }));
     });
 
     req.on('error', reject);
@@ -165,35 +207,52 @@ export async function testSippyConnection(
   password: string,
 ): Promise<{ reachable: boolean; message: string; latencyMs?: number }> {
   const base = sippyBase(portalUrl);
-  const apiUrl = `${base}/xmlapi/xmlapi`;
-  const body = xmlRpcCall('i_version.listAvailableMethods');
+  const auth = { Authorization: basicAuth(username, password) };
   const start = Date.now();
 
+  // Try standard XML-RPC path first
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const body = xmlRpcCall('i_version.listAvailableMethods');
+
   try {
-    const resp = await rawPost(apiUrl, body, {
-      Authorization: basicAuth(username, password),
-    });
+    const resp = await rawPost(apiUrl, body, auth);
     const latencyMs = Date.now() - start;
 
     if (resp.statusCode === 401) {
-      return { reachable: true, message: 'Reached the portal but authentication failed — check your username/password.' };
+      return { reachable: true, message: 'Reached the portal but authentication failed — check username/password.', latencyMs };
+    }
+    if (resp.statusCode === 403) {
+      return { reachable: true, message: 'Access forbidden — the account may not have API access.', latencyMs };
     }
     if (resp.statusCode === 404) {
-      // Some Sippy versions put the API at a different path
-      const resp2 = await rawGet(`${base}/`, { Authorization: basicAuth(username, password) });
-      if (resp2.statusCode < 500) {
-        return { reachable: true, message: `Portal is reachable (${latencyMs}ms) but the XML-RPC API path may differ. Verify the URL.` };
+      // Try alternate API paths some Sippy versions use
+      for (const alt of ['/api/xmlrpc', '/xmlrpc', '/api']) {
+        try {
+          const r2 = await rawPost(`${base}${alt}`, body, auth);
+          if (r2.statusCode >= 200 && r2.statusCode < 300) {
+            return { reachable: true, message: `Connected via alternate path ${alt} (${latencyMs}ms)`, latencyMs };
+          }
+        } catch { }
       }
-      return { reachable: false, message: 'Portal returned 404 — confirm the Portal URL and API path.' };
+      return { reachable: true, message: `Portal is reachable but XML-RPC path not found — confirm the portal URL includes the correct port.`, latencyMs };
     }
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
-      return { reachable: true, message: `Connected to Sippy successfully (${latencyMs}ms)` };
+      // Even a fault XML response means we reached the API
+      return { reachable: true, message: `Connected to Sippy successfully (${latencyMs}ms)`, latencyMs };
     }
-    return { reachable: false, message: `Unexpected HTTP ${resp.statusCode} from portal.` };
+    return { reachable: false, message: `Unexpected HTTP ${resp.statusCode} from portal — try a different port or path.` };
   } catch (err: any) {
-    if (err.code === 'ECONNREFUSED') return { reachable: false, message: 'Connection refused — check the URL and port.' };
-    if (err.code === 'ENOTFOUND') return { reachable: false, message: 'Host not found — check the Portal URL.' };
-    return { reachable: false, message: err.message ?? 'Unknown connection error.' };
+    const latencyMs = Date.now() - start;
+    if (err.code === 'ECONNREFUSED') return { reachable: false, message: 'Connection refused — verify the URL and port number.', latencyMs };
+    if (err.code === 'ENOTFOUND')    return { reachable: false, message: 'Host not found — check the Portal URL hostname.', latencyMs };
+    if (err.code === 'ETIMEDOUT' || err.message?.includes('timed out')) {
+      return { reachable: false, message: 'Connection timed out — the server may be unreachable or blocked by a firewall.', latencyMs };
+    }
+    // Certificate errors are now bypassed by lenientHttpsAgent, but just in case:
+    if (err.message?.includes('certificate') || err.code === 'CERT_HAS_EXPIRED' || err.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
+      return { reachable: false, message: `SSL certificate error: ${err.message} — try using the HTTP URL instead.`, latencyMs };
+    }
+    return { reachable: false, message: err.message ?? 'Unknown connection error.', latencyMs };
   }
 }
 
