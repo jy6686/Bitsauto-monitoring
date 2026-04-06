@@ -764,7 +764,17 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [description, setDescription] = useState('');
   const [result, setResult] = useState<{ success: boolean; message: string; detail?: string } | null>(null);
 
+  // Query the active Sippy session — if connected via Settings, use it directly
+  const { data: sippySession } = useQuery<{ active: boolean; mode?: string; username?: string }>({
+    queryKey: ['/api/sippy/session'],
+    staleTime: 30_000,
+  });
+  const hasActiveSession = !!(sippySession?.active);
+
   const inlineReady = useInlineCreds && !!inlineUrl.trim() && !!inlineUser.trim() && !!inlinePass.trim();
+  // We can proceed when: a switch is selected, OR inline creds entered, OR an active session exists
+  const canProceed = !!(switchId || inlineReady || hasActiveSession);
+
   const switchQs = switchId
     ? `?switchId=${switchId}`
     : inlineReady
@@ -775,14 +785,14 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
     queryKey: ['/api/sippy/routing-groups', switchId, inlineUrl, inlineUser],
     queryFn: () => fetch(`/api/sippy/routing-groups${switchQs}`).then(r => r.json()),
     staleTime: 60_000,
-    enabled: !!(switchId || inlineReady),
+    enabled: canProceed,
   });
 
   const { data: tariffData } = useQuery<{ tariffs: { id: number; name: string; currency?: string }[]; error?: string }>({
     queryKey: ['/api/sippy/tariffs', switchId, inlineUrl, inlineUser],
     queryFn: () => fetch(`/api/sippy/tariffs${switchQs}`).then(r => r.json()),
     staleTime: 60_000,
-    enabled: !!(switchId || inlineReady),
+    enabled: canProceed,
   });
 
   const routingGroups = rgData?.groups ?? [];
@@ -855,38 +865,39 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                 <p className="text-xs text-amber-400 mt-1">Select the Sippy switch to create this account on.</p>
               )}
             </div>
+          ) : hasActiveSession ? (
+            /* Active session from Settings — no extra credentials needed */
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-4 py-3 flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-emerald-300">Using connected Sippy session</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Connected as <strong>{sippySession?.username ?? 'your account'}</strong> via Settings. The account will be created on that switch.
+                </p>
+              </div>
+            </div>
           ) : (
             <div className="rounded-lg border border-violet-500/30 bg-violet-500/[0.08] p-4 space-y-3">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-violet-400" />
-                <span className="text-xs font-semibold text-violet-300 uppercase tracking-wide">Sippy Connection</span>
+                <span className="text-xs font-semibold text-violet-300 uppercase tracking-wide">Sippy Connection Required</span>
               </div>
-              <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-xs text-amber-300 space-y-1.5">
-                <p className="font-semibold">How to find your Sippy credentials:</p>
-                <ol className="list-decimal list-inside space-y-1 text-amber-200/90">
-                  <li>Open your Sippy web portal (e.g. <span className="font-mono bg-black/30 px-1 rounded">http://your-server:8088</span>)</li>
-                  <li>Log in as an administrator</li>
-                  <li>Go to <strong>My Account</strong> → <strong>API Credentials</strong></li>
-                  <li>Copy the <strong>API Username</strong> and <strong>API Password</strong> shown there</li>
-                  <li>The URL is your Sippy server address (same one you use to log in)</li>
-                </ol>
-                <p className="text-amber-200/70 mt-1">Tip: It's the same URL you use to log in. Common ports are 8088 or 443. Example: <span className="font-mono bg-black/30 px-1 rounded">http://45.59.163.182:8088</span></p>
-              </div>
+              <p className="text-xs text-muted-foreground">No active Sippy session. Enter your Sippy credentials below, or connect first in Settings.</p>
               <div>
                 <label className={labelCls}>Sippy URL <span className="text-rose-400">*</span></label>
                 <input data-testid="input-sippy-inline-url" value={inlineUrl}
                   onChange={e => setInlineUrl(e.target.value)}
-                  placeholder="http://45.59.163.182:8088" className={fieldCls} />
+                  placeholder="https://your-sippy-server" className={fieldCls} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={labelCls}>API Username <span className="text-rose-400">*</span></label>
+                  <label className={labelCls}>Username <span className="text-rose-400">*</span></label>
                   <input data-testid="input-sippy-inline-user" value={inlineUser}
                     onChange={e => setInlineUser(e.target.value)}
                     placeholder="admin" className={fieldCls} autoComplete="off" />
                 </div>
                 <div>
-                  <label className={labelCls}>API Password <span className="text-rose-400">*</span></label>
+                  <label className={labelCls}>Password <span className="text-rose-400">*</span></label>
                   <div className="relative">
                     <input data-testid="input-sippy-inline-pass" value={inlinePass}
                       type={showPass ? 'text' : 'password'}
@@ -899,7 +910,6 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                   </div>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">These credentials are sent securely to your Sippy server only. They are never stored.</p>
             </div>
           )}
 
@@ -1005,7 +1015,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               data-testid="button-sippy-create-account"
               disabled={!name.trim() || createMut.isPending
                 || (sippySwitches.length > 0 && !switchId)
-                || (useInlineCreds && (!inlineUrl.trim() || !inlineUser.trim() || !inlinePass.trim()))}
+                || (useInlineCreds && !hasActiveSession && (!inlineUrl.trim() || !inlineUser.trim() || !inlinePass.trim()))}
               onClick={() => createMut.mutate()}
               className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
             >
