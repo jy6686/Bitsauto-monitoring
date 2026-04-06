@@ -6,6 +6,7 @@ import {
   Plus, Pencil, Trash2, Loader2, Building2, Server, X, Check,
   Globe, RefreshCw, Download, AlertTriangle, Send, Upload,
   Clock, CalendarClock, CheckCircle2, XCircle, Activity,
+  ChevronUp, ChevronDown,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { ClientProfile } from "@shared/schema";
@@ -75,6 +76,189 @@ function SyncBadge({ status, syncedAt }: { status?: string; syncedAt?: string })
       {ok ? <CheckCircle2 className="w-2.5 h-2.5" /> : <XCircle className="w-2.5 h-2.5" />}
       {ok ? 'Synced' : 'Sync failed'}
     </span>
+  );
+}
+
+const CODECS = ['', 'G.711u', 'G.711a', 'G.729', 'G.722', 'G.723', 'G.726', 'iLBC', 'Opus'];
+
+function SippyAdvancedFields({ form, set }: { form: Partial<ClientProfile>; set: (k: keyof ClientProfile, v: any) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="sm:col-span-2">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors mb-2"
+      >
+        <Server className="w-3 h-3" />
+        Softswitch Parameters (VOS3000 / Sippy)
+        {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        <span className="text-muted-foreground/40">— codec, sessions, translation rules, routing…</span>
+      </button>
+      {open && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl border border-border/50 bg-muted/10">
+
+          {/* ── Basic Parameters ───────────────────────────────── */}
+          <div className="sm:col-span-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">Basic Parameters</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Company Name</label>
+            <input
+              data-testid="input-profile-company-name"
+              value={(form as any).companyName || ''}
+              onChange={e => set('companyName' as any, e.target.value)}
+              placeholder="e.g. Astra Global Ltd"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Timezone</label>
+            <input
+              data-testid="input-profile-timezone"
+              value={(form as any).timezone || ''}
+              onChange={e => set('timezone' as any, e.target.value)}
+              placeholder="Etc/UTC"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Routing Group</label>
+            <input
+              data-testid="input-profile-routing-group"
+              value={(form as any).routingGroup || ''}
+              onChange={e => set('routingGroup' as any, e.target.value)}
+              placeholder="e.g. Banglades IGW OR"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">SIP Class</label>
+            <input
+              data-testid="input-profile-sip-class"
+              value={(form as any).sipClass || ''}
+              onChange={e => set('sipClass' as any, e.target.value)}
+              placeholder="e.g. 404 & 500 sip CC to"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+
+          {/* ── Rating & Billing ───────────────────────────────── */}
+          <div className="sm:col-span-2 mt-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">Rating &amp; Billing</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Service Plan</label>
+            <input
+              data-testid="input-profile-service-plan"
+              value={(form as any).servicePlan || ''}
+              onChange={e => set('servicePlan' as any, e.target.value)}
+              placeholder="e.g. astra-global (USD)"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Credit Limit</label>
+            <input
+              data-testid="input-profile-credit-limit"
+              type="number" step="0.01" min="0"
+              value={(form as any).creditLimit ?? ''}
+              onChange={e => set('creditLimit' as any, e.target.value ? parseFloat(e.target.value) : null)}
+              placeholder="500.00"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+
+          {/* ── Advanced Parameters ────────────────────────────── */}
+          <div className="sm:col-span-2 mt-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">Advanced Parameters</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Max Sessions</label>
+            <input
+              data-testid="input-profile-max-sessions"
+              type="number" min="1"
+              value={(form as any).maxSessions ?? ''}
+              onChange={e => set('maxSessions' as any, e.target.value ? parseInt(e.target.value) : null)}
+              placeholder="1000"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Max Calls / Second (CPS)</label>
+            <input
+              data-testid="input-profile-max-cps"
+              type="number" min="1"
+              value={(form as any).maxCallsPerSecond ?? ''}
+              onChange={e => set('maxCallsPerSecond' as any, e.target.value ? parseInt(e.target.value) : null)}
+              placeholder="45"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Max Session Time (sec)</label>
+            <input
+              data-testid="input-profile-max-session-time"
+              type="number" min="60"
+              value={(form as any).maxSessionTime ?? ''}
+              onChange={e => set('maxSessionTime' as any, e.target.value ? parseInt(e.target.value) : null)}
+              placeholder="7200"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Preferred Codec</label>
+            <select
+              data-testid="select-profile-codec"
+              value={(form as any).preferredCodec || ''}
+              onChange={e => set('preferredCodec' as any, e.target.value)}
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            >
+              {CODECS.map(c => <option key={c} value={c}>{c || '— Default —'}</option>)}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              CLD Translation Rule
+            </label>
+            <input
+              data-testid="input-profile-cld-rule"
+              value={(form as any).cldTranslationRule || ''}
+              onChange={e => set('cldTranslationRule' as any, e.target.value)}
+              placeholder="e.g. s/^6043//"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+            <p className="text-xs text-muted-foreground">Applied to the destination number (CLD)</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              CLI Translation Rule
+            </label>
+            <input
+              data-testid="input-profile-cli-rule"
+              value={(form as any).cliTranslationRule || ''}
+              onChange={e => set('cliTranslationRule' as any, e.target.value)}
+              placeholder="e.g. s/^[+]//"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+            <p className="text-xs text-muted-foreground">Applied to the caller ID (CLI)</p>
+          </div>
+
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -190,6 +374,10 @@ function ProfileForm({
           className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
         />
       </div>
+
+      {/* Sippy Advanced Parameters */}
+      <SippyAdvancedFields form={form} set={set} />
+
       <div className="sm:col-span-2 flex gap-3 pt-1">
         <button
           data-testid="button-save-profile"

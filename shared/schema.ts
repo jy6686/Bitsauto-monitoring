@@ -69,6 +69,21 @@ export const clientProfiles = pgTable("client_profiles", {
   notes: text("notes"),
   switchSyncStatus: json("switch_sync_status").$type<{ vos3000?: string; sippy?: string; syncedAt?: string }>(),
   createdAt: timestamp("created_at").defaultNow(),
+
+  // ── Sippy-specific account parameters ─────────────────────────────────────
+  maxSessions: integer("max_sessions"),                       // Max concurrent sessions (e.g. 1000)
+  maxCallsPerSecond: integer("max_calls_per_second"),         // CPS limit (e.g. 45)
+  maxSessionTime: integer("max_session_time"),                // Max call duration in seconds (e.g. 7200)
+  creditLimit: real("credit_limit"),                         // Prepaid credit limit in account currency
+  routingGroup: varchar("routing_group", { length: 128 }),    // Routing Group (e.g. "Banglades IGW OR")
+  preferredCodec: varchar("preferred_codec", { length: 32 }), // e.g. "G.729", "G.711u"
+  cldTranslationRule: varchar("cld_translation_rule", { length: 128 }), // CLD Tr. Rule e.g. "s/^6043//"
+  cliTranslationRule: varchar("cli_translation_rule", { length: 128 }), // CLI Tr. Rule e.g. "s/^[+]//"
+  servicePlan: varchar("service_plan", { length: 128 }),      // Service Plan / tariff name
+  sipClass: varchar("sip_class", { length: 128 }),            // SIP Class (e.g. "404 & 500 sip CC to")
+  timezone: varchar("timezone", { length: 64 }).default('Etc/UTC'), // Account timezone
+  language: varchar("language", { length: 32 }).default('English'), // Portal language
+  companyName: varchar("company_name", { length: 128 }),      // Address Info: Company Name
 });
 
 export type ClientProfile = typeof clientProfiles.$inferSelect;

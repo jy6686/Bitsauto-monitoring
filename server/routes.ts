@@ -488,6 +488,19 @@ export async function registerRoutes(
         type: profile.type as 'client' | 'vendor',
         ipAddress: profile.ipAddress || undefined,
         ratePerMin: profile.ratePerMin || undefined,
+        timezone: (profile as any).timezone || undefined,
+        language: (profile as any).language || undefined,
+        sipClass: (profile as any).sipClass || undefined,
+        routingGroup: (profile as any).routingGroup || undefined,
+        servicePlan: (profile as any).servicePlan || undefined,
+        creditLimit: (profile as any).creditLimit ?? undefined,
+        maxSessions: (profile as any).maxSessions ?? undefined,
+        maxCallsPerSecond: (profile as any).maxCallsPerSecond ?? undefined,
+        maxSessionTime: (profile as any).maxSessionTime ?? undefined,
+        preferredCodec: (profile as any).preferredCodec || undefined,
+        cldTranslationRule: (profile as any).cldTranslationRule || undefined,
+        cliTranslationRule: (profile as any).cliTranslationRule || undefined,
+        companyName: (profile as any).companyName || undefined,
       }, creds, sw.portalUrl);
 
       if (pushOpts || (profile.prefix && profile.ratePerMin)) {

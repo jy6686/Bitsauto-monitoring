@@ -393,46 +393,95 @@ export async function pushRateToSippy(opts: {
 /**
  * Create or update a customer account on Sippy.
  */
-export async function pushAccountToSippy(opts: {
+export interface SippyAccountOpts {
   name: string;
   type: 'client' | 'vendor';
   ipAddress?: string;
   ratePerMin?: number;
-}, credentials: { username: string; password: string }, targetUrl?: string): Promise<SippyPushResult> {
+  // Basic Parameters
+  timezone?: string;          // e.g. "Etc/UTC"
+  language?: string;          // e.g. "English"
+  sipClass?: string;          // e.g. "404 & 500 sip CC to"
+  routingGroup?: string;      // e.g. "Banglades IGW OR"
+  // Rating & Billing
+  servicePlan?: string;       // tariff plan name
+  creditLimit?: number;       // prepaid credit limit
+  // Advanced Parameters
+  maxSessions?: number;       // Max concurrent sessions (e.g. 1000)
+  maxCallsPerSecond?: number; // CPS limit (e.g. 45)
+  maxSessionTime?: number;    // max call time in seconds (e.g. 7200)
+  preferredCodec?: string;    // e.g. "G.729"
+  cldTranslationRule?: string; // CLD Tr. Rule, e.g. "s/^6043//"
+  cliTranslationRule?: string; // CLI Tr. Rule, e.g. "s/^[+]//"
+  // Address Info
+  companyName?: string;
+}
+
+export async function pushAccountToSippy(
+  opts: SippyAccountOpts,
+  credentials: { username: string; password: string },
+  targetUrl?: string,
+): Promise<SippyPushResult> {
   const baseUrl = targetUrl ?? activeSession?.portalUrl;
   if (!baseUrl) return { success: false, message: 'Not connected to Sippy.' };
 
   const apiUrl = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
   const auth   = { Authorization: basicAuth(credentials.username, credentials.password) };
 
-  // Attempt: customer.addAccount
+  // Build the full account parameter set (only include non-empty values)
+  const accountParams: Record<string, string | number | boolean> = {
+    name: opts.name,
+    type: opts.type === 'vendor' ? 'vendor' : 'customer',
+  };
+  if (opts.ipAddress)           accountParams.ip                   = opts.ipAddress;
+  if (opts.ratePerMin !== undefined) accountParams.rate            = opts.ratePerMin;
+  if (opts.timezone)            accountParams.time_zone            = opts.timezone;
+  if (opts.language)            accountParams.language             = opts.language;
+  if (opts.sipClass)            accountParams.i_class              = opts.sipClass;
+  if (opts.routingGroup)        accountParams.i_routing_group      = opts.routingGroup;
+  if (opts.servicePlan)         accountParams.i_tariff             = opts.servicePlan;
+  if (opts.creditLimit !== undefined) accountParams.credit_limit   = opts.creditLimit;
+  if (opts.maxSessions !== undefined) accountParams.max_sessions   = opts.maxSessions;
+  if (opts.maxCallsPerSecond !== undefined) accountParams.max_calls_per_second = opts.maxCallsPerSecond;
+  if (opts.maxSessionTime !== undefined) accountParams.max_session_time = opts.maxSessionTime;
+  if (opts.preferredCodec)      accountParams.preferred_codec      = opts.preferredCodec;
+  if (opts.cldTranslationRule)  accountParams.cld_translation_rule = opts.cldTranslationRule;
+  if (opts.cliTranslationRule)  accountParams.cli_translation_rule = opts.cliTranslationRule;
+  if (opts.companyName)         accountParams.company_name         = opts.companyName;
+
+  // Attempt: customer.addAccount (create or upsert)
   try {
-    const body = xmlRpcCall('customer.addAccount', {
-      name:          opts.name,
-      type:          opts.type === 'vendor' ? 'vendor' : 'customer',
-      ...(opts.ipAddress  ? { ip: opts.ipAddress }          : {}),
-      ...(opts.ratePerMin ? { rate: opts.ratePerMin }       : {}),
-    });
+    const body = xmlRpcCall('customer.addAccount', accountParams);
     const resp = await rawPost(apiUrl, body, auth);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      console.log(`[Sippy] customer.addAccount succeeded for "${opts.name}"`);
       return { success: true, message: `Account "${opts.name}" added/updated on Sippy`, method: 'customer.addAccount' };
     }
+    const fault = extractTag(resp.body, 'faultString');
+    console.warn('[Sippy] customer.addAccount fault:', fault);
   } catch (e: any) { console.warn('[Sippy] customer.addAccount:', e.message); }
 
-  // Attempt: customer.updateAccount
+  // Attempt: customer.updateAccount (may work if account already exists)
   try {
-    const body = xmlRpcCall('customer.updateAccount', {
-      name:    opts.name,
-      type:    opts.type === 'vendor' ? 'vendor' : 'customer',
-      ...(opts.ipAddress ? { ip: opts.ipAddress } : {}),
-    });
+    const body = xmlRpcCall('customer.updateAccount', accountParams);
     const resp = await rawPost(apiUrl, body, auth);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      console.log(`[Sippy] customer.updateAccount succeeded for "${opts.name}"`);
       return { success: true, message: `Account "${opts.name}" updated on Sippy`, method: 'customer.updateAccount' };
     }
   } catch (e: any) { console.warn('[Sippy] customer.updateAccount:', e.message); }
 
-  return { success: false, message: 'Could not push account to Sippy', detail: 'Check Sippy API permissions.' };
+  // Attempt: customer.setAccount (some Sippy versions use this)
+  try {
+    const body = xmlRpcCall('customer.setAccount', accountParams);
+    const resp = await rawPost(apiUrl, body, auth);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      console.log(`[Sippy] customer.setAccount succeeded for "${opts.name}"`);
+      return { success: true, message: `Account "${opts.name}" set on Sippy`, method: 'customer.setAccount' };
+    }
+  } catch (e: any) { console.warn('[Sippy] customer.setAccount:', e.message); }
+
+  return { success: false, message: 'Could not push account to Sippy', detail: 'Check Sippy API permissions and account type.' };
 }
 
 export async function getSippyStats(username: string, password: string): Promise<SippyStats> {
