@@ -1056,6 +1056,49 @@ export async function registerRoutes(
     res.json({ cdrs });
   });
 
+  // POST /api/sippy/accounts — create a new Sippy customer account directly on the switch
+  app.post('/api/sippy/accounts', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      // Support optional switchId to target a secondary Sippy switch
+      let username = settings.portalUsername ?? '';
+      let password = settings.portalPassword ?? '';
+      let targetUrl: string | undefined = undefined;
+      if (req.body.switchId) {
+        const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.body.switchId) && s.type === 'sippy');
+        if (!sw) return res.status(404).json({ success: false, message: 'Sippy switch not found.' });
+        username = sw.portalUsername ?? '';
+        password = sw.portalPassword ?? '';
+        targetUrl = sw.portalUrl ?? undefined;
+      }
+      if (!username || !password) {
+        return res.status(400).json({ success: false, message: 'Sippy credentials not configured in Settings.' });
+      }
+      const opts: sippy.SippyAccountOpts = {
+        name:               req.body.name,
+        type:               req.body.type ?? 'client',
+        ipAddress:          req.body.ipAddress,
+        ratePerMin:         req.body.ratePerMin !== undefined ? Number(req.body.ratePerMin) : undefined,
+        creditLimit:        req.body.creditLimit !== undefined ? Number(req.body.creditLimit) : undefined,
+        maxSessions:        req.body.maxSessions !== undefined ? Number(req.body.maxSessions) : undefined,
+        maxCallsPerSecond:  req.body.maxCallsPerSecond !== undefined ? Number(req.body.maxCallsPerSecond) : undefined,
+        maxSessionTime:     req.body.maxSessionTime !== undefined ? Number(req.body.maxSessionTime) : undefined,
+        timezone:           req.body.timezone,
+        routingGroup:       req.body.routingGroup,
+        servicePlan:        req.body.servicePlan,
+        preferredCodec:     req.body.preferredCodec,
+        cliTranslationRule: req.body.cliTranslationRule,
+        cldTranslationRule: req.body.cldTranslationRule,
+        companyName:        req.body.companyName,
+      };
+      if (!opts.name) return res.status(400).json({ success: false, message: 'Account name is required.' });
+      const result = await sippy.pushAccountToSippy(opts, { username, password }, targetUrl);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message ?? 'Failed to create Sippy account.' });
+    }
+  });
+
   // GET /api/sippy/stats — Sippy call counters
   app.get('/api/sippy/stats', async (_req, res) => {
     const settings = await storage.getSettings();

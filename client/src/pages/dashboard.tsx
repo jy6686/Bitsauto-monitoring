@@ -66,6 +66,11 @@ export default function DashboardPage() {
     queryKey: ['/api/portal/session'],
     refetchInterval: 30000,
   });
+  // Sippy session
+  const { data: sippySession } = useQuery<{ active: boolean; username?: string; connectedAt?: string; portalUrl?: string }>({
+    queryKey: ['/api/sippy/session'],
+    refetchInterval: 30000,
+  });
   const { data: portalStats } = useQuery<{
     totalCalls: number; successCalls: number; failedCalls: number;
     totalMinutes: number; totalCost: number; asr: number; error?: string;
@@ -79,6 +84,12 @@ export default function DashboardPage() {
     refetchInterval: 15000,
     enabled: !!portalSession?.active,
   });
+  // Sippy live calls — polled when Sippy session is active
+  const { data: sippyLiveCalls } = useQuery<{ calls: any[]; error?: string }>({
+    queryKey: ['/api/sippy/live-calls'],
+    refetchInterval: 15000,
+    enabled: !!sippySession?.active,
+  });
   const { data: portalCdr } = useQuery<{ records: any[]; error?: string }>({
     queryKey: ['/api/portal/cdr'],
     refetchInterval: 60000,
@@ -91,7 +102,8 @@ export default function DashboardPage() {
   });
 
   const simulationOff = settings && !settings.simulationEnabled;
-  const notConnected = simulationOff && !portalSession?.active;
+  const anyPortalActive = !!portalSession?.active || !!sippySession?.active;
+  const notConnected = simulationOff && !anyPortalActive;
 
   // Build chart data from recent call metrics (real or simulated)
   const chartData = (recentCalls ?? [])
@@ -102,9 +114,13 @@ export default function DashboardPage() {
     }))
     .reverse();
 
-  // Use portal stats for main cards when portal is active
-  const displayActiveCalls = portalSession?.active
-    ? (portalLiveCalls?.calls?.length ?? stats?.activeCalls ?? 0)
+  // Use portal stats for main cards when portal is active (prefer Sippy when both connected)
+  const liveCalls = sippySession?.active
+    ? (sippyLiveCalls?.calls ?? [])
+    : (portalLiveCalls?.calls ?? []);
+
+  const displayActiveCalls = anyPortalActive
+    ? (liveCalls.length ?? stats?.activeCalls ?? 0)
     : (stats?.activeCalls ?? 0);
   const displayAsr = portalSession?.active
     ? (portalStats?.asr ?? stats?.asr ?? 0)
@@ -144,13 +160,24 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Connected source badge — shown when portal is active */}
-      {portalSession?.active && (
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-5 py-3 flex items-center gap-3">
-          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <p className="text-sm text-emerald-400 font-medium">
-            Live data — connected to VOS3000 as <span className="font-mono">{portalSession.username}</span>
-          </p>
+      {/* Connected source badge — shown when any switch is active */}
+      {anyPortalActive && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-5 py-3 flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            {sippySession?.active && (
+              <p className="text-sm text-emerald-400 font-medium">
+                Live data — connected to <span className="font-semibold">Sippy</span> as{' '}
+                <span className="font-mono">{sippySession.username}</span>
+              </p>
+            )}
+            {portalSession?.active && (
+              <p className="text-sm text-emerald-400 font-medium">
+                {sippySession?.active ? '·' : ''} <span className="font-semibold">VOS3000</span> as{' '}
+                <span className="font-mono">{portalSession.username}</span>
+              </p>
+            )}
+          </div>
           <span className="text-xs text-muted-foreground ml-auto">All stats below reflect your real switch traffic</span>
         </div>
       )}
@@ -161,34 +188,34 @@ export default function DashboardPage() {
           value={notConnected ? '—' : displayActiveCalls} 
           icon={PhoneCall}
           className="border-blue-500/20"
-          description={portalSession?.active ? "Live calls on portal" : "Currently connected sessions"}
+          description={anyPortalActive ? "Live calls on portal" : "Currently connected sessions"}
         />
         <StatCard 
-          title={portalSession?.active ? "Total Calls (24h)" : "Average MOS"}
-          value={portalSession?.active
-            ? (portalStats?.totalCalls?.toLocaleString() ?? '—')
+          title={anyPortalActive ? "Total Calls (24h)" : "Average MOS"}
+          value={anyPortalActive
+            ? (portalStats?.totalCalls?.toLocaleString() ?? liveCalls.length.toString())
             : (notConnected ? '—' : stats.avgMos.toFixed(2))}
-          icon={portalSession?.active ? PhoneCall : Activity}
-          className={portalSession?.active ? "border-blue-500/20" : (stats.avgMos > 4 ? "border-emerald-500/20" : "border-amber-500/20")}
-          description={portalSession?.active ? "Total call attempts in last 24h" : "Mean Opinion Score (5.0 scale)"}
+          icon={anyPortalActive ? PhoneCall : Activity}
+          className={anyPortalActive ? "border-blue-500/20" : (stats.avgMos > 4 ? "border-emerald-500/20" : "border-amber-500/20")}
+          description={anyPortalActive ? "Total call attempts in last 24h" : "Mean Opinion Score (5.0 scale)"}
         />
         <StatCard 
-          title={portalSession?.active ? "Answered" : "System Health"}
-          value={portalSession?.active
+          title={anyPortalActive ? "Answered" : "System Health"}
+          value={anyPortalActive
             ? (portalStats?.successCalls?.toLocaleString() ?? '—')
             : (notConnected ? '—' : stats.systemHealth)}
-          icon={portalSession?.active ? CheckCircle2 : Server}
-          className={portalSession?.active ? "border-emerald-500/20" : (stats.systemHealth === 'Healthy' ? "border-emerald-500/20" : "border-rose-500/20")}
-          description={portalSession?.active ? "Successfully answered calls" : "Infrastructure status"}
+          icon={anyPortalActive ? CheckCircle2 : Server}
+          className={anyPortalActive ? "border-emerald-500/20" : (stats.systemHealth === 'Healthy' ? "border-emerald-500/20" : "border-rose-500/20")}
+          description={anyPortalActive ? "Successfully answered calls" : "Infrastructure status"}
         />
         <StatCard 
-          title={portalSession?.active ? "Total Minutes" : "Alerts Today"}
-          value={portalSession?.active
+          title={anyPortalActive ? "Total Minutes" : "Alerts Today"}
+          value={anyPortalActive
             ? (portalStats?.totalMinutes?.toLocaleString() ?? '—')
             : (notConnected ? '—' : stats.alertsToday)}
-          icon={portalSession?.active ? Clock : AlertTriangle}
-          className={portalSession?.active ? "border-violet-500/20" : (stats.alertsToday > 5 ? "border-rose-500/20" : "border-border/50")}
-          description={portalSession?.active ? "Total call minutes in last 24h" : "Threshold breaches detected"}
+          icon={anyPortalActive ? Clock : AlertTriangle}
+          className={anyPortalActive ? "border-violet-500/20" : (stats.alertsToday > 5 ? "border-rose-500/20" : "border-border/50")}
+          description={anyPortalActive ? "Total call minutes in last 24h" : "Threshold breaches detected"}
         />
       </div>
 

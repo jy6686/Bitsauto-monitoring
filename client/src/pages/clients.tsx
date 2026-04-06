@@ -743,6 +743,150 @@ function SendRatePanel({ profiles }: { profiles: ClientProfile[] }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
+// ── New Sippy Account Modal ──────────────────────────────────────────────────
+function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; switches: SwitchOption[] }) {
+  const sippySwitches = switches.filter((s: SwitchOption) => s.type === 'sippy');
+  const [name, setName] = useState('');
+  const [type, setType] = useState<'client' | 'vendor'>('client');
+  const [switchId, setSwitchId] = useState<string>('');
+  const [ipAddress, setIpAddress] = useState('');
+  const [ratePerMin, setRatePerMin] = useState('');
+  const [creditLimit, setCreditLimit] = useState('');
+  const [maxSessions, setMaxSessions] = useState('');
+  const [maxCps, setMaxCps] = useState('');
+  const [routingGroup, setRoutingGroup] = useState('');
+  const [servicePlan, setServicePlan] = useState('');
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const createMut = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/sippy/accounts', {
+      name, type,
+      switchId: switchId ? Number(switchId) : undefined,
+      ipAddress: ipAddress || undefined,
+      ratePerMin: ratePerMin ? Number(ratePerMin) : undefined,
+      creditLimit: creditLimit ? Number(creditLimit) : undefined,
+      maxSessions: maxSessions ? Number(maxSessions) : undefined,
+      maxCallsPerSecond: maxCps ? Number(maxCps) : undefined,
+      routingGroup: routingGroup || undefined,
+      servicePlan: servicePlan || undefined,
+    }),
+    onSuccess: async (res: any) => {
+      const data = await res.json();
+      setResult(data);
+    },
+    onError: (err: any) => {
+      setResult({ success: false, message: err.message ?? 'Failed to create account.' });
+    },
+  });
+
+  const fieldCls = "w-full px-3 py-2 text-sm rounded-lg bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/50";
+  const labelCls = "text-xs font-medium text-muted-foreground mb-1 block";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between rounded-t-2xl">
+          <div>
+            <h3 className="font-semibold text-lg">New Sippy Account</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Create a customer/vendor account directly on your Sippy switch</p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {sippySwitches.length > 0 && (
+            <div>
+              <label className={labelCls}>Target Sippy Switch</label>
+              <select value={switchId} onChange={e => setSwitchId(e.target.value)} className={fieldCls}>
+                <option value="">Primary (from Settings)</option>
+                {sippySwitches.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label className={labelCls}>Account Name <span className="text-rose-400">*</span></label>
+              <input data-testid="input-sippy-name" value={name} onChange={e => setName(e.target.value)}
+                placeholder="e.g. Acme Corp" className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Type</label>
+              <select data-testid="select-sippy-type" value={type} onChange={e => setType(e.target.value as 'client' | 'vendor')} className={fieldCls}>
+                <option value="client">Client (Customer)</option>
+                <option value="vendor">Vendor (Carrier)</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>IP Address</label>
+              <input data-testid="input-sippy-ip" value={ipAddress} onChange={e => setIpAddress(e.target.value)}
+                placeholder="e.g. 192.168.1.1" className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Rate / Min ($)</label>
+              <input data-testid="input-sippy-rate" type="number" step="0.0001" min="0" value={ratePerMin}
+                onChange={e => setRatePerMin(e.target.value)} placeholder="0.0050" className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Credit Limit ($)</label>
+              <input data-testid="input-sippy-credit" type="number" min="0" value={creditLimit}
+                onChange={e => setCreditLimit(e.target.value)} placeholder="1000" className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Max Sessions</label>
+              <input data-testid="input-sippy-sessions" type="number" min="1" value={maxSessions}
+                onChange={e => setMaxSessions(e.target.value)} placeholder="100" className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Max CPS</label>
+              <input data-testid="input-sippy-cps" type="number" min="1" value={maxCps}
+                onChange={e => setMaxCps(e.target.value)} placeholder="10" className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Routing Group</label>
+              <input data-testid="input-sippy-routing" value={routingGroup} onChange={e => setRoutingGroup(e.target.value)}
+                placeholder="e.g. Default" className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Service Plan / Tariff</label>
+              <input data-testid="input-sippy-plan" value={servicePlan} onChange={e => setServicePlan(e.target.value)}
+                placeholder="e.g. Standard" className={fieldCls} />
+            </div>
+          </div>
+
+          {result && (
+            <div className={`rounded-lg px-4 py-3 text-sm flex items-start gap-2 ${result.success ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'}`}>
+              {result.success ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
+              <span data-testid="text-sippy-create-result">{result.message}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 pb-6 flex items-center gap-3 justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors">
+            {result?.success ? 'Close' : 'Cancel'}
+          </button>
+          {!result?.success && (
+            <button
+              data-testid="button-sippy-create-account"
+              disabled={!name.trim() || createMut.isPending}
+              onClick={() => createMut.mutate()}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {createMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              {createMut.isPending ? 'Creating…' : 'Create on Sippy'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ClientsPage() {
   const { isManagement } = useAuth();
   const queryClient = useQueryClient();
@@ -750,9 +894,16 @@ export default function ClientsPage() {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [importingId, setImportingId] = useState<string | null>(null);
+  const [newSippyOpen, setNewSippyOpen] = useState(false);
 
   const { data: profiles = [], isLoading } = useQuery<ClientProfile[]>({
     queryKey: ['/api/clients'],
+  });
+  const { data: allSwitches = [] } = useQuery<SwitchOption[]>({ queryKey: ['/api/switches'] });
+
+  const { data: sippySession } = useQuery<{ active: boolean; username?: string }>({
+    queryKey: ['/api/sippy/session'],
+    refetchInterval: 30000,
   });
 
   const { data: portalSession } = useQuery<{ active: boolean; username?: string }>({
@@ -815,14 +966,26 @@ export default function ClientsPage() {
           </p>
         </div>
         {isManagement && tab === 'profiles' && !adding && (
-          <button
-            data-testid="button-add-profile"
-            onClick={() => setAdding(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add Profile
-          </button>
+          <div className="flex items-center gap-2">
+            {(sippySession?.active || allSwitches.some((s: SwitchOption) => s.type === 'sippy' && s.enabled)) && (
+              <button
+                data-testid="button-new-sippy-account"
+                onClick={() => setNewSippyOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                New Sippy Account
+              </button>
+            )}
+            <button
+              data-testid="button-add-profile"
+              onClick={() => setAdding(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add Profile
+            </button>
+          </div>
         )}
       </div>
 
@@ -1213,6 +1376,14 @@ function ProfileTable({
             </div>
           ))}
         </div>
+      )}
+
+      {/* New Sippy Account modal */}
+      {newSippyOpen && (
+        <NewSippyAccountModal
+          onClose={() => setNewSippyOpen(false)}
+          switches={allSwitches}
+        />
       )}
     </div>
   );
