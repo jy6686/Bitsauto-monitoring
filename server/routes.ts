@@ -14,42 +14,48 @@ const SIMULATION_INTERVAL = 2000; // 2 seconds
 const MAX_ACTIVE_CALLS = 10;
 const CALL_DURATION_PROBABILITY = 0.1; // 10% chance to end a call each tick
 
-// SIP probe ports to try in order
-const SIP_PORTS = [5060, 5061, 80, 443];
+// Default SIP / VoIP management ports to try in order
+const DEFAULT_PROBE_PORTS = [5060, 5061, 8080, 8081, 8443, 80, 443];
 
-// Probe an IP address by attempting TCP connections and measuring round-trip time
-// Returns latency in ms, or null if unreachable
-function probeIp(ip: string): Promise<{ latency: number; reachable: boolean }> {
+// Extract port number from a URL string (e.g. "http://1.2.3.4:8081/eng/" → 8081)
+function portFromUrl(url: string | null | undefined): number | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const p = Number(parsed.port);
+    return p > 0 ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+// Probe an IP address by attempting TCP connections on a prioritised port list.
+// Returns the first port that responds, with its round-trip latency.
+function probeIp(ip: string, priorityPorts: number[] = []): Promise<{ latency: number; reachable: boolean; port?: number }> {
+  // Build deduplicated port list: priority ports first, then defaults
+  const ports = [...new Set([...priorityPorts, ...DEFAULT_PROBE_PORTS])];
+
   return new Promise((resolve) => {
-    let portIdx = 0;
-    
     function tryPort(portIndex: number) {
-      if (portIndex >= SIP_PORTS.length) {
+      if (portIndex >= ports.length) {
         resolve({ latency: 999, reachable: false });
         return;
       }
-      const port = SIP_PORTS[portIndex];
+      const port = ports[portIndex];
       const start = Date.now();
       const socket = new net.Socket();
       socket.setTimeout(2000);
-      
+
       socket.connect(port, ip, () => {
         const latency = Date.now() - start;
         socket.destroy();
-        resolve({ latency, reachable: true });
+        resolve({ latency, reachable: true, port });
       });
-      
-      socket.on('timeout', () => {
-        socket.destroy();
-        tryPort(portIndex + 1);
-      });
-      
-      socket.on('error', () => {
-        socket.destroy();
-        tryPort(portIndex + 1);
-      });
+
+      socket.on('timeout', () => { socket.destroy(); tryPort(portIndex + 1); });
+      socket.on('error',   () => { socket.destroy(); tryPort(portIndex + 1); });
     }
-    
+
     tryPort(0);
   });
 }
@@ -71,7 +77,10 @@ export async function registerRoutes(
     const settings = await storage.getSettings();
     const ip = settings.monitoredIp;
     if (!ip) return;
-    const result = await probeIp(ip);
+    // Prioritise the port from the configured portal URL (e.g. 8081 for VOS3000)
+    const portalPort = portFromUrl(settings.portalUrl);
+    const priorityPorts = portalPort ? [portalPort] : [];
+    const result = await probeIp(ip, priorityPorts);
     lastProbeResult = { ...result, timestamp: new Date() };
   }
   // Run probe immediately on startup, then every 10 seconds

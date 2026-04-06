@@ -348,7 +348,12 @@ export default function DashboardPage() {
             )}
             <div>
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Live Source</p>
-              <p className="font-mono text-sm font-semibold" data-testid="text-live-ip">{probe.ip}</p>
+              <p className="font-mono text-sm font-semibold" data-testid="text-live-ip">
+                {probe.ip}
+                {(probe as any).port && (
+                  <span className="ml-1 text-xs text-muted-foreground font-normal">:{(probe as any).port}</span>
+                )}
+              </p>
             </div>
             <div className="h-8 w-px bg-border/50 mx-2" />
             <div>
@@ -356,6 +361,9 @@ export default function DashboardPage() {
               <p className={`text-sm font-semibold ${probe.reachable ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {probe.reachable ? 'Reachable' : 'Unreachable'}
               </p>
+              {!probe.reachable && (
+                <p className="text-[10px] text-muted-foreground/60 mt-0.5">No open ports found</p>
+              )}
             </div>
             {probe.reachable && (
               <>
