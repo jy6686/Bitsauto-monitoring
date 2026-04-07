@@ -2806,24 +2806,38 @@ export interface SippyVendorConnection {
   destination: string;
   username?: string;
   capacity?: number;
+  enforceCapacity?: boolean;
+  maxCps?: number;
   blocked?: boolean;
+  iProtoTransport?: number;
   iMediaRelayType?: number;
+  huntstopScodes?: string;
+  timeout100?: number;
   translationRule?: string;
   cliTranslationRule?: string;
+  outboundProxy?: string;
 }
 
 function parseVendorConnectionStruct(xml: string): SippyVendorConnection {
   const m = extractStructMembers(xml);
+  const parseBool = (v: string | undefined): boolean | undefined =>
+    v === '1' || v === 'true' ? true : (v === '0' || v === 'false' ? false : undefined);
   return {
-    iConnection:      parseInt(m['i_connection']       || '0', 10),
-    name:             m['name']                        || '',
-    destination:      m['destination']                 || '',
-    username:         m['username']                    || undefined,
-    capacity:         m['capacity'] ? parseInt(m['capacity'], 10) : undefined,
-    blocked:          m['blocked'] === '1' || m['blocked'] === 'true' ? true : (m['blocked'] === '0' || m['blocked'] === 'false' ? false : undefined),
-    iMediaRelayType:  m['i_media_relay_type'] ? parseInt(m['i_media_relay_type'], 10) : undefined,
-    translationRule:  m['translation_rule']            || undefined,
-    cliTranslationRule: m['cli_translation_rule']      || undefined,
+    iConnection:        parseInt(m['i_connection']        || '0', 10),
+    name:               m['name']                         || '',
+    destination:        m['destination']                  || '',
+    username:           m['username']                     || undefined,
+    capacity:           m['capacity']           ? parseInt(m['capacity'], 10)           : undefined,
+    enforceCapacity:    parseBool(m['enforce_capacity']),
+    maxCps:             m['max_cps']            ? parseFloat(m['max_cps'])              : undefined,
+    blocked:            parseBool(m['blocked']),
+    iProtoTransport:    m['i_proto_transport']  ? parseInt(m['i_proto_transport'], 10)  : undefined,
+    iMediaRelayType:    m['i_media_relay_type'] ? parseInt(m['i_media_relay_type'], 10) : undefined,
+    huntstopScodes:     m['huntstop_scodes']              || undefined,
+    timeout100:         m['timeout_100']        ? parseInt(m['timeout_100'], 10)        : undefined,
+    translationRule:    m['translation_rule']             || undefined,
+    cliTranslationRule: m['cli_translation_rule']         || undefined,
+    outboundProxy:      m['outbound_proxy']               || undefined,
   };
 }
 
@@ -2910,10 +2924,16 @@ export async function createVendorConnection(
     connUsername?: string;
     password?: string;
     capacity?: number;
+    enforceCapacity?: boolean;
+    maxCps?: number;
     blocked?: boolean;
+    iProtoTransport?: number;
+    iMediaRelayType?: number;
+    huntstopScodes?: string;
+    timeout100?: number;
     translationRule?: string;
     cliTranslationRule?: string;
-    iMediaRelayType?: number;
+    outboundProxy?: string;
   },
   portalUrl?: string,
 ): Promise<{ success: boolean; message: string; iConnection?: number }> {
@@ -2927,13 +2947,19 @@ export async function createVendorConnection(
     destination: opts.destination,
     i_customer:  1,
   };
-  if (opts.connUsername     !== undefined) params.username             = opts.connUsername;
-  if (opts.password         !== undefined) params.password             = opts.password;
-  if (opts.capacity         !== undefined) params.capacity             = opts.capacity;
-  if (opts.blocked          !== undefined) params.blocked              = opts.blocked;
-  if (opts.translationRule  !== undefined) params.translation_rule     = opts.translationRule;
-  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule = opts.cliTranslationRule;
-  if (opts.iMediaRelayType  !== undefined) params.i_media_relay_type   = opts.iMediaRelayType;
+  if (opts.connUsername       !== undefined) params.username              = opts.connUsername;
+  if (opts.password           !== undefined) params.password              = opts.password;
+  if (opts.capacity           !== undefined) params.capacity              = opts.capacity;
+  if (opts.enforceCapacity    !== undefined) params.enforce_capacity      = opts.enforceCapacity;
+  if (opts.maxCps             !== undefined) params.max_cps               = opts.maxCps;
+  if (opts.blocked            !== undefined) params.blocked               = opts.blocked;
+  if (opts.iProtoTransport    !== undefined) params.i_proto_transport     = opts.iProtoTransport;
+  if (opts.iMediaRelayType    !== undefined) params.i_media_relay_type    = opts.iMediaRelayType;
+  if (opts.huntstopScodes     !== undefined) params.huntstop_scodes       = opts.huntstopScodes;
+  if (opts.timeout100         !== undefined) params.timeout_100           = opts.timeout100;
+  if (opts.translationRule    !== undefined) params.translation_rule      = opts.translationRule;
+  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule  = opts.cliTranslationRule;
+  if (opts.outboundProxy      !== undefined) params.outbound_proxy        = opts.outboundProxy;
 
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('createVendorConnection', params), username, password);
@@ -2965,10 +2991,16 @@ export async function updateVendorConnection(
     connUsername?: string;
     password?: string;
     capacity?: number;
+    enforceCapacity?: boolean;
+    maxCps?: number;
     blocked?: boolean;
+    iProtoTransport?: number;
+    iMediaRelayType?: number;
+    huntstopScodes?: string;
+    timeout100?: number;
     translationRule?: string;
     cliTranslationRule?: string;
-    iMediaRelayType?: number;
+    outboundProxy?: string;
   },
   portalUrl?: string,
 ): Promise<{ success: boolean; message: string }> {
@@ -2977,15 +3009,21 @@ export async function updateVendorConnection(
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
   const params: Record<string, string | number | boolean | null> = { i_connection: iConnection, i_customer: 1 };
-  if (opts.name             !== undefined) params.name                 = opts.name;
-  if (opts.destination      !== undefined) params.destination          = opts.destination;
-  if (opts.connUsername     !== undefined) params.username             = opts.connUsername;
-  if (opts.password         !== undefined) params.password             = opts.password;
-  if (opts.capacity         !== undefined) params.capacity             = opts.capacity;
-  if (opts.blocked          !== undefined) params.blocked              = opts.blocked;
-  if (opts.translationRule  !== undefined) params.translation_rule     = opts.translationRule;
-  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule = opts.cliTranslationRule;
-  if (opts.iMediaRelayType  !== undefined) params.i_media_relay_type   = opts.iMediaRelayType;
+  if (opts.name               !== undefined) params.name                  = opts.name;
+  if (opts.destination        !== undefined) params.destination            = opts.destination;
+  if (opts.connUsername       !== undefined) params.username               = opts.connUsername;
+  if (opts.password           !== undefined) params.password               = opts.password;
+  if (opts.capacity           !== undefined) params.capacity               = opts.capacity;
+  if (opts.enforceCapacity    !== undefined) params.enforce_capacity       = opts.enforceCapacity;
+  if (opts.maxCps             !== undefined) params.max_cps                = opts.maxCps;
+  if (opts.blocked            !== undefined) params.blocked                = opts.blocked;
+  if (opts.iProtoTransport    !== undefined) params.i_proto_transport      = opts.iProtoTransport;
+  if (opts.iMediaRelayType    !== undefined) params.i_media_relay_type     = opts.iMediaRelayType;
+  if (opts.huntstopScodes     !== undefined) params.huntstop_scodes        = opts.huntstopScodes;
+  if (opts.timeout100         !== undefined) params.timeout_100            = opts.timeout100;
+  if (opts.translationRule    !== undefined) params.translation_rule       = opts.translationRule;
+  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule   = opts.cliTranslationRule;
+  if (opts.outboundProxy      !== undefined) params.outbound_proxy         = opts.outboundProxy;
 
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('updateVendorConnection', params), username, password);

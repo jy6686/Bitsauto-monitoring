@@ -8,7 +8,7 @@ import {
   Clock, CalendarClock, CheckCircle2, XCircle, Activity,
   ChevronUp, ChevronDown, Eye, EyeOff,
   Wifi, WifiOff, Shield, DollarSign, ShieldCheck, Info, Save,
-  Network, Cable,
+  Network, Cable, ArrowRightLeft, Settings2,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { ClientProfile } from "@shared/schema";
@@ -1200,9 +1200,15 @@ interface VendorConnection {
   destination: string;
   username?: string;
   capacity?: number;
+  enforceCapacity?: boolean;
+  maxCps?: number;
   blocked?: boolean;
+  iProtoTransport?: number;
+  huntstopScodes?: string;
+  timeout100?: number;
   translationRule?: string;
   cliTranslationRule?: string;
+  outboundProxy?: string;
 }
 
 interface SippyVendor {
@@ -1213,12 +1219,24 @@ interface SippyVendor {
   companyName?: string;
 }
 
-const emptyConn = { name: '', destination: '', connUsername: '', password: '', capacity: '', translationRule: '', cliTranslationRule: '' };
+const PROTO_TRANSPORT_OPTIONS = [
+  { value: '1', label: 'SIP' },
+  { value: '2', label: 'H.323' },
+  { value: '3', label: 'IAX2' },
+];
+
+const emptyConn = {
+  name: '', destination: '', connUsername: '', password: '',
+  capacity: '', enforceCapacity: true, maxCps: '',
+  iProtoTransport: '1', huntstopScodes: '', timeout100: '',
+  blocked: false, translationRule: '', cliTranslationRule: '', outboundProxy: '',
+};
 
 function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; isManagement: boolean }) {
   const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [loadingEditId, setLoadingEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ ...emptyConn });
   const [editForm, setEditForm] = useState({ ...emptyConn, iConnection: 0 });
 
@@ -1229,16 +1247,25 @@ function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; is
 
   const connections = data?.connections ?? [];
 
+  const connPayload = (f: typeof emptyConn) => ({
+    name:               f.name,
+    destination:        f.destination,
+    connUsername:       f.connUsername       || undefined,
+    password:           f.password          || undefined,
+    capacity:           f.capacity          ? Number(f.capacity)   : undefined,
+    enforceCapacity:    f.enforceCapacity,
+    maxCps:             f.maxCps            ? Number(f.maxCps)     : undefined,
+    blocked:            f.blocked,
+    iProtoTransport:    f.iProtoTransport   ? Number(f.iProtoTransport) : undefined,
+    huntstopScodes:     f.huntstopScodes    || undefined,
+    timeout100:         f.timeout100        ? Number(f.timeout100) : undefined,
+    translationRule:    f.translationRule   || undefined,
+    cliTranslationRule: f.cliTranslationRule || undefined,
+    outboundProxy:      f.outboundProxy     || undefined,
+  });
+
   const addMut = useMutation({
-    mutationFn: () => apiRequest('POST', `/api/sippy/vendors/${iVendor}/connections`, {
-      name:               form.name,
-      destination:        form.destination,
-      connUsername:       form.connUsername   || undefined,
-      password:           form.password       || undefined,
-      capacity:           form.capacity       ? Number(form.capacity) : undefined,
-      translationRule:    form.translationRule    || undefined,
-      cliTranslationRule: form.cliTranslationRule || undefined,
-    }),
+    mutationFn: () => apiRequest('POST', `/api/sippy/vendors/${iVendor}/connections`, connPayload(form)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/sippy/vendors', iVendor, 'connections'] });
       setAdding(false);
@@ -1247,15 +1274,7 @@ function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; is
   });
 
   const updateMut = useMutation({
-    mutationFn: ({ id, f }: { id: number; f: typeof editForm }) => apiRequest('PATCH', `/api/sippy/connections/${id}`, {
-      name:               f.name               || undefined,
-      destination:        f.destination        || undefined,
-      connUsername:       f.connUsername        || undefined,
-      password:           f.password           || undefined,
-      capacity:           f.capacity           ? Number(f.capacity) : undefined,
-      translationRule:    f.translationRule    || undefined,
-      cliTranslationRule: f.cliTranslationRule || undefined,
-    }),
+    mutationFn: ({ id, f }: { id: number; f: typeof editForm }) => apiRequest('PATCH', `/api/sippy/connections/${id}`, connPayload(f)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/sippy/vendors', iVendor, 'connections'] });
       setEditingId(null);
@@ -1270,43 +1289,115 @@ function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; is
   const fieldCls = "px-2 py-1.5 text-xs rounded-md bg-background border border-border focus:outline-none focus:ring-1 focus:ring-primary/50 w-full";
 
   function ConnForm({ f, setF, onSave, onCancel, isSaving }: { f: any; setF: (k: string, v: any) => void; onSave: () => void; onCancel: () => void; isSaving: boolean }) {
+    const sectionHdr = "text-[10px] font-semibold text-violet-400/80 uppercase tracking-widest mb-2 flex items-center gap-1.5";
+    const label = "text-[10px] text-muted-foreground mb-1 uppercase tracking-wider";
     return (
-      <div className="bg-muted/10 border border-border/50 rounded-lg p-4 space-y-3 mt-2">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <div>
-            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Name *</p>
-            <input data-testid="input-conn-name" value={f.name} onChange={e => setF('name', e.target.value)} placeholder="e.g. Main Trunk" className={fieldCls} />
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Destination (Host:Port) *</p>
-            <input data-testid="input-conn-destination" value={f.destination} onChange={e => setF('destination', e.target.value)} placeholder="e.g. sip.carrier.com:5060" className={fieldCls} />
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Username</p>
-            <input data-testid="input-conn-username" value={f.connUsername} onChange={e => setF('connUsername', e.target.value)} placeholder="Optional" className={fieldCls} />
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Password</p>
-            <input data-testid="input-conn-password" type="password" value={f.password} onChange={e => setF('password', e.target.value)} placeholder="Optional" className={fieldCls} />
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Capacity (max calls)</p>
-            <input data-testid="input-conn-capacity" type="number" min="0" value={f.capacity} onChange={e => setF('capacity', e.target.value)} placeholder="Unlimited" className={fieldCls} />
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">CLD Trans. Rule</p>
-            <input data-testid="input-conn-translation-rule" value={f.translationRule} onChange={e => setF('translationRule', e.target.value)} placeholder="s/^[+]//" className={`${fieldCls} font-mono`} />
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">CLI Trans. Rule</p>
-            <input data-testid="input-conn-cli-rule" value={f.cliTranslationRule} onChange={e => setF('cliTranslationRule', e.target.value)} placeholder="s/^[+]//" className={`${fieldCls} font-mono`} />
+      <div className="bg-muted/10 border border-border/50 rounded-lg p-4 space-y-4 mt-2">
+
+        {/* ── Basic ── */}
+        <div>
+          <p className={sectionHdr}><Cable className="w-3 h-3" /> Basic</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div>
+              <p className={label}>Name *</p>
+              <input data-testid="input-conn-name" value={f.name} onChange={e => setF('name', e.target.value)} placeholder="e.g. Main Trunk" className={fieldCls} />
+            </div>
+            <div>
+              <p className={label}>Destination (IP/Host:Port) *</p>
+              <input data-testid="input-conn-destination" value={f.destination} onChange={e => setF('destination', e.target.value)} placeholder="e.g. 1.2.3.4:5060" className={`${fieldCls} font-mono`} />
+            </div>
+            <div>
+              <p className={label}>Protocol</p>
+              <select data-testid="select-conn-proto" value={f.iProtoTransport} onChange={e => setF('iProtoTransport', e.target.value)} className={fieldCls}>
+                {PROTO_TRANSPORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="sm:col-span-3">
+              <p className={label}>Outbound Proxy (optional)</p>
+              <input data-testid="input-conn-outbound-proxy" value={f.outboundProxy} onChange={e => setF('outboundProxy', e.target.value)} placeholder="proxy.carrier.com:5060" className={`${fieldCls} font-mono`} />
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 justify-end pt-1">
+
+        {/* ── Auth ── */}
+        <div>
+          <p className={sectionHdr}><Shield className="w-3 h-3" /> Auth (Digest)</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className={label}>Username</p>
+              <input data-testid="input-conn-username" value={f.connUsername} onChange={e => setF('connUsername', e.target.value)} placeholder="Optional" className={fieldCls} />
+            </div>
+            <div>
+              <p className={label}>Password</p>
+              <input data-testid="input-conn-password" type="password" value={f.password} onChange={e => setF('password', e.target.value)} placeholder="Optional" className={fieldCls} />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Capacity & Limits ── */}
+        <div>
+          <p className={sectionHdr}><Activity className="w-3 h-3" /> Capacity & Limits</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div>
+              <p className={label}>Max Concurrent Calls</p>
+              <input data-testid="input-conn-capacity" type="number" min="0" value={f.capacity} onChange={e => setF('capacity', e.target.value)} placeholder="Unlimited" className={fieldCls} />
+            </div>
+            <div>
+              <p className={label}>Max CPS</p>
+              <input data-testid="input-conn-max-cps" type="number" min="0" step="0.1" value={f.maxCps} onChange={e => setF('maxCps', e.target.value)} placeholder="Unlimited" className={fieldCls} />
+            </div>
+            <div className="flex items-center gap-3 pt-4">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input data-testid="checkbox-conn-enforce-capacity" type="checkbox" checked={!!f.enforceCapacity} onChange={e => setF('enforceCapacity', e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-border accent-violet-600" />
+                <span className="text-xs text-muted-foreground">Enforce capacity limit</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Routing & Translation ── */}
+        <div>
+          <p className={sectionHdr}><ArrowRightLeft className="w-3 h-3" /> Routing & Translation</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div>
+              <p className={label}>CLD Translation Rule</p>
+              <input data-testid="input-conn-translation-rule" value={f.translationRule} onChange={e => setF('translationRule', e.target.value)} placeholder="s/^[+]//" className={`${fieldCls} font-mono`} />
+            </div>
+            <div>
+              <p className={label}>CLI Translation Rule</p>
+              <input data-testid="input-conn-cli-rule" value={f.cliTranslationRule} onChange={e => setF('cliTranslationRule', e.target.value)} placeholder="s/^[+]//" className={`${fieldCls} font-mono`} />
+            </div>
+            <div>
+              <p className={label}>Hunt-Stop SIP Codes</p>
+              <input data-testid="input-conn-huntstop" value={f.huntstopScodes} onChange={e => setF('huntstopScodes', e.target.value)} placeholder="e.g. 404,503" className={`${fieldCls} font-mono`} />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Advanced ── */}
+        <div>
+          <p className={sectionHdr}><Settings2 className="w-3 h-3" /> Advanced</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div>
+              <p className={label}>100 Trying Timeout (s)</p>
+              <input data-testid="input-conn-timeout100" type="number" min="1" max="60" value={f.timeout100} onChange={e => setF('timeout100', e.target.value)} placeholder="5" className={fieldCls} />
+            </div>
+            <div className="flex items-center gap-3 pt-4">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input data-testid="checkbox-conn-blocked" type="checkbox" checked={!!f.blocked} onChange={e => setF('blocked', e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-border accent-rose-600" />
+                <span className="text-xs text-muted-foreground">Block this connection</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 justify-end pt-1 border-t border-border/30">
           <button data-testid="button-cancel-conn" onClick={onCancel} className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors">Cancel</button>
           <button data-testid="button-save-conn" onClick={onSave} disabled={isSaving || !f.name || !f.destination}
             className="px-3 py-1.5 text-xs rounded-md bg-violet-600 text-white hover:bg-violet-500 transition-colors disabled:opacity-50">
-            {isSaving ? 'Saving…' : 'Save'}
+            {isSaving ? 'Saving…' : 'Save Connection'}
           </button>
         </div>
       </div>
@@ -1360,10 +1451,15 @@ function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; is
                     </div>
                     <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                       <span className="text-[10px] text-muted-foreground font-mono">{conn.destination}</span>
+                      {conn.iProtoTransport !== undefined && (
+                        <span className="text-[10px] text-muted-foreground">{PROTO_TRANSPORT_OPTIONS.find(p => p.value === String(conn.iProtoTransport))?.label ?? 'SIP'}</span>
+                      )}
                       {conn.username && <span className="text-[10px] text-muted-foreground">user: {conn.username}</span>}
-                      {conn.capacity !== undefined && conn.capacity > 0 && <span className="text-[10px] text-muted-foreground">cap: {conn.capacity}</span>}
+                      {conn.capacity !== undefined && conn.capacity > 0 && <span className="text-[10px] text-muted-foreground">cap: {conn.capacity}{conn.enforceCapacity === false ? ' (soft)' : ''}</span>}
+                      {conn.maxCps !== undefined && conn.maxCps > 0 && <span className="text-[10px] text-muted-foreground">{conn.maxCps} cps</span>}
                       {conn.translationRule && <span className="text-[10px] text-muted-foreground font-mono">cld: {conn.translationRule}</span>}
                       {conn.cliTranslationRule && <span className="text-[10px] text-muted-foreground font-mono">cli: {conn.cliTranslationRule}</span>}
+                      {conn.huntstopScodes && <span className="text-[10px] text-muted-foreground font-mono">stop: {conn.huntstopScodes}</span>}
                       <span className="text-[10px] text-muted-foreground/40 font-mono">id:{conn.iConnection}</span>
                     </div>
                   </div>
@@ -1371,12 +1467,36 @@ function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; is
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button data-testid={`button-edit-connection-${conn.iConnection}`}
                         title="Edit connection"
-                        onClick={() => {
-                          setEditForm({ name: conn.name, destination: conn.destination, connUsername: conn.username || '', password: '', capacity: conn.capacity?.toString() || '', translationRule: conn.translationRule || '', cliTranslationRule: conn.cliTranslationRule || '', iConnection: conn.iConnection });
+                        disabled={loadingEditId === conn.iConnection}
+                        onClick={async () => {
+                          setLoadingEditId(conn.iConnection);
+                          try {
+                            const full = await fetch(`/api/sippy/connections/${conn.iConnection}`).then(r => r.json());
+                            const c: VendorConnection = full.connection ?? conn;
+                            setEditForm({
+                              name:               c.name,
+                              destination:        c.destination,
+                              connUsername:       c.username           || '',
+                              password:           '',
+                              capacity:           c.capacity?.toString()    || '',
+                              enforceCapacity:    c.enforceCapacity     ?? true,
+                              maxCps:             c.maxCps?.toString()      || '',
+                              blocked:            c.blocked             ?? false,
+                              iProtoTransport:    c.iProtoTransport?.toString() || '1',
+                              huntstopScodes:     c.huntstopScodes      || '',
+                              timeout100:         c.timeout100?.toString()  || '',
+                              translationRule:    c.translationRule     || '',
+                              cliTranslationRule: c.cliTranslationRule  || '',
+                              outboundProxy:      c.outboundProxy       || '',
+                              iConnection:        c.iConnection,
+                            });
+                          } finally {
+                            setLoadingEditId(null);
+                          }
                           setEditingId(conn.iConnection);
                         }}
-                        className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors">
-                        <Pencil className="w-3 h-3" />
+                        className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
+                        {loadingEditId === conn.iConnection ? <Loader2 className="w-3 h-3 animate-spin" /> : <Pencil className="w-3 h-3" />}
                       </button>
                       <button data-testid={`button-delete-connection-${conn.iConnection}`}
                         title="Delete connection"
