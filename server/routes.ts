@@ -2197,6 +2197,39 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── Account Incoming Routing Management (official Sippy API — docs 3000032223) ──
+
+  // GET /api/sippy/accounts/:id/incoming-routes — list incoming routes for an account
+  // Query params: iDid, offset, limit, iCustomer (trusted mode)
+  app.get('/api/sippy/accounts/:id/incoming-routes', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const opts: { iAccount: number; iDid?: number; offset?: number; limit?: number; iCustomer?: number } = { iAccount };
+      if (req.query.iDid)      opts.iDid      = parseInt(req.query.iDid as string, 10);
+      if (req.query.offset)    opts.offset    = parseInt(req.query.offset as string, 10);
+      if (req.query.limit)     opts.limit     = parseInt(req.query.limit as string, 10);
+      if (req.query.iCustomer) opts.iCustomer = parseInt(req.query.iCustomer as string, 10);
+      const result = await sippy.getIncomingRoutesList(username, password, opts);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // PATCH /api/sippy/incoming-routes/:id — update an incoming routing entry
+  // Body: iTrunk (null = Registered Account), iForwardDidMode, selfManaged, iCustomer
+  app.patch('/api/sippy/incoming-routes/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iIncomingRoute = parseInt(req.params.id, 10);
+      if (isNaN(iIncomingRoute)) return res.status(400).json({ success: false, message: 'Invalid i_incoming_route.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateIncomingRoute(username, password, { iIncomingRoute, ...req.body });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // ── Vendor management (official Sippy API) ────────────────────────────────
 
   // PATCH /api/sippy/vendors/:id — update a vendor

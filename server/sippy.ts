@@ -2965,6 +2965,117 @@ export async function deleteSippyAccount(
   }
 }
 
+// ── Account Incoming Routing Management (official Sippy docs 3000032223) ────────
+
+export interface SippyIncomingRoute {
+  i_incoming_route: number;
+  i_did: number | null;        // null = On-Net Calls
+  did: string;
+  i_trunk: number | null;      // null = Registered Account
+  trunk_name: string;
+  i_forward_did_mode: number | null;
+  self_managed: boolean;
+}
+
+/**
+ * Get list of incoming routes configured for an account.
+ * Official method: getIncomingRoutesList() — docs 3000032223
+ * Available from Sippy v4.4. Supports trusted mode via i_customer.
+ */
+export async function getIncomingRoutesList(
+  username: string,
+  password: string,
+  opts: {
+    iAccount: number;
+    iDid?: number;
+    offset?: number;
+    limit?: number;
+    iCustomer?: number;
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; routes: SippyIncomingRoute[]; message?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, routes: [], message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: opts.iAccount };
+  if (opts.iDid     !== undefined) params.i_did     = opts.iDid;
+  if (opts.offset   !== undefined) params.offset    = opts.offset;
+  if (opts.limit    !== undefined) params.limit     = opts.limit;
+  if (opts.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getIncomingRoutesList', params), username, password);
+    if (resp.statusCode !== 200 || resp.body.includes('<fault>') || resp.body.includes('faultCode')) {
+      const fault = resp.body.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(resp.body, 'faultString') ?? 'getIncomingRoutesList failed.';
+      return { success: false, routes: [], message: fault };
+    }
+
+    const structs = extractAllTags(resp.body, 'struct');
+    const routes: SippyIncomingRoute[] = [];
+    for (const s of structs) {
+      const m = extractStructMembers(s);
+      if (m['i_incoming_route'] === undefined) continue;
+      routes.push({
+        i_incoming_route: parseInt(m['i_incoming_route'] ?? '0', 10),
+        i_did:            m['i_did'] && m['i_did'] !== 'nil' ? parseInt(m['i_did'], 10) : null,
+        did:              m['did'] ?? '',
+        i_trunk:          m['i_trunk'] && m['i_trunk'] !== 'nil' ? parseInt(m['i_trunk'], 10) : null,
+        trunk_name:       m['trunk_name'] ?? '',
+        i_forward_did_mode: m['i_forward_did_mode'] && m['i_forward_did_mode'] !== 'nil'
+          ? parseInt(m['i_forward_did_mode'], 10) : null,
+        self_managed:     m['self_managed'] === '1' || m['self_managed'] === 'true',
+      });
+    }
+    return { success: true, routes };
+  } catch (e: any) {
+    return { success: false, routes: [], message: e.message };
+  }
+}
+
+/**
+ * Update an incoming routing entry for an account.
+ * Official method: updateIncomingRoute() — docs 3000032223
+ * Available from Sippy v4.4. Supports trusted mode via i_customer.
+ */
+export async function updateIncomingRoute(
+  username: string,
+  password: string,
+  opts: {
+    iIncomingRoute: number;    // Required — the route to update
+    iTrunk?: number | null;    // null = Registered Account
+    iForwardDidMode?: number;  // Forward DID number mode
+    selfManaged?: boolean;     // whether account can manage this route
+    iCustomer?: number;        // trusted mode
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {
+    i_incoming_route: opts.iIncomingRoute,
+  };
+  if (opts.iTrunk           !== undefined) params.i_trunk            = opts.iTrunk;           // null is valid
+  if (opts.iForwardDidMode  !== undefined) params.i_forward_did_mode = opts.iForwardDidMode;
+  if (opts.selfManaged      !== undefined) params.self_managed        = opts.selfManaged;
+  if (opts.iCustomer        !== undefined) params.i_customer          = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateIncomingRoute', params), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>') && !resp.body.includes('faultCode')) {
+      return { success: true, message: 'Incoming route updated successfully.' };
+    }
+    const fault = resp.body.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(resp.body, 'faultString') ?? 'updateIncomingRoute failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 // ── Vendor Management (official Sippy docs 107434) ───────────────────────────
 
 /**
