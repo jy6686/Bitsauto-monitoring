@@ -9,6 +9,8 @@ import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import * as vos3000 from "./vos3000";
 import * as sippy from "./sippy";
 import * as sippySnmp from "./snmp";
+import * as emailSvc from "./email";
+import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas } from "./cdr-enrichment";
 
 // ── Sippy credential helper ────────────────────────────────────────────────────
 // Per Sippy docs (106909): XML-RPC API authenticates with Web Login + API Password.
@@ -2039,6 +2041,146 @@ export async function registerRoutes(
     } catch (e: any) {
       res.json({ ok: false, error: e.message });
     }
+  });
+
+  // ── EMAIL ALERT CONFIGURATION ─────────────────────────────────────────────
+
+  // GET /api/alert-config — get current email alert settings
+  app.get('/api/alert-config', async (req: any, res) => {
+    try {
+      const s = await storage.getSettings();
+      res.json({
+        alertEnabled: s.alertEnabled,
+        alertAdminEmail: s.alertAdminEmail,
+        alertGmailUser: s.alertGmailUser,
+        alertGmailAppPass: s.alertGmailAppPass ? '***' : '',
+        balanceAlertThreshold: s.balanceAlertThreshold,
+        fasMinPddSecs: s.fasMinPddSecs,
+        fasMaxBillSecs: s.fasMaxBillSecs,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/alert-config — update email alert settings
+  app.patch('/api/alert-config', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const updates: Record<string, any> = {};
+      if (req.body.alertEnabled !== undefined) updates.alertEnabled = !!req.body.alertEnabled;
+      if (req.body.alertAdminEmail !== undefined) updates.alertAdminEmail = req.body.alertAdminEmail;
+      if (req.body.alertGmailUser !== undefined) updates.alertGmailUser = req.body.alertGmailUser;
+      if (req.body.alertGmailAppPass !== undefined && req.body.alertGmailAppPass !== '***') {
+        updates.alertGmailAppPass = req.body.alertGmailAppPass;
+      }
+      if (req.body.balanceAlertThreshold !== undefined) updates.balanceAlertThreshold = Number(req.body.balanceAlertThreshold);
+      if (req.body.fasMinPddSecs !== undefined) updates.fasMinPddSecs = Number(req.body.fasMinPddSecs);
+      if (req.body.fasMaxBillSecs !== undefined) updates.fasMaxBillSecs = Number(req.body.fasMaxBillSecs);
+      await storage.updateSettings(updates);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/alert-config/test — verify Gmail connection
+  app.post('/api/alert-config/test', (req: any, res, next) => requireRole(['admin'], req, res, next), async (_req, res) => {
+    const result = await emailSvc.testEmailConfig();
+    res.json(result);
+  });
+
+  // ── FAS EVENTS ────────────────────────────────────────────────────────────
+
+  // GET /api/fas-events — list recorded FAS events
+  app.get('/api/fas-events', async (req: any, res) => {
+    try {
+      const limit = req.query.limit ? Math.min(500, Number(req.query.limit)) : 100;
+      const events = await storage.getFasEvents(limit);
+      res.json({ events });
+    } catch (e: any) { res.status(500).json({ events: [], error: e.message }); }
+  });
+
+  // ── CDR ENRICHMENT ENDPOINT ───────────────────────────────────────────────
+  // POST /api/enrich-cdr — enriches a batch of CDR records with country, trunk class, FAS, etc.
+  // Used by the frontend to enhance CDR data from Sippy/VOS3000
+
+  app.post('/api/enrich-cdr', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const cdrs: any[] = req.body.cdrs ?? [];
+      const fasMinPdd = settings.fasMinPddSecs ?? 10;
+      const fasMaxBill = settings.fasMaxBillSecs ?? 5;
+
+      const enriched = cdrs.map(cdr => {
+        const result = enrichCdr({
+          caller: cdr.caller ?? cdr.cli ?? '',
+          callee: cdr.callee ?? cdr.cld ?? '',
+          sipCode: cdr.sipCode ?? cdr.disconnect_code ?? null,
+          pddSecs: cdr.pdd ?? null,
+          billSecs: cdr.billSecs ?? cdr.billed_duration ?? null,
+          fasMinPddSecs: fasMinPdd,
+          fasMaxBillSecs: fasMaxBill,
+        });
+        return { ...cdr, ...result };
+      });
+
+      // Record any new FAS detections
+      for (const cdr of enriched) {
+        if (cdr.isFas && cdr.callId) {
+          try {
+            const event = await storage.createFasEvent({
+              callId: String(cdr.callId ?? cdr.call_id ?? cdr.id ?? ''),
+              caller: cdr.caller ?? cdr.cli ?? '',
+              callee: cdr.callee ?? cdr.cld ?? '',
+              vendor: cdr.vendor ?? '',
+              pddSecs: cdr.pddSecs ?? null,
+              billSecs: cdr.billSecs ?? null,
+              sipCode: cdr.sipCode ?? null,
+              reason: cdr.fasReason ?? '',
+              alertSent: false,
+            });
+            // Fire email alert (non-blocking)
+            const emailPayload = emailSvc.buildFasAlertEmail({
+              callId: event.callId,
+              caller: event.caller ?? '',
+              callee: event.callee ?? '',
+              vendor: event.vendor ?? '',
+              pddSecs: event.pddSecs ?? 0,
+              billSecs: event.billSecs ?? 0,
+              reason: event.reason ?? '',
+            });
+            emailSvc.sendAlertEmail(emailPayload).then(sent => {
+              if (sent) storage.markFasAlertSent(event.id);
+            });
+          } catch {
+            // skip duplicate
+          }
+        }
+      }
+
+      res.json({ enriched });
+    } catch (e: any) { res.status(500).json({ enriched: [], error: e.message }); }
+  });
+
+  // ── ACCOUNT MONITORING — balance alerts ───────────────────────────────────
+  // POST /api/sippy/accounts/:id/check-balance — explicitly check & alert on low balance
+  app.post('/api/sippy/accounts/:id/check-balance', async (req: any, res) => {
+    try {
+      const iAccount = Number(req.params.id);
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const baseUrl = settings.portalUrl ?? '';
+      const info = await sippy.getAccountInfo(username, password, baseUrl, iAccount);
+      const balance = info?.balance ?? 0;
+      const creditLimit = info?.credit_limit ?? 0;
+      const threshold = settings.balanceAlertThreshold ?? 10;
+      const accountName = info?.name ?? `Account #${iAccount}`;
+
+      const isLow = balance < threshold;
+      if (isLow) {
+        const emailPayload = emailSvc.buildBalanceAlertEmail({ accountName, balance, creditLimit, threshold });
+        const profiles = await storage.getClientProfiles();
+        const match = profiles.find(p => p.name?.toLowerCase() === accountName?.toLowerCase());
+        await emailSvc.sendAlertEmail({ ...emailPayload, clientEmail: match?.alertEmail });
+      }
+      res.json({ ok: true, balance, creditLimit, isLow, accountName });
+    } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
   return httpServer;

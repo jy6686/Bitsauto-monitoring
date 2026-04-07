@@ -1,7 +1,7 @@
 
 import { 
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
-  switches,
+  switches, fasEvents,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -9,6 +9,7 @@ import {
   type Role, type ClientProfile, type InsertClientProfile,
   type UserConfig, type InsertUserConfig,
   type Switch, type InsertSwitch,
+  type FasEvent, type InsertFasEvent,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -60,6 +61,11 @@ export interface IStorage {
   // User Configuration
   getUserConfig(userId: string): Promise<UserConfig | null>;
   upsertUserConfig(userId: string, config: Partial<InsertUserConfig>): Promise<UserConfig>;
+
+  // FAS Events
+  getFasEvents(limit?: number): Promise<FasEvent[]>;
+  createFasEvent(event: InsertFasEvent): Promise<FasEvent>;
+  markFasAlertSent(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -422,6 +428,21 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return row;
+  }
+
+  // ── FAS Events ─────────────────────────────────────────────────────────────
+
+  async getFasEvents(limit: number = 100): Promise<FasEvent[]> {
+    return db.select().from(fasEvents).orderBy(desc(fasEvents.detectedAt)).limit(limit);
+  }
+
+  async createFasEvent(event: InsertFasEvent): Promise<FasEvent> {
+    const [row] = await db.insert(fasEvents).values(event).returning();
+    return row;
+  }
+
+  async markFasAlertSent(id: number): Promise<void> {
+    await db.update(fasEvents).set({ alertSent: true }).where(eq(fasEvents.id, id));
   }
 }
 

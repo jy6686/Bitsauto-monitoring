@@ -3,6 +3,11 @@ import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEn
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Trunk class classification
+export type TrunkClass = 'first' | 'business' | 'charlie' | 'unknown';
+// Call failure types
+export type FailType = 'wrong_number' | 'switched_off' | 'untraceable' | 'invalid' | null;
+
 export * from "./models/auth";
 
 // === TABLE DEFINITIONS ===
@@ -17,7 +22,15 @@ export const calls = pgTable("calls", {
   endTime: timestamp("end_time"),
   direction: varchar("direction", { length: 10 }).default('inbound'), // inbound, outbound
   pdd: real("pdd"), // Post-Dial Delay in seconds (time from dial to first ringback)
-  failReason: varchar("fail_reason", { length: 30 }), // wrong_number | switched_off | untraceable
+  failReason: varchar("fail_reason", { length: 30 }), // wrong_number | switched_off | untraceable | invalid
+  // Enriched fields for monitoring
+  originCountry: varchar("origin_country", { length: 64 }), // country from caller number
+  termCountry: varchar("term_country", { length: 64 }),     // country from callee number
+  trunkClass: varchar("trunk_class", { length: 20 }),       // first | business | charlie | unknown
+  sipCode: integer("sip_code"),                             // SIP disconnect code e.g. 200, 404, 480
+  billableSecs: integer("billable_secs"),                   // billed duration in seconds
+  fasFlag: boolean("fas_flag").default(false),              // False Answer Supervision detected
+  callbackFlag: boolean("callback_flag").default(false),    // call is a callback
 });
 
 // Metrics: Time-series data for call quality
@@ -69,6 +82,15 @@ export const settings = pgTable("settings", {
   snmpPort: integer("snmp_port").default(161),
   snmpCommunity: varchar("snmp_community", { length: 128 }).default('public'),
   snmpEnvironments: varchar("snmp_environments", { length: 255 }).default('1'), // comma-separated env IDs
+  // Email alert configuration (Gmail)
+  alertAdminEmail: varchar("alert_admin_email", { length: 255 }), // always-notified admin
+  alertGmailUser: varchar("alert_gmail_user", { length: 255 }),   // Gmail "From" address
+  alertGmailAppPass: varchar("alert_gmail_app_pass", { length: 255 }), // Gmail App Password
+  alertEnabled: boolean("alert_enabled").default(false),
+  // Alert thresholds
+  balanceAlertThreshold: real("balance_alert_threshold").default(10), // alert if balance < this (USD)
+  fasMinPddSecs: integer("fas_min_pdd_secs").default(10),     // PDD > this = FAS candidate
+  fasMaxBillSecs: integer("fas_max_bill_secs").default(5),    // billed < this but answered = FAS
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports
@@ -99,6 +121,9 @@ export const clientProfiles = pgTable("client_profiles", {
   timezone: varchar("timezone", { length: 64 }).default('Etc/UTC'), // Account timezone
   language: varchar("language", { length: 32 }).default('English'), // Portal language
   companyName: varchar("company_name", { length: 128 }),      // Address Info: Company Name
+  alertEmail: varchar("alert_email", { length: 255 }),        // per-client alert email (optional)
+  costPerMin: real("cost_per_min"),                           // vendor cost per minute (override)
+  revenuePerMin: real("revenue_per_min"),                     // client revenue per minute (override)
 });
 
 export type ClientProfile = typeof clientProfiles.$inferSelect;
@@ -123,6 +148,25 @@ export const switches = pgTable("switches", {
 export type Switch = typeof switches.$inferSelect;
 export type InsertSwitch = typeof switches.$inferInsert;
 export const insertSwitchSchema = createInsertSchema(switches).omit({ id: true, createdAt: true, lastSyncAt: true });
+
+// FAS Events: records of False Answer Supervision fraud detections
+export const fasEvents = pgTable("fas_events", {
+  id: serial("id").primaryKey(),
+  callId: varchar("call_id", { length: 64 }).notNull(), // CDR call-id from switch
+  caller: varchar("caller", { length: 64 }),
+  callee: varchar("callee", { length: 64 }),
+  vendor: varchar("vendor", { length: 128 }),
+  pddSecs: real("pdd_secs"),
+  billSecs: integer("bill_secs"),
+  sipCode: integer("sip_code"),
+  reason: varchar("reason", { length: 128 }),  // 'high_pdd' | 'short_billed' | 'vendor_pattern'
+  detectedAt: timestamp("detected_at").defaultNow(),
+  alertSent: boolean("alert_sent").default(false),
+});
+
+export type FasEvent = typeof fasEvents.$inferSelect;
+export type InsertFasEvent = typeof fasEvents.$inferInsert;
+export const insertFasEventSchema = createInsertSchema(fasEvents).omit({ id: true, detectedAt: true });
 
 // User Configuration: per-user personal settings beyond what Replit Auth provides
 export const userConfig = pgTable("user_config", {

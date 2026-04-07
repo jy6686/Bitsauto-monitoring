@@ -392,6 +392,57 @@ function ProfileForm({
         />
       </div>
 
+      {/* Alert Email & Rate Overrides */}
+      <div className="border border-border/50 rounded-lg p-4 space-y-3 bg-muted/20">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+          <span>Alert &amp; Rate Settings</span>
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Alert Email (optional)</label>
+            <input
+              data-testid="input-alert-email"
+              type="email"
+              value={(form as any).alertEmail || ''}
+              onChange={e => set('alertEmail' as any, e.target.value)}
+              placeholder="client@example.com"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+            <p className="text-[10px] text-muted-foreground/60">Receives balance &amp; FAS alerts for this party</p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">
+              {(form.type === 'client') ? 'Revenue Rate ($/min)' : 'Cost Rate ($/min)'}
+            </label>
+            <input
+              data-testid="input-rate-override"
+              type="number"
+              min={0} step={0.0001}
+              value={form.type === 'client' ? ((form as any).revenuePerMin ?? '') : ((form as any).costPerMin ?? '')}
+              onChange={e => {
+                const val = e.target.value === '' ? null : Number(e.target.value);
+                if (form.type === 'client') set('revenuePerMin' as any, val);
+                else set('costPerMin' as any, val);
+              }}
+              placeholder="0.0250"
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
+            />
+            <p className="text-[10px] text-muted-foreground/60">Manual rate override (Sippy rates used if blank)</p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Base Rate ($/min)</label>
+            <input
+              data-testid="input-base-rate"
+              type="number"
+              min={0} step={0.0001}
+              value={form.ratePerMin ?? 0.025}
+              onChange={e => set('ratePerMin', Number(e.target.value))}
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Sippy Advanced Parameters */}
       <SippyAdvancedFields form={form} set={set} />
 

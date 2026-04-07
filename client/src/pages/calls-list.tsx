@@ -501,6 +501,7 @@ function SwitchPanel({
                   <tr>
                     <th className="px-6 py-4 font-medium">Caller</th>
                     <th className="px-6 py-4 font-medium">Destination</th>
+                    <th className="px-6 py-4 font-medium">Trunk</th>
                     <th className="px-6 py-4 font-medium">Started</th>
                     <th className="px-6 py-4 font-medium">Quality (MOS)</th>
                     <th className="px-6 py-4 font-medium">Status</th>
@@ -536,6 +537,27 @@ function SwitchPanel({
                             <p className="text-xs text-muted-foreground/50 mt-0.5">Local / Unknown</p>
                           )}
                         </td>
+                        <td className="px-6 py-4" data-testid={`cell-trunk-${call.id}`}>
+                          {call.trunkClass ? (
+                            <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${
+                              call.trunkClass === 'First' ? 'text-blue-400 bg-blue-500/10' :
+                              call.trunkClass === 'Business' ? 'text-violet-400 bg-violet-500/10' :
+                              call.trunkClass === 'Charlie' ? 'text-orange-400 bg-orange-500/10' :
+                              'text-muted-foreground bg-muted/40'
+                            }`}>{call.trunkClass}</span>
+                          ) : (
+                            (() => {
+                              const d = call.callee?.replace(/^\+?1?/, '').charAt(0);
+                              const tc = d === '1' ? {label:'First', cls:'text-blue-400 bg-blue-500/10'}
+                                : d === '2' ? {label:'Business', cls:'text-violet-400 bg-violet-500/10'}
+                                : d === '7' ? {label:'Charlie', cls:'text-orange-400 bg-orange-500/10'}
+                                : null;
+                              return tc
+                                ? <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${tc.cls}`}>{tc.label}</span>
+                                : <span className="text-muted-foreground/30 text-xs">—</span>;
+                            })()
+                          )}
+                        </td>
                         <td className="px-6 py-4 text-muted-foreground">
                           <div className="flex items-center gap-2">
                             <Clock className="w-3 h-3" />
@@ -565,7 +587,7 @@ function SwitchPanel({
                   })}
                   {filteredCalls?.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">No calls found matching your search.</td>
+                      <td colSpan={7} className="px-6 py-12 text-center text-muted-foreground">No calls found matching your search.</td>
                     </tr>
                   )}
                 </tbody>
@@ -686,31 +708,27 @@ function SwitchPanel({
                         <th className="px-4 py-3 font-medium">Caller</th>
                         <th className="px-4 py-3 font-medium">CLI</th>
                         <th className="px-4 py-3 font-medium">CLD</th>
+                        <th className="px-4 py-3 font-medium">Orig Country</th>
+                        <th className="px-4 py-3 font-medium">Dest Country</th>
+                        <th className="px-4 py-3 font-medium">Trunk</th>
                         <th className="px-4 py-3 font-medium">State</th>
                         <th className="px-4 py-3 font-medium">Vendor</th>
                         <th className="px-4 py-3 font-medium">Connection</th>
-                        <th className="px-4 py-3 font-medium">Direction</th>
-                        <th className="px-4 py-3 font-medium text-center" colSpan={2}>Media IP</th>
                         <th className="px-4 py-3 font-medium text-right">Delay</th>
                         <th className="px-4 py-3 font-medium text-right">Duration</th>
                       </tr>
-                      <tr className="border-b border-border/30">
-                        <th />
-                        <th />
-                        <th />
-                        <th />
-                        <th />
-                        <th />
-                        <th />
-                        <th />
-                        <th className="px-4 py-1.5 text-center text-muted-foreground/60 font-normal text-xs">Caller</th>
-                        <th className="px-4 py-1.5 text-center text-muted-foreground/60 font-normal text-xs">Callee</th>
-                        <th />
-                        <th />
-                      </tr>
                     </thead>
                     <tbody className="divide-y divide-border/30">
-                      {displayed.map((call, i) => (
+                      {displayed.map((call, i) => {
+                        const origCountry = call.caller ? lookupCountry(call.caller) : null;
+                        const destCountry = call.callee ? lookupCountry(call.callee) : null;
+                        const cldDigit = call.callee?.replace(/^\+?1?/, '').charAt(0);
+                        const trunkClass = !cldDigit ? null
+                          : cldDigit === '1' ? { label: 'First', color: 'text-blue-400 bg-blue-500/10' }
+                          : cldDigit === '2' ? { label: 'Business', color: 'text-violet-400 bg-violet-500/10' }
+                          : cldDigit === '7' ? { label: 'Charlie', color: 'text-orange-400 bg-orange-500/10' }
+                          : null;
+                        return (
                         <tr key={call.id || i} className="hover:bg-muted/20 transition-colors text-xs" data-testid={`row-live-${i}`}>
                           <td className="px-3 py-3 text-center text-muted-foreground/50">{i + 1}</td>
                           <td className="px-4 py-3">
@@ -722,6 +740,29 @@ function SwitchPanel({
                           </td>
                           <td className="px-4 py-3 font-mono text-foreground/80" data-testid={`cell-cli-${i}`}>{call.caller || '—'}</td>
                           <td className="px-4 py-3 font-mono text-foreground/80" data-testid={`cell-cld-${i}`}>{call.callee || '—'}</td>
+                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-orig-country-${i}`}>
+                            {origCountry ? (
+                              <span className="flex items-center gap-1">
+                                <Globe className="w-3 h-3 opacity-50" />
+                                {origCountry}
+                              </span>
+                            ) : <span className="text-muted-foreground/30">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-dest-country-${i}`}>
+                            {destCountry ? (
+                              <span className="flex items-center gap-1">
+                                <Globe className="w-3 h-3 opacity-50" />
+                                {destCountry}
+                              </span>
+                            ) : <span className="text-muted-foreground/30">—</span>}
+                          </td>
+                          <td className="px-4 py-3" data-testid={`cell-trunk-${i}`}>
+                            {trunkClass ? (
+                              <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${trunkClass.color}`}>
+                                {trunkClass.label}
+                              </span>
+                            ) : <span className="text-muted-foreground/30">—</span>}
+                          </td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                               call.callStatus === 'connected'
@@ -734,9 +775,6 @@ function SwitchPanel({
                           </td>
                           <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-vendor-${i}`}>{call.vendor || <span className="text-muted-foreground/30">—</span>}</td>
                           <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-connection-${i}`}>{call.connection || <span className="text-muted-foreground/30">—</span>}</td>
-                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-direction-${i}`}>{call.direction || <span className="text-muted-foreground/30">—</span>}</td>
-                          <td className="px-4 py-3 font-mono text-muted-foreground text-center" data-testid={`cell-media-caller-${i}`}>{call.mediaIpCaller || <span className="text-muted-foreground/30">—</span>}</td>
-                          <td className="px-4 py-3 font-mono text-muted-foreground text-center" data-testid={`cell-media-callee-${i}`}>{call.mediaIpCallee || <span className="text-muted-foreground/30">—</span>}</td>
                           <td className="px-4 py-3 text-right text-muted-foreground font-mono" data-testid={`cell-delay-${i}`}>
                             {call.delay != null ? `${call.delay}ms` : <span className="text-muted-foreground/30">—</span>}
                           </td>
@@ -744,7 +782,8 @@ function SwitchPanel({
                             {formatDuration(call.duration)}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                       {displayed.length === 0 && (
                         <tr>
                           <td colSpan={12} className="px-6 py-12 text-center text-muted-foreground">

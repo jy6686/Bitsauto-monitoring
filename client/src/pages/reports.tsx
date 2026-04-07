@@ -8,7 +8,8 @@ import {
 import {
   Download, RefreshCw, Filter, TrendingUp, TrendingDown, Minus,
   Calendar, Clock, Globe, Building2, PhoneCall, CheckCircle2, PhoneOff,
-  AlertTriangle, Users,
+  AlertTriangle, Users, DollarSign, ShieldAlert, Flag, ArrowRight,
+  PhoneForwarded, PhoneIncoming,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { AsrAcdReportRow, ClientProfile } from "@shared/schema";
@@ -221,6 +222,27 @@ export default function ReportsPage() {
     avgPdd: displayRows.length > 0 ? displayRows.reduce((s, r) => s + r.avgPdd, 0) / displayRows.length : 0,
   }), [displayRows]);
 
+  // ── Revenue / Cost / Profit from profiles ─────────────────────────────────
+  const profitSummary = useMemo(() => {
+    let totalRevenue = 0;
+    let totalCost = 0;
+    for (const row of displayRows) {
+      const clientMatch = matchProfile(row.caller, profiles, 'client', row.caller);
+      const vendorMatch = matchProfile(row.caller, profiles, 'vendor', row.caller);
+      const minutes = row.billedDurationSeconds / 60;
+      const rateRev = clientMatch?.revenuePerMin ?? clientMatch?.ratePerMin ?? 0;
+      const rateCost = vendorMatch?.costPerMin ?? vendorMatch?.ratePerMin ?? 0;
+      totalRevenue += minutes * rateRev;
+      totalCost += minutes * rateCost;
+    }
+    return {
+      revenue: totalRevenue,
+      cost: totalCost,
+      profit: totalRevenue - totalCost,
+      margin: totalRevenue > 0 ? ((totalRevenue - totalCost) / totalRevenue) * 100 : 0,
+    };
+  }, [displayRows, profiles]);
+
   const rangeLabel = `${format(new Date(startTime), 'd MMM HH:mm')} → ${format(new Date(endTime), 'd MMM HH:mm')}`;
 
   return (
@@ -425,6 +447,26 @@ export default function ReportsPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Revenue / Cost / Profit Summary ─────────────────────────── */}
+      {displayRows.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: "Total Revenue", value: `$${profitSummary.revenue.toFixed(2)}`, color: "text-emerald-400", icon: DollarSign },
+            { label: "Total Cost", value: `$${profitSummary.cost.toFixed(2)}`, color: "text-orange-400", icon: DollarSign },
+            { label: "Profit", value: `$${profitSummary.profit.toFixed(2)}`, color: profitSummary.profit >= 0 ? "text-emerald-400" : "text-red-400", icon: TrendingUp },
+            { label: "Margin", value: `${profitSummary.margin.toFixed(1)}%`, color: profitSummary.margin >= 20 ? "text-emerald-400" : "text-amber-400", icon: TrendingUp },
+          ].map(stat => (
+            <div key={stat.label} className="bg-card rounded-xl border border-border p-4" data-testid={`stat-${stat.label.toLowerCase().replace(/\s+/g,'-')}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <stat.icon className={`h-4 w-4 ${stat.color}`} />
+                <span className="text-xs text-muted-foreground">{stat.label}</span>
+              </div>
+              <p className={`text-xl font-bold tabular-nums ${stat.color}`}>{stat.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── VOS3000 Portal Client Stats ─────────────────────────── */}
       <div className="rounded-xl border overflow-hidden bg-card/60 shadow-sm"

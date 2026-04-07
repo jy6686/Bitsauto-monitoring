@@ -17,7 +17,7 @@ import SettingsPage from "@/pages/settings";
 import ReportsPage from "@/pages/reports";
 import TeamPage from "@/pages/team";
 import ClientsPage from "@/pages/clients";
-import RateEditorPage from "@/pages/rate-editor";
+import FraudPage from "@/pages/fraud";
 import AccountPage from "@/pages/account";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
@@ -104,8 +104,8 @@ function Router() {
       <Route path="/clients">
         {() => <ProtectedRoute component={ClientsPage} requiredRoles={['admin','management']} />}
       </Route>
-      <Route path="/rate-editor">
-        {() => <ProtectedRoute component={RateEditorPage} requiredRoles={['admin','management']} />}
+      <Route path="/fraud">
+        {() => <ProtectedRoute component={FraudPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/team">
         {() => <ProtectedRoute component={TeamPage} requiredRoles={['admin']} />}

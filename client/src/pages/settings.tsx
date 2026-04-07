@@ -8,7 +8,7 @@ import {
   Loader2, Save, RefreshCw, Eye, EyeOff, Globe, CheckCircle2,
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
   Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp, Users, UserPlus, X, AlertCircle,
-  Radio, Activity,
+  Radio, Activity, Mail, Bell, Send, MailCheck, MailX,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -470,6 +470,237 @@ const ACCESS_LEVELS = ['Administrator', 'Billing', 'Support', 'Read-Only', 'Cust
 const TIMEZONES = ['Etc/UTC', 'America/New_York', 'America/Los_Angeles', 'America/Chicago', 'Europe/London', 'Europe/Berlin', 'Asia/Karachi', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Tokyo', 'Australia/Sydney'];
 const START_PAGES = ['Monitoring', 'Dashboard', 'Customers', 'Accounts', 'CDRs', 'Reports'];
 const LANGUAGES = ['English', 'French', 'German', 'Spanish', 'Arabic', 'Russian', 'Chinese'];
+
+// ── Email Alert Configuration Panel ──────────────────────────────────────────
+
+type AlertConfig = {
+  alertEnabled: boolean;
+  alertAdminEmail: string;
+  alertGmailUser: string;
+  alertGmailAppPass: string;
+  balanceAlertThreshold: number;
+  fasMinPddSecs: number;
+  fasMaxBillSecs: number;
+};
+
+function EmailAlertPanel() {
+  const qc = useQueryClient();
+  const [expanded, setExpanded] = useState(true);
+  const [showPass, setShowPass] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
+
+  const { data: config, isLoading } = useQuery<AlertConfig>({
+    queryKey: ['/api/alert-config'],
+  });
+
+  const [form, setForm] = useState<AlertConfig>({
+    alertEnabled: false,
+    alertAdminEmail: '',
+    alertGmailUser: '',
+    alertGmailAppPass: '',
+    balanceAlertThreshold: 10,
+    fasMinPddSecs: 10,
+    fasMaxBillSecs: 5,
+  });
+
+  useEffect(() => {
+    if (config) setForm({ ...config });
+  }, [config]);
+
+  const saveMut = useMutation({
+    mutationFn: () => apiRequest('PATCH', '/api/alert-config', form),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/alert-config'] }),
+  });
+
+  const testMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/alert-config/test', {});
+      const json = await res.json();
+      setTestResult(json);
+      return json;
+    },
+  });
+
+  return (
+    <div className="bg-card rounded-xl border border-border overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center gap-3 p-6 text-left hover:bg-muted/20 transition-colors"
+      >
+        <Mail className="h-5 w-5 text-violet-400 flex-shrink-0" />
+        <div className="flex-1">
+          <h2 className="text-base font-semibold">Email Alert Configuration</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Gmail alerts for balance changes, FAS detection, wrong numbers &amp; auth events</p>
+        </div>
+        {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="px-6 pb-6 space-y-5 border-t border-border/50">
+          {isLoading ? (
+            <div className="flex items-center gap-2 py-4 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+            </div>
+          ) : (
+            <>
+              {/* Enable toggle */}
+              <div className="flex items-center justify-between pt-4">
+                <div>
+                  <label className="text-sm font-medium">Enable Email Alerts</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Send automated alerts via Gmail when events are detected</p>
+                </div>
+                <input
+                  type="checkbox"
+                  data-testid="input-alert-enabled"
+                  checked={form.alertEnabled}
+                  onChange={e => setForm(f => ({ ...f, alertEnabled: e.target.checked }))}
+                  className="h-5 w-5 rounded border-border"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Admin email */}
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Admin Alert Email</label>
+                  <p className="text-xs text-muted-foreground">Always receives all alerts</p>
+                  <input
+                    type="email"
+                    data-testid="input-admin-email"
+                    value={form.alertAdminEmail}
+                    onChange={e => setForm(f => ({ ...f, alertAdminEmail: e.target.value }))}
+                    placeholder="admin@company.com"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+
+                {/* Gmail user */}
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Gmail Address (Sender)</label>
+                  <p className="text-xs text-muted-foreground">The Gmail account that sends alerts</p>
+                  <input
+                    type="email"
+                    data-testid="input-gmail-user"
+                    value={form.alertGmailUser}
+                    onChange={e => setForm(f => ({ ...f, alertGmailUser: e.target.value }))}
+                    placeholder="voipmonitor@gmail.com"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+              </div>
+
+              {/* Gmail App Password */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Gmail App Password</label>
+                <p className="text-xs text-muted-foreground">
+                  Generate at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="text-primary underline">myaccount.google.com/apppasswords</a>. 
+                  16-character password, spaces optional.
+                </p>
+                <div className="relative">
+                  <input
+                    type={showPass ? 'text' : 'password'}
+                    data-testid="input-gmail-app-pass"
+                    value={form.alertGmailAppPass}
+                    onChange={e => setForm(f => ({ ...f, alertGmailAppPass: e.target.value }))}
+                    placeholder="xxxx xxxx xxxx xxxx"
+                    className="w-full px-3 py-2 pr-10 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono"
+                  />
+                  <button type="button" onClick={() => setShowPass(s => !s)} className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground">
+                    {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Thresholds */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Balance Alert Threshold ($)</label>
+                  <p className="text-xs text-muted-foreground">Alert when balance drops below this</p>
+                  <input
+                    type="number"
+                    data-testid="input-balance-threshold"
+                    value={form.balanceAlertThreshold}
+                    onChange={e => setForm(f => ({ ...f, balanceAlertThreshold: Number(e.target.value) }))}
+                    min={0} step={1}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">FAS Min PDD (seconds)</label>
+                  <p className="text-xs text-muted-foreground">PDD above this = FAS suspect</p>
+                  <input
+                    type="number"
+                    data-testid="input-fas-pdd"
+                    value={form.fasMinPddSecs}
+                    onChange={e => setForm(f => ({ ...f, fasMinPddSecs: Number(e.target.value) }))}
+                    min={1} step={1}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">FAS Max Billed (seconds)</label>
+                  <p className="text-xs text-muted-foreground">Billed under this despite answer = FAS</p>
+                  <input
+                    type="number"
+                    data-testid="input-fas-bill"
+                    value={form.fasMaxBillSecs}
+                    onChange={e => setForm(f => ({ ...f, fasMaxBillSecs: Number(e.target.value) }))}
+                    min={1} step={1}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  data-testid="button-save-alert-config"
+                  onClick={() => saveMut.mutate()}
+                  disabled={saveMut.isPending}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {saveMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Save Alert Config
+                </button>
+                <button
+                  type="button"
+                  data-testid="button-test-email"
+                  onClick={() => { setTestResult(null); testMut.mutate(); }}
+                  disabled={testMut.isPending}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-muted hover:bg-muted/70 border border-border disabled:opacity-50"
+                >
+                  {testMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  Test Connection
+                </button>
+                {saveMut.isSuccess && (
+                  <span className="text-sm text-emerald-400 flex items-center gap-1.5">
+                    <CheckCircle2 className="h-4 w-4" /> Saved
+                  </span>
+                )}
+              </div>
+
+              {/* Test result */}
+              {testResult && (
+                <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${testResult.ok ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
+                  {testResult.ok ? <MailCheck className="h-4 w-4" /> : <MailX className="h-4 w-4" />}
+                  {testResult.ok ? 'Gmail connection verified successfully' : `Connection failed: ${testResult.error}`}
+                </div>
+              )}
+
+              <div className="bg-muted/30 rounded-lg p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground/70">Alert types:</p>
+                <p>• Balance below threshold • Credit limit change • Auth rule add/delete</p>
+                <p>• FAS (False Answer Supervision) detected • Wrong/switched-off number repeated</p>
+                <p className="mt-1">Per-client alert emails can be set in the Clients &amp; Vendors section.</p>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SippyUsersPanel() {
   const qc = useQueryClient();
@@ -1634,6 +1865,9 @@ export default function SettingsPage() {
           )}
         </div>
       </form>
+
+      {/* Email Alert Configuration */}
+      <EmailAlertPanel />
 
       {/* Sippy Users */}
       <SippyUsersPanel />
