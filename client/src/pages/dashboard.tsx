@@ -842,33 +842,49 @@ export default function DashboardPage() {
                   <table className="w-full text-sm text-left">
                     <thead className="bg-muted/30 text-muted-foreground text-xs">
                       <tr>
-                        <th className="px-4 py-2">Account</th>
-                        <th className="px-4 py-2">Start</th>
-                        <th className="px-4 py-2">Caller</th>
-                        <th className="px-4 py-2">Callee</th>
+                        <th className="px-4 py-2">Start Time</th>
+                        <th className="px-4 py-2">Caller (CLI)</th>
+                        <th className="px-4 py-2">Callee (CLD)</th>
+                        <th className="px-4 py-2">Country</th>
                         <th className="px-4 py-2">Duration</th>
+                        <th className="px-4 py-2">PDD</th>
+                        <th className="px-4 py-2">Cost</th>
                         <th className="px-4 py-2">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/30">
-                      {sippyCdr!.cdrs.slice(0, 10).map((rec: any, i: number) => (
-                        <tr key={i} className="hover:bg-muted/20 transition-colors">
-                          <td className="px-4 py-2 text-xs text-violet-400 font-medium">{rec.account_name || rec.i_account || '—'}</td>
-                          <td className="px-4 py-2 text-xs text-muted-foreground">{rec.connect_time || rec.start_time || '—'}</td>
-                          <td className="px-4 py-2 font-mono text-xs">{rec.cli || rec.caller || '—'}</td>
-                          <td className="px-4 py-2 font-mono text-xs">{rec.cld || rec.callee || '—'}</td>
-                          <td className="px-4 py-2 text-xs">{rec.duration > 0 ? `${Math.floor(rec.duration / 60)}m ${rec.duration % 60}s` : '0s'}</td>
-                          <td className="px-4 py-2 text-xs">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                              rec.disconnect_cause === '16' || rec.result === 'answered'
-                                ? 'bg-emerald-500/15 text-emerald-400'
-                                : 'bg-rose-500/15 text-rose-400'
-                            }`}>
-                              {rec.disconnect_cause === '16' ? 'Answered' : (rec.result || rec.disconnect_cause || '—')}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {sippyCdr!.cdrs.slice(0, 10).map((rec: any, i: number) => {
+                        const isAnswered = (rec.duration > 0) || /^(200|ok|answered|success)/i.test(rec.result || '');
+                        const durSec = Number(rec.duration) || 0;
+                        return (
+                          <tr key={i} className="hover:bg-muted/20 transition-colors">
+                            <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                              {rec.startTime || rec.connectTime || '—'}
+                            </td>
+                            <td className="px-4 py-2 font-mono text-xs">{rec.caller || '—'}</td>
+                            <td className="px-4 py-2 font-mono text-xs">{rec.callee || '—'}</td>
+                            <td className="px-4 py-2 text-xs text-muted-foreground">{rec.country || rec.areaName || '—'}</td>
+                            <td className="px-4 py-2 text-xs">
+                              {durSec > 0 ? `${Math.floor(durSec / 60)}m ${durSec % 60}s` : '0s'}
+                            </td>
+                            <td className="px-4 py-2 text-xs text-muted-foreground">
+                              {rec.pdd != null ? `${Number(rec.pdd).toFixed(2)}s` : '—'}
+                            </td>
+                            <td className="px-4 py-2 text-xs text-amber-400">
+                              {rec.cost != null && rec.cost > 0 ? `$${Number(rec.cost).toFixed(4)}` : '—'}
+                            </td>
+                            <td className="px-4 py-2 text-xs">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                isAnswered
+                                  ? 'bg-emerald-500/15 text-emerald-400'
+                                  : 'bg-rose-500/15 text-rose-400'
+                              }`}>
+                                {isAnswered ? 'Answered' : (rec.result || '—')}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

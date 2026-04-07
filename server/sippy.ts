@@ -1097,12 +1097,35 @@ async function createAccountViaPortal(
 
 export interface SippyCDR {
   callId: string;
-  caller: string;
-  callee: string;
-  startTime: string;
-  duration: number;
-  cost: number;
-  result: string;
+  caller: string;         // CLI after translation
+  callee: string;         // CLD after translation
+  callerIn?: string;      // CLI before translation (cli_in)
+  calleeIn?: string;      // CLD before translation (cld_in)
+  startTime: string;      // setup_time (Sippy format)
+  connectTime?: string;   // connect_time (Sippy format)
+  duration: number;       // billed_duration in seconds
+  cost: number;           // amount charged in base currency
+  connectFee?: number;    // connect_fee from tariff
+  accessibilityCost?: number; // accessibility surcharges cost
+  result: string;         // call result / disconnect reason
+  country?: string;       // dialed country
+  areaName?: string;      // area name of dialed prefix
+  description?: string;   // destination description
+  remoteIp?: string;      // caller's remote IP
+  pdd?: number;           // conn_proc_time = PDD in seconds
+  iCustomer?: number;     // which customer owns this CDR
+}
+
+/**
+ * Format a JS Date or ISO string into Sippy's required date format:
+ * '%H:%M:%S.000 GMT %a %b %d %Y' (e.g. '09:57:29.000 GMT Wed Mar 18 2026')
+ */
+export function toSippyDate(d: Date | string): string {
+  const dt = typeof d === 'string' ? new Date(d) : d;
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}:${pad(dt.getUTCSeconds())}.000 GMT ${days[dt.getUTCDay()]} ${months[dt.getUTCMonth()]} ${pad(dt.getUTCDate())} ${dt.getUTCFullYear()}`;
 }
 
 // ── getMonitoringGraphData() — docs 107509 ───────────────────────────────────
@@ -1206,21 +1229,48 @@ export async function getSippyCDRs(
   username: string,
   password: string,
   limit = 50,
-  opts: { iAccount?: number; iCustomer?: number; startDate?: string; endDate?: string; type?: string } = {},
+  opts: {
+    iAccount?: number;
+    iCustomer?: number;
+    startDate?: string;   // ISO or Sippy format; auto-converted to Sippy format
+    endDate?: string;     // ISO or Sippy format; auto-converted to Sippy format
+    type?: string;        // 'all' | 'non_zero' | 'non_zero_and_errors' | 'complete' | 'incomplete' | 'errors'
+    cli?: string;         // filter by CLI (after translation)
+    cld?: string;         // filter by CLD (after translation)
+    offset?: number;
+  } = {},
 ): Promise<SippyCDR[]> {
   if (!activeSession) return [];
   const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
 
-  const params: Record<string, unknown> = { limit, type: opts.type || 'all' };
-  if (opts.iAccount)   params.i_account   = opts.iAccount;
-  if (opts.iCustomer)  params.i_customer  = opts.iCustomer;
-  if (opts.startDate)  params.start_date  = opts.startDate;
-  if (opts.endDate)    params.end_date    = opts.endDate;
+  // Convert ISO dates to Sippy format if needed (Sippy requires '%H:%M:%S.000 GMT %a %b %d %Y')
+  const formatDate = (d?: string) => {
+    if (!d) return undefined;
+    // Already in Sippy format if it contains 'GMT'
+    if (d.includes('GMT')) return d;
+    try { return toSippyDate(d); } catch { return d; }
+  };
 
-  // Official methods: getAccountCDRs() / getCustomerCDRs() (Sippy docs 107367 / 107429)
-  const methods = opts.iCustomer
-    ? ['getCustomerCDRs', 'getAccountCDRs']
-    : ['getAccountCDRs', 'getCustomerCDRs'];
+  const params: Record<string, unknown> = {
+    limit,
+    type: opts.type || 'all',
+    i_customer: 1,   // trusted mode — root customer sees all CDRs
+  };
+  if (opts.iAccount)              params.i_account   = opts.iAccount;
+  if (opts.iCustomer)             params.i_customer  = opts.iCustomer;
+  const fmtStart = formatDate(opts.startDate);
+  const fmtEnd   = formatDate(opts.endDate);
+  if (fmtStart)                   params.start_date  = fmtStart;
+  if (fmtEnd)                     params.end_date    = fmtEnd;
+  if (opts.cli)                   params.cli         = opts.cli;
+  if (opts.cld)                   params.cld         = opts.cld;
+  if (opts.offset !== undefined)  params.offset      = opts.offset;
+
+  // Official methods: getAccountCDRs() (docs 107367) / getCustomerCDRs() (docs 107429)
+  // Use getAccountCDRs first for account-scoped CDRs; getCustomerCDRs for customer-level
+  const methods = opts.iAccount
+    ? ['getAccountCDRs', 'getCustomerCDRs']
+    : ['getCustomerCDRs', 'getAccountCDRs'];
 
   for (const method of methods) {
     try {
@@ -1235,13 +1285,24 @@ export async function getSippyCDRs(
         const m = extractStructMembers(s);
         if (!m['call_id'] && !m['i_call'] && !m['cli']) continue;
         cdrs.push({
-          callId:    m['call_id']        || m['i_call']     || '-',
-          caller:    m['cli']            || m['cli_in']     || '-',
-          callee:    m['cld']            || m['cld_in']     || '-',
-          startTime: m['connect_time']   || m['setup_time'] || '',
-          duration:  parseFloat(m['billed_duration'] || m['duration'] || '0') || 0,
-          cost:      parseFloat(m['cost'] || '0') || 0,
-          result:    m['result']         || m['disconnect_reason'] || '',
+          callId:             m['call_id']             || m['i_call']      || '-',
+          caller:             m['cli']                 || m['cli_in']      || '-',
+          callee:             m['cld']                 || m['cld_in']      || '-',
+          callerIn:           m['cli_in']              || undefined,
+          calleeIn:           m['cld_in']              || undefined,
+          startTime:          m['setup_time']          || m['connect_time']|| '',
+          connectTime:        m['connect_time']        || undefined,
+          duration:           parseFloat(m['billed_duration'] || m['duration'] || '0') || 0,
+          cost:               parseFloat(m['cost']     || '0') || 0,
+          connectFee:         m['connect_fee']         ? parseFloat(m['connect_fee'])          : undefined,
+          accessibilityCost:  m['accessibility_cost']  ? parseFloat(m['accessibility_cost'])   : undefined,
+          result:             m['result']              || m['disconnect_reason'] || '',
+          country:            m['country']             || undefined,
+          areaName:           m['area_name']           || undefined,
+          description:        m['description']         || undefined,
+          remoteIp:           m['remote_ip']           || undefined,
+          pdd:                m['conn_proc_time']      ? parseFloat(m['conn_proc_time'])        : undefined,
+          iCustomer:          m['i_customer']          ? parseInt(m['i_customer'], 10)          : undefined,
         });
       }
       return cdrs;
@@ -2939,6 +3000,18 @@ export interface SippyVendorConnection {
   translationRule?: string;
   cliTranslationRule?: string;
   outboundProxy?: string;
+  // Quality Monitoring (qmon) fields — docs 107435
+  qmonAcdEnabled?: boolean;
+  qmonAsrEnabled?: boolean;
+  qmonPddEnabled?: boolean;
+  qmonStatWindow?: number;       // seconds sliding window for stats
+  qmonAcdThreshold?: number;     // min acceptable ACD in seconds
+  qmonAsrThreshold?: number;     // min acceptable ASR as 0–100
+  qmonPddThreshold?: number;     // max acceptable PDD in seconds
+  qmonRetryInterval?: number;    // seconds to wait before re-enabling blocked connection
+  qmonRetryBatch?: number;       // number of test calls before re-enabling
+  qmonAction?: string;           // 'disable' | 'suspend' | 'alert' — see getDictionary(qmon_actions)
+  qmonNotificationEnabled?: boolean;
 }
 
 function parseVendorConnectionStruct(xml: string): SippyVendorConnection {
@@ -2946,21 +3019,33 @@ function parseVendorConnectionStruct(xml: string): SippyVendorConnection {
   const parseBool = (v: string | undefined): boolean | undefined =>
     v === '1' || v === 'true' ? true : (v === '0' || v === 'false' ? false : undefined);
   return {
-    iConnection:        parseInt(m['i_connection']        || '0', 10),
-    name:               m['name']                         || '',
-    destination:        m['destination']                  || '',
-    username:           m['username']                     || undefined,
-    capacity:           m['capacity']           ? parseInt(m['capacity'], 10)           : undefined,
-    enforceCapacity:    parseBool(m['enforce_capacity']),
-    maxCps:             m['max_cps']            ? parseFloat(m['max_cps'])              : undefined,
-    blocked:            parseBool(m['blocked']),
-    iProtoTransport:    m['i_proto_transport']  ? parseInt(m['i_proto_transport'], 10)  : undefined,
-    iMediaRelayType:    m['i_media_relay_type'] ? parseInt(m['i_media_relay_type'], 10) : undefined,
-    huntstopScodes:     m['huntstop_scodes']              || undefined,
-    timeout100:         m['timeout_100']        ? parseInt(m['timeout_100'], 10)        : undefined,
-    translationRule:    m['translation_rule']             || undefined,
-    cliTranslationRule: m['cli_translation_rule']         || undefined,
-    outboundProxy:      m['outbound_proxy']               || undefined,
+    iConnection:              parseInt(m['i_connection']          || '0', 10),
+    name:                     m['name']                           || '',
+    destination:              m['destination']                    || '',
+    username:                 m['username']                       || undefined,
+    capacity:                 m['capacity']             ? parseInt(m['capacity'], 10)            : undefined,
+    enforceCapacity:          parseBool(m['enforce_capacity']),
+    maxCps:                   m['max_cps']              ? parseFloat(m['max_cps'])               : undefined,
+    blocked:                  parseBool(m['blocked']),
+    iProtoTransport:          m['i_proto_transport']    ? parseInt(m['i_proto_transport'], 10)   : undefined,
+    iMediaRelayType:          m['i_media_relay_type']   ? parseInt(m['i_media_relay_type'], 10)  : undefined,
+    huntstopScodes:           m['huntstop_scodes']                || undefined,
+    timeout100:               m['timeout_100']          ? parseInt(m['timeout_100'], 10)         : undefined,
+    translationRule:          m['translation_rule']               || undefined,
+    cliTranslationRule:       m['cli_translation_rule']           || undefined,
+    outboundProxy:            m['outbound_proxy']                 || undefined,
+    // Quality Monitoring (qmon) — docs 107435
+    qmonAcdEnabled:           parseBool(m['qmon_acd_enabled']),
+    qmonAsrEnabled:           parseBool(m['qmon_asr_enabled']),
+    qmonPddEnabled:           parseBool(m['qmon_pdd_enabled']),
+    qmonStatWindow:           m['qmon_stat_window']     ? parseInt(m['qmon_stat_window'], 10)    : undefined,
+    qmonAcdThreshold:         m['qmon_acd_threshold']   ? parseInt(m['qmon_acd_threshold'], 10)  : undefined,
+    qmonAsrThreshold:         m['qmon_asr_threshold']   ? parseFloat(m['qmon_asr_threshold'])    : undefined,
+    qmonPddThreshold:         m['qmon_pdd_threshold']   ? parseFloat(m['qmon_pdd_threshold'])    : undefined,
+    qmonRetryInterval:        m['qmon_retry_interval']  ? parseInt(m['qmon_retry_interval'], 10) : undefined,
+    qmonRetryBatch:           m['qmon_retry_batch']     ? parseInt(m['qmon_retry_batch'], 10)    : undefined,
+    qmonAction:               m['qmon_action']                    || undefined,
+    qmonNotificationEnabled:  parseBool(m['qmon_notification_enabled']),
   };
 }
 
@@ -3057,6 +3142,18 @@ export async function createVendorConnection(
     translationRule?: string;
     cliTranslationRule?: string;
     outboundProxy?: string;
+    // Quality Monitoring — docs 107435
+    qmonAcdEnabled?: boolean;
+    qmonAsrEnabled?: boolean;
+    qmonPddEnabled?: boolean;
+    qmonStatWindow?: number;
+    qmonAcdThreshold?: number;
+    qmonAsrThreshold?: number;
+    qmonPddThreshold?: number;
+    qmonRetryInterval?: number;
+    qmonRetryBatch?: number;
+    qmonAction?: string;
+    qmonNotificationEnabled?: boolean;
   },
   portalUrl?: string,
 ): Promise<{ success: boolean; message: string; iConnection?: number }> {
@@ -3070,19 +3167,31 @@ export async function createVendorConnection(
     destination: opts.destination,
     i_customer:  1,
   };
-  if (opts.connUsername       !== undefined) params.username              = opts.connUsername;
-  if (opts.password           !== undefined) params.password              = opts.password;
-  if (opts.capacity           !== undefined) params.capacity              = opts.capacity;
-  if (opts.enforceCapacity    !== undefined) params.enforce_capacity      = opts.enforceCapacity;
-  if (opts.maxCps             !== undefined) params.max_cps               = opts.maxCps;
-  if (opts.blocked            !== undefined) params.blocked               = opts.blocked;
-  if (opts.iProtoTransport    !== undefined) params.i_proto_transport     = opts.iProtoTransport;
-  if (opts.iMediaRelayType    !== undefined) params.i_media_relay_type    = opts.iMediaRelayType;
-  if (opts.huntstopScodes     !== undefined) params.huntstop_scodes       = opts.huntstopScodes;
-  if (opts.timeout100         !== undefined) params.timeout_100           = opts.timeout100;
-  if (opts.translationRule    !== undefined) params.translation_rule      = opts.translationRule;
-  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule  = opts.cliTranslationRule;
-  if (opts.outboundProxy      !== undefined) params.outbound_proxy        = opts.outboundProxy;
+  if (opts.connUsername            !== undefined) params.username                   = opts.connUsername;
+  if (opts.password                !== undefined) params.password                   = opts.password;
+  if (opts.capacity                !== undefined) params.capacity                   = opts.capacity;
+  if (opts.enforceCapacity         !== undefined) params.enforce_capacity           = opts.enforceCapacity;
+  if (opts.maxCps                  !== undefined) params.max_cps                    = opts.maxCps;
+  if (opts.blocked                 !== undefined) params.blocked                    = opts.blocked;
+  if (opts.iProtoTransport         !== undefined) params.i_proto_transport          = opts.iProtoTransport;
+  if (opts.iMediaRelayType         !== undefined) params.i_media_relay_type         = opts.iMediaRelayType;
+  if (opts.huntstopScodes          !== undefined) params.huntstop_scodes            = opts.huntstopScodes;
+  if (opts.timeout100              !== undefined) params.timeout_100                = opts.timeout100;
+  if (opts.translationRule         !== undefined) params.translation_rule           = opts.translationRule;
+  if (opts.cliTranslationRule      !== undefined) params.cli_translation_rule       = opts.cliTranslationRule;
+  if (opts.outboundProxy           !== undefined) params.outbound_proxy             = opts.outboundProxy;
+  // Quality Monitoring
+  if (opts.qmonAcdEnabled          !== undefined) params.qmon_acd_enabled           = opts.qmonAcdEnabled;
+  if (opts.qmonAsrEnabled          !== undefined) params.qmon_asr_enabled           = opts.qmonAsrEnabled;
+  if (opts.qmonPddEnabled          !== undefined) params.qmon_pdd_enabled           = opts.qmonPddEnabled;
+  if (opts.qmonStatWindow          !== undefined) params.qmon_stat_window           = opts.qmonStatWindow;
+  if (opts.qmonAcdThreshold        !== undefined) params.qmon_acd_threshold         = opts.qmonAcdThreshold;
+  if (opts.qmonAsrThreshold        !== undefined) params.qmon_asr_threshold         = opts.qmonAsrThreshold;
+  if (opts.qmonPddThreshold        !== undefined) params.qmon_pdd_threshold         = opts.qmonPddThreshold;
+  if (opts.qmonRetryInterval       !== undefined) params.qmon_retry_interval        = opts.qmonRetryInterval;
+  if (opts.qmonRetryBatch          !== undefined) params.qmon_retry_batch           = opts.qmonRetryBatch;
+  if (opts.qmonAction              !== undefined) params.qmon_action                = opts.qmonAction;
+  if (opts.qmonNotificationEnabled !== undefined) params.qmon_notification_enabled  = opts.qmonNotificationEnabled;
 
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('createVendorConnection', params), username, password);
@@ -3124,6 +3233,18 @@ export async function updateVendorConnection(
     translationRule?: string;
     cliTranslationRule?: string;
     outboundProxy?: string;
+    // Quality Monitoring — docs 107435
+    qmonAcdEnabled?: boolean;
+    qmonAsrEnabled?: boolean;
+    qmonPddEnabled?: boolean;
+    qmonStatWindow?: number;
+    qmonAcdThreshold?: number;
+    qmonAsrThreshold?: number;
+    qmonPddThreshold?: number;
+    qmonRetryInterval?: number;
+    qmonRetryBatch?: number;
+    qmonAction?: string;
+    qmonNotificationEnabled?: boolean;
   },
   portalUrl?: string,
 ): Promise<{ success: boolean; message: string }> {
@@ -3132,21 +3253,33 @@ export async function updateVendorConnection(
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
   const params: Record<string, string | number | boolean | null> = { i_connection: iConnection, i_customer: 1 };
-  if (opts.name               !== undefined) params.name                  = opts.name;
-  if (opts.destination        !== undefined) params.destination            = opts.destination;
-  if (opts.connUsername       !== undefined) params.username               = opts.connUsername;
-  if (opts.password           !== undefined) params.password               = opts.password;
-  if (opts.capacity           !== undefined) params.capacity               = opts.capacity;
-  if (opts.enforceCapacity    !== undefined) params.enforce_capacity       = opts.enforceCapacity;
-  if (opts.maxCps             !== undefined) params.max_cps                = opts.maxCps;
-  if (opts.blocked            !== undefined) params.blocked                = opts.blocked;
-  if (opts.iProtoTransport    !== undefined) params.i_proto_transport      = opts.iProtoTransport;
-  if (opts.iMediaRelayType    !== undefined) params.i_media_relay_type     = opts.iMediaRelayType;
-  if (opts.huntstopScodes     !== undefined) params.huntstop_scodes        = opts.huntstopScodes;
-  if (opts.timeout100         !== undefined) params.timeout_100            = opts.timeout100;
-  if (opts.translationRule    !== undefined) params.translation_rule       = opts.translationRule;
-  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule   = opts.cliTranslationRule;
-  if (opts.outboundProxy      !== undefined) params.outbound_proxy         = opts.outboundProxy;
+  if (opts.name                    !== undefined) params.name                       = opts.name;
+  if (opts.destination             !== undefined) params.destination                = opts.destination;
+  if (opts.connUsername            !== undefined) params.username                   = opts.connUsername;
+  if (opts.password                !== undefined) params.password                   = opts.password;
+  if (opts.capacity                !== undefined) params.capacity                   = opts.capacity;
+  if (opts.enforceCapacity         !== undefined) params.enforce_capacity           = opts.enforceCapacity;
+  if (opts.maxCps                  !== undefined) params.max_cps                    = opts.maxCps;
+  if (opts.blocked                 !== undefined) params.blocked                    = opts.blocked;
+  if (opts.iProtoTransport         !== undefined) params.i_proto_transport          = opts.iProtoTransport;
+  if (opts.iMediaRelayType         !== undefined) params.i_media_relay_type         = opts.iMediaRelayType;
+  if (opts.huntstopScodes          !== undefined) params.huntstop_scodes            = opts.huntstopScodes;
+  if (opts.timeout100              !== undefined) params.timeout_100                = opts.timeout100;
+  if (opts.translationRule         !== undefined) params.translation_rule           = opts.translationRule;
+  if (opts.cliTranslationRule      !== undefined) params.cli_translation_rule       = opts.cliTranslationRule;
+  if (opts.outboundProxy           !== undefined) params.outbound_proxy             = opts.outboundProxy;
+  // Quality Monitoring
+  if (opts.qmonAcdEnabled          !== undefined) params.qmon_acd_enabled           = opts.qmonAcdEnabled;
+  if (opts.qmonAsrEnabled          !== undefined) params.qmon_asr_enabled           = opts.qmonAsrEnabled;
+  if (opts.qmonPddEnabled          !== undefined) params.qmon_pdd_enabled           = opts.qmonPddEnabled;
+  if (opts.qmonStatWindow          !== undefined) params.qmon_stat_window           = opts.qmonStatWindow;
+  if (opts.qmonAcdThreshold        !== undefined) params.qmon_acd_threshold         = opts.qmonAcdThreshold;
+  if (opts.qmonAsrThreshold        !== undefined) params.qmon_asr_threshold         = opts.qmonAsrThreshold;
+  if (opts.qmonPddThreshold        !== undefined) params.qmon_pdd_threshold         = opts.qmonPddThreshold;
+  if (opts.qmonRetryInterval       !== undefined) params.qmon_retry_interval        = opts.qmonRetryInterval;
+  if (opts.qmonRetryBatch          !== undefined) params.qmon_retry_batch           = opts.qmonRetryBatch;
+  if (opts.qmonAction              !== undefined) params.qmon_action                = opts.qmonAction;
+  if (opts.qmonNotificationEnabled !== undefined) params.qmon_notification_enabled  = opts.qmonNotificationEnabled;
 
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('updateVendorConnection', params), username, password);

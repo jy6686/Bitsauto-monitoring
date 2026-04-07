@@ -1260,6 +1260,18 @@ interface VendorConnection {
   translationRule?: string;
   cliTranslationRule?: string;
   outboundProxy?: string;
+  // Quality Monitoring (qmon) — Sippy docs 107435
+  qmonAcdEnabled?: boolean;
+  qmonAsrEnabled?: boolean;
+  qmonPddEnabled?: boolean;
+  qmonStatWindow?: number;
+  qmonAcdThreshold?: number;
+  qmonAsrThreshold?: number;
+  qmonPddThreshold?: number;
+  qmonRetryInterval?: number;
+  qmonRetryBatch?: number;
+  qmonAction?: string;
+  qmonNotificationEnabled?: boolean;
 }
 
 interface SippyVendor {
@@ -1281,6 +1293,11 @@ const emptyConn = {
   capacity: '', enforceCapacity: true, maxCps: '',
   iProtoTransport: '1', huntstopScodes: '', timeout100: '',
   blocked: false, translationRule: '', cliTranslationRule: '', outboundProxy: '',
+  // Quality Monitoring
+  qmonAcdEnabled: false, qmonAsrEnabled: false, qmonPddEnabled: false,
+  qmonStatWindow: '300', qmonAcdThreshold: '', qmonAsrThreshold: '',
+  qmonPddThreshold: '', qmonRetryInterval: '300', qmonRetryBatch: '3',
+  qmonAction: 'disable', qmonNotificationEnabled: false,
 };
 
 function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; isManagement: boolean }) {
@@ -1303,16 +1320,28 @@ function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; is
     destination:        f.destination,
     connUsername:       f.connUsername       || undefined,
     password:           f.password          || undefined,
-    capacity:           f.capacity          ? Number(f.capacity)   : undefined,
+    capacity:           f.capacity          ? Number(f.capacity)        : undefined,
     enforceCapacity:    f.enforceCapacity,
-    maxCps:             f.maxCps            ? Number(f.maxCps)     : undefined,
+    maxCps:             f.maxCps            ? Number(f.maxCps)          : undefined,
     blocked:            f.blocked,
     iProtoTransport:    f.iProtoTransport   ? Number(f.iProtoTransport) : undefined,
     huntstopScodes:     f.huntstopScodes    || undefined,
-    timeout100:         f.timeout100        ? Number(f.timeout100) : undefined,
+    timeout100:         f.timeout100        ? Number(f.timeout100)      : undefined,
     translationRule:    f.translationRule   || undefined,
     cliTranslationRule: f.cliTranslationRule || undefined,
     outboundProxy:      f.outboundProxy     || undefined,
+    // Quality Monitoring
+    qmonAcdEnabled:          f.qmonAcdEnabled,
+    qmonAsrEnabled:          f.qmonAsrEnabled,
+    qmonPddEnabled:          f.qmonPddEnabled,
+    qmonStatWindow:          f.qmonStatWindow     ? Number(f.qmonStatWindow)     : undefined,
+    qmonAcdThreshold:        f.qmonAcdThreshold   ? Number(f.qmonAcdThreshold)   : undefined,
+    qmonAsrThreshold:        f.qmonAsrThreshold   ? Number(f.qmonAsrThreshold)   : undefined,
+    qmonPddThreshold:        f.qmonPddThreshold   ? Number(f.qmonPddThreshold)   : undefined,
+    qmonRetryInterval:       f.qmonRetryInterval  ? Number(f.qmonRetryInterval)  : undefined,
+    qmonRetryBatch:          f.qmonRetryBatch     ? Number(f.qmonRetryBatch)     : undefined,
+    qmonAction:              f.qmonAction         || undefined,
+    qmonNotificationEnabled: f.qmonNotificationEnabled,
   });
 
   const addMut = useMutation({
@@ -1444,6 +1473,85 @@ function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; is
           </div>
         </div>
 
+        {/* ── Quality Monitoring (qmon) ── */}
+        <div>
+          <p className={sectionHdr}><Activity className="w-3 h-3" /> Quality Monitoring (qmon)</p>
+          <div className="space-y-3">
+            {/* Enable toggles */}
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input data-testid="checkbox-conn-qmon-acd" type="checkbox" checked={!!f.qmonAcdEnabled} onChange={e => setF('qmonAcdEnabled', e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-border accent-amber-500" />
+                <span className="text-xs text-muted-foreground">Monitor ACD</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input data-testid="checkbox-conn-qmon-asr" type="checkbox" checked={!!f.qmonAsrEnabled} onChange={e => setF('qmonAsrEnabled', e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-border accent-amber-500" />
+                <span className="text-xs text-muted-foreground">Monitor ASR</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input data-testid="checkbox-conn-qmon-pdd" type="checkbox" checked={!!f.qmonPddEnabled} onChange={e => setF('qmonPddEnabled', e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-border accent-amber-500" />
+                <span className="text-xs text-muted-foreground">Monitor PDD</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input data-testid="checkbox-conn-qmon-notify" type="checkbox" checked={!!f.qmonNotificationEnabled} onChange={e => setF('qmonNotificationEnabled', e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-border accent-amber-500" />
+                <span className="text-xs text-muted-foreground">Email Notifications</span>
+              </label>
+            </div>
+            {/* Thresholds — only show when at least one monitor is enabled */}
+            {(f.qmonAcdEnabled || f.qmonAsrEnabled || f.qmonPddEnabled) && (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 border-t border-border/20 pt-3">
+                {f.qmonAcdEnabled && (
+                  <div>
+                    <p className={label}>Min ACD Threshold (s)</p>
+                    <input data-testid="input-conn-qmon-acd-threshold" type="number" min="0" step="1" value={f.qmonAcdThreshold} onChange={e => setF('qmonAcdThreshold', e.target.value)}
+                      placeholder="e.g. 120" className={fieldCls} />
+                  </div>
+                )}
+                {f.qmonAsrEnabled && (
+                  <div>
+                    <p className={label}>Min ASR Threshold (%)</p>
+                    <input data-testid="input-conn-qmon-asr-threshold" type="number" min="0" max="100" step="0.1" value={f.qmonAsrThreshold} onChange={e => setF('qmonAsrThreshold', e.target.value)}
+                      placeholder="e.g. 40" className={fieldCls} />
+                  </div>
+                )}
+                {f.qmonPddEnabled && (
+                  <div>
+                    <p className={label}>Max PDD Threshold (s)</p>
+                    <input data-testid="input-conn-qmon-pdd-threshold" type="number" min="0" step="0.1" value={f.qmonPddThreshold} onChange={e => setF('qmonPddThreshold', e.target.value)}
+                      placeholder="e.g. 8" className={fieldCls} />
+                  </div>
+                )}
+                <div>
+                  <p className={label}>Stat Window (s)</p>
+                  <input data-testid="input-conn-qmon-stat-window" type="number" min="60" step="60" value={f.qmonStatWindow} onChange={e => setF('qmonStatWindow', e.target.value)}
+                    placeholder="300" className={fieldCls} />
+                </div>
+                <div>
+                  <p className={label}>Action on Breach</p>
+                  <select data-testid="select-conn-qmon-action" value={f.qmonAction} onChange={e => setF('qmonAction', e.target.value)} className={fieldCls}>
+                    <option value="disable">Disable</option>
+                    <option value="suspend">Suspend</option>
+                    <option value="alert">Alert Only</option>
+                  </select>
+                </div>
+                <div>
+                  <p className={label}>Retry Interval (s)</p>
+                  <input data-testid="input-conn-qmon-retry-interval" type="number" min="60" value={f.qmonRetryInterval} onChange={e => setF('qmonRetryInterval', e.target.value)}
+                    placeholder="300" className={fieldCls} />
+                </div>
+                <div>
+                  <p className={label}>Retry Batch (calls)</p>
+                  <input data-testid="input-conn-qmon-retry-batch" type="number" min="1" value={f.qmonRetryBatch} onChange={e => setF('qmonRetryBatch', e.target.value)}
+                    placeholder="3" className={fieldCls} />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="flex items-center gap-2 justify-end pt-1 border-t border-border/30">
           <button data-testid="button-cancel-conn" onClick={onCancel} className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors">Cancel</button>
           <button data-testid="button-save-conn" onClick={onSave} disabled={isSaving || !f.name || !f.destination}
@@ -1494,10 +1602,20 @@ function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; is
                 <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-background/60 border border-border/40 hover:border-border/70 transition-colors group">
                   <Cable className="w-3.5 h-3.5 text-violet-400/70 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-medium">{conn.name}</span>
                       {conn.blocked && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-semibold uppercase tracking-wider">Blocked</span>
+                      )}
+                      {/* qmon status badges */}
+                      {conn.qmonAcdEnabled && (
+                        <span title={`ACD ≥ ${conn.qmonAcdThreshold ?? '?'}s`} className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">ACD</span>
+                      )}
+                      {conn.qmonAsrEnabled && (
+                        <span title={`ASR ≥ ${conn.qmonAsrThreshold ?? '?'}%`} className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">ASR</span>
+                      )}
+                      {conn.qmonPddEnabled && (
+                        <span title={`PDD ≤ ${conn.qmonPddThreshold ?? '?'}s`} className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">PDD</span>
                       )}
                     </div>
                     <div className="flex items-center gap-3 mt-0.5 flex-wrap">
@@ -1511,6 +1629,9 @@ function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; is
                       {conn.translationRule && <span className="text-[10px] text-muted-foreground font-mono">cld: {conn.translationRule}</span>}
                       {conn.cliTranslationRule && <span className="text-[10px] text-muted-foreground font-mono">cli: {conn.cliTranslationRule}</span>}
                       {conn.huntstopScodes && <span className="text-[10px] text-muted-foreground font-mono">stop: {conn.huntstopScodes}</span>}
+                      {(conn.qmonAcdEnabled || conn.qmonAsrEnabled || conn.qmonPddEnabled) && conn.qmonAction && (
+                        <span className="text-[10px] text-muted-foreground">on breach: {conn.qmonAction}</span>
+                      )}
                       <span className="text-[10px] text-muted-foreground/40 font-mono">id:{conn.iConnection}</span>
                     </div>
                   </div>
@@ -1525,21 +1646,33 @@ function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; is
                             const full = await fetch(`/api/sippy/connections/${conn.iConnection}`).then(r => r.json());
                             const c: VendorConnection = full.connection ?? conn;
                             setEditForm({
-                              name:               c.name,
-                              destination:        c.destination,
-                              connUsername:       c.username           || '',
-                              password:           '',
-                              capacity:           c.capacity?.toString()    || '',
-                              enforceCapacity:    c.enforceCapacity     ?? true,
-                              maxCps:             c.maxCps?.toString()      || '',
-                              blocked:            c.blocked             ?? false,
-                              iProtoTransport:    c.iProtoTransport?.toString() || '1',
-                              huntstopScodes:     c.huntstopScodes      || '',
-                              timeout100:         c.timeout100?.toString()  || '',
-                              translationRule:    c.translationRule     || '',
-                              cliTranslationRule: c.cliTranslationRule  || '',
-                              outboundProxy:      c.outboundProxy       || '',
-                              iConnection:        c.iConnection,
+                              name:                    c.name,
+                              destination:             c.destination,
+                              connUsername:            c.username              || '',
+                              password:                '',
+                              capacity:                c.capacity?.toString()         || '',
+                              enforceCapacity:         c.enforceCapacity          ?? true,
+                              maxCps:                  c.maxCps?.toString()           || '',
+                              blocked:                 c.blocked                  ?? false,
+                              iProtoTransport:         c.iProtoTransport?.toString()  || '1',
+                              huntstopScodes:          c.huntstopScodes               || '',
+                              timeout100:              c.timeout100?.toString()        || '',
+                              translationRule:         c.translationRule              || '',
+                              cliTranslationRule:      c.cliTranslationRule           || '',
+                              outboundProxy:           c.outboundProxy                || '',
+                              iConnection:             c.iConnection,
+                              // Quality Monitoring
+                              qmonAcdEnabled:          c.qmonAcdEnabled          ?? false,
+                              qmonAsrEnabled:          c.qmonAsrEnabled          ?? false,
+                              qmonPddEnabled:          c.qmonPddEnabled          ?? false,
+                              qmonStatWindow:          c.qmonStatWindow?.toString()   || '300',
+                              qmonAcdThreshold:        c.qmonAcdThreshold?.toString() || '',
+                              qmonAsrThreshold:        c.qmonAsrThreshold?.toString() || '',
+                              qmonPddThreshold:        c.qmonPddThreshold?.toString() || '',
+                              qmonRetryInterval:       c.qmonRetryInterval?.toString()|| '300',
+                              qmonRetryBatch:          c.qmonRetryBatch?.toString()   || '3',
+                              qmonAction:              c.qmonAction                   || 'disable',
+                              qmonNotificationEnabled: c.qmonNotificationEnabled  ?? false,
                             });
                           } finally {
                             setLoadingEditId(null);

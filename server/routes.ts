@@ -1355,16 +1355,25 @@ export async function registerRoutes(
   });
 
   // GET /api/sippy/cdr — CDR records from Sippy
+  // Query params: limit, startDate (ISO/Sippy), endDate, iCustomer, iAccount, type, cli, cld, offset
   app.get('/api/sippy/cdr', async (req, res) => {
-    const settings = await storage.getSettings();
-    const { username, password } = sippyXmlCreds(settings);
-    const limit = Number(req.query.limit) || 50;
-    const opts: Parameters<typeof sippy.getSippyCDRs>[3] = {};
-    if (req.query.startDate) opts.startDate = req.query.startDate as string;
-    if (req.query.endDate)   opts.endDate   = req.query.endDate   as string;
-    if (req.query.iCustomer) opts.iCustomer = Number(req.query.iCustomer);
-    const cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
-    res.json({ cdrs });
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const limit  = Number(req.query.limit)  || 50;
+      const offset = req.query.offset ? Number(req.query.offset) : undefined;
+      const opts: Parameters<typeof sippy.getSippyCDRs>[3] = {};
+      if (req.query.startDate) opts.startDate = req.query.startDate as string;
+      if (req.query.endDate)   opts.endDate   = req.query.endDate   as string;
+      if (req.query.iCustomer) opts.iCustomer = Number(req.query.iCustomer);
+      if (req.query.iAccount)  opts.iAccount  = Number(req.query.iAccount);
+      if (req.query.type)      opts.type       = req.query.type      as string;
+      if (req.query.cli)       opts.cli        = req.query.cli       as string;
+      if (req.query.cld)       opts.cld        = req.query.cld       as string;
+      if (offset !== undefined) opts.offset    = offset;
+      const cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
+      res.json({ cdrs });
+    } catch (e: any) { res.status(500).json({ cdrs: [], error: e.message }); }
   });
 
   // GET /api/sippy/asr-report — ASR/ACD report computed from Sippy CDRs
@@ -1372,48 +1381,62 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
-      const limit = Number(req.query.limit) || 2000;
-      const groupBy = (req.query.groupBy as string) || 'caller'; // caller=CLI, callee=CLD
+      const limit  = Number(req.query.limit) || 2000;
+      // groupBy: 'caller' (CLI) | 'callee' (CLD) | 'country' | 'destination' (area_name)
+      const groupBy = (req.query.groupBy as string) || 'caller';
       const opts: Parameters<typeof sippy.getSippyCDRs>[3] = {};
       if (req.query.startDate) opts.startDate = req.query.startDate as string;
       if (req.query.endDate)   opts.endDate   = req.query.endDate   as string;
-      // Fetch all CDRs (customer 1 = root for full view)
-      const cdrs = await sippy.getSippyCDRs(username, password, limit, { ...opts, iCustomer: 1 });
-      if (cdrs.length === 0) {
-        // try without iCustomer restriction
-        const fallback = await sippy.getSippyCDRs(username, password, limit, opts);
-        if (fallback.length === 0) return res.json({ rows: [], source: 'sippy-cdr', count: 0 });
-        cdrs.push(...fallback);
-      }
+      if (req.query.cli)       opts.cli       = req.query.cli as string;
+      if (req.query.cld)       opts.cld       = req.query.cld as string;
+      // Fetch CDRs in trusted mode — customer 1 = root sees all
+      const cdrs = await sippy.getSippyCDRs(username, password, limit, { ...opts });
+      if (cdrs.length === 0) return res.json({ rows: [], source: 'sippy-cdr', count: 0 });
 
-      // Group CDRs
-      const grouped = new Map<string, {
+      // Group CDRs by selected dimension
+      type GroupStats = {
         totalCalls: number; answeredCalls: number;
         billedSecs: number; pddSum: number; pddCount: number;
-      }>();
+        totalCost: number; totalConnectFee: number;
+      };
+      const grouped = new Map<string, GroupStats>();
 
       for (const cdr of cdrs) {
-        const key = groupBy === 'callee' ? (cdr.callee || '-') : (cdr.caller || '-');
-        if (!grouped.has(key)) grouped.set(key, { totalCalls: 0, answeredCalls: 0, billedSecs: 0, pddSum: 0, pddCount: 0 });
+        let key: string;
+        if (groupBy === 'country')     key = cdr.country   || 'Unknown';
+        else if (groupBy === 'callee') key = cdr.callee     || '-';
+        else if (groupBy === 'destination') key = cdr.areaName || cdr.country || 'Unknown';
+        else                           key = cdr.caller     || '-';
+
+        if (!grouped.has(key)) grouped.set(key, {
+          totalCalls: 0, answeredCalls: 0,
+          billedSecs: 0, pddSum: 0, pddCount: 0,
+          totalCost: 0, totalConnectFee: 0,
+        });
         const g = grouped.get(key)!;
         g.totalCalls++;
-        // A call is answered if billed_duration > 0 OR result looks like 200/ANSWERED
+        // A call is answered if billed_duration > 0 OR result code 200/ANSWERED
         const answered = (cdr.duration > 0) || /^(200|ok|answered|success)/i.test(cdr.result || '');
         if (answered) {
           g.answeredCalls++;
           g.billedSecs += cdr.duration;
         }
+        if (cdr.pdd != null && cdr.pdd >= 0) { g.pddSum += cdr.pdd; g.pddCount++; }
+        g.totalCost        += cdr.cost        || 0;
+        g.totalConnectFee  += cdr.connectFee  || 0;
       }
 
-      const rows = Array.from(grouped.entries()).map(([caller, g]) => ({
-        caller,
-        totalCalls: g.totalCalls,
-        billableCalls: g.answeredCalls,
+      const rows = Array.from(grouped.entries()).map(([label, g]) => ({
+        caller: label,              // "caller" field is used by frontend as the row label
+        totalCalls:           g.totalCalls,
+        billableCalls:        g.answeredCalls,
         billedDurationSeconds: g.billedSecs,
-        acdSeconds: g.answeredCalls > 0 ? g.billedSecs / g.answeredCalls : 0,
-        asr: g.totalCalls > 0 ? (g.answeredCalls / g.totalCalls) * 100 : 0,
-        avgPdd: g.pddCount > 0 ? g.pddSum / g.pddCount : 0,
-        revenueUsd: 0,
+        acdSeconds:  g.answeredCalls > 0 ? g.billedSecs / g.answeredCalls : 0,
+        asr:         g.totalCalls   > 0 ? (g.answeredCalls / g.totalCalls) * 100 : 0,
+        avgPdd:      g.pddCount     > 0 ? g.pddSum / g.pddCount : 0,
+        totalCost:   g.totalCost,
+        connectFee:  g.totalConnectFee,
+        revenueUsd:  0,   // filled by client if rate data available
       }));
 
       rows.sort((a, b) => b.totalCalls - a.totalCalls);
