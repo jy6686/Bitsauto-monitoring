@@ -2360,6 +2360,21 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // POST /api/sippy/accounts/reset-otp — reset one-time web-login password (docs 107399)
+  // Body: { username: string } — the account's web login username (NOT i_account)
+  // Returns: { success, password, message }
+  // NOTE: No trusted mode. Only accounts of the authenticated customer can be reset.
+  app.post('/api/sippy/accounts/reset-otp', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const { username: accountUsername } = req.body;
+      if (!accountUsername) return res.status(400).json({ success: false, message: 'username is required.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.resetAccountOneTimePassword(username, password, accountUsername);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // ── Post-Authentication Rules (docs 3000105881, since Sippy 2020) ───────────
 
   // GET /api/sippy/accounts/:id/post-auth-rules — list post-auth rules for an account

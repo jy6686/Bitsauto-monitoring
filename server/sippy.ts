@@ -4907,6 +4907,44 @@ export async function getAccountMinutePlans(
   }
 }
 
+// ── Reset Account One-Time Password (docs 107399) ────────────────────────────
+
+/**
+ * Reset the one-time password used by an account to log into the web interface.
+ * Official method: resetAccountOneTimePassword() — docs 107399
+ *
+ * NOTE: Takes the account's web login `username` (not i_account).
+ *       Only accounts of the authenticated customer can be reset.
+ *       No trusted mode documented.
+ */
+export async function resetAccountOneTimePassword(
+  username: string,
+  password: string,
+  accountUsername: string,
+  portalUrl?: string,
+): Promise<{ success: boolean; password?: string; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('resetAccountOneTimePassword', { username: accountUsername }), username, password);
+    const text = resp.body;
+
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'resetAccountOneTimePassword failed.';
+      return { success: false, message: fault };
+    }
+
+    const m = extractStructMembers(text);
+    const newPassword = m['password'] ?? extractTag(text, 'password');
+    return { success: true, password: newPassword, message: 'One-time password reset successfully.' };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 // ── Post-Authentication Rules Management (docs 3000105881) ───────────────────
 // Available since Sippy 2020. Supports wildcard matching since Sippy 2022.
 // NOTE: Post-auth rules differ from pre-auth rules: no i_protocol, no max_sessions/max_cps.
