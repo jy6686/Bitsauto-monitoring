@@ -2360,6 +2360,95 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── Post-Authentication Rules (docs 3000105881, since Sippy 2020) ───────────
+
+  // GET /api/sippy/accounts/:id/post-auth-rules — list post-auth rules for an account
+  // Query: remoteIp, offset, limit, iCustomer (all optional)
+  app.get('/api/sippy/accounts/:id/post-auth-rules', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ postAuthRules: [], error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.listPostAuthRules(username, password, {
+        iAccount,
+        iCustomer: req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined,
+        remoteIp:  req.query.remoteIp  as string | undefined,
+        offset:    req.query.offset    ? parseInt(req.query.offset as string, 10) : undefined,
+        limit:     req.query.limit     ? parseInt(req.query.limit  as string, 10) : undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ postAuthRules: [], error: e.message }); }
+  });
+
+  // GET /api/sippy/post-auth-rules/:id — get a single post-auth rule by ID
+  app.get('/api/sippy/post-auth-rules/:id', async (req: any, res) => {
+    try {
+      const iPostAuthRule = parseInt(req.params.id, 10);
+      if (isNaN(iPostAuthRule)) return res.status(400).json({ success: false, error: 'Invalid i_post_auth_rule.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      const result = await sippy.getPostAuthRuleInfo(username, password, iPostAuthRule, { iCustomer });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/accounts/:id/post-auth-rules — add a post-auth rule (admin+management)
+  // Body: at least one of remoteIp/cli/cld required; optional: cliTranslationRule, cldTranslationRule, iTariff, iRoutingGroup, iCustomer
+  app.post('/api/sippy/accounts/:id/post-auth-rules', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { remoteIp, cli, cld, cliTranslationRule, cldTranslationRule, iTariff, iRoutingGroup, iCustomer } = req.body;
+      if (!remoteIp && !cli && !cld) return res.status(400).json({ success: false, message: 'At least one of remoteIp, cli, or cld is required.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addPostAuthRule(username, password, {
+        iAccount,
+        remoteIp, cli, cld, cliTranslationRule, cldTranslationRule,
+        iTariff:       iTariff       !== undefined ? (iTariff === null ? null : parseInt(iTariff, 10))       : undefined,
+        iRoutingGroup: iRoutingGroup !== undefined ? (iRoutingGroup === null ? null : parseInt(iRoutingGroup, 10)) : undefined,
+        iCustomer:     iCustomer     !== undefined ? parseInt(iCustomer, 10) : undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // PATCH /api/sippy/post-auth-rules/:id — update a post-auth rule (admin+management)
+  // Body: any subset of remoteIp/cli/cld/cliTranslationRule/cldTranslationRule/iTariff/iRoutingGroup/iCustomer
+  app.patch('/api/sippy/post-auth-rules/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iPostAuthRule = parseInt(req.params.id, 10);
+      if (isNaN(iPostAuthRule)) return res.status(400).json({ success: false, message: 'Invalid i_post_auth_rule.' });
+      const { remoteIp, cli, cld, cliTranslationRule, cldTranslationRule, iTariff, iRoutingGroup, iCustomer } = req.body;
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updatePostAuthRule(username, password, {
+        iPostAuthRule,
+        remoteIp, cli, cld, cliTranslationRule, cldTranslationRule,
+        iTariff:       iTariff       !== undefined ? (iTariff === null ? null : parseInt(iTariff, 10))       : undefined,
+        iRoutingGroup: iRoutingGroup !== undefined ? (iRoutingGroup === null ? null : parseInt(iRoutingGroup, 10)) : undefined,
+        iCustomer:     iCustomer     !== undefined ? parseInt(iCustomer, 10) : undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/post-auth-rules/:id — delete a post-auth rule (admin only)
+  // Body: iCustomer (optional, trusted mode)
+  app.delete('/api/sippy/post-auth-rules/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const iPostAuthRule = parseInt(req.params.id, 10);
+      if (isNaN(iPostAuthRule)) return res.status(400).json({ success: false, message: 'Invalid i_post_auth_rule.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.body?.iCustomer !== undefined ? parseInt(req.body.iCustomer, 10) : undefined;
+      const result = await sippy.deletePostAuthRule(username, password, iPostAuthRule, { iCustomer });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // GET /api/sippy/accounts/:id/minute-plan-match — match CLD against account minute plans (docs 107406)
   // Query: cld (required) — destination number to match
   // Returns: matched (bool), iServicePlan, secondsTotal, secondsLeft

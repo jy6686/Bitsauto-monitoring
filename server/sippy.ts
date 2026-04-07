@@ -4907,6 +4907,261 @@ export async function getAccountMinutePlans(
   }
 }
 
+// ── Post-Authentication Rules Management (docs 3000105881) ───────────────────
+// Available since Sippy 2020. Supports wildcard matching since Sippy 2022.
+// NOTE: Post-auth rules differ from pre-auth rules: no i_protocol, no max_sessions/max_cps.
+//       Field names are cli/cld (not incoming_cli/incoming_cld).
+
+export interface SippyPostAuthRule {
+  iPostAuthRule: number;
+  remoteIp?: string;
+  cli?: string;                  // caller number (CLI)
+  cld?: string;                  // callee number (CLD)
+  cliTranslationRule?: string;
+  cldTranslationRule?: string;
+  iTariff?: number | null;       // null = use account's base tariff
+  iRoutingGroup?: number | null; // null = use account's routing group
+}
+
+export interface AddPostAuthRuleOpts {
+  iAccount: number;             // required
+  iCustomer?: number;           // trusted mode
+  // At least ONE of these must be present:
+  remoteIp?: string;
+  cli?: string;
+  cld?: string;
+  // Optional:
+  cliTranslationRule?: string;
+  cldTranslationRule?: string;
+  iTariff?: number | null;
+  iRoutingGroup?: number | null;
+}
+
+export interface UpdatePostAuthRuleOpts {
+  iPostAuthRule: number;        // required
+  iCustomer?: number;           // trusted mode
+  remoteIp?: string;
+  cli?: string;
+  cld?: string;
+  cliTranslationRule?: string;
+  cldTranslationRule?: string;
+  iTariff?: number | null;
+  iRoutingGroup?: number | null;
+}
+
+/** Parse a flat post_auth_rule <struct> block. */
+function parsePostAuthRuleStruct(structBody: string): SippyPostAuthRule {
+  const m = extractStructMembers(`<struct>${structBody}</struct>`);
+  const str = (k: string) => m[k] || undefined;
+  const nullableInt = (k: string): number | null | undefined => {
+    if (!(k in m)) return undefined;
+    if (m[k] === '' || m[k] === 'None' || m[k] === 'nil') return null;
+    const n = parseInt(m[k], 10); return isNaN(n) ? null : n;
+  };
+  return {
+    iPostAuthRule:     parseInt(m['i_post_auth_rule'] || '0', 10),
+    remoteIp:          str('remote_ip'),
+    cli:               str('cli'),
+    cld:               str('cld'),
+    cliTranslationRule: str('cli_translation_rule'),
+    cldTranslationRule: str('cld_translation_rule'),
+    iTariff:           nullableInt('i_tariff'),
+    iRoutingGroup:     nullableInt('i_routing_group'),
+  };
+}
+
+/**
+ * Add a post-authentication rule to an account.
+ * Official method: addPostAuthRule() — docs 3000105881 (since Sippy 2020)
+ */
+export async function addPostAuthRule(
+  username: string,
+  password: string,
+  opts: AddPostAuthRuleOpts,
+  portalUrl?: string,
+): Promise<{ success: boolean; iPostAuthRule?: number; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | null> = { i_account: opts.iAccount };
+  if (opts.iCustomer          !== undefined) params.i_customer           = opts.iCustomer;
+  if (opts.remoteIp           !== undefined) params.remote_ip            = opts.remoteIp;
+  if (opts.cli                !== undefined) params.cli                  = opts.cli;
+  if (opts.cld                !== undefined) params.cld                  = opts.cld;
+  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule = opts.cliTranslationRule;
+  if (opts.cldTranslationRule !== undefined) params.cld_translation_rule = opts.cldTranslationRule;
+  if (opts.iTariff            !== undefined) params.i_tariff             = opts.iTariff;
+  if (opts.iRoutingGroup      !== undefined) params.i_routing_group      = opts.iRoutingGroup;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addPostAuthRule', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'addPostAuthRule failed.';
+      return { success: false, message: fault };
+    }
+    const m = extractStructMembers(text);
+    const iPostAuthRule = parseInt(m['i_post_auth_rule'] || '0', 10);
+    return { success: true, iPostAuthRule, message: 'Post-auth rule added.' };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Update a post-authentication rule.
+ * Official method: updatePostAuthRule() — docs 3000105881
+ */
+export async function updatePostAuthRule(
+  username: string,
+  password: string,
+  opts: UpdatePostAuthRuleOpts,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | null> = { i_post_auth_rule: opts.iPostAuthRule };
+  if (opts.iCustomer          !== undefined) params.i_customer           = opts.iCustomer;
+  if (opts.remoteIp           !== undefined) params.remote_ip            = opts.remoteIp;
+  if (opts.cli                !== undefined) params.cli                  = opts.cli;
+  if (opts.cld                !== undefined) params.cld                  = opts.cld;
+  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule = opts.cliTranslationRule;
+  if (opts.cldTranslationRule !== undefined) params.cld_translation_rule = opts.cldTranslationRule;
+  if (opts.iTariff            !== undefined) params.i_tariff             = opts.iTariff;
+  if (opts.iRoutingGroup      !== undefined) params.i_routing_group      = opts.iRoutingGroup;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updatePostAuthRule', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Post-auth rule updated.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'updatePostAuthRule failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a post-authentication rule.
+ * Official method: deletePostAuthRule() — docs 3000105881
+ */
+export async function deletePostAuthRule(
+  username: string,
+  password: string,
+  iPostAuthRule: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_post_auth_rule: iPostAuthRule };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deletePostAuthRule', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Post-auth rule deleted.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'deletePostAuthRule failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Get info for a single post-authentication rule.
+ * Official method: getPostAuthRuleInfo() — docs 3000105881
+ */
+export async function getPostAuthRuleInfo(
+  username: string,
+  password: string,
+  iPostAuthRule: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; postAuthRule?: SippyPostAuthRule; error?: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_post_auth_rule: iPostAuthRule };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getPostAuthRuleInfo', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'getPostAuthRuleInfo failed.';
+      return { success: false, error: fault };
+    }
+    const nestedMatch = /<name>post_auth_rule<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>\s*<\/value>/.exec(text);
+    if (!nestedMatch) return { success: false, error: 'post_auth_rule struct not found in response.' };
+    return { success: true, postAuthRule: parsePostAuthRuleStruct(nestedMatch[1]) };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * List post-authentication rules for an account.
+ * Official method: listPostAuthRules() — docs 3000105881
+ */
+export async function listPostAuthRules(
+  username: string,
+  password: string,
+  opts: {
+    iAccount: number;
+    iCustomer?: number;
+    remoteIp?: string;
+    offset?: number;
+    limit?: number;
+    portalUrl?: string;
+  },
+): Promise<{ postAuthRules: SippyPostAuthRule[]; error?: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { postAuthRules: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: opts.iAccount };
+  if (opts.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+  if (opts.remoteIp  !== undefined) params.remote_ip  = opts.remoteIp;
+  if (opts.offset    !== undefined) params.offset     = opts.offset;
+  if (opts.limit     !== undefined) params.limit      = opts.limit;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listPostAuthRules', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'listPostAuthRules failed.';
+      return { postAuthRules: [], error: fault };
+    }
+
+    const arrayMatch = /<name>post_auth_rules<\/name>\s*<value>\s*<array>([\s\S]*?)<\/array>\s*<\/value>/.exec(text);
+    if (!arrayMatch) return { postAuthRules: [] };
+
+    const postAuthRules: SippyPostAuthRule[] = [];
+    const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+    let match: RegExpExecArray | null;
+    while ((match = structRe.exec(arrayMatch[1])) !== null) {
+      postAuthRules.push(parsePostAuthRuleStruct(match[1]));
+    }
+    return { postAuthRules };
+  } catch (e: any) {
+    return { postAuthRules: [], error: e.message };
+  }
+}
+
 // ── CLD Minute Plan Matching (docs 107406) ───────────────────────────────────
 
 /**
