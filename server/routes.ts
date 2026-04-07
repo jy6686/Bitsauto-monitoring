@@ -1712,6 +1712,148 @@ export async function registerRoutes(
     }
   });
 
+  // ── Trunk Management Routes (docs 3000116551) ─────────────────────────────
+  // GET  /api/sippy/trunks?iAccount=xxx        — list trunks for an account
+  // GET  /api/sippy/trunks/:id                 — get trunk detail
+  // POST /api/sippy/trunks                     — create trunk
+  // PATCH /api/sippy/trunks/:id                — update trunk
+  // DELETE /api/sippy/trunks/:id               — delete trunk
+
+  app.get('/api/sippy/trunks', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iAccount = req.query.iAccount ? Number(req.query.iAccount) : 0;
+      if (!iAccount) return res.status(400).json({ ok: false, trunks: [], message: 'iAccount required' });
+      const result = await sippy.getTrunksList(username, password, {
+        iAccount,
+        namePattern: req.query.namePattern as string | undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, trunks: [], message: e.message }); }
+  });
+
+  app.get('/api/sippy/trunks/:id', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getTrunkInfo(username, password, { iTrunk: Number(req.params.id) });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
+  });
+
+  app.post('/api/sippy/trunks', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const { iAccount, name, description, policy } = req.body;
+      if (!iAccount || !name) return res.status(400).json({ ok: false, message: 'iAccount and name required' });
+      const result = await sippy.createTrunk(username, password, { iAccount: Number(iAccount), name, description, policy });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
+  });
+
+  app.patch('/api/sippy/trunks/:id', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateTrunk(username, password, { iTrunk: Number(req.params.id), ...req.body });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
+  });
+
+  app.delete('/api/sippy/trunks/:id', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteTrunk(username, password, Number(req.params.id));
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
+  });
+
+  // ── Trunk Connection Routes (docs 3000116552) ──────────────────────────────
+  // GET  /api/sippy/trunk-connections?iTrunk=xxx   — list connections for a trunk
+  // GET  /api/sippy/trunk-connections/:id           — get connection detail
+  // POST /api/sippy/trunk-connections               — create connection
+  // PATCH /api/sippy/trunk-connections/:id          — update connection
+  // DELETE /api/sippy/trunk-connections/:id         — delete connection
+
+  app.get('/api/sippy/trunk-connections', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iTrunk = req.query.iTrunk ? Number(req.query.iTrunk) : 0;
+      if (!iTrunk) return res.status(400).json({ ok: false, trunkConnections: [], message: 'iTrunk required' });
+      const result = await sippy.getTrunkConnectionsList(username, password, {
+        iTrunk,
+        namePattern: req.query.namePattern as string | undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, trunkConnections: [], message: e.message }); }
+  });
+
+  app.get('/api/sippy/trunk-connections/:id', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getTrunkConnectionInfo(username, password, { iTrunkConnection: Number(req.params.id) });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
+  });
+
+  app.post('/api/sippy/trunk-connections', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const { iTrunk, name, destination, ...rest } = req.body;
+      if (!iTrunk || !name || !destination) return res.status(400).json({ ok: false, message: 'iTrunk, name, and destination required' });
+      const result = await sippy.createTrunkConnection(username, password, {
+        iTrunk: Number(iTrunk), name, destination,
+        orderNo: rest.orderNo, trunkUsername: rest.username,
+        password: rest.password, outboundIp: rest.outboundIp,
+        outboundCld: rest.outboundCld, iProtoTransport: rest.iProtoTransport ? Number(rest.iProtoTransport) : undefined,
+        iPrivacyMode: rest.iPrivacyMode ? Number(rest.iPrivacyMode) : undefined,
+        trustedPrivacyDomain: rest.trustedPrivacyDomain, usePrivIdAsCli: rest.usePrivIdAsCli,
+        useAssertedId: rest.useAssertedId, assertedIdTranslation: rest.assertedIdTranslation,
+        enableDiversion: rest.enableDiversion, huntstopScodes: rest.huntstopScodes,
+        blocked: rest.blocked, capacity: rest.capacity,
+        maxCps: rest.maxCps, fromDomain: rest.fromDomain, randomCallId: rest.randomCallId,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
+  });
+
+  app.patch('/api/sippy/trunk-connections/:id', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const body = req.body;
+      const result = await sippy.updateTrunkConnection(username, password, {
+        iTrunkConnection: Number(req.params.id),
+        name: body.name, destination: body.destination, orderNo: body.orderNo,
+        trunkUsername: body.username, password: body.password,
+        outboundIp: body.outboundIp, outboundCld: body.outboundCld,
+        iProtoTransport: body.iProtoTransport ? Number(body.iProtoTransport) : undefined,
+        iPrivacyMode: body.iPrivacyMode ? Number(body.iPrivacyMode) : undefined,
+        trustedPrivacyDomain: body.trustedPrivacyDomain, usePrivIdAsCli: body.usePrivIdAsCli,
+        useAssertedId: body.useAssertedId, assertedIdTranslation: body.assertedIdTranslation,
+        enableDiversion: body.enableDiversion, huntstopScodes: body.huntstopScodes,
+        blocked: body.blocked, capacity: body.capacity,
+        maxCps: body.maxCps, fromDomain: body.fromDomain, randomCallId: body.randomCallId,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
+  });
+
+  app.delete('/api/sippy/trunk-connections/:id', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteTrunkConnection(username, password, Number(req.params.id));
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
+  });
+
   // GET /api/sippy/rates?tariffId=xxx&switchId=yyy
   app.get('/api/sippy/rates', async (req, res) => {
     try {

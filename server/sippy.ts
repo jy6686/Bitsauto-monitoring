@@ -4087,3 +4087,379 @@ export async function getSippyDictionary(
     return { entries: [], error: err.message };
   }
 }
+
+// ── Trunk Management APIs (docs 3000116551 — versions from 2022) ──────────────
+// All support trusted mode; i_customer must be supplied in that mode.
+
+export interface SippyTrunk {
+  iTrunk: number;
+  iAccount: number;
+  name: string;
+  description?: string;
+  policy?: string;          // trunk routing policy (ordered, random, etc.)
+  iConnection?: number;     // underlying connection ID (from v2025)
+  connectionName?: string;  // connection name when looked up by i_connection
+  iTrunkConnection?: number;
+}
+
+function parseTrunkStruct(s: string): SippyTrunk | null {
+  const m = extractStructMembers(s);
+  if (!m['i_trunk'] && !m['name']) return null;
+  return {
+    iTrunk:          m['i_trunk']          ? parseInt(m['i_trunk'], 10)          : 0,
+    iAccount:        m['i_account']        ? parseInt(m['i_account'], 10)        : 0,
+    name:            m['name']             || '',
+    description:     m['description']      || undefined,
+    policy:          m['policy']           || undefined,
+    iConnection:     m['i_connection']     ? parseInt(m['i_connection'], 10)     : undefined,
+    connectionName:  m['connection_name']  || undefined,
+    iTrunkConnection:m['i_trunk_connection']? parseInt(m['i_trunk_connection'],10): undefined,
+  };
+}
+
+/** createTrunk() — docs 3000116551 */
+export async function createTrunk(
+  username: string, password: string,
+  params: { iAccount: number; name: string; description?: string; policy?: string },
+): Promise<{ ok: boolean; iTrunk?: number; message?: string }> {
+  if (!activeSession) return { ok: false, message: 'Not connected' };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const p: Record<string, unknown> = { i_account: params.iAccount, name: params.name, i_customer: 1 };
+  if (params.description) p.description = params.description;
+  if (params.policy)      p.policy      = params.policy;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('createTrunk', p), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (text.includes('faultCode')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'createTrunk failed.' };
+    }
+    const m = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
+    return { ok: true, iTrunk: m['i_trunk'] ? parseInt(m['i_trunk'], 10) : undefined };
+  } catch (e: any) { return { ok: false, message: e.message }; }
+}
+
+/** updateTrunk() — docs 3000116551 */
+export async function updateTrunk(
+  username: string, password: string,
+  params: { iTrunk: number; name?: string; description?: string; policy?: string },
+): Promise<{ ok: boolean; iTrunk?: number; message?: string }> {
+  if (!activeSession) return { ok: false, message: 'Not connected' };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const p: Record<string, unknown> = { i_trunk: params.iTrunk, i_customer: 1 };
+  if (params.name        !== undefined) p.name        = params.name;
+  if (params.description !== undefined) p.description = params.description;
+  if (params.policy      !== undefined) p.policy      = params.policy;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateTrunk', p), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (text.includes('faultCode')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'updateTrunk failed.' };
+    }
+    const m = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
+    return { ok: true, iTrunk: m['i_trunk'] ? parseInt(m['i_trunk'], 10) : params.iTrunk };
+  } catch (e: any) { return { ok: false, message: e.message }; }
+}
+
+/** deleteTrunk() — docs 3000116551 */
+export async function deleteTrunk(
+  username: string, password: string, iTrunk: number,
+): Promise<{ ok: boolean; message?: string }> {
+  if (!activeSession) return { ok: false, message: 'Not connected' };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteTrunk', { i_trunk: iTrunk, i_customer: 1 }), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (text.includes('faultCode')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'deleteTrunk failed.' };
+    }
+    return { ok: true };
+  } catch (e: any) { return { ok: false, message: e.message }; }
+}
+
+/** getTrunkInfo() — docs 3000116551 */
+export async function getTrunkInfo(
+  username: string, password: string,
+  params: { iTrunk?: number; iConnection?: number },
+): Promise<{ ok: boolean; trunk?: SippyTrunk; message?: string }> {
+  if (!activeSession) return { ok: false, message: 'Not connected' };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const p: Record<string, unknown> = { i_customer: 1 };
+  if (params.iTrunk)      p.i_trunk      = params.iTrunk;
+  if (params.iConnection) p.i_connection = params.iConnection;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getTrunkInfo', p), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (text.includes('faultCode')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'getTrunkInfo failed.' };
+    }
+    const structs = extractAllTags(text, 'struct');
+    for (const s of structs) {
+      const t = parseTrunkStruct(s);
+      if (t) return { ok: true, trunk: t };
+    }
+    return { ok: false, message: 'Trunk not found in response.' };
+  } catch (e: any) { return { ok: false, message: e.message }; }
+}
+
+/** getTrunksList() — docs 3000116551 */
+export async function getTrunksList(
+  username: string, password: string,
+  params: { iAccount: number; namePattern?: string },
+): Promise<{ ok: boolean; trunks: SippyTrunk[]; message?: string }> {
+  if (!activeSession) return { ok: false, trunks: [], message: 'Not connected' };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const p: Record<string, unknown> = { i_account: params.iAccount, i_customer: 1 };
+  if (params.namePattern) p.name_pattern = params.namePattern;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getTrunksList', p), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (text.includes('faultCode')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, trunks: [], message: fault?.replace(/<[^>]+>/g, '').trim() || 'getTrunksList failed.' };
+    }
+    const structs = extractAllTags(text, 'struct');
+    const trunks: SippyTrunk[] = [];
+    for (const s of structs) {
+      const t = parseTrunkStruct(s);
+      if (t) trunks.push(t);
+    }
+    return { ok: true, trunks };
+  } catch (e: any) { return { ok: false, trunks: [], message: e.message }; }
+}
+
+// ── Trunk Connection Management APIs (docs 3000116552 — versions from 2022) ───
+// All support trusted mode; i_customer must be supplied in that mode.
+
+export interface SippyTrunkConnection {
+  iTrunkConnection: number;
+  iTrunk: number;
+  name: string;
+  destination: string;
+  orderNo?: number;
+  username?: string;
+  outboundIp?: string;
+  outboundCld?: string;
+  iProtoTransport?: number;
+  iPrivacyMode?: number;
+  trustedPrivacyDomain?: boolean;
+  usePrivIdAsCli?: boolean;
+  useAssertedId?: boolean;
+  assertedIdTranslation?: string;
+  enableDiversion?: boolean;
+  huntstopScodes?: string;
+  blocked?: boolean;
+  capacity?: number;
+  maxCps?: number;
+  fromDomain?: string;
+  randomCallId?: boolean;
+  iConnection?: number;    // underlying connection ID
+}
+
+function parseTrunkConnectionStruct(s: string): SippyTrunkConnection | null {
+  const m = extractStructMembers(s);
+  if (!m['i_trunk_connection'] && !m['name']) return null;
+  const boolVal = (v?: string) => v === '1' || v === 'true';
+  return {
+    iTrunkConnection:      m['i_trunk_connection']      ? parseInt(m['i_trunk_connection'], 10)       : 0,
+    iTrunk:                m['i_trunk']                 ? parseInt(m['i_trunk'], 10)                  : 0,
+    name:                  m['name']                    || '',
+    destination:           m['destination']             || '',
+    orderNo:               m['order_no']                ? parseInt(m['order_no'], 10)                 : undefined,
+    username:              m['username']                || undefined,
+    outboundIp:            m['outbound_ip']             || undefined,
+    outboundCld:           m['outbound_cld']            || undefined,
+    iProtoTransport:       m['i_proto_transport']       ? parseInt(m['i_proto_transport'], 10)        : undefined,
+    iPrivacyMode:          m['i_privacy_mode']          ? parseInt(m['i_privacy_mode'], 10)           : undefined,
+    trustedPrivacyDomain:  m['trusted_privacy_domain']  != null ? boolVal(m['trusted_privacy_domain']): undefined,
+    usePrivIdAsCli:        m['use_priv_id_as_cli']      != null ? boolVal(m['use_priv_id_as_cli'])    : undefined,
+    useAssertedId:         m['use_asserted_id']         != null ? boolVal(m['use_asserted_id'])        : undefined,
+    assertedIdTranslation: m['asserted_id_translation'] || undefined,
+    enableDiversion:       m['enable_diversion']        != null ? boolVal(m['enable_diversion'])       : undefined,
+    huntstopScodes:        m['huntstop_scodes']         || undefined,
+    blocked:               m['blocked']                 != null ? boolVal(m['blocked'])                : undefined,
+    capacity:              m['capacity']                ? parseInt(m['capacity'], 10)                  : undefined,
+    maxCps:                m['max_cps']                 ? parseFloat(m['max_cps'])                     : undefined,
+    fromDomain:            m['from_domain']             || undefined,
+    randomCallId:          m['random_call_id']          != null ? boolVal(m['random_call_id'])         : undefined,
+    iConnection:           m['i_connection']            ? parseInt(m['i_connection'], 10)              : undefined,
+  };
+}
+
+/** createTrunkConnection() — docs 3000116552 */
+export async function createTrunkConnection(
+  username: string, password: string,
+  params: {
+    iTrunk: number; name: string; destination: string;
+    orderNo?: number | 'first' | 'last';
+    trunkUsername?: string; password?: string;
+    outboundIp?: string | null; outboundCld?: string;
+    iProtoTransport?: number; iPrivacyMode?: number;
+    trustedPrivacyDomain?: boolean; usePrivIdAsCli?: boolean;
+    useAssertedId?: boolean; assertedIdTranslation?: string;
+    enableDiversion?: boolean; huntstopScodes?: string;
+    blocked?: boolean; capacity?: number | null;
+    maxCps?: number | null; fromDomain?: string;
+    randomCallId?: boolean;
+  },
+): Promise<{ ok: boolean; iTrunkConnection?: number; message?: string }> {
+  if (!activeSession) return { ok: false, message: 'Not connected' };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const p: Record<string, unknown> = {
+    i_trunk: params.iTrunk, name: params.name,
+    destination: params.destination, i_customer: 1,
+  };
+  if (params.orderNo           !== undefined) p.order_no                = params.orderNo;
+  if (params.trunkUsername     !== undefined) p.username                = params.trunkUsername;
+  if (params.password          !== undefined) p.password                = params.password;
+  if (params.outboundIp        !== undefined) p.outbound_ip             = params.outboundIp;
+  if (params.outboundCld       !== undefined) p.outbound_cld            = params.outboundCld;
+  if (params.iProtoTransport   !== undefined) p.i_proto_transport       = params.iProtoTransport;
+  if (params.iPrivacyMode      !== undefined) p.i_privacy_mode          = params.iPrivacyMode;
+  if (params.trustedPrivacyDomain !== undefined) p.trusted_privacy_domain = params.trustedPrivacyDomain;
+  if (params.usePrivIdAsCli    !== undefined) p.use_priv_id_as_cli      = params.usePrivIdAsCli;
+  if (params.useAssertedId     !== undefined) p.use_asserted_id         = params.useAssertedId;
+  if (params.assertedIdTranslation !== undefined) p.asserted_id_translation = params.assertedIdTranslation;
+  if (params.enableDiversion   !== undefined) p.enable_diversion        = params.enableDiversion;
+  if (params.huntstopScodes    !== undefined) p.huntstop_scodes         = params.huntstopScodes;
+  if (params.blocked           !== undefined) p.blocked                 = params.blocked;
+  if (params.capacity          !== undefined) p.capacity                = params.capacity;
+  if (params.maxCps            !== undefined) p.max_cps                 = params.maxCps;
+  if (params.fromDomain        !== undefined) p.from_domain             = params.fromDomain;
+  if (params.randomCallId      !== undefined) p.random_call_id          = params.randomCallId;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('createTrunkConnection', p), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (text.includes('faultCode')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'createTrunkConnection failed.' };
+    }
+    const m = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
+    return { ok: true, iTrunkConnection: m['i_trunk_connection'] ? parseInt(m['i_trunk_connection'], 10) : undefined };
+  } catch (e: any) { return { ok: false, message: e.message }; }
+}
+
+/** updateTrunkConnection() — docs 3000116552 */
+export async function updateTrunkConnection(
+  username: string, password: string,
+  params: {
+    iTrunkConnection: number;
+    name?: string; destination?: string;
+    orderNo?: number | 'first' | 'last' | 'up' | 'down';
+    trunkUsername?: string; password?: string;
+    outboundIp?: string | null; outboundCld?: string;
+    iProtoTransport?: number; iPrivacyMode?: number;
+    trustedPrivacyDomain?: boolean; usePrivIdAsCli?: boolean;
+    useAssertedId?: boolean; assertedIdTranslation?: string;
+    enableDiversion?: boolean; huntstopScodes?: string;
+    blocked?: boolean; capacity?: number | null;
+    maxCps?: number | null; fromDomain?: string;
+    randomCallId?: boolean;
+  },
+): Promise<{ ok: boolean; iTrunkConnection?: number; message?: string }> {
+  if (!activeSession) return { ok: false, message: 'Not connected' };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const p: Record<string, unknown> = { i_trunk_connection: params.iTrunkConnection, i_customer: 1 };
+  if (params.name              !== undefined) p.name                    = params.name;
+  if (params.destination       !== undefined) p.destination             = params.destination;
+  if (params.orderNo           !== undefined) p.order_no                = params.orderNo;
+  if (params.trunkUsername     !== undefined) p.username                = params.trunkUsername;
+  if (params.password          !== undefined) p.password                = params.password;
+  if (params.outboundIp        !== undefined) p.outbound_ip             = params.outboundIp;
+  if (params.outboundCld       !== undefined) p.outbound_cld            = params.outboundCld;
+  if (params.iProtoTransport   !== undefined) p.i_proto_transport       = params.iProtoTransport;
+  if (params.iPrivacyMode      !== undefined) p.i_privacy_mode          = params.iPrivacyMode;
+  if (params.trustedPrivacyDomain !== undefined) p.trusted_privacy_domain = params.trustedPrivacyDomain;
+  if (params.usePrivIdAsCli    !== undefined) p.use_priv_id_as_cli      = params.usePrivIdAsCli;
+  if (params.useAssertedId     !== undefined) p.use_asserted_id         = params.useAssertedId;
+  if (params.assertedIdTranslation !== undefined) p.asserted_id_translation = params.assertedIdTranslation;
+  if (params.enableDiversion   !== undefined) p.enable_diversion        = params.enableDiversion;
+  if (params.huntstopScodes    !== undefined) p.huntstop_scodes         = params.huntstopScodes;
+  if (params.blocked           !== undefined) p.blocked                 = params.blocked;
+  if (params.capacity          !== undefined) p.capacity                = params.capacity;
+  if (params.maxCps            !== undefined) p.max_cps                 = params.maxCps;
+  if (params.fromDomain        !== undefined) p.from_domain             = params.fromDomain;
+  if (params.randomCallId      !== undefined) p.random_call_id          = params.randomCallId;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateTrunkConnection', p), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (text.includes('faultCode')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'updateTrunkConnection failed.' };
+    }
+    const m = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
+    return { ok: true, iTrunkConnection: m['i_trunk_connection'] ? parseInt(m['i_trunk_connection'], 10) : params.iTrunkConnection };
+  } catch (e: any) { return { ok: false, message: e.message }; }
+}
+
+/** deleteTrunkConnection() — docs 3000116552 */
+export async function deleteTrunkConnection(
+  username: string, password: string, iTrunkConnection: number,
+): Promise<{ ok: boolean; message?: string }> {
+  if (!activeSession) return { ok: false, message: 'Not connected' };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteTrunkConnection', { i_trunk_connection: iTrunkConnection, i_customer: 1 }), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (text.includes('faultCode')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'deleteTrunkConnection failed.' };
+    }
+    return { ok: true };
+  } catch (e: any) { return { ok: false, message: e.message }; }
+}
+
+/** getTrunkConnectionInfo() — docs 3000116552 */
+export async function getTrunkConnectionInfo(
+  username: string, password: string,
+  params: { iTrunkConnection?: number; iConnection?: number },
+): Promise<{ ok: boolean; trunkConnection?: SippyTrunkConnection; message?: string }> {
+  if (!activeSession) return { ok: false, message: 'Not connected' };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const p: Record<string, unknown> = { i_customer: 1 };
+  if (params.iTrunkConnection) p.i_trunk_connection = params.iTrunkConnection;
+  if (params.iConnection)      p.i_connection       = params.iConnection;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getTrunkConnectionInfo', p), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (text.includes('faultCode')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'getTrunkConnectionInfo failed.' };
+    }
+    const structs = extractAllTags(text, 'struct');
+    for (const s of structs) {
+      const tc = parseTrunkConnectionStruct(s);
+      if (tc) return { ok: true, trunkConnection: tc };
+    }
+    return { ok: false, message: 'Trunk connection not found in response.' };
+  } catch (e: any) { return { ok: false, message: e.message }; }
+}
+
+/** getTrunkConnectionsList() — docs 3000116552 */
+export async function getTrunkConnectionsList(
+  username: string, password: string,
+  params: { iTrunk: number; namePattern?: string },
+): Promise<{ ok: boolean; trunkConnections: SippyTrunkConnection[]; message?: string }> {
+  if (!activeSession) return { ok: false, trunkConnections: [], message: 'Not connected' };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const p: Record<string, unknown> = { i_trunk: params.iTrunk, i_customer: 1 };
+  if (params.namePattern) p.name_pattern = params.namePattern;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getTrunkConnectionsList', p), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (text.includes('faultCode')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, trunkConnections: [], message: fault?.replace(/<[^>]+>/g, '').trim() || 'getTrunkConnectionsList failed.' };
+    }
+    const structs = extractAllTags(text, 'struct');
+    const trunkConnections: SippyTrunkConnection[] = [];
+    for (const s of structs) {
+      const tc = parseTrunkConnectionStruct(s);
+      if (tc) trunkConnections.push(tc);
+    }
+    return { ok: true, trunkConnections };
+  } catch (e: any) { return { ok: false, trunkConnections: [], message: e.message }; }
+}
