@@ -30,10 +30,13 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 - `clientName` extracted from CDR and live call records
 
 ## Sippy Integration (`server/sippy.ts`)
-- XML-RPC POST to `/xmlapi/xmlapi`, HTTP Basic Auth
-- No CAPTCHA required
-- APIs implemented: listAccounts (doc 107322), getRegistrationStatus (107366), listAuthRules / addAuthRule / updateAuthRule / deleteAuthRule (107336), getLowBalance / updateLowBalance (107444), createAccount (107417+)
-- Clients page "Sippy Accounts" tab: live account list with SIP registration badge, auth rules CRUD (expandable per account), low balance modal
+- XML-RPC POST to `/xmlapi/xmlapi`, HTTP **Digest** Auth (RFC-2617, NOT Basic) — `sippyPost()` handles 2-step probe-then-digest
+- Admin credentials: ssp-root (apiAdminUsername/apiAdminPassword). Portal credentials (RTST1) only support limited read-only methods
+- APIs implemented: listAccounts (doc 107322), getRegistrationStatus (107366), listAuthRules / addAuthRule / updateAuthRule / deleteAuthRule (107336), getLowBalance / updateLowBalance (107444), createAccount (doc 107417+), listRoutingGroups
+- Clients page "Sippy Accounts" tab: live account list with SIP registration badge, auth rules CRUD (expandable per account), low balance modal, New Sippy Account modal
+- createAccount key learnings: `preferred_codec` must be `-1` (integer, NOT nil); `i_password_policy` must be `1`; `max_credit_time` must be positive (default 3600, not 0/-1); `i_routing_group` required for root customer (auto-fetched via listRoutingGroups); `i_billing_plan` must be specified (defaults to 1); `listRoutingGroups` API is the working method on Sippy ≤ 5.x; routing group ID=3 confirmed on this instance
+- Balance inversion: listAccounts does NOT invert; createAccount/getAccountInfo DO invert
+- Registration status fault 403 = not registered (returns `{ registered: false }` silently)
 
 ## Important State
 - Simulation is **disabled** (`simulationEnabled = false` in DB)

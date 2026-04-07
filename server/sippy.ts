@@ -1546,8 +1546,8 @@ export async function pushAccountToSippy(
     authname,
     voip_password:            voipPass,
     // Required fields with sensible defaults
-    max_sessions:             opts.maxSessions       ?? 0,   // 0 = unlimited
-    max_credit_time:          opts.maxSessionTime     ?? 0,   // 0 = unlimited
+    max_sessions:             opts.maxSessions       ?? 0,   // 0 = unlimited sessions
+    max_credit_time:          opts.maxSessionTime     ?? 3600, // max per-call seconds; 3600 = 1hr (0/-1 rejected by Sippy)
     translation_rule:         opts.cldTranslationRule ?? '',
     cli_translation_rule:     opts.cliTranslationRule ?? '',
     credit_limit:             opts.creditLimit        ?? 0,
@@ -1559,15 +1559,15 @@ export async function pushAccountToSippy(
     blocked:                  0,
     i_lang:                   opts.language           ?? 'en',
     payment_currency:         'USD',
-    payment_method:           0,
-    i_export_type:            0,
-    lifetime:                 -1,   // unlimited
-    preferred_codec:          null, // null = Disabled (Required per API docs)
+    payment_method:           1,   // 1 = Credit card (matching TEST account default)
+    i_export_type:            2,   // 2 = Retail (matching TEST account default)
+    lifetime:                 -1,  // unlimited
+    preferred_codec:          -1,  // -1 = Disabled / no preference (Sippy rejects nil for this field)
     use_preferred_codec_only: 0,
     reg_allowed:              1,
-    welcome_call_ivr:         0,
-    on_payment_action:        null, // null = No Action (Required per API docs)
-    min_payment_amount:       0,
+    welcome_call_ivr:         null, // null = not set
+    on_payment_action:        null, // null = No Action
+    min_payment_amount:       0.0,
     trust_cli:                0,
     disallow_loops:           0,
     vm_notify_emails:         '',
@@ -1591,21 +1591,41 @@ export async function pushAccountToSippy(
     email:                    opts.email ?? '',
     cc:                       '',
     bcc:                      '',
-    i_password_policy:        0,
+    i_password_policy:        1,   // 1 = Default policy (Sippy requires this; 0 is invalid)
     i_media_relay_type:       0,
   };
 
-  // Routing group (Required for root-customer accounts)
+  // ── Routing group (required for root-customer accounts) ─────────────────
+  // If caller did not supply a routing group, auto-fetch the first available one.
   if (opts.routingGroup) {
     const rg = parseInt(opts.routingGroup, 10);
     if (!isNaN(rg)) params.i_routing_group = rg;
+  } else {
+    // Auto-fetch via listRoutingGroups (confirmed working on this Sippy version)
+    try {
+      const rgBody = xmlRpcCall('listRoutingGroups', {});
+      const rgResp = await sippyPost(apiUrl, rgBody, credentials.username, credentials.password);
+      if (rgResp.statusCode === 200 && !rgResp.body.includes('<fault>')) {
+        const firstId = rgResp.body.match(/<name>i_routing_group<\/name>\s*<value><int>(\d+)/)?.[1];
+        if (firstId) {
+          params.i_routing_group = parseInt(firstId, 10);
+          console.log(`[Sippy] Auto-selected routing group: ${params.i_routing_group}`);
+        }
+      }
+    } catch (e) {
+      console.warn('[Sippy] Could not auto-fetch routing groups:', e);
+    }
   }
 
-  // Billing plan — i_billing_plan is required since Sippy v1.8
-  // i_tariff is deprecated (used only in Sippy <= 1.7.1); omitted per official docs
+  // ── Billing plan (i_billing_plan required since Sippy v1.8) ─────────────
   if (opts.servicePlan) {
     const sp = parseInt(opts.servicePlan, 10);
     if (!isNaN(sp)) params.i_billing_plan = sp;
+  }
+  // Default to plan 1 (confirmed valid on this Sippy instance) if not specified;
+  // will be overridden by auto-probe if plan 1 is rejected.
+  if (!params.i_billing_plan) {
+    params.i_billing_plan = 1;
   }
 
   // Optional extras
@@ -1700,12 +1720,49 @@ export async function pushAccountToSippy(
             const fs2 = extractTag(text2, 'faultString');
             if (fs2) lastFault = fs2.replace(/<[^>]+>/g, '').trim();
           } else {
-            // No billing plans found — give actionable error
-            return {
-              success: false,
-              message: 'Could not create account: a Service Plan (Billing Plan) is required by your Sippy switch.',
-              detail: `Your Sippy instance has no billing plans configured. Log in to your Sippy admin portal, go to Billing → Service Plans, and create at least one plan. Then retry account creation here.${bpResult.error ? ' (' + bpResult.error + ')' : ''}`,
-            };
+            // Billing plan list API not available on this Sippy version — probe IDs 1→5
+            console.log('[Sippy] Billing plan list API unavailable — probing plan IDs 1-5...');
+            let foundPlan: number | null = null;
+            for (const probeId of [1, 2, 3, 4, 5]) {
+              params.i_billing_plan = probeId;
+              const probeBody = xmlRpcCall(method, params);
+              const probeResp = await sippyPost(apiUrl, probeBody, credentials.username, credentials.password);
+              const probeText = probeResp.body;
+              const probeFault = extractTag(probeText, 'faultString');
+              const probeFaultStr = probeFault?.replace(/<[^>]+>/g, '').trim() ?? '';
+              console.log(`[Sippy] Plan probe ${probeId}: HTTP ${probeResp.statusCode}, fault="${probeFaultStr.slice(0, 80)}"`);
+              if (probeResp.statusCode === 200 && !probeText.includes('<fault>') && !probeText.includes('faultCode')) {
+                // Success with this plan!
+                const retUsername    = extractValue(probeText, 'username');
+                const retAuthname    = extractValue(probeText, 'authname');
+                const retWebPassword = extractValue(probeText, 'web_password');
+                const retVoipPass    = extractValue(probeText, 'voip_password');
+                const retIAccount    = extractValue(probeText, 'i_account');
+                return {
+                  success: true,
+                  message: `Account "${opts.name}" created on Sippy (billing plan auto-probed: ID ${probeId}).${retIAccount ? ` (ID: ${retIAccount})` : ''}`,
+                  method,
+                  username:      retUsername,
+                  authname:      retAuthname,
+                  web_password:  retWebPassword,
+                  voip_password: retVoipPass,
+                };
+              }
+              if (probeFaultStr && !probeFaultStr.toLowerCase().includes('billing_plan') && !probeFaultStr.toLowerCase().includes('billing plan')) {
+                // Got a different kind of fault — plan ID might be valid, but other error
+                foundPlan = probeId;
+                lastFault = probeFaultStr;
+                break;
+              }
+              // billing_plan-related fault → try next ID
+            }
+            if (!foundPlan) {
+              return {
+                success: false,
+                message: 'Could not create account: a Service Plan (Billing Plan) is required by your Sippy switch, and none were found (IDs 1-5 tried).',
+                detail: `Log in to your Sippy admin portal → Billing → Service Plans, create at least one plan, then specify its ID in the Service Plan field when creating the account.`,
+              };
+            }
           }
         }
 
@@ -1824,8 +1881,9 @@ export async function listSippyRoutingGroups(
   if (!base) return { groups: [], error: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
-  // Official method: getRoutingGroupsList() — also try legacy names for older builds
+  // Official method: listRoutingGroups() — confirmed working; also try legacy names
   const methods = [
+    'listRoutingGroups',                       // confirmed working on Sippy ≤ 5.x
     'getRoutingGroupsList',                    // official (newer Sippy)
     'routing_group.getRoutingGroupList',       // legacy
     'routing_group.getList',                   // legacy variant

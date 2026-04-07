@@ -1782,9 +1782,9 @@ export default function ClientsPage() {
             Define named parties for reports, and send rates directly to your connected switch.
           </p>
         </div>
-        {isManagement && tab === 'profiles' && !adding && (
+        {isManagement && !adding && (
           <div className="flex items-center gap-2">
-            {(sippySession?.active || allSwitches.some((s: SwitchOption) => s.type === 'sippy' && s.enabled)) && (
+            {(sippySession?.active || allSwitches.some((s: SwitchOption) => s.type === 'sippy' && s.enabled)) && (tab === 'profiles' || tab === 'sippy') && (
               <button
                 data-testid="button-new-sippy-account"
                 onClick={() => setNewSippyOpen(true)}
@@ -1794,14 +1794,16 @@ export default function ClientsPage() {
                 New Sippy Account
               </button>
             )}
-            <button
-              data-testid="button-add-profile"
-              onClick={() => setAdding(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Add Profile
-            </button>
+            {tab === 'profiles' && (
+              <button
+                data-testid="button-add-profile"
+                onClick={() => setAdding(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Add Profile
+              </button>
+            )}
           </div>
         )}
       </div>
