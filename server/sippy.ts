@@ -3076,6 +3076,37 @@ export async function updateIncomingRoute(
   }
 }
 
+// ── Service Plan Charges (official Sippy docs 107400) ───────────────────────
+
+/**
+ * Forcibly apply service plan charges to a given account.
+ * Official method: billingRun() — docs 107400
+ * Parameters: i_account (required).
+ * No trusted mode documented for this method.
+ */
+export async function billingRun(
+  username: string,
+  password: string,
+  iAccount: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('billingRun', { i_account: iAccount }), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>') && !resp.body.includes('faultCode')) {
+      return { success: true, message: 'Service plan charges applied successfully.' };
+    }
+    const fault = resp.body.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(resp.body, 'faultString') ?? 'billingRun failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 // ── Vendor Management (official Sippy docs 107434) ───────────────────────────
 
 /**
