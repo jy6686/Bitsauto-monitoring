@@ -32,6 +32,8 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 ## Sippy Integration (`server/sippy.ts`)
 - XML-RPC POST to `/xmlapi/xmlapi`, HTTP Basic Auth
 - No CAPTCHA required
+- APIs implemented: listAccounts (doc 107322), getRegistrationStatus (107366), listAuthRules / addAuthRule / updateAuthRule / deleteAuthRule (107336), getLowBalance / updateLowBalance (107444), createAccount (107417+)
+- Clients page "Sippy Accounts" tab: live account list with SIP registration badge, auth rules CRUD (expandable per account), low balance modal
 
 ## Important State
 - Simulation is **disabled** (`simulationEnabled = false` in DB)

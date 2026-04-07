@@ -7,6 +7,7 @@ import {
   Globe, RefreshCw, Download, AlertTriangle, Send, Upload,
   Clock, CalendarClock, CheckCircle2, XCircle, Activity,
   ChevronUp, ChevronDown, Eye, EyeOff,
+  Wifi, WifiOff, Shield, DollarSign, ShieldCheck, Info, Save,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { ClientProfile } from "@shared/schema";
@@ -741,6 +742,615 @@ function SendRatePanel({ profiles }: { profiles: ClientProfile[] }) {
   );
 }
 
+// ── Low Balance / Auto-Recharge Modal (doc 107444) ───────────────────────────
+
+interface LowBalanceConfig {
+  success: boolean;
+  threshold?: number | null;
+  notifyByEmail?: boolean;
+  chargeCard?: boolean;
+  chargeAmount?: number;
+  iDebitCreditCard?: number | null;
+  notificationRetryCount?: number;
+  notificationRetryInterval?: number | null;
+  brChargeCard?: boolean;
+  brChargeAmount?: number | null;
+  error?: string;
+}
+
+function LowBalanceModal({ iAccount, username, onClose }: { iAccount: number; username: string; onClose: () => void }) {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery<LowBalanceConfig>({
+    queryKey: ['/api/sippy/accounts', iAccount, 'low-balance'],
+    queryFn: () => fetch(`/api/sippy/accounts/${iAccount}/low-balance`).then(r => r.json()),
+  });
+
+  const [threshold, setThreshold]   = useState<string>('');
+  const [notify, setNotify]         = useState(false);
+  const [chargeCard, setChargeCard] = useState(false);
+  const [chargeAmt, setChargeAmt]   = useState('');
+  const [retryCount, setRetryCount] = useState('');
+  const [brCharge, setBrCharge]     = useState(false);
+  const [brAmt, setBrAmt]           = useState('');
+  const [initialised, setInitialised] = useState(false);
+
+  // Populate fields once data loads
+  if (data && !isLoading && !initialised) {
+    setThreshold(data.threshold != null ? String(data.threshold) : '');
+    setNotify(!!data.notifyByEmail);
+    setChargeCard(!!data.chargeCard);
+    setChargeAmt(data.chargeAmount != null ? String(data.chargeAmount) : '');
+    setRetryCount(data.notificationRetryCount != null ? String(data.notificationRetryCount) : '');
+    setBrCharge(!!data.brChargeCard);
+    setBrAmt(data.brChargeAmount != null ? String(data.brChargeAmount) : '');
+    setInitialised(true);
+  }
+
+  const saveMut = useMutation({
+    mutationFn: () => apiRequest('PATCH', `/api/sippy/accounts/${iAccount}/low-balance`, {
+      threshold:               threshold !== '' ? parseFloat(threshold) : null,
+      notifyByEmail:           notify,
+      chargeCard:              chargeCard,
+      chargeAmount:            chargeAmt !== '' ? parseFloat(chargeAmt) : undefined,
+      notificationRetryCount:  retryCount !== '' ? parseInt(retryCount) : undefined,
+      brChargeCard:            brCharge,
+      brChargeAmount:          brAmt !== '' ? parseFloat(brAmt) : null,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/sippy/accounts', iAccount, 'low-balance'] });
+      onClose();
+    },
+  });
+
+  const fieldCls = "w-full px-3 py-2 text-sm rounded-lg bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/50";
+  const labelCls = "text-xs font-medium text-muted-foreground mb-1 block";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between rounded-t-2xl">
+          <div>
+            <h3 className="font-semibold flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-violet-400" />
+              Low Balance / Auto-Recharge
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">{username}</p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted transition-colors"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin" /> Loading…
+            </div>
+          ) : data?.error ? (
+            <div className="rounded-lg bg-rose-500/10 border border-rose-500/30 px-4 py-3 text-rose-400 text-sm flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {data.error}
+            </div>
+          ) : (
+            <>
+              {/* Threshold */}
+              <div className="space-y-1.5">
+                <label className={labelCls}>Balance Threshold ($) <span className="text-muted-foreground/60">(null = disabled)</span></label>
+                <input data-testid="input-lb-threshold" type="number" step="0.01" value={threshold}
+                  onChange={e => setThreshold(e.target.value)}
+                  placeholder="e.g. 50.00 — leave blank to disable"
+                  className={fieldCls} />
+                <p className="text-xs text-muted-foreground">Alert/recharge fires when balance drops below this value.</p>
+              </div>
+
+              {/* Notification */}
+              <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+                <input data-testid="checkbox-lb-notify" type="checkbox" id="lb-notify" checked={notify}
+                  onChange={e => setNotify(e.target.checked)}
+                  className="rounded border-border accent-violet-500 w-4 h-4" />
+                <div>
+                  <label htmlFor="lb-notify" className="text-sm font-medium cursor-pointer">Email notification</label>
+                  <p className="text-xs text-muted-foreground">Send email when balance hits threshold</p>
+                </div>
+              </div>
+              {notify && (
+                <div className="space-y-1.5 pl-4">
+                  <label className={labelCls}>Retry Count <span className="text-muted-foreground/60">(since Sippy 2024)</span></label>
+                  <input data-testid="input-lb-retry" type="number" min="0" value={retryCount}
+                    onChange={e => setRetryCount(e.target.value)}
+                    placeholder="0" className={fieldCls} />
+                </div>
+              )}
+
+              {/* Auto-charge */}
+              <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+                <input data-testid="checkbox-lb-charge" type="checkbox" id="lb-charge" checked={chargeCard}
+                  onChange={e => setChargeCard(e.target.checked)}
+                  className="rounded border-border accent-violet-500 w-4 h-4" />
+                <div>
+                  <label htmlFor="lb-charge" className="text-sm font-medium cursor-pointer">Auto-charge card on low balance</label>
+                  <p className="text-xs text-muted-foreground">Charge the account's primary card automatically</p>
+                </div>
+              </div>
+              {chargeCard && (
+                <div className="space-y-1.5 pl-4">
+                  <label className={labelCls}>Charge Amount ($)</label>
+                  <input data-testid="input-lb-charge-amt" type="number" step="0.01" min="0" value={chargeAmt}
+                    onChange={e => setChargeAmt(e.target.value)}
+                    placeholder="100.00" className={fieldCls} />
+                </div>
+              )}
+
+              {/* Billing-run charge */}
+              <div className="rounded-lg border border-border/50 bg-muted/10 p-4 space-y-3">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Billing Run Auto-Charge</p>
+                <div className="flex items-center gap-3">
+                  <input data-testid="checkbox-lb-br-charge" type="checkbox" id="lb-br" checked={brCharge}
+                    onChange={e => setBrCharge(e.target.checked)}
+                    className="rounded border-border accent-violet-500 w-4 h-4" />
+                  <label htmlFor="lb-br" className="text-sm font-medium cursor-pointer">Auto-charge on billing run</label>
+                </div>
+                {brCharge && (
+                  <div className="space-y-1.5">
+                    <label className={labelCls}>Billing-Run Charge Amount ($) <span className="text-muted-foreground/60">(blank = Plan Price)</span></label>
+                    <input data-testid="input-lb-br-amt" type="number" step="0.01" min="0" value={brAmt}
+                      onChange={e => setBrAmt(e.target.value)}
+                      placeholder="blank = use Plan Price" className={fieldCls} />
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {!isLoading && !data?.error && (
+          <div className="px-6 pb-6 flex gap-3 justify-end border-t border-border pt-4">
+            <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors">Cancel</button>
+            <button
+              data-testid="button-lb-save"
+              onClick={() => saveMut.mutate()}
+              disabled={saveMut.isPending}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {saveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              Save
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Auth Rules Panel (doc 107336) ─────────────────────────────────────────────
+
+const PROTOCOLS: Record<number, string> = { 1: 'SIP', 2: 'H.323', 3: 'IAX2', 4: 'PIN' };
+
+interface AuthRule {
+  iAuthentication: number;
+  iProtocol?: number;
+  remoteIp?: string;
+  incomingCli?: string;
+  incomingCld?: string;
+  toDomain?: string;
+  fromDomain?: string;
+  cliTranslationRule?: string;
+  cldTranslationRule?: string;
+  iTariff?: number | null;
+  iRoutingGroup?: number | null;
+  maxSessions?: number;
+  maxCps?: number | null;
+}
+
+const emptyRule = { iProtocol: 1, remoteIp: '', incomingCli: '', incomingCld: '', toDomain: '', fromDomain: '', cliTranslationRule: '', cldTranslationRule: '', maxSessions: '', maxCps: '' };
+
+function AuthRulesPanel({ iAccount, isManagement }: { iAccount: number; isManagement: boolean }) {
+  const queryClient = useQueryClient();
+  const [adding, setAdding]     = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm]         = useState({ ...emptyRule });
+  const [editForm, setEditForm] = useState({ ...emptyRule, iAuthentication: 0 });
+
+  const { data, isLoading } = useQuery<{ authRules: AuthRule[]; error?: string }>({
+    queryKey: ['/api/sippy/accounts', iAccount, 'auth-rules'],
+    queryFn: () => fetch(`/api/sippy/accounts/${iAccount}/auth-rules`).then(r => r.json()),
+  });
+
+  const rules = data?.authRules ?? [];
+
+  const addMut = useMutation({
+    mutationFn: () => apiRequest('POST', `/api/sippy/accounts/${iAccount}/auth-rules`, {
+      iProtocol:          Number(form.iProtocol),
+      remoteIp:           form.remoteIp           || undefined,
+      incomingCli:        form.incomingCli         || undefined,
+      incomingCld:        form.incomingCld         || undefined,
+      toDomain:           form.toDomain            || undefined,
+      fromDomain:         form.fromDomain          || undefined,
+      cliTranslationRule: form.cliTranslationRule  || undefined,
+      cldTranslationRule: form.cldTranslationRule  || undefined,
+      maxSessions:        form.maxSessions ? Number(form.maxSessions) : undefined,
+      maxCps:             form.maxCps ? Number(form.maxCps) : undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/sippy/accounts', iAccount, 'auth-rules'] });
+      setAdding(false);
+      setForm({ ...emptyRule });
+    },
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, f }: { id: number; f: typeof editForm }) => apiRequest('PATCH', `/api/sippy/auth-rules/${id}`, {
+      iProtocol:          Number(f.iProtocol),
+      remoteIp:           f.remoteIp           || undefined,
+      incomingCli:        f.incomingCli         || undefined,
+      incomingCld:        f.incomingCld         || undefined,
+      toDomain:           f.toDomain            || undefined,
+      fromDomain:         f.fromDomain          || undefined,
+      cliTranslationRule: f.cliTranslationRule  || undefined,
+      cldTranslationRule: f.cldTranslationRule  || undefined,
+      maxSessions:        f.maxSessions ? Number(f.maxSessions) : undefined,
+      maxCps:             f.maxCps ? Number(f.maxCps) : undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/sippy/accounts', iAccount, 'auth-rules'] });
+      setEditingId(null);
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/sippy/auth-rules/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/sippy/accounts', iAccount, 'auth-rules'] }),
+  });
+
+  const fieldCls = "px-2 py-1.5 text-xs rounded-md bg-background border border-border focus:outline-none focus:ring-1 focus:ring-primary/50 w-full";
+
+  function RuleForm({ f, setF, onSave, onCancel, isSaving }: { f: any; setF: (k: string, v: any) => void; onSave: () => void; onCancel: () => void; isSaving: boolean }) {
+    const hasMatch = !!(f.remoteIp || f.incomingCli || f.incomingCld || f.toDomain || f.fromDomain);
+    return (
+      <div className="bg-muted/10 border border-border/50 rounded-lg p-4 space-y-3 mt-2">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Protocol *</p>
+            <select value={f.iProtocol} onChange={e => setF('iProtocol', e.target.value)} className={fieldCls}>
+              {Object.entries(PROTOCOLS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Caller IP</p>
+            <input value={f.remoteIp} onChange={e => setF('remoteIp', e.target.value)} placeholder="e.g. 1.2.3.4" className={fieldCls} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Caller CLI</p>
+            <input value={f.incomingCli} onChange={e => setF('incomingCli', e.target.value)} placeholder="e.g. +4420" className={fieldCls} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Called CLD</p>
+            <input value={f.incomingCld} onChange={e => setF('incomingCld', e.target.value)} placeholder="e.g. +1800" className={fieldCls} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">To Domain</p>
+            <input value={f.toDomain} onChange={e => setF('toDomain', e.target.value)} placeholder="sip.example.com" className={fieldCls} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">From Domain</p>
+            <input value={f.fromDomain} onChange={e => setF('fromDomain', e.target.value)} placeholder="pbx.customer.com" className={fieldCls} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">CLI Trans. Rule</p>
+            <input value={f.cliTranslationRule} onChange={e => setF('cliTranslationRule', e.target.value)} placeholder="s/^[+]//" className={`${fieldCls} font-mono`} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">CLD Trans. Rule</p>
+            <input value={f.cldTranslationRule} onChange={e => setF('cldTranslationRule', e.target.value)} placeholder="s/^6043//" className={`${fieldCls} font-mono`} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Max Sessions</p>
+            <input type="number" value={f.maxSessions} onChange={e => setF('maxSessions', e.target.value)} placeholder="-1 = ∞" className={fieldCls} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Max CPS</p>
+            <input type="number" step="0.1" value={f.maxCps} onChange={e => setF('maxCps', e.target.value)} placeholder="blank = ∞" className={fieldCls} />
+          </div>
+        </div>
+        {!hasMatch && (
+          <p className="text-xs text-amber-400 flex items-center gap-1.5">
+            <AlertTriangle className="w-3 h-3" />
+            At least one match field required: Caller IP, CLI, CLD, To Domain, or From Domain.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button data-testid="button-auth-rule-save"
+            disabled={!hasMatch || isSaving}
+            onClick={onSave}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+            Save Rule
+          </button>
+          <button onClick={onCancel} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-muted transition-colors">
+            <X className="w-3 h-3" /> Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-6 pb-4 pt-2 border-t border-border/30 bg-muted/5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+          <Shield className="w-3 h-3" /> Auth Rules
+        </p>
+        {isManagement && !adding && (
+          <button data-testid="button-add-auth-rule"
+            onClick={() => { setAdding(true); setForm({ ...emptyRule }); }}
+            className="flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-md border border-violet-500/40 text-violet-400 hover:bg-violet-500/10 transition-colors"
+          >
+            <Plus className="w-3 h-3" /> Add Rule
+          </button>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground py-2"><Loader2 className="w-3 h-3 animate-spin" /> Loading…</div>
+      ) : data?.error ? (
+        <p className="text-xs text-rose-400 flex items-center gap-1.5"><AlertTriangle className="w-3 h-3" />{data.error}</p>
+      ) : rules.length === 0 && !adding ? (
+        <p className="text-xs text-muted-foreground italic py-1">No auth rules — calls match by SIP username/password only.</p>
+      ) : (
+        <div className="space-y-1">
+          {rules.map(rule => (
+            <div key={rule.iAuthentication} data-testid={`row-auth-rule-${rule.iAuthentication}`}
+              className="rounded-lg border border-border/40 bg-background/50 px-3 py-2">
+              {editingId === rule.iAuthentication ? (
+                <RuleForm
+                  f={editForm}
+                  setF={(k, v) => setEditForm(ef => ({ ...ef, [k]: v }))}
+                  onSave={() => updateMut.mutate({ id: rule.iAuthentication, f: editForm })}
+                  onCancel={() => setEditingId(null)}
+                  isSaving={updateMut.isPending}
+                />
+              ) : (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                    <span className="font-mono text-violet-400">#{rule.iAuthentication}</span>
+                    {rule.iProtocol && (
+                      <span className="text-muted-foreground">Protocol: <span className="text-foreground">{PROTOCOLS[rule.iProtocol] ?? rule.iProtocol}</span></span>
+                    )}
+                    {rule.remoteIp && <span className="text-muted-foreground">IP: <span className="font-mono text-foreground">{rule.remoteIp}</span></span>}
+                    {rule.incomingCli && <span className="text-muted-foreground">CLI: <span className="font-mono text-foreground">{rule.incomingCli}</span></span>}
+                    {rule.incomingCld && <span className="text-muted-foreground">CLD: <span className="font-mono text-foreground">{rule.incomingCld}</span></span>}
+                    {rule.toDomain && <span className="text-muted-foreground">To: <span className="font-mono text-foreground">{rule.toDomain}</span></span>}
+                    {rule.fromDomain && <span className="text-muted-foreground">From: <span className="font-mono text-foreground">{rule.fromDomain}</span></span>}
+                    {rule.cliTranslationRule && <span className="text-muted-foreground">CLI rule: <code className="text-[10px] font-mono text-amber-300">{rule.cliTranslationRule}</code></span>}
+                    {rule.cldTranslationRule && <span className="text-muted-foreground">CLD rule: <code className="text-[10px] font-mono text-amber-300">{rule.cldTranslationRule}</code></span>}
+                    {rule.maxSessions != null && <span className="text-muted-foreground">Sessions: <span className="text-foreground">{rule.maxSessions === -1 ? '∞' : rule.maxSessions}</span></span>}
+                    {rule.maxCps != null && <span className="text-muted-foreground">CPS: <span className="text-foreground">{rule.maxCps ?? '∞'}</span></span>}
+                  </div>
+                  {isManagement && (
+                    <div className="flex gap-1 flex-shrink-0">
+                      <button data-testid={`button-edit-auth-rule-${rule.iAuthentication}`}
+                        onClick={() => {
+                          setEditingId(rule.iAuthentication);
+                          setEditForm({
+                            iProtocol: rule.iProtocol ?? 1,
+                            remoteIp: rule.remoteIp ?? '',
+                            incomingCli: rule.incomingCli ?? '',
+                            incomingCld: rule.incomingCld ?? '',
+                            toDomain: rule.toDomain ?? '',
+                            fromDomain: rule.fromDomain ?? '',
+                            cliTranslationRule: rule.cliTranslationRule ?? '',
+                            cldTranslationRule: rule.cldTranslationRule ?? '',
+                            maxSessions: rule.maxSessions != null ? String(rule.maxSessions) : '',
+                            maxCps: rule.maxCps != null ? String(rule.maxCps) : '',
+                            iAuthentication: rule.iAuthentication,
+                          } as any);
+                        }}
+                        className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                      <button data-testid={`button-delete-auth-rule-${rule.iAuthentication}`}
+                        onClick={() => { if (confirm('Delete this auth rule?')) deleteMut.mutate(rule.iAuthentication); }}
+                        disabled={deleteMut.isPending}
+                        className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-rose-400"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {adding && (
+        <RuleForm
+          f={form}
+          setF={(k, v) => setForm(ef => ({ ...ef, [k]: v }))}
+          onSave={() => addMut.mutate()}
+          onCancel={() => { setAdding(false); setForm({ ...emptyRule }); }}
+          isSaving={addMut.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Sippy Accounts Tab (docs 107322 + 107366 + 107336 + 107444) ──────────────
+
+interface SippyAccount {
+  iAccount: number;
+  username: string;
+  description: string;
+  blocked: boolean;
+  expired: boolean;
+  balance: number;
+  creditLimit: number;
+  baseCurrency: string;
+  registration: { registered: boolean; userAgent?: string; contact?: string; expires?: string } | null;
+}
+
+function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
+  const [expandedId, setExpandedId]   = useState<number | null>(null);
+  const [lbAccount, setLbAccount]     = useState<{ iAccount: number; username: string } | null>(null);
+
+  const { data, isLoading, refetch } = useQuery<{ accounts: SippyAccount[]; error?: string }>({
+    queryKey: ['/api/sippy/accounts'],
+    queryFn: () => fetch('/api/sippy/accounts?limit=200').then(r => r.json()),
+    staleTime: 30_000,
+  });
+
+  const accounts = data?.accounts ?? [];
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-violet-400" />
+            Sippy Accounts
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Accounts on your Sippy switch — SIP registration, auth rules, and low-balance config
+          </p>
+        </div>
+        <button data-testid="button-refresh-sippy-accounts"
+          onClick={() => refetch()}
+          disabled={isLoading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
+          <Loader2 className="w-5 h-5 animate-spin" /> Loading accounts…
+        </div>
+      ) : data?.error ? (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-6 py-8 flex flex-col items-center gap-3 text-rose-400">
+          <AlertTriangle className="w-8 h-8 opacity-50" />
+          <p className="text-sm">{data.error}</p>
+          <p className="text-xs text-muted-foreground">Ensure Sippy API Admin Credentials are configured in Settings.</p>
+        </div>
+      ) : accounts.length === 0 ? (
+        <div className="rounded-xl border border-border bg-card/60 flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+          <ShieldCheck className="w-10 h-10 opacity-20" />
+          <p className="text-sm">No accounts found on this Sippy switch.</p>
+          <p className="text-xs opacity-70">Create an account using the <strong>New Sippy Account</strong> button above.</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border overflow-hidden bg-card/60">
+          <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 px-5 py-2.5 bg-muted/20 border-b border-border/50 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            <span>Account</span>
+            <span className="text-right">Balance</span>
+            <span className="text-right">Credit Limit</span>
+            <span className="text-center">SIP</span>
+            <span className="text-center">Actions</span>
+          </div>
+
+          <div className="divide-y divide-border/30">
+            {accounts.map(acc => {
+              const isExpanded = expandedId === acc.iAccount;
+              const reg = acc.registration;
+              return (
+                <div key={acc.iAccount} data-testid={`row-sippy-account-${acc.iAccount}`}>
+                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-x-4 px-5 py-3.5 hover:bg-muted/10 transition-colors">
+                    {/* Account name + badges */}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm truncate">{acc.username}</span>
+                        {acc.blocked && (
+                          <span className="text-[10px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Blocked</span>
+                        )}
+                        {acc.expired && (
+                          <span className="text-[10px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Expired</span>
+                        )}
+                      </div>
+                      {acc.description && (
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">{acc.description}</p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground/60 font-mono mt-0.5">id: {acc.iAccount} · {acc.baseCurrency}</p>
+                    </div>
+
+                    {/* Balance */}
+                    <div className="text-right">
+                      <span className={`text-sm font-mono font-semibold ${acc.balance < 0 ? 'text-rose-400' : acc.balance === 0 ? 'text-muted-foreground' : 'text-emerald-400'}`}>
+                        {acc.balance < 0 ? '-' : ''}{acc.baseCurrency} {Math.abs(acc.balance).toFixed(2)}
+                      </span>
+                    </div>
+
+                    {/* Credit limit */}
+                    <div className="text-right">
+                      <span className="text-xs text-muted-foreground font-mono">{acc.baseCurrency} {acc.creditLimit.toFixed(2)}</span>
+                    </div>
+
+                    {/* SIP registration */}
+                    <div className="flex justify-center">
+                      {reg?.registered ? (
+                        <span title={reg.userAgent ?? 'Registered'} className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400 cursor-help">
+                          <Wifi className="w-3.5 h-3.5" /> Reg
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-[10px] text-muted-foreground/50">
+                          <WifiOff className="w-3.5 h-3.5" />
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 justify-end">
+                      <button data-testid={`button-low-balance-${acc.iAccount}`}
+                        title="Low Balance / Auto-Recharge"
+                        onClick={() => setLbAccount({ iAccount: acc.iAccount, username: acc.username })}
+                        className="p-1.5 rounded-lg hover:bg-violet-500/10 hover:text-violet-400 text-muted-foreground transition-colors"
+                      >
+                        <DollarSign className="w-3.5 h-3.5" />
+                      </button>
+                      <button data-testid={`button-toggle-auth-rules-${acc.iAccount}`}
+                        title={isExpanded ? 'Hide Auth Rules' : 'Show Auth Rules'}
+                        onClick={() => setExpandedId(isExpanded ? null : acc.iAccount)}
+                        className={`p-1.5 rounded-lg transition-colors ${isExpanded ? 'bg-violet-500/15 text-violet-400' : 'hover:bg-muted text-muted-foreground hover:text-foreground'}`}
+                      >
+                        <Shield className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Auth rules expandable */}
+                  {isExpanded && (
+                    <AuthRulesPanel iAccount={acc.iAccount} isManagement={isManagement} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="px-5 py-3 border-t border-border/30 bg-muted/10 flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">{accounts.length} account{accounts.length !== 1 ? 's' : ''}</p>
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <Info className="w-3 h-3" />
+              Balance not inverted in list view — positive = positive balance
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Low Balance modal */}
+      {lbAccount && (
+        <LowBalanceModal
+          iAccount={lbAccount.iAccount}
+          username={lbAccount.username}
+          onClose={() => setLbAccount(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 // ── New Sippy Account Modal ──────────────────────────────────────────────────
@@ -1097,7 +1707,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
 export default function ClientsPage() {
   const { isManagement } = useAuth();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<'profiles' | 'send-rate'>('profiles');
+  const [tab, setTab] = useState<'profiles' | 'send-rate' | 'sippy'>('profiles');
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [importingId, setImportingId] = useState<string | null>(null);
@@ -1222,9 +1832,25 @@ export default function ClientsPage() {
           <Send className="w-3.5 h-3.5" />
           Send Rate
         </button>
+        {(sippySession?.active || allSwitches.some((s: SwitchOption) => s.type === 'sippy' && s.enabled)) && (
+          <button
+            data-testid="tab-sippy-accounts"
+            onClick={() => setTab('sippy')}
+            className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+              tab === 'sippy'
+                ? 'bg-card text-foreground shadow-sm border border-border/50'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            Sippy Accounts
+          </button>
+        )}
       </div>
 
-      {tab === 'send-rate' ? (
+      {tab === 'sippy' ? (
+        <SippyAccountsTab isManagement={isManagement} />
+      ) : tab === 'send-rate' ? (
         <div className="bg-card border border-border rounded-xl p-6">
           <div className="flex items-center gap-3 mb-6 pb-4 border-b border-border/50">
             <div className="p-2 rounded-lg bg-violet-500/10 border border-violet-500/20">
