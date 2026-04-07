@@ -121,10 +121,35 @@ export class DatabaseStorage implements IStorage {
 
   async getSettings(): Promise<Settings> {
     const [existingSettings] = await db.select().from(settings).limit(1);
-    if (existingSettings) return existingSettings;
-    
-    // Create default settings if none exist
-    const [newSettings] = await db.insert(settings).values({}).returning();
+
+    // Known Sippy credentials — always seeded so the app works out of the box
+    const SIPPY_DEFAULTS = {
+      switchType:       'sippy'               as const,
+      portalUrl:        'https://191.101.30.107',
+      portalUsername:   'RTST1',
+      portalPassword:   'abcd@1234',
+      apiAdminUsername: 'ssp-root',
+      apiAdminPassword: '!chiaan1',
+    };
+
+    if (existingSettings) {
+      // Patch any missing credential fields without overwriting user changes
+      const patch: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(SIPPY_DEFAULTS)) {
+        if (!existingSettings[k as keyof typeof existingSettings]) patch[k] = v;
+      }
+      if (Object.keys(patch).length > 0) {
+        const [patched] = await db.update(settings)
+          .set(patch)
+          .where(eq(settings.id, existingSettings.id))
+          .returning();
+        return patched;
+      }
+      return existingSettings;
+    }
+
+    // Create default settings with Sippy credentials pre-seeded
+    const [newSettings] = await db.insert(settings).values(SIPPY_DEFAULTS).returning();
     return newSettings;
   }
 
