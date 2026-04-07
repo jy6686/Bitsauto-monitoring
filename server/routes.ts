@@ -2292,6 +2292,19 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // GET /api/sippy/accounts/:id/minute-plans — get minute plans for an account (docs 107402)
+  // NOTE: This API does NOT support trusted mode.
+  app.get('/api/sippy/accounts/:id/minute-plans', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getAccountMinutePlans(username, password, iAccount);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, minutePlans: [], error: e.message }); }
+  });
+
   // ── Follow Me Feature Management (docs 107412) ───────────────────────────
 
   // GET /api/sippy/accounts/:id/follow-me/options — get Follow Me mode + timeout

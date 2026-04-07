@@ -4842,6 +4842,71 @@ export async function getTrunkConnectionsList(
   } catch (e: any) { return { ok: false, trunkConnections: [], message: e.message }; }
 }
 
+// ── Account Minute Plans (docs 107402) ───────────────────────────────────────
+
+export interface SippyMinutePlan {
+  iServicePlan: number;        // ID of the minute plan
+  description: string;         // plan description
+  price: number;               // price of the minute plan
+  secondsTotal: number | null; // total seconds in plan (null = Unlimited)
+  secondsLeft: number | null;  // seconds remaining (null = Unlimited)
+  chargeableSeconds: number;   // seconds charged beyond the plan
+}
+
+/**
+ * Get minute plans for an account.
+ * Official method: getAccountMinutePlans() — docs 107402
+ *
+ * NOTE: Does NOT support trusted mode.
+ * Parameters: i_account (required)
+ * Returns: array of minute plan structs.
+ */
+export async function getAccountMinutePlans(
+  username: string,
+  password: string,
+  iAccount: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; minutePlans: SippyMinutePlan[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, minutePlans: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getAccountMinutePlans', { i_account: iAccount }), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'getAccountMinutePlans failed.';
+      return { success: false, minutePlans: [], error: fault };
+    }
+
+    const arrayMatch = /<name>minute_plans<\/name>\s*<value>\s*<array>([\s\S]*?)<\/array>\s*<\/value>/.exec(text);
+    if (!arrayMatch) return { success: true, minutePlans: [] };
+
+    const minutePlans: SippyMinutePlan[] = [];
+    const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+    let match: RegExpExecArray | null;
+    while ((match = structRe.exec(arrayMatch[1])) !== null) {
+      const m = extractStructMembers(`<struct>${match[1]}</struct>`);
+      const nullableInt = (k: string): number | null => {
+        if (!(k in m) || m[k] === '' || m[k] === 'None' || m[k] === 'nil') return null;
+        const n = parseInt(m[k], 10); return isNaN(n) ? null : n;
+      };
+      minutePlans.push({
+        iServicePlan:      parseInt(m['i_service_plan'] || '0', 10),
+        description:       m['description'] || '',
+        price:             parseFloat(m['price'] || '0'),
+        secondsTotal:      nullableInt('seconds_total'),
+        secondsLeft:       nullableInt('seconds_left'),
+        chargeableSeconds: parseInt(m['chargeable_seconds'] || '0', 10),
+      });
+    }
+    return { success: true, minutePlans };
+  } catch (e: any) {
+    return { success: false, minutePlans: [], error: e.message };
+  }
+}
+
 // ── Follow Me Feature Management (docs 107412) ────────────────────────────────
 
 export interface SippyFollowMeOptions {
