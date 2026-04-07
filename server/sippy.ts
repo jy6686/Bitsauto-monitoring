@@ -547,12 +547,13 @@ export async function getPortalAccounts(cookies: CookieJar, base: string): Promi
 
 // ── XML-RPC builder ───────────────────────────────────────────────────────────
 
-function buildStructMembers(params: Record<string, string | number | boolean>): string {
+function buildStructMembers(params: Record<string, string | number | boolean | null>): string {
   return Object.entries(params)
     .map(([k, v]) => {
       let valTag: string;
-      if (typeof v === 'boolean') valTag = `<boolean>${v ? 1 : 0}</boolean>`;
-      else if (typeof v === 'number') valTag = `<int>${v}</int>`;
+      if (v === null)             valTag = `<nil/>`;
+      else if (typeof v === 'boolean') valTag = `<boolean>${v ? 1 : 0}</boolean>`;
+      else if (typeof v === 'number')  valTag = `<int>${v}</int>`;
       else valTag = `<string>${String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</string>`;
       return `<member><name>${k}</name><value>${valTag}</value></member>`;
     })
@@ -560,7 +561,7 @@ function buildStructMembers(params: Record<string, string | number | boolean>): 
 }
 
 // Flat struct: <struct><member>...</member></struct>
-function xmlRpcCall(method: string, params: Record<string, string | number | boolean> = {}): string {
+function xmlRpcCall(method: string, params: Record<string, string | number | boolean | null> = {}): string {
   const members = buildStructMembers(params);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <methodCall>
@@ -577,7 +578,7 @@ function xmlRpcCall(method: string, params: Record<string, string | number | boo
 
 // Nested struct: wraps all params under a named key, e.g. customer_info or vendor_info
 // This is the standard Sippy XML-RPC format for customer.add / vendor.add
-function xmlRpcCallNested(method: string, wrapKey: string, params: Record<string, string | number | boolean>): string {
+function xmlRpcCallNested(method: string, wrapKey: string, params: Record<string, string | number | boolean | null>): string {
   const innerMembers = buildStructMembers(params);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <methodCall>
@@ -1406,58 +1407,60 @@ export async function pushAccountToSippy(
   // ── Build parameter set per official Sippy API docs ──────────────────────
   // createAccount() docs: https://support.sippysoft.com/a/solutions/articles/107312
   // All "Required" fields are provided with safe defaults when not supplied by caller.
-  const params: Record<string, string | number | boolean> = {
+  const params: Record<string, string | number | boolean | null> = {
     // SIP / self-care credentials
     username,
-    web_password:          webPass,
+    web_password:             webPass,
     authname,
-    voip_password:         voipPass,
+    voip_password:            voipPass,
     // Required fields with sensible defaults
-    max_sessions:          opts.maxSessions       ?? 0,   // 0 = unlimited
-    max_credit_time:       opts.maxSessionTime     ?? 0,   // 0 = unlimited
-    translation_rule:      opts.cldTranslationRule ?? '',
-    cli_translation_rule:  opts.cliTranslationRule ?? '',
-    credit_limit:          opts.creditLimit        ?? 0,
-    i_time_zone:           opts.timezone ? (Number(opts.timezone) || 1) : 1,
-    balance:               opts.balance            ?? 0,
-    cpe_number:            '',
-    vm_enabled:            0,
-    vm_password:           Math.floor(Math.random() * 90000 + 10000).toString(),  // 5-digit PIN
-    blocked:               0,
-    i_lang:                opts.language           ?? 'en',
-    payment_currency:      'USD',
-    payment_method:        0,
-    i_export_type:         0,
-    lifetime:              -1,   // unlimited
+    max_sessions:             opts.maxSessions       ?? 0,   // 0 = unlimited
+    max_credit_time:          opts.maxSessionTime     ?? 0,   // 0 = unlimited
+    translation_rule:         opts.cldTranslationRule ?? '',
+    cli_translation_rule:     opts.cliTranslationRule ?? '',
+    credit_limit:             opts.creditLimit        ?? 0,
+    i_time_zone:              opts.timezone ? (Number(opts.timezone) || 1) : 1,
+    balance:                  opts.balance            ?? 0,
+    cpe_number:               '',
+    vm_enabled:               0,
+    vm_password:              Math.floor(Math.random() * 90000 + 10000).toString(),  // 5-digit PIN
+    blocked:                  0,
+    i_lang:                   opts.language           ?? 'en',
+    payment_currency:         'USD',
+    payment_method:           0,
+    i_export_type:            0,
+    lifetime:                 -1,   // unlimited
+    preferred_codec:          null, // null = Disabled (Required per API docs)
     use_preferred_codec_only: 0,
-    reg_allowed:           1,
-    welcome_call_ivr:      0,
-    min_payment_amount:    0,
-    trust_cli:             0,
-    disallow_loops:        0,
-    vm_notify_emails:      '',
-    vm_forward_emails:     '',
-    vm_del_after_fwd:      0,
-    company_name:          opts.companyName ?? '',
-    salutation:            '',
-    first_name:            firstName,
-    last_name:             lastName,
-    mid_init:              '',
-    street_addr:           '',
-    state:                 '',
-    postal_code:           '',
-    city:                  '',
-    country:               '',
-    contact:               '',
-    phone:                 '',
-    fax:                   '',
-    alt_phone:             '',
-    alt_contact:           '',
-    email:                 opts.email ?? '',
-    cc:                    '',
-    bcc:                   '',
-    i_password_policy:     0,
-    i_media_relay_type:    0,
+    reg_allowed:              1,
+    welcome_call_ivr:         0,
+    on_payment_action:        null, // null = No Action (Required per API docs)
+    min_payment_amount:       0,
+    trust_cli:                0,
+    disallow_loops:           0,
+    vm_notify_emails:         '',
+    vm_forward_emails:        '',
+    vm_del_after_fwd:         0,
+    company_name:             opts.companyName ?? '',
+    salutation:               '',
+    first_name:               firstName,
+    last_name:                lastName,
+    mid_init:                 '',
+    street_addr:              '',
+    state:                    '',
+    postal_code:              '',
+    city:                     '',
+    country:                  '',
+    contact:                  '',
+    phone:                    '',
+    fax:                      '',
+    alt_phone:                '',
+    alt_contact:              '',
+    email:                    opts.email ?? '',
+    cc:                       '',
+    bcc:                      '',
+    i_password_policy:        0,
+    i_media_relay_type:       0,
   };
 
   // Routing group (Required for root-customer accounts)
@@ -1466,13 +1469,11 @@ export async function pushAccountToSippy(
     if (!isNaN(rg)) params.i_routing_group = rg;
   }
 
-  // Billing plan — i_billing_plan is required since Sippy v1.8 (i_tariff deprecated)
+  // Billing plan — i_billing_plan is required since Sippy v1.8
+  // i_tariff is deprecated (used only in Sippy <= 1.7.1); omitted per official docs
   if (opts.servicePlan) {
     const sp = parseInt(opts.servicePlan, 10);
-    if (!isNaN(sp)) {
-      params.i_billing_plan = sp;
-      params.i_tariff       = sp;  // fallback for older Sippy builds
-    }
+    if (!isNaN(sp)) params.i_billing_plan = sp;
   }
 
   // Optional extras
@@ -1544,7 +1545,6 @@ export async function pushAccountToSippy(
             const firstPlan = bpResult.plans[0];
             console.log(`[Sippy] Using auto-fetched billing plan: ${firstPlan.id} "${firstPlan.name}"`);
             params.i_billing_plan = firstPlan.id;
-            params.i_tariff       = firstPlan.id;
             body = xmlRpcCall(method, params);
             const resp2 = await sippyPost(apiUrl, body, credentials.username, credentials.password);
             const text2 = resp2.body;
