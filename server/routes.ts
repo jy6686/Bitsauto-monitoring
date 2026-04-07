@@ -1462,6 +1462,28 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/sippy/dictionaries/:name — fetch a Sippy system dictionary
+  // Supports: currencies, timezones, protocols, tariff_types, media_relay_types,
+  //           media_relays, trunk_policies, qmon_actions, export_types, etc.
+  // For 'languages', pass ?type=web or ?type=ivr as an extra query param.
+  app.get('/api/sippy/dictionaries/:name', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      let { username, password } = sippyXmlCreds(settings);
+      let portalUrl: string | undefined = settings.portalUrl || undefined;
+      if (req.query.switchId) {
+        const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
+        if (sw) { ({ username, password } = sippyXmlCreds(settings, sw)); portalUrl = sw.portalUrl ?? undefined; }
+      }
+      // Pass any extra query params (e.g. type=web for languages) to the API
+      const { switchId: _s, ...extra } = req.query as Record<string, string>;
+      const result = await sippy.getSippyDictionary(req.params.name, username, password, portalUrl, extra);
+      res.json(result);
+    } catch (err: any) {
+      res.json({ entries: [], error: err.message });
+    }
+  });
+
   // GET /api/sippy/billing-plans — list billing plans (Service Plans) from Sippy
   app.get('/api/sippy/billing-plans', async (req: any, res) => {
     try {
@@ -1554,6 +1576,7 @@ export async function registerRoutes(
         email:              req.body.email         || undefined,
         country:            req.body.country       || undefined,
         description:        req.body.description,
+        currency:           req.body.currency      || undefined,
       };
       if (!opts.name) return res.status(400).json({ success: false, message: 'Account name is required.' });
       const result = await sippy.pushAccountToSippy(opts, { username, password }, targetUrl);

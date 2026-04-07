@@ -1653,6 +1653,8 @@ export interface SippyAccountOpts {
   email?: string;
   country?: string;
   description?: string;
+  // Billing
+  currency?: string;         // payment_currency ISO code e.g. 'USD'. Defaults to 'USD'.
 }
 
 export async function pushAccountToSippy(
@@ -1706,7 +1708,7 @@ export async function pushAccountToSippy(
     vm_password:              Math.floor(Math.random() * 90000 + 10000).toString(),  // 5-digit PIN
     blocked:                  0,
     i_lang:                   opts.language           ?? 'en',
-    payment_currency:         'USD',
+    payment_currency:         opts.currency ?? 'USD',
     payment_method:           1,   // 1 = Credit card (matching TEST account default)
     i_export_type:            2,   // 2 = Retail (matching TEST account default)
     lifetime:                 opts.lifetime           ?? -1,  // -1 = unlimited
@@ -3886,5 +3888,69 @@ export async function listSippyAuthRules(
     return { authRules };
   } catch (e: any) {
     return { authRules: [], error: e.message };
+  }
+}
+
+// ── System Dictionaries (getDictionary) ──────────────────────────────────────
+//
+// Supported dictionary names (available since Sippy v5.0):
+//   languages, export_types, currencies, timezones, media_relay_types,
+//   media_relays, protocols, proto_transports, qmon_actions, forward_did_modes,
+//   upload_types, privacy_modes, tariff_types, ssl_certificate_types,
+//   ca_list_types, ssl_use_domain_types, trunk_policies
+//
+// Reference: https://support.sippysoft.com/support/solutions/articles/3000055804
+// The 'languages' dictionary also accepts an extra `type` param: 'web' or 'ivr'.
+
+export interface SippyDictionaryEntry {
+  id: string;
+  name: string;
+}
+
+export async function getSippyDictionary(
+  dictName: string,
+  username: string,
+  password: string,
+  portalUrl?: string,
+  extraParams: Record<string, string> = {},
+): Promise<{ entries: SippyDictionaryEntry[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { entries: [], error: 'Not connected to Sippy.' };
+
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const params: Record<string, string | number | boolean | null> = { name: dictName, ...extraParams };
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getDictionary', params), username, password);
+    const text = resp.body;
+    console.log(`[Sippy] getDictionary(${dictName}) → HTTP ${resp.statusCode}: ${text.slice(0, 200)}`);
+
+    if (text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString');
+      return { entries: [], error: fault?.replace(/<[^>]+>/g, '').trim() || `getDictionary(${dictName}) failed.` };
+    }
+
+    // The response has a top-level struct with members `result` and `dictionary`.
+    // The `dictionary` value is itself a struct whose <name> elements are the IDs
+    // and whose <value> elements are the human-readable labels.
+    const dictMatch = /<name>dictionary<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>\s*<\/value>/.exec(text);
+    if (!dictMatch) {
+      // Some dictionaries may be empty or return a different shape
+      return { entries: [] };
+    }
+
+    const dictXml = dictMatch[1];
+    const entries: SippyDictionaryEntry[] = [];
+    const memberRe = /<member>\s*<name>([^<]+)<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/gi;
+    let m;
+    while ((m = memberRe.exec(dictXml)) !== null) {
+      const id = m[1].trim();
+      const label = m[2].replace(/<[^>]+>/g, '').trim();
+      if (id && label) entries.push({ id, name: label });
+    }
+
+    return { entries };
+  } catch (err: any) {
+    return { entries: [], error: err.message };
   }
 }

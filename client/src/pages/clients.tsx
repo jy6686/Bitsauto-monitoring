@@ -1910,6 +1910,10 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [regAllowed, setRegAllowed] = useState(true);
   const [trustCli, setTrustCli] = useState(false);
 
+  // Localisation
+  const [timezone, setTimezone] = useState('');
+  const [currency, setCurrency] = useState('');
+
   const [result, setResult] = useState<{ success: boolean; message: string; detail?: string; username?: string; authname?: string; voip_password?: string; web_password?: string; portalSubcustomer?: boolean } | null>(null);
 
   // Query the active Sippy session — if connected via Settings, use it directly
@@ -1942,6 +1946,23 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
     staleTime: 60_000,
     enabled: canProceed,
   });
+
+  const { data: currencyDict } = useQuery<{ entries: { id: string; name: string }[]; error?: string }>({
+    queryKey: ['/api/sippy/dictionaries/currencies', switchId, inlineUrl, inlineUser],
+    queryFn: () => fetch(`/api/sippy/dictionaries/currencies${switchQs}`).then(r => r.json()),
+    staleTime: 5 * 60_000,
+    enabled: canProceed,
+  });
+
+  const { data: timezoneDict } = useQuery<{ entries: { id: string; name: string }[]; error?: string }>({
+    queryKey: ['/api/sippy/dictionaries/timezones', switchId, inlineUrl, inlineUser],
+    queryFn: () => fetch(`/api/sippy/dictionaries/timezones${switchQs}`).then(r => r.json()),
+    staleTime: 5 * 60_000,
+    enabled: canProceed,
+  });
+
+  const currencies = currencyDict?.entries ?? [];
+  const timezones = timezoneDict?.entries ?? [];
 
   const routingGroups = rgData?.groups ?? [];
   const billingPlans = billingPlanData?.plans ?? [];
@@ -1981,6 +2002,9 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
       preferredCodec:    codec === 'null' ? null : Number(codec),
       regAllowed:        regAllowed ? 1 : 0,
       trustCli:          trustCli   ? 1 : 0,
+      // Localisation
+      timezone:          timezone   || undefined,
+      currency:          currency   || undefined,
     }),
     onSuccess: async (res: any) => {
       const data = await res.json();
@@ -2305,6 +2329,34 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                 <input data-testid="input-sippy-lifetime" type="number" value={lifetime}
                   onChange={e => setLifetime(e.target.value)} placeholder="-1 (unlimited)" className={fieldCls} />
                 <p className="text-xs text-muted-foreground mt-1">-1 = unlimited. 0+ = expires in N days.</p>
+              </div>
+              <div>
+                <label className={labelCls}>Currency</label>
+                {currencies.length > 0 ? (
+                  <select data-testid="select-sippy-currency" value={currency} onChange={e => setCurrency(e.target.value)} className={fieldCls}>
+                    <option value="">— Default (USD) —</option>
+                    {currencies.map(c => (
+                      <option key={c.id} value={c.id}>{c.id} — {c.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input data-testid="input-sippy-currency" value={currency} onChange={e => setCurrency(e.target.value)}
+                    placeholder="USD" className={fieldCls} />
+                )}
+              </div>
+              <div>
+                <label className={labelCls}>Time Zone</label>
+                {timezones.length > 0 ? (
+                  <select data-testid="select-sippy-timezone" value={timezone} onChange={e => setTimezone(e.target.value)} className={fieldCls}>
+                    <option value="">— Default (UTC) —</option>
+                    {timezones.map(tz => (
+                      <option key={tz.id} value={tz.id}>{tz.name} (#{tz.id})</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input data-testid="input-sippy-timezone" value={timezone} onChange={e => setTimezone(e.target.value)}
+                    placeholder="1 (UTC)" className={fieldCls} />
+                )}
               </div>
             </div>
           </div>
