@@ -1119,19 +1119,41 @@ export async function registerRoutes(
   app.post('/api/sippy/test', async (req, res) => {
     const { url, username, password } = req.body as { url?: string; username?: string; password?: string };
     if (!url) return res.status(400).json({ reachable: false, message: 'No URL provided.' });
+    // Try with supplied credentials first
     const result = await sippy.testSippyConnection(url, username ?? '', password ?? '');
+    if (result.authenticated) return res.json(result);
+    // If that fails, try admin credentials from DB as fallback
+    const s = await storage.getSettings();
+    if (s.apiAdminUsername && s.apiAdminPassword) {
+      const adminResult = await sippy.testSippyConnection(url, s.apiAdminUsername, s.apiAdminPassword);
+      if (adminResult.authenticated) return res.json(adminResult);
+    }
+    // If portal credentials from DB differ from supplied, also try those
+    if (s.portalUsername && s.portalPassword && s.portalUsername !== username) {
+      const portalResult = await sippy.testSippyConnection(url, s.portalUsername, s.portalPassword);
+      if (portalResult.authenticated) return res.json(portalResult);
+    }
     res.json(result);
   });
 
   // POST /api/sippy/connect — authenticate and store session
   app.post('/api/sippy/connect', async (req, res) => {
     const settings = await storage.getSettings();
-    const { portalUrl, portalUsername, portalPassword } = settings;
-    if (!portalUrl || !portalUsername || !portalPassword) {
-      return res.status(400).json({ success: false, message: 'Portal credentials not saved in Settings.' });
+    const { portalUrl, portalUsername, portalPassword, apiAdminUsername, apiAdminPassword } = settings;
+    if (!portalUrl) {
+      return res.status(400).json({ success: false, message: 'Portal URL not saved in Settings.' });
     }
-    const result = await sippy.connectSippy(portalUrl, portalUsername, portalPassword);
-    res.json(result);
+    // Try portal credentials first, then admin credentials as fallback
+    if (portalUsername && portalPassword) {
+      const result = await sippy.connectSippy(portalUrl, portalUsername, portalPassword);
+      if (result.success) return res.json(result);
+    }
+    // Fallback: try admin XML-RPC credentials
+    if (apiAdminUsername && apiAdminPassword) {
+      const adminResult = await sippy.connectSippy(portalUrl, apiAdminUsername, apiAdminPassword);
+      return res.json(adminResult);
+    }
+    return res.status(400).json({ success: false, message: 'No valid credentials configured in Settings.' });
   });
 
   // GET /api/sippy/session — current Sippy session status

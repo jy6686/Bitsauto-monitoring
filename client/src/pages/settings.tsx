@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertSettingsSchema } from "@shared/schema";
 import { z } from "zod";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Loader2, Save, RefreshCw, Eye, EyeOff, Globe, CheckCircle2,
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
@@ -315,6 +315,7 @@ function SippyConnectPanel({ username, password }: { username: string; password:
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const autoConnected = useRef(false);
 
   async function handleConnect() {
     setConnecting(true);
@@ -330,6 +331,16 @@ function SippyConnectPanel({ username, password }: { username: string; password:
       setConnecting(false);
     }
   }
+
+  // Auto-connect on mount when credentials are present and session is not active
+  useEffect(() => {
+    if (!sessionLoading && !session?.active && !autoConnected.current && username) {
+      autoConnected.current = true;
+      handleConnect();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionLoading, session?.active]);
+
 
   async function handleDisconnect() {
     setDisconnecting(true);
