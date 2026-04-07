@@ -2464,6 +2464,64 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── Smart Dials (docs 107333) — NO trusted mode ──────────────────────────────
+
+  // GET /api/sippy/accounts/:id/smart-dials — list smart dials for an account
+  app.get('/api/sippy/accounts/:id/smart-dials', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ smartDials: [], error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.listSmartDials(username, password, iAccount);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ smartDials: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/accounts/:id/smart-dials — add a smart dial (admin+management)
+  // Body: { did, dest, description? }
+  app.post('/api/sippy/accounts/:id/smart-dials', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { did, dest, description } = req.body;
+      if (!did)  return res.status(400).json({ success: false, message: 'did is required.' });
+      if (!dest) return res.status(400).json({ success: false, message: 'dest is required.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addSmartDial(username, password, iAccount, did, dest, description);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // PATCH /api/sippy/accounts/:id/smart-dials/:did — update a smart dial (admin+management)
+  // Body: { dest?, description? } — at least one should be provided
+  app.patch('/api/sippy/accounts/:id/smart-dials/:did', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const did = req.params.did;
+      const { dest, description } = req.body;
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateSmartDial(username, password, iAccount, did, { dest, description });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/accounts/:id/smart-dials/:did — delete a smart dial (admin only)
+  app.delete('/api/sippy/accounts/:id/smart-dials/:did', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const did = req.params.did;
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteSmartDial(username, password, iAccount, did);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // GET /api/sippy/accounts/:id/minute-plan-match — match CLD against account minute plans (docs 107406)
   // Query: cld (required) — destination number to match
   // Returns: matched (bool), iServicePlan, secondsTotal, secondsLeft

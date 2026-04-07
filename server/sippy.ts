@@ -5400,6 +5400,148 @@ export async function matchAccountMinutePlan(
   }
 }
 
+// ── Smart Dials Manipulation (docs 107333) ───────────────────────────────────
+// NOTE: These APIs do NOT support trusted mode.
+
+export interface SippySmartDial {
+  did: string;          // DID number (the key/identifier)
+  dest: string;         // destination number to dial
+  description?: string; // optional custom description
+}
+
+/**
+ * Add a smart dial entry to an account.
+ * Official method: addSmartDial() — docs 107333. No trusted mode.
+ */
+export async function addSmartDial(
+  username: string,
+  password: string,
+  iAccount: number,
+  did: string,
+  dest: string,
+  description?: string,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount, did, dest };
+  if (description !== undefined) params.description = description;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addSmartDial', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'addSmartDial failed.';
+      return { success: false, message: fault };
+    }
+    return { success: true, message: 'Smart dial added.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Update an existing smart dial entry.
+ * Official method: updateSmartDial() — docs 107333. No trusted mode.
+ */
+export async function updateSmartDial(
+  username: string,
+  password: string,
+  iAccount: number,
+  did: string,
+  opts: { dest?: string; description?: string },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount, did };
+  if (opts.dest        !== undefined) params.dest        = opts.dest;
+  if (opts.description !== undefined) params.description = opts.description;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateSmartDial', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Smart dial updated.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'updateSmartDial failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Delete a smart dial entry from an account.
+ * Official method: deleteSmartDial() — docs 107333. No trusted mode.
+ */
+export async function deleteSmartDial(
+  username: string,
+  password: string,
+  iAccount: number,
+  did: string,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteSmartDial', { i_account: iAccount, did }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Smart dial deleted.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'deleteSmartDial failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * List all smart dial entries for an account.
+ * Official method: listSmartDials() — docs 107333. No trusted mode.
+ */
+export async function listSmartDials(
+  username: string,
+  password: string,
+  iAccount: number,
+  portalUrl?: string,
+): Promise<{ smartDials: SippySmartDial[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { smartDials: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listSmartDials', { i_account: iAccount }), username, password);
+    const text = resp.body;
+
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'listSmartDials failed.';
+      return { smartDials: [], error: fault };
+    }
+
+    const arrayMatch = /<name>smart_dials<\/name>\s*<value>\s*<array>([\s\S]*?)<\/array>\s*<\/value>/.exec(text);
+    if (!arrayMatch) return { smartDials: [] };
+
+    const smartDials: SippySmartDial[] = [];
+    const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+    let match: RegExpExecArray | null;
+    while ((match = structRe.exec(arrayMatch[1])) !== null) {
+      const m = extractStructMembers(`<struct>${match[1]}</struct>`);
+      smartDials.push({
+        did:         m['did']         ?? '',
+        dest:        m['dest']        ?? '',
+        description: m['description'] || undefined,
+      });
+    }
+    return { smartDials };
+  } catch (e: any) { return { smartDials: [], error: e.message }; }
+}
+
 // ── Hot Dial Numbers (docs 107330) ───────────────────────────────────────────
 
 export interface SippyHotDialNumber {
