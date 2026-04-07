@@ -1327,17 +1327,22 @@ export async function registerRoutes(
       let targetUrl: string | undefined = (req.body.inlineUrl as string) || undefined;
 
       if (!username || !password || !targetUrl) {
-        // Prefer dedicated admin API credentials for XML-RPC; fall back to portal creds
-        username = settings.apiAdminUsername || settings.portalUsername || '';
-        password = settings.apiAdminPassword || settings.portalPassword || '';
+        // Always prefer admin XML-RPC credentials — they are needed for createAccount()
+        const { username: adminUser, password: adminPass } = sippyXmlCreds(settings);
+        username = adminUser;
+        password = adminPass;
         targetUrl = settings.portalUrl ?? undefined;
         if (req.body.switchId) {
           const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.body.switchId) && s.type === 'sippy');
           if (!sw) return res.status(404).json({ success: false, message: 'Sippy switch not found.' });
-          // For per-switch requests, use switch's own creds (no admin override)
-          username = sw.portalUsername ?? '';
-          password = sw.portalPassword ?? '';
-          targetUrl = sw.portalUrl ?? undefined;
+          // Use the switch URL but keep admin credentials for XML-RPC access
+          targetUrl = sw.portalUrl ?? targetUrl;
+          // Only override credentials if the switch has its own dedicated admin creds
+          const swCreds = sippyXmlCreds(settings, sw);
+          if (swCreds.username !== username) {
+            username = swCreds.username;
+            password = swCreds.password;
+          }
         }
       }
 
