@@ -2292,6 +2292,25 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // GET /api/sippy/accounts/:id/rates — get rates for an account (docs 107408)
+  // Query params: offset, limit, prefix (all optional — prefix filters by prefix pattern)
+  // NOTE: This API does NOT mention trusted mode support.
+  app.get('/api/sippy/accounts/:id/rates', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const opts = {
+        offset: req.query.offset !== undefined ? parseInt(req.query.offset as string, 10) : undefined,
+        limit:  req.query.limit  !== undefined ? parseInt(req.query.limit  as string, 10) : undefined,
+        prefix: req.query.prefix as string | undefined,
+      };
+      const result = await sippy.getAccountRates(username, password, iAccount, opts);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, rates: [], error: e.message }); }
+  });
+
   // GET /api/sippy/accounts/:id/minute-plans — get minute plans for an account (docs 107402)
   // NOTE: This API does NOT support trusted mode.
   app.get('/api/sippy/accounts/:id/minute-plans', async (req: any, res) => {

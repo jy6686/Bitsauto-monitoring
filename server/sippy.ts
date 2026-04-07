@@ -4907,6 +4907,78 @@ export async function getAccountMinutePlans(
   }
 }
 
+// ── Account Rates (docs 107408) ──────────────────────────────────────────────
+
+export interface SippyAccountRate {
+  prefix: string;          // dialing prefix
+  country: string;         // country name
+  description: string;     // rate description
+  rate: number;            // per-minute rate (Double)
+  localRate?: number;      // local rate, if local calling is enabled on the tariff (Double)
+}
+
+/**
+ * Get rates for a specific account.
+ * Official method: getAccountRates() — docs 107408
+ *
+ * NOTE: Does NOT mention trusted mode.
+ * Parameters: i_account (required), offset, limit, prefix (optional filter).
+ * Returns: currency string + array of rate entries.
+ */
+export async function getAccountRates(
+  username: string,
+  password: string,
+  iAccount: number,
+  opts?: {
+    offset?: number;
+    limit?: number;
+    prefix?: string;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; currency?: string; rates: SippyAccountRate[]; error?: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, rates: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount };
+  if (opts?.offset !== undefined) params.offset = opts.offset;
+  if (opts?.limit  !== undefined) params.limit  = opts.limit;
+  if (opts?.prefix !== undefined) params.prefix = opts.prefix;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getAccountRates', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'getAccountRates failed.';
+      return { success: false, rates: [], error: fault };
+    }
+
+    const top = extractStructMembers(text);
+    const currency = top['currency'] || undefined;
+
+    const arrayMatch = /<name>rates<\/name>\s*<value>\s*<array>([\s\S]*?)<\/array>\s*<\/value>/.exec(text);
+    if (!arrayMatch) return { success: true, currency, rates: [] };
+
+    const rates: SippyAccountRate[] = [];
+    const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+    let match: RegExpExecArray | null;
+    while ((match = structRe.exec(arrayMatch[1])) !== null) {
+      const m = extractStructMembers(`<struct>${match[1]}</struct>`);
+      rates.push({
+        prefix:      m['prefix']      || '',
+        country:     m['country']     || '',
+        description: m['description'] || '',
+        rate:        parseFloat(m['rate']       || '0'),
+        localRate:   m['local_rate'] !== undefined ? parseFloat(m['local_rate']) : undefined,
+      });
+    }
+    return { success: true, currency, rates };
+  } catch (e: any) {
+    return { success: false, rates: [], error: e.message };
+  }
+}
+
 // ── Follow Me Feature Management (docs 107412) ────────────────────────────────
 
 export interface SippyFollowMeOptions {
