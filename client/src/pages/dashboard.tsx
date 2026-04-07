@@ -28,7 +28,9 @@ import {
   DollarSign,
   PhoneIncoming,
   Settings,
+  Loader2,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { 
   AreaChart, 
   Area, 
@@ -51,10 +53,27 @@ type ProbeStatus = {
 
 export default function DashboardPage() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { data: stats } = useDashboardStats();
   const { data: recentCalls } = useCalls(5);
   const { data: recentAlerts } = useAlerts();
   const { data: settings } = useSettings();
+
+  const activateMutation = useMutation({
+    mutationFn: (type: 'sippy' | 'vos3000') => apiRequest('POST', '/api/switch/activate', { type }),
+    onSuccess: (data: any, type) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/sippy/session'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/portal/session'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/sippy/live-calls'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/portal/live-calls'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/portal/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/sippy/cdr'] });
+      const label = type === 'sippy' ? 'Sippy' : 'VOS3000';
+      toast({ title: `Switched to ${label}`, description: data?.message ?? `Now using ${label}` });
+    },
+    onError: () => toast({ title: 'Switch failed', description: 'Could not change active switch', variant: 'destructive' }),
+  });
 
   const { data: probe, isLoading: probeLoading } = useQuery<ProbeStatus>({
     queryKey: ['/api/probe/status'],
@@ -95,6 +114,12 @@ export default function DashboardPage() {
     refetchInterval: 60000,
     enabled: !!portalSession?.active,
   });
+  // Sippy CDR records
+  const { data: sippyCdr } = useQuery<{ cdrs: any[]; error?: string }>({
+    queryKey: ['/api/sippy/cdr'],
+    refetchInterval: 60000,
+    enabled: !!sippySession?.active,
+  });
 
   const probeMutation = useMutation({
     mutationFn: () => apiRequest('POST', '/api/probe/run'),
@@ -131,11 +156,38 @@ export default function DashboardPage() {
 
   if (!stats) return <div className="p-8">Loading dashboard...</div>;
 
+  const activeSwitchType = settings?.switchType ?? 'sippy';
+
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">System Overview</h2>
-        <p className="text-muted-foreground mt-2">Real-time monitoring of VoIP infrastructure.</p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">System Overview</h2>
+          <p className="text-muted-foreground mt-2">Real-time monitoring of VoIP infrastructure.</p>
+        </div>
+        {/* Switch Selector */}
+        <div className="flex items-center self-start gap-0.5 p-1 rounded-xl bg-muted/60 border border-border">
+          {(['sippy', 'vos3000'] as const).map((sw) => {
+            const isActive = activeSwitchType === sw;
+            const isLoading = activateMutation.isPending && activateMutation.variables === sw;
+            return (
+              <button
+                key={sw}
+                data-testid={`button-switch-${sw}`}
+                onClick={() => { if (!isActive) activateMutation.mutate(sw); }}
+                disabled={activateMutation.isPending}
+                className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all duration-150 disabled:opacity-60 ${
+                  isActive
+                    ? 'bg-card text-foreground shadow-sm border border-border'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                }`}
+              >
+                {isLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                {sw === 'sippy' ? 'Sippy' : 'VOS3000'}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Connection required banner — shown when simulation is off and portal not connected */}
@@ -517,8 +569,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* VOS3000 Portal Live Data — temporarily disabled */}
-      <div className="hidden"><div className="rounded-xl border overflow-hidden bg-card shadow-sm" style={{ borderColor: portalSession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}>
+      {/* VOS3000 Portal Live Data — shown when VOS3000 is the active switch */}
+      {activeSwitchType === 'vos3000' && (
+      <div className="rounded-xl border overflow-hidden bg-card shadow-sm" style={{ borderColor: portalSession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-muted/20">
           <div className="flex items-center gap-3">
             <Globe className={`w-4 h-4 ${portalSession?.active ? 'text-violet-400' : 'text-muted-foreground'}`} />
@@ -681,7 +734,136 @@ export default function DashboardPage() {
             <p className="text-xs mt-1">Go to <Link href="/settings" className="text-primary hover:underline">Settings → Portal Sign-In</Link> to connect to your VOS3000 carrier portal.</p>
           </div>
         )}
-      </div></div>
+      </div>
+      )}
+
+      {/* Sippy Live Data — shown when Sippy is the active switch */}
+      {activeSwitchType === 'sippy' && (
+      <div className="rounded-xl border overflow-hidden bg-card shadow-sm" style={{ borderColor: sippySession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-muted/20">
+          <div className="flex items-center gap-3">
+            <Globe className={`w-4 h-4 ${sippySession?.active ? 'text-violet-400' : 'text-muted-foreground'}`} />
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-sm">Sippy Live Data</h3>
+                {sippySession?.active ? (
+                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">Live</span>
+                ) : (
+                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">Not Connected</span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {sippySession?.active
+                  ? `Live calls & CDR from Sippy — logged in as ${sippySession.username}`
+                  : 'Connect via Settings → Switch Configuration to see real call data here'}
+              </p>
+            </div>
+          </div>
+          {!sippySession?.active && (
+            <Link href="/settings"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+              <Settings className="w-3 h-3" />
+              Connect
+            </Link>
+          )}
+        </div>
+
+        {sippySession?.active ? (
+          <div className="p-6 space-y-6">
+            {/* Live active calls */}
+            {(sippyLiveCalls?.calls?.length ?? 0) > 0 ? (
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  Active Calls on Sippy ({sippyLiveCalls!.calls.length})
+                </h4>
+                <div className="overflow-x-auto rounded-lg border border-border/50">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-muted/30 text-muted-foreground text-xs">
+                      <tr>
+                        <th className="px-4 py-2">Account</th>
+                        <th className="px-4 py-2">Caller</th>
+                        <th className="px-4 py-2">Callee</th>
+                        <th className="px-4 py-2">Codec</th>
+                        <th className="px-4 py-2">Duration</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {sippyLiveCalls!.calls.slice(0, 10).map((call: any, i: number) => (
+                        <tr key={i} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-2 text-xs">
+                            {call.user
+                              ? <span className="text-violet-400 font-medium">{call.user}</span>
+                              : <span className="text-muted-foreground/50">{call.accountId || '—'}</span>
+                            }
+                          </td>
+                          <td className="px-4 py-2 font-mono text-xs">{call.caller || '—'}</td>
+                          <td className="px-4 py-2 font-mono text-xs">{call.callee || '—'}</td>
+                          <td className="px-4 py-2 text-xs text-muted-foreground">{call.codec || '—'}</td>
+                          <td className="px-4 py-2 text-xs text-muted-foreground">
+                            {call.duration > 0 ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-2">No active calls on Sippy right now.</p>
+            )}
+
+            {/* Recent CDRs */}
+            {(sippyCdr?.cdrs?.length ?? 0) > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  Recent CDR Records ({sippyCdr!.cdrs.length})
+                </h4>
+                <div className="overflow-x-auto rounded-lg border border-border/50">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-muted/30 text-muted-foreground text-xs">
+                      <tr>
+                        <th className="px-4 py-2">Account</th>
+                        <th className="px-4 py-2">Start</th>
+                        <th className="px-4 py-2">Caller</th>
+                        <th className="px-4 py-2">Callee</th>
+                        <th className="px-4 py-2">Duration</th>
+                        <th className="px-4 py-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {sippyCdr!.cdrs.slice(0, 10).map((rec: any, i: number) => (
+                        <tr key={i} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-2 text-xs text-violet-400 font-medium">{rec.account_name || rec.i_account || '—'}</td>
+                          <td className="px-4 py-2 text-xs text-muted-foreground">{rec.connect_time || rec.start_time || '—'}</td>
+                          <td className="px-4 py-2 font-mono text-xs">{rec.cli || rec.caller || '—'}</td>
+                          <td className="px-4 py-2 font-mono text-xs">{rec.cld || rec.callee || '—'}</td>
+                          <td className="px-4 py-2 text-xs">{rec.duration > 0 ? `${Math.floor(rec.duration / 60)}m ${rec.duration % 60}s` : '0s'}</td>
+                          <td className="px-4 py-2 text-xs">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              rec.disconnect_cause === '16' || rec.result === 'answered'
+                                ? 'bg-emerald-500/15 text-emerald-400'
+                                : 'bg-rose-500/15 text-rose-400'
+                            }`}>
+                              {rec.disconnect_cause === '16' ? 'Answered' : (rec.result || rec.disconnect_cause || '—')}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="p-6 text-center text-sm text-muted-foreground py-8">
+            <Globe className="w-8 h-8 mx-auto mb-3 opacity-20" />
+            <p>Sippy not connected.</p>
+            <p className="text-xs mt-1">Go to <Link href="/settings" className="text-primary hover:underline">Settings → Switch Configuration</Link> and enter your Sippy credentials.</p>
+          </div>
+        )}
+      </div>
+      )}
 
       {/* Active Calls Table */}
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">

@@ -166,13 +166,12 @@ export async function registerRoutes(
     }
   })();
 
-  // === VOS3000 SESSION RESTORE ON STARTUP — temporarily disabled ===
-  // Uncomment block below to re-enable VOS3000 session persistence
-  /*
+  // === VOS3000 SESSION RESTORE ON STARTUP ===
+  // Only runs when switchType is 'vos3000' and a saved session exists
   (async () => {
     try {
       const s = await storage.getSettings();
-      if (s.portalSessionToken && s.portalSessionBase && s.portalSessionUser) {
+      if (s.switchType === 'vos3000' && s.portalSessionToken && s.portalSessionBase && s.portalSessionUser) {
         vos3000.restoreSession(s.portalSessionToken, s.portalSessionBase, s.portalSessionUser);
         console.log('[startup] VOS3000 session restored for', s.portalSessionUser);
         const staleCalls = await storage.getCalls(500);
@@ -184,7 +183,6 @@ export async function registerRoutes(
       console.error('[startup] Session restore error:', err);
     }
   })();
-  */
 
   // === VOS3000 LIVE SYNC ENGINE ===
   // Runs every 15 seconds when a VOS3000 session is active.
@@ -193,6 +191,9 @@ export async function registerRoutes(
   const vosCallIdMap = new Map<string, number>(); // vosCallId → local DB call id
 
   async function runVos3000Sync() {
+    // Only run when VOS3000 is the selected active switch
+    const currentSettings = await storage.getSettings();
+    if (currentSettings.switchType !== 'vos3000') return;
     const sessionStatus = vos3000.getSessionStatus();
     if (!sessionStatus.active) return;
 
@@ -275,9 +276,8 @@ export async function registerRoutes(
     }
   }
 
-  // VOS3000 live sync temporarily disabled — uncomment to re-enable
-  // setTimeout(runVos3000Sync, 3000);
-  // setInterval(runVos3000Sync, 15000);
+  // VOS3000 live sync — runs every 15 seconds; switchType guard inside runVos3000Sync()
+  setInterval(runVos3000Sync, 15000);
 
   // === SIMULATION ENGINE ===
   setInterval(async () => {
@@ -1104,6 +1104,36 @@ export async function registerRoutes(
   app.delete('/api/sippy/session', (_req, res) => {
     sippy.clearSippySession();
     res.json({ success: true, message: 'Disconnected from Sippy.' });
+  });
+
+  // POST /api/switch/activate — change the active switch type and auto-connect
+  app.post('/api/switch/activate', async (req, res) => {
+    const { type } = req.body as { type: string };
+    if (type !== 'sippy' && type !== 'vos3000') {
+      return res.status(400).json({ error: 'Invalid switch type. Must be "sippy" or "vos3000".' });
+    }
+    const s = await storage.getSettings();
+    await storage.updateSettings({ switchType: type as 'sippy' | 'vos3000' });
+
+    if (type === 'sippy') {
+      if (!s.portalUrl || !s.portalUsername || !s.portalPassword) {
+        return res.json({ success: false, message: 'Sippy credentials not configured. Go to Settings → Switch Configuration.' });
+      }
+      try {
+        const result = await sippy.connectSippy(s.portalUrl, s.portalUsername, s.portalPassword);
+        return res.json({ success: result.success, message: result.message });
+      } catch (err: any) {
+        return res.json({ success: false, message: `Sippy connect error: ${err.message}` });
+      }
+    }
+
+    if (type === 'vos3000') {
+      if (s.portalSessionToken && s.portalSessionBase && s.portalSessionUser) {
+        vos3000.restoreSession(s.portalSessionToken, s.portalSessionBase, s.portalSessionUser);
+        return res.json({ success: true, message: `VOS3000 session restored for ${s.portalSessionUser}` });
+      }
+      return res.json({ success: false, message: 'No saved VOS3000 session. Go to Settings → Portal Sign-In to log in first.' });
+    }
   });
 
   // GET /api/sippy/live-calls — active calls from Sippy
