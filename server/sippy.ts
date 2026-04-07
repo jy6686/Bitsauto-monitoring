@@ -4841,3 +4841,266 @@ export async function getTrunkConnectionsList(
     return { ok: true, trunkConnections };
   } catch (e: any) { return { ok: false, trunkConnections: [], message: e.message }; }
 }
+
+// ── Follow Me Feature Management (docs 107412) ────────────────────────────────
+
+export interface SippyFollowMeOptions {
+  followmeTimeout?: number;       // ring timeout in seconds
+  iFollowmeMode: number;          // 1=Always 2=OnUnavailable 3=Off 4=OnBusy 5=OnNoAnswer 6=OnUnregistered
+  followmeModeName?: string;      // human label from Sippy
+}
+
+export interface SippyFollowMeEntry {
+  iFollowmeEntry: number;
+  cld: string;                    // number to forward to
+  preference?: string | number;   // 'first'|'last'|#
+  description?: string;
+  timeout?: number;
+}
+
+/**
+ * Get Follow Me options for an account.
+ * Official method: getFollowMeOptions() — docs 107412
+ */
+export async function getFollowMeOptions(
+  username: string,
+  password: string,
+  iAccount: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; options?: SippyFollowMeOptions; error?: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getFollowMeOptions', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'getFollowMeOptions failed.';
+      return { success: false, error: fault };
+    }
+    const m = extractStructMembers(text);
+    return {
+      success: true,
+      options: {
+        followmeTimeout:  m['followme_timeout'] ? parseInt(m['followme_timeout'], 10) : undefined,
+        iFollowmeMode:    parseInt(m['i_followme_mode'] || '3', 10),
+        followmeModeName: m['followme_mode_name'] || undefined,
+      },
+    };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Set Follow Me options for an account.
+ * Official method: setFollowMeOptions() — docs 107412
+ */
+export async function setFollowMeOptions(
+  username: string,
+  password: string,
+  iAccount: number,
+  opts: {
+    followmeTimeout?: number;
+    iFollowmeMode?: number;
+    iCustomer?: number;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount };
+  if (opts.iCustomer      !== undefined) params.i_customer       = opts.iCustomer;
+  if (opts.followmeTimeout !== undefined) params.followme_timeout = opts.followmeTimeout;
+  if (opts.iFollowmeMode   !== undefined) params.i_followme_mode  = opts.iFollowmeMode;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('setFollowMeOptions', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Follow Me options updated.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'setFollowMeOptions failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * List Follow Me entries for an account.
+ * Official method: listFollowMeEntries() — docs 107412
+ */
+export async function listFollowMeEntries(
+  username: string,
+  password: string,
+  iAccount: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; entries: SippyFollowMeEntry[]; error?: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, entries: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listFollowMeEntries', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'listFollowMeEntries failed.';
+      return { success: false, entries: [], error: fault };
+    }
+
+    const arrayMatch = /<name>followme_entries<\/name>\s*<value>\s*<array>([\s\S]*?)<\/array>\s*<\/value>/.exec(text);
+    if (!arrayMatch) return { success: true, entries: [] };
+
+    const entries: SippyFollowMeEntry[] = [];
+    const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+    let match: RegExpExecArray | null;
+    while ((match = structRe.exec(arrayMatch[1])) !== null) {
+      const m = extractStructMembers(`<struct>${match[1]}</struct>`);
+      const prefRaw = m['preference'];
+      const pref = prefRaw !== undefined
+        ? (isNaN(Number(prefRaw)) ? prefRaw : Number(prefRaw))
+        : undefined;
+      entries.push({
+        iFollowmeEntry: parseInt(m['i_followme_entry'] || '0', 10),
+        cld:            m['cld'] || '',
+        preference:     pref,
+        description:    m['description'] || undefined,
+        timeout:        m['timeout'] ? parseInt(m['timeout'], 10) : undefined,
+      });
+    }
+    return { success: true, entries };
+  } catch (e: any) {
+    return { success: false, entries: [], error: e.message };
+  }
+}
+
+/**
+ * Add a Follow Me entry to an account.
+ * Official method: addFollowMeEntry() — docs 107412
+ */
+export async function addFollowMeEntry(
+  username: string,
+  password: string,
+  iAccount: number,
+  opts: {
+    cld: string;
+    preference?: string | number;
+    description?: string;
+    timeout?: number;
+    iCustomer?: number;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; iFollowmeEntry?: number; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount, cld: opts.cld };
+  if (opts.iCustomer   !== undefined) params.i_customer   = opts.iCustomer;
+  if (opts.preference  !== undefined) params.preference   = opts.preference;
+  if (opts.description !== undefined) params.description  = opts.description;
+  if (opts.timeout     !== undefined) params.timeout      = opts.timeout;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addFollowMeEntry', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'addFollowMeEntry failed.';
+      return { success: false, message: fault };
+    }
+    const m = extractStructMembers(text);
+    const iFollowmeEntry = parseInt(m['i_followme_entry'] || '0', 10);
+    return { success: true, iFollowmeEntry, message: 'Follow Me entry added.' };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Update a Follow Me entry.
+ * Official method: updateFollowMeEntry() — docs 107412
+ */
+export async function updateFollowMeEntry(
+  username: string,
+  password: string,
+  iAccount: number,
+  iFollowmeEntry: number,
+  opts: {
+    cld?: string;
+    preference?: string | number;  // first|last|up|down|#
+    description?: string;
+    timeout?: number;
+    iCustomer?: number;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount, i_followme_entry: iFollowmeEntry };
+  if (opts.iCustomer   !== undefined) params.i_customer   = opts.iCustomer;
+  if (opts.cld         !== undefined) params.cld          = opts.cld;
+  if (opts.preference  !== undefined) params.preference   = opts.preference;
+  if (opts.description !== undefined) params.description  = opts.description;
+  if (opts.timeout     !== undefined) params.timeout      = opts.timeout;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateFollowMeEntry', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Follow Me entry updated.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'updateFollowMeEntry failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a Follow Me entry.
+ * Official method: deleteFollowMeEntry() — docs 107412
+ */
+export async function deleteFollowMeEntry(
+  username: string,
+  password: string,
+  iAccount: number,
+  iFollowmeEntry: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount, i_followme_entry: iFollowmeEntry };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteFollowMeEntry', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Follow Me entry deleted.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'deleteFollowMeEntry failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}

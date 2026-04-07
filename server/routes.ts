@@ -2292,6 +2292,105 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── Follow Me Feature Management (docs 107412) ───────────────────────────
+
+  // GET /api/sippy/accounts/:id/follow-me/options — get Follow Me mode + timeout
+  app.get('/api/sippy/accounts/:id/follow-me/options', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      const result = await sippy.getFollowMeOptions(username, password, iAccount, { iCustomer });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/accounts/:id/follow-me/options — set Follow Me mode + timeout (admin+management)
+  app.patch('/api/sippy/accounts/:id/follow-me/options', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const { followmeTimeout, iFollowmeMode, iCustomer } = req.body;
+      const result = await sippy.setFollowMeOptions(username, password, iAccount, {
+        followmeTimeout: followmeTimeout !== undefined ? parseInt(followmeTimeout, 10) : undefined,
+        iFollowmeMode:   iFollowmeMode   !== undefined ? parseInt(iFollowmeMode, 10)  : undefined,
+        iCustomer:       iCustomer       !== undefined ? parseInt(iCustomer, 10)       : undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // GET /api/sippy/accounts/:id/follow-me/entries — list Follow Me entries
+  app.get('/api/sippy/accounts/:id/follow-me/entries', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      const result = await sippy.listFollowMeEntries(username, password, iAccount, { iCustomer });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, entries: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/accounts/:id/follow-me/entries — add a Follow Me entry (admin+management)
+  // Body: cld (required), preference, description, timeout, iCustomer
+  app.post('/api/sippy/accounts/:id/follow-me/entries', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { cld, preference, description, timeout, iCustomer } = req.body;
+      if (!cld) return res.status(400).json({ success: false, message: 'cld is required.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addFollowMeEntry(username, password, iAccount, {
+        cld,
+        preference,
+        description,
+        timeout:    timeout   !== undefined ? parseInt(timeout, 10)   : undefined,
+        iCustomer:  iCustomer !== undefined ? parseInt(iCustomer, 10) : undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // PATCH /api/sippy/accounts/:id/follow-me/entries/:entryId — update a Follow Me entry (admin+management)
+  // Body: cld, preference (first|last|up|down|#), description, timeout, iCustomer
+  app.patch('/api/sippy/accounts/:id/follow-me/entries/:entryId', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount        = parseInt(req.params.id, 10);
+      const iFollowmeEntry  = parseInt(req.params.entryId, 10);
+      if (isNaN(iAccount) || isNaN(iFollowmeEntry)) return res.status(400).json({ success: false, message: 'Invalid i_account or i_followme_entry.' });
+      const { cld, preference, description, timeout, iCustomer } = req.body;
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateFollowMeEntry(username, password, iAccount, iFollowmeEntry, {
+        cld, preference, description,
+        timeout:   timeout   !== undefined ? parseInt(timeout, 10)   : undefined,
+        iCustomer: iCustomer !== undefined ? parseInt(iCustomer, 10) : undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/accounts/:id/follow-me/entries/:entryId — delete a Follow Me entry (admin only)
+  app.delete('/api/sippy/accounts/:id/follow-me/entries/:entryId', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const iAccount        = parseInt(req.params.id, 10);
+      const iFollowmeEntry  = parseInt(req.params.entryId, 10);
+      if (isNaN(iAccount) || isNaN(iFollowmeEntry)) return res.status(400).json({ success: false, message: 'Invalid i_account or i_followme_entry.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.body?.iCustomer !== undefined ? parseInt(req.body.iCustomer, 10) : undefined;
+      const result = await sippy.deleteFollowMeEntry(username, password, iAccount, iFollowmeEntry, { iCustomer });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // ── Vendor management (official Sippy API) ────────────────────────────────
 
   // PATCH /api/sippy/vendors/:id — update a vendor
