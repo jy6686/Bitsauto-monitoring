@@ -8,6 +8,7 @@ import {
   Clock, CalendarClock, CheckCircle2, XCircle, Activity,
   ChevronUp, ChevronDown, Eye, EyeOff,
   Wifi, WifiOff, Shield, DollarSign, ShieldCheck, Info, Save,
+  Network, Cable,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { ClientProfile } from "@shared/schema";
@@ -1191,6 +1192,333 @@ interface SippyAccount {
   registration: { registered: boolean; userAgent?: string; contact?: string; expires?: string } | null;
 }
 
+// ── Vendor Connections Panel (expandable per vendor) ─────────────────────────
+
+interface VendorConnection {
+  iConnection: number;
+  name: string;
+  destination: string;
+  username?: string;
+  capacity?: number;
+  blocked?: boolean;
+  translationRule?: string;
+  cliTranslationRule?: string;
+}
+
+interface SippyVendor {
+  iVendor: number;
+  name: string;
+  balance?: number;
+  baseCurrency?: string;
+  companyName?: string;
+}
+
+const emptyConn = { name: '', destination: '', connUsername: '', password: '', capacity: '', translationRule: '', cliTranslationRule: '' };
+
+function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; isManagement: boolean }) {
+  const queryClient = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState({ ...emptyConn });
+  const [editForm, setEditForm] = useState({ ...emptyConn, iConnection: 0 });
+
+  const { data, isLoading } = useQuery<{ connections: VendorConnection[]; error?: string }>({
+    queryKey: ['/api/sippy/vendors', iVendor, 'connections'],
+    queryFn: () => fetch(`/api/sippy/vendors/${iVendor}/connections`).then(r => r.json()),
+  });
+
+  const connections = data?.connections ?? [];
+
+  const addMut = useMutation({
+    mutationFn: () => apiRequest('POST', `/api/sippy/vendors/${iVendor}/connections`, {
+      name:               form.name,
+      destination:        form.destination,
+      connUsername:       form.connUsername   || undefined,
+      password:           form.password       || undefined,
+      capacity:           form.capacity       ? Number(form.capacity) : undefined,
+      translationRule:    form.translationRule    || undefined,
+      cliTranslationRule: form.cliTranslationRule || undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/sippy/vendors', iVendor, 'connections'] });
+      setAdding(false);
+      setForm({ ...emptyConn });
+    },
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, f }: { id: number; f: typeof editForm }) => apiRequest('PATCH', `/api/sippy/connections/${id}`, {
+      name:               f.name               || undefined,
+      destination:        f.destination        || undefined,
+      connUsername:       f.connUsername        || undefined,
+      password:           f.password           || undefined,
+      capacity:           f.capacity           ? Number(f.capacity) : undefined,
+      translationRule:    f.translationRule    || undefined,
+      cliTranslationRule: f.cliTranslationRule || undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/sippy/vendors', iVendor, 'connections'] });
+      setEditingId(null);
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/sippy/connections/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/sippy/vendors', iVendor, 'connections'] }),
+  });
+
+  const fieldCls = "px-2 py-1.5 text-xs rounded-md bg-background border border-border focus:outline-none focus:ring-1 focus:ring-primary/50 w-full";
+
+  function ConnForm({ f, setF, onSave, onCancel, isSaving }: { f: any; setF: (k: string, v: any) => void; onSave: () => void; onCancel: () => void; isSaving: boolean }) {
+    return (
+      <div className="bg-muted/10 border border-border/50 rounded-lg p-4 space-y-3 mt-2">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Name *</p>
+            <input data-testid="input-conn-name" value={f.name} onChange={e => setF('name', e.target.value)} placeholder="e.g. Main Trunk" className={fieldCls} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Destination (Host:Port) *</p>
+            <input data-testid="input-conn-destination" value={f.destination} onChange={e => setF('destination', e.target.value)} placeholder="e.g. sip.carrier.com:5060" className={fieldCls} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Username</p>
+            <input data-testid="input-conn-username" value={f.connUsername} onChange={e => setF('connUsername', e.target.value)} placeholder="Optional" className={fieldCls} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Password</p>
+            <input data-testid="input-conn-password" type="password" value={f.password} onChange={e => setF('password', e.target.value)} placeholder="Optional" className={fieldCls} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Capacity (max calls)</p>
+            <input data-testid="input-conn-capacity" type="number" min="0" value={f.capacity} onChange={e => setF('capacity', e.target.value)} placeholder="Unlimited" className={fieldCls} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">CLD Trans. Rule</p>
+            <input data-testid="input-conn-translation-rule" value={f.translationRule} onChange={e => setF('translationRule', e.target.value)} placeholder="s/^[+]//" className={`${fieldCls} font-mono`} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">CLI Trans. Rule</p>
+            <input data-testid="input-conn-cli-rule" value={f.cliTranslationRule} onChange={e => setF('cliTranslationRule', e.target.value)} placeholder="s/^[+]//" className={`${fieldCls} font-mono`} />
+          </div>
+        </div>
+        <div className="flex items-center gap-2 justify-end pt-1">
+          <button data-testid="button-cancel-conn" onClick={onCancel} className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors">Cancel</button>
+          <button data-testid="button-save-conn" onClick={onSave} disabled={isSaving || !f.name || !f.destination}
+            className="px-3 py-1.5 text-xs rounded-md bg-violet-600 text-white hover:bg-violet-500 transition-colors disabled:opacity-50">
+            {isSaving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-5 pb-4 pt-2 bg-muted/5 border-t border-border/30">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-violet-400 flex items-center gap-1.5">
+          <Cable className="w-3.5 h-3.5" /> Vendor Connections
+        </p>
+        {isManagement && !adding && (
+          <button data-testid={`button-add-connection-${iVendor}`}
+            onClick={() => setAdding(true)}
+            className="flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-md bg-violet-600/90 text-white hover:bg-violet-500 transition-colors">
+            <Plus className="w-3 h-3" /> Add Connection
+          </button>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading connections…
+        </div>
+      ) : data?.error ? (
+        <p className="text-xs text-rose-400 py-2">{data.error}</p>
+      ) : connections.length === 0 && !adding ? (
+        <p className="text-xs text-muted-foreground/60 py-2">No connections — add one to define outbound routes for this vendor.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {connections.map(conn => (
+            <div key={conn.iConnection} data-testid={`row-vendor-connection-${conn.iConnection}`}>
+              {editingId === conn.iConnection ? (
+                <ConnForm
+                  f={editForm}
+                  setF={(k, v) => setEditForm(p => ({ ...p, [k]: v }))}
+                  onSave={() => updateMut.mutate({ id: conn.iConnection, f: editForm })}
+                  onCancel={() => setEditingId(null)}
+                  isSaving={updateMut.isPending}
+                />
+              ) : (
+                <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-background/60 border border-border/40 hover:border-border/70 transition-colors group">
+                  <Cable className="w-3.5 h-3.5 text-violet-400/70 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium">{conn.name}</span>
+                      {conn.blocked && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-semibold uppercase tracking-wider">Blocked</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                      <span className="text-[10px] text-muted-foreground font-mono">{conn.destination}</span>
+                      {conn.username && <span className="text-[10px] text-muted-foreground">user: {conn.username}</span>}
+                      {conn.capacity !== undefined && conn.capacity > 0 && <span className="text-[10px] text-muted-foreground">cap: {conn.capacity}</span>}
+                      {conn.translationRule && <span className="text-[10px] text-muted-foreground font-mono">cld: {conn.translationRule}</span>}
+                      {conn.cliTranslationRule && <span className="text-[10px] text-muted-foreground font-mono">cli: {conn.cliTranslationRule}</span>}
+                      <span className="text-[10px] text-muted-foreground/40 font-mono">id:{conn.iConnection}</span>
+                    </div>
+                  </div>
+                  {isManagement && (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button data-testid={`button-edit-connection-${conn.iConnection}`}
+                        title="Edit connection"
+                        onClick={() => {
+                          setEditForm({ name: conn.name, destination: conn.destination, connUsername: conn.username || '', password: '', capacity: conn.capacity?.toString() || '', translationRule: conn.translationRule || '', cliTranslationRule: conn.cliTranslationRule || '', iConnection: conn.iConnection });
+                          setEditingId(conn.iConnection);
+                        }}
+                        className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors">
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                      <button data-testid={`button-delete-connection-${conn.iConnection}`}
+                        title="Delete connection"
+                        onClick={() => deleteMut.mutate(conn.iConnection)}
+                        disabled={deleteMut.isPending}
+                        className="p-1 rounded hover:bg-rose-500/10 text-muted-foreground hover:text-rose-400 transition-colors disabled:opacity-50">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {adding && (
+        <ConnForm
+          f={form}
+          setF={(k, v) => setForm(p => ({ ...p, [k]: v }))}
+          onSave={() => addMut.mutate()}
+          onCancel={() => { setAdding(false); setForm({ ...emptyConn }); }}
+          isSaving={addMut.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Sippy Vendors Tab ─────────────────────────────────────────────────────────
+
+function SippyVendorsTab({ isManagement }: { isManagement: boolean }) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const { data, isLoading, refetch } = useQuery<{ vendors: SippyVendor[]; error?: string }>({
+    queryKey: ['/api/sippy/vendors'],
+    queryFn: () => fetch('/api/sippy/vendors?limit=200').then(r => r.json()),
+    staleTime: 30_000,
+  });
+
+  const vendors = data?.vendors ?? [];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold flex items-center gap-2">
+            <Network className="w-4 h-4 text-violet-400" />
+            Sippy Vendors
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Vendors on your Sippy switch — click <Cable className="inline w-3 h-3 mx-0.5" /> to manage outbound connections
+          </p>
+        </div>
+        <button data-testid="button-refresh-sippy-vendors"
+          onClick={() => refetch()}
+          disabled={isLoading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
+          <Loader2 className="w-5 h-5 animate-spin" /> Loading vendors…
+        </div>
+      ) : data?.error ? (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-6 py-8 flex flex-col items-center gap-3 text-rose-400">
+          <AlertTriangle className="w-8 h-8 opacity-50" />
+          <p className="text-sm">{data.error}</p>
+          <p className="text-xs text-muted-foreground">Ensure Sippy API Admin Credentials are configured in Settings.</p>
+        </div>
+      ) : vendors.length === 0 ? (
+        <div className="rounded-xl border border-border bg-card/60 flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+          <Network className="w-10 h-10 opacity-20" />
+          <p className="text-sm">No vendors found on this Sippy switch.</p>
+          <p className="text-xs opacity-70">Create a vendor using the <strong>New Sippy Account</strong> button (select Vendor type).</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border overflow-hidden bg-card/60">
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 px-5 py-2.5 bg-muted/20 border-b border-border/50 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            <span>Vendor</span>
+            <span className="text-right">Balance</span>
+            <span className="text-center">Currency</span>
+            <span className="text-center">Connections</span>
+          </div>
+          <div className="divide-y divide-border/30">
+            {vendors.map(vendor => {
+              const isExpanded = expandedId === vendor.iVendor;
+              return (
+                <div key={vendor.iVendor} data-testid={`row-sippy-vendor-${vendor.iVendor}`}>
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-4 px-5 py-3.5 hover:bg-muted/10 transition-colors">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm truncate">{vendor.name}</span>
+                      </div>
+                      {vendor.companyName && (
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">{vendor.companyName}</p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground/60 font-mono mt-0.5">id: {vendor.iVendor}</p>
+                    </div>
+                    <div className="text-right">
+                      {vendor.balance !== undefined ? (
+                        <span className={`text-sm font-mono font-semibold ${vendor.balance < 0 ? 'text-rose-400' : vendor.balance === 0 ? 'text-muted-foreground' : 'text-emerald-400'}`}>
+                          {vendor.balance < 0 ? '-' : ''}{Math.abs(vendor.balance).toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/40">—</span>
+                      )}
+                    </div>
+                    <div className="text-center">
+                      <span className="text-xs text-muted-foreground font-mono">{vendor.baseCurrency ?? '—'}</span>
+                    </div>
+                    <div className="flex justify-center">
+                      <button data-testid={`button-toggle-connections-${vendor.iVendor}`}
+                        title={isExpanded ? 'Hide Connections' : 'Show Connections'}
+                        onClick={() => setExpandedId(isExpanded ? null : vendor.iVendor)}
+                        className={`p-1.5 rounded-lg transition-colors ${isExpanded ? 'bg-violet-500/15 text-violet-400' : 'hover:bg-muted text-muted-foreground hover:text-foreground'}`}
+                      >
+                        <Cable className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <VendorConnectionsPanel iVendor={vendor.iVendor} isManagement={isManagement} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="px-5 py-3 border-t border-border/30 bg-muted/10">
+            <p className="text-xs text-muted-foreground">{vendors.length} vendor{vendors.length !== 1 ? 's' : ''}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
   const [expandedId, setExpandedId]   = useState<number | null>(null);
   const [lbAccount, setLbAccount]     = useState<{ iAccount: number; username: string } | null>(null);
@@ -1707,7 +2035,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
 export default function ClientsPage() {
   const { isManagement } = useAuth();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<'profiles' | 'send-rate' | 'sippy'>('profiles');
+  const [tab, setTab] = useState<'profiles' | 'send-rate' | 'sippy' | 'sippy-vendors'>('profiles');
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [importingId, setImportingId] = useState<string | null>(null);
@@ -1784,7 +2112,7 @@ export default function ClientsPage() {
         </div>
         {isManagement && !adding && (
           <div className="flex items-center gap-2">
-            {(sippySession?.active || allSwitches.some((s: SwitchOption) => s.type === 'sippy' && s.enabled)) && (tab === 'profiles' || tab === 'sippy') && (
+            {(sippySession?.active || allSwitches.some((s: SwitchOption) => s.type === 'sippy' && s.enabled)) && (tab === 'profiles' || tab === 'sippy' || tab === 'sippy-vendors') && (
               <button
                 data-testid="button-new-sippy-account"
                 onClick={() => setNewSippyOpen(true)}
@@ -1835,23 +2163,39 @@ export default function ClientsPage() {
           Send Rate
         </button>
         {(sippySession?.active || allSwitches.some((s: SwitchOption) => s.type === 'sippy' && s.enabled)) && (
-          <button
-            data-testid="tab-sippy-accounts"
-            onClick={() => setTab('sippy')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all ${
-              tab === 'sippy'
-                ? 'bg-card text-foreground shadow-sm border border-border/50'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Sippy Accounts
-          </button>
+          <>
+            <button
+              data-testid="tab-sippy-accounts"
+              onClick={() => setTab('sippy')}
+              className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+                tab === 'sippy'
+                  ? 'bg-card text-foreground shadow-sm border border-border/50'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Sippy Accounts
+            </button>
+            <button
+              data-testid="tab-sippy-vendors"
+              onClick={() => setTab('sippy-vendors')}
+              className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+                tab === 'sippy-vendors'
+                  ? 'bg-card text-foreground shadow-sm border border-border/50'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Network className="w-3.5 h-3.5" />
+              Sippy Vendors
+            </button>
+          </>
         )}
       </div>
 
       {tab === 'sippy' ? (
         <SippyAccountsTab isManagement={isManagement} />
+      ) : tab === 'sippy-vendors' ? (
+        <SippyVendorsTab isManagement={isManagement} />
       ) : tab === 'send-rate' ? (
         <div className="bg-card border border-border rounded-xl p-6">
           <div className="flex items-center gap-3 mb-6 pb-4 border-b border-border/50">

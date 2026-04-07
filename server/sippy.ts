@@ -2707,6 +2707,299 @@ export async function deleteSippyVendor(
   }
 }
 
+// ── Vendor Listing (official Sippy docs 107434) ───────────────────────────────
+
+export interface SippyVendor {
+  iVendor: number;
+  name: string;
+  balance?: number;
+  baseCurrency?: string;
+  email?: string;
+  companyName?: string;
+}
+
+function parseVendorStruct(xml: string): SippyVendor {
+  const m = extractStructMembers(xml);
+  return {
+    iVendor:      parseInt(m['i_vendor']   || '0', 10),
+    name:         m['name']                || '',
+    balance:      m['balance']   ? parseFloat(m['balance'])  : undefined,
+    baseCurrency: m['base_currency']       || undefined,
+    email:        m['email']               || undefined,
+    companyName:  m['company_name']        || undefined,
+  };
+}
+
+/**
+ * List all vendors on Sippy.
+ * Tries listVendors() (Sippy 4.5+) then getVendorsList() (earlier).
+ * Official methods: listVendors() / getVendorsList() — docs 107434
+ */
+export async function listSippyVendors(
+  username: string,
+  password: string,
+  opts?: { limit?: number; offset?: number; namePattern?: string },
+  portalUrl?: string,
+): Promise<{ vendors: SippyVendor[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { vendors: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_customer: 1 };
+  if (opts?.limit       !== undefined) params.limit        = opts.limit;
+  if (opts?.offset      !== undefined) params.offset       = opts.offset;
+  if (opts?.namePattern !== undefined) params.name_pattern = opts.namePattern;
+
+  for (const method of ['listVendors', 'getVendorsList']) {
+    try {
+      const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password);
+      const text = resp.body;
+      if (text.includes('<fault>')) continue;
+
+      const arrayMatch = /<name>vendors<\/name>\s*<value>\s*<array>([\s\S]*?)<\/array>\s*<\/value>/.exec(text);
+      if (!arrayMatch) return { vendors: [] };
+
+      const vendors: SippyVendor[] = [];
+      const re = /<struct>([\s\S]*?)<\/struct>/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(arrayMatch[1])) !== null) {
+        vendors.push(parseVendorStruct(m[1]));
+      }
+      return { vendors };
+    } catch { continue; }
+  }
+  return { vendors: [], error: 'Could not fetch vendors from Sippy.' };
+}
+
+// ── Vendor Connections (official Sippy docs 107435) ───────────────────────────
+
+export interface SippyVendorConnection {
+  iConnection: number;
+  name: string;
+  destination: string;
+  username?: string;
+  capacity?: number;
+  blocked?: boolean;
+  iMediaRelayType?: number;
+  translationRule?: string;
+  cliTranslationRule?: string;
+}
+
+function parseVendorConnectionStruct(xml: string): SippyVendorConnection {
+  const m = extractStructMembers(xml);
+  return {
+    iConnection:      parseInt(m['i_connection']       || '0', 10),
+    name:             m['name']                        || '',
+    destination:      m['destination']                 || '',
+    username:         m['username']                    || undefined,
+    capacity:         m['capacity'] ? parseInt(m['capacity'], 10) : undefined,
+    blocked:          m['blocked'] === '1' || m['blocked'] === 'true' ? true : (m['blocked'] === '0' || m['blocked'] === 'false' ? false : undefined),
+    iMediaRelayType:  m['i_media_relay_type'] ? parseInt(m['i_media_relay_type'], 10) : undefined,
+    translationRule:  m['translation_rule']            || undefined,
+    cliTranslationRule: m['cli_translation_rule']      || undefined,
+  };
+}
+
+/**
+ * List all vendor connections for a vendor.
+ * Official method: getVendorConnectionsList() — docs 107435
+ * Required: i_vendor
+ */
+export async function listVendorConnections(
+  username: string,
+  password: string,
+  iVendor: number,
+  portalUrl?: string,
+): Promise<{ connections: SippyVendorConnection[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { connections: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getVendorConnectionsList', { i_vendor: iVendor, i_customer: 1 }), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString') || 'getVendorConnectionsList failed.';
+      return { connections: [], error: fault };
+    }
+
+    const arrayMatch = /<name>vendor_connections<\/name>\s*<value>\s*<array>([\s\S]*?)<\/array>\s*<\/value>/.exec(text);
+    if (!arrayMatch) return { connections: [] };
+
+    const connections: SippyVendorConnection[] = [];
+    const re = /<struct>([\s\S]*?)<\/struct>/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(arrayMatch[1])) !== null) {
+      connections.push(parseVendorConnectionStruct(m[1]));
+    }
+    return { connections };
+  } catch (e: any) {
+    return { connections: [], error: e.message };
+  }
+}
+
+/**
+ * Get full info for a single vendor connection.
+ * Official method: getVendorConnectionInfo() — docs 107435
+ */
+export async function getVendorConnectionInfo(
+  username: string,
+  password: string,
+  iConnection: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; connection?: SippyVendorConnection; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getVendorConnectionInfo', { i_connection: iConnection, i_customer: 1 }), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString') || 'getVendorConnectionInfo failed.';
+      return { success: false, error: fault };
+    }
+
+    const nested = /<name>vendor_connection<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>\s*<\/value>/.exec(text);
+    if (!nested) return { success: false, error: 'vendor_connection struct not found.' };
+    return { success: true, connection: parseVendorConnectionStruct(nested[1]) };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Create a vendor connection.
+ * Official method: createVendorConnection() — docs 107435
+ * Required: i_vendor, name, destination
+ */
+export async function createVendorConnection(
+  username: string,
+  password: string,
+  opts: {
+    iVendor: number;
+    name: string;
+    destination: string;
+    connUsername?: string;
+    password?: string;
+    capacity?: number;
+    blocked?: boolean;
+    translationRule?: string;
+    cliTranslationRule?: string;
+    iMediaRelayType?: number;
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string; iConnection?: number }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {
+    i_vendor:    opts.iVendor,
+    name:        opts.name,
+    destination: opts.destination,
+    i_customer:  1,
+  };
+  if (opts.connUsername     !== undefined) params.username             = opts.connUsername;
+  if (opts.password         !== undefined) params.password             = opts.password;
+  if (opts.capacity         !== undefined) params.capacity             = opts.capacity;
+  if (opts.blocked          !== undefined) params.blocked              = opts.blocked;
+  if (opts.translationRule  !== undefined) params.translation_rule     = opts.translationRule;
+  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule = opts.cliTranslationRule;
+  if (opts.iMediaRelayType  !== undefined) params.i_media_relay_type   = opts.iMediaRelayType;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('createVendorConnection', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const iConnection = parseInt(m['i_connection'] || '0', 10);
+      return { success: true, message: 'Vendor connection created.', iConnection: iConnection || undefined };
+    }
+    const fault = extractTag(text, 'faultString') || 'createVendorConnection failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Update a vendor connection.
+ * Official method: updateVendorConnection() — docs 107435
+ * Required: i_connection; all other fields optional.
+ */
+export async function updateVendorConnection(
+  username: string,
+  password: string,
+  iConnection: number,
+  opts: {
+    name?: string;
+    destination?: string;
+    connUsername?: string;
+    password?: string;
+    capacity?: number;
+    blocked?: boolean;
+    translationRule?: string;
+    cliTranslationRule?: string;
+    iMediaRelayType?: number;
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_connection: iConnection, i_customer: 1 };
+  if (opts.name             !== undefined) params.name                 = opts.name;
+  if (opts.destination      !== undefined) params.destination          = opts.destination;
+  if (opts.connUsername     !== undefined) params.username             = opts.connUsername;
+  if (opts.password         !== undefined) params.password             = opts.password;
+  if (opts.capacity         !== undefined) params.capacity             = opts.capacity;
+  if (opts.blocked          !== undefined) params.blocked              = opts.blocked;
+  if (opts.translationRule  !== undefined) params.translation_rule     = opts.translationRule;
+  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule = opts.cliTranslationRule;
+  if (opts.iMediaRelayType  !== undefined) params.i_media_relay_type   = opts.iMediaRelayType;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateVendorConnection', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Vendor connection updated.' };
+    }
+    const fault = extractTag(text, 'faultString') || 'updateVendorConnection failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a vendor connection.
+ * Official method: deleteVendorConnection() — docs 107435
+ */
+export async function deleteVendorConnection(
+  username: string,
+  password: string,
+  iConnection: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteVendorConnection', { i_connection: iConnection, i_customer: 1 }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Vendor connection deleted.' };
+    }
+    const fault = extractTag(text, 'faultString') || 'deleteVendorConnection failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 // ── Tariff Management (official Sippy docs 3000098586, since Sippy 2020) ─────
 
 /**
