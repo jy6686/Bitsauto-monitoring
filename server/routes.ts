@@ -1620,13 +1620,17 @@ export async function registerRoutes(
   // GET /api/sippy/accounts/:id/registration — SIP registration status (docs 107366)
   // Returns registered status plus user_agent, contact, expires if registered.
   // Uses getRegistrationStatus(). Fault code 403 = not registered (not an error).
+  // Query params:
+  //   iCustomer — optional; pass in trusted/admin mode to scope call to a specific customer
   app.get('/api/sippy/accounts/:id/registration', async (req: any, res) => {
     try {
       const iAccount = parseInt(req.params.id, 10);
       if (isNaN(iAccount)) return res.status(400).json({ registered: false, error: 'Invalid i_account.' });
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.getSippyAccountRegistration(username, password, iAccount);
+      const opts: { iCustomer?: number } = {};
+      if (req.query.iCustomer) opts.iCustomer = parseInt(req.query.iCustomer as string, 10);
+      const result = await sippy.getSippyAccountRegistration(username, password, iAccount, opts);
       res.json(result);
     } catch (e: any) { res.status(500).json({ registered: false, error: e.message }); }
   });

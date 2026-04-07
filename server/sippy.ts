@@ -2507,29 +2507,29 @@ export async function listSippyAccounts(
  * Fault code 403 means "Account is not registered" (not an error).
  *
  * Parameters:
- *   iAccount — required; i_account of the account to check
+ *   iAccount  — required; i_account of the account to check
+ *   iCustomer — optional; supply in trusted/admin mode to scope the call to a specific customer
  */
 export async function getSippyAccountRegistration(
   username: string,
   password: string,
   iAccount: number,
-  portalUrl?: string,
+  opts?: { iCustomer?: number; portalUrl?: string },
 ): Promise<SippyAccountRegistration> {
-  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
   if (!base) return { registered: false };
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
+  // Build params — always include i_account; add i_customer for trusted/admin mode
+  const params: Record<string, string | number | boolean | null> = { i_account: iAccount };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
   try {
-    const resp = await sippyPost(
-      apiUrl,
-      xmlRpcCall('getRegistrationStatus', { i_account: iAccount }),
-      username,
-      password,
-    );
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getRegistrationStatus', params), username, password);
     const text = resp.body;
 
-    // Fault code 403 = "Account is not registered" — treat as valid unregistered state
-    // Any other fault code is a genuine error — still return unregistered, no userAgent.
+    // Fault code 403 = "Account is not registered" — treat as valid unregistered state.
+    // Any other fault is also returned as unregistered (no crash, no leaked fault string).
     if (text.includes('<fault>')) {
       return { registered: false };
     }
