@@ -61,6 +61,14 @@ export const settings = pgTable("settings", {
   // Sippy XML-RPC Admin API credentials (separate from portal login — required for API operations)
   apiAdminUsername: varchar("api_admin_username", { length: 128 }),
   apiAdminPassword: varchar("api_admin_password", { length: 255 }),
+  // SNMP monitoring (Sippy SNMP — docs: support.sippysoft.com/a/solutions/articles/81166)
+  // SNMP runs on the Sippy switch host at UDP port 161 (snmpd with SIPPY-MIB).
+  // Enterprise OID prefix: .1.3.6.1.4.1.36523
+  snmpEnabled: boolean("snmp_enabled").default(false),
+  snmpHost: varchar("snmp_host", { length: 255 }),       // Switch host to query (defaults to portalUrl host)
+  snmpPort: integer("snmp_port").default(161),
+  snmpCommunity: varchar("snmp_community", { length: 128 }).default('public'),
+  snmpEnvironments: varchar("snmp_environments", { length: 255 }).default('1'), // comma-separated env IDs
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports

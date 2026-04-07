@@ -8,6 +8,7 @@ import {
   Loader2, Save, RefreshCw, Eye, EyeOff, Globe, CheckCircle2,
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
   Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp, Users, UserPlus, X, AlertCircle,
+  Radio, Activity,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -24,6 +25,11 @@ const formSchema = insertSettingsSchema.pick({
   portalPassword: true,
   apiAdminUsername: true,
   apiAdminPassword: true,
+  snmpEnabled: true,
+  snmpHost: true,
+  snmpPort: true,
+  snmpCommunity: true,
+  snmpEnvironments: true,
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -1005,6 +1011,61 @@ function SwitchesPanel() {
   );
 }
 
+// ── SNMP Test Button ─────────────────────────────────────────────────────────
+function SnmpTestButton({ host, port, community, environments }: {
+  host: string; port: number; community: string; environments: string;
+}) {
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message?: string; activeCalls?: number; acd?: number; asr?: number } | null>(null);
+
+  async function runTest() {
+    setTesting(true);
+    setResult(null);
+    try {
+      const cleanHost = host.startsWith('http') ? new URL(host).hostname : host.split(':')[0].split('/')[0];
+      const res = await fetch('/api/sippy/snmp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: cleanHost, port, community, environments }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        const totalActive = (data.environments ?? []).reduce((s: number, e: any) => s + (e.activeCalls ?? 0), 0);
+        setResult({ ok: true, activeCalls: totalActive, acd: data.acd, asr: data.asr });
+      } else {
+        setResult({ ok: false, message: data.error ?? 'SNMP query failed.' });
+      }
+    } catch (e: any) {
+      setResult({ ok: false, message: e.message ?? 'Network error.' });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        data-testid="button-test-snmp"
+        onClick={runTest}
+        disabled={testing || !host}
+        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-border/70 bg-muted/20 hover:bg-muted/40 transition-colors disabled:opacity-50"
+      >
+        {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+        Test SNMP Connection
+      </button>
+      {result && (
+        <div className={`flex items-start gap-2 text-xs rounded-lg px-3 py-2 ${result.ok ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+          {result.ok ? <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0" /> : <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
+          {result.ok
+            ? <span>SNMP reachable — Active Calls: <strong>{result.activeCalls}</strong> · ACD: <strong>{result.acd?.toFixed(1)}s</strong> · ASR: <strong>{result.asr?.toFixed(1)}%</strong></span>
+            : <span>{result.message}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Settings Page ────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
@@ -1028,6 +1089,11 @@ export default function SettingsPage() {
       portalPassword: '',
       apiAdminUsername: '',
       apiAdminPassword: '',
+      snmpEnabled: false,
+      snmpHost: '',
+      snmpPort: 161,
+      snmpCommunity: 'public',
+      snmpEnvironments: '1',
     },
   });
 
@@ -1298,6 +1364,97 @@ export default function SettingsPage() {
                   Admin API credentials set — will be used for all XML-RPC operations. Click <strong>Save Changes</strong> to store them.
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ── SNMP Monitoring ── */}
+        {switchType === 'sippy' && (
+          <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20">
+              <Radio className="w-4 h-4 text-violet-400" />
+              <div>
+                <h3 className="font-semibold text-sm">SNMP Monitoring</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Query live call statistics directly from the switch via SNMP (SIPPY-MIB). Provides ACD, ASR, RTP quality, and per-environment call counts.
+                </p>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="rounded-lg border border-violet-500/20 bg-violet-500/[0.06] px-4 py-3 text-xs text-muted-foreground space-y-1">
+                <p>SNMP must be enabled on the switch: add <code className="bg-muted px-1 rounded">pass_persist .1.3.6.1.4.1.36523 /home/ssp/scripts/snmp_statsd.py</code> to <code className="bg-muted px-1 rounded">/home/ssp/etc/snmpd.conf</code>, then restart snmpd.</p>
+                <p>To allow remote access: add <code className="bg-muted px-1 rounded">rocommunity &lt;COMMUNITY&gt; &lt;YOUR_IP&gt;</code> to snmpd.conf.</p>
+                <p>The SIPPY-MIB OID prefix is <strong>.1.3.6.1.4.1.36523</strong>. MIB file: <code className="bg-muted px-1 rounded">/usr/home/ssp/etc/SIPPY-MIB.txt</code></p>
+              </div>
+
+              {/* Enable toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-sm font-medium">Enable SNMP Monitoring</label>
+                  <p className="text-xs text-muted-foreground">When enabled, the dashboard polls SNMP stats on the Sippy switch.</p>
+                </div>
+                <button
+                  type="button"
+                  data-testid="toggle-snmp-enabled"
+                  onClick={() => form.setValue('snmpEnabled', !form.watch('snmpEnabled'))}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${form.watch('snmpEnabled') ? 'bg-violet-500' : 'bg-muted-foreground/30'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${form.watch('snmpEnabled') ? 'translate-x-4' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">SNMP Host</label>
+                  <input
+                    {...form.register("snmpHost")}
+                    data-testid="input-snmp-host"
+                    type="text"
+                    placeholder="e.g. 191.101.30.107 (auto-detected from Portal URL)"
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                  <p className="text-xs text-muted-foreground">Leave blank to use the Portal URL host.</p>
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">SNMP Port</label>
+                  <input
+                    {...form.register("snmpPort", { valueAsNumber: true })}
+                    data-testid="input-snmp-port"
+                    type="number"
+                    placeholder="161"
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">Community String</label>
+                  <input
+                    {...form.register("snmpCommunity")}
+                    data-testid="input-snmp-community"
+                    type="text"
+                    placeholder="public"
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">Environment IDs</label>
+                  <input
+                    {...form.register("snmpEnvironments")}
+                    data-testid="input-snmp-environments"
+                    type="text"
+                    placeholder="1"
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                  <p className="text-xs text-muted-foreground">Comma-separated Sippy environment IDs (e.g. 1,2,3).</p>
+                </div>
+              </div>
+
+              {/* Test SNMP button */}
+              <SnmpTestButton
+                host={form.watch('snmpHost') || (form.watch('portalUrl') ? form.watch('portalUrl')! : '')}
+                port={form.watch('snmpPort') ?? 161}
+                community={form.watch('snmpCommunity') ?? 'public'}
+                environments={form.watch('snmpEnvironments') ?? '1'}
+              />
             </div>
           </div>
         )}

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import * as vos3000 from "./vos3000";
 import * as sippy from "./sippy";
+import * as sippySnmp from "./snmp";
 
 // ── Sippy credential helper ────────────────────────────────────────────────────
 // Per Sippy docs (106909): XML-RPC API authenticates with Web Login + API Password.
@@ -1652,6 +1653,51 @@ export async function registerRoutes(
       const totals = await sippy.getSippyBalanceTotals(username, password, ids);
       res.json({ totals });
     } catch (e: any) { res.status(500).json({ totals: [], error: e.message }); }
+  });
+
+  // ── SNMP Monitoring (Sippy SNMP — docs 81166) ─────────────────────────────
+
+  // GET /api/sippy/snmp/stats — query live SNMP statistics from the Sippy switch.
+  // Returns active calls, connected calls, accumulative counters, ACD, ASR, and RTP stats.
+  // SNMP must be enabled in settings (snmpEnabled=true) with a valid host + community.
+  app.get('/api/sippy/snmp/stats', async (_req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      if (!settings.snmpEnabled) {
+        return res.json({ ok: false, error: 'SNMP monitoring is disabled. Enable it in Settings → Sippy → SNMP.' });
+      }
+      // Resolve host: use explicit snmpHost if set, else extract from portalUrl
+      const host = settings.snmpHost?.trim() ||
+        (settings.portalUrl ? sippySnmp.hostFromUrl(settings.portalUrl) : null);
+      if (!host) {
+        return res.json({ ok: false, error: 'SNMP host not configured. Set it in Settings or configure a Portal URL.' });
+      }
+      const port      = settings.snmpPort      ?? 161;
+      const community = settings.snmpCommunity ?? 'public';
+      const envIds    = (settings.snmpEnvironments ?? '1')
+        .split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
+
+      const result = await sippySnmp.querySippySnmp(host, port, community, envIds);
+      res.json(result);
+    } catch (e: any) {
+      res.json({ ok: false, error: e.message });
+    }
+  });
+
+  // POST /api/sippy/snmp/test — test SNMP connectivity with given parameters.
+  // Body: { host, port?, community?, environments? }
+  app.post('/api/sippy/snmp/test', async (req, res) => {
+    try {
+      const { host, port = 161, community = 'public', environments = '1' } = req.body as {
+        host?: string; port?: number; community?: string; environments?: string;
+      };
+      if (!host) return res.status(400).json({ ok: false, error: 'host is required.' });
+      const envIds = environments.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
+      const result = await sippySnmp.querySippySnmp(host, Number(port), community, envIds);
+      res.json(result);
+    } catch (e: any) {
+      res.json({ ok: false, error: e.message });
+    }
   });
 
   return httpServer;
