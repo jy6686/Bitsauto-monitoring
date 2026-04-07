@@ -3076,6 +3076,66 @@ export async function updateIncomingRoute(
   }
 }
 
+// ── Account Web Credentials Authentication (official Sippy docs 107325) ─────
+
+/**
+ * Authenticate an account using its WEB login (selfcare) credentials.
+ * Official method: authAccount() — docs 107325
+ * Pass either username or email (not both required). Trusted mode via i_customer.
+ * Returns i_account on success; error 410 = authenticated by One Time Password.
+ */
+export async function authSippyAccount(
+  username: string,
+  password: string,
+  opts: {
+    accountUsername?: string;  // selfcare login username (either this or email required)
+    email?: string;            // account email as identifier (either this or accountUsername required)
+    accountPassword: string;   // selfcare login password (always required)
+    iCustomer?: number;        // trusted mode only
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; iAccount?: number; message: string; oneTimePassword?: boolean }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  if (!opts.accountUsername && !opts.email) {
+    return { success: false, message: 'Either accountUsername or email is required.' };
+  }
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {
+    password: opts.accountPassword,
+  };
+  if (opts.accountUsername) params.username   = opts.accountUsername;
+  if (opts.email)           params.email      = opts.email;
+  if (opts.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('authAccount', params), username, password);
+    const text = resp.body;
+
+    if (resp.statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode')) {
+      const iAccountStr = text.match(/<name>i_account<\/name>\s*<value>[^<]*(?:<[a-z]+>)?(\d+)/i)?.[1];
+      return {
+        success:  true,
+        iAccount: iAccountStr ? parseInt(iAccountStr, 10) : undefined,
+        message:  'Account authenticated successfully.',
+      };
+    }
+
+    // Error code 410 = successfully authenticated by One Time Password
+    const faultCode = text.match(/<name>faultCode<\/name>\s*<value>[^<]*(?:<[a-z]+>)?(\d+)/i)?.[1];
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'authAccount failed.';
+
+    if (faultCode === '410') {
+      return { success: true, oneTimePassword: true, message: 'Authenticated via One Time Password (code 410).' };
+    }
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 // ── Service Plan Charges (official Sippy docs 107400) ───────────────────────
 
 /**

@@ -2230,6 +2230,27 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // POST /api/sippy/accounts/auth — authenticate an account by web (selfcare) credentials (docs 107325)
+  // Body: accountUsername or email (one required), accountPassword (required), iCustomer (trusted mode, optional)
+  // Returns: { success, iAccount, oneTimePassword?, message }
+  // oneTimePassword=true when fault code 410 is returned (authenticated via OTP)
+  app.post('/api/sippy/accounts/auth', async (req: any, res) => {
+    try {
+      const { accountUsername, email, accountPassword, iCustomer } = req.body;
+      if (!accountPassword) return res.status(400).json({ success: false, message: 'accountPassword is required.' });
+      if (!accountUsername && !email) return res.status(400).json({ success: false, message: 'Either accountUsername or email is required.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.authSippyAccount(username, password, {
+        accountUsername,
+        email,
+        accountPassword,
+        iCustomer: iCustomer !== undefined ? parseInt(iCustomer, 10) : undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // POST /api/sippy/accounts/:id/billing-run — forcibly apply service plan charges (docs 107400)
   // Calls billingRun() on the given account; returns result=OK on success.
   app.post('/api/sippy/accounts/:id/billing-run', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
