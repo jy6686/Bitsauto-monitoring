@@ -1510,11 +1510,13 @@ export interface SippyPushResult {
   message: string;
   detail?: string;
   method?: string;
-  // Returned by createAccount() on success (XML-RPC path)
-  username?: string;
-  authname?: string;
-  web_password?: string;
-  voip_password?: string;
+  // Returned by createAccount() on success (XML-RPC path — docs 107312)
+  i_account?: number;         // i_account of created account
+  username?: string;          // self-care login
+  authname?: string;          // VoIP login
+  web_password?: string;      // self-care portal password
+  voip_password?: string;     // SIP / VoIP password
+  vm_password?: string;       // voice mail PIN
   // True when account was created via portal sub-account form (not a real SIP account)
   portalSubcustomer?: boolean;
 }
@@ -1679,7 +1681,7 @@ export const SIPPY_CODECS: Array<{ id: number | null; label: string }> = [
 export interface SippyAccountOpts {
   name: string;               // Display / company name
   type: 'client' | 'vendor';
-  // SIP credentials — used as authname/voip_password for the SIP endpoint
+  // SIP credentials
   username?: string;          // Self-care login (web portal). Auto-derived from name if omitted.
   authname?: string;          // VoIP login / SIP username. Defaults to username.
   voipPassword?: string;      // SIP password. Auto-generated if omitted.
@@ -1692,30 +1694,85 @@ export interface SippyAccountOpts {
   language?: string;          // Two-char code, e.g. "en". Defaults to "en".
   routingGroup?: string;      // i_routing_group integer ID.
   iCustomer?: number;         // i_customer (1 = root customer for ssp-root admin context)
+  iAccountClass?: number;     // i_account_class. Optional (from v1.10).
   // Rating & Billing
   servicePlan?: string;       // i_billing_plan integer ID (required, >= Sippy v1.8).
   creditLimit?: number;       // credit_limit double. Defaults to 0.
   balance?: number;           // Starting balance. Defaults to 0.
   lifetime?: number;          // -1 = unlimited (default), 0+ = days until expiry.
+  iCommissionAgent?: number;  // i_commission_agent — i_customer of commission agent.
+  commissionSize?: number;    // commission_size in percent.
+  invoicingEnabled?: boolean; // invoicing_enabled (from v2.0).
+  iInvoiceTemplate?: number;  // i_invoice_template (from v2.0).
   // Advanced
   maxSessions?: number;       // max_sessions. Defaults to 0 (unlimited).
   maxCallsPerSecond?: number; // max_calls_per_second. Optional.
   maxSessionTime?: number;    // max_credit_time seconds. Defaults to 3600.
   cldTranslationRule?: string;
   cliTranslationRule?: string;
+  lanAccess?: boolean;        // lan_access. Optional.
+  batchTag?: string;          // batch_tag. Optional.
+  // Voicemail
+  vmEnabled?: number;         // vm_enabled. 0 = disabled (default), 1 = enabled.
+  vmPassword?: string;        // vm_password PIN code (digits only).
+  vmTimeout?: number;         // vm_timeout seconds (from v2.0).
+  vmCheckNumber?: string;     // vm_check_number — access # to VM (from v2.0).
+  vmNotifyEmails?: string;    // vm_notify_emails.
+  vmForwardEmails?: string;   // vm_forward_emails.
+  vmDelAfterFwd?: boolean;    // vm_del_after_fwd.
+  vmDialinAccess?: boolean;   // vm_dialin_access — enable external VM access (from v2.1).
+  // Provisioning
+  iProvisioning?: number | null; // i_provisioning: null=Disabled, 1=Linksys (from v2.0).
+  // Caller name
+  iCallerNameType?: number;   // 1=pass-through, 2=account name, 3=custom, 4=CLI (from v2.0).
+  callerName?: string;        // Custom caller name (from v2.0, when iCallerNameType=3).
   // SIP behaviour
-  preferredCodec?: number | null; // null = Disabled, 0=G.711u, 8=G.711a, 18=G.729, etc.
-  regAllowed?: number;            // 1 = allow registration (default), 0 = deny
-  trustCli?: number;              // 0 = no (default), 1 = yes
+  preferredCodec?: number | null; // null=Disabled, 0=G.711u, 3=GSM, 4=G.723, 8=G.711a, 9=G.722, 15=G.728, 18=G.729.
+  usePreferredCodecOnly?: boolean; // use_preferred_codec_only.
+  regAllowed?: number;            // 1 = allow registration (default), 0 = deny.
+  trustCli?: number;              // 0 = no (default), 1 = yes.
+  disallowLoops?: boolean;        // disallow_loops.
+  hideOwnCli?: boolean;           // hide_own_cli — anonymous outgoing calls (from v2.1).
+  blockIncomingAnonymous?: boolean; // block_incoming_anonymous (from v2.1).
+  iIncomingAnonymousAction?: number; // 1=Reject, 2=Play+Reject, 3=VM (from v2.1).
+  dndEnabled?: boolean;           // dnd_enabled (from v2.1).
+  followmeEnabled?: boolean;      // followme_enabled — call forwarding (from v2.1).
+  passPAssertedId?: boolean;      // pass_p_asserted_id (from v2.2).
+  pAssrtIdTranslationRule?: string; // p_assrt_id_translation_rule (from v2.2).
+  trustPrivacyHdrs?: boolean;     // trust_privacy_hdrs (from v2021).
+  privacySchemas?: string[];      // privacy_schemas array e.g. ['pai','rpid'] (from v2021).
+  dncLookup?: boolean;            // dncl_lookup — DNC list lookup (from v4.3).
+  generateRingbacktone?: boolean; // generate_ringbacktone (from v4.4).
+  allowFreeOnnetCalls?: boolean;  // allow_free_onnet_calls (from v5.1).
+  startPage?: number;             // 1=Calls History, 4=My Preferences (from v5.2).
   // Contact / Address
   companyName?: string;
+  salutation?: string;
   firstName?: string;
   lastName?: string;
+  midInit?: string;
+  streetAddr?: string;
+  state?: string;
+  postalCode?: string;
+  city?: string;
   email?: string;
   country?: string;
+  contact?: string;
+  phone?: string;
+  fax?: string;
+  altPhone?: string;
+  altContact?: string;
+  cc?: string;
+  bcc?: string;
   description?: string;
-  // Billing
+  // Billing / Payment
   currency?: string;         // payment_currency ISO code e.g. 'USD'. Defaults to 'USD'.
+  paymentMethod?: number;    // payment_method. Defaults to 1 (credit card).
+  iExportType?: number;      // i_export_type (download format). Defaults to 2.
+  iPasswordPolicy?: number;  // i_password_policy. Defaults to 1.
+  iMediaRelayType?: number;  // i_media_relay_type. Defaults to 0.
+  minPaymentAmount?: number; // min_payment_amount. Defaults to 0.
+  onPaymentAction?: number | null; // null=No Action, 0=Extend Lifetime, 1=Clear First Use, 2=Restart Billing.
 }
 
 export async function pushAccountToSippy(
@@ -1756,55 +1813,56 @@ export async function pushAccountToSippy(
     web_password:             webPass,
     authname,
     voip_password:            voipPass,
-    // Required fields with sensible defaults
-    max_sessions:             opts.maxSessions       ?? 0,   // 0 = unlimited sessions
-    max_credit_time:          opts.maxSessionTime     ?? 3600, // max per-call seconds; 3600 = 1hr (0/-1 rejected by Sippy)
-    translation_rule:         opts.cldTranslationRule ?? '',
-    cli_translation_rule:     opts.cliTranslationRule ?? '',
-    credit_limit:             opts.creditLimit        ?? 0,
+    // ── Required fields (with sensible defaults) ────────────────────────────
+    max_sessions:             opts.maxSessions         ?? 0,     // 0 = unlimited
+    max_credit_time:          opts.maxSessionTime       ?? 3600,  // max per-call secs (0/-1 rejected)
+    translation_rule:         opts.cldTranslationRule   ?? '',
+    cli_translation_rule:     opts.cliTranslationRule   ?? '',
+    credit_limit:             opts.creditLimit          ?? 0,
     i_time_zone:              opts.timezone ? (Number(opts.timezone) || 1) : 1,
-    balance:                  opts.balance            ?? 0,
+    balance:                  opts.balance              ?? 0,
     cpe_number:               '',
-    vm_enabled:               0,
-    vm_password:              Math.floor(Math.random() * 90000 + 10000).toString(),  // 5-digit PIN
+    vm_enabled:               opts.vmEnabled            ?? 0,
+    vm_password:              opts.vmPassword           ?? Math.floor(Math.random() * 90000 + 10000).toString(),
     blocked:                  0,
-    i_lang:                   opts.language           ?? 'en',
-    payment_currency:         opts.currency ?? 'USD',
-    payment_method:           1,   // 1 = Credit card (matching TEST account default)
-    i_export_type:            2,   // 2 = Retail (matching TEST account default)
-    lifetime:                 opts.lifetime           ?? -1,  // -1 = unlimited
-    // preferred_codec: null = "Disabled" per official docs (107312). NOT -1.
+    i_lang:                   opts.language             ?? 'en',
+    payment_currency:         opts.currency             ?? 'USD',
+    payment_method:           opts.paymentMethod        ?? 1,    // 1 = Credit card
+    i_export_type:            opts.iExportType          ?? 2,    // 2 = Retail
+    lifetime:                 opts.lifetime             ?? -1,   // -1 = unlimited
+    // preferred_codec: null = "Disabled" per official docs (107312)
     preferred_codec:          codecValue,
-    use_preferred_codec_only: 0,
-    reg_allowed:              opts.regAllowed          ?? 1,  // 1 = allow SIP registration
-    welcome_call_ivr:         null, // null → <nil/> (no IVR; consistent with existing accounts)
-    on_payment_action:        null, // null → <nil/> (no action; consistent with existing accounts)
-    min_payment_amount:       0.0,
-    trust_cli:                opts.trustCli            ?? 0,
-    disallow_loops:           0,
-    vm_notify_emails:         '',
-    vm_forward_emails:        '',
-    vm_del_after_fwd:         0,
-    company_name:             opts.companyName ?? '',
-    salutation:               '',
+    use_preferred_codec_only: opts.usePreferredCodecOnly ? 1 : 0,
+    reg_allowed:              opts.regAllowed            ?? 1,
+    welcome_call_ivr:         null,  // null → <nil/>
+    on_payment_action:        opts.onPaymentAction !== undefined ? opts.onPaymentAction : null,
+    min_payment_amount:       opts.minPaymentAmount     ?? 0.0,
+    trust_cli:                opts.trustCli             ?? 0,
+    disallow_loops:           opts.disallowLoops ? 1 : 0,
+    vm_notify_emails:         opts.vmNotifyEmails       ?? '',
+    vm_forward_emails:        opts.vmForwardEmails      ?? '',
+    vm_del_after_fwd:         opts.vmDelAfterFwd ? 1 : 0,
+    // ── Contact / Address ─────────────────────────────────────────────────
+    company_name:             opts.companyName   ?? '',
+    salutation:               opts.salutation    ?? '',
     first_name:               firstName,
     last_name:                lastName,
-    mid_init:                 '',
-    street_addr:              '',
-    state:                    '',
-    postal_code:              '',
-    city:                     '',
-    country:                  opts.country             ?? '',
-    contact:                  '',
-    phone:                    '',
-    fax:                      '',
-    alt_phone:                '',
-    alt_contact:              '',
-    email:                    opts.email ?? '',
-    cc:                       '',
-    bcc:                      '',
-    i_password_policy:        1,   // 1 = Default policy (Sippy requires this; 0 is invalid)
-    i_media_relay_type:       0,
+    mid_init:                 opts.midInit       ?? '',
+    street_addr:              opts.streetAddr    ?? '',
+    state:                    opts.state         ?? '',
+    postal_code:              opts.postalCode    ?? '',
+    city:                     opts.city          ?? '',
+    country:                  opts.country       ?? '',
+    contact:                  opts.contact       ?? '',
+    phone:                    opts.phone         ?? '',
+    fax:                      opts.fax           ?? '',
+    alt_phone:                opts.altPhone      ?? '',
+    alt_contact:              opts.altContact    ?? '',
+    email:                    opts.email         ?? '',
+    cc:                       opts.cc            ?? '',
+    bcc:                      opts.bcc           ?? '',
+    i_password_policy:        opts.iPasswordPolicy     ?? 1,    // 1 = Default policy
+    i_media_relay_type:       opts.iMediaRelayType     ?? 0,
   };
 
   // ── Routing group (required for root-customer accounts) ─────────────────
@@ -1845,9 +1903,47 @@ export async function pushAccountToSippy(
     params.i_billing_plan = 1;
   }
 
-  // Optional extras
-  if (opts.maxCallsPerSecond !== undefined) params.max_calls_per_second = opts.maxCallsPerSecond;
-  if (opts.description)                     params.description           = opts.description;
+  // ── Optional extras (all from official docs 107312) ──────────────────────
+  // Session / traffic
+  if (opts.maxCallsPerSecond !== undefined) params.max_calls_per_second  = opts.maxCallsPerSecond;
+  // Classification
+  if (opts.iAccountClass     !== undefined) params.i_account_class       = opts.iAccountClass;
+  // Commission
+  if (opts.iCommissionAgent  !== undefined) params.i_commission_agent    = opts.iCommissionAgent;
+  if (opts.commissionSize    !== undefined) params.commission_size        = opts.commissionSize;
+  // LAN / batching
+  if (opts.lanAccess         !== undefined) params.lan_access             = opts.lanAccess;
+  if (opts.batchTag                       ) params.batch_tag              = opts.batchTag;
+  // Voicemail extensions (v2.0)
+  if (opts.vmTimeout         !== undefined) params.vm_timeout             = opts.vmTimeout;
+  if (opts.vmCheckNumber                  ) params.vm_check_number        = opts.vmCheckNumber;
+  if (opts.vmDialinAccess    !== undefined) params.vm_dialin_access       = opts.vmDialinAccess;
+  // Provisioning (v2.0)
+  if (opts.iProvisioning     !== undefined) params.i_provisioning         = opts.iProvisioning;
+  // Invoicing (v2.0)
+  if (opts.invoicingEnabled  !== undefined) params.invoicing_enabled      = opts.invoicingEnabled;
+  if (opts.iInvoiceTemplate  !== undefined) params.i_invoice_template     = opts.iInvoiceTemplate;
+  // Caller name (v2.0)
+  if (opts.iCallerNameType   !== undefined) params.i_caller_name_type     = opts.iCallerNameType;
+  if (opts.callerName                     ) params.caller_name            = opts.callerName;
+  // Call behaviour (v2.1)
+  if (opts.followmeEnabled   !== undefined) params.followme_enabled       = opts.followmeEnabled;
+  if (opts.hideOwnCli        !== undefined) params.hide_own_cli           = opts.hideOwnCli;
+  if (opts.blockIncomingAnonymous !== undefined) params.block_incoming_anonymous = opts.blockIncomingAnonymous;
+  if (opts.iIncomingAnonymousAction !== undefined) params.i_incoming_anonymous_action = opts.iIncomingAnonymousAction;
+  if (opts.dndEnabled        !== undefined) params.dnd_enabled            = opts.dndEnabled;
+  // Privacy / identity (v2.2 and v2021)
+  if (opts.passPAssertedId   !== undefined) params.pass_p_asserted_id     = opts.passPAssertedId;
+  if (opts.pAssrtIdTranslationRule        ) params.p_assrt_id_translation_rule = opts.pAssrtIdTranslationRule;
+  if (opts.trustPrivacyHdrs  !== undefined) params.trust_privacy_hdrs     = opts.trustPrivacyHdrs;
+  if (opts.privacySchemas                 ) params.privacy_schemas         = opts.privacySchemas;
+  // Telephony features (v4.3 / v4.4 / v5.1 / v5.2)
+  if (opts.dncLookup         !== undefined) params.dncl_lookup            = opts.dncLookup;
+  if (opts.generateRingbacktone !== undefined) params.generate_ringbacktone = opts.generateRingbacktone;
+  if (opts.allowFreeOnnetCalls !== undefined) params.allow_free_onnet_calls = opts.allowFreeOnnetCalls;
+  if (opts.startPage         !== undefined) params.start_page             = opts.startPage;
+  // General
+  if (opts.description                    ) params.description            = opts.description;
 
   // ── Attempt list ─────────────────────────────────────────────────────────
   // createAccount() — official Sippy API (docs 107312). Creates an account under
@@ -1887,15 +1983,19 @@ export async function pushAccountToSippy(
         const retAuthname    = extractValue(text, 'authname');
         const retWebPassword = extractValue(text, 'web_password');
         const retVoipPass    = extractValue(text, 'voip_password');
-        const retIAccount    = extractValue(text, 'i_account');
+        const retVmPass      = extractValue(text, 'vm_password');
+        const retIAccountStr = extractValue(text, 'i_account');
+        const retIAccount    = retIAccountStr ? parseInt(retIAccountStr, 10) : undefined;
         return {
           success: true,
           message: `Account "${opts.name}" created successfully on Sippy.${retIAccount ? ` (ID: ${retIAccount})` : ''}`,
           method,
+          i_account:     retIAccount,
           username:      retUsername,
           authname:      retAuthname,
           web_password:  retWebPassword,
           voip_password: retVoipPass,
+          vm_password:   retVmPass,
         };
       }
 
@@ -1927,15 +2027,19 @@ export async function pushAccountToSippy(
               const retAuthname    = extractValue(text2, 'authname');
               const retWebPassword = extractValue(text2, 'web_password');
               const retVoipPass    = extractValue(text2, 'voip_password');
-              const retIAccount    = extractValue(text2, 'i_account');
+              const retVmPass2     = extractValue(text2, 'vm_password');
+              const retIAccountStr2 = extractValue(text2, 'i_account');
+              const retIAccount2   = retIAccountStr2 ? parseInt(retIAccountStr2, 10) : undefined;
               return {
                 success: true,
-                message: `Account "${opts.name}" created on Sippy (billing plan auto-selected: "${firstPlan.name}").${retIAccount ? ` (ID: ${retIAccount})` : ''}`,
+                message: `Account "${opts.name}" created on Sippy (billing plan auto-selected: "${firstPlan.name}").${retIAccount2 ? ` (ID: ${retIAccount2})` : ''}`,
                 method,
+                i_account:     retIAccount2,
                 username:      retUsername,
                 authname:      retAuthname,
                 web_password:  retWebPassword,
                 voip_password: retVoipPass,
+                vm_password:   retVmPass2,
               };
             }
             const fs2 = extractTag(text2, 'faultString');
