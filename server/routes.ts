@@ -2360,6 +2360,23 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // GET /api/sippy/accounts/:id/minute-plan-match — match CLD against account minute plans (docs 107406)
+  // Query: cld (required) — destination number to match
+  // Returns: matched (bool), iServicePlan, secondsTotal, secondsLeft
+  // Fault code 410 = no plan matched → { matched: false } (not an error)
+  app.get('/api/sippy/accounts/:id/minute-plan-match', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ matched: false, error: 'Invalid i_account.' });
+      const cld = req.query.cld as string | undefined;
+      if (!cld) return res.status(400).json({ matched: false, error: 'cld query param is required.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.matchAccountMinutePlan(username, password, iAccount, cld);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ matched: false, error: e.message }); }
+  });
+
   // GET /api/sippy/accounts/:id/rates — get rates for an account (docs 107408)
   // Query params: offset, limit, prefix (all optional — prefix filters by prefix pattern)
   // NOTE: This API does NOT mention trusted mode support.

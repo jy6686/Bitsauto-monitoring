@@ -4907,6 +4907,64 @@ export async function getAccountMinutePlans(
   }
 }
 
+// ── CLD Minute Plan Matching (docs 107406) ───────────────────────────────────
+
+/**
+ * Match a CLD (destination) against the minute plans of an account.
+ * Official method: matchAccountMinutePlan() — docs 107406
+ *
+ * NOTE: No trusted mode documented.
+ * Fault code 410 = no minute plan matched — returned as { matched: false } (not an error).
+ */
+export async function matchAccountMinutePlan(
+  username: string,
+  password: string,
+  iAccount: number,
+  cld: string,
+  portalUrl?: string,
+): Promise<{
+  matched: boolean;
+  iServicePlan?: number;
+  secondsTotal?: number | null;  // null = Unlimited
+  secondsLeft?: number | null;   // null = Unlimited
+  error?: string;
+}> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { matched: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('matchAccountMinutePlan', { i_account: iAccount, cld }), username, password);
+    const text = resp.body;
+
+    if (text.includes('<fault>')) {
+      // Fault code 410 = "no plan matched" — not an application error
+      const codeMatch = text.match(/<name>faultCode<\/name>\s*<value>\s*(?:<int>)?(\d+)(?:<\/int>)?\s*<\/value>/i);
+      const faultCode = codeMatch ? parseInt(codeMatch[1], 10) : 0;
+      if (faultCode === 410) return { matched: false };
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'matchAccountMinutePlan failed.';
+      return { matched: false, error: fault };
+    }
+
+    const m = extractStructMembers(text);
+    const nullableInt = (k: string): number | null | undefined => {
+      if (!(k in m)) return undefined;
+      if (m[k] === '' || m[k] === 'None' || m[k] === 'nil') return null;
+      const n = parseInt(m[k], 10); return isNaN(n) ? null : n;
+    };
+
+    return {
+      matched:      true,
+      iServicePlan: m['i_service_plan'] ? parseInt(m['i_service_plan'], 10) : undefined,
+      secondsTotal: nullableInt('seconds_total'),
+      secondsLeft:  nullableInt('seconds_left'),
+    };
+  } catch (e: any) {
+    return { matched: false, error: e.message };
+  }
+}
+
 // ── Hot Dial Numbers (docs 107330) ───────────────────────────────────────────
 
 export interface SippyHotDialNumber {
