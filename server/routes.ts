@@ -2292,6 +2292,74 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── Hot Dial Numbers (docs 107330) ─────────────────────────────────────────
+
+  // GET /api/sippy/accounts/:id/hot-dial — list all hot dial numbers (docs 107330)
+  // Query: iCustomer (trusted mode, optional)
+  app.get('/api/sippy/accounts/:id/hot-dial', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      const result = await sippy.listHotDialNumbers(username, password, iAccount, { iCustomer });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, hotKeys: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/accounts/:id/hot-dial — add a hot dial number (docs 107330)
+  // Body: hotKey (required), dest (required), description (optional), iCustomer (optional)
+  app.post('/api/sippy/accounts/:id/hot-dial', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { hotKey, dest, description, iCustomer } = req.body;
+      if (!hotKey) return res.status(400).json({ success: false, message: 'hotKey is required.' });
+      if (!dest)   return res.status(400).json({ success: false, message: 'dest is required.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addHotDialNumber(username, password, iAccount, {
+        hotKey, dest, description,
+        iCustomer: iCustomer !== undefined ? parseInt(iCustomer, 10) : undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // PATCH /api/sippy/accounts/:id/hot-dial/:hotKey — update destination of a hot dial number (docs 107330)
+  // Body: dest (required), iCustomer (optional)
+  app.patch('/api/sippy/accounts/:id/hot-dial/:hotKey', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const hotKey = req.params.hotKey;
+      const { dest, iCustomer } = req.body;
+      if (!dest) return res.status(400).json({ success: false, message: 'dest is required.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateHotDialNumber(username, password, iAccount, hotKey, dest, {
+        iCustomer: iCustomer !== undefined ? parseInt(iCustomer, 10) : undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/accounts/:id/hot-dial/:hotKey — delete a hot dial number (docs 107330)
+  // Body: iCustomer (optional, trusted mode)
+  app.delete('/api/sippy/accounts/:id/hot-dial/:hotKey', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const hotKey = req.params.hotKey;
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.body?.iCustomer !== undefined ? parseInt(req.body.iCustomer, 10) : undefined;
+      const result = await sippy.delHotDialNumber(username, password, iAccount, hotKey, { iCustomer });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // GET /api/sippy/accounts/:id/rates — get rates for an account (docs 107408)
   // Query params: offset, limit, prefix (all optional — prefix filters by prefix pattern)
   // NOTE: This API does NOT mention trusted mode support.

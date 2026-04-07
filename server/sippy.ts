@@ -4907,6 +4907,168 @@ export async function getAccountMinutePlans(
   }
 }
 
+// ── Hot Dial Numbers (docs 107330) ───────────────────────────────────────────
+
+export interface SippyHotDialNumber {
+  hotKey: string;        // the speed-dial key
+  dest: string;          // destination number to dial
+  description?: string;  // optional custom description
+}
+
+/**
+ * Add a hot dial number to an account.
+ * Official method: addHotDialNumber() — docs 107330
+ * Mandatory: i_account, hot_key, dest. Optional: description, i_customer (trusted mode).
+ */
+export async function addHotDialNumber(
+  username: string,
+  password: string,
+  iAccount: number,
+  opts: {
+    hotKey: string;
+    dest: string;
+    description?: string;
+    iCustomer?: number;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount, hot_key: opts.hotKey, dest: opts.dest };
+  if (opts.iCustomer   !== undefined) params.i_customer   = opts.iCustomer;
+  if (opts.description !== undefined) params.description  = opts.description;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addHotDialNumber', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Hot dial number added.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'addHotDialNumber failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a hot dial number from an account.
+ * Official method: delHotDialNumber() — docs 107330
+ * Mandatory: i_account, hot_key. Optional: i_customer (trusted mode).
+ */
+export async function delHotDialNumber(
+  username: string,
+  password: string,
+  iAccount: number,
+  hotKey: string,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount, hot_key: hotKey };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('delHotDialNumber', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Hot dial number deleted.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'delHotDialNumber failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Update a hot dial number on an account.
+ * Official method: updateHotDialNumber() — docs 107330
+ * Mandatory: i_account, hot_key, dest (new destination). Optional: i_customer (trusted mode).
+ */
+export async function updateHotDialNumber(
+  username: string,
+  password: string,
+  iAccount: number,
+  hotKey: string,
+  dest: string,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount, hot_key: hotKey, dest };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateHotDialNumber', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Hot dial number updated.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'updateHotDialNumber failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * List all hot dial numbers for an account.
+ * Official method: listHotDialNumbers() — docs 107330
+ * Mandatory: i_account. Optional: i_customer (trusted mode).
+ * Returns array of { hotKey, dest, description } entries.
+ */
+export async function listHotDialNumbers(
+  username: string,
+  password: string,
+  iAccount: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; hotKeys: SippyHotDialNumber[]; error?: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, hotKeys: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listHotDialNumbers', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'listHotDialNumbers failed.';
+      return { success: false, hotKeys: [], error: fault };
+    }
+
+    const arrayMatch = /<name>hot_keys<\/name>\s*<value>\s*<array>([\s\S]*?)<\/array>\s*<\/value>/.exec(text);
+    if (!arrayMatch) return { success: true, hotKeys: [] };
+
+    const hotKeys: SippyHotDialNumber[] = [];
+    const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+    let match: RegExpExecArray | null;
+    while ((match = structRe.exec(arrayMatch[1])) !== null) {
+      const m = extractStructMembers(`<struct>${match[1]}</struct>`);
+      hotKeys.push({
+        hotKey:      m['hot_key']     || '',
+        dest:        m['dest']        || '',
+        description: m['description'] || undefined,
+      });
+    }
+    return { success: true, hotKeys };
+  } catch (e: any) {
+    return { success: false, hotKeys: [], error: e.message };
+  }
+}
+
 // ── Account Rates (docs 107408) ──────────────────────────────────────────────
 
 export interface SippyAccountRate {
