@@ -107,8 +107,9 @@ function probeIp(ip: string, priorityPorts: number[] = []): Promise<{ latency: n
   });
 }
 
-// In-memory store for latest IP probe result
+// In-memory store for latest IP probe results (primary + softswitch)
 let lastProbeResult: { latency: number; reachable: boolean; port?: number; host?: string; timestamp: Date } | null = null;
+let lastSwitchProbeResult: { latency: number; reachable: boolean; port?: number; host?: string; timestamp: Date; label: string } | null = null;
 
 export async function registerRoutes(
   httpServer: Server,
@@ -119,19 +120,33 @@ export async function registerRoutes(
   registerAuthRoutes(app);
 
   // === IP PROBE ENGINE ===
-  // Runs independently to measure real latency to the monitored IP
+  // Runs independently to measure real latency to the monitored IP(s)
   async function runIpProbe() {
     const settings = await storage.getSettings();
+    // ── Primary monitored IP ──────────────────────────────────────────────
     const raw = settings.monitoredIp;
-    if (!raw) return;
-    // Strip protocol / path from the monitored IP so net.Socket can connect
-    const { host, explicitPort } = normalizeMonitoredIp(raw);
-    if (!host) return;
-    // Priority ports: any port in the monitoredIp value + any port in portalUrl
-    const portalPort = portFromUrl(settings.portalUrl);
-    const priorityPorts = [explicitPort, portalPort].filter((p): p is number => p !== null);
-    const result = await probeIp(host, priorityPorts);
-    lastProbeResult = { ...result, host, timestamp: new Date() };
+    if (raw) {
+      const { host, explicitPort } = normalizeMonitoredIp(raw);
+      if (host) {
+        const portalPort = portFromUrl(settings.portalUrl);
+        const priorityPorts = [explicitPort, portalPort].filter((p): p is number => p !== null);
+        const result = await probeIp(host, priorityPorts);
+        lastProbeResult = { ...result, host, timestamp: new Date() };
+      }
+    }
+    // ── Sippy softswitch IP (auto-derived from portalUrl) ─────────────────
+    if (settings.portalUrl && settings.switchType === 'sippy') {
+      try {
+        const swHost = new URL(settings.portalUrl).hostname;
+        const swPort = portFromUrl(settings.portalUrl) ?? 443;
+        if (swHost) {
+          const result = await probeIp(swHost, [swPort, 5060, 443]);
+          lastSwitchProbeResult = { ...result, host: swHost, timestamp: new Date(), label: 'Sippy Switch' };
+        }
+      } catch {
+        // malformed portalUrl — skip
+      }
+    }
   }
   // Run probe immediately on startup, then every 10 seconds
   runIpProbe();
@@ -435,12 +450,22 @@ export async function registerRoutes(
   app.get('/api/probe/status', async (req, res) => {
     const settings = await storage.getSettings();
     const raw = settings.monitoredIp || null;
-    // Return the normalised host so the UI shows a clean IP/hostname
     const displayIp = raw ? normalizeMonitoredIp(raw).host : null;
+    // Build multi-probe array for the dashboard
+    const probes: Array<{ label: string; ip: string; latency: number; reachable: boolean; port?: number; timestamp: Date }> = [];
+    if (displayIp && lastProbeResult) {
+      probes.push({ label: 'Live Source', ip: displayIp, ...lastProbeResult });
+    }
+    if (lastSwitchProbeResult) {
+      probes.push({ ...lastSwitchProbeResult, ip: lastSwitchProbeResult.host ?? '' });
+    }
     res.json({
+      // Legacy single-probe fields (backward compat)
       ip: displayIp,
       rawIp: raw,
       ...lastProbeResult,
+      // Multi-probe array for the updated dashboard card
+      probes,
     });
   });
 

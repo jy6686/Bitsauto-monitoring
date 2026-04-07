@@ -1529,6 +1529,22 @@ export default function SettingsPage() {
                   </button>
                 )}
               </div>
+              {/* Auto-monitored softswitch IP */}
+              {(() => {
+                const pUrl = form.watch("portalUrl");
+                const sType = form.watch("switchType");
+                if (!pUrl || sType !== 'sippy') return null;
+                let switchHost = '';
+                try { switchHost = new URL(pUrl).hostname; } catch { return null; }
+                if (!switchHost) return null;
+                return (
+                  <div className="flex items-center gap-2 mt-1 px-3 py-2 rounded-lg bg-muted/30 border border-border/40 text-xs">
+                    <span className="text-muted-foreground">Auto-monitored (Sippy switch):</span>
+                    <span className="font-mono font-semibold">{switchHost}</span>
+                    <span className="ml-auto text-muted-foreground/60 italic">probed every 10s</span>
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="grid gap-2">

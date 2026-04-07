@@ -44,11 +44,22 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { lookupCountry } from "@/lib/country-lookup";
 
+type ProbeEntry = {
+  label: string;
+  ip: string;
+  latency: number;
+  reachable: boolean;
+  port?: number;
+  timestamp: string;
+};
+
 type ProbeStatus = {
   ip: string | null;
   latency: number;
   reachable: boolean;
   timestamp: string;
+  port?: number;
+  probes?: ProbeEntry[];
 };
 
 export default function DashboardPage() {
@@ -412,78 +423,87 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Live IP Source Panel */}
-      {probe?.ip && (
-        <div className={`rounded-xl border p-4 flex items-center justify-between gap-4 ${
-          probe.reachable
-            ? 'border-emerald-500/30 bg-emerald-500/5'
-            : 'border-rose-500/30 bg-rose-500/5'
-        }`}>
-          <div className="flex items-center gap-3">
-            {probe.reachable ? (
-              <Wifi className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-            ) : (
-              <WifiOff className="w-5 h-5 text-rose-400 flex-shrink-0" />
-            )}
-            <div>
-              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Live Source</p>
-              <p className="font-mono text-sm font-semibold" data-testid="text-live-ip">
-                {probe.ip}
-                {(probe as any).port && (
-                  <span className="ml-1 text-xs text-muted-foreground font-normal">:{(probe as any).port}</span>
-                )}
-              </p>
+      {/* Network Probe Panel — shows all monitored IPs */}
+      {(() => {
+        const entries: ProbeEntry[] = probe?.probes && probe.probes.length > 0
+          ? probe.probes
+          : probe?.ip
+            ? [{ label: 'Live Source', ip: probe.ip, latency: probe.latency, reachable: probe.reachable, port: probe.port, timestamp: probe.timestamp }]
+            : [];
+        const allReachable = entries.length > 0 && entries.every(e => e.reachable);
+        const anyReachable = entries.some(e => e.reachable);
+        if (entries.length === 0 && !probeLoading) {
+          return (
+            <div className="rounded-xl border border-border/50 bg-muted/10 p-4 text-sm text-muted-foreground flex items-center gap-2">
+              <WifiOff className="w-4 h-4" />
+              No monitored IP configured. Set one in Settings.
             </div>
-            <div className="h-8 w-px bg-border/50 mx-2" />
-            <div>
-              <p className="text-xs text-muted-foreground">Status</p>
-              <p className={`text-sm font-semibold ${probe.reachable ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {probe.reachable ? 'Reachable' : 'Unreachable'}
-              </p>
-              {!probe.reachable && (
-                <p className="text-[10px] text-muted-foreground/60 mt-0.5">No open ports found</p>
-              )}
+          );
+        }
+        if (entries.length === 0) return null;
+        return (
+          <div className={`rounded-xl border p-4 ${
+            allReachable ? 'border-emerald-500/30 bg-emerald-500/5' : anyReachable ? 'border-amber-500/30 bg-amber-500/5' : 'border-rose-500/30 bg-rose-500/5'
+          }`}>
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex flex-col gap-3 flex-1">
+                {entries.map((entry, idx) => (
+                  <div key={entry.ip + idx} className={`flex items-center gap-3 ${idx > 0 ? 'pt-3 border-t border-border/40' : ''}`}>
+                    {entry.reachable ? (
+                      <Wifi className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                    ) : (
+                      <WifiOff className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                    )}
+                    <div className="min-w-[100px]">
+                      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">{entry.label}</p>
+                      <p className="font-mono text-sm font-semibold" data-testid={`text-probe-ip-${idx}`}>
+                        {entry.ip}
+                        {entry.port && <span className="ml-1 text-xs text-muted-foreground font-normal">:{entry.port}</span>}
+                      </p>
+                    </div>
+                    <div className="h-6 w-px bg-border/50" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Status</p>
+                      <p className={`text-sm font-semibold ${entry.reachable ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {entry.reachable ? 'Reachable' : 'Unreachable'}
+                      </p>
+                    </div>
+                    {entry.reachable && (
+                      <>
+                        <div className="h-6 w-px bg-border/50" />
+                        <div>
+                          <p className="text-xs text-muted-foreground">Latency</p>
+                          <p className="text-sm font-semibold font-mono" data-testid={idx === 0 ? 'text-probe-latency' : undefined}>
+                            {entry.latency.toFixed(0)} ms
+                          </p>
+                        </div>
+                      </>
+                    )}
+                    {entry.timestamp && (
+                      <>
+                        <div className="h-6 w-px bg-border/50" />
+                        <div>
+                          <p className="text-xs text-muted-foreground">Last Checked</p>
+                          <p className="text-xs text-muted-foreground/80">{format(new Date(entry.timestamp), 'HH:mm:ss')}</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                data-testid="button-probe-refresh"
+                onClick={() => probeMutation.mutate()}
+                disabled={probeMutation.isPending}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border hover:bg-muted/50 transition-colors disabled:opacity-50 self-start"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${probeMutation.isPending ? 'animate-spin' : ''}`} />
+                Probe All
+              </button>
             </div>
-            {probe.reachable && (
-              <>
-                <div className="h-8 w-px bg-border/50 mx-2" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Probe Latency</p>
-                  <p className="text-sm font-semibold font-mono" data-testid="text-probe-latency">
-                    {probe.latency.toFixed(0)} ms
-                  </p>
-                </div>
-              </>
-            )}
-            {probe.timestamp && (
-              <>
-                <div className="h-8 w-px bg-border/50 mx-2" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Last Checked</p>
-                  <p className="text-xs text-muted-foreground/80">
-                    {format(new Date(probe.timestamp), 'HH:mm:ss')}
-                  </p>
-                </div>
-              </>
-            )}
           </div>
-          <button
-            data-testid="button-probe-refresh"
-            onClick={() => probeMutation.mutate()}
-            disabled={probeMutation.isPending}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border hover:bg-muted/50 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${probeMutation.isPending ? 'animate-spin' : ''}`} />
-            Probe Now
-          </button>
-        </div>
-      )}
-      {!probe?.ip && !probeLoading && (
-        <div className="rounded-xl border border-border/50 bg-muted/10 p-4 text-sm text-muted-foreground flex items-center gap-2">
-          <WifiOff className="w-4 h-4" />
-          No monitored IP configured. Set one in Settings.
-        </div>
-      )}
+        );
+      })()}
 
       <div className="grid gap-6 md:grid-cols-7">
         {/* Main Chart Area */}
