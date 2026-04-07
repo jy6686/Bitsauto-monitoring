@@ -2464,6 +2464,81 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── CLI Mappings / Trusted Numbers (docs 107328) — NO trusted mode ──────────
+
+  // GET /api/sippy/accounts/:id/cli-mappings — list CLI mappings for an account
+  app.get('/api/sippy/accounts/:id/cli-mappings', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ mappings: [], error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.listCLIMappings(username, password, iAccount);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ mappings: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/accounts/:id/cli-mappings — add a CLI mapping (admin+management)
+  // Body: { cli, lang }
+  app.post('/api/sippy/accounts/:id/cli-mappings', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { cli, lang } = req.body;
+      if (!cli)  return res.status(400).json({ success: false, message: 'cli is required.' });
+      if (!lang) return res.status(400).json({ success: false, message: 'lang is required.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addCLIMapping(username, password, iAccount, cli, lang);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // PATCH /api/sippy/accounts/:id/cli-mappings — update a CLI mapping (admin+management)
+  // Body: { oldCli, newCli, lang? }
+  app.patch('/api/sippy/accounts/:id/cli-mappings', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { oldCli, newCli, lang } = req.body;
+      if (!oldCli) return res.status(400).json({ success: false, message: 'oldCli is required.' });
+      if (!newCli) return res.status(400).json({ success: false, message: 'newCli is required.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateCLIMapping(username, password, iAccount, oldCli, newCli, lang);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/accounts/:id/cli-mappings/:cli — delete a CLI mapping (admin only)
+  // :cli is URL-encoded if it contains special chars
+  app.delete('/api/sippy/accounts/:id/cli-mappings/:cli', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const cli = decodeURIComponent(req.params.cli);
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.delCLIMapping(username, password, iAccount, cli);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // GET /api/sippy/cli-mappings/find — find CLI mapping by CLI number + iCustomer (docs 107328, from v2.0)
+  // Query: cli (required), iCustomer (required)
+  app.get('/api/sippy/cli-mappings/find', async (req: any, res) => {
+    try {
+      const cli = req.query.cli as string | undefined;
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : NaN;
+      if (!cli)          return res.status(400).json({ success: false, error: 'cli query param is required.' });
+      if (isNaN(iCustomer)) return res.status(400).json({ success: false, error: 'iCustomer query param is required.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.findCLIMapping(username, password, cli, iCustomer);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // ── Smart Dials (docs 107333) — NO trusted mode ──────────────────────────────
 
   // GET /api/sippy/accounts/:id/smart-dials — list smart dials for an account

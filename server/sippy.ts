@@ -5400,6 +5400,192 @@ export async function matchAccountMinutePlan(
   }
 }
 
+// ── Trusted Numbers / CLI Mappings (docs 107328) ─────────────────────────────
+// No trusted mode documented for any of these methods.
+// Used for calling-card (trusted number) CLI association.
+
+export interface SippyCLIMapping {
+  cli:  string;   // the CLI (caller number) associated with the account
+  lang: string;   // two-character language code (e.g. 'en', 'ru')
+}
+
+export interface SippyCLIMappingInfo {
+  iAccount: number;
+  cli:      string;
+  lang:     string;
+  authname: string;   // authname of associated account
+  username: string;   // username of associated account
+}
+
+/**
+ * Associate a CLI with a calling-card account (add trusted number).
+ * Official method: addCLIMapping() — docs 107328
+ */
+export async function addCLIMapping(
+  username: string,
+  password: string,
+  iAccount: number,
+  cli: string,
+  lang: string,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addCLIMapping', { i_account: iAccount, cli, lang }), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'addCLIMapping failed.';
+      return { success: false, message: fault };
+    }
+    return { success: true, message: 'CLI mapping added.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Update an existing CLI mapping (trusted number).
+ * Official method: updateCLIMapping() — docs 107328
+ * lang is optional (available from Sippy 2020).
+ */
+export async function updateCLIMapping(
+  username: string,
+  password: string,
+  iAccount: number,
+  oldCli: string,
+  newCli: string,
+  lang?: string,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount, old_cli: oldCli, new_cli: newCli };
+  if (lang !== undefined) params.lang = lang;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateCLIMapping', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'CLI mapping updated.' };
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'updateCLIMapping failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Remove a CLI association from a calling-card account.
+ * Official method: delCLIMapping() — docs 107328
+ */
+export async function delCLIMapping(
+  username: string,
+  password: string,
+  iAccount: number,
+  cli: string,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('delCLIMapping', { i_account: iAccount, cli }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'CLI mapping removed.' };
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'delCLIMapping failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * List all CLIs associated with a calling-card account.
+ * Official method: listCLIMappings() — docs 107328
+ * Returns array of { cli, lang } tuples.
+ */
+export async function listCLIMappings(
+  username: string,
+  password: string,
+  iAccount: number,
+  portalUrl?: string,
+): Promise<{ mappings: SippyCLIMapping[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { mappings: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listCLIMappings', { i_account: iAccount }), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'listCLIMappings failed.';
+      return { mappings: [], error: fault };
+    }
+
+    // Result is under <name>list</name> — array of (cli, lang) structs
+    const arrayMatch = /<name>list<\/name>\s*<value>\s*<array>([\s\S]*?)<\/array>\s*<\/value>/.exec(text);
+    if (!arrayMatch) return { mappings: [] };
+
+    const mappings: SippyCLIMapping[] = [];
+    const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+    let m: RegExpExecArray | null;
+    while ((m = structRe.exec(arrayMatch[1])) !== null) {
+      const fields = extractStructMembers(`<struct>${m[1]}</struct>`);
+      mappings.push({ cli: fields['cli'] ?? '', lang: fields['lang'] ?? '' });
+    }
+
+    // Fallback: if Sippy returns flat string values in the array (non-struct tuples)
+    if (mappings.length === 0) {
+      const strRe = /<value>\s*(?:<string>)?([^<]+)(?:<\/string>)?\s*<\/value>/g;
+      const vals: string[] = [];
+      let sv: RegExpExecArray | null;
+      while ((sv = strRe.exec(arrayMatch[1])) !== null) vals.push(sv[1].trim());
+      for (let i = 0; i + 1 < vals.length; i += 2) {
+        mappings.push({ cli: vals[i], lang: vals[i + 1] });
+      }
+    }
+
+    return { mappings };
+  } catch (e: any) { return { mappings: [], error: e.message }; }
+}
+
+/**
+ * Look up CLI mapping info by CLI number and customer.
+ * Official method: findCLIMapping() — docs 107328 (available from Sippy 2.0)
+ * Returns account info for the account associated with this CLI.
+ */
+export async function findCLIMapping(
+  username: string,
+  password: string,
+  cli: string,
+  iCustomer: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; info?: SippyCLIMappingInfo; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('findCLIMapping', { cli, i_customer: iCustomer }), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'findCLIMapping failed.';
+      return { success: false, error: fault };
+    }
+    const m = extractStructMembers(text);
+    return {
+      success: true,
+      info: {
+        iAccount: parseInt(m['i_account'] || '0', 10),
+        cli:      m['cli']      ?? cli,
+        lang:     m['lang']     ?? '',
+        authname: m['authname'] ?? '',
+        username: m['username'] ?? '',
+      },
+    };
+  } catch (e: any) { return { success: false, error: e.message }; }
+}
+
 // ── Smart Dials Manipulation (docs 107333) ───────────────────────────────────
 // NOTE: These APIs do NOT support trusted mode.
 
