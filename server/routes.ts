@@ -1571,6 +1571,40 @@ export async function registerRoutes(
 
   // ── Account management (official Sippy API) ───────────────────────────────
 
+  // GET /api/sippy/accounts — list accounts for a customer using listAccounts() (docs 107322)
+  // Query params:
+  //   iCustomer — optional; scope results to this customer (trusted/admin mode)
+  //   offset    — skip first N records
+  //   limit     — return at most N records (default 200)
+  // NOTE: balance is NOT inverted in listAccounts() — positive = positive balance.
+  //       This differs from createAccount() and getAccountInfo() which DO invert balance.
+  app.get('/api/sippy/accounts', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const opts: { iCustomer?: number; offset?: number; limit?: number } = {};
+      if (req.query.iCustomer) opts.iCustomer = parseInt(req.query.iCustomer as string, 10);
+      if (req.query.offset)    opts.offset    = parseInt(req.query.offset    as string, 10);
+      if (req.query.limit)     opts.limit     = parseInt(req.query.limit     as string, 10);
+      const result = await sippy.listSippyAccounts(username, password, opts);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ accounts: [], error: e.message }); }
+  });
+
+  // GET /api/sippy/accounts/:id/registration — SIP registration status (docs 107366)
+  // Returns registered status plus user_agent, contact, expires if registered.
+  // Uses getRegistrationStatus(). Fault code 403 = not registered (not an error).
+  app.get('/api/sippy/accounts/:id/registration', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ registered: false, error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getSippyAccountRegistration(username, password, iAccount);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ registered: false, error: e.message }); }
+  });
+
   // DELETE /api/sippy/accounts/:id — delete an account
   app.delete('/api/sippy/accounts/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {

@@ -2374,7 +2374,177 @@ export async function unblockSippyCustomer(
   }
 }
 
-// ── Account Management (official Sippy docs 107312 / 107321) ─────────────────
+// ── Account Management (official Sippy docs 107312 / 107321 / 107322 / 107366) ──
+
+// SIP registration status returned inline in listAccounts() per account struct,
+// or standalone from getRegistrationStatus(). Null when account is not registered.
+export interface SippyAccountRegistration {
+  registered: boolean;
+  userAgent?: string;   // User-Agent header
+  contact?: string;     // SIP contact header
+  expires?: string;     // Expiration time string: '%H:%M:%S.000 GMT %a %b %d %Y'
+}
+
+// Typed account record returned by listAccounts() (docs 107322)
+// NOTE: balance is NOT inverted here — positive number = positive balance.
+// createAccount() and getAccountInfo() DO invert balance; listAccounts() does NOT.
+export interface SippyAccount {
+  iAccount: number;
+  username: string;
+  description: string;
+  blocked: boolean;
+  expired: boolean;
+  balance: number;       // NOT inverted (positive = positive balance)
+  creditLimit: number;
+  baseCurrency: string;
+  registration: SippyAccountRegistration | null;  // null if not registered
+}
+
+/**
+ * List accounts belonging to a customer.
+ * Official method: listAccounts() — docs 107322 (Sippy v2.2+)
+ *
+ * In trusted mode (admin caller) supply iCustomer to scope results to one customer.
+ * Without iCustomer the call returns accounts for the authenticated user's customer.
+ *
+ * Parameters:
+ *   iCustomer  — optional; filter to a specific customer (trusted / admin mode)
+ *   offset     — skip first N records (pagination)
+ *   limit      — return at most N records (default 200)
+ *
+ * NOTE: Unlike createAccount() and getAccountInfo(), this method returns balance
+ * as a positive number for a positive balance (i.e. balance is NOT inverted).
+ */
+export async function listSippyAccounts(
+  username: string,
+  password: string,
+  opts: { iCustomer?: number; offset?: number; limit?: number } = {},
+  portalUrl?: string,
+): Promise<{ accounts: SippyAccount[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { accounts: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {};
+  if (opts.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+  if (opts.offset    !== undefined) params.offset      = opts.offset;
+  params.limit = opts.limit ?? 200;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listAccounts', params), username, password);
+    if (resp.statusCode !== 200) {
+      return { accounts: [], error: `HTTP ${resp.statusCode}` };
+    }
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString') || 'listAccounts failed.';
+      return { accounts: [], error: fault };
+    }
+
+    // Each account is a <struct> inside the <accounts> array.
+    // The registration_status member is itself a nested <struct> or <nil/>.
+    // We extract account-level structs then parse nested registration.
+    const accounts: SippyAccount[] = [];
+
+    // Match top-level <struct> blocks (each is one account)
+    const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+    // We need to find the <accounts> array first, then iterate its data values.
+    const accountsArrayMatch = text.match(/<name>accounts<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>\s*<\/array>/);
+    const scope = accountsArrayMatch ? accountsArrayMatch[1] : text;
+
+    let m;
+    while ((m = structRe.exec(scope)) !== null) {
+      const rawStruct = m[1];
+
+      // Extract registration_status sub-struct BEFORE stripping tags from rawStruct
+      let registration: SippyAccountRegistration | null = null;
+      const regMatch = rawStruct.match(
+        /<name>registration_status<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>\s*<\/value>/
+      );
+      if (regMatch) {
+        const regMembers = extractStructMembers(regMatch[1]);
+        registration = {
+          registered: (regMembers['result'] || '').toUpperCase() === 'OK',
+          userAgent:  regMembers['user_agent']  || undefined,
+          contact:    regMembers['contact']     || undefined,
+          expires:    regMembers['expires']     || undefined,
+        };
+      }
+
+      // Parse flat members (stripping the nested registration_status block first)
+      const flatStruct = rawStruct.replace(
+        /<name>registration_status<\/name>\s*<value>[\s\S]*?<\/value>/g, ''
+      );
+      const f = extractStructMembers(flatStruct);
+
+      const iAccount = parseInt(f['i_account'] || '0', 10);
+      if (!iAccount) continue;   // skip the outer wrapper struct if any
+
+      accounts.push({
+        iAccount,
+        username:     f['username']      || '',
+        description:  f['description']   || '',
+        blocked:      f['blocked'] === '1' || f['blocked'] === 'true',
+        expired:      f['expired']  === '1' || f['expired']  === 'true',
+        balance:      parseFloat(f['balance']      || '0') || 0,   // NOT inverted
+        creditLimit:  parseFloat(f['credit_limit'] || '0') || 0,
+        baseCurrency: f['base_currency'] || 'USD',
+        registration,
+      });
+    }
+
+    return { accounts };
+  } catch (e: any) {
+    return { accounts: [], error: e.message };
+  }
+}
+
+/**
+ * Get SIP registration status for a single account.
+ * Official method: getRegistrationStatus() — docs 107366
+ *
+ * Returns the account's current SIP registration state.
+ * Fault code 403 means "Account is not registered" (not an error).
+ *
+ * Parameters:
+ *   iAccount — required; i_account of the account to check
+ */
+export async function getSippyAccountRegistration(
+  username: string,
+  password: string,
+  iAccount: number,
+  portalUrl?: string,
+): Promise<SippyAccountRegistration> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { registered: false };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(
+      apiUrl,
+      xmlRpcCall('getRegistrationStatus', { i_account: iAccount }),
+      username,
+      password,
+    );
+    const text = resp.body;
+
+    // Fault code 403 = "Account is not registered" — treat as valid unregistered state
+    // Any other fault code is a genuine error — still return unregistered, no userAgent.
+    if (text.includes('<fault>')) {
+      return { registered: false };
+    }
+
+    const m = extractStructMembers(text);
+    return {
+      registered: (m['result'] || '').toUpperCase() === 'OK',
+      userAgent:  m['user_agent'] || undefined,
+      contact:    m['contact']    || undefined,
+      expires:    m['expires']    || undefined,
+    };
+  } catch {
+    return { registered: false };
+  }
+}
 
 /**
  * Delete an account from Sippy.
