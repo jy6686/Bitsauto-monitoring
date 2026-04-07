@@ -3012,3 +3012,330 @@ export async function setSippyLowBalance(
     return { success: false, message: e.message };
   }
 }
+
+// ─── Authentication Rules Management (doc 107336) ────────────────────────────
+//
+// Protocols: 1=SIP  2=H.323 (deprecated since 2020)  3=IAX2  4=Calling Card PIN
+// Trusted mode: supply iCustomer alongside iAccount.
+// i_tariff / i_routing_group null  → use account's service plan values.
+// max_sessions -1                  → Unlimited concurrent calls.
+// max_cps      null                → Unlimited call rate.
+
+export interface SippyAuthRule {
+  iAuthentication: number;
+  iAccount?: number;             // removed from list since Sippy 2020, still in getAuthRuleInfo
+  iProtocol?: number;            // 1=SIP 3=IAX2 4=PIN  (present in listAuthRules since 2020)
+  remoteIp?: string;             // caller's IP address
+  incomingCli?: string;          // caller number (CLI)
+  incomingCld?: string;          // callee number (CLD)
+  toDomain?: string;             // To-header hostname (since Sippy 2020)
+  fromDomain?: string;           // From-header hostname (since Sippy 2020)
+  cliTranslationRule?: string;
+  cldTranslationRule?: string;
+  iTariff?: number | null;       // null = use account's base tariff
+  iRoutingGroup?: number | null; // null = use account's routing group
+  maxSessions?: number;          // -1 = Unlimited
+  maxCps?: number | null;        // null = Unlimited
+}
+
+export interface AddAuthRuleOpts {
+  iAccount: number;              // required
+  iProtocol: number;             // required (1/2/3/4)
+  iCustomer?: number;            // trusted mode
+  // At least ONE of the following must be present:
+  remoteIp?: string;
+  incomingCli?: string;
+  incomingCld?: string;
+  toDomain?: string;
+  fromDomain?: string;
+  // Optional:
+  cliTranslationRule?: string;
+  cldTranslationRule?: string;
+  iTariff?: number | null;
+  iRoutingGroup?: number | null;
+  maxSessions?: number;
+  maxCps?: number | null;
+}
+
+export interface UpdateAuthRuleOpts {
+  iAuthentication: number;       // required
+  iCustomer?: number;            // trusted mode
+  iAccount?: number;             // optional; removed in >=5.2
+  iProtocol?: number;
+  remoteIp?: string;
+  incomingCli?: string;
+  incomingCld?: string;
+  toDomain?: string;
+  fromDomain?: string;
+  cliTranslationRule?: string;
+  cldTranslationRule?: string;
+  iTariff?: number | null;
+  iRoutingGroup?: number | null;
+  maxSessions?: number;
+  maxCps?: number | null;
+}
+
+/** Parse a flat <struct> XML block into a SippyAuthRule. */
+function parseAuthRuleStruct(structBody: string): SippyAuthRule {
+  const m = extractStructMembers(`<struct>${structBody}</struct>`);
+  const num = (k: string) => m[k] ? parseInt(m[k], 10) || 0 : undefined;
+  const str = (k: string) => m[k] || undefined;
+  const nullableInt = (k: string): number | null | undefined => {
+    if (!(k in m)) return undefined;
+    if (m[k] === '' || m[k] === 'None' || m[k] === 'nil') return null;
+    const n = parseInt(m[k], 10); return isNaN(n) ? null : n;
+  };
+  const nullableFlt = (k: string): number | null | undefined => {
+    if (!(k in m)) return undefined;
+    if (m[k] === '' || m[k] === 'None' || m[k] === 'nil') return null;
+    const n = parseFloat(m[k]); return isNaN(n) ? null : n;
+  };
+
+  return {
+    iAuthentication:   parseInt(m['i_authentication'] || '0', 10),
+    iAccount:          num('i_account'),
+    iProtocol:         num('i_protocol'),
+    remoteIp:          str('remote_ip'),
+    incomingCli:       str('incoming_cli'),
+    incomingCld:       str('incoming_cld'),
+    toDomain:          str('to_domain'),
+    fromDomain:        str('from_domain'),
+    cliTranslationRule: str('cli_translation_rule'),
+    cldTranslationRule: str('cld_translation_rule'),
+    iTariff:           nullableInt('i_tariff'),
+    iRoutingGroup:     nullableInt('i_routing_group'),
+    maxSessions:       num('max_sessions'),
+    maxCps:            nullableFlt('max_cps'),
+  };
+}
+
+/**
+ * Add an authentication rule to an account.
+ * Official method: addAuthRule() — docs 107336
+ *
+ * Mandatory: iAccount + iProtocol + at least one of remoteIp/incomingCli/incomingCld/toDomain/fromDomain.
+ * Returns the new i_authentication ID on success.
+ */
+export async function addSippyAuthRule(
+  username: string,
+  password: string,
+  opts: AddAuthRuleOpts,
+  portalUrl?: string,
+): Promise<{ success: boolean; iAuthentication?: number; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {
+    i_account:  opts.iAccount,
+    i_protocol: opts.iProtocol,
+  };
+  if (opts.iCustomer          !== undefined) params.i_customer           = opts.iCustomer;
+  if (opts.remoteIp           !== undefined) params.remote_ip            = opts.remoteIp;
+  if (opts.incomingCli        !== undefined) params.incoming_cli         = opts.incomingCli;
+  if (opts.incomingCld        !== undefined) params.incoming_cld         = opts.incomingCld;
+  if (opts.toDomain           !== undefined) params.to_domain            = opts.toDomain;
+  if (opts.fromDomain         !== undefined) params.from_domain          = opts.fromDomain;
+  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule = opts.cliTranslationRule;
+  if (opts.cldTranslationRule !== undefined) params.cld_translation_rule = opts.cldTranslationRule;
+  if (opts.iTariff            !== undefined) params.i_tariff             = opts.iTariff;
+  if (opts.iRoutingGroup      !== undefined) params.i_routing_group      = opts.iRoutingGroup;
+  if (opts.maxSessions        !== undefined) params.max_sessions         = opts.maxSessions;
+  if (opts.maxCps             !== undefined) params.max_cps              = opts.maxCps;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addAuthRule', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString') || 'addAuthRule failed.';
+      return { success: false, message: fault };
+    }
+    const m = extractStructMembers(text);
+    const iAuthentication = parseInt(m['i_authentication'] || '0', 10);
+    return { success: true, iAuthentication, message: 'Auth rule added.' };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Update an existing authentication rule.
+ * Official method: updateAuthRule() — docs 107336
+ *
+ * Only i_authentication is mandatory; all other fields are optional updates.
+ * Note: i_account was removed in Sippy >= 5.2.
+ */
+export async function updateSippyAuthRule(
+  username: string,
+  password: string,
+  opts: UpdateAuthRuleOpts,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {
+    i_authentication: opts.iAuthentication,
+  };
+  if (opts.iCustomer          !== undefined) params.i_customer           = opts.iCustomer;
+  if (opts.iAccount           !== undefined) params.i_account            = opts.iAccount;
+  if (opts.iProtocol          !== undefined) params.i_protocol           = opts.iProtocol;
+  if (opts.remoteIp           !== undefined) params.remote_ip            = opts.remoteIp;
+  if (opts.incomingCli        !== undefined) params.incoming_cli         = opts.incomingCli;
+  if (opts.incomingCld        !== undefined) params.incoming_cld         = opts.incomingCld;
+  if (opts.toDomain           !== undefined) params.to_domain            = opts.toDomain;
+  if (opts.fromDomain         !== undefined) params.from_domain          = opts.fromDomain;
+  if (opts.cliTranslationRule !== undefined) params.cli_translation_rule = opts.cliTranslationRule;
+  if (opts.cldTranslationRule !== undefined) params.cld_translation_rule = opts.cldTranslationRule;
+  if (opts.iTariff            !== undefined) params.i_tariff             = opts.iTariff;
+  if (opts.iRoutingGroup      !== undefined) params.i_routing_group      = opts.iRoutingGroup;
+  if (opts.maxSessions        !== undefined) params.max_sessions         = opts.maxSessions;
+  if (opts.maxCps             !== undefined) params.max_cps              = opts.maxCps;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateAuthRule', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Auth rule updated.' };
+    }
+    const fault = extractTag(text, 'faultString') || 'updateAuthRule failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete an authentication rule.
+ * Official method: delAuthRule() — docs 107336
+ *
+ * Only i_authentication is required.
+ */
+export async function delSippyAuthRule(
+  username: string,
+  password: string,
+  iAuthentication: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_authentication: iAuthentication };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('delAuthRule', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Auth rule deleted.' };
+    }
+    const fault = extractTag(text, 'faultString') || 'delAuthRule failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Get full info for a single authentication rule.
+ * Official method: getAuthRuleInfo() — docs 107336 (available from Sippy 4.5)
+ *
+ * Returns the full authrule struct including tariff, routing group, max_sessions, max_cps.
+ */
+export async function getSippyAuthRuleInfo(
+  username: string,
+  password: string,
+  iAuthentication: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; authRule?: SippyAuthRule; error?: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_authentication: iAuthentication };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getAuthRuleInfo', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString') || 'getAuthRuleInfo failed.';
+      return { success: false, error: fault };
+    }
+
+    // The `authrule` member contains a nested <struct> — extract it by name
+    const nestedMatch = /<name>authrule<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>\s*<\/value>/.exec(text);
+    if (!nestedMatch) return { success: false, error: 'authrule struct not found in response.' };
+
+    return { success: true, authRule: parseAuthRuleStruct(nestedMatch[1]) };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * List authentication rules for an account.
+ * Official method: listAuthRules() — docs 107336 (available from Sippy 2.0)
+ *
+ * Filters:
+ *   iAccount    — required since Sippy 2020; the account whose rules to fetch
+ *   iProtocol   — optional; filter by protocol
+ *   remoteIp    — optional; filter by caller IP
+ *   offset/limit — pagination
+ *
+ * Note: i_account and i_protocol are absent from each rule struct since Sippy 2020
+ * (they were moved to filter params). i_tariff, i_routing_group, max_sessions, max_cps
+ * are NOT returned by listAuthRules — use getAuthRuleInfo for those.
+ */
+export async function listSippyAuthRules(
+  username: string,
+  password: string,
+  opts: {
+    iAccount: number;
+    iCustomer?: number;
+    iAuthentication?: number;   // deprecated filter since Sippy 2020
+    iProtocol?: number;
+    remoteIp?: string;
+    offset?: number;
+    limit?: number;
+  },
+  portalUrl?: string,
+): Promise<{ authRules: SippyAuthRule[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { authRules: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_account: opts.iAccount };
+  if (opts.iCustomer      !== undefined) params.i_customer      = opts.iCustomer;
+  if (opts.iAuthentication !== undefined) params.i_authentication = opts.iAuthentication;
+  if (opts.iProtocol      !== undefined) params.i_protocol      = opts.iProtocol;
+  if (opts.remoteIp       !== undefined) params.remote_ip       = opts.remoteIp;
+  if (opts.offset         !== undefined) params.offset          = opts.offset;
+  if (opts.limit          !== undefined) params.limit           = opts.limit;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listAuthRules', params), username, password);
+    const text = resp.body;
+    if (text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString') || 'listAuthRules failed.';
+      return { authRules: [], error: fault };
+    }
+
+    // Extract the <authrules> array portion from the response body
+    const arrayMatch = /<name>authrules<\/name>\s*<value>\s*<array>([\s\S]*?)<\/array>\s*<\/value>/.exec(text);
+    if (!arrayMatch) return { authRules: [] };
+
+    const authRules: SippyAuthRule[] = [];
+    const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+    let match: RegExpExecArray | null;
+    while ((match = structRe.exec(arrayMatch[1])) !== null) {
+      authRules.push(parseAuthRuleStruct(match[1]));
+    }
+
+    return { authRules };
+  } catch (e: any) {
+    return { authRules: [], error: e.message };
+  }
+}

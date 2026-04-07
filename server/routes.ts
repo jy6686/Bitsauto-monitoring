@@ -1675,6 +1675,94 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── Authentication Rules (doc 107336) ────────────────────────────────────
+  // Protocols: 1=SIP  2=H.323 (deprecated)  3=IAX2  4=Calling Card PIN
+  // Trusted mode: add ?iCustomer=<n> to any GET, or include iCustomer in POST/PATCH bodies.
+  // i_tariff/i_routing_group null  → use account's service plan.
+  // max_sessions -1               → Unlimited.  max_cps null → Unlimited.
+
+  // GET /api/sippy/accounts/:id/auth-rules — list auth rules for an account (docs 107336)
+  // Query params: iCustomer (trusted), iProtocol, remoteIp, offset, limit
+  app.get('/api/sippy/accounts/:id/auth-rules', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ authRules: [], error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const opts: Parameters<typeof sippy.listSippyAuthRules>[2] = { iAccount };
+      if (req.query.iCustomer)      opts.iCustomer      = parseInt(req.query.iCustomer as string, 10);
+      if (req.query.iProtocol)      opts.iProtocol      = parseInt(req.query.iProtocol  as string, 10);
+      if (req.query.remoteIp)       opts.remoteIp       = req.query.remoteIp as string;
+      if (req.query.offset)         opts.offset         = parseInt(req.query.offset     as string, 10);
+      if (req.query.limit)          opts.limit          = parseInt(req.query.limit      as string, 10);
+      const result = await sippy.listSippyAuthRules(username, password, opts);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ authRules: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/accounts/:id/auth-rules — add an auth rule to an account (docs 107336)
+  // Body: iProtocol (required) + at least one of remoteIp/incomingCli/incomingCld/toDomain/fromDomain
+  //       + optional: cliTranslationRule, cldTranslationRule, iTariff, iRoutingGroup, maxSessions, maxCps, iCustomer
+  app.post('/api/sippy/accounts/:id/auth-rules', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { iProtocol, remoteIp, incomingCli, incomingCld, toDomain, fromDomain } = req.body;
+      if (!iProtocol) return res.status(400).json({ success: false, message: 'iProtocol is required.' });
+      if (!remoteIp && !incomingCli && !incomingCld && !toDomain && !fromDomain) {
+        return res.status(400).json({ success: false, message: 'At least one of remoteIp, incomingCli, incomingCld, toDomain, fromDomain is required.' });
+      }
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addSippyAuthRule(username, password, { iAccount, ...req.body });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // GET /api/sippy/auth-rules/:id — get full info for one auth rule (docs 107336, available from Sippy 4.5)
+  // Query params: iCustomer (trusted mode)
+  app.get('/api/sippy/auth-rules/:id', async (req: any, res) => {
+    try {
+      const iAuthentication = parseInt(req.params.id, 10);
+      if (isNaN(iAuthentication)) return res.status(400).json({ success: false, error: 'Invalid i_authentication.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const opts: { iCustomer?: number } = {};
+      if (req.query.iCustomer) opts.iCustomer = parseInt(req.query.iCustomer as string, 10);
+      const result = await sippy.getSippyAuthRuleInfo(username, password, iAuthentication, opts);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/auth-rules/:id — update an auth rule (docs 107336)
+  // Body: any subset of auth rule fields; only provided fields are changed.
+  // Note: i_account was removed in Sippy >= 5.2 and should not be sent.
+  app.patch('/api/sippy/auth-rules/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAuthentication = parseInt(req.params.id, 10);
+      if (isNaN(iAuthentication)) return res.status(400).json({ success: false, message: 'Invalid i_authentication.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateSippyAuthRule(username, password, { iAuthentication, ...req.body });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/auth-rules/:id — delete an auth rule (docs 107336)
+  // Query params: iCustomer (trusted mode)
+  app.delete('/api/sippy/auth-rules/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const iAuthentication = parseInt(req.params.id, 10);
+      if (isNaN(iAuthentication)) return res.status(400).json({ success: false, message: 'Invalid i_authentication.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const opts: { iCustomer?: number } = {};
+      if (req.query.iCustomer) opts.iCustomer = parseInt(req.query.iCustomer as string, 10);
+      const result = await sippy.delSippyAuthRule(username, password, iAuthentication, opts);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // ── Vendor management (official Sippy API) ────────────────────────────────
 
   // PATCH /api/sippy/vendors/:id — update a vendor
