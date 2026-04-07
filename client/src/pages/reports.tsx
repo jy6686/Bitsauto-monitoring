@@ -9,8 +9,12 @@ import {
   Download, RefreshCw, Filter, TrendingUp, TrendingDown, Minus,
   Calendar, Clock, Globe, Building2, PhoneCall, CheckCircle2, PhoneOff,
   AlertTriangle, Users, DollarSign, ShieldAlert, Flag, ArrowRight,
-  PhoneForwarded, PhoneIncoming,
+  PhoneForwarded, PhoneIncoming, Activity,
 } from "lucide-react";
+import {
+  ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RcTooltip,
+  ResponsiveContainer, ReferenceLine, Legend,
+} from 'recharts';
 import { Link } from "wouter";
 import type { AsrAcdReportRow, ClientProfile } from "@shared/schema";
 import { cn } from "@/lib/utils";
@@ -137,6 +141,23 @@ export default function ReportsPage() {
     queryKey: ['/api/portal/client-stats'],
     refetchInterval: 120000,
     enabled: portalSession?.active === true,
+  });
+
+  // Sippy monitoring — ACD/ASR time-series (getMonitoringGraphData, type=acd_asr_total)
+  const [monitorHours, setMonitorHours] = useState<number>(24);
+  const { data: sippySession } = useQuery<{ active: boolean; username?: string }>({
+    queryKey: ['/api/sippy/session'],
+    refetchInterval: 30000,
+  });
+  type MonitorPoint = { ts: number; acd?: number; asr?: number; [k: string]: number | undefined };
+  const { data: monitorData, isLoading: monitorLoading, refetch: refetchMonitor } = useQuery<{ ok: boolean; points: MonitorPoint[]; error?: string }>({
+    queryKey: ['/api/sippy/monitoring/acd-asr', monitorHours],
+    queryFn: async () => {
+      const res = await fetch(`/api/sippy/monitoring/acd-asr?hours=${monitorHours}`);
+      return res.json();
+    },
+    refetchInterval: 300000, // 5-min refresh
+    enabled: sippySession?.active === true,
   });
 
   const { data: rows = [], isLoading, dataUpdatedAt } = useQuery<AsrAcdReportRow[]>({
@@ -467,6 +488,162 @@ export default function ReportsPage() {
           ))}
         </div>
       )}
+
+      {/* ── Sippy ACD/ASR Monitor ───────────────────────────────── */}
+      <div className="rounded-xl border overflow-hidden bg-card/60 shadow-sm"
+           style={{ borderColor: sippySession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}
+           data-testid="sippy-monitor-panel">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-muted/20">
+          <div className="flex items-center gap-3">
+            <Activity className={`w-4 h-4 ${sippySession?.active ? 'text-violet-400' : 'text-muted-foreground'}`} />
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-sm">Sippy ACD / ASR Monitor</h3>
+                {sippySession?.active ? (
+                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                    Live · Sippy API
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                    Not Connected
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {sippySession?.active
+                  ? 'Real-time ACD (call duration) and ASR (answer rate) from Sippy — with industry benchmarks'
+                  : 'Connect to Sippy in Settings to see live ACD/ASR time-series data here'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {sippySession?.active && (
+              <>
+                {([6, 12, 24, 48] as const).map(h => (
+                  <button
+                    key={h}
+                    data-testid={`monitor-hours-${h}`}
+                    onClick={() => setMonitorHours(h)}
+                    className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                      monitorHours === h
+                        ? 'bg-violet-500/15 border-violet-500/30 text-violet-400 font-semibold'
+                        : 'border-border/50 text-muted-foreground hover:text-foreground hover:border-border'
+                    }`}
+                  >{h}h</button>
+                ))}
+                <button
+                  data-testid="monitor-refresh"
+                  onClick={() => refetchMonitor()}
+                  disabled={monitorLoading}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-40"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${monitorLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="p-6">
+          {!sippySession?.active ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-2 text-muted-foreground/50">
+              <Activity className="w-8 h-8 opacity-30" />
+              <span className="text-sm">Sippy integration required</span>
+            </div>
+          ) : monitorLoading ? (
+            <div className="flex items-center justify-center h-48 gap-3 text-muted-foreground">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Loading monitoring data…</span>
+            </div>
+          ) : !monitorData?.ok || !monitorData?.points?.length ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-2 text-muted-foreground/60">
+              <Activity className="w-8 h-8 opacity-30" />
+              <span className="text-sm">{monitorData?.error ?? 'No data available'}</span>
+              <span className="text-xs opacity-70">getMonitoringGraphData may require root-level Sippy access</span>
+            </div>
+          ) : (
+            <>
+              {/* Chart */}
+              <ResponsiveContainer width="100%" height={280}>
+                <ComposedChart data={monitorData.points.map(p => ({
+                  time: format(new Date(p.ts * 1000), 'HH:mm'),
+                  acd:  p.acd != null ? Math.round(p.acd) : undefined,
+                  asr:  p.asr != null ? parseFloat(p.asr.toFixed(1)) : undefined,
+                }))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis
+                    dataKey="time"
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    yAxisId="acd"
+                    orientation="left"
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={v => `${v}s`}
+                    label={{ value: 'ACD (sec)', angle: -90, position: 'insideLeft', style: { fill: 'hsl(var(--muted-foreground))', fontSize: 11 }, dx: 10 }}
+                  />
+                  <YAxis
+                    yAxisId="asr"
+                    orientation="right"
+                    domain={[0, 100]}
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={v => `${v}%`}
+                    label={{ value: 'ASR (%)', angle: 90, position: 'insideRight', style: { fill: 'hsl(var(--muted-foreground))', fontSize: 11 }, dx: -5 }}
+                  />
+                  <RcTooltip
+                    contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600 }}
+                    formatter={(value: number, name: string) =>
+                      name === 'acd' ? [`${value}s`, 'ACD'] : [`${value}%`, 'ASR']
+                    }
+                  />
+                  <Legend
+                    formatter={v => v === 'acd' ? 'ACD (sec)' : 'ASR (%)'}
+                    wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                  />
+                  {/* ASR industry benchmark reference lines */}
+                  <ReferenceLine yAxisId="asr" y={70} stroke="#10b981" strokeDasharray="6 3" strokeWidth={1.5}
+                    label={{ value: 'National ~70%', position: 'insideTopRight', style: { fill: '#10b981', fontSize: 10 } }} />
+                  <ReferenceLine yAxisId="asr" y={50} stroke="#f59e0b" strokeDasharray="6 3" strokeWidth={1.5}
+                    label={{ value: 'Wholesale ~50%', position: 'insideTopRight', style: { fill: '#f59e0b', fontSize: 10 } }} />
+                  <ReferenceLine yAxisId="asr" y={20} stroke="#ef4444" strokeDasharray="6 3" strokeWidth={1.5}
+                    label={{ value: 'Call Center <20%', position: 'insideTopRight', style: { fill: '#ef4444', fontSize: 10 } }} />
+                  {/* ACD benchmark — retail ~480s */}
+                  <ReferenceLine yAxisId="acd" y={480} stroke="#818cf8" strokeDasharray="4 4" strokeWidth={1}
+                    label={{ value: 'Retail ACD ~8min', position: 'insideTopLeft', style: { fill: '#818cf8', fontSize: 10 } }} />
+                  <Line yAxisId="acd" type="monotone" dataKey="acd" stroke="#818cf8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} connectNulls />
+                  <Line yAxisId="asr" type="monotone" dataKey="asr" stroke="#34d399" strokeWidth={2} dot={false} activeDot={{ r: 4 }} connectNulls />
+                </ComposedChart>
+              </ResponsiveContainer>
+
+              {/* Benchmark legend */}
+              <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'National carrier',  range: '≥70% ASR',  color: 'text-emerald-400', dot: 'bg-emerald-400' },
+                  { label: 'Wholesale SIP',     range: '~50% ASR',  color: 'text-amber-400',   dot: 'bg-amber-400' },
+                  { label: 'Call center',       range: '<20% ASR',  color: 'text-red-400',     dot: 'bg-red-400' },
+                  { label: 'Retail ACD target', range: '≥480s ACD', color: 'text-violet-400',  dot: 'bg-violet-400' },
+                ].map(b => (
+                  <div key={b.label} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 border border-border/40">
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${b.dot}`} />
+                    <div>
+                      <p className="text-xs font-medium">{b.label}</p>
+                      <p className={`text-xs ${b.color} font-semibold tabular-nums`}>{b.range}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* ── VOS3000 Portal Client Stats ─────────────────────────── */}
       <div className="rounded-xl border overflow-hidden bg-card/60 shadow-sm"

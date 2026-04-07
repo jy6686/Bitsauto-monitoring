@@ -13,6 +13,17 @@ import { apiRequest } from "@/lib/queryClient";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// CC_STATE color + label mappings (Sippy docs 107462)
+const CC_STATE_STYLE: Record<string, { label: string; dot: string; badge: string }> = {
+  Connected:    { label: 'Connected',    dot: 'bg-emerald-400 animate-pulse', badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+  ARComplete:   { label: 'Connecting…',  dot: 'bg-blue-400 animate-pulse',    badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
+  WaitRoute:    { label: 'Routing…',     dot: 'bg-amber-400 animate-pulse',   badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+  WaitAuth:     { label: 'Auth…',        dot: 'bg-yellow-400',                badge: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' },
+  Idle:         { label: 'Idle',         dot: 'bg-muted-foreground',          badge: 'bg-muted/30 text-muted-foreground border-border/50' },
+  Disconnecting:{ label: 'Ending…',      dot: 'bg-rose-400',                  badge: 'bg-rose-500/10 text-rose-400 border-rose-500/20' },
+  Dead:         { label: 'Dead',         dot: 'bg-zinc-600',                  badge: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' },
+};
+
 interface LiveCall {
   id: string;
   caller: string;        // CLI (calling number)
@@ -21,6 +32,7 @@ interface LiveCall {
   clientName?: string;   // Account / customer name
   duration: number;
   callStatus: 'connected' | 'routing';
+  ccState?: string;      // Full Sippy CC_STATE (Connected | ARComplete | WaitRoute | WaitAuth | Idle | Disconnecting | Dead)
   // Sippy-specific fields
   vendor?: string;
   connection?: string;
@@ -764,14 +776,17 @@ function SwitchPanel({
                             ) : <span className="text-muted-foreground/30">—</span>}
                           </td>
                           <td className="px-4 py-3">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                              call.callStatus === 'connected'
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                            }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${call.callStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-                              {call.callStatus === 'connected' ? 'Connected' : 'Routing'}
-                            </span>
+                            {(() => {
+                              const st = CC_STATE_STYLE[call.ccState || ''] ?? (call.callStatus === 'connected'
+                                ? CC_STATE_STYLE.Connected
+                                : CC_STATE_STYLE.WaitRoute);
+                              return (
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${st.badge}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+                                  {st.label}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-vendor-${i}`}>{call.vendor || <span className="text-muted-foreground/30">—</span>}</td>
                           <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-connection-${i}`}>{call.connection || <span className="text-muted-foreground/30">—</span>}</td>

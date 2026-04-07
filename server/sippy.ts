@@ -1077,6 +1077,99 @@ export interface SippyCDR {
   result: string;
 }
 
+// ── getMonitoringGraphData() — docs 107509 ───────────────────────────────────
+// Fetches monitoring time-series CSV data from Sippy (available since 2020).
+// First CSV column is Unix timestamp; subsequent columns depend on graph type.
+// For 'acd_asr_total': columns are timestamp, ACD (seconds), ASR (%).
+export async function getSippyMonitoringData(
+  username: string,
+  password: string,
+  type: string,
+  opts: { startDate?: string; interval?: number; iEnvironment?: number } = {},
+): Promise<{ ok: boolean; points: Array<{ ts: number; [k: string]: number }>; error?: string }> {
+  if (!activeSession) return { ok: false, points: [], error: 'Not connected.' };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, unknown> = { type };
+  if (opts.startDate)    params.start_date    = opts.startDate;
+  if (opts.interval)     params.interval      = opts.interval;
+  if (opts.iEnvironment) params.i_environment = opts.iEnvironment;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getMonitoringGraphData', params), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (resp.statusCode !== 200 || text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, points: [], error: fault?.replace(/<[^>]+>/g, '').trim() || 'getMonitoringGraphData failed' };
+    }
+    // Response contains base64-encoded CSV in <value><string> inside the 'csv_data' member
+    const csvDataMatch = text.match(/csv_data[\s\S]*?<string>([\s\S]*?)<\/string>/);
+    const b64 = csvDataMatch ? csvDataMatch[1].trim() : extractTag(text, 'string');
+    if (!b64) return { ok: false, points: [], error: 'No csv_data in response' };
+
+    const csv = Buffer.from(b64, 'base64').toString('utf8');
+    const lines = csv.split('\n').filter(l => l.trim());
+
+    // Proper CSV parser that handles double-quoted fields (which may contain commas)
+    function parseCSVLine(line: string): string[] {
+      const result: string[] = [];
+      let cur = '';
+      let inQuote = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
+          else inQuote = !inQuote;
+        } else if (ch === ',' && !inQuote) {
+          result.push(cur.trim());
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      result.push(cur.trim());
+      return result;
+    }
+
+    // Detect header: first line is a header if first field is non-numeric
+    let headerCols: string[] = [];
+    let dataStart = 0;
+    if (lines.length > 0 && isNaN(Number(parseCSVLine(lines[0])[0]))) {
+      headerCols = parseCSVLine(lines[0]);
+      dataStart = 1;
+    }
+    // Normalise header names: "acd (mins)" → "acd", "asr, authenticated" → "asr"
+    const normKey = (raw: string, idx: number): string => {
+      const l = raw.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+      if (l.startsWith('acd'))  return 'acd';
+      if (l.startsWith('asr'))  return 'asr';
+      if (l.includes('calls'))  return 'calls';
+      if (l.includes('cps'))    return 'cps';
+      return `col${idx}`;
+    };
+    const keys = headerCols.length > 0
+      ? headerCols.map((h, i) => i === 0 ? 'ts' : normKey(h, i))
+      : ['ts', 'acd', 'asr'];
+
+    const points = lines.slice(dataStart).map(line => {
+      const cols = parseCSVLine(line);
+      const ts = parseInt(cols[0], 10) || 0;
+      const pt: { ts: number; [k: string]: number } = { ts };
+      cols.slice(1).forEach((val, i) => {
+        const key = keys[i + 1] ?? `col${i}`;
+        const num = parseFloat(val) || 0;
+        // Convert ACD from minutes → seconds (Sippy returns minutes for acd_asr type)
+        pt[key] = key === 'acd' ? Math.round(num * 60) : num;
+      });
+      return pt;
+    }).filter(p => p.ts > 0);
+
+    return { ok: true, points };
+  } catch (err: any) {
+    return { ok: false, points: [], error: err.message };
+  }
+}
+
 // getSippyCDRs — uses official getAccountCDRs() (docs 107367) or
 //               getCustomerCDRs() (docs 107429) with documented field names.
 // CDR response fields: call_id, cli, cld, connect_time, billed_duration,

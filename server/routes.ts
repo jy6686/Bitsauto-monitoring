@@ -1219,11 +1219,84 @@ export async function registerRoutes(
     const settings = await storage.getSettings();
     const { username, password } = sippyXmlCreds(settings);
     const raw = await sippy.getSippyActiveCalls(username, password);
+    // Map CC_STATE → callStatus for the frontend, expose full ccState separately
+    const ccStateMap: Record<string, 'connected' | 'routing'> = {
+      Connected:    'connected',
+      ARComplete:   'routing',
+      WaitRoute:    'routing',
+      WaitAuth:     'routing',
+      Idle:         'routing',
+      Disconnecting:'routing',
+      Dead:         'routing',
+    };
     const calls = raw.map(c => ({
       ...c,
-      clientName: c.user || c.accountId || undefined,
+      clientName:  c.user || c.accountId || undefined,
+      ccState:     c.status,                                          // full CC_STATE string
+      callStatus:  ccStateMap[c.status] ?? (c.status?.toLowerCase().includes('connect') ? 'connected' : 'routing'),
     }));
     res.json({ calls });
+  });
+
+  // GET /api/sippy/monitoring/acd-asr — ACD/ASR time-series from Sippy monitoring API
+  app.get('/api/sippy/monitoring/acd-asr', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      // Default: last 24 h, 5-min resolution (300 s), total (root env)
+      const hoursBack = Number(req.query.hours) || 24;
+      const intervalSec = Number(req.query.interval) || 300;
+      const iEnv = req.query.env ? Number(req.query.env) : undefined;
+      const startDate = new Date(Date.now() - hoursBack * 3600 * 1000);
+      // Sippy start_date format: 'HH:MM:SS.000 GMT Www Mmm DD YYYY'
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const sippyDate = `${pad(startDate.getUTCHours())}:${pad(startDate.getUTCMinutes())}:${pad(startDate.getUTCSeconds())}.000 GMT `
+        + `${days[startDate.getUTCDay()]} ${months[startDate.getUTCMonth()]} ${pad(startDate.getUTCDate())} ${startDate.getUTCFullYear()}`;
+
+      // Try acd_asr_total first (root/aggregate) then fall back to acd_asr per-env
+      let result = await sippy.getSippyMonitoringData(username, password, 'acd_asr_total', {
+        startDate: sippyDate,
+        interval: hoursBack * 3600,
+      });
+      let graphType = 'acd_asr_total';
+      if (!result.ok || !result.points.length) {
+        // Fall back to acd_asr (per-environment or all-env without i_environment)
+        result = await sippy.getSippyMonitoringData(username, password, 'acd_asr', {
+          startDate: sippyDate,
+          interval: hoursBack * 3600,
+          ...(iEnv ? { iEnvironment: iEnv } : {}),
+        });
+        graphType = 'acd_asr';
+      }
+      res.json({ ...result, graphType, hours: hoursBack, intervalSec });
+    } catch (err: any) {
+      res.json({ ok: false, points: [], error: err.message });
+    }
+  });
+
+  // GET /api/sippy/monitoring/graph — generic monitoring graph data (CSV)
+  app.get('/api/sippy/monitoring/graph', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const type = (req.query.type as string) || 'calls_in_progress_total';
+      const hours = Number(req.query.hours) || 24;
+      const startDate = new Date(Date.now() - hours * 3600 * 1000);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const sippyDate = `${pad(startDate.getUTCHours())}:${pad(startDate.getUTCMinutes())}:${pad(startDate.getUTCSeconds())}.000 GMT `
+        + `${days[startDate.getUTCDay()]} ${months[startDate.getUTCMonth()]} ${pad(startDate.getUTCDate())} ${startDate.getUTCFullYear()}`;
+      const result = await sippy.getSippyMonitoringData(username, password, type, {
+        startDate: sippyDate,
+        interval: hours * 3600,
+      });
+      res.json({ ...result, type, hours });
+    } catch (err: any) {
+      res.json({ ok: false, points: [], error: err.message });
+    }
   });
 
   // POST /api/sippy/calls/:id/disconnect — disconnect a single call by its ID field
