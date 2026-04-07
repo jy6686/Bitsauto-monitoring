@@ -36,9 +36,13 @@ type FormValues = z.infer<typeof formSchema>;
 type TestResult = { ok: boolean; message: string } | null;
 
 // ── Switch type definitions ───────────────────────────────────────────────────
-// VOS3000 is temporarily disabled — uncomment to re-enable
 const SWITCH_TYPES = [
-  // { id: 'vos3000', label: 'VOS3000', description: 'Linknat VOS3000 carrier softswitch (CAPTCHA-based login)', color: 'blue' },
+  {
+    id: 'vos3000',
+    label: 'VOS3000',
+    description: 'Linknat VOS3000 carrier softswitch (CAPTCHA-based web portal login)',
+    color: 'blue',
+  },
   {
     id: 'sippy',
     label: 'Sippy Softswitch',
@@ -1454,8 +1458,20 @@ export default function SettingsPage() {
             <div className="grid gap-2">
               <label className="text-sm font-medium">Portal URL</label>
               <p className="text-xs text-muted-foreground">
-                Full URL including port — e.g. <span className="font-mono text-xs">http://45.59.163.182:8088</span> (Sippy default port is <strong>8088</strong>)
+                {switchType === 'vos3000'
+                  ? <>Full URL including port — e.g. <span className="font-mono text-xs">http://45.59.163.182:8080</span> (VOS3000 default port is <strong>8080</strong>)</>
+                  : <>Full URL including port — e.g. <span className="font-mono text-xs">https://191.101.30.107</span> (Sippy default HTTPS port is <strong>443</strong>)</>
+                }
               </p>
+              {switchType === 'vos3000' && (
+                <div className="rounded-md bg-blue-500/10 border border-blue-500/20 px-3 py-2.5 text-xs text-blue-300 space-y-1.5">
+                  <p className="font-semibold text-blue-200">How to connect to VOS3000:</p>
+                  <p>1. Enter the full URL of your VOS3000 web portal including the port number (default <strong>8080</strong>)</p>
+                  <p>2. Enter your <strong>admin username</strong> and <strong>password</strong> for the VOS3000 web portal</p>
+                  <p>3. Click <strong>Save Changes</strong>, then use the <strong>Sign In</strong> section below — it will show a visual CAPTCHA that you must complete to log in</p>
+                  <p className="text-blue-300/70">VOS3000 uses a CAPTCHA-protected web portal login. A new CAPTCHA is required every session.</p>
+                </div>
+              )}
               {switchType === 'sippy' && (
                 <div className="rounded-md bg-violet-500/10 border border-violet-500/20 px-3 py-2.5 text-xs text-violet-300 space-y-1.5">
                   <p className="font-semibold text-violet-200">How to find your Sippy API credentials:</p>
@@ -1479,7 +1495,7 @@ export default function SettingsPage() {
                   {...form.register("portalUrl")}
                   data-testid="input-portal-url"
                   type="url"
-                  placeholder="http://45.59.163.182:8080"
+                  placeholder={switchType === 'vos3000' ? 'http://45.59.163.182:8080' : 'https://191.101.30.107'}
                   className="flex-1 bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
                 />
                 {portalUrl && (
