@@ -2934,25 +2934,31 @@ export async function getSippyAccountRegistration(
 /**
  * Delete an account from Sippy.
  * Official method: deleteAccount() — docs 107321
- * Parameters: i_account (required)
- * Active calls of the deleted account will be disconnected.
+ * Parameters: i_account (required); supports trusted mode via i_customer.
+ * Active calls of the deleted account will be disconnected. (since Sippy v5.0)
  */
 export async function deleteSippyAccount(
   username: string,
   password: string,
   iAccount: number,
   portalUrl?: string,
+  iCustomer?: number,  // trusted mode: i_customer of the owning customer (1 = root)
 ): Promise<{ success: boolean; message: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
+  const params: Record<string, number> = { i_account: iAccount };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
   try {
-    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteAccount', { i_account: iAccount }), username, password);
-    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteAccount', params), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>') && !resp.body.includes('faultCode')) {
       return { success: true, message: 'Account deleted successfully.' };
     }
-    const fault = extractTag(resp.body, 'faultString') || 'deleteAccount failed.';
+    const fault = resp.body.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(resp.body, 'faultString')
+      ?? 'deleteAccount failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };

@@ -2064,12 +2064,17 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ registered: false, error: e.message }); }
   });
 
-  // DELETE /api/sippy/accounts/:id — delete an account
+  // DELETE /api/sippy/accounts/:id — delete an account (docs 107321)
+  // Supports trusted mode: passes i_customer=1 when using admin XML-RPC credentials.
+  // Active calls of the deleted account are disconnected automatically (Sippy v5.0+).
   app.delete('/api/sippy/accounts/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteSippyAccount(username, password, parseInt(req.params.id, 10));
+      const iCustomer = req.body?.i_customer !== undefined ? parseInt(req.body.i_customer, 10) : 1;
+      const result = await sippy.deleteSippyAccount(username, password, iAccount, undefined, iCustomer);
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
