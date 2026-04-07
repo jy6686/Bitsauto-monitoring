@@ -210,17 +210,31 @@ function SwitchPanel({
   const qc = useQueryClient();
 
   const isPrimary = switchId === 'primary';
+  const isPrimarySippy = isPrimary && switchType === 'sippy';
+  const isPrimaryVos  = isPrimary && switchType !== 'sippy';
 
-  // Primary switch: use portal endpoints
-  const { data: primarySession } = useQuery<{ active: boolean }>({
+  // Primary Sippy: use /api/sippy/session + /api/sippy/live-calls
+  const { data: primarySippySession } = useQuery<{ active: boolean }>({
+    queryKey: ['/api/sippy/session'],
+    refetchInterval: 30000,
+    enabled: isPrimarySippy,
+  });
+  const { data: primarySippyLiveCalls, isLoading: sippyLoading, refetch: refetchSippy } = useQuery<{ calls: LiveCall[] }>({
+    queryKey: ['/api/sippy/live-calls'],
+    refetchInterval: 15000,
+    enabled: isPrimarySippy && !!primarySippySession?.active,
+  });
+
+  // Primary VOS3000: use /api/portal/session + /api/portal/live-calls
+  const { data: primaryVosSession } = useQuery<{ active: boolean }>({
     queryKey: ['/api/portal/session'],
     refetchInterval: 30000,
-    enabled: isPrimary,
+    enabled: isPrimaryVos,
   });
-  const { data: primaryLiveCalls, isLoading: primaryLoading, refetch: refetchPrimary } = useQuery<{ calls: LiveCall[]; error?: string }>({
+  const { data: primaryVosLiveCalls, isLoading: vosLoading, refetch: refetchVos } = useQuery<{ calls: LiveCall[]; error?: string }>({
     queryKey: ['/api/portal/live-calls'],
     refetchInterval: 15000,
-    enabled: isPrimary && !!primarySession?.active,
+    enabled: isPrimaryVos && !!primaryVosSession?.active,
   });
 
   // Secondary switch: use per-switch endpoints
@@ -238,26 +252,28 @@ function SwitchPanel({
   });
 
   // Resolve active state
-  const isActive = isPrimary
-    ? !!primarySession?.active
+  const isActive = isPrimarySippy
+    ? !!primarySippySession?.active
+    : isPrimaryVos
+    ? !!primaryVosSession?.active
     : (switchType === 'sippy' ? true : !!switchSession?.active);
-  const isLoading = isPrimary ? primaryLoading : switchLoading;
-  const needsLogin = !isPrimary && switchType === 'vos3000' && !switchSession?.active;
-  const liveCallData = isPrimary ? primaryLiveCalls : switchLiveCalls;
+
+  const isLoading = isPrimarySippy ? sippyLoading : isPrimaryVos ? vosLoading : switchLoading;
+  const needsLogin = isPrimaryVos
+    ? !primaryVosSession?.active
+    : !isPrimary && switchType === 'vos3000' && !switchSession?.active;
+
+  const handleRefresh = () =>
+    isPrimarySippy ? refetchSippy() : isPrimaryVos ? refetchVos() : refetchSwitch();
+
+  const liveCallData = isPrimarySippy
+    ? primarySippyLiveCalls
+    : isPrimaryVos
+    ? primaryVosLiveCalls
+    : switchLiveCalls;
 
   // Build live calls list
-  const liveCalls: LiveCall[] = liveCallData?.calls ?? (
-    isPrimary && !primarySession?.active
-      ? (calls ?? []).filter((c: any) => c.status === 'active').map((c: any) => ({
-          id: String(c.id),
-          caller: c.caller,
-          callee: c.callee,
-          gateway: '',
-          duration: 0,
-          callStatus: 'connected' as const,
-        }))
-      : []
-  );
+  const liveCalls: LiveCall[] = liveCallData?.calls ?? [];
 
   const summaryRows = buildSummary(liveCalls);
   const totalConnected = summaryRows.reduce((s, r) => s + r.connected, 0);
@@ -267,8 +283,6 @@ function SwitchPanel({
   const filteredCalls = calls?.filter((call: any) =>
     call.caller.includes(search) || call.callee.includes(search)
   );
-
-  const handleRefresh = () => isPrimary ? refetchPrimary() : refetchSwitch();
 
   return (
     <div className="space-y-4">
@@ -772,20 +786,38 @@ export default function CallsListPage() {
     refetchInterval: 60000,
   });
 
-  const { data: primarySession } = useQuery<{ active: boolean }>({
+  // Load settings to know the primary switch type (sippy vs vos3000)
+  const { data: settings } = useQuery<{ switchType?: string }>({
+    queryKey: ['/api/settings'],
+    refetchInterval: 60000,
+    select: d => ({ switchType: (d as any).switchType }),
+  });
+  const primarySwitchType: string = settings?.switchType ?? 'vos3000';
+  const primaryLabel = primarySwitchType === 'sippy' ? 'Primary Sippy' : 'Primary VOS3000';
+
+  // Primary session: Sippy uses /api/sippy/session; VOS3000 uses /api/portal/session
+  const { data: primarySippySession } = useQuery<{ active: boolean }>({
+    queryKey: ['/api/sippy/session'],
+    refetchInterval: 30000,
+    enabled: primarySwitchType === 'sippy',
+  });
+  const { data: primaryVosSession } = useQuery<{ active: boolean }>({
     queryKey: ['/api/portal/session'],
     refetchInterval: 30000,
+    enabled: primarySwitchType !== 'sippy',
   });
+  const primarySessionActive = primarySwitchType === 'sippy'
+    ? !!primarySippySession?.active
+    : !!primaryVosSession?.active;
 
   const enabledSwitches = switches.filter(sw => sw.enabled !== false);
 
-  // Derive current switch info
   const currentSwitchInfo = selectedSwitch === 'primary'
-    ? { name: 'Primary', type: 'vos3000', active: !!primarySession?.active }
+    ? { name: 'Primary', type: primarySwitchType, active: primarySessionActive }
     : enabledSwitches.find(sw => sw.id === selectedSwitch);
 
-  const currentName = selectedSwitch === 'primary' ? 'Primary VOS3000' : (currentSwitchInfo as SwitchRecord)?.name ?? 'Switch';
-  const currentType = selectedSwitch === 'primary' ? 'vos3000' : (currentSwitchInfo as SwitchRecord)?.type ?? 'vos3000';
+  const currentName = selectedSwitch === 'primary' ? primaryLabel : (currentSwitchInfo as SwitchRecord)?.name ?? 'Switch';
+  const currentType = selectedSwitch === 'primary' ? primarySwitchType : (currentSwitchInfo as SwitchRecord)?.type ?? 'vos3000';
 
   return (
     <div className="space-y-6">
@@ -810,8 +842,11 @@ export default function CallsListPage() {
           data-testid="tab-switch-primary"
         >
           <Server className="w-4 h-4" />
-          <span>Primary VOS3000</span>
-          {primarySession?.active ? (
+          <span>{primaryLabel}</span>
+          <span className="text-xs text-muted-foreground/60 bg-muted/30 px-1.5 py-0.5 rounded border border-border/40">
+            {primarySwitchType === 'sippy' ? 'Sippy' : 'VOS3000'}
+          </span>
+          {primarySessionActive ? (
             <span className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               Live
