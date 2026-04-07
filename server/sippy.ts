@@ -2836,6 +2836,148 @@ export interface SippyAccountRegistration {
   expires?: string;     // Expiration time string: '%H:%M:%S.000 GMT %a %b %d %Y'
 }
 
+// ── getAccountInfo() — retrieve all attributes of an account (docs 107327) ───
+// Available since all versions. Trusted mode: i_customer (from 2024).
+// CRITICAL: Sippy returns NEGATIVE for positive balance, POSITIVE for negative.
+//           getAccountInfo() INVERTS the balance before returning (same as createAccount).
+
+export interface SippyAccountInfo {
+  iAccount: number;
+  username: string;
+  name?: string;               // display / billing name
+  iCustomer?: number;
+  blocked: boolean;
+  expired: boolean;
+  expiryDate?: string;
+  balance: number;             // ALREADY INVERTED: positive = real positive balance
+  creditLimit: number;
+  baseCurrency?: string;
+  iBillingPlan?: number;
+  iTariff?: number;
+  iRoutingGroup?: number;
+  maxSessions?: number;
+  maxCallsPerSecond?: number;
+  sipProxyRegistration?: boolean;
+  registrationBindingLifetime?: number;
+  iCodecGroup?: number;
+  iTimeZone?: string;
+  description?: string;
+  vmEnabled?: boolean;
+  iLang?: string;
+  email?: string;
+  webLogin?: string;           // web interface login (no web_password returned per doc)
+  incomingCli?: string;
+  incomingCld?: string;
+  // Any extra fields not explicitly typed are passed through as-is
+  [key: string]: unknown;
+}
+
+/**
+ * Retrieve all attributes of an account.
+ * Official method: getAccountInfo() — docs 107327
+ *
+ * Lookup by i_account (number) or username (string) — at least one required.
+ * Trusted mode: provide iCustomer (from Sippy 2024+).
+ *
+ * IMPORTANT: Sippy returns inverted balance (negative = positive balance).
+ *            This function corrects the inversion before returning.
+ */
+export async function getAccountInfo(
+  username: string,
+  password: string,
+  portalUrl: string | undefined,
+  iAccount?: number,
+  accountUsername?: string,
+  iCustomer?: number,
+): Promise<SippyAccountInfo | null> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return null;
+  if (!iAccount && !accountUsername) return null;
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {};
+  if (iAccount)         params.i_account = iAccount;
+  if (accountUsername)  params.username   = accountUsername;
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getAccountInfo', params), username, password);
+    const text = resp.body;
+
+    if (text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'getAccountInfo failed.';
+      console.warn(`[Sippy] getAccountInfo fault: ${fault}`);
+      return null;
+    }
+
+    const m = extractStructMembers(text);
+
+    const int = (k: string): number | undefined => {
+      const v = m[k]; if (v === undefined) return undefined;
+      const n = parseInt(v, 10); return isNaN(n) ? undefined : n;
+    };
+    const bool = (k: string): boolean => m[k] === '1' || m[k] === 'true' || m[k] === 'Yes';
+    const str = (k: string): string | undefined => (m[k] !== undefined && m[k] !== '') ? m[k] : undefined;
+
+    // Balance inversion: Sippy returns negative for positive balance — negate it
+    const rawBalance = parseFloat(m['balance'] ?? '0');
+    const balance = isNaN(rawBalance) ? 0 : -rawBalance;
+    const creditLimit = parseFloat(m['credit_limit'] ?? '0');
+
+    const info: SippyAccountInfo = {
+      iAccount:                  int('i_account') ?? (iAccount ?? 0),
+      username:                  str('username') ?? (accountUsername ?? ''),
+      name:                      str('name'),
+      iCustomer:                 int('i_customer'),
+      blocked:                   bool('blocked'),
+      expired:                   bool('expired'),
+      expiryDate:                str('expiry_date'),
+      balance,
+      creditLimit:               isNaN(creditLimit) ? 0 : creditLimit,
+      baseCurrency:              str('base_currency'),
+      iBillingPlan:              int('i_billing_plan'),
+      iTariff:                   int('i_tariff'),
+      iRoutingGroup:             int('i_routing_group'),
+      maxSessions:               int('max_sessions'),
+      maxCallsPerSecond:         int('max_calls_per_second'),
+      sipProxyRegistration:      bool('sip_proxy_registration'),
+      registrationBindingLifetime: int('registration_binding_lifetime'),
+      iCodecGroup:               int('i_codec_group'),
+      iTimeZone:                 str('i_time_zone'),
+      description:               str('description'),
+      vmEnabled:                 bool('vm_enabled'),
+      iLang:                     str('i_lang'),
+      email:                     str('email'),
+      webLogin:                  str('web_login'),
+      incomingCli:               str('incoming_cli'),
+      incomingCld:               str('incoming_cld'),
+      // NOTE: web_password, voip_password, vm_password are NOT returned by Sippy per docs
+    };
+
+    // Pass through any extra fields not explicitly typed
+    for (const [k, v] of Object.entries(m)) {
+      if (!(k in {
+        i_account:1, username:1, name:1, i_customer:1, blocked:1, expired:1, expiry_date:1,
+        balance:1, credit_limit:1, base_currency:1, i_billing_plan:1, i_tariff:1,
+        i_routing_group:1, max_sessions:1, max_calls_per_second:1, sip_proxy_registration:1,
+        registration_binding_lifetime:1, i_codec_group:1, i_time_zone:1, description:1,
+        vm_enabled:1, i_lang:1, email:1, web_login:1, incoming_cli:1, incoming_cld:1,
+      })) {
+        info[k] = v;
+      }
+    }
+
+    return info;
+  } catch (e: any) {
+    console.error(`[Sippy] getAccountInfo error:`, e.message);
+    return null;
+  }
+}
+
+// ── GET /api/sippy/accounts/:id/info — expose getAccountInfo via REST ─────────
+// (Route registered in routes.ts)
+
 // Typed account record returned by listAccounts() (docs 107322)
 // NOTE: balance is NOT inverted here — positive number = positive balance.
 // createAccount() and getAccountInfo() DO invert balance; listAccounts() does NOT.

@@ -2928,6 +2928,21 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ enriched: [], error: e.message }); }
   });
 
+  // GET /api/sippy/accounts/:id/info — retrieve all attributes of an account (docs 107327)
+  // Query: accountUsername (lookup by username instead of i_account), iCustomer (trusted mode, 2024+)
+  app.get('/api/sippy/accounts/:id/info', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      const info = await sippy.getAccountInfo(username, password, settings.portalUrl ?? '', iAccount, undefined, iCustomer);
+      if (!info) return res.status(404).json({ error: 'Account not found or Sippy returned a fault.' });
+      res.json(info);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── ACCOUNT MONITORING — balance alerts ───────────────────────────────────
   // POST /api/sippy/accounts/:id/check-balance — explicitly check & alert on low balance
   app.post('/api/sippy/accounts/:id/check-balance', async (req: any, res) => {
@@ -2935,10 +2950,9 @@ export async function registerRoutes(
       const iAccount = Number(req.params.id);
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
-      const baseUrl = settings.portalUrl ?? '';
-      const info = await sippy.getAccountInfo(username, password, baseUrl, iAccount);
+      const info = await sippy.getAccountInfo(username, password, settings.portalUrl ?? '', iAccount);
       const balance = info?.balance ?? 0;
-      const creditLimit = info?.credit_limit ?? 0;
+      const creditLimit = info?.creditLimit ?? 0;   // camelCase (was credit_limit)
       const threshold = settings.balanceAlertThreshold ?? 10;
       const accountName = info?.name ?? `Account #${iAccount}`;
 
