@@ -2264,6 +2264,34 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // POST /api/sippy/accounts/:id/block — block an account (docs 107340)
+  // Optional body: iCustomer (trusted mode)
+  app.post('/api/sippy/accounts/:id/block', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.body?.iCustomer !== undefined ? parseInt(req.body.iCustomer, 10) : undefined;
+      const result = await sippy.blockSippyAccount(username, password, iAccount, { iCustomer });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/accounts/:id/unblock — unblock an account (docs 107340)
+  // Optional body: iCustomer (trusted mode)
+  app.post('/api/sippy/accounts/:id/unblock', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.body?.iCustomer !== undefined ? parseInt(req.body.iCustomer, 10) : undefined;
+      const result = await sippy.unblockSippyAccount(username, password, iAccount, { iCustomer });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // ── Vendor management (official Sippy API) ────────────────────────────────
 
   // PATCH /api/sippy/vendors/:id — update a vendor

@@ -2759,6 +2759,72 @@ export async function unblockSippyCustomer(
   }
 }
 
+/**
+ * Block an account on Sippy.
+ * Official method: blockAccount() — docs 107340
+ *
+ * Parameters: i_account (required), i_customer (trusted mode, optional)
+ * Returns: result=OK on success.
+ */
+export async function blockSippyAccount(
+  username: string,
+  password: string,
+  iAccount: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('blockAccount', params), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      return { success: true, message: 'Account blocked.' };
+    }
+    const fault = resp.body.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(resp.body, 'faultString') ?? 'blockAccount failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Unblock an account on Sippy.
+ * Official method: unblockAccount() — docs 107340
+ *
+ * Parameters: i_account (required), i_customer (trusted mode, optional)
+ * Returns: result=OK on success.
+ */
+export async function unblockSippyAccount(
+  username: string,
+  password: string,
+  iAccount: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_account: iAccount };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('unblockAccount', params), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      return { success: true, message: 'Account unblocked.' };
+    }
+    const fault = resp.body.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(resp.body, 'faultString') ?? 'unblockAccount failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 // ── Account Management (official Sippy docs 107312 / 107321 / 107322 / 107366) ──
 
 // SIP registration status returned inline in listAccounts() per account struct,
