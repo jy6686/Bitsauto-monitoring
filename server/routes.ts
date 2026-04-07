@@ -1147,6 +1147,40 @@ export async function registerRoutes(
     res.json({ calls });
   });
 
+  // POST /api/sippy/calls/:id/disconnect — disconnect a single call by its ID field
+  app.post('/api/sippy/calls/:id/disconnect', async (req: any, res) => {
+    const settings = await storage.getSettings();
+    const result = await sippy.disconnectSippyCall(
+      req.params.id,
+      settings.portalUsername ?? '',
+      settings.portalPassword ?? '',
+    );
+    res.json(result);
+  });
+
+  // POST /api/sippy/accounts/:iAccount/disconnect — disconnect all calls for an account
+  app.post('/api/sippy/accounts/:iAccount/disconnect', async (req: any, res) => {
+    const iAccount = parseInt(req.params.iAccount, 10);
+    if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+    const settings = await storage.getSettings();
+    const result = await sippy.disconnectSippyAccount(
+      iAccount,
+      settings.portalUsername ?? '',
+      settings.portalPassword ?? '',
+    );
+    res.json(result);
+  });
+
+  // GET /api/sippy/call-stats — lightweight active call count summary (getAccountCallStats)
+  app.get('/api/sippy/call-stats', async (_req, res) => {
+    const settings = await storage.getSettings();
+    const result = await sippy.getSippyCallStats(
+      settings.portalUsername ?? '',
+      settings.portalPassword ?? '',
+    );
+    res.json(result);
+  });
+
   // GET /api/sippy/cdr — CDR records from Sippy
   app.get('/api/sippy/cdr', async (req, res) => {
     const settings = await storage.getSettings();

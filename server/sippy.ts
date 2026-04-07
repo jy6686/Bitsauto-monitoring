@@ -718,23 +718,38 @@ export async function connectSippy(
 // ── Active Calls ──────────────────────────────────────────────────────────────
 
 export interface SippyActiveCall {
-  callId: string;
+  id?: string;          // ID field — used by disconnectCall() (different from CALL_ID)
+  callId: string;       // CALL_ID — SIP Call-ID header
   caller: string;       // CLI (calling number)
   callee: string;       // CLD (destination number)
-  duration: number;     // seconds
+  duration: number;     // DURATION in seconds
   codec: string;
-  status: string;
-  user?: string;        // account/customer name
-  accountId?: string;   // i_account numeric ID
+  status: string;       // CC_STATE: Idle | WaitAuth | WaitRoute | ARComplete | Connected | Disconnecting | Dead
+  user?: string;        // account/customer label
+  accountId?: string;   // I_ACCOUNT numeric ID
+  iCustomer?: string;   // I_CUSTOMER numeric ID
   vendor?: string;
-  connection?: string;
-  direction?: string;
-  mediaIpCaller?: string;
-  mediaIpCallee?: string;
-  delay?: number;
+  connection?: string;  // I_CONNECTION numeric ID
+  direction?: string;   // DIRECTION
+  mediaIpCaller?: string; // CALLER_MEDIA_IP
+  mediaIpCallee?: string; // CALLEE_MEDIA_IP
+  delay?: number;       // DELAY in seconds (PDD / setup delay)
+  setupTime?: string;   // SETUP_TIME timestamp (available since Sippy 2022)
 }
 
-export async function getSippyActiveCalls(username: string, password: string, explicitPortalUrl?: string): Promise<SippyActiveCall[]> {
+export interface SippyActiveCallsFilter {
+  order?: 'oldest_first' | 'oldest_last' | 'longest_first' | 'longest_last';
+  i_account?: number;    // return only calls for this account (Sippy 2020+)
+  i_vendor?: number;     // return only calls via this vendor (Sippy 2020+)
+  i_connection?: number; // return only calls via this connection (Sippy 2020+, takes precedence over i_vendor)
+}
+
+export async function getSippyActiveCalls(
+  username: string,
+  password: string,
+  explicitPortalUrl?: string,
+  filter?: SippyActiveCallsFilter,
+): Promise<SippyActiveCall[]> {
   const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
   if (!base) return [];
 
@@ -745,14 +760,22 @@ export async function getSippyActiveCalls(username: string, password: string, ex
   }
 
   // ── XML-RPC mode: official API is listAllCalls() (Sippy docs 107462) ────────
-  // Returns fields in UPPERCASE: CLI, CLD, CALL_ID, DELAY, DURATION, CC_STATE,
-  // I_ACCOUNT, I_CUSTOMER, CALLER_MEDIA_IP, CALLEE_MEDIA_IP, DIRECTION, NODE_ID
+  // Fields returned in UPPERCASE: ID, CALL_ID, CLI, CLD, DELAY, DURATION,
+  // CC_STATE, I_ACCOUNT, I_CUSTOMER, I_CONNECTION, I_ENVIRONMENT,
+  // CALLER_MEDIA_IP, CALLEE_MEDIA_IP, DIRECTION, NODE_ID, SETUP_TIME (2022+)
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
-  // Try official method first, fall back to legacy alias
-  for (const method of ['listAllCalls', 'call_control.listActiveCalls']) {
+  // Build optional filter params (all optional per docs)
+  const reqParams: Record<string, string | number | boolean | null> = {};
+  if (filter?.order)        reqParams.order        = filter.order;
+  if (filter?.i_account)    reqParams.i_account    = filter.i_account;
+  if (filter?.i_vendor)     reqParams.i_vendor     = filter.i_vendor;
+  if (filter?.i_connection) reqParams.i_connection = filter.i_connection;
+
+  // Official methods: listAllCalls (all states) | listActiveCalls (Connected/ARComplete/WaitRoute only)
+  for (const method of ['listAllCalls', 'listActiveCalls']) {
     try {
-      const resp = await sippyPost(apiUrl, xmlRpcCall(method), username, password);
+      const resp = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), username, password);
       if (resp.statusCode === 401 || resp.statusCode === 403) {
         // Auth failure — try portal scraping
         const loginRes = await portalLogin(base, username, password, 'customer');
@@ -766,26 +789,30 @@ export async function getSippyActiveCalls(username: string, password: string, ex
 
       for (const s of structs) {
         const m = extractStructMembers(s);
-        // Official response uses uppercase keys (CALL_ID, CLI, CLD, …)
-        const callId   = m['CALL_ID']   || m['call-id']   || m['call_id']   || m['CallID'];
-        const cli      = m['CLI']       || m['cli']       || m['from']      || m['caller'];
-        const cld      = m['CLD']       || m['cld']       || m['to']        || m['callee'];
+        // Official response uses uppercase keys per docs
+        const id       = m['ID']        || undefined;                    // for disconnectCall()
+        const callId   = m['CALL_ID']   || m['call_id']   || m['CallID'] || '-';
+        const cli      = m['CLI']       || m['cli']       || m['from']   || m['caller'];
+        const cld      = m['CLD']       || m['cld']       || m['to']     || m['callee'];
         if (!callId && !cli) continue;
         calls.push({
-          callId:       callId  || '-',
-          caller:       cli     || '-',
-          callee:       cld     || '-',
-          duration:     parseFloat(m['DURATION']   || m['duration']  || '0') || 0,
-          codec:        m['codec'] || m['media_type'] || '-',
-          status:       m['CC_STATE'] || m['status'] || 'active',
-          user:         m['I_CUSTOMER'] || m['i_customer'] || m['username'] || m['account_name'] || undefined,
-          accountId:    m['I_ACCOUNT']  || m['i_account']  || m['account_id'] || undefined,
-          vendor:       m['vendor_name'] || m['I_VENDOR']  || undefined,
-          connection:   m['I_CONNECTION'] ? String(m['I_CONNECTION']) : (m['connection_name'] || m['NODE_ID'] || undefined),
-          direction:    m['DIRECTION']  || m['direction']  || undefined,
-          mediaIpCaller:m['CALLER_MEDIA_IP'] || m['caller_media_ip'] || m['local_rtp_ip'] || undefined,
-          mediaIpCallee:m['CALLEE_MEDIA_IP'] || m['callee_media_ip'] || m['remote_rtp_ip'] || undefined,
-          delay:        parseFloat(m['DELAY'] || m['delay'] || '') || 0,
+          id,
+          callId,
+          caller:        cli     || '-',
+          callee:        cld     || '-',
+          duration:      parseFloat(m['DURATION']        || '0') || 0,
+          codec:         m['codec'] || m['media_type']   || '-',
+          status:        m['CC_STATE']  || m['status']   || 'active',
+          accountId:     m['I_ACCOUNT'] || m['i_account'] || undefined,
+          iCustomer:     m['I_CUSTOMER'] || undefined,
+          user:          m['username']  || m['account_name'] || undefined,
+          vendor:        m['vendor_name'] || undefined,
+          connection:    m['I_CONNECTION'] ? String(m['I_CONNECTION']) : (m['NODE_ID'] || undefined),
+          direction:     m['DIRECTION'] || undefined,
+          mediaIpCaller: m['CALLER_MEDIA_IP'] || undefined,
+          mediaIpCallee: m['CALLEE_MEDIA_IP'] || undefined,
+          delay:         parseFloat(m['DELAY'] || '0') || 0,
+          setupTime:     m['SETUP_TIME'] || undefined,
         });
       }
       return calls;
@@ -794,6 +821,101 @@ export async function getSippyActiveCalls(username: string, password: string, ex
     }
   }
   return [];
+}
+
+// ── disconnectCall() — docs 107462 ────────────────────────────────────────────
+// Disconnects a single active call by its ID (the ID field from listAllCalls).
+// Returns { success, result, message }.
+export async function disconnectSippyCall(
+  id: string | number,
+  username: string,
+  password: string,
+  explicitPortalUrl?: string,
+): Promise<{ success: boolean; result?: string; message: string }> {
+  const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('disconnectCall', { ID: String(id) }), username, password);
+    const text = resp.body;
+    console.log(`[Sippy] disconnectCall(${id}) → HTTP ${resp.statusCode}: ${text.slice(0, 300)}`);
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const result = extractTag(text, 'string') || 'OK';
+      return { success: true, result, message: `Call ${id} disconnected: ${result}` };
+    }
+    const fault = extractTag(text, 'faultString');
+    return { success: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'Disconnect failed.' };
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
+}
+
+// ── disconnectAccount() — docs 107462 (post 1.7.1+) ─────────────────────────
+// Disconnects ALL active calls for a given i_account.
+// Returns { success, count, message }.
+export async function disconnectSippyAccount(
+  iAccount: number,
+  username: string,
+  password: string,
+  explicitPortalUrl?: string,
+): Promise<{ success: boolean; count?: number; message: string }> {
+  const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('disconnectAccount', { i_account: iAccount }), username, password);
+    const text = resp.body;
+    console.log(`[Sippy] disconnectAccount(${iAccount}) → HTTP ${resp.statusCode}: ${text.slice(0, 300)}`);
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const countStr = extractTag(text, 'int') || extractTag(text, 'i4') || '0';
+      const count = parseInt(countStr, 10) || 0;
+      return { success: true, count, message: `Disconnected ${count} call(s) for account ${iAccount}.` };
+    }
+    const fault = extractTag(text, 'faultString');
+    return { success: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'Disconnect failed.' };
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
+}
+
+// ── getAccountCallStats() — docs 107462 (2.1+) ───────────────────────────────
+// Lightweight API: returns { i_account: [total, connected] } for all accounts.
+// Prefer this over listAllCalls() when only a count summary is needed.
+export async function getSippyCallStats(
+  username: string,
+  password: string,
+  explicitPortalUrl?: string,
+): Promise<{ success: boolean; data?: Record<string, [number, number]>; message: string }> {
+  const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getAccountCallStats'), username, password);
+    const text = resp.body;
+    console.log(`[Sippy] getAccountCallStats → HTTP ${resp.statusCode}: ${text.slice(0, 300)}`);
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      // Response: data is a struct of { i_account: [total, connected] }
+      // Parse structs inside the 'data' member
+      const structs = extractAllTags(text, 'struct');
+      const data: Record<string, [number, number]> = {};
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        for (const [k, v] of Object.entries(m)) {
+          // Values are arrays [total, connected] — parse from the raw XML if possible
+          const nums = v.match ? String(v).match(/\d+/g) : null;
+          if (nums && nums.length >= 2) data[k] = [parseInt(nums[0]), parseInt(nums[1])];
+        }
+      }
+      return { success: true, data, message: 'OK' };
+    }
+    const fault = extractTag(text, 'faultString');
+    return { success: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'getAccountCallStats failed.' };
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
 }
 
 // ── Portal Account / Subcustomer Creation ────────────────────────────────────
