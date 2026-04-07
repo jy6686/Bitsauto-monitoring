@@ -9,6 +9,19 @@ import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import * as vos3000 from "./vos3000";
 import * as sippy from "./sippy";
 
+// ── Sippy credential helper ────────────────────────────────────────────────────
+// Per Sippy docs (106909): XML-RPC API authenticates with Web Login + API Password.
+// Admin credentials (apiAdminUsername/apiAdminPassword) provide root-level API access
+// and are always preferred over customer-level portal credentials.
+// Portal username/password are used as a fallback (e.g. when admin creds are not set).
+type SippyCreds = { apiAdminUsername?: string | null; apiAdminPassword?: string | null; portalUsername?: string | null; portalPassword?: string | null };
+function sippyXmlCreds(s: SippyCreds, sw?: { portalUsername?: string | null; portalPassword?: string | null }) {
+  return {
+    username: s.apiAdminUsername || sw?.portalUsername || s.portalUsername || '',
+    password: s.apiAdminPassword || sw?.portalPassword || s.portalPassword || '',
+  };
+}
+
 // Simulation Constants
 const SIMULATION_INTERVAL = 2000; // 2 seconds
 const MAX_ACTIVE_CALLS = 10;
@@ -1139,7 +1152,8 @@ export async function registerRoutes(
   // GET /api/sippy/live-calls — active calls from Sippy
   app.get('/api/sippy/live-calls', async (_req, res) => {
     const settings = await storage.getSettings();
-    const raw = await sippy.getSippyActiveCalls(settings.portalUsername ?? '', settings.portalPassword ?? '');
+    const { username, password } = sippyXmlCreds(settings);
+    const raw = await sippy.getSippyActiveCalls(username, password);
     const calls = raw.map(c => ({
       ...c,
       clientName: c.user || c.accountId || undefined,
@@ -1150,11 +1164,8 @@ export async function registerRoutes(
   // POST /api/sippy/calls/:id/disconnect — disconnect a single call by its ID field
   app.post('/api/sippy/calls/:id/disconnect', async (req: any, res) => {
     const settings = await storage.getSettings();
-    const result = await sippy.disconnectSippyCall(
-      req.params.id,
-      settings.portalUsername ?? '',
-      settings.portalPassword ?? '',
-    );
+    const { username, password } = sippyXmlCreds(settings);
+    const result = await sippy.disconnectSippyCall(req.params.id, username, password);
     res.json(result);
   });
 
@@ -1163,29 +1174,25 @@ export async function registerRoutes(
     const iAccount = parseInt(req.params.iAccount, 10);
     if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
     const settings = await storage.getSettings();
-    const result = await sippy.disconnectSippyAccount(
-      iAccount,
-      settings.portalUsername ?? '',
-      settings.portalPassword ?? '',
-    );
+    const { username, password } = sippyXmlCreds(settings);
+    const result = await sippy.disconnectSippyAccount(iAccount, username, password);
     res.json(result);
   });
 
   // GET /api/sippy/call-stats — lightweight active call count summary (getAccountCallStats)
   app.get('/api/sippy/call-stats', async (_req, res) => {
     const settings = await storage.getSettings();
-    const result = await sippy.getSippyCallStats(
-      settings.portalUsername ?? '',
-      settings.portalPassword ?? '',
-    );
+    const { username, password } = sippyXmlCreds(settings);
+    const result = await sippy.getSippyCallStats(username, password);
     res.json(result);
   });
 
   // GET /api/sippy/cdr — CDR records from Sippy
   app.get('/api/sippy/cdr', async (req, res) => {
     const settings = await storage.getSettings();
+    const { username, password } = sippyXmlCreds(settings);
     const limit = Number(req.query.limit) || 50;
-    const cdrs = await sippy.getSippyCDRs(settings.portalUsername ?? '', settings.portalPassword ?? '', limit);
+    const cdrs = await sippy.getSippyCDRs(username, password, limit);
     res.json({ cdrs });
   });
 
@@ -1193,13 +1200,14 @@ export async function registerRoutes(
   app.get('/api/sippy/routing-groups', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
-      // Prefer dedicated admin API credentials for XML-RPC; fall back to portal creds
-      let username = (req.query.inlineUser as string) || settings.apiAdminUsername || settings.portalUsername || '';
-      let password = (req.query.inlinePass as string) || settings.apiAdminPassword || settings.portalPassword || '';
+      // Prefer inline creds (from form), then admin API creds, then portal creds
+      let { username, password } = sippyXmlCreds(settings);
+      username = (req.query.inlineUser as string) || username;
+      password = (req.query.inlinePass as string) || password;
       let portalUrl: string | undefined = (req.query.inlineUrl as string) || settings.portalUrl || undefined;
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
-        if (sw) { username = sw.portalUsername ?? ''; password = sw.portalPassword ?? ''; portalUrl = sw.portalUrl ?? undefined; }
+        if (sw) { ({ username, password } = sippyXmlCreds(settings, sw)); portalUrl = sw.portalUrl ?? undefined; }
       }
       const result = await sippy.listSippyRoutingGroups(username, password, portalUrl);
       res.json(result);
@@ -1212,13 +1220,13 @@ export async function registerRoutes(
   app.get('/api/sippy/tariffs', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
-      // Prefer dedicated admin API credentials for XML-RPC; fall back to portal creds
-      let username = (req.query.inlineUser as string) || settings.apiAdminUsername || settings.portalUsername || '';
-      let password = (req.query.inlinePass as string) || settings.apiAdminPassword || settings.portalPassword || '';
+      let { username, password } = sippyXmlCreds(settings);
+      username = (req.query.inlineUser as string) || username;
+      password = (req.query.inlinePass as string) || password;
       let portalUrl: string | undefined = (req.query.inlineUrl as string) || settings.portalUrl || undefined;
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
-        if (sw) { username = sw.portalUsername ?? ''; password = sw.portalPassword ?? ''; portalUrl = sw.portalUrl ?? undefined; }
+        if (sw) { ({ username, password } = sippyXmlCreds(settings, sw)); portalUrl = sw.portalUrl ?? undefined; }
       }
       const result = await sippy.listSippyTariffs(username, password, portalUrl);
       res.json(result);
@@ -1231,12 +1239,13 @@ export async function registerRoutes(
   app.get('/api/sippy/billing-plans', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
-      let username = (req.query.inlineUser as string) || settings.apiAdminUsername || settings.portalUsername || '';
-      let password = (req.query.inlinePass as string) || settings.apiAdminPassword || settings.portalPassword || '';
+      let { username, password } = sippyXmlCreds(settings);
+      username = (req.query.inlineUser as string) || username;
+      password = (req.query.inlinePass as string) || password;
       let portalUrl: string | undefined = (req.query.inlineUrl as string) || settings.portalUrl || undefined;
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
-        if (sw) { username = sw.portalUsername ?? ''; password = sw.portalPassword ?? ''; portalUrl = sw.portalUrl ?? undefined; }
+        if (sw) { ({ username, password } = sippyXmlCreds(settings, sw)); portalUrl = sw.portalUrl ?? undefined; }
       }
       const result = await sippy.listSippyBillingPlans(username, password, portalUrl);
       res.json(result);
@@ -1315,7 +1324,8 @@ export async function registerRoutes(
   // GET /api/sippy/stats — Sippy call counters
   app.get('/api/sippy/stats', async (_req, res) => {
     const settings = await storage.getSettings();
-    const stats = await sippy.getSippyStats(settings.portalUsername ?? '', settings.portalPassword ?? '');
+    const { username, password } = sippyXmlCreds(settings);
+    const stats = await sippy.getSippyStats(username, password);
     res.json(stats);
   });
 

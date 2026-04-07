@@ -1,12 +1,22 @@
 /**
  * Sippy Softswitch Integration
  *
- * Dual-mode integration:
- * 1. XML-RPC API at /xmlapi/xmlapi with HTTP Basic Auth (for admin/API accounts)
- * 2. Web portal session scraping (for customer/reseller web accounts like RTST1)
+ * Reference: https://support.sippysoft.com/support/solutions/articles/106909
  *
- * The web portal mode authenticates via POST /main.php then scrapes HTML pages
- * using session cookies. This works when XML-RPC credentials are unavailable.
+ * Dual-mode integration:
+ * 1. XML-RPC API at /xmlapi/xmlapi — authenticated via HTTP Digest (RFC-2617).
+ *    Credentials: Web Login (username) + API Password (separate from portal password,
+ *    set in Sippy portal → My Preferences → "Allow API Calls" + API Password field).
+ *    Admin credentials (e.g. ssp-root) provide root-level access to all customers.
+ *    Customer-level credentials only see that customer's data.
+ *
+ * 2. Web portal session scraping — fallback when XML-RPC is unavailable.
+ *    Authenticates via POST /main.php using web portal username + web password,
+ *    then maintains session cookies and scrapes HTML pages.
+ *
+ * Credential priority for XML-RPC calls (in routes.ts via sippyXmlCreds()):
+ *   apiAdminUsername / apiAdminPassword  →  admin root access (preferred)
+ *   portalUsername   / portalPassword    →  customer-level access (fallback)
  */
 
 import http from 'node:http';
