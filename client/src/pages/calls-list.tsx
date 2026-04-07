@@ -4,9 +4,10 @@ import { Link } from "wouter";
 import {
   Phone, Clock, Search, BarChart3, List, RefreshCw, CheckCircle2,
   ArrowRightLeft, Globe, Wifi, WifiOff, Server, Loader2, X, AlertCircle,
+  ChevronDown, ChevronRight, PhoneOff, ArrowUpRight, ArrowDownLeft, Network,
 } from "lucide-react";
 import { format } from "date-fns";
-import { useState, useRef } from "react";
+import { useState, useRef, Fragment } from "react";
 import { lookupCountry } from "@/lib/country-lookup";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -34,15 +35,26 @@ interface LiveCall {
   callStatus: 'connected' | 'routing';
   ccState?: string;      // Full Sippy CC_STATE (Connected | ARComplete | WaitRoute | WaitAuth | Idle | Disconnecting | Dead)
   // Sippy-specific fields
+  callId?: string;       // SIP Call-ID (CALL_ID)
+  iCustomer?: string;    // Customer ID (I_CUSTOMER)
   vendor?: string;
   connection?: string;
-  direction?: string;
+  direction?: string;    // DIRECTION: vendor | onnet_in | onnet_out | originate
   mediaIpCaller?: string;
   mediaIpCallee?: string;
-  delay?: number;
+  delay?: number;        // DELAY in seconds (PDD)
+  setupTime?: string;    // SETUP_TIME timestamp
   codec?: string;
   state?: string;
 }
+
+// Direction display config
+const DIRECTION_STYLE: Record<string, { label: string; color: string; icon: 'in' | 'out' | 'net' }> = {
+  vendor:    { label: 'Vendor',   color: 'text-orange-400 bg-orange-500/10 border-orange-500/20',  icon: 'out' },
+  onnet_in:  { label: 'Inbound',  color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', icon: 'in' },
+  onnet_out: { label: 'On-Net',   color: 'text-blue-400 bg-blue-500/10 border-blue-500/20',        icon: 'out' },
+  originate: { label: 'Origin',   color: 'text-violet-400 bg-violet-500/10 border-violet-500/20',  icon: 'out' },
+};
 
 interface SummaryRow {
   client: string;
@@ -217,9 +229,21 @@ function SwitchPanel({
   const [filterState, setFilterState] = useState('all');
   const [filterVendor, setFilterVendor] = useState('all');
   const [filterConnection, setFilterConnection] = useState('all');
+  const [filterDirection, setFilterDirection] = useState('all');
   const [showLatestFirst, setShowLatestFirst] = useState(false);
   const [captchaOpen, setCaptchaOpen] = useState(false);
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
+  const [disconnectingCallId, setDisconnectingCallId] = useState<string | null>(null);
   const qc = useQueryClient();
+
+  const disconnectCallMutation = useMutation({
+    mutationFn: (callId: string) => apiRequest('POST', `/api/sippy/calls/${encodeURIComponent(callId)}/disconnect`, {}),
+    onMutate: (callId) => setDisconnectingCallId(callId),
+    onSettled: () => {
+      setDisconnectingCallId(null);
+      qc.invalidateQueries({ queryKey: ['/api/sippy/live-calls'] });
+    },
+  });
 
   const isPrimary = switchId === 'primary';
   const isPrimarySippy = isPrimary && switchType === 'sippy';
@@ -606,9 +630,10 @@ function SwitchPanel({
               </table>
             </div>
           ) : (() => {
-            // Build unique vendor/connection lists for dropdowns
+            // Build unique vendor/connection/direction lists for dropdowns
             const vendors = Array.from(new Set(liveCalls.map(c => c.vendor).filter(Boolean))) as string[];
             const connections = Array.from(new Set(liveCalls.map(c => c.connection).filter(Boolean))) as string[];
+            const directions = Array.from(new Set(liveCalls.map(c => c.direction).filter(Boolean))) as string[];
 
             // Apply filters
             let displayed = liveCalls.filter(c => {
@@ -617,6 +642,7 @@ function SwitchPanel({
               if (filterState !== 'all' && c.callStatus !== filterState) return false;
               if (filterVendor !== 'all' && c.vendor !== filterVendor) return false;
               if (filterConnection !== 'all' && c.connection !== filterConnection) return false;
+              if (filterDirection !== 'all' && c.direction !== filterDirection) return false;
               if (search && !c.caller.includes(search) && !c.callee.includes(search) && !(c.clientName || '').toLowerCase().includes(search.toLowerCase())) return false;
               return true;
             });
@@ -687,6 +713,20 @@ function SwitchPanel({
                         {connections.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                     </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-muted-foreground">Direction</label>
+                      <select
+                        value={filterDirection}
+                        onChange={e => setFilterDirection(e.target.value)}
+                        className="bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary transition-all"
+                        data-testid="select-filter-direction"
+                      >
+                        <option value="all">All</option>
+                        {directions.map(d => (
+                          <option key={d} value={d}>{DIRECTION_STYLE[d]?.label ?? d}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="flex items-end gap-2 col-span-2 md:col-span-1">
                       <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none pb-0.5">
                         <input
@@ -701,7 +741,7 @@ function SwitchPanel({
                     </div>
                     <div className="flex items-end col-span-2 md:col-span-1">
                       <button
-                        onClick={() => { setFilterCli(''); setFilterCld(''); setFilterState('all'); setFilterVendor('all'); setFilterConnection('all'); setShowLatestFirst(false); }}
+                        onClick={() => { setFilterCli(''); setFilterCld(''); setFilterState('all'); setFilterVendor('all'); setFilterConnection('all'); setFilterDirection('all'); setShowLatestFirst(false); }}
                         className="px-4 py-1.5 rounded-lg bg-muted/60 border border-border text-xs hover:bg-muted transition-colors"
                         data-testid="button-filter-clear"
                       >
@@ -716,18 +756,21 @@ function SwitchPanel({
                   <table className="w-full text-sm text-left">
                     <thead className="bg-muted/40 text-muted-foreground border-b border-border/50 text-xs">
                       <tr>
-                        <th className="px-3 py-3 font-medium w-10 text-center">#</th>
+                        <th className="px-3 py-3 font-medium w-8 text-center"></th>
+                        <th className="px-3 py-3 font-medium w-8 text-center">#</th>
                         <th className="px-4 py-3 font-medium">Caller</th>
                         <th className="px-4 py-3 font-medium">CLI</th>
                         <th className="px-4 py-3 font-medium">CLD</th>
                         <th className="px-4 py-3 font-medium">Orig Country</th>
                         <th className="px-4 py-3 font-medium">Dest Country</th>
                         <th className="px-4 py-3 font-medium">Trunk</th>
+                        <th className="px-4 py-3 font-medium">Direction</th>
                         <th className="px-4 py-3 font-medium">State</th>
                         <th className="px-4 py-3 font-medium">Vendor</th>
                         <th className="px-4 py-3 font-medium">Connection</th>
-                        <th className="px-4 py-3 font-medium text-right">Delay</th>
+                        <th className="px-4 py-3 font-medium text-right">PDD</th>
                         <th className="px-4 py-3 font-medium text-right">Duration</th>
+                        {isPrimarySippy && <th className="px-3 py-3 font-medium w-10"></th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/30">
@@ -740,8 +783,26 @@ function SwitchPanel({
                           : cldDigit === '2' ? { label: 'Business', color: 'text-violet-400 bg-violet-500/10' }
                           : cldDigit === '7' ? { label: 'Charlie', color: 'text-orange-400 bg-orange-500/10' }
                           : null;
+                        const rowKey = call.id || String(i);
+                        const isExpanded = expandedCallId === rowKey;
+                        const dirStyle = call.direction ? DIRECTION_STYLE[call.direction] : null;
+                        const pddSec = call.delay ?? 0;
+                        const pddDisplay = pddSec > 0
+                          ? pddSec >= 1 ? `${pddSec.toFixed(1)}s` : `${Math.round(pddSec * 1000)}ms`
+                          : null;
+                        const totalCols = isPrimarySippy ? 15 : 14;
                         return (
-                        <tr key={call.id || i} className="hover:bg-muted/20 transition-colors text-xs" data-testid={`row-live-${i}`}>
+                        <Fragment key={rowKey}>
+                        <tr
+                          className={`hover:bg-muted/20 transition-colors text-xs cursor-pointer ${isExpanded ? 'bg-muted/10' : ''}`}
+                          onClick={() => setExpandedCallId(isExpanded ? null : rowKey)}
+                          data-testid={`row-live-${i}`}
+                        >
+                          <td className="px-3 py-3 text-center text-muted-foreground/40">
+                            {isExpanded
+                              ? <ChevronDown className="w-3.5 h-3.5 mx-auto" />
+                              : <ChevronRight className="w-3.5 h-3.5 mx-auto" />}
+                          </td>
                           <td className="px-3 py-3 text-center text-muted-foreground/50">{i + 1}</td>
                           <td className="px-4 py-3">
                             {call.clientName ? (
@@ -775,6 +836,18 @@ function SwitchPanel({
                               </span>
                             ) : <span className="text-muted-foreground/30">—</span>}
                           </td>
+                          <td className="px-4 py-3" data-testid={`cell-direction-${i}`}>
+                            {dirStyle ? (
+                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-semibold ${dirStyle.color}`}>
+                                {dirStyle.icon === 'in'
+                                  ? <ArrowDownLeft className="w-2.5 h-2.5" />
+                                  : <ArrowUpRight className="w-2.5 h-2.5" />}
+                                {dirStyle.label}
+                              </span>
+                            ) : call.direction ? (
+                              <span className="text-[10px] text-muted-foreground">{call.direction}</span>
+                            ) : <span className="text-muted-foreground/30">—</span>}
+                          </td>
                           <td className="px-4 py-3">
                             {(() => {
                               const st = CC_STATE_STYLE[call.ccState || ''] ?? (call.callStatus === 'connected'
@@ -790,18 +863,78 @@ function SwitchPanel({
                           </td>
                           <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-vendor-${i}`}>{call.vendor || <span className="text-muted-foreground/30">—</span>}</td>
                           <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-connection-${i}`}>{call.connection || <span className="text-muted-foreground/30">—</span>}</td>
-                          <td className="px-4 py-3 text-right text-muted-foreground font-mono" data-testid={`cell-delay-${i}`}>
-                            {call.delay != null ? `${call.delay}ms` : <span className="text-muted-foreground/30">—</span>}
+                          <td className="px-4 py-3 text-right text-muted-foreground font-mono" data-testid={`cell-pdd-${i}`}>
+                            {pddDisplay ?? <span className="text-muted-foreground/30">—</span>}
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-foreground/70" data-testid={`cell-duration-${i}`}>
                             {formatDuration(call.duration)}
                           </td>
+                          {isPrimarySippy && (
+                            <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
+                              {call.id ? (
+                                <button
+                                  onClick={() => disconnectCallMutation.mutate(call.id)}
+                                  disabled={disconnectingCallId === call.id}
+                                  title="Disconnect call"
+                                  className="p-1 rounded hover:bg-rose-500/10 text-muted-foreground/40 hover:text-rose-400 transition-colors disabled:opacity-50"
+                                  data-testid={`button-disconnect-${i}`}
+                                >
+                                  {disconnectingCallId === call.id
+                                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    : <PhoneOff className="w-3.5 h-3.5" />}
+                                </button>
+                              ) : null}
+                            </td>
+                          )}
                         </tr>
+                        {isExpanded && (
+                          <tr key={`${rowKey}-detail`} className="bg-muted/5 border-b border-border/20">
+                            <td colSpan={totalCols} className="px-6 py-3">
+                              <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs text-muted-foreground">
+                                {call.callId && (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-muted-foreground/50 uppercase tracking-wide text-[10px]">Call-ID</span>
+                                    <span className="font-mono text-foreground/60 truncate max-w-[200px]">{call.callId}</span>
+                                  </div>
+                                )}
+                                {call.setupTime && (
+                                  <div className="flex items-center gap-1.5">
+                                    <Clock className="w-3 h-3 opacity-50" />
+                                    <span className="text-muted-foreground/50 uppercase tracking-wide text-[10px]">Setup</span>
+                                    <span className="font-mono text-foreground/60">{call.setupTime}</span>
+                                  </div>
+                                )}
+                                {(call.mediaIpCaller || call.mediaIpCallee) && (
+                                  <div className="flex items-center gap-1.5">
+                                    <Network className="w-3 h-3 opacity-50" />
+                                    <span className="text-muted-foreground/50 uppercase tracking-wide text-[10px]">Media</span>
+                                    <span className="font-mono text-foreground/60">
+                                      {call.mediaIpCaller || '?'} → {call.mediaIpCallee || '?'}
+                                    </span>
+                                  </div>
+                                )}
+                                {call.codec && call.codec !== '-' && (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-muted-foreground/50 uppercase tracking-wide text-[10px]">Codec</span>
+                                    <span className="text-foreground/60">{call.codec}</span>
+                                  </div>
+                                )}
+                                {call.iCustomer && (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-muted-foreground/50 uppercase tracking-wide text-[10px]">Customer</span>
+                                    <span className="font-mono text-foreground/60">#{call.iCustomer}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                         );
                       })}
                       {displayed.length === 0 && (
                         <tr>
-                          <td colSpan={12} className="px-6 py-12 text-center text-muted-foreground">
+                          <td colSpan={isPrimarySippy ? 15 : 14} className="px-6 py-12 text-center text-muted-foreground">
                             {needsLogin ? 'Connect to this switch to see live calls.' : 'No active calls match the current filters.'}
                           </td>
                         </tr>

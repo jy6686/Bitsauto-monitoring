@@ -1336,6 +1336,16 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // POST /api/sippy/customers/:iCustomer/disconnect — disconnect all calls for a customer (since 5.2)
+  app.post('/api/sippy/customers/:iCustomer/disconnect', async (req: any, res) => {
+    const iCustomer = parseInt(req.params.iCustomer, 10);
+    if (isNaN(iCustomer)) return res.status(400).json({ success: false, message: 'Invalid i_customer.' });
+    const settings = await storage.getSettings();
+    const { username, password } = sippyXmlCreds(settings);
+    const result = await sippy.disconnectSippyCustomer(iCustomer, username, password);
+    res.json(result);
+  });
+
   // GET /api/sippy/call-stats — lightweight active call count summary (getAccountCallStats)
   app.get('/api/sippy/call-stats', async (_req, res) => {
     const settings = await storage.getSettings();

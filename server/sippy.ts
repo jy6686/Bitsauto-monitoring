@@ -890,6 +890,34 @@ export async function disconnectSippyAccount(
   }
 }
 
+// ── disconnectCustomer() — docs 107462 (since 5.2) ───────────────────────────
+// Disconnects ALL calls of a given customer and all their subcustomers.
+export async function disconnectSippyCustomer(
+  iCustomer: number,
+  username: string,
+  password: string,
+  explicitPortalUrl?: string,
+): Promise<{ success: boolean; count?: number; message: string }> {
+  const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('disconnectCustomer', { i_customer: iCustomer }), username, password);
+    const text = resp.body;
+    console.log(`[Sippy] disconnectCustomer(${iCustomer}) → HTTP ${resp.statusCode}: ${text.slice(0, 300)}`);
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const countStr = extractTag(text, 'int') || extractTag(text, 'i4') || '0';
+      const count = parseInt(countStr, 10) || 0;
+      return { success: true, count, message: `Disconnected ${count} call(s) for customer ${iCustomer}.` };
+    }
+    const fault = extractTag(text, 'faultString');
+    return { success: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'Disconnect failed.' };
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
+}
+
 // ── getAccountCallStats() — docs 107462 (2.1+) ───────────────────────────────
 // Lightweight API: returns { i_account: [total, connected] } for all accounts.
 // Prefer this over listAllCalls() when only a count summary is needed.
