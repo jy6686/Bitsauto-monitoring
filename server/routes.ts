@@ -1356,18 +1356,19 @@ export async function registerRoutes(
         name:               req.body.name,
         type:               req.body.type ?? 'client',
         // SIP credentials
-        username:           req.body.username   || undefined,
-        authname:           req.body.authname   || undefined,
+        username:           req.body.username     || undefined,
+        authname:           req.body.authname     || undefined,
         voipPassword:       req.body.voipPassword || undefined,
         webPassword:        req.body.webPassword  || undefined,
         // Network
         ipAddress:          req.body.ipAddress,
         ratePerMin:         req.body.ratePerMin !== undefined ? Number(req.body.ratePerMin) : undefined,
         // Billing
-        creditLimit:        req.body.creditLimit !== undefined ? Number(req.body.creditLimit) : undefined,
-        balance:            req.body.balance     !== undefined ? Number(req.body.balance)     : undefined,
+        creditLimit:        req.body.creditLimit   !== undefined ? Number(req.body.creditLimit)   : undefined,
+        balance:            req.body.balance        !== undefined ? Number(req.body.balance)        : undefined,
+        lifetime:           req.body.lifetime       !== undefined ? Number(req.body.lifetime)       : undefined,
         // Advanced
-        maxSessions:        req.body.maxSessions !== undefined ? Number(req.body.maxSessions) : undefined,
+        maxSessions:        req.body.maxSessions    !== undefined ? Number(req.body.maxSessions)    : undefined,
         maxCallsPerSecond:  req.body.maxCallsPerSecond !== undefined ? Number(req.body.maxCallsPerSecond) : undefined,
         maxSessionTime:     req.body.maxSessionTime !== undefined ? Number(req.body.maxSessionTime) : undefined,
         timezone:           req.body.timezone,
@@ -1376,9 +1377,18 @@ export async function registerRoutes(
         servicePlan:        req.body.servicePlan,
         cliTranslationRule: req.body.cliTranslationRule,
         cldTranslationRule: req.body.cldTranslationRule,
+        // SIP behaviour
+        preferredCodec:     req.body.preferredCodec !== undefined
+                              ? (req.body.preferredCodec === null ? null : Number(req.body.preferredCodec))
+                              : undefined,
+        regAllowed:         req.body.regAllowed    !== undefined ? Number(req.body.regAllowed)  : undefined,
+        trustCli:           req.body.trustCli      !== undefined ? Number(req.body.trustCli)    : undefined,
         // Contact
         companyName:        req.body.companyName,
-        email:              req.body.email || undefined,
+        firstName:          req.body.firstName     || undefined,
+        lastName:           req.body.lastName      || undefined,
+        email:              req.body.email         || undefined,
+        country:            req.body.country       || undefined,
         description:        req.body.description,
       };
       if (!opts.name) return res.status(400).json({ success: false, message: 'Account name is required.' });

@@ -1679,28 +1679,66 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// ── Sippy codec options (per official docs 107312) ────────────────────────
+const CODEC_OPTIONS = [
+  { value: 'null', label: 'Disabled (no preference)' },
+  { value: '0',   label: 'G.711u (PCMU)' },
+  { value: '8',   label: 'G.711a (PCMA)' },
+  { value: '18',  label: 'G.729' },
+  { value: '9',   label: 'G.722' },
+  { value: '3',   label: 'GSM' },
+  { value: '4',   label: 'G.723' },
+  { value: '15',  label: 'G.728' },
+];
 
 // ── New Sippy Account Modal ──────────────────────────────────────────────────
 function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; switches: SwitchOption[] }) {
   const sippySwitches = switches.filter((s: SwitchOption) => s.type === 'sippy');
   const useInlineCreds = sippySwitches.length === 0;
-  const [name, setName] = useState('');
-  const [type, setType] = useState<'client' | 'vendor'>('client');
+
+  // Connection
   const [switchId, setSwitchId] = useState<string>('');
   const [inlineUrl, setInlineUrl] = useState('');
   const [inlineUser, setInlineUser] = useState('');
   const [inlinePass, setInlinePass] = useState('');
-  const [showPass, setShowPass] = useState(false);
+  const [showInlinePass, setShowInlinePass] = useState(false);
+
+  // Core account
+  const [name, setName] = useState('');
+  const [type, setType] = useState<'client' | 'vendor'>('client');
+  const [companyName, setCompanyName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [country, setCountry] = useState('');
+  const [description, setDescription] = useState('');
+
+  // Credentials
+  const [username, setUsername] = useState('');
+  const [webPassword, setWebPassword] = useState('');
+  const [authname, setAuthname] = useState('');
+  const [voipPassword, setVoipPassword] = useState('');
+  const [showWebPass, setShowWebPass] = useState(false);
+  const [showVoipPass, setShowVoipPass] = useState(false);
+
+  // Network & routing
   const [ipAddress, setIpAddress] = useState('');
-  const [ratePerMin, setRatePerMin] = useState('');
-  const [creditLimit, setCreditLimit] = useState('');
-  const [maxSessions, setMaxSessions] = useState('');
-  const [maxCps, setMaxCps] = useState('');
   const [routingGroupId, setRoutingGroupId] = useState('');
   const [tariffId, setTariffId] = useState('');
-  const [authname, setAuthname] = useState('');
-  const [description, setDescription] = useState('');
+
+  // Billing
+  const [creditLimit, setCreditLimit] = useState('');
+  const [balance, setBalance] = useState('');
+  const [lifetime, setLifetime] = useState('-1');
+  const [maxSessions, setMaxSessions] = useState('');
+  const [maxCps, setMaxCps] = useState('');
+  const [ratePerMin, setRatePerMin] = useState('');
+
+  // SIP behaviour
+  const [codec, setCodec] = useState('null');
+  const [regAllowed, setRegAllowed] = useState(true);
+  const [trustCli, setTrustCli] = useState(false);
+
   const [result, setResult] = useState<{ success: boolean; message: string; detail?: string; username?: string; authname?: string; voip_password?: string; web_password?: string; portalSubcustomer?: boolean } | null>(null);
 
   // Query the active Sippy session — if connected via Settings, use it directly
@@ -1739,20 +1777,39 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
 
   const createMut = useMutation({
     mutationFn: () => apiRequest('POST', '/api/sippy/accounts', {
+      // Connection
+      switchId:          switchId ? Number(switchId) : undefined,
+      inlineUrl:         useInlineCreds ? inlineUrl  : undefined,
+      inlineUser:        useInlineCreds ? inlineUser : undefined,
+      inlinePass:        useInlineCreds ? inlinePass : undefined,
+      // Core
       name, type,
-      authname: authname.trim() || undefined,
-      switchId: switchId ? Number(switchId) : undefined,
-      inlineUrl:  useInlineCreds ? inlineUrl  : undefined,
-      inlineUser: useInlineCreds ? inlineUser : undefined,
-      inlinePass: useInlineCreds ? inlinePass : undefined,
-      ipAddress: ipAddress || undefined,
-      ratePerMin: ratePerMin ? Number(ratePerMin) : undefined,
-      creditLimit: creditLimit ? Number(creditLimit) : undefined,
-      maxSessions: maxSessions ? Number(maxSessions) : undefined,
-      maxCallsPerSecond: maxCps ? Number(maxCps) : undefined,
-      routingGroup: routingGroupId || undefined,
-      servicePlan: tariffId || undefined,
-      description: description || undefined,
+      companyName:       companyName || undefined,
+      firstName:         firstName   || undefined,
+      lastName:          lastName    || undefined,
+      email:             email       || undefined,
+      country:           country     || undefined,
+      description:       description || undefined,
+      // Credentials
+      username:          username    || undefined,
+      webPassword:       webPassword || undefined,
+      authname:          authname    || undefined,
+      voipPassword:      voipPassword || undefined,
+      // Network & routing
+      ipAddress:         ipAddress   || undefined,
+      ratePerMin:        ratePerMin  ? Number(ratePerMin)  : undefined,
+      routingGroup:      routingGroupId || undefined,
+      servicePlan:       tariffId    || undefined,
+      // Billing
+      creditLimit:       creditLimit ? Number(creditLimit) : undefined,
+      balance:           balance     ? Number(balance)     : undefined,
+      lifetime:          lifetime !== '' ? Number(lifetime) : undefined,
+      maxSessions:       maxSessions ? Number(maxSessions) : undefined,
+      maxCallsPerSecond: maxCps      ? Number(maxCps)      : undefined,
+      // SIP behaviour
+      preferredCodec:    codec === 'null' ? null : Number(codec),
+      regAllowed:        regAllowed ? 1 : 0,
+      trustCli:          trustCli   ? 1 : 0,
     }),
     onSuccess: async (res: any) => {
       const data = await res.json();
@@ -1786,7 +1843,9 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="p-6 space-y-5">
+
+          {/* ── Connection ── */}
           {sippySwitches.length > 0 ? (
             <div>
               <label className={labelCls}>Target Sippy Switch <span className="text-rose-400">*</span></label>
@@ -1806,13 +1865,12 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               )}
             </div>
           ) : hasActiveSession ? (
-            /* Active session — createAccount() uses the session credentials directly */
             <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-4 py-3 flex items-center gap-3">
               <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
               <div>
                 <p className="text-xs font-semibold text-emerald-300">Using connected Sippy session</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Connected as <strong>{sippySession?.username ?? 'your account'}</strong>. Account creation requires Admin API Credentials in Settings for a proper SIP account.
+                  Connected as <strong>{sippySession?.username ?? 'your account'}</strong>. Admin API credentials from Settings will be used for XML-RPC account creation.
                 </p>
               </div>
             </div>
@@ -1822,7 +1880,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                 <div className="w-2 h-2 rounded-full bg-violet-400" />
                 <span className="text-xs font-semibold text-violet-300 uppercase tracking-wide">Sippy Connection Required</span>
               </div>
-              <p className="text-xs text-muted-foreground">No active Sippy session. Enter your Sippy credentials below, or connect first in Settings.</p>
+              <p className="text-xs text-muted-foreground">No active Sippy session. Enter your Sippy admin credentials below, or connect first in Settings.</p>
               <div>
                 <label className={labelCls}>Sippy URL <span className="text-rose-400">*</span></label>
                 <input data-testid="input-sippy-inline-url" value={inlineUrl}
@@ -1831,21 +1889,21 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={labelCls}>Username <span className="text-rose-400">*</span></label>
+                  <label className={labelCls}>Admin Username <span className="text-rose-400">*</span></label>
                   <input data-testid="input-sippy-inline-user" value={inlineUser}
                     onChange={e => setInlineUser(e.target.value)}
                     placeholder="admin" className={fieldCls} autoComplete="off" />
                 </div>
                 <div>
-                  <label className={labelCls}>Password <span className="text-rose-400">*</span></label>
+                  <label className={labelCls}>Admin Password <span className="text-rose-400">*</span></label>
                   <div className="relative">
                     <input data-testid="input-sippy-inline-pass" value={inlinePass}
-                      type={showPass ? 'text' : 'password'}
+                      type={showInlinePass ? 'text' : 'password'}
                       onChange={e => setInlinePass(e.target.value)}
                       placeholder="••••••••" className={`${fieldCls} pr-8`} autoComplete="off" />
-                    <button type="button" onClick={() => setShowPass(p => !p)}
+                    <button type="button" onClick={() => setShowInlinePass(p => !p)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                      {showPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      {showInlinePass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                 </div>
@@ -1853,100 +1911,230 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <label className={labelCls}>Account Name <span className="text-rose-400">*</span></label>
-              <input data-testid="input-sippy-name" value={name} onChange={e => setName(e.target.value)}
-                placeholder="e.g. Acme Corp" className={fieldCls} />
-            </div>
-            <div>
-              <label className={labelCls}>SIP Username (authname)</label>
-              <input data-testid="input-sippy-authname" value={authname} onChange={e => setAuthname(e.target.value)}
-                placeholder={name ? name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'sipuser' : 'auto-generated from name'}
-                className={fieldCls} />
-              <p className="text-xs text-muted-foreground mt-1">VoIP login used for SIP registration. Leave blank to auto-generate.</p>
-            </div>
-            <div>
-              <label className={labelCls}>Type</label>
-              <select data-testid="select-sippy-type" value={type} onChange={e => setType(e.target.value as 'client' | 'vendor')} className={fieldCls}>
-                <option value="client">Client (Customer)</option>
-                <option value="vendor">Vendor (Carrier)</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>IP Address</label>
-              <input data-testid="input-sippy-ip" value={ipAddress} onChange={e => setIpAddress(e.target.value)}
-                placeholder="e.g. 192.168.1.1" className={fieldCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Rate / Min ($)</label>
-              <input data-testid="input-sippy-rate" type="number" step="0.0001" min="0" value={ratePerMin}
-                onChange={e => setRatePerMin(e.target.value)} placeholder="0.0050" className={fieldCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Credit Limit ($)</label>
-              <input data-testid="input-sippy-credit" type="number" min="0" value={creditLimit}
-                onChange={e => setCreditLimit(e.target.value)} placeholder="1000" className={fieldCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Max Sessions</label>
-              <input data-testid="input-sippy-sessions" type="number" min="1" value={maxSessions}
-                onChange={e => setMaxSessions(e.target.value)} placeholder="100" className={fieldCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Max CPS</label>
-              <input data-testid="input-sippy-cps" type="number" min="1" value={maxCps}
-                onChange={e => setMaxCps(e.target.value)} placeholder="10" className={fieldCls} />
-            </div>
-            <div className="col-span-2">
-              <label className={labelCls}>Description</label>
-              <input data-testid="input-sippy-description" value={description}
-                onChange={e => setDescription(e.target.value)}
-                placeholder="Optional account description" className={fieldCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Routing Group</label>
-              {routingGroups.length > 0 ? (
-                <select data-testid="select-sippy-routing" value={routingGroupId} onChange={e => setRoutingGroupId(e.target.value)} className={fieldCls}>
-                  <option value="">— None —</option>
-                  {routingGroups.map(g => (
-                    <option key={g.id} value={String(g.id)}>{g.name} (#{g.id})</option>
-                  ))}
+          {/* ── Section: Account Info ── */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <span className="w-4 h-px bg-border inline-block" />Account Info<span className="flex-1 h-px bg-border inline-block" />
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className={labelCls}>Account / Display Name <span className="text-rose-400">*</span></label>
+                <input data-testid="input-sippy-name" value={name} onChange={e => setName(e.target.value)}
+                  placeholder="e.g. Acme Corp" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Type</label>
+                <select data-testid="select-sippy-type" value={type} onChange={e => setType(e.target.value as 'client' | 'vendor')} className={fieldCls}>
+                  <option value="client">Client (Customer)</option>
+                  <option value="vendor">Vendor (Carrier)</option>
                 </select>
-              ) : (
-                <input data-testid="input-sippy-routing" value={routingGroupId} onChange={e => setRoutingGroupId(e.target.value)}
-                  placeholder="ID (numeric) — loading…" type="number" min="1" className={fieldCls} />
-              )}
+              </div>
+              <div>
+                <label className={labelCls}>Company Name</label>
+                <input data-testid="input-sippy-company" value={companyName} onChange={e => setCompanyName(e.target.value)}
+                  placeholder="Optional" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>First Name</label>
+                <input data-testid="input-sippy-firstname" value={firstName} onChange={e => setFirstName(e.target.value)}
+                  placeholder="Auto-derived from name" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Last Name</label>
+                <input data-testid="input-sippy-lastname" value={lastName} onChange={e => setLastName(e.target.value)}
+                  placeholder="Optional" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Email</label>
+                <input data-testid="input-sippy-email" type="email" value={email} onChange={e => setEmail(e.target.value)}
+                  placeholder="contact@example.com" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Country</label>
+                <input data-testid="input-sippy-country" value={country} onChange={e => setCountry(e.target.value)}
+                  placeholder="e.g. US" className={fieldCls} />
+              </div>
+              <div className="col-span-2">
+                <label className={labelCls}>Description</label>
+                <input data-testid="input-sippy-description" value={description} onChange={e => setDescription(e.target.value)}
+                  placeholder="Optional account description" className={fieldCls} />
+              </div>
             </div>
-            <div>
-              <label className={labelCls}>Billing / Service Plan <span className="text-rose-400">*</span></label>
-              {bpLoading && canProceed ? (
-                <div className={`${fieldCls} text-muted-foreground flex items-center gap-2`}>
-                  <span className="animate-spin inline-block w-3 h-3 border border-current border-t-transparent rounded-full" />
-                  Loading service plans…
+          </div>
+
+          {/* ── Section: Credentials ── */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <span className="w-4 h-px bg-border inline-block" />Portal &amp; SIP Credentials<span className="flex-1 h-px bg-border inline-block" />
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Self-Care Username</label>
+                <input data-testid="input-sippy-username" value={username} onChange={e => setUsername(e.target.value)}
+                  placeholder="Auto-derived from name"
+                  className={fieldCls} autoComplete="off" />
+                <p className="text-xs text-muted-foreground mt-1">Login for the Sippy portal.</p>
+              </div>
+              <div>
+                <label className={labelCls}>Portal Password</label>
+                <div className="relative">
+                  <input data-testid="input-sippy-webpass" value={webPassword} onChange={e => setWebPassword(e.target.value)}
+                    type={showWebPass ? 'text' : 'password'}
+                    placeholder="Auto-generated" className={`${fieldCls} pr-8`} autoComplete="new-password" />
+                  <button type="button" onClick={() => setShowWebPass(p => !p)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    {showWebPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
                 </div>
-              ) : billingPlans.length > 0 ? (
-                <select data-testid="select-sippy-tariff" value={tariffId} onChange={e => setTariffId(e.target.value)} className={fieldCls}>
-                  <option value="">— Select a service plan —</option>
-                  {billingPlans.map(p => (
-                    <option key={p.id} value={String(p.id)}>{p.name}{p.currency ? ` (${p.currency})` : ''} (#{p.id})</option>
+                <p className="text-xs text-muted-foreground mt-1">Leave blank to auto-generate.</p>
+              </div>
+              <div>
+                <label className={labelCls}>SIP Authname (VoIP login)</label>
+                <input data-testid="input-sippy-authname" value={authname} onChange={e => setAuthname(e.target.value)}
+                  placeholder={name ? name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'sipuser' : 'Auto-derived from name'}
+                  className={fieldCls} autoComplete="off" />
+                <p className="text-xs text-muted-foreground mt-1">Used for SIP REGISTER authentication.</p>
+              </div>
+              <div>
+                <label className={labelCls}>SIP Password (VoIP)</label>
+                <div className="relative">
+                  <input data-testid="input-sippy-voippass" value={voipPassword} onChange={e => setVoipPassword(e.target.value)}
+                    type={showVoipPass ? 'text' : 'password'}
+                    placeholder="Auto-generated" className={`${fieldCls} pr-8`} autoComplete="new-password" />
+                  <button type="button" onClick={() => setShowVoipPass(p => !p)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    {showVoipPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Leave blank to auto-generate.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Section: Routing & Plans ── */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <span className="w-4 h-px bg-border inline-block" />Network &amp; Routing<span className="flex-1 h-px bg-border inline-block" />
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>IP Address</label>
+                <input data-testid="input-sippy-ip" value={ipAddress} onChange={e => setIpAddress(e.target.value)}
+                  placeholder="e.g. 192.168.1.1" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Rate / Min ($)</label>
+                <input data-testid="input-sippy-rate" type="number" step="0.0001" min="0" value={ratePerMin}
+                  onChange={e => setRatePerMin(e.target.value)} placeholder="0.0050" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Routing Group</label>
+                {routingGroups.length > 0 ? (
+                  <select data-testid="select-sippy-routing" value={routingGroupId} onChange={e => setRoutingGroupId(e.target.value)} className={fieldCls}>
+                    <option value="">— Auto-select first —</option>
+                    {routingGroups.map(g => (
+                      <option key={g.id} value={String(g.id)}>{g.name} (#{g.id})</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input data-testid="input-sippy-routing" value={routingGroupId} onChange={e => setRoutingGroupId(e.target.value)}
+                    placeholder="Numeric ID (optional)" type="number" min="1" className={fieldCls} />
+                )}
+              </div>
+              <div>
+                <label className={labelCls}>Billing / Service Plan <span className="text-rose-400">*</span></label>
+                {bpLoading && canProceed ? (
+                  <div className={`${fieldCls} text-muted-foreground flex items-center gap-2`}>
+                    <span className="animate-spin inline-block w-3 h-3 border border-current border-t-transparent rounded-full" />
+                    Loading plans…
+                  </div>
+                ) : billingPlans.length > 0 ? (
+                  <select data-testid="select-sippy-tariff" value={tariffId} onChange={e => setTariffId(e.target.value)} className={fieldCls}>
+                    <option value="">— Select a service plan —</option>
+                    {billingPlans.map(p => (
+                      <option key={p.id} value={String(p.id)}>{p.name}{p.currency ? ` (${p.currency})` : ''} (#{p.id})</option>
+                    ))}
+                  </select>
+                ) : (
+                  <>
+                    <input data-testid="input-sippy-plan" value={tariffId} onChange={e => setTariffId(e.target.value)}
+                      placeholder="Enter billing plan ID" type="number" min="1" className={fieldCls} />
+                    <div className="mt-2 rounded-lg px-3 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs flex items-start gap-2">
+                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                      <span>Create a plan in your Sippy portal → <em>Billing → Service Plans</em>, then reload this modal.</span>
+                    </div>
+                  </>
+                )}
+                {billingPlanData?.error && !billingPlans.length && canProceed && (
+                  <p className="text-xs text-muted-foreground mt-1 italic">{billingPlanData.error}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Section: SIP Settings ── */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <span className="w-4 h-px bg-border inline-block" />SIP Settings<span className="flex-1 h-px bg-border inline-block" />
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Preferred Codec</label>
+                <select data-testid="select-sippy-codec" value={codec} onChange={e => setCodec(e.target.value)} className={fieldCls}>
+                  {CODEC_OPTIONS.map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
                   ))}
                 </select>
-              ) : (
-                <>
-                  <input data-testid="input-sippy-plan" value={tariffId} onChange={e => setTariffId(e.target.value)}
-                    placeholder="Enter billing plan ID manually" type="number" min="1" className={fieldCls} />
-                  <div className="mt-2 rounded-lg px-3 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs flex items-start gap-2">
-                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                    <span>
-                      <strong>Service Plan required:</strong> Your Sippy switch requires a billing plan for account creation. Log in to your Sippy portal → <em>Billing → Service Plans</em>, create a plan, then reload this modal — it will appear in the dropdown above. You can also enter the plan ID manually if you know it.
-                    </span>
-                  </div>
-                </>
-              )}
-              {billingPlanData?.error && !billingPlans.length && canProceed && (
-                <p className="text-xs text-muted-foreground mt-1 italic">{billingPlanData.error}</p>
-              )}
+              </div>
+              <div className="flex flex-col gap-2 pt-1">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input data-testid="checkbox-sippy-reg" type="checkbox" checked={regAllowed}
+                    onChange={e => setRegAllowed(e.target.checked)}
+                    className="w-4 h-4 rounded border-border accent-primary" />
+                  <span className="text-sm">Allow SIP Registration</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input data-testid="checkbox-sippy-trust-cli" type="checkbox" checked={trustCli}
+                    onChange={e => setTrustCli(e.target.checked)}
+                    className="w-4 h-4 rounded border-border accent-primary" />
+                  <span className="text-sm">Trust CLI (caller ID)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Section: Billing & Limits ── */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <span className="w-4 h-px bg-border inline-block" />Billing &amp; Limits<span className="flex-1 h-px bg-border inline-block" />
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Credit Limit ($)</label>
+                <input data-testid="input-sippy-credit" type="number" min="0" value={creditLimit}
+                  onChange={e => setCreditLimit(e.target.value)} placeholder="0 (no limit)" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Starting Balance ($)</label>
+                <input data-testid="input-sippy-balance" type="number" min="0" step="0.01" value={balance}
+                  onChange={e => setBalance(e.target.value)} placeholder="0.00" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Max Sessions</label>
+                <input data-testid="input-sippy-sessions" type="number" min="0" value={maxSessions}
+                  onChange={e => setMaxSessions(e.target.value)} placeholder="0 (unlimited)" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Max CPS</label>
+                <input data-testid="input-sippy-cps" type="number" min="1" value={maxCps}
+                  onChange={e => setMaxCps(e.target.value)} placeholder="Unlimited" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Lifetime (days)</label>
+                <input data-testid="input-sippy-lifetime" type="number" value={lifetime}
+                  onChange={e => setLifetime(e.target.value)} placeholder="-1 (unlimited)" className={fieldCls} />
+                <p className="text-xs text-muted-foreground mt-1">-1 = unlimited. 0+ = expires in N days.</p>
+              </div>
             </div>
           </div>
 

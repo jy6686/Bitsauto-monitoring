@@ -1480,9 +1480,20 @@ export async function pushRateToSippy(opts: {
 }
 
 /**
- * Options for creating a SIP account on Sippy via createAccount() XML-RPC API.
- * Official docs: https://support.sippysoft.com/support/solutions/articles/107312
+ * Codec IDs as documented in the Sippy createAccount() API (docs 107312).
+ * null = Disabled (no preference), 0 = G.711u (PCMU), 8 = G.711a (PCMA), etc.
  */
+export const SIPPY_CODECS: Array<{ id: number | null; label: string }> = [
+  { id: null, label: 'Disabled (no preference)' },
+  { id: 0,    label: 'G.711u (PCMU)' },
+  { id: 8,    label: 'G.711a (PCMA)' },
+  { id: 3,    label: 'GSM' },
+  { id: 18,   label: 'G.729' },
+  { id: 9,    label: 'G.722' },
+  { id: 4,    label: 'G.723' },
+  { id: 15,   label: 'G.728' },
+];
+
 export interface SippyAccountOpts {
   name: string;               // Display / company name
   type: 'client' | 'vendor';
@@ -1503,15 +1514,23 @@ export interface SippyAccountOpts {
   servicePlan?: string;       // i_billing_plan integer ID (required, >= Sippy v1.8).
   creditLimit?: number;       // credit_limit double. Defaults to 0.
   balance?: number;           // Starting balance. Defaults to 0.
+  lifetime?: number;          // -1 = unlimited (default), 0+ = days until expiry.
   // Advanced
   maxSessions?: number;       // max_sessions. Defaults to 0 (unlimited).
   maxCallsPerSecond?: number; // max_calls_per_second. Optional.
-  maxSessionTime?: number;    // max_credit_time seconds. Defaults to 0 (unlimited).
+  maxSessionTime?: number;    // max_credit_time seconds. Defaults to 3600.
   cldTranslationRule?: string;
   cliTranslationRule?: string;
+  // SIP behaviour
+  preferredCodec?: number | null; // null = Disabled, 0=G.711u, 8=G.711a, 18=G.729, etc.
+  regAllowed?: number;            // 1 = allow registration (default), 0 = deny
+  trustCli?: number;              // 0 = no (default), 1 = yes
   // Contact / Address
   companyName?: string;
+  firstName?: string;
+  lastName?: string;
   email?: string;
+  country?: string;
   description?: string;
 }
 
@@ -1533,12 +1552,19 @@ export async function pushAccountToSippy(
   const authname   = opts.authname   || username;
   const webPass    = opts.webPassword  || (safeName + '@' + Math.random().toString(36).slice(2, 8));
   const voipPass   = opts.voipPassword || Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase();
-  const nameParts  = opts.name.trim().split(/\s+/);
-  const firstName  = nameParts[0] ?? opts.name;
-  const lastName   = nameParts.slice(1).join(' ');
+  // Contact name: caller-supplied first/last name override the auto-derived parts
+  const nameParts   = opts.name.trim().split(/\s+/);
+  const firstName   = opts.firstName ?? (nameParts[0] ?? opts.name);
+  const lastName    = opts.lastName  ?? (nameParts.slice(1).join(' '));
+
+  // preferred_codec: per docs, null = "Disabled" (no preference).
+  // If caller passes a number (0=G.711u, 8=G.711a, 18=G.729, etc.) use it directly.
+  // We use 'undefined' as sentinel for "not set by caller" so we default to null.
+  const codecValue: number | null =
+    opts.preferredCodec !== undefined ? opts.preferredCodec : null;
 
   // ── Build parameter set per official Sippy API docs ──────────────────────
-  // createAccount() docs: https://support.sippysoft.com/a/solutions/articles/107312
+  // createAccount() docs: https://support.sippysoft.com/support/solutions/articles/107312
   // All "Required" fields are provided with safe defaults when not supplied by caller.
   const params: Record<string, string | number | boolean | null> = {
     // SIP / self-care credentials
@@ -1562,14 +1588,15 @@ export async function pushAccountToSippy(
     payment_currency:         'USD',
     payment_method:           1,   // 1 = Credit card (matching TEST account default)
     i_export_type:            2,   // 2 = Retail (matching TEST account default)
-    lifetime:                 -1,  // unlimited
-    preferred_codec:          -1,  // -1 = Disabled / no preference (Sippy rejects nil for this field)
+    lifetime:                 opts.lifetime           ?? -1,  // -1 = unlimited
+    // preferred_codec: null = "Disabled" per official docs (107312). NOT -1.
+    preferred_codec:          codecValue,
     use_preferred_codec_only: 0,
-    reg_allowed:              1,
+    reg_allowed:              opts.regAllowed          ?? 1,  // 1 = allow SIP registration
     welcome_call_ivr:         null, // null → <nil/> (no IVR; consistent with existing accounts)
     on_payment_action:        null, // null → <nil/> (no action; consistent with existing accounts)
     min_payment_amount:       0.0,
-    trust_cli:                0,
+    trust_cli:                opts.trustCli            ?? 0,
     disallow_loops:           0,
     vm_notify_emails:         '',
     vm_forward_emails:        '',
@@ -1583,7 +1610,7 @@ export async function pushAccountToSippy(
     state:                    '',
     postal_code:              '',
     city:                     '',
-    country:                  '',
+    country:                  opts.country             ?? '',
     contact:                  '',
     phone:                    '',
     fax:                      '',
