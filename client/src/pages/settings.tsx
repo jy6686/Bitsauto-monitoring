@@ -30,17 +30,13 @@ type FormValues = z.infer<typeof formSchema>;
 type TestResult = { ok: boolean; message: string } | null;
 
 // ── Switch type definitions ───────────────────────────────────────────────────
+// VOS3000 is temporarily disabled — uncomment to re-enable
 const SWITCH_TYPES = [
-  {
-    id: 'vos3000',
-    label: 'VOS3000',
-    description: 'Linknat VOS3000 carrier softswitch (CAPTCHA-based login)',
-    color: 'blue',
-  },
+  // { id: 'vos3000', label: 'VOS3000', description: 'Linknat VOS3000 carrier softswitch (CAPTCHA-based login)', color: 'blue' },
   {
     id: 'sippy',
     label: 'Sippy Softswitch',
-    description: 'Sippy Software softswitch (HTTP Basic Auth, XML-RPC API)',
+    description: 'Sippy Software softswitch (XML-RPC API with Digest Auth)',
     color: 'violet',
   },
 ] as const;
@@ -789,7 +785,7 @@ type SwitchRow = {
 };
 
 const EMPTY_SWITCH: Omit<SwitchRow, 'id' | 'lastSyncAt' | 'lastSyncStatus'> = {
-  name: '', type: 'vos3000', portalUrl: '', portalUsername: '', portalPassword: '',
+  name: '', type: 'sippy', portalUrl: '', portalUsername: '', portalPassword: '',
   enabled: true, notes: '',
 };
 
@@ -914,7 +910,6 @@ function SwitchesPanel() {
                     value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                   >
-                    <option value="vos3000">VOS3000</option>
                     <option value="sippy">Sippy</option>
                   </select>
                 </div>
@@ -1074,7 +1069,7 @@ export default function SettingsPage() {
   const portalUrl = form.watch('portalUrl');
   const portalUsername = form.watch('portalUsername');
   const portalPassword = form.watch('portalPassword');
-  const switchType = form.watch('switchType') ?? 'vos3000';
+  const switchType = form.watch('switchType') ?? 'sippy';
   const hasSavedPortal = !!(settings?.portalUrl && settings?.portalUsername && settings?.portalPassword);
 
   return (

@@ -517,8 +517,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* VOS3000 Portal Live Data */}
-      <div className="rounded-xl border overflow-hidden bg-card shadow-sm" style={{ borderColor: portalSession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}>
+      {/* VOS3000 Portal Live Data — temporarily disabled */}
+      <div className="hidden"><div className="rounded-xl border overflow-hidden bg-card shadow-sm" style={{ borderColor: portalSession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-muted/20">
           <div className="flex items-center gap-3">
             <Globe className={`w-4 h-4 ${portalSession?.active ? 'text-violet-400' : 'text-muted-foreground'}`} />
@@ -681,7 +681,7 @@ export default function DashboardPage() {
             <p className="text-xs mt-1">Go to <Link href="/settings" className="text-primary hover:underline">Settings → Portal Sign-In</Link> to connect to your VOS3000 carrier portal.</p>
           </div>
         )}
-      </div>
+      </div></div>
 
       {/* Active Calls Table */}
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">

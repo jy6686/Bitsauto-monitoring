@@ -166,25 +166,25 @@ export async function registerRoutes(
     }
   })();
 
-  // === VOS3000 SESSION RESTORE ON STARTUP ===
+  // === VOS3000 SESSION RESTORE ON STARTUP — temporarily disabled ===
+  // Uncomment block below to re-enable VOS3000 session persistence
+  /*
   (async () => {
     try {
       const s = await storage.getSettings();
       if (s.portalSessionToken && s.portalSessionBase && s.portalSessionUser) {
         vos3000.restoreSession(s.portalSessionToken, s.portalSessionBase, s.portalSessionUser);
         console.log('[startup] VOS3000 session restored for', s.portalSessionUser);
-        // End any stale "active" calls from the previous session so sync starts clean
         const staleCalls = await storage.getCalls(500);
         for (const c of staleCalls) {
-          if (c.status === 'active') {
-            await storage.endCall(c.id, 'completed');
-          }
+          if (c.status === 'active') await storage.endCall(c.id, 'completed');
         }
       }
     } catch (err) {
       console.error('[startup] Session restore error:', err);
     }
   })();
+  */
 
   // === VOS3000 LIVE SYNC ENGINE ===
   // Runs every 15 seconds when a VOS3000 session is active.
@@ -275,9 +275,9 @@ export async function registerRoutes(
     }
   }
 
-  // Run VOS3000 live sync immediately and every 15 seconds
-  setTimeout(runVos3000Sync, 3000); // small delay to let startup restore settle
-  setInterval(runVos3000Sync, 15000);
+  // VOS3000 live sync temporarily disabled — uncomment to re-enable
+  // setTimeout(runVos3000Sync, 3000);
+  // setInterval(runVos3000Sync, 15000);
 
   // === SIMULATION ENGINE ===
   setInterval(async () => {
