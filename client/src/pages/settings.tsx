@@ -56,7 +56,7 @@ function usePortalSession() {
 }
 
 function useSippySession() {
-  return useQuery<{ active: boolean; username?: string; connectedAt?: string; portalBase?: string }>({
+  return useQuery<{ active: boolean; username?: string; connectedAt?: string; portalBase?: string; mode?: 'xmlrpc' | 'portal' }>({
     queryKey: ['/api/sippy/session'],
     refetchInterval: 30000,
   });
@@ -362,19 +362,30 @@ function SippyConnectPanel({ username, password }: { username: string; password:
   }
 
   if (session?.active) {
+    const isXmlRpc = session.mode === 'xmlrpc';
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
           <div className="flex items-center gap-3">
             <ShieldCheck className="w-5 h-5 text-emerald-400" />
             <div>
-              <p className="text-sm font-semibold text-emerald-400">Connected to Sippy Softswitch</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-emerald-400">Connected to Sippy Softswitch</p>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${isXmlRpc ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'}`}>
+                  {isXmlRpc ? 'XML-RPC' : 'Portal'}
+                </span>
+              </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Logged in as <span className="font-mono">{session.username}</span>
                 {session.connectedAt && (
                   <> · since {new Date(session.connectedAt).toLocaleTimeString()}</>
                 )}
               </p>
+              {!isXmlRpc && (
+                <p className="text-xs text-amber-400/80 mt-1">
+                  Portal mode — monitoring charts require XML-RPC. Ensure admin credentials are saved above.
+                </p>
+              )}
             </div>
           </div>
           <button
@@ -388,7 +399,9 @@ function SippyConnectPanel({ username, password }: { username: string; password:
           </button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Live call data and CDR records from your Sippy Softswitch are now available on the Dashboard.
+          {isXmlRpc
+            ? 'Full API access active — all features including monitoring charts are available.'
+            : 'Live call data and CDR records are available. Save admin API credentials and reconnect for full monitoring access.'}
         </p>
       </div>
     );
@@ -416,10 +429,12 @@ function SippyConnectPanel({ username, password }: { username: string; password:
         </div>
       )}
 
-      <div className="rounded-lg bg-violet-500/5 border border-violet-500/20 p-4 space-y-2">
-        <p className="text-xs font-semibold text-violet-400 uppercase tracking-wider">No CAPTCHA Required</p>
+      <div className="rounded-lg bg-violet-500/5 border border-violet-500/20 p-4 space-y-1.5">
+        <p className="text-xs font-semibold text-violet-400 uppercase tracking-wider">Auto-Detect Mode</p>
         <p className="text-xs text-muted-foreground">
-          Sippy uses API key authentication — click Connect to authenticate immediately using the API Login and Password saved above.
+          Both credential pairs are tried automatically. If your admin account supports it, <strong>XML-RPC mode</strong> is used for full API access (monitoring charts, etc.). Otherwise <strong>Portal mode</strong> is used.
+        </p>
+        <p className="text-xs text-muted-foreground">
           The session stays active until you disconnect or the server restarts.
         </p>
       </div>
