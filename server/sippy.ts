@@ -1498,6 +1498,7 @@ export interface SippyAccountOpts {
   timezone?: string;          // i_time_zone integer ID. Defaults to 1 (UTC).
   language?: string;          // Two-char code, e.g. "en". Defaults to "en".
   routingGroup?: string;      // i_routing_group integer ID.
+  iCustomer?: number;         // i_customer (1 = root customer for ssp-root admin context)
   // Rating & Billing
   servicePlan?: string;       // i_billing_plan integer ID (required, >= Sippy v1.8).
   creditLimit?: number;       // credit_limit double. Defaults to 0.
@@ -1565,8 +1566,8 @@ export async function pushAccountToSippy(
     preferred_codec:          -1,  // -1 = Disabled / no preference (Sippy rejects nil for this field)
     use_preferred_codec_only: 0,
     reg_allowed:              1,
-    welcome_call_ivr:         null, // null = not set
-    on_payment_action:        null, // null = No Action
+    welcome_call_ivr:         null, // null → <nil/> (no IVR; consistent with existing accounts)
+    on_payment_action:        null, // null → <nil/> (no action; consistent with existing accounts)
     min_payment_amount:       0.0,
     trust_cli:                0,
     disallow_loops:           0,
@@ -1616,6 +1617,11 @@ export async function pushAccountToSippy(
       console.warn('[Sippy] Could not auto-fetch routing groups:', e);
     }
   }
+
+  // ── Customer context (required for admin/root credentials) ──────────────
+  // ssp-root must specify i_customer=1 (root customer) when creating accounts.
+  // Confirmed required: createAccount returns fault 501 "Fatal error" without it.
+  params.i_customer = opts.iCustomer ?? 1;
 
   // ── Billing plan (i_billing_plan required since Sippy v1.8) ─────────────
   if (opts.servicePlan) {
@@ -1682,8 +1688,12 @@ export async function pushAccountToSippy(
         };
       }
 
-      // Extract Sippy fault string from XML-RPC fault response
-      const faultStr = extractTag(text, 'faultString');
+      // Extract Sippy fault string from XML-RPC fault response.
+      // Fault is a struct with <name>faultString</name><value><string>...</string></value>
+      // NOT a direct <faultString> element — extractTag won't find it.
+      const faultStrRaw = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString');  // fallback for other formats
+      const faultStr = faultStrRaw ?? null;
       if (faultStr) {
         lastFault = faultStr.replace(/<[^>]+>/g, '').trim();
         console.warn(`[Sippy] ${method} fault: ${lastFault}`);
@@ -1801,9 +1811,11 @@ export async function pushAccountToSippy(
     }
   }
 
-  const detail = xmlFailed
-    ? `Authentication failed (HTTP 401). The Sippy XML-RPC API is blocking requests from "${credentials.username}". Verify the credentials in Settings or ask your Sippy administrator to enable API access for this account.`
-    : (lastFault || `No response from Sippy at ${apiUrl} — check the URL in Settings.`);
+  const detail = lastFault
+    ? lastFault
+    : xmlFailed
+      ? `Authentication failed. The Sippy XML-RPC API rejected credentials for "${credentials.username}". Verify the credentials in Settings or ask your Sippy administrator to enable API access for this account.`
+      : `No response from Sippy at ${apiUrl} — check the URL in Settings.`;
   return { success: false, message: 'Could not create account on Sippy.', detail };
 }
 
