@@ -1257,8 +1257,68 @@ export async function registerRoutes(
     const settings = await storage.getSettings();
     const { username, password } = sippyXmlCreds(settings);
     const limit = Number(req.query.limit) || 50;
-    const cdrs = await sippy.getSippyCDRs(username, password, limit);
+    const opts: Parameters<typeof sippy.getSippyCDRs>[3] = {};
+    if (req.query.startDate) opts.startDate = req.query.startDate as string;
+    if (req.query.endDate)   opts.endDate   = req.query.endDate   as string;
+    if (req.query.iCustomer) opts.iCustomer = Number(req.query.iCustomer);
+    const cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
     res.json({ cdrs });
+  });
+
+  // GET /api/sippy/asr-report — ASR/ACD report computed from Sippy CDRs
+  app.get('/api/sippy/asr-report', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const limit = Number(req.query.limit) || 2000;
+      const groupBy = (req.query.groupBy as string) || 'caller'; // caller=CLI, callee=CLD
+      const opts: Parameters<typeof sippy.getSippyCDRs>[3] = {};
+      if (req.query.startDate) opts.startDate = req.query.startDate as string;
+      if (req.query.endDate)   opts.endDate   = req.query.endDate   as string;
+      // Fetch all CDRs (customer 1 = root for full view)
+      const cdrs = await sippy.getSippyCDRs(username, password, limit, { ...opts, iCustomer: 1 });
+      if (cdrs.length === 0) {
+        // try without iCustomer restriction
+        const fallback = await sippy.getSippyCDRs(username, password, limit, opts);
+        if (fallback.length === 0) return res.json({ rows: [], source: 'sippy-cdr', count: 0 });
+        cdrs.push(...fallback);
+      }
+
+      // Group CDRs
+      const grouped = new Map<string, {
+        totalCalls: number; answeredCalls: number;
+        billedSecs: number; pddSum: number; pddCount: number;
+      }>();
+
+      for (const cdr of cdrs) {
+        const key = groupBy === 'callee' ? (cdr.callee || '-') : (cdr.caller || '-');
+        if (!grouped.has(key)) grouped.set(key, { totalCalls: 0, answeredCalls: 0, billedSecs: 0, pddSum: 0, pddCount: 0 });
+        const g = grouped.get(key)!;
+        g.totalCalls++;
+        // A call is answered if billed_duration > 0 OR result looks like 200/ANSWERED
+        const answered = (cdr.duration > 0) || /^(200|ok|answered|success)/i.test(cdr.result || '');
+        if (answered) {
+          g.answeredCalls++;
+          g.billedSecs += cdr.duration;
+        }
+      }
+
+      const rows = Array.from(grouped.entries()).map(([caller, g]) => ({
+        caller,
+        totalCalls: g.totalCalls,
+        billableCalls: g.answeredCalls,
+        billedDurationSeconds: g.billedSecs,
+        acdSeconds: g.answeredCalls > 0 ? g.billedSecs / g.answeredCalls : 0,
+        asr: g.totalCalls > 0 ? (g.answeredCalls / g.totalCalls) * 100 : 0,
+        avgPdd: g.pddCount > 0 ? g.pddSum / g.pddCount : 0,
+        revenueUsd: 0,
+      }));
+
+      rows.sort((a, b) => b.totalCalls - a.totalCalls);
+      res.json({ rows, source: 'sippy-cdr', count: cdrs.length });
+    } catch (err: any) {
+      res.json({ rows: [], error: err.message, source: 'sippy-cdr', count: 0 });
+    }
   });
 
   // GET /api/sippy/routing-groups — list routing groups from Sippy
