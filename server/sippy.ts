@@ -2831,3 +2831,184 @@ export async function deleteSippyTariff(
     return { success: false, message: e.message };
   }
 }
+
+// ─── Low Balance / Auto-Recharge (doc 107444) ────────────────────────────────
+
+export interface SippyLowBalanceConfig {
+  success: boolean;
+  // Returned by getLowBalance()
+  threshold?: number | null;          // null = threshold disabled
+  notifyByEmail?: boolean;
+  chargeCard?: boolean;               // auto-charge on low balance
+  chargeAmount?: number;
+  iDebitCreditCard?: number | null;   // null = use primary card
+  notificationRetryCount?: number;    // since 2024
+  notificationRetryInterval?: number | null; // hours; null = system default; since 2024
+  // Account-only fields (not applicable for customers)
+  brChargeCard?: boolean;             // auto-charge on billing run
+  brChargeAmount?: number | null;     // null = Plan Price
+  brIDebitCreditCard?: number | null;
+  error?: string;
+}
+
+export interface SetLowBalanceOpts {
+  // Target — supply EXACTLY ONE of these:
+  iAccount?: number;
+  iCustomer?: number;
+  // Trusted mode (since 2022):
+  iWholesaler?: number;
+  // Settings — all optional; omit a field to leave it unchanged:
+  threshold?: number | null;          // null disables the threshold
+  notifyByEmail?: boolean;
+  chargeCard?: boolean;
+  chargeAmount?: number;
+  iDebitCreditCard?: number | null;   // null = use primary card
+  notificationRetryCount?: number;    // >= 0; must not exceed system limit
+  notificationRetryInterval?: number | null; // hours >= 1, or null for system default
+  // Account-only (ignored when i_customer is supplied):
+  brChargeCard?: boolean;
+  brChargeAmount?: number | null;     // null = Plan Price
+  brIDebitCreditCard?: number | null;
+}
+
+/**
+ * Get Low Balance / Auto-Recharge configuration for an account or customer.
+ * Official method: getLowBalance() — docs 107444
+ * Supply EITHER i_account OR i_customer (not both).
+ * i_wholesaler enables trusted mode (since 2022).
+ */
+export async function getSippyLowBalance(
+  username: string,
+  password: string,
+  target: { iAccount?: number; iCustomer?: number; iWholesaler?: number },
+  portalUrl?: string,
+): Promise<SippyLowBalanceConfig> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = {};
+  if (target.iAccount    !== undefined) params.i_account    = target.iAccount;
+  if (target.iCustomer   !== undefined) params.i_customer   = target.iCustomer;
+  if (target.iWholesaler !== undefined) params.i_wholesaler = target.iWholesaler;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getLowBalance', params as any), username, password);
+    const text = resp.body;
+
+    if (text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString') || 'getLowBalance failed.';
+      return { success: false, error: fault };
+    }
+
+    const m = extractStructMembers(text);
+
+    const parseNullableDouble = (key: string): number | null | undefined => {
+      if (!(key in m)) return undefined;
+      const v = m[key];
+      if (v === '' || v === 'None' || v === 'nil') return null;
+      const n = parseFloat(v);
+      return isNaN(n) ? null : n;
+    };
+
+    const parseNullableInt = (key: string): number | null | undefined => {
+      if (!(key in m)) return undefined;
+      const v = m[key];
+      if (v === '' || v === 'None' || v === 'nil') return null;
+      const n = parseInt(v, 10);
+      return isNaN(n) ? null : n;
+    };
+
+    const parseBool = (key: string): boolean | undefined => {
+      if (!(key in m)) return undefined;
+      return m[key] === '1' || m[key].toLowerCase() === 'true';
+    };
+
+    const result: SippyLowBalanceConfig = { success: true };
+
+    const threshold = parseNullableDouble('threshold');
+    if (threshold !== undefined) result.threshold = threshold;
+
+    const notifyByEmail = parseBool('notify_by_email');
+    if (notifyByEmail !== undefined) result.notifyByEmail = notifyByEmail;
+
+    const chargeCard = parseBool('charge_card');
+    if (chargeCard !== undefined) result.chargeCard = chargeCard;
+
+    const chargeAmount = parseNullableDouble('charge_amount');
+    if (chargeAmount !== undefined) result.chargeAmount = chargeAmount ?? 0;
+
+    const iDCC = parseNullableInt('i_debit_credit_card');
+    if (iDCC !== undefined) result.iDebitCreditCard = iDCC;
+
+    const retryCount = parseNullableInt('notification_retry_count');
+    if (retryCount !== undefined) result.notificationRetryCount = retryCount ?? 0;
+
+    const retryInterval = parseNullableInt('notification_retry_interval');
+    if (retryInterval !== undefined) result.notificationRetryInterval = retryInterval;
+
+    // Account-only fields
+    const brChargeCard = parseBool('br_charge_card');
+    if (brChargeCard !== undefined) result.brChargeCard = brChargeCard;
+
+    const brChargeAmount = parseNullableDouble('br_charge_amount');
+    if (brChargeAmount !== undefined) result.brChargeAmount = brChargeAmount;
+
+    const brIDCC = parseNullableInt('br_i_debit_credit_card');
+    if (brIDCC !== undefined) result.brIDebitCreditCard = brIDCC;
+
+    return result;
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Set Low Balance / Auto-Recharge configuration for an account or customer.
+ * Official method: setLowBalance() — docs 107444
+ * Supply EITHER iAccount OR iCustomer (not both).
+ * Only include options you want to change — others are left untouched.
+ * Pass null for threshold to disable it; null for i_debit_credit_card = use primary card.
+ */
+export async function setSippyLowBalance(
+  username: string,
+  password: string,
+  opts: SetLowBalanceOpts,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  // Build params — only include keys that were explicitly provided
+  const params: Record<string, string | number | boolean | null> = {};
+  if (opts.iAccount    !== undefined) params.i_account    = opts.iAccount;
+  if (opts.iCustomer   !== undefined) params.i_customer   = opts.iCustomer;
+  if (opts.iWholesaler !== undefined) params.i_wholesaler = opts.iWholesaler;
+
+  // null is a valid value (disables threshold / means primary card) — include it
+  if (opts.threshold           !== undefined) params.threshold              = opts.threshold;
+  if (opts.notifyByEmail       !== undefined) params.notify_by_email        = opts.notifyByEmail;
+  if (opts.chargeCard          !== undefined) params.charge_card            = opts.chargeCard;
+  if (opts.chargeAmount        !== undefined) params.charge_amount          = opts.chargeAmount;
+  if (opts.iDebitCreditCard    !== undefined) params.i_debit_credit_card    = opts.iDebitCreditCard;
+  if (opts.notificationRetryCount    !== undefined) params.notification_retry_count    = opts.notificationRetryCount;
+  if (opts.notificationRetryInterval !== undefined) params.notification_retry_interval = opts.notificationRetryInterval;
+
+  // Account-only
+  if (opts.brChargeCard        !== undefined) params.br_charge_card         = opts.brChargeCard;
+  if (opts.brChargeAmount      !== undefined) params.br_charge_amount       = opts.brChargeAmount;
+  if (opts.brIDebitCreditCard  !== undefined) params.br_i_debit_credit_card = opts.brIDebitCreditCard;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('setLowBalance', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Low balance settings updated.' };
+    }
+    const fault = extractTag(text, 'faultString') || 'setLowBalance failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}

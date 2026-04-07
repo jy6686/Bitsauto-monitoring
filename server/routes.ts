@@ -1539,6 +1539,32 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // GET /api/sippy/customers/:id/low-balance — get low balance / auto-recharge config (docs 107444)
+  // Same response shape as the account endpoint; br_* fields will be absent for customers.
+  app.get('/api/sippy/customers/:id/low-balance', async (req: any, res) => {
+    try {
+      const iCustomer = parseInt(req.params.id, 10);
+      if (isNaN(iCustomer)) return res.status(400).json({ success: false, error: 'Invalid i_customer.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getSippyLowBalance(username, password, { iCustomer });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/customers/:id/low-balance — set low balance / auto-recharge config (docs 107444)
+  // Same body fields as account endpoint; br_* fields are not applicable for customers.
+  app.patch('/api/sippy/customers/:id/low-balance', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iCustomer = parseInt(req.params.id, 10);
+      if (isNaN(iCustomer)) return res.status(400).json({ success: false, message: 'Invalid i_customer.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.setSippyLowBalance(username, password, { iCustomer, ...req.body });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // DELETE /api/sippy/customers/:id — delete a customer
   app.delete('/api/sippy/customers/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {
@@ -1611,6 +1637,36 @@ export async function registerRoutes(
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.deleteSippyAccount(username, password, parseInt(req.params.id, 10));
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // GET /api/sippy/accounts/:id/low-balance — get low balance / auto-recharge config (docs 107444)
+  // Returns threshold, notifyByEmail, chargeCard, chargeAmount, iDebitCreditCard,
+  // notificationRetryCount, notificationRetryInterval, and account-only billing-run fields.
+  app.get('/api/sippy/accounts/:id/low-balance', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getSippyLowBalance(username, password, { iAccount });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/accounts/:id/low-balance — set low balance / auto-recharge config (docs 107444)
+  // Body accepts any subset of: threshold (null = disabled), notifyByEmail, chargeCard,
+  // chargeAmount, iDebitCreditCard (null = primary), notificationRetryCount,
+  // notificationRetryInterval (null = system default), brChargeCard, brChargeAmount, brIDebitCreditCard.
+  // Omit a field to leave it unchanged.
+  app.patch('/api/sippy/accounts/:id/low-balance', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.setSippyLowBalance(username, password, { iAccount, ...req.body });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
