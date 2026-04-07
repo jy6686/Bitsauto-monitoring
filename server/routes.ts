@@ -1516,12 +1516,24 @@ export async function registerRoutes(
   app.patch('/api/sippy/customers/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      const result = await sippy.updateSippyCustomer(
-        settings.portalUsername ?? '',
-        settings.portalPassword ?? '',
-        parseInt(req.params.id, 10),
-        req.body,
-      );
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateSippyCustomer(username, password, parseInt(req.params.id, 10), req.body);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // PATCH /api/sippy/customers/:id/credit-limit — set credit limit directly on the balance entity
+  // Uses Customer.set_credit_limit(i_balance, credit_limit) per External Balance Daemon docs (3000070859).
+  // Requires the customer's i_balance ID (obtained from getCustomer or listCustomers response).
+  app.patch('/api/sippy/customers/:id/credit-limit', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const { iBalance, creditLimit } = req.body as { iBalance?: number; creditLimit?: number };
+      if (iBalance === undefined || creditLimit === undefined) {
+        return res.status(400).json({ success: false, message: 'iBalance and creditLimit are required.' });
+      }
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.setSippyBalanceCreditLimit(username, password, Number(iBalance), Number(creditLimit));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -1530,11 +1542,8 @@ export async function registerRoutes(
   app.delete('/api/sippy/customers/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      const result = await sippy.deleteSippyCustomer(
-        settings.portalUsername ?? '',
-        settings.portalPassword ?? '',
-        parseInt(req.params.id, 10),
-      );
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteSippyCustomer(username, password, parseInt(req.params.id, 10));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -1543,11 +1552,8 @@ export async function registerRoutes(
   app.post('/api/sippy/customers/:id/block', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      const result = await sippy.blockSippyCustomer(
-        settings.portalUsername ?? '',
-        settings.portalPassword ?? '',
-        parseInt(req.params.id, 10),
-      );
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.blockSippyCustomer(username, password, parseInt(req.params.id, 10));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -1556,11 +1562,8 @@ export async function registerRoutes(
   app.post('/api/sippy/customers/:id/unblock', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      const result = await sippy.unblockSippyCustomer(
-        settings.portalUsername ?? '',
-        settings.portalPassword ?? '',
-        parseInt(req.params.id, 10),
-      );
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.unblockSippyCustomer(username, password, parseInt(req.params.id, 10));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -1571,11 +1574,8 @@ export async function registerRoutes(
   app.delete('/api/sippy/accounts/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      const result = await sippy.deleteSippyAccount(
-        settings.portalUsername ?? '',
-        settings.portalPassword ?? '',
-        parseInt(req.params.id, 10),
-      );
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteSippyAccount(username, password, parseInt(req.params.id, 10));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -1586,12 +1586,8 @@ export async function registerRoutes(
   app.patch('/api/sippy/vendors/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      const result = await sippy.updateSippyVendor(
-        settings.portalUsername ?? '',
-        settings.portalPassword ?? '',
-        parseInt(req.params.id, 10),
-        req.body,
-      );
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateSippyVendor(username, password, parseInt(req.params.id, 10), req.body);
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -1600,11 +1596,8 @@ export async function registerRoutes(
   app.delete('/api/sippy/vendors/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      const result = await sippy.deleteSippyVendor(
-        settings.portalUsername ?? '',
-        settings.portalPassword ?? '',
-        parseInt(req.params.id, 10),
-      );
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteSippyVendor(username, password, parseInt(req.params.id, 10));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -1615,13 +1608,10 @@ export async function registerRoutes(
   app.post('/api/sippy/tariffs/create', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {
       const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
       const { name, currency, connectFee, freeSeconds } = req.body;
       if (!name || !currency) return res.status(400).json({ success: false, message: 'name and currency are required' });
-      const result = await sippy.createSippyTariff(
-        settings.portalUsername ?? '',
-        settings.portalPassword ?? '',
-        { name, currency, connectFee, freeSeconds },
-      );
+      const result = await sippy.createSippyTariff(username, password, { name, currency, connectFee, freeSeconds });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -1630,13 +1620,38 @@ export async function registerRoutes(
   app.delete('/api/sippy/tariffs/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      const result = await sippy.deleteSippyTariff(
-        settings.portalUsername ?? '',
-        settings.portalPassword ?? '',
-        parseInt(req.params.id, 10),
-      );
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteSippyTariff(username, password, parseInt(req.params.id, 10));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // ── Balance Daemon — XML-RPC management methods (docs 3000070859) ─────────
+
+  // GET /api/sippy/balances?ids=1,2,3 — fetch balance entities by i_balance IDs
+  // Returns balance, credit_limit, commodity, available_balance for each entity.
+  app.get('/api/sippy/balances', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const ids = String(req.query.ids || '').split(',').map(Number).filter(n => !isNaN(n) && n > 0);
+      if (!ids.length) return res.json({ balances: [] });
+      const balances = await sippy.getSippyBalances(username, password, ids);
+      res.json({ balances });
+    } catch (e: any) { res.status(500).json({ balances: [], error: e.message }); }
+  });
+
+  // GET /api/sippy/balance-totals?ids=1,2,3 — aggregate balance totals grouped by commodity
+  // Pass comma-separated i_balance IDs (from customer/account records) to get currency totals.
+  app.get('/api/sippy/balance-totals', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const ids = String(req.query.ids || '').split(',').map(Number).filter(n => !isNaN(n) && n > 0);
+      if (!ids.length) return res.json({ totals: [] });
+      const totals = await sippy.getSippyBalanceTotals(username, password, ids);
+      res.json({ totals });
+    } catch (e: any) { res.status(500).json({ totals: [], error: e.message }); }
   });
 
   return httpServer;

@@ -2504,6 +2504,138 @@ export async function createSippyTariff(
   }
 }
 
+// ── External Balance Daemon — XML-RPC-accessible methods ─────────────────────
+//
+// Reference: https://support.sippysoft.com/support/solutions/articles/3000070859
+//
+// The External Balance Daemon consists of two parts:
+//   1. Real-time Thrift binary service (for call processing engine) — separate port,
+//      NOT accessible via HTTP XML-RPC. Methods: get_balance, make_debit, add_credit,
+//      block_amount, unblock_amount, clear_blocked_amounts, register_service,
+//      next_i_balance_update. Our app does NOT implement Thrift.
+//
+//   2. XML-RPC management methods (used by Sippy Web UI) — accessible via /xmlapi/xmlapi:
+//      get_balances, get_totals, set_credit_limit, create_balance, inc_ref_count, dec_ref_count.
+//      These operate on "balance entities" (i_balance) linked to Customers, Accounts, Vendors.
+//
+// The i_balance identifier is returned inside each Customer / Account / Vendor record.
+// Balance entities have three attributes: balance, credit_limit, commodity (currency code).
+
+/**
+ * Fetch multiple balance entities by their i_balance IDs.
+ * Official method: Customer.get_balances(i_balances[], filter)
+ *
+ * filter is optional — when provided, only returns entities whose balance, credit_limit
+ * or available_balance (= credit_limit - balance) match the expression.
+ * Returns array of { i_balance, balance, credit_limit, commodity, available_balance }.
+ */
+export async function getSippyBalances(
+  username: string,
+  password: string,
+  iBalances: number[],
+  portalUrl?: string,
+): Promise<Array<{ iBalance: number; balance: number; creditLimit: number; commodity: string; availableBalance: number }>> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base || !iBalances.length) return [];
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  // Build XML-RPC array of int values for i_balances[]
+  const arrayXml = `<array><data>${iBalances.map(id => `<value><int>${id}</int></value>`).join('')}</data></array>`;
+  const body = `<?xml version="1.0"?><methodCall><methodName>Customer.get_balances</methodName><params><param><value>${arrayXml}</value></param></params></methodCall>`;
+
+  try {
+    const resp = await sippyPost(apiUrl, body, username, password);
+    if (resp.statusCode !== 200 || resp.body.includes('<fault>')) return [];
+
+    // Parse array of structs
+    const results: Array<{ iBalance: number; balance: number; creditLimit: number; commodity: string; availableBalance: number }> = [];
+    const memberRe = /<struct>([\s\S]*?)<\/struct>/g;
+    let m;
+    while ((m = memberRe.exec(resp.body)) !== null) {
+      const struct = m[1];
+      const f = (n: string) => { const match = struct.match(new RegExp(`<name>${n}<\\/name>[^<]*<value><(?:double|int|string|i4)>([^<]*)</`)); return match?.[1] ?? ''; };
+      results.push({
+        iBalance:        Number(f('i_balance')),
+        balance:         parseFloat(f('balance'))      || 0,
+        creditLimit:     parseFloat(f('credit_limit')) || 0,
+        commodity:       f('commodity'),
+        availableBalance: parseFloat(f('available_balance')) || 0,
+      });
+    }
+    return results;
+  } catch { return []; }
+}
+
+/**
+ * Get aggregate balance totals for a list of balance entities, grouped by commodity.
+ * Official method: Customer.get_totals(i_balances[])
+ * Returns array of { commodity, totalBalance, totalCreditLimit }.
+ */
+export async function getSippyBalanceTotals(
+  username: string,
+  password: string,
+  iBalances: number[],
+  portalUrl?: string,
+): Promise<Array<{ commodity: string; totalBalance: number; totalCreditLimit: number }>> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base || !iBalances.length) return [];
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const arrayXml = `<array><data>${iBalances.map(id => `<value><int>${id}</int></value>`).join('')}</data></array>`;
+  const body = `<?xml version="1.0"?><methodCall><methodName>Customer.get_totals</methodName><params><param><value>${arrayXml}</value></param></params></methodCall>`;
+
+  try {
+    const resp = await sippyPost(apiUrl, body, username, password);
+    if (resp.statusCode !== 200 || resp.body.includes('<fault>')) return [];
+
+    const results: Array<{ commodity: string; totalBalance: number; totalCreditLimit: number }> = [];
+    const memberRe = /<struct>([\s\S]*?)<\/struct>/g;
+    let m;
+    while ((m = memberRe.exec(resp.body)) !== null) {
+      const struct = m[1];
+      const f = (n: string) => { const match = struct.match(new RegExp(`<name>${n}<\\/name>[^<]*<value><(?:double|int|string|i4)>([^<]*)</`)); return match?.[1] ?? ''; };
+      results.push({
+        commodity:       f('commodity'),
+        totalBalance:    parseFloat(f('balance'))      || 0,
+        totalCreditLimit: parseFloat(f('credit_limit')) || 0,
+      });
+    }
+    return results;
+  } catch { return []; }
+}
+
+/**
+ * Set the credit limit on a balance entity directly.
+ * Official method: Customer.set_credit_limit(i_balance, credit_limit)
+ *
+ * i_balance is the balance entity ID (returned in customer/account records).
+ * This is the balance-daemon-side way to set credit limits, as opposed to
+ * updateCustomer(credit_limit=…) which goes through the customer record.
+ * Both achieve the same outcome; this method is more atomic and immediate.
+ */
+export async function setSippyBalanceCreditLimit(
+  username: string,
+  password: string,
+  iBalance: number,
+  creditLimit: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('Customer.set_credit_limit', { i_balance: iBalance, credit_limit: creditLimit }), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+      return { success: true, message: 'Credit limit updated.' };
+    }
+    const fault = extractTag(resp.body, 'faultString') || 'set_credit_limit failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 /**
  * Delete a tariff from Sippy.
  * Official method: deleteTariff() — docs 3000098586 (available since Sippy 2020)
