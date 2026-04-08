@@ -4889,6 +4889,431 @@ export async function deleteVendorConnection(
   }
 }
 
+// ── Connection Groups (official Sippy docs 3000135376, since SoftSwitch 2025) ─
+//
+// Note: Connection groups attached to a trunk are NOT returned by
+// getConnectionGroupsList() and cannot be updated/deleted via these APIs.
+// All methods support trusted mode — pass iCustomer when needed.
+
+export interface SippyConnectionGroup {
+  iConnectionGroup: number;
+  name:             string;
+  description?:     string;
+  policy?:          string;           // 'ordered' | see getSystemDictionary(trunk_policies)
+  membersCount?:    number;           // only present when includeMembersCount=true
+}
+
+export interface SippyCgMember {
+  iCgMember:        number;
+  iConnectionGroup: number;
+  iConnection:      number;
+  orderNo?:         number;           // numeric position in the group
+}
+
+function parseConnectionGroupStruct(xml: string): SippyConnectionGroup {
+  const m = extractStructMembers(xml);
+  return {
+    iConnectionGroup: parseInt(m['i_connection_group'] || '0', 10),
+    name:             m['name']             || '',
+    description:      m['description']      || undefined,
+    policy:           m['policy']           || undefined,
+    membersCount:     m['members_count']    ? parseInt(m['members_count'], 10) : undefined,
+  };
+}
+
+function parseCgMemberStruct(xml: string): SippyCgMember {
+  const m = extractStructMembers(xml);
+  return {
+    iCgMember:        parseInt(m['i_cg_member']        || '0', 10),
+    iConnectionGroup: parseInt(m['i_connection_group'] || '0', 10),
+    iConnection:      parseInt(m['i_connection']       || '0', 10),
+    orderNo:          m['order_no'] ? parseInt(m['order_no'], 10) : undefined,
+  };
+}
+
+/**
+ * Create a connection group.
+ * Official method: createConnectionGroup() — docs 3000135376
+ * Required: name; Optional: description, policy, iCustomer (trusted mode)
+ */
+export async function createConnectionGroup(
+  username:  string,
+  password:  string,
+  opts: {
+    name:         string;
+    description?: string;
+    policy?:      string;
+    iCustomer?:   number;
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string; iConnectionGroup?: number }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { name: opts.name };
+  if (opts.description !== undefined) params.description = opts.description;
+  if (opts.policy      !== undefined) params.policy      = opts.policy;
+  if (opts.iCustomer   !== undefined) params.i_customer  = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('createConnectionGroup', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const iConnectionGroup = parseInt(m['i_connection_group'] || '0', 10);
+      return { success: true, message: 'Connection group created.', iConnectionGroup: iConnectionGroup || undefined };
+    }
+    const fault = extractTag(text, 'faultString') || 'createConnectionGroup failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Update a connection group.
+ * Official method: updateConnectionGroup() — docs 3000135376
+ * Required: i_connection_group; Optional: name, description, policy
+ */
+export async function updateConnectionGroup(
+  username:         string,
+  password:         string,
+  iConnectionGroup: number,
+  opts: {
+    name?:        string;
+    description?: string;
+    policy?:      string;
+    iCustomer?:   number;
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string; iConnectionGroup?: number }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_connection_group: iConnectionGroup };
+  if (opts.name        !== undefined) params.name        = opts.name;
+  if (opts.description !== undefined) params.description = opts.description;
+  if (opts.policy      !== undefined) params.policy      = opts.policy;
+  if (opts.iCustomer   !== undefined) params.i_customer  = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateConnectionGroup', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const returned = parseInt(m['i_connection_group'] || '0', 10);
+      return { success: true, message: 'Connection group updated.', iConnectionGroup: returned || iConnectionGroup };
+    }
+    const fault = extractTag(text, 'faultString') || 'updateConnectionGroup failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a connection group.
+ * Official method: deleteConnectionGroup() — docs 3000135376
+ */
+export async function deleteConnectionGroup(
+  username:         string,
+  password:         string,
+  iConnectionGroup: number,
+  iCustomer?:       number,
+  portalUrl?:       string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_connection_group: iConnectionGroup };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteConnectionGroup', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Connection group deleted.' };
+    }
+    const fault = extractTag(text, 'faultString') || 'deleteConnectionGroup failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Get info for a single connection group.
+ * Official method: getConnectionGroupInfo() — docs 3000135376
+ */
+export async function getConnectionGroupInfo(
+  username:         string,
+  password:         string,
+  iConnectionGroup: number,
+  iCustomer?:       number,
+  portalUrl?:       string,
+): Promise<{ success: boolean; connectionGroup?: SippyConnectionGroup; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_connection_group: iConnectionGroup };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getConnectionGroupInfo', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const structStart = text.indexOf('<struct>');
+      const structEnd   = text.lastIndexOf('</struct>');
+      if (structStart === -1) return { success: false, error: 'No connection group data returned.' };
+      const structXml = text.slice(structStart, structEnd + 9);
+      return { success: true, connectionGroup: parseConnectionGroupStruct(structXml) };
+    }
+    const fault = extractTag(text, 'faultString') || 'getConnectionGroupInfo failed.';
+    return { success: false, error: fault };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * List connection groups.
+ * Official method: getConnectionGroupsList() — docs 3000135376
+ * Note: groups attached to a trunk are NOT returned.
+ * Optional: namePattern, namePatternNot, includeMembersCount, iCustomer
+ */
+export async function listConnectionGroups(
+  username: string,
+  password: string,
+  opts?: {
+    namePattern?:        string;
+    namePatternNot?:     string;
+    includeMembersCount?: boolean;
+    iCustomer?:          number;
+  },
+  portalUrl?: string,
+): Promise<{ connectionGroups: SippyConnectionGroup[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { connectionGroups: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean> = {};
+  if (opts?.namePattern        !== undefined) params.name_pattern         = opts.namePattern;
+  if (opts?.namePatternNot     !== undefined) params.name_pattern_not     = opts.namePatternNot;
+  if (opts?.includeMembersCount !== undefined) params.include_members_count = opts.includeMembersCount;
+  if (opts?.iCustomer          !== undefined) params.i_customer            = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getConnectionGroupsList', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const connectionGroups: SippyConnectionGroup[] = [];
+      const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+      let match: RegExpExecArray | null;
+      while ((match = structRe.exec(text)) !== null) {
+        try { connectionGroups.push(parseConnectionGroupStruct(match[0])); } catch {}
+      }
+      return { connectionGroups };
+    }
+    const fault = extractTag(text, 'faultString') || 'getConnectionGroupsList failed.';
+    return { connectionGroups: [], error: fault };
+  } catch (e: any) {
+    return { connectionGroups: [], error: e.message };
+  }
+}
+
+// ── CgMembers (part of docs 3000135376) ────────────────────────────────────────
+// Note: for vendor connections only. Trunk connections use createTrunkConnection().
+
+/**
+ * Add a vendor connection to a connection group.
+ * Official method: createCgMember() — docs 3000135376
+ * Required: i_connection_group, i_connection
+ * Optional: order_no ('first' | 'last' | #integer) — default 'last'
+ */
+export async function createCgMember(
+  username:         string,
+  password:         string,
+  iConnectionGroup: number,
+  iConnection:      number,
+  orderNo?:         number | 'first' | 'last',
+  iCustomer?:       number,
+  portalUrl?:       string,
+): Promise<{ success: boolean; message: string; iCgMember?: number }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {
+    i_connection_group: iConnectionGroup,
+    i_connection:       iConnection,
+  };
+  if (orderNo   !== undefined) params.order_no   = orderNo as string | number;
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('createCgMember', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const iCgMember = parseInt(m['i_cg_member'] || '0', 10);
+      return { success: true, message: 'CG member created.', iCgMember: iCgMember || undefined };
+    }
+    const fault = extractTag(text, 'faultString') || 'createCgMember failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Update a connection group member (change order or connection).
+ * Official method: updateCgMember() — docs 3000135376
+ * Required: i_cg_member, order_no; Optional: i_connection
+ * order_no values: #integer | 'first' | 'last' | 'up' | 'down'
+ */
+export async function updateCgMember(
+  username:   string,
+  password:   string,
+  iCgMember:  number,
+  orderNo:    number | 'first' | 'last' | 'up' | 'down',
+  iConnection?: number,
+  iCustomer?:   number,
+  portalUrl?:   string,
+): Promise<{ success: boolean; message: string; iCgMember?: number }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {
+    i_cg_member: iCgMember,
+    order_no:    orderNo as string | number,
+  };
+  if (iConnection !== undefined) params.i_connection = iConnection;
+  if (iCustomer   !== undefined) params.i_customer   = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateCgMember', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const returned = parseInt(m['i_cg_member'] || '0', 10);
+      return { success: true, message: 'CG member updated.', iCgMember: returned || iCgMember };
+    }
+    const fault = extractTag(text, 'faultString') || 'updateCgMember failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Remove a member from a connection group.
+ * Official method: deleteCgMember() — docs 3000135376
+ */
+export async function deleteCgMember(
+  username:   string,
+  password:   string,
+  iCgMember:  number,
+  iCustomer?: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_cg_member: iCgMember };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteCgMember', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'CG member deleted.' };
+    }
+    const fault = extractTag(text, 'faultString') || 'deleteCgMember failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Get info for a single CG member.
+ * Official method: getCgMemberInfo() — docs 3000135376
+ */
+export async function getCgMemberInfo(
+  username:   string,
+  password:   string,
+  iCgMember:  number,
+  iCustomer?: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; cgMember?: SippyCgMember; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_cg_member: iCgMember };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getCgMemberInfo', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const structStart = text.indexOf('<struct>');
+      const structEnd   = text.lastIndexOf('</struct>');
+      if (structStart === -1) return { success: false, error: 'No CG member data returned.' };
+      const structXml = text.slice(structStart, structEnd + 9);
+      return { success: true, cgMember: parseCgMemberStruct(structXml) };
+    }
+    const fault = extractTag(text, 'faultString') || 'getCgMemberInfo failed.';
+    return { success: false, error: fault };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * List all members of a connection group.
+ * Official method: getCgMembersList() — docs 3000135376
+ * Required: i_connection_group
+ */
+export async function listCgMembers(
+  username:         string,
+  password:         string,
+  iConnectionGroup: number,
+  iCustomer?:       number,
+  portalUrl?:       string,
+): Promise<{ cgMembers: SippyCgMember[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { cgMembers: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_connection_group: iConnectionGroup };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getCgMembersList', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const cgMembers: SippyCgMember[] = [];
+      const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+      let match: RegExpExecArray | null;
+      while ((match = structRe.exec(text)) !== null) {
+        try { cgMembers.push(parseCgMemberStruct(match[0])); } catch {}
+      }
+      return { cgMembers };
+    }
+    const fault = extractTag(text, 'faultString') || 'getCgMembersList failed.';
+    return { cgMembers: [], error: fault };
+  } catch (e: any) {
+    return { cgMembers: [], error: e.message };
+  }
+}
+
 // ── Tariff Management (official Sippy docs 3000098586, since Sippy 2020) ─────
 
 /**

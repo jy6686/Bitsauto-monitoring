@@ -3255,6 +3255,179 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── Connection Groups (official Sippy API docs 3000135376, since SS 2025) ──
+  // Note: groups attached to a trunk are not returned/updatable via these APIs.
+
+  // GET /api/sippy/connection-groups — getConnectionGroupsList() — docs 3000135376
+  // Query: namePattern?, namePatternNot?, includeMembersCount?
+  // Returns: { connectionGroups: SippyConnectionGroup[] }
+  app.get('/api/sippy/connection-groups', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ connectionGroups: [], error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { namePattern, namePatternNot, includeMembersCount } = req.query as Record<string, string>;
+      const result = await sippy.listConnectionGroups(
+        username, password,
+        {
+          namePattern:         namePattern         || undefined,
+          namePatternNot:      namePatternNot      || undefined,
+          includeMembersCount: includeMembersCount === 'true' ? true : (includeMembersCount === 'false' ? false : undefined),
+        },
+        settings.portalUrl ?? '',
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ connectionGroups: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/connection-groups — createConnectionGroup() — docs 3000135376
+  // Body: { name (req), description?, policy?, iCustomer? }
+  // Returns: { success, iConnectionGroup, message }
+  app.post('/api/sippy/connection-groups', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const { name } = req.body ?? {};
+      if (!name) return res.status(400).json({ success: false, message: 'name is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.createConnectionGroup(username, password, req.body, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // GET /api/sippy/connection-groups/:id — getConnectionGroupInfo() — docs 3000135376
+  // Returns: { success, connectionGroup: SippyConnectionGroup }
+  app.get('/api/sippy/connection-groups/:id', async (req: any, res) => {
+    try {
+      const iConnectionGroup = parseInt(req.params.id, 10);
+      if (isNaN(iConnectionGroup)) return res.status(400).json({ success: false, error: 'Invalid i_connection_group.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getConnectionGroupInfo(username, password, iConnectionGroup, undefined, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/connection-groups/:id — updateConnectionGroup() — docs 3000135376
+  // Body: { name?, description?, policy? }
+  // Returns: { success, iConnectionGroup, message }
+  app.patch('/api/sippy/connection-groups/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iConnectionGroup = parseInt(req.params.id, 10);
+      if (isNaN(iConnectionGroup)) return res.status(400).json({ success: false, message: 'Invalid i_connection_group.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateConnectionGroup(username, password, iConnectionGroup, req.body, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/connection-groups/:id — deleteConnectionGroup() — docs 3000135376
+  // Returns: { success, message }
+  app.delete('/api/sippy/connection-groups/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const iConnectionGroup = parseInt(req.params.id, 10);
+      if (isNaN(iConnectionGroup)) return res.status(400).json({ success: false, message: 'Invalid i_connection_group.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteConnectionGroup(username, password, iConnectionGroup, undefined, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // ── CgMembers (part of docs 3000135376) ────────────────────────────────────
+  // Manage which vendor connections belong to which group and their ordering.
+
+  // GET /api/sippy/connection-groups/:id/members — getCgMembersList() — docs 3000135376
+  // Returns: { cgMembers: SippyCgMember[] }
+  app.get('/api/sippy/connection-groups/:id/members', async (req: any, res) => {
+    try {
+      const iConnectionGroup = parseInt(req.params.id, 10);
+      if (isNaN(iConnectionGroup)) return res.status(400).json({ cgMembers: [], error: 'Invalid i_connection_group.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ cgMembers: [], error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.listCgMembers(username, password, iConnectionGroup, undefined, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ cgMembers: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/connection-groups/:id/members — createCgMember() — docs 3000135376
+  // Body: { iConnection (req), orderNo? ('first'|'last'|integer) }
+  // Returns: { success, iCgMember, message }
+  app.post('/api/sippy/connection-groups/:id/members', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iConnectionGroup = parseInt(req.params.id, 10);
+      if (isNaN(iConnectionGroup)) return res.status(400).json({ success: false, message: 'Invalid i_connection_group.' });
+      const { iConnection, orderNo } = req.body ?? {};
+      if (!iConnection) return res.status(400).json({ success: false, message: 'iConnection is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const parsedOrderNo = typeof orderNo === 'number' ? orderNo : (orderNo ?? undefined);
+      const result = await sippy.createCgMember(
+        username, password,
+        iConnectionGroup, parseInt(iConnection, 10),
+        parsedOrderNo, undefined, settings.portalUrl ?? '',
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // GET /api/sippy/cg-members/:id — getCgMemberInfo() — docs 3000135376
+  // Returns: { success, cgMember: SippyCgMember }
+  app.get('/api/sippy/cg-members/:id', async (req: any, res) => {
+    try {
+      const iCgMember = parseInt(req.params.id, 10);
+      if (isNaN(iCgMember)) return res.status(400).json({ success: false, error: 'Invalid i_cg_member.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getCgMemberInfo(username, password, iCgMember, undefined, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/cg-members/:id — updateCgMember() — docs 3000135376
+  // Body: { orderNo (req): 'first'|'last'|'up'|'down'|integer, iConnection? }
+  // Returns: { success, iCgMember, message }
+  app.patch('/api/sippy/cg-members/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iCgMember = parseInt(req.params.id, 10);
+      if (isNaN(iCgMember)) return res.status(400).json({ success: false, message: 'Invalid i_cg_member.' });
+      const { orderNo, iConnection } = req.body ?? {};
+      if (orderNo === undefined || orderNo === null)
+        return res.status(400).json({ success: false, message: 'orderNo is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateCgMember(
+        username, password,
+        iCgMember, orderNo,
+        iConnection ? parseInt(iConnection, 10) : undefined,
+        undefined, settings.portalUrl ?? '',
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/cg-members/:id — deleteCgMember() — docs 3000135376
+  // Returns: { success, message }
+  app.delete('/api/sippy/cg-members/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const iCgMember = parseInt(req.params.id, 10);
+      if (isNaN(iCgMember)) return res.status(400).json({ success: false, message: 'Invalid i_cg_member.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteCgMember(username, password, iCgMember, undefined, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // ── Tariff management (official Sippy API) ────────────────────────────────
 
   // POST /api/sippy/tariffs/create — create a new tariff
