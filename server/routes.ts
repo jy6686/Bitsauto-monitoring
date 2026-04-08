@@ -1490,6 +1490,82 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message, records: [] }); }
   });
 
+  // ── Binary Upload (docs 3000073010 / 3000073011 / 3000073012) ──────────────
+
+  // POST /api/sippy/upload/token — initiate a bulk binary upload (docs 3000073011)
+  // Body (JSON): { iUploadType, processOn?, expiresOn?, params?, iCustomer? }
+  //   iUploadType: integer (1 = Rates/Tariff, 2 = Routes/Destination Set; see getDictionary('upload_types'))
+  //   processOn:   ISO8601 UTC — when to start processing (default: now)
+  //   expiresOn:   ISO8601 UTC — when the upload URL expires (default: now + 1 day)
+  //   params:      nested struct e.g. { i_tariff: 5 } for rates or { i_destination_set: 3 } for routes
+  //   iCustomer:   trusted-mode customer ID (optional)
+  // Returns: { token, url } — POST the binary file to `url` using chunked encoding
+  app.post('/api/sippy/upload/token', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+
+      const { iUploadType, processOn, expiresOn, params: uploadParams, iCustomer } = req.body ?? {};
+      if (!iUploadType || isNaN(Number(iUploadType))) {
+        return res.status(400).json({ error: 'iUploadType (integer) is required' });
+      }
+
+      const result = await sippy.getUploadToken(
+        username, password,
+        Number(iUploadType),
+        processOn  as string | undefined,
+        expiresOn  as string | undefined,
+        uploadParams as Record<string, number> | undefined,
+        iCustomer !== undefined ? Number(iCustomer) : undefined,
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/sippy/upload/status — poll upload processing state (docs 3000073012)
+  // Query params: token (required), iCustomer (optional, trusted mode)
+  // Returns: { status, processOn?, expiresOn?, statusChangedOn?, reportUrl? }
+  //   Status lifecycle: INIT_TOKEN → FILE_UPLOADED → PROCESSING → DONE | FAIL
+  //   reportUrl is only present when status is DONE or FAIL
+  app.get('/api/sippy/upload/status', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+
+      const token = req.query.token as string | undefined;
+      if (!token) return res.status(400).json({ error: 'token is required' });
+      const iCustomer = req.query.iCustomer ? Number(req.query.iCustomer) : undefined;
+
+      const result = await sippy.getUploadStatus(username, password, token, iCustomer);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/sippy/upload/file — proxy a binary file to a Sippy upload URL (docs 3000073010)
+  // Query params: url (required) — the upload URL returned by /api/sippy/upload/token
+  //               filename (optional) — original filename for Content-Disposition
+  // Body: raw binary file content (any MIME type; set Content-Type as needed)
+  // Returns: { success, body } — body is Sippy's raw HTTP response text
+  app.post('/api/sippy/upload/file',
+    (req: any, res: any, next: any) => {
+      // Parse as raw binary regardless of Content-Type (limit 200 MB)
+      const express = require('express');
+      express.raw({ type: '*/*', limit: '200mb' })(req, res, next);
+    },
+    async (req: any, res) => {
+      try {
+        const uploadUrl = req.query.url as string | undefined;
+        if (!uploadUrl) return res.status(400).json({ error: 'url query param is required' });
+
+        const data: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body ?? '');
+        const filename = (req.query.filename as string | undefined) ?? 'upload.csv';
+
+        const result = await sippy.uploadBinaryFile(uploadUrl, data, filename);
+        res.status(result.success ? 200 : 422).json(result);
+      } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+    }
+  );
+
   // GET /api/sippy/asr-report — ASR/ACD report computed from Sippy CDRs
   app.get('/api/sippy/asr-report', async (req, res) => {
     try {

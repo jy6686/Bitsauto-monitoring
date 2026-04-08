@@ -1760,6 +1760,207 @@ export async function getCDRSDP(
   }
 }
 
+// ── Binary Upload (docs 3000073010 / 3000073011 / 3000073012) ────────────────
+
+/**
+ * Possible status values returned by getUploadStatus().
+ * Lifecycle: INIT_TOKEN → FILE_UPLOADED → PROCESSING → DONE | FAIL
+ * (status only advances once the file has been uploaded)
+ */
+export type SippyUploadStatus =
+  | 'INIT_TOKEN'
+  | 'FILE_UPLOADED'
+  | 'PROCESSING'
+  | 'FAIL'
+  | 'DONE';
+
+/** Response from getUploadToken() — docs 3000073011 */
+export interface SippyUploadTokenResult {
+  token: string;    // unique token identifying this upload
+  url: string;      // unique URL to POST the binary file to
+}
+
+/** Response from getUploadStatus() — docs 3000073012 */
+export interface SippyUploadStatusResult {
+  status: SippyUploadStatus;  // current processing state
+  processOn?: string;         // process_on — when processing starts (Sippy/ISO format)
+  expiresOn?: string;         // expires_on — when the upload URL/task expires
+  statusChangedOn?: string;   // status_changed_on — when status last changed
+  reportUrl?: string;         // url — report download URL (only when DONE/FAIL)
+}
+
+/**
+ * Builds the XML body for getUploadToken(), which requires a nested struct
+ * inside the `params` member — something buildStructMembers() cannot produce.
+ *
+ * upload_type values (from getDictionary('upload_types')):
+ *   typically 1 = Rates (Tariff), 2 = Routes (Destination Set)
+ *
+ * @param iUploadType   Integer upload type (mandatory)
+ * @param processOn     ISO8601 UTC datetime: when to start processing (optional)
+ * @param expiresOn     ISO8601 UTC datetime: when the upload URL expires (optional)
+ * @param uploadParams  Nested struct — { i_tariff: N } for rates, { i_destination_set: N } for routes
+ * @param iCustomer     Customer ID for trusted-mode access (optional)
+ */
+function buildGetUploadTokenXml(
+  iUploadType: number,
+  processOn?: string,
+  expiresOn?: string,
+  uploadParams?: Record<string, number>,
+  iCustomer?: number,
+): string {
+  let members = `<member><name>i_upload_type</name><value><int>${iUploadType}</int></value></member>`;
+
+  if (processOn)  members += `<member><name>process_on</name><value><dateTime.iso8601>${processOn}</dateTime.iso8601></value></member>`;
+  if (expiresOn)  members += `<member><name>expires_on</name><value><dateTime.iso8601>${expiresOn}</dateTime.iso8601></value></member>`;
+
+  if (uploadParams && Object.keys(uploadParams).length > 0) {
+    const innerMembers = Object.entries(uploadParams)
+      .map(([k, v]) => `<member><name>${k}</name><value><int>${v}</int></value></member>`)
+      .join('');
+    members += `<member><name>params</name><value><struct>${innerMembers}</struct></value></member>`;
+  }
+
+  if (iCustomer !== undefined) {
+    members += `<member><name>i_customer</name><value><int>${iCustomer}</int></value></member>`;
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?><methodCall><methodName>getUploadToken</methodName><params><param><value><struct>${members}</struct></value></param></params></methodCall>`;
+}
+
+/**
+ * getUploadToken() — initiate a new binary bulk upload (docs 3000073011).
+ *
+ * Returns an upload token and a unique URL.  The caller must then POST the
+ * binary file to that URL using chunked transfer encoding (see `uploadBinaryFile`).
+ *
+ * @param username      XML-RPC admin username
+ * @param password      XML-RPC admin password
+ * @param iUploadType   Upload type integer (1 = Rates/Tariff, 2 = Routes/Destination Set; see getDictionary('upload_types'))
+ * @param processOn     ISO8601 UTC datetime when processing should start (optional, default: now)
+ * @param expiresOn     ISO8601 UTC datetime until which the upload URL is valid (optional, default: now + 1 day)
+ * @param uploadParams  Nested params struct: `{ i_tariff: N }` for rates or `{ i_destination_set: N }` for routes
+ * @param iCustomer     Customer ID for trusted-mode access (optional)
+ */
+export async function getUploadToken(
+  username: string,
+  password: string,
+  iUploadType: number,
+  processOn?: string,
+  expiresOn?: string,
+  uploadParams?: Record<string, number>,
+  iCustomer?: number,
+): Promise<SippyUploadTokenResult> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const xmlBody = buildGetUploadTokenXml(iUploadType, processOn, expiresOn, uploadParams, iCustomer);
+  const resp = await sippyPost(apiUrl, xmlBody, username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+
+  if (resp.statusCode !== 200 || text.includes('faultCode')) {
+    const fault = extractTag(text, 'faultString') ?? 'getUploadToken failed.';
+    throw new Error(fault);
+  }
+
+  const s = extractAllTags(text, 'struct')[0] ?? '';
+  const m = extractStructMembers(s);
+
+  const token = m['token'];
+  const url   = m['url'];
+  if (!token || !url) throw new Error('getUploadToken: missing token or url in response');
+
+  return { token, url };
+}
+
+/**
+ * getUploadStatus() — poll the processing state of a bulk upload (docs 3000073012).
+ *
+ * Status lifecycle: INIT_TOKEN → FILE_UPLOADED → PROCESSING → DONE | FAIL
+ * `reportUrl` is only present when status is DONE or FAIL.
+ *
+ * @param username  XML-RPC admin username
+ * @param password  XML-RPC admin password
+ * @param token     Token returned by getUploadToken()
+ * @param iCustomer Customer ID for trusted-mode access (optional)
+ */
+export async function getUploadStatus(
+  username: string,
+  password: string,
+  token: string,
+  iCustomer?: number,
+): Promise<SippyUploadStatusResult> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { token };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('getUploadStatus', params), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+
+  if (resp.statusCode !== 200 || text.includes('faultCode')) {
+    const fault = extractTag(text, 'faultString') ?? 'getUploadStatus failed.';
+    throw new Error(fault);
+  }
+
+  const s = extractAllTags(text, 'struct')[0] ?? '';
+  const mm = extractStructMembers(s);
+
+  return {
+    status:          (mm['status'] || 'INIT_TOKEN') as SippyUploadStatus,
+    processOn:       mm['process_on']        || undefined,
+    expiresOn:       mm['expires_on']        || undefined,
+    statusChangedOn: mm['status_changed_on'] || undefined,
+    reportUrl:       mm['url']               || undefined,
+  };
+}
+
+/**
+ * uploadBinaryFile() — POST a binary buffer to a Sippy upload URL using
+ * chunked transfer encoding (as required by docs 3000073010).
+ *
+ * Used server-side to forward a file received from the browser to Sippy.
+ *
+ * @param uploadUrl  URL returned by getUploadToken()
+ * @param data       File contents as a Buffer
+ * @param filename   Original filename (sent as Content-Disposition)
+ */
+export async function uploadBinaryFile(
+  uploadUrl: string,
+  data: Buffer,
+  filename = 'upload.csv',
+): Promise<{ success: boolean; body: string }> {
+  return new Promise((resolve) => {
+    const url   = new URL(uploadUrl);
+    const proto = url.protocol === 'https:' ? require('https') : require('http');
+
+    const options = {
+      hostname:         url.hostname,
+      port:             url.port || (url.protocol === 'https:' ? 443 : 80),
+      path:             url.pathname + url.search,
+      method:           'POST',
+      headers: {
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Type':        'application/octet-stream',
+        'Transfer-Encoding':   'chunked',
+      },
+    };
+
+    const req = proto.request(options, (incoming: any) => {
+      let body = '';
+      incoming.on('data', (chunk: any) => { body += chunk.toString(); });
+      incoming.on('end', () => {
+        resolve({ success: incoming.statusCode < 400, body });
+      });
+    });
+
+    req.on('error', (err: any) => resolve({ success: false, body: err.message }));
+    req.write(data);
+    req.end();
+  });
+}
+
 // ── Portal User Management ────────────────────────────────────────────────────
 
 export interface SippyPortalUser {
