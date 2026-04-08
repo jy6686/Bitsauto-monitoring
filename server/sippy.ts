@@ -7864,6 +7864,271 @@ export async function writeAuditLog(
   }
 }
 
+// ─── Test Dialplan (docs 3000054197) — System Management permission ───────────
+
+export interface SippyDialplanRoute {
+  cli:                        string  | null;
+  cld:                        string  | null;
+  prefix:                     string  | null;
+  iDestinationSet:            number  | null;
+  destinationSetName:         string  | null;
+  iRoute:                     number  | null;
+  iMediaRelay:                number  | null;
+  mediaRelayIsSystem:         boolean | null;
+  iVendor:                    number  | null;
+  vendorName:                 string  | null;
+  iConnection:                number  | null;
+  connectionName:             string  | null;
+  capacity:                   number  | null;
+  numSessions:                number  | null;
+  preference:                 number  | null;
+  qualityMonitorEnabled:      boolean | null;
+  qualityMonitorAction:       string  | null;
+  connectionQuality:          string  | null;
+  failedQualityMonitor:       boolean | null;
+  connectionDestinationStatus:string  | null;
+  qmonAction:                 string  | null;
+  estimatedCost:              string  | null;
+  stirShakenMode:             string  | null;
+  systemConnection:           boolean | null;
+  freeSeconds:                number  | null;
+  interval1:                  number  | null;
+  intervalN:                  number  | null;
+  connectFee:                 string  | null;
+  price1:                     string  | null;
+  priceN:                     string  | null;
+  gracePeriod:                number  | null;
+  postCallSurcharge:          string  | null;
+  areaName:                   string  | null;
+  forbidden:                  boolean | null;
+  huntstop:                   boolean | null;
+  timeout100:                 number  | null;
+  timeout1xx:                 number  | null;
+  timeout200:                 number  | null;
+  onnetRouteType:             number  | null;
+  error:                      string  | null;
+  errorCause:                 string  | null;
+}
+
+export interface SippyDialplanResult {
+  result:               string  | null;
+  cause:                string  | null;
+  // Origination / account
+  iDid:                 number  | null;
+  iDidAuthorization:    number  | null;
+  iIvrApplication:      number  | null;
+  iAuthentication:      number  | null;
+  iAccount:             number  | null;
+  iCustomer:            number  | null;
+  // Tariff / billing
+  iTariff:              number  | null;
+  tariffName:           string  | null;
+  iRate:                number  | null;
+  prefix:               string  | null;
+  cli:                  string  | null;
+  cld:                  string  | null;
+  username:             string  | null;
+  averageDuration:      number  | null;
+  freeSeconds:          number  | null;
+  interval1:            number  | null;
+  intervalN:            number  | null;
+  connectFee:           string  | null;
+  price1:               string  | null;
+  priceN:               string  | null;
+  gracePeriod:          number  | null;
+  postCallSurcharge:    string  | null;
+  estimatedCostOrig:    string  | null;
+  // Routing
+  iRoutingGroup:        number  | null;
+  routingGroupName:     string  | null;
+  stirShakenEnabled:    boolean | null;
+  // LRN
+  lrnCldIn:             string  | null;
+  lrnCld:               string  | null;
+  lrnCliIn:             string  | null;
+  lrnCli:               string  | null;
+  areaName:             string  | null;
+  // Ambiguous auth (since 2021)
+  ambiguousAuth:        string[] | null;
+  // Routes / onnet
+  routes:               SippyDialplanRoute[] | null;
+  onnetAccount:         Record<string, unknown> | null;
+}
+
+/** Parse one route struct into a SippyDialplanRoute. */
+function parseDialplanRoute(m: Record<string, string>): SippyDialplanRoute {
+  const ni = (k: string) => { const v = m[k]; return (!v || v === 'nil' || v === 'None') ? null : parseInt(v, 10) || null; };
+  const ns = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : m[k];
+  const nb = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : (m[k] === '1' || m[k].toLowerCase() === 'true');
+  const nf = (k: string) => { const v = m[k]; return (!v || v === 'nil' || v === 'None') ? null : v; };
+  return {
+    cli:                         ns('cli'),
+    cld:                         ns('cld'),
+    prefix:                      ns('prefix'),
+    iDestinationSet:             ni('i_destination_set'),
+    destinationSetName:          ns('destination_set_name'),
+    iRoute:                      ni('i_route'),
+    iMediaRelay:                 ni('i_media_relay'),
+    mediaRelayIsSystem:          nb('media_relay_is_system'),
+    iVendor:                     ni('i_vendor'),
+    vendorName:                  ns('vendor_name'),
+    iConnection:                 ni('i_connection'),
+    connectionName:              ns('connection_name'),
+    capacity:                    ni('capacity'),
+    numSessions:                 ni('num_sessions'),
+    preference:                  ni('preference'),
+    qualityMonitorEnabled:       nb('quality_monitor_enabled'),
+    qualityMonitorAction:        ns('quality_monitor_action'),
+    connectionQuality:           ns('connection_quality'),
+    failedQualityMonitor:        nb('failed_quality_monitor'),
+    connectionDestinationStatus: ns('connection_destination_status'),
+    qmonAction:                  ns('qmon_action'),
+    estimatedCost:               nf('estimated_cost'),
+    stirShakenMode:              ns('stir_shaken_mode'),
+    systemConnection:            nb('system_connection'),
+    freeSeconds:                 ni('free_seconds'),
+    interval1:                   ni('interval_1'),
+    intervalN:                   ni('interval_N'),
+    connectFee:                  nf('connect_fee'),
+    price1:                      nf('price_1'),
+    priceN:                      nf('price_N'),
+    gracePeriod:                 ni('grace_period'),
+    postCallSurcharge:           nf('post_call_surcharge'),
+    areaName:                    ns('area_name'),
+    forbidden:                   nb('forbidden'),
+    huntstop:                    nb('huntstop'),
+    timeout100:                  ni('timeout_100'),
+    timeout1xx:                  ni('timeout_1xx'),
+    timeout200:                  ni('timeout_200'),
+    onnetRouteType:              ni('onnet_route_type'),
+    error:                       ns('error'),
+    errorCause:                  ns('error_cause'),
+  };
+}
+
+/**
+ * Test dialplan routing for a given CLI/CLD pair.
+ * Requires System Management permission. Supports trusted mode.
+ * Official method: testDialplan() — docs 3000054197
+ */
+export async function testDialplan(
+  username: string,
+  password: string,
+  cli: string,
+  cld: string,
+  opts?: {
+    fallbackIAccount?: number;
+    remoteUdpPort?:    number;
+    remoteIp?:         string;
+    toDomain?:         string;
+    fromDomain?:       string;
+    isIvrOriginated?:  boolean;
+    iProtocol?:        number;
+    nated?:            boolean;
+    callStartTime?:    Date | string;
+    paiHdr?:           string;
+    rpidHdr?:          string;
+    portalUrl?:        string;
+  },
+): Promise<{ success: boolean; data?: SippyDialplanResult; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { cli, cld };
+  if (opts?.fallbackIAccount !== undefined) params.fallback_i_account = opts.fallbackIAccount;
+  if (opts?.remoteUdpPort   !== undefined) params.remote_udp_port    = opts.remoteUdpPort;
+  if (opts?.remoteIp        !== undefined) params.remote_ip          = opts.remoteIp;
+  if (opts?.toDomain        !== undefined) params.to_domain          = opts.toDomain;
+  if (opts?.fromDomain      !== undefined) params.from_domain        = opts.fromDomain;
+  if (opts?.isIvrOriginated !== undefined) params.is_ivr_originated  = opts.isIvrOriginated;
+  if (opts?.iProtocol       !== undefined) params.i_protocol         = opts.iProtocol;
+  if (opts?.nated           !== undefined) params.nated              = opts.nated;
+  if (opts?.callStartTime   !== undefined) params.call_start_time    = toSippyDate(opts.callStartTime);
+  if (opts?.paiHdr          !== undefined) params.pai_hdr            = opts.paiHdr;
+  if (opts?.rpidHdr         !== undefined) params.rpid_hdr           = opts.rpidHdr;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('testDialplan', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const ni = (k: string) => { const v = m[k]; return (!v || v === 'nil' || v === 'None') ? null : parseInt(v, 10) || null; };
+      const ns = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : m[k];
+      const nb = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : (m[k] === '1' || m[k].toLowerCase() === 'true');
+      const nf = (k: string) => { const v = m[k]; return (!v || v === 'nil' || v === 'None') ? null : v; };
+
+      // Parse routes array — inside <name>routes</name><value><array>...</array></value>
+      let routes: SippyDialplanRoute[] | null = null;
+      const routesMatch = /<name>routes<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/i.exec(text);
+      if (routesMatch) {
+        const rawRoutes = parseArrayOfStructs(routesMatch[1]);
+        routes = rawRoutes.map((r: Record<string, string>) => parseDialplanRoute(r));
+      }
+
+      // Parse onnet_account struct (if present)
+      let onnetAccount: Record<string, unknown> | null = null;
+      const onnetMatch = /<name>onnet_account<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>\s*<\/value>/i.exec(text);
+      if (onnetMatch) {
+        onnetAccount = extractStructMembers(`<struct>${onnetMatch[1]}</struct>`);
+      }
+
+      // Parse ambiguous_auth array of strings
+      let ambiguousAuth: string[] | null = null;
+      const aaMatch = /<name>ambiguous_auth<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/i.exec(text);
+      if (aaMatch) {
+        const valMatches = [...aaMatch[1].matchAll(/<string>([^<]*)<\/string>/g)];
+        if (valMatches.length > 0) ambiguousAuth = valMatches.map(x => x[1]);
+      }
+
+      const data: SippyDialplanResult = {
+        result:            ns('result'),
+        cause:             ns('cause'),
+        iDid:              ni('i_did'),
+        iDidAuthorization: ni('i_did_authorization'),
+        iIvrApplication:   ni('i_ivr_application'),
+        iAuthentication:   ni('i_authentication'),
+        iAccount:          ni('i_account'),
+        iCustomer:         ni('i_customer'),
+        iTariff:           ni('i_tariff'),
+        tariffName:        ns('tariff_name'),
+        iRate:             ni('i_rate'),
+        prefix:            ns('prefix'),
+        cli:               ns('cli'),
+        cld:               ns('cld'),
+        username:          ns('username'),
+        averageDuration:   ni('average_duration'),
+        freeSeconds:       ni('free_seconds'),
+        interval1:         ni('interval_1'),
+        intervalN:         ni('interval_N'),
+        connectFee:        nf('connect_fee'),
+        price1:            nf('price_1'),
+        priceN:            nf('price_N'),
+        gracePeriod:       ni('grace_period'),
+        postCallSurcharge: nf('post_call_surcharge'),
+        estimatedCostOrig: nf('estimated_cost_orig'),
+        iRoutingGroup:     ni('i_routing_group'),
+        routingGroupName:  ns('routing_group_name'),
+        stirShakenEnabled: nb('stir_shaken_enabled'),
+        lrnCldIn:          ns('lrn_cld_in'),
+        lrnCld:            ns('lrn_cld'),
+        lrnCliIn:          ns('lrn_cli_in'),
+        lrnCli:            ns('lrn_cli'),
+        areaName:          ns('area_name'),
+        ambiguousAuth,
+        routes,
+        onnetAccount,
+      };
+      return { success: true, data, message: data.result ?? 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'testDialplan failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 // ─── Routing Groups CRUD (docs 3000051220) ────────────────────────────────────
 
 export interface SippyRoutingGroupDetail {

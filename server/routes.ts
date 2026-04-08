@@ -3695,6 +3695,42 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ─── Test Dialplan (docs 3000054197) — System Management permission ───────────
+
+  // POST /api/sippy/test-dialplan — testDialplan()
+  // Requires System Management permission. Supports trusted mode.
+  // Body: { cli, cld, fallbackIAccount?, remoteUdpPort?, remoteIp?, toDomain?,
+  //         fromDomain?, isIvrOriginated?, iProtocol?, nated?, callStartTime?,
+  //         paiHdr?, rpidHdr? }
+  app.post('/api/sippy/test-dialplan', async (req: any, res) => {
+    try {
+      const { cli, cld, fallbackIAccount, remoteUdpPort, remoteIp, toDomain,
+              fromDomain, isIvrOriginated, iProtocol, nated, callStartTime,
+              paiHdr, rpidHdr } = req.body ?? {};
+      if (!cli) return res.status(400).json({ success: false, error: 'cli is required.' });
+      if (!cld) return res.status(400).json({ success: false, error: 'cld is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.testDialplan(username, password, cli, cld, {
+        fallbackIAccount: fallbackIAccount !== undefined ? parseInt(fallbackIAccount, 10) : undefined,
+        remoteUdpPort:    remoteUdpPort    !== undefined ? parseInt(remoteUdpPort, 10)    : undefined,
+        remoteIp:         remoteIp         || undefined,
+        toDomain:         toDomain         || undefined,
+        fromDomain:       fromDomain        || undefined,
+        isIvrOriginated:  isIvrOriginated  !== undefined ? Boolean(isIvrOriginated)  : undefined,
+        iProtocol:        iProtocol        !== undefined ? parseInt(iProtocol, 10)   : undefined,
+        nated:            nated            !== undefined ? Boolean(nated)            : undefined,
+        callStartTime:    callStartTime    || undefined,
+        paiHdr:           paiHdr           || undefined,
+        rpidHdr:          rpidHdr          || undefined,
+        portalUrl:        settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // ─── Routing Groups CRUD (docs 3000051220) ────────────────────────────────────
   // NOTE: GET /api/sippy/routing-groups (listSippyRoutingGroups discovery helper) already
   // registered above at line ~1486. The routes below implement the full official CRUD.
