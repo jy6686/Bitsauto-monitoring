@@ -2994,7 +2994,9 @@ export async function registerRoutes(
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
       const opts: { iCustomer?: number; offset?: number; limit?: number } = {};
-      if (req.query.iCustomer) opts.iCustomer = parseInt(req.query.iCustomer as string, 10);
+      // Default iCustomer to 1 — listAccounts requires a customer scope when using admin creds;
+      // without it Sippy returns HTTP 401.
+      opts.iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : 1;
       if (req.query.offset)    opts.offset    = parseInt(req.query.offset    as string, 10);
       if (req.query.limit)     opts.limit     = parseInt(req.query.limit     as string, 10);
       const result = await sippy.listSippyAccounts(username, password, opts);
