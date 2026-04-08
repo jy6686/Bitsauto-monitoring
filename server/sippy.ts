@@ -4506,32 +4506,54 @@ export async function listSippyVendors(
 // ── Vendor Connections (official Sippy docs 107435) ───────────────────────────
 
 export interface SippyVendorConnection {
-  iConnection: number;
-  name: string;
-  destination: string;
-  username?: string;
-  capacity?: number;
-  enforceCapacity?: boolean;
-  maxCps?: number;
-  blocked?: boolean;
-  iProtoTransport?: number;
-  iMediaRelayType?: number;
-  huntstopScodes?: string;
-  timeout100?: number;
-  translationRule?: string;
-  cliTranslationRule?: string;
-  outboundProxy?: string;
+  iConnection:            number;
+  name:                   string;
+  destination:            string;
+  username?:              string;
+  capacity?:              number;
+  enforceCapacity?:       boolean;
+  maxCps?:                number;
+  blocked?:               boolean;
+  // Transport & Media
+  iProtocol?:             number;           // deprecated in 2021, use iProtoTransport
+  iProtoTransport?:       number;           // since 2021
+  iMediaRelay?:           number;           // media relay node ID
+  iMediaRelayType?:       number;
+  // Call handling
+  huntstopScodes?:        string;
+  timeout100?:            number;
+  translationRule?:       string;
+  cliTranslationRule?:    string;
+  outboundProxy?:         string;
+  outboundIp?:            string;
+  ignoreLrn?:             boolean;
+  singleOutboundPort?:    boolean;
+  acceptRedirects?:       boolean;
+  redirectDepthLimit?:    number;
+  fromDomain?:            string;
+  // Diversion
+  enableDiversion?:       boolean;
+  diversionTranslation?:  string;
+  // Privacy
+  iPrivacyMode?:          number;           // since 5.1
+  useAssertedId?:         boolean;          // Use CLI as Privacy ID
+  assertedIdTranslation?: string;
+  usePrivIdAsCli?:        boolean;          // since 2021
+  trustedPrivacyDomain?:  boolean;          // since 2021; default true
+  // Misc
+  randomCallId?:          boolean;          // since 5.2
+  passRuriParams?:        string;           // since 5.2
   // Quality Monitoring (qmon) fields — docs 107435
-  qmonAcdEnabled?: boolean;
-  qmonAsrEnabled?: boolean;
-  qmonPddEnabled?: boolean;
-  qmonStatWindow?: number;       // seconds sliding window for stats
-  qmonAcdThreshold?: number;     // min acceptable ACD in seconds
-  qmonAsrThreshold?: number;     // min acceptable ASR as 0–100
-  qmonPddThreshold?: number;     // max acceptable PDD in seconds
-  qmonRetryInterval?: number;    // seconds to wait before re-enabling blocked connection
-  qmonRetryBatch?: number;       // number of test calls before re-enabling
-  qmonAction?: string;           // 'disable' | 'suspend' | 'alert' — see getDictionary(qmon_actions)
+  qmonAcdEnabled?:        boolean;
+  qmonAsrEnabled?:        boolean;
+  qmonPddEnabled?:        boolean;
+  qmonStatWindow?:        number;           // seconds sliding window for stats
+  qmonAcdThreshold?:      number;           // min acceptable ACD in seconds
+  qmonAsrThreshold?:      number;           // min acceptable ASR as 0–100
+  qmonPddThreshold?:      number;           // max acceptable PDD in seconds
+  qmonRetryInterval?:     number;           // seconds to wait before re-enabling blocked connection
+  qmonRetryBatch?:        number;           // number of test calls before re-enabling
+  qmonAction?:            string;           // 'disable' | 'suspend' | 'alert'
   qmonNotificationEnabled?: boolean;
 }
 
@@ -4540,32 +4562,54 @@ function parseVendorConnectionStruct(xml: string): SippyVendorConnection {
   const parseBool = (v: string | undefined): boolean | undefined =>
     v === '1' || v === 'true' ? true : (v === '0' || v === 'false' ? false : undefined);
   return {
-    iConnection:              parseInt(m['i_connection']          || '0', 10),
-    name:                     m['name']                           || '',
-    destination:              m['destination']                    || '',
-    username:                 m['username']                       || undefined,
-    capacity:                 m['capacity']             ? parseInt(m['capacity'], 10)            : undefined,
+    iConnection:              parseInt(m['i_connection']             || '0', 10),
+    name:                     m['name']                              || '',
+    destination:              m['destination']                       || '',
+    username:                 m['username']                          || undefined,
+    capacity:                 m['capacity']              ? parseInt(m['capacity'], 10)                  : undefined,
     enforceCapacity:          parseBool(m['enforce_capacity']),
-    maxCps:                   m['max_cps']              ? parseFloat(m['max_cps'])               : undefined,
+    maxCps:                   m['max_cps']               ? parseFloat(m['max_cps'])                    : undefined,
     blocked:                  parseBool(m['blocked']),
-    iProtoTransport:          m['i_proto_transport']    ? parseInt(m['i_proto_transport'], 10)   : undefined,
-    iMediaRelayType:          m['i_media_relay_type']   ? parseInt(m['i_media_relay_type'], 10)  : undefined,
-    huntstopScodes:           m['huntstop_scodes']                || undefined,
-    timeout100:               m['timeout_100']          ? parseInt(m['timeout_100'], 10)         : undefined,
-    translationRule:          m['translation_rule']               || undefined,
-    cliTranslationRule:       m['cli_translation_rule']           || undefined,
-    outboundProxy:            m['outbound_proxy']                 || undefined,
+    // Transport & Media
+    iProtocol:                m['i_protocol']            ? parseInt(m['i_protocol'], 10)               : undefined,
+    iProtoTransport:          m['i_proto_transport']     ? parseInt(m['i_proto_transport'], 10)         : undefined,
+    iMediaRelay:              m['i_media_relay']         ? parseInt(m['i_media_relay'], 10)             : undefined,
+    iMediaRelayType:          m['i_media_relay_type']    ? parseInt(m['i_media_relay_type'], 10)        : undefined,
+    // Call handling
+    huntstopScodes:           m['huntstop_scodes']                   || undefined,
+    timeout100:               m['timeout_100']           ? parseInt(m['timeout_100'], 10)               : undefined,
+    translationRule:          m['translation_rule']                  || undefined,
+    cliTranslationRule:       m['cli_translation_rule']              || undefined,
+    outboundProxy:            m['outbound_proxy']                    || undefined,
+    outboundIp:               m['outbound_ip']                       || undefined,
+    ignoreLrn:                parseBool(m['ignore_lrn']),
+    singleOutboundPort:       parseBool(m['single_outbound_port']),
+    acceptRedirects:          parseBool(m['accept_redirects']),
+    redirectDepthLimit:       m['redirect_depth_limit']  ? parseInt(m['redirect_depth_limit'], 10)     : undefined,
+    fromDomain:               m['from_domain']                       || undefined,
+    // Diversion
+    enableDiversion:          parseBool(m['enable_diversion']),
+    diversionTranslation:     m['diversion_translation']             || undefined,
+    // Privacy
+    iPrivacyMode:             m['i_privacy_mode']        ? parseInt(m['i_privacy_mode'], 10)           : undefined,
+    useAssertedId:            parseBool(m['use_asserted_id']),
+    assertedIdTranslation:    m['asserted_id_translation']           || undefined,
+    usePrivIdAsCli:           parseBool(m['use_priv_id_as_cli']),
+    trustedPrivacyDomain:     parseBool(m['trusted_privacy_domain']),
+    // Misc
+    randomCallId:             parseBool(m['random_call_id']),
+    passRuriParams:           m['pass_ruri_params']                  || undefined,
     // Quality Monitoring (qmon) — docs 107435
     qmonAcdEnabled:           parseBool(m['qmon_acd_enabled']),
     qmonAsrEnabled:           parseBool(m['qmon_asr_enabled']),
     qmonPddEnabled:           parseBool(m['qmon_pdd_enabled']),
-    qmonStatWindow:           m['qmon_stat_window']     ? parseInt(m['qmon_stat_window'], 10)    : undefined,
-    qmonAcdThreshold:         m['qmon_acd_threshold']   ? parseInt(m['qmon_acd_threshold'], 10)  : undefined,
-    qmonAsrThreshold:         m['qmon_asr_threshold']   ? parseFloat(m['qmon_asr_threshold'])    : undefined,
-    qmonPddThreshold:         m['qmon_pdd_threshold']   ? parseFloat(m['qmon_pdd_threshold'])    : undefined,
-    qmonRetryInterval:        m['qmon_retry_interval']  ? parseInt(m['qmon_retry_interval'], 10) : undefined,
-    qmonRetryBatch:           m['qmon_retry_batch']     ? parseInt(m['qmon_retry_batch'], 10)    : undefined,
-    qmonAction:               m['qmon_action']                    || undefined,
+    qmonStatWindow:           m['qmon_stat_window']      ? parseInt(m['qmon_stat_window'], 10)         : undefined,
+    qmonAcdThreshold:         m['qmon_acd_threshold']    ? parseInt(m['qmon_acd_threshold'], 10)       : undefined,
+    qmonAsrThreshold:         m['qmon_asr_threshold']    ? parseFloat(m['qmon_asr_threshold'])         : undefined,
+    qmonPddThreshold:         m['qmon_pdd_threshold']    ? parseFloat(m['qmon_pdd_threshold'])         : undefined,
+    qmonRetryInterval:        m['qmon_retry_interval']   ? parseInt(m['qmon_retry_interval'], 10)      : undefined,
+    qmonRetryBatch:           m['qmon_retry_batch']      ? parseInt(m['qmon_retry_batch'], 10)         : undefined,
+    qmonAction:               m['qmon_action']                       || undefined,
     qmonNotificationEnabled:  parseBool(m['qmon_notification_enabled']),
   };
 }
@@ -4643,39 +4687,115 @@ export async function getVendorConnectionInfo(
  * Official method: createVendorConnection() — docs 107435
  * Required: i_vendor, name, destination
  */
+export type VendorConnectionOpts = {
+  // Required for create (omit for update)
+  iVendor?:               number;
+  name?:                  string;
+  destination?:           string;
+  // Auth
+  connUsername?:          string;
+  connPassword?:          string;
+  // Transport & Media
+  iProtocol?:             number;           // deprecated 2021
+  iProtoTransport?:       number;           // since 2021
+  iMediaRelay?:           number;
+  iMediaRelayType?:       number;
+  // Capacity
+  capacity?:              number;
+  enforceCapacity?:       boolean;
+  maxCps?:                number;
+  blocked?:               boolean;
+  // Call handling
+  huntstopScodes?:        string;
+  timeout100?:            number;
+  translationRule?:       string;
+  cliTranslationRule?:    string;
+  outboundProxy?:         string;
+  outboundIp?:            string;
+  ignoreLrn?:             boolean;
+  singleOutboundPort?:    boolean;
+  acceptRedirects?:       boolean;
+  redirectDepthLimit?:    number;
+  fromDomain?:            string;
+  // Diversion
+  enableDiversion?:       boolean;
+  diversionTranslation?:  string;
+  // Privacy
+  iPrivacyMode?:          number;           // since 5.1
+  useAssertedId?:         boolean;
+  assertedIdTranslation?: string;
+  usePrivIdAsCli?:        boolean;          // since 2021
+  trustedPrivacyDomain?:  boolean;          // since 2021
+  // Misc
+  randomCallId?:          boolean;          // since 5.2
+  passRuriParams?:        string;           // since 5.2
+  // Quality Monitoring — docs 107435
+  qmonAcdEnabled?:        boolean;
+  qmonAsrEnabled?:        boolean;
+  qmonPddEnabled?:        boolean;
+  qmonStatWindow?:        number;
+  qmonAcdThreshold?:      number;
+  qmonAsrThreshold?:      number;
+  qmonPddThreshold?:      number;
+  qmonRetryInterval?:     number;
+  qmonRetryBatch?:        number;
+  qmonAction?:            string;
+  qmonNotificationEnabled?: boolean;
+  // Trusted mode
+  iCustomer?:             number;
+};
+
+function buildConnectionParams(opts: VendorConnectionOpts): Record<string, string | number | boolean | null> {
+  const p: Record<string, string | number | boolean | null> = {};
+  if (opts.connUsername            !== undefined) p.username                   = opts.connUsername;
+  if (opts.connPassword            !== undefined) p.password                   = opts.connPassword;
+  if (opts.iProtocol               !== undefined) p.i_protocol                 = opts.iProtocol;
+  if (opts.iProtoTransport         !== undefined) p.i_proto_transport          = opts.iProtoTransport;
+  if (opts.iMediaRelay             !== undefined) p.i_media_relay              = opts.iMediaRelay;
+  if (opts.iMediaRelayType         !== undefined) p.i_media_relay_type         = opts.iMediaRelayType;
+  if (opts.capacity                !== undefined) p.capacity                   = opts.capacity;
+  if (opts.enforceCapacity         !== undefined) p.enforce_capacity           = opts.enforceCapacity;
+  if (opts.maxCps                  !== undefined) p.max_cps                    = opts.maxCps;
+  if (opts.blocked                 !== undefined) p.blocked                    = opts.blocked;
+  if (opts.huntstopScodes          !== undefined) p.huntstop_scodes            = opts.huntstopScodes;
+  if (opts.timeout100              !== undefined) p.timeout_100                = opts.timeout100;
+  if (opts.translationRule         !== undefined) p.translation_rule           = opts.translationRule;
+  if (opts.cliTranslationRule      !== undefined) p.cli_translation_rule       = opts.cliTranslationRule;
+  if (opts.outboundProxy           !== undefined) p.outbound_proxy             = opts.outboundProxy;
+  if (opts.outboundIp              !== undefined) p.outbound_ip                = opts.outboundIp;
+  if (opts.ignoreLrn               !== undefined) p.ignore_lrn                 = opts.ignoreLrn;
+  if (opts.singleOutboundPort      !== undefined) p.single_outbound_port       = opts.singleOutboundPort;
+  if (opts.acceptRedirects         !== undefined) p.accept_redirects           = opts.acceptRedirects;
+  if (opts.redirectDepthLimit      !== undefined) p.redirect_depth_limit       = opts.redirectDepthLimit;
+  if (opts.fromDomain              !== undefined) p.from_domain                = opts.fromDomain;
+  if (opts.enableDiversion         !== undefined) p.enable_diversion           = opts.enableDiversion;
+  if (opts.diversionTranslation    !== undefined) p.diversion_translation      = opts.diversionTranslation;
+  if (opts.iPrivacyMode            !== undefined) p.i_privacy_mode             = opts.iPrivacyMode;
+  if (opts.useAssertedId           !== undefined) p.use_asserted_id            = opts.useAssertedId;
+  if (opts.assertedIdTranslation   !== undefined) p.asserted_id_translation    = opts.assertedIdTranslation;
+  if (opts.usePrivIdAsCli          !== undefined) p.use_priv_id_as_cli         = opts.usePrivIdAsCli;
+  if (opts.trustedPrivacyDomain    !== undefined) p.trusted_privacy_domain     = opts.trustedPrivacyDomain;
+  if (opts.randomCallId            !== undefined) p.random_call_id             = opts.randomCallId;
+  if (opts.passRuriParams          !== undefined) p.pass_ruri_params           = opts.passRuriParams;
+  if (opts.qmonAcdEnabled          !== undefined) p.qmon_acd_enabled           = opts.qmonAcdEnabled;
+  if (opts.qmonAsrEnabled          !== undefined) p.qmon_asr_enabled           = opts.qmonAsrEnabled;
+  if (opts.qmonPddEnabled          !== undefined) p.qmon_pdd_enabled           = opts.qmonPddEnabled;
+  if (opts.qmonStatWindow          !== undefined) p.qmon_stat_window           = opts.qmonStatWindow;
+  if (opts.qmonAcdThreshold        !== undefined) p.qmon_acd_threshold         = opts.qmonAcdThreshold;
+  if (opts.qmonAsrThreshold        !== undefined) p.qmon_asr_threshold         = opts.qmonAsrThreshold;
+  if (opts.qmonPddThreshold        !== undefined) p.qmon_pdd_threshold         = opts.qmonPddThreshold;
+  if (opts.qmonRetryInterval       !== undefined) p.qmon_retry_interval        = opts.qmonRetryInterval;
+  if (opts.qmonRetryBatch          !== undefined) p.qmon_retry_batch           = opts.qmonRetryBatch;
+  if (opts.qmonAction              !== undefined) p.qmon_action                = opts.qmonAction;
+  if (opts.qmonNotificationEnabled !== undefined) p.qmon_notification_enabled  = opts.qmonNotificationEnabled;
+  if (opts.iCustomer               !== undefined) p.i_customer                 = opts.iCustomer;
+  return p;
+}
+
 export async function createVendorConnection(
   username: string,
   password: string,
-  opts: {
-    iVendor: number;
-    name: string;
-    destination: string;
-    connUsername?: string;
-    password?: string;
-    capacity?: number;
-    enforceCapacity?: boolean;
-    maxCps?: number;
-    blocked?: boolean;
-    iProtoTransport?: number;
-    iMediaRelayType?: number;
-    huntstopScodes?: string;
-    timeout100?: number;
-    translationRule?: string;
-    cliTranslationRule?: string;
-    outboundProxy?: string;
-    // Quality Monitoring — docs 107435
-    qmonAcdEnabled?: boolean;
-    qmonAsrEnabled?: boolean;
-    qmonPddEnabled?: boolean;
-    qmonStatWindow?: number;
-    qmonAcdThreshold?: number;
-    qmonAsrThreshold?: number;
-    qmonPddThreshold?: number;
-    qmonRetryInterval?: number;
-    qmonRetryBatch?: number;
-    qmonAction?: string;
-    qmonNotificationEnabled?: boolean;
-  },
+  opts: VendorConnectionOpts & { iVendor: number; name: string; destination: string },
   portalUrl?: string,
 ): Promise<{ success: boolean; message: string; iConnection?: number }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
@@ -4686,33 +4806,9 @@ export async function createVendorConnection(
     i_vendor:    opts.iVendor,
     name:        opts.name,
     destination: opts.destination,
-    i_customer:  1,
+    i_customer:  opts.iCustomer ?? 1,
+    ...buildConnectionParams(opts),
   };
-  if (opts.connUsername            !== undefined) params.username                   = opts.connUsername;
-  if (opts.password                !== undefined) params.password                   = opts.password;
-  if (opts.capacity                !== undefined) params.capacity                   = opts.capacity;
-  if (opts.enforceCapacity         !== undefined) params.enforce_capacity           = opts.enforceCapacity;
-  if (opts.maxCps                  !== undefined) params.max_cps                    = opts.maxCps;
-  if (opts.blocked                 !== undefined) params.blocked                    = opts.blocked;
-  if (opts.iProtoTransport         !== undefined) params.i_proto_transport          = opts.iProtoTransport;
-  if (opts.iMediaRelayType         !== undefined) params.i_media_relay_type         = opts.iMediaRelayType;
-  if (opts.huntstopScodes          !== undefined) params.huntstop_scodes            = opts.huntstopScodes;
-  if (opts.timeout100              !== undefined) params.timeout_100                = opts.timeout100;
-  if (opts.translationRule         !== undefined) params.translation_rule           = opts.translationRule;
-  if (opts.cliTranslationRule      !== undefined) params.cli_translation_rule       = opts.cliTranslationRule;
-  if (opts.outboundProxy           !== undefined) params.outbound_proxy             = opts.outboundProxy;
-  // Quality Monitoring
-  if (opts.qmonAcdEnabled          !== undefined) params.qmon_acd_enabled           = opts.qmonAcdEnabled;
-  if (opts.qmonAsrEnabled          !== undefined) params.qmon_asr_enabled           = opts.qmonAsrEnabled;
-  if (opts.qmonPddEnabled          !== undefined) params.qmon_pdd_enabled           = opts.qmonPddEnabled;
-  if (opts.qmonStatWindow          !== undefined) params.qmon_stat_window           = opts.qmonStatWindow;
-  if (opts.qmonAcdThreshold        !== undefined) params.qmon_acd_threshold         = opts.qmonAcdThreshold;
-  if (opts.qmonAsrThreshold        !== undefined) params.qmon_asr_threshold         = opts.qmonAsrThreshold;
-  if (opts.qmonPddThreshold        !== undefined) params.qmon_pdd_threshold         = opts.qmonPddThreshold;
-  if (opts.qmonRetryInterval       !== undefined) params.qmon_retry_interval        = opts.qmonRetryInterval;
-  if (opts.qmonRetryBatch          !== undefined) params.qmon_retry_batch           = opts.qmonRetryBatch;
-  if (opts.qmonAction              !== undefined) params.qmon_action                = opts.qmonAction;
-  if (opts.qmonNotificationEnabled !== undefined) params.qmon_notification_enabled  = opts.qmonNotificationEnabled;
 
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('createVendorConnection', params), username, password);
@@ -4735,72 +4831,23 @@ export async function createVendorConnection(
  * Required: i_connection; all other fields optional.
  */
 export async function updateVendorConnection(
-  username: string,
-  password: string,
+  username:    string,
+  password:    string,
   iConnection: number,
-  opts: {
-    name?: string;
-    destination?: string;
-    connUsername?: string;
-    password?: string;
-    capacity?: number;
-    enforceCapacity?: boolean;
-    maxCps?: number;
-    blocked?: boolean;
-    iProtoTransport?: number;
-    iMediaRelayType?: number;
-    huntstopScodes?: string;
-    timeout100?: number;
-    translationRule?: string;
-    cliTranslationRule?: string;
-    outboundProxy?: string;
-    // Quality Monitoring — docs 107435
-    qmonAcdEnabled?: boolean;
-    qmonAsrEnabled?: boolean;
-    qmonPddEnabled?: boolean;
-    qmonStatWindow?: number;
-    qmonAcdThreshold?: number;
-    qmonAsrThreshold?: number;
-    qmonPddThreshold?: number;
-    qmonRetryInterval?: number;
-    qmonRetryBatch?: number;
-    qmonAction?: string;
-    qmonNotificationEnabled?: boolean;
-  },
-  portalUrl?: string,
+  opts:        VendorConnectionOpts,
+  portalUrl?:  string,
 ): Promise<{ success: boolean; message: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
-  const params: Record<string, string | number | boolean | null> = { i_connection: iConnection, i_customer: 1 };
-  if (opts.name                    !== undefined) params.name                       = opts.name;
-  if (opts.destination             !== undefined) params.destination                = opts.destination;
-  if (opts.connUsername            !== undefined) params.username                   = opts.connUsername;
-  if (opts.password                !== undefined) params.password                   = opts.password;
-  if (opts.capacity                !== undefined) params.capacity                   = opts.capacity;
-  if (opts.enforceCapacity         !== undefined) params.enforce_capacity           = opts.enforceCapacity;
-  if (opts.maxCps                  !== undefined) params.max_cps                    = opts.maxCps;
-  if (opts.blocked                 !== undefined) params.blocked                    = opts.blocked;
-  if (opts.iProtoTransport         !== undefined) params.i_proto_transport          = opts.iProtoTransport;
-  if (opts.iMediaRelayType         !== undefined) params.i_media_relay_type         = opts.iMediaRelayType;
-  if (opts.huntstopScodes          !== undefined) params.huntstop_scodes            = opts.huntstopScodes;
-  if (opts.timeout100              !== undefined) params.timeout_100                = opts.timeout100;
-  if (opts.translationRule         !== undefined) params.translation_rule           = opts.translationRule;
-  if (opts.cliTranslationRule      !== undefined) params.cli_translation_rule       = opts.cliTranslationRule;
-  if (opts.outboundProxy           !== undefined) params.outbound_proxy             = opts.outboundProxy;
-  // Quality Monitoring
-  if (opts.qmonAcdEnabled          !== undefined) params.qmon_acd_enabled           = opts.qmonAcdEnabled;
-  if (opts.qmonAsrEnabled          !== undefined) params.qmon_asr_enabled           = opts.qmonAsrEnabled;
-  if (opts.qmonPddEnabled          !== undefined) params.qmon_pdd_enabled           = opts.qmonPddEnabled;
-  if (opts.qmonStatWindow          !== undefined) params.qmon_stat_window           = opts.qmonStatWindow;
-  if (opts.qmonAcdThreshold        !== undefined) params.qmon_acd_threshold         = opts.qmonAcdThreshold;
-  if (opts.qmonAsrThreshold        !== undefined) params.qmon_asr_threshold         = opts.qmonAsrThreshold;
-  if (opts.qmonPddThreshold        !== undefined) params.qmon_pdd_threshold         = opts.qmonPddThreshold;
-  if (opts.qmonRetryInterval       !== undefined) params.qmon_retry_interval        = opts.qmonRetryInterval;
-  if (opts.qmonRetryBatch          !== undefined) params.qmon_retry_batch           = opts.qmonRetryBatch;
-  if (opts.qmonAction              !== undefined) params.qmon_action                = opts.qmonAction;
-  if (opts.qmonNotificationEnabled !== undefined) params.qmon_notification_enabled  = opts.qmonNotificationEnabled;
+  const params: Record<string, string | number | boolean | null> = {
+    i_connection: iConnection,
+    i_customer:   opts.iCustomer ?? 1,
+    ...buildConnectionParams(opts),
+  };
+  if (opts.name        !== undefined) params.name        = opts.name;
+  if (opts.destination !== undefined) params.destination = opts.destination;
 
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('updateVendorConnection', params), username, password);

@@ -3179,66 +3179,78 @@ export async function registerRoutes(
 
   // ── Vendor connections (official Sippy API docs 107435) ───────────────────
 
-  // GET /api/sippy/vendors/:id/connections — list connections for a vendor
+  // GET /api/sippy/vendors/:id/connections — getVendorConnectionsList() — docs 107435
+  // Query: namePattern? (SQL LIKE filter)
+  // Returns: { connections: SippyVendorConnection[] }
   app.get('/api/sippy/vendors/:id/connections', async (req: any, res) => {
     try {
       const iVendor = parseInt(req.params.id, 10);
       if (isNaN(iVendor)) return res.status(400).json({ connections: [], error: 'Invalid i_vendor.' });
-      const settings = await storage.getSettings();
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ connections: [], error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.listVendorConnections(username, password, iVendor);
+      const result = await sippy.listVendorConnections(username, password, iVendor, settings.portalUrl ?? '');
       res.json(result);
     } catch (e: any) { res.status(500).json({ connections: [], error: e.message }); }
   });
 
-  // POST /api/sippy/vendors/:id/connections — create a vendor connection
-  // Body: name (required), destination (required), + optional fields
-  app.post('/api/sippy/vendors/:id/connections', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+  // POST /api/sippy/vendors/:id/connections — createVendorConnection() — docs 107435
+  // Body: { name (req), destination (req), + any VendorConnectionOpts fields }
+  // Returns: { success, iConnection, message }
+  app.post('/api/sippy/vendors/:id/connections', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
       const iVendor = parseInt(req.params.id, 10);
       if (isNaN(iVendor)) return res.status(400).json({ success: false, message: 'Invalid i_vendor.' });
-      const { name, destination } = req.body;
+      const { name, destination } = req.body ?? {};
       if (!name)        return res.status(400).json({ success: false, message: 'name is required.' });
       if (!destination) return res.status(400).json({ success: false, message: 'destination is required.' });
-      const settings = await storage.getSettings();
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.createVendorConnection(username, password, { iVendor, ...req.body });
+      const result = await sippy.createVendorConnection(username, password, { iVendor, ...req.body }, settings.portalUrl ?? '');
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
-  // GET /api/sippy/connections/:id — get info for a single vendor connection
+  // GET /api/sippy/connections/:id — getVendorConnectionInfo() — docs 107435
+  // Returns: { success, connection: SippyVendorConnection }
   app.get('/api/sippy/connections/:id', async (req: any, res) => {
     try {
       const iConnection = parseInt(req.params.id, 10);
       if (isNaN(iConnection)) return res.status(400).json({ success: false, error: 'Invalid i_connection.' });
-      const settings = await storage.getSettings();
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.getVendorConnectionInfo(username, password, iConnection);
+      const result = await sippy.getVendorConnectionInfo(username, password, iConnection, settings.portalUrl ?? '');
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // PATCH /api/sippy/connections/:id — update a vendor connection
-  app.patch('/api/sippy/connections/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+  // PATCH /api/sippy/connections/:id — updateVendorConnection() — docs 107435
+  // Body: any subset of VendorConnectionOpts (i_vendor cannot be changed)
+  // Returns: { success, message }
+  app.patch('/api/sippy/connections/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
       const iConnection = parseInt(req.params.id, 10);
       if (isNaN(iConnection)) return res.status(400).json({ success: false, message: 'Invalid i_connection.' });
-      const settings = await storage.getSettings();
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateVendorConnection(username, password, iConnection, req.body);
+      const result = await sippy.updateVendorConnection(username, password, iConnection, req.body, settings.portalUrl ?? '');
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
-  // DELETE /api/sippy/connections/:id — delete a vendor connection
-  app.delete('/api/sippy/connections/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+  // DELETE /api/sippy/connections/:id — deleteVendorConnection() — docs 107435
+  // Returns: { success, message }
+  app.delete('/api/sippy/connections/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const iConnection = parseInt(req.params.id, 10);
       if (isNaN(iConnection)) return res.status(400).json({ success: false, message: 'Invalid i_connection.' });
-      const settings = await storage.getSettings();
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteVendorConnection(username, password, iConnection);
+      const result = await sippy.deleteVendorConnection(username, password, iConnection, settings.portalUrl ?? '');
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
