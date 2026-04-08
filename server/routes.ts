@@ -1978,6 +1978,101 @@ export async function registerRoutes(
 
   // ── Customer management (official Sippy API) ─────────────────────────────
 
+  // POST /api/sippy/customers — createCustomer() — docs 107417
+  // Body: { name, webPassword, iTariff (number|null), ...optional fields }
+  // Returns: { success, iCustomer, message }
+  app.post('/api/sippy/customers', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const body = req.body ?? {};
+      const { name, webPassword, iTariff } = body;
+      if (!name)                        return res.status(400).json({ success: false, error: 'name is required.' });
+      if (!webPassword)                 return res.status(400).json({ success: false, error: 'webPassword is required.' });
+      if (iTariff === undefined)        return res.status(400).json({ success: false, error: 'iTariff is required (use null for own tariff).' });
+
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+
+      const result = await sippy.createCustomer(username, password, {
+        name,
+        webPassword,
+        iTariff:               iTariff === null ? null : parseInt(iTariff, 10),
+        // Contact / Identity
+        webLogin:              body.webLogin,
+        companyName:           body.companyName,
+        salutation:            body.salutation,
+        firstName:             body.firstName,
+        lastName:              body.lastName,
+        midInit:               body.midInit,
+        streetAddr:            body.streetAddr,
+        state:                 body.state,
+        postalCode:            body.postalCode,
+        city:                  body.city,
+        country:               body.country,
+        contact:               body.contact,
+        phone:                 body.phone,
+        fax:                   body.fax,
+        altPhone:              body.altPhone,
+        altContact:            body.altContact,
+        email:                 body.email,
+        cc:                    body.cc,
+        bcc:                   body.bcc,
+        mailFrom:              body.mailFrom,
+        description:           body.description,
+        // Billing
+        balance:               body.balance          !== undefined ? parseFloat(body.balance)          : undefined,
+        creditLimit:           body.creditLimit       !== undefined ? parseFloat(body.creditLimit)       : undefined,
+        paymentCurrency:       body.paymentCurrency,
+        paymentMethod:         body.paymentMethod     !== undefined ? parseInt(body.paymentMethod, 10)  : undefined,
+        minPaymentAmount:      body.minPaymentAmount  !== undefined ? parseFloat(body.minPaymentAmount)  : undefined,
+        iCommissionAgent:      body.iCommissionAgent  !== undefined ? parseInt(body.iCommissionAgent, 10) : undefined,
+        commissionSize:        body.commissionSize    !== undefined ? parseFloat(body.commissionSize)    : undefined,
+        // Routing
+        iRoutingGroup:         body.iRoutingGroup     !== undefined ? parseInt(body.iRoutingGroup, 10)  : undefined,
+        // Permissions
+        accountsMgmt:          body.accountsMgmt      !== undefined ? parseInt(body.accountsMgmt, 10)   : undefined,
+        customersMgmt:         body.customersMgmt     !== undefined ? parseInt(body.customersMgmt, 10)  : undefined,
+        systemMgmt:            body.systemMgmt        !== undefined ? parseInt(body.systemMgmt, 10)     : undefined,
+        tariffsMgmt:           body.tariffsMgmt       !== undefined ? parseInt(body.tariffsMgmt, 10)    : undefined,
+        vouchersMgmt:          body.vouchersMgmt      !== undefined ? parseInt(body.vouchersMgmt, 10)   : undefined,
+        apiAccess:             body.apiAccess         !== undefined ? parseInt(body.apiAccess, 10)      : undefined,
+        apiPassword:           body.apiPassword,
+        apiMgmt:               body.apiMgmt           !== undefined ? parseInt(body.apiMgmt, 10)        : undefined,
+        // Features
+        maxDepth:              body.maxDepth          !== undefined ? parseInt(body.maxDepth, 10)       : undefined,
+        useOwnTariff:          body.useOwnTariff      !== undefined ? parseInt(body.useOwnTariff, 10)   : undefined,
+        accountsMatchingRule:  body.accountsMatchingRule,
+        callshopEnabled:       body.callshopEnabled   !== undefined ? Boolean(body.callshopEnabled)     : undefined,
+        overcommitProtection:  body.overcommitProtection !== undefined ? Boolean(body.overcommitProtection) : undefined,
+        overcommitLimit:       body.overcommitLimit   !== undefined ? parseFloat(body.overcommitLimit)  : undefined,
+        didPoolEnabled:        body.didPoolEnabled     !== undefined ? Boolean(body.didPoolEnabled)      : undefined,
+        ivrAppsEnabled:        body.ivrAppsEnabled    !== undefined ? Boolean(body.ivrAppsEnabled)      : undefined,
+        asrAcdEnabled:         body.asrAcdEnabled     !== undefined ? Boolean(body.asrAcdEnabled)       : undefined,
+        debitCreditCardsEnabled: body.debitCreditCardsEnabled !== undefined ? Boolean(body.debitCreditCardsEnabled) : undefined,
+        conferencingEnabled:   body.conferencingEnabled !== undefined ? Boolean(body.conferencingEnabled) : undefined,
+        sharePaymentProcessors: body.sharePaymentProcessors !== undefined ? Boolean(body.sharePaymentProcessors) : undefined,
+        dnclEnabled:           body.dnclEnabled        !== undefined ? Boolean(body.dnclEnabled)         : undefined,
+        // Locale / UI
+        iTimeZone:             body.iTimeZone          !== undefined ? parseInt(body.iTimeZone, 10)      : undefined,
+        iLang:                 body.iLang,
+        iExportType:           body.iExportType        !== undefined ? parseInt(body.iExportType, 10)    : undefined,
+        startPage:             body.startPage          !== undefined ? parseInt(body.startPage, 10)      : undefined,
+        css:                   body.css,
+        dnsAlias:              body.dnsAlias,
+        // Rate limits
+        maxSessions:           body.maxSessions        !== undefined ? parseInt(body.maxSessions, 10)    : undefined,
+        maxCallsPerSecond:     body.maxCallsPerSecond   !== undefined ? parseFloat(body.maxCallsPerSecond) : undefined,
+        // Password policy
+        iPasswordPolicy:       body.iPasswordPolicy    !== undefined ? parseInt(body.iPasswordPolicy, 10) : undefined,
+        // Trusted mode
+        iWholesaler:           body.iWholesaler        !== undefined ? parseInt(body.iWholesaler, 10)    : undefined,
+      }, settings.portalUrl ?? '');
+
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // PATCH /api/sippy/customers/:id — update a customer
   app.patch('/api/sippy/customers/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {

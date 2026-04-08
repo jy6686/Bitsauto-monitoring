@@ -2739,6 +2739,206 @@ export async function deleteSippyRateEntry(
 
 // ── Customer Management (official Sippy docs 107417-107421) ──────────────────
 
+export interface CreateCustomerOpts {
+  // ── Mandatory ──────────────────────────────────────────────────────────────
+  name:        string;        // unique customer name
+  webPassword: string;        // self-care interface password
+  iTariff:     number | null; // tariff ID; null = assign own tariff
+
+  // ── Identity / Contact ─────────────────────────────────────────────────────
+  webLogin?:         string;
+  companyName?:      string;
+  salutation?:       string;
+  firstName?:        string;
+  lastName?:         string;
+  midInit?:          string;
+  streetAddr?:       string;
+  state?:            string;
+  postalCode?:       string;
+  city?:             string;
+  country?:          string;
+  contact?:          string;
+  phone?:            string;
+  fax?:              string;
+  altPhone?:         string;
+  altContact?:       string;
+  email?:            string;
+  cc?:               string;
+  bcc?:              string;
+  mailFrom?:         string;
+  description?:      string;
+
+  // ── Billing / Balance ──────────────────────────────────────────────────────
+  balance?:             number;
+  creditLimit?:         number;
+  paymentCurrency?:     string;
+  paymentMethod?:       number;
+  minPaymentAmount?:    number;
+  iCommissionAgent?:    number;  // i_customer of commission agent
+  commissionSize?:      number;  // in percent
+
+  // ── Routing ────────────────────────────────────────────────────────────────
+  iRoutingGroup?:  number;
+
+  // ── Permissions / Management bitmasks ─────────────────────────────────────
+  accountsMgmt?:    number;   // bit 0=add, 1=edit, 2=delete
+  customersMgmt?:   number;
+  systemMgmt?:      number;
+  tariffsMgmt?:     number;   // bit 0=add, 1=edit, 2=delete
+  vouchersMgmt?:    number;
+  apiAccess?:       number;   // 1 = XML-RPC API enabled
+  apiPassword?:     string;
+  apiMgmt?:         number;
+
+  // ── Features ───────────────────────────────────────────────────────────────
+  maxDepth?:               number;
+  useOwnTariff?:           number;
+  accountsMatchingRule?:   string;
+  callshopEnabled?:        boolean;
+  overcommitProtection?:   boolean;
+  overcommitLimit?:        number;  // percent
+  didPoolEnabled?:         boolean;
+  ivrAppsEnabled?:         boolean;
+  asrAcdEnabled?:          boolean;
+  debitCreditCardsEnabled?: boolean;
+  conferencingEnabled?:    boolean;
+  sharePaymentProcessors?: boolean;
+  dnclEnabled?:            boolean;
+
+  // ── Locale / UI ────────────────────────────────────────────────────────────
+  iTimeZone?:    number;   // timezone ID
+  iLang?:        string;   // two-char code e.g. "en"
+  iExportType?:  number;   // download format ID
+  startPage?:    number;
+  css?:          string;   // CSS stylesheet body for branding
+  dnsAlias?:     string;
+
+  // ── Rate limits ───────────────────────────────────────────────────────────
+  maxSessions?:         number;  // nil = unlimited
+  maxCallsPerSecond?:   number;  // nil = unlimited
+
+  // ── Password policy ───────────────────────────────────────────────────────
+  iPasswordPolicy?:  number;
+
+  // ── Trusted mode ──────────────────────────────────────────────────────────
+  iWholesaler?: number;
+}
+
+/**
+ * Create a new customer on Sippy.
+ * Official method: createCustomer() — docs 107417
+ * Mandatory: name, webPassword, iTariff (null = own tariff).
+ * Trusted mode: supply iWholesaler.
+ */
+export async function createCustomer(
+  username:  string,
+  password:  string,
+  opts:      CreateCustomerOpts,
+  portalUrl?: string,
+): Promise<{ success: boolean; iCustomer?: number; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {
+    name:         opts.name,
+    web_password: opts.webPassword,
+    i_tariff:     opts.iTariff,
+  };
+
+  // Contact / Identity
+  if (opts.webLogin        !== undefined) params.web_login          = opts.webLogin;
+  if (opts.companyName     !== undefined) params.company_name       = opts.companyName;
+  if (opts.salutation      !== undefined) params.salutation         = opts.salutation;
+  if (opts.firstName       !== undefined) params.first_name         = opts.firstName;
+  if (opts.lastName        !== undefined) params.last_name          = opts.lastName;
+  if (opts.midInit         !== undefined) params.mid_init           = opts.midInit;
+  if (opts.streetAddr      !== undefined) params.street_addr        = opts.streetAddr;
+  if (opts.state           !== undefined) params.state              = opts.state;
+  if (opts.postalCode      !== undefined) params.postal_code        = opts.postalCode;
+  if (opts.city            !== undefined) params.city               = opts.city;
+  if (opts.country         !== undefined) params.country            = opts.country;
+  if (opts.contact         !== undefined) params.contact            = opts.contact;
+  if (opts.phone           !== undefined) params.phone              = opts.phone;
+  if (opts.fax             !== undefined) params.fax                = opts.fax;
+  if (opts.altPhone        !== undefined) params.alt_phone          = opts.altPhone;
+  if (opts.altContact      !== undefined) params.alt_contact        = opts.altContact;
+  if (opts.email           !== undefined) params.email              = opts.email;
+  if (opts.cc              !== undefined) params.cc                 = opts.cc;
+  if (opts.bcc             !== undefined) params.bcc                = opts.bcc;
+  if (opts.mailFrom        !== undefined) params.mail_from          = opts.mailFrom;
+  if (opts.description     !== undefined) params.description        = opts.description;
+
+  // Billing
+  if (opts.balance             !== undefined) params.balance              = opts.balance;
+  if (opts.creditLimit         !== undefined) params.credit_limit         = opts.creditLimit;
+  if (opts.paymentCurrency     !== undefined) params.payment_currency     = opts.paymentCurrency;
+  if (opts.paymentMethod       !== undefined) params.payment_method       = opts.paymentMethod;
+  if (opts.minPaymentAmount    !== undefined) params.min_payment_amount   = opts.minPaymentAmount;
+  if (opts.iCommissionAgent    !== undefined) params.i_commission_agent   = opts.iCommissionAgent;
+  if (opts.commissionSize      !== undefined) params.commission_size      = opts.commissionSize;
+
+  // Routing
+  if (opts.iRoutingGroup !== undefined) params.i_routing_group = opts.iRoutingGroup;
+
+  // Permissions
+  if (opts.accountsMgmt    !== undefined) params.accounts_mgmt   = opts.accountsMgmt;
+  if (opts.customersMgmt   !== undefined) params.customers_mgmt  = opts.customersMgmt;
+  if (opts.systemMgmt      !== undefined) params.system_mgmt     = opts.systemMgmt;
+  if (opts.tariffsMgmt     !== undefined) params.tariffs_mgmt    = opts.tariffsMgmt;
+  if (opts.vouchersMgmt    !== undefined) params.vouchers_mgmt   = opts.vouchersMgmt;
+  if (opts.apiAccess       !== undefined) params.api_access      = opts.apiAccess;
+  if (opts.apiPassword     !== undefined) params.api_password    = opts.apiPassword;
+  if (opts.apiMgmt         !== undefined) params.api_mgmt        = opts.apiMgmt;
+
+  // Features
+  if (opts.maxDepth               !== undefined) params.max_depth                = opts.maxDepth;
+  if (opts.useOwnTariff           !== undefined) params.use_own_tariff           = opts.useOwnTariff;
+  if (opts.accountsMatchingRule   !== undefined) params.accounts_matching_rule   = opts.accountsMatchingRule;
+  if (opts.callshopEnabled        !== undefined) params.callshop_enabled         = opts.callshopEnabled;
+  if (opts.overcommitProtection   !== undefined) params.overcommit_protection    = opts.overcommitProtection;
+  if (opts.overcommitLimit        !== undefined) params.overcommit_limit         = opts.overcommitLimit;
+  if (opts.didPoolEnabled         !== undefined) params.did_pool_enabled         = opts.didPoolEnabled;
+  if (opts.ivrAppsEnabled         !== undefined) params.ivr_apps_enabled         = opts.ivrAppsEnabled;
+  if (opts.asrAcdEnabled          !== undefined) params.asr_acd_enabled          = opts.asrAcdEnabled;
+  if (opts.debitCreditCardsEnabled !== undefined) params.debit_credit_cards_enabled = opts.debitCreditCardsEnabled;
+  if (opts.conferencingEnabled    !== undefined) params.conferencing_enabled     = opts.conferencingEnabled;
+  if (opts.sharePaymentProcessors !== undefined) params.share_payment_processors = opts.sharePaymentProcessors;
+  if (opts.dnclEnabled            !== undefined) params.dncl_enabled             = opts.dnclEnabled;
+
+  // Locale / UI
+  if (opts.iTimeZone   !== undefined) params.i_time_zone   = opts.iTimeZone;
+  if (opts.iLang       !== undefined) params.i_lang         = opts.iLang;
+  if (opts.iExportType !== undefined) params.i_export_type  = opts.iExportType;
+  if (opts.startPage   !== undefined) params.start_page     = opts.startPage;
+  if (opts.css         !== undefined) params.css            = opts.css;
+  if (opts.dnsAlias    !== undefined) params.dns_alias      = opts.dnsAlias;
+
+  // Rate limits
+  if (opts.maxSessions       !== undefined) params.max_sessions         = opts.maxSessions;
+  if (opts.maxCallsPerSecond !== undefined) params.max_calls_per_second = opts.maxCallsPerSecond;
+
+  // Password policy
+  if (opts.iPasswordPolicy !== undefined) params.i_password_policy = opts.iPasswordPolicy;
+
+  // Trusted mode
+  if (opts.iWholesaler !== undefined) params.i_wholesaler = opts.iWholesaler;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('createCustomer', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const iCustomerRaw = extractTag(text, 'i_customer');
+      const iCustomer = iCustomerRaw ? parseInt(iCustomerRaw, 10) : undefined;
+      return { success: true, iCustomer, message: 'Customer created successfully.' };
+    }
+    const fault = extractTag(text, 'faultString') ?? 'createCustomer failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 /**
  * Update a customer on Sippy.
  * Official method: updateCustomer() — docs 107419
