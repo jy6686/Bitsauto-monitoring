@@ -3303,5 +3303,29 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // POST /api/sippy/validate-password — validate a password against a policy (docs 107475)
+  // Supports trusted mode (pass iCustomer). Returns localized fault message on failure.
+  app.post('/api/sippy/validate-password', async (req: any, res) => {
+    try {
+      const { iPasswordPolicy, password: pwd, webLabel, lang, iCustomer } = req.body ?? {};
+      if (!iPasswordPolicy || !pwd || !webLabel) {
+        return res.status(400).json({ success: false, error: 'iPasswordPolicy, password and webLabel are required.' });
+      }
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.validatePassword(username, password, {
+        iPasswordPolicy: Number(iPasswordPolicy),
+        password: pwd,
+        webLabel,
+        lang,
+        iCustomer: iCustomer !== undefined ? Number(iCustomer) : undefined,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json({ success: true, message: result.message });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   return httpServer;
 }

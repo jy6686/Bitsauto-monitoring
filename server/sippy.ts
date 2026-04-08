@@ -6875,3 +6875,49 @@ export async function sendSippyEmail(
     return { success: false, message: e.message };
   }
 }
+
+/**
+ * Validate a password against a named password policy.
+ * Official method: validatePassword() — docs 107475
+ * Supports trusted mode (pass iCustomer). Fault message is localized per lang.
+ */
+export async function validatePassword(
+  username: string,
+  password: string,
+  opts: {
+    iPasswordPolicy: number;
+    password: string;
+    webLabel: string;
+    lang?: string;
+    iCustomer?: number;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | null> = {
+    i_password_policy: opts.iPasswordPolicy,
+    password:          opts.password,
+    web_label:         opts.webLabel,
+  };
+  if (opts.lang       !== undefined) params.lang       = opts.lang;
+  if (opts.iCustomer  !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('validatePassword', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? extractTag(text, 'string') ?? '').trim() === 'OK') {
+        return { success: true, message: 'Password is valid.' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'validatePassword failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
