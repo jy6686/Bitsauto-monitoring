@@ -11723,3 +11723,204 @@ export async function getCallbackStatus(
     return { success: false, message: extractTag(text, 'faultString') || 'getCallbackStatus failed.' };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
+
+// ─── system.multicall (docs 3000108533) — Sippy 4.4+ ─────────────────────────
+
+export interface MulticallEntry {
+  methodName: string;
+  params: Record<string, string | number | boolean | null>;
+}
+
+export interface MulticallResult {
+  index:       number;
+  success:     boolean;
+  result?:     Record<string, string>;   // parsed struct on success
+  faultCode?:  number;
+  faultString?: string;
+}
+
+/**
+ * Build a system.multicall XML-RPC body.
+ * Each call's params are sent as a single-element array containing a flat struct
+ * — this matches the standard Sippy XML-RPC calling convention.
+ */
+function buildMulticallBody(calls: MulticallEntry[]): string {
+  const callsXml = calls.map(({ methodName, params }) => {
+    const members = buildStructMembers(params);
+    return `<value><struct>\
+<member><name>methodName</name><value><string>${methodName}</string></value></member>\
+<member><name>params</name><value><array><data>\
+<value><struct>${members}</struct></value>\
+</data></array></value></member>\
+</struct></value>`;
+  }).join('');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<methodCall>
+  <methodName>system.multicall</methodName>
+  <params>
+    <param>
+      <value>
+        <array><data>${callsXml}</data></array>
+      </value>
+    </param>
+  </params>
+</methodCall>`;
+}
+
+/**
+ * Parse a system.multicall response.
+ * Each top-level <value> in the response array is either:
+ *   – <array><data><value>RESULT</value></data></array>  (success)
+ *   – <struct> with faultCode + faultString              (per-call fault)
+ */
+function parseMulticallResponse(text: string): MulticallResult[] {
+  const results: MulticallResult[] = [];
+
+  // Extract the outer array <data> block from the response
+  const outerMatch = text.match(/<params>\s*<param>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>\s*<\/array>\s*<\/value>\s*<\/param>\s*<\/params>/);
+  if (!outerMatch) return results;
+
+  const outerData = outerMatch[1];
+
+  let index = 0;
+
+  // Walk balanced <value> blocks — careful with nesting
+  // by finding all <value> children of the outer <data>
+  const topValues: string[] = [];
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < outerData.length; i++) {
+    if (outerData.slice(i, i + 7) === '<value>') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (outerData.slice(i, i + 8) === '</value>') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        topValues.push(outerData.slice(start + 7, i));
+        start = -1;
+      }
+    }
+  }
+
+  for (const inner of topValues) {
+    // Success: wrapped in another <array><data><value>...</value></data></array>
+    const successMatch = inner.match(/^\s*<array>\s*<data>\s*<value>([\s\S]*?)<\/value>\s*<\/data>\s*<\/array>\s*$/);
+    if (successMatch) {
+      const resultInner = successMatch[1];
+      const parsed = extractStructMembers(resultInner);
+      results.push({ index, success: true, result: parsed });
+    } else {
+      // Fault: <struct> with faultCode + faultString
+      const parsed = extractStructMembers(inner);
+      const fc = parsed['faultCode'] ? parseInt(parsed['faultCode'], 10) : undefined;
+      const fs = parsed['faultString'] ?? 'Unknown fault';
+      results.push({ index, success: false, faultCode: fc, faultString: fs });
+    }
+    index++;
+  }
+
+  return results;
+}
+
+/**
+ * Execute multiple Sippy XML-RPC calls in a single system.multicall request.
+ * Requires Sippy 4.4+. Returns one result entry per input call, in order.
+ * Official method: system.multicall — docs 3000108533
+ */
+export async function sippyMulticall(
+  username: string,
+  password: string,
+  calls: MulticallEntry[],
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; results: MulticallResult[]; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, results: [], message: 'Not connected to Sippy.' };
+  if (calls.length === 0) return { success: true, results: [], message: 'No calls to execute.' };
+
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const body = buildMulticallBody(calls);
+    const resp = await sippyPost(apiUrl, body, username, password);
+    const text = resp.body;
+
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const results = parseMulticallResponse(text);
+      const failed = results.filter(r => !r.success).length;
+      return {
+        success: failed === 0,
+        results,
+        message: failed === 0
+          ? `All ${results.length} calls succeeded.`
+          : `${results.length - failed}/${results.length} calls succeeded; ${failed} faulted.`,
+      };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'system.multicall failed.';
+    return { success: false, results: [], message: fault };
+  } catch (e: any) {
+    return { success: false, results: [], message: e.message };
+  }
+}
+
+/**
+ * Bulk-add DIDs via system.multicall (3× faster than serial addDID calls).
+ * Official method: addDID() via system.multicall — docs 3000108533 + 107502
+ */
+export async function bulkAddDIDs(
+  username: string,
+  password: string,
+  dids: Array<{
+    did: string;
+    incomingDid: string;
+    didRangeEnd?: string;
+    translationRule?: string;
+    cliTranslationRule?: string;
+    description?: string;
+    iIvrApplication?: number;
+    iAccount?: number;
+    iDidsChargingGroup?: number;
+    iVendor?: number;
+    iConnection?: number;
+    buyingIDidsChargingGroup?: number;
+    incomingCli?: string;
+  }>,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; results: MulticallResult[]; message: string }> {
+  const calls: MulticallEntry[] = dids.map(d => {
+    const params: Record<string, string | number | null> = {
+      did:          d.did,
+      incoming_did: d.incomingDid,
+    };
+    if (d.didRangeEnd             !== undefined) params.did_range_end                = d.didRangeEnd;
+    if (d.translationRule         !== undefined) params.translation_rule             = d.translationRule;
+    if (d.cliTranslationRule      !== undefined) params.cli_translation_rule         = d.cliTranslationRule;
+    if (d.description             !== undefined) params.description                  = d.description;
+    if (d.iIvrApplication         !== undefined) params.i_ivr_application            = d.iIvrApplication;
+    if (d.iAccount                !== undefined) params.i_account                    = d.iAccount;
+    if (d.iDidsChargingGroup      !== undefined) params.i_dids_charging_group        = d.iDidsChargingGroup;
+    if (d.iVendor                 !== undefined) params.i_vendor                     = d.iVendor;
+    if (d.iConnection             !== undefined) params.i_connection                 = d.iConnection;
+    if (d.buyingIDidsChargingGroup !== undefined) params.buying_i_dids_charging_group = d.buyingIDidsChargingGroup;
+    if (d.incomingCli             !== undefined) params.incoming_cli                 = d.incomingCli;
+    return { methodName: 'addDID', params };
+  });
+  return sippyMulticall(username, password, calls, opts);
+}
+
+/**
+ * Bulk-delete DIDs via system.multicall.
+ * Official method: deleteDID() via system.multicall — docs 3000108533 + 107502
+ */
+export async function bulkDeleteDIDs(
+  username: string,
+  password: string,
+  iDids: number[],
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; results: MulticallResult[]; message: string }> {
+  const calls: MulticallEntry[] = iDids.map(id => ({
+    methodName: 'deleteDID',
+    params: { i_did: id },
+  }));
+  return sippyMulticall(username, password, calls, opts);
+}

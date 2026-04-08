@@ -4489,6 +4489,37 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // POST /api/sippy/dids/bulk — bulk-add DIDs via system.multicall (docs 3000108533)
+  app.post('/api/sippy/dids/bulk', async (req: any, res) => {
+    try {
+      const { dids } = req.body ?? {};
+      if (!Array.isArray(dids) || dids.length === 0)
+        return res.status(400).json({ success: false, error: 'dids must be a non-empty array.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.bulkAddDIDs(username, password, dids, { portalUrl: settings.portalUrl ?? '' });
+      res.status(result.success ? 200 : 207).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // DELETE /api/sippy/dids/bulk — bulk-delete DIDs via system.multicall (docs 3000108533)
+  app.delete('/api/sippy/dids/bulk', async (req: any, res) => {
+    try {
+      const { iDids } = req.body ?? {};
+      if (!Array.isArray(iDids) || iDids.length === 0)
+        return res.status(400).json({ success: false, error: 'iDids must be a non-empty array of integers.' });
+      const ids = iDids.map((id: any) => parseInt(id, 10)).filter((id: number) => !isNaN(id));
+      if (ids.length === 0)
+        return res.status(400).json({ success: false, error: 'No valid integer i_did values provided.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.bulkDeleteDIDs(username, password, ids, { portalUrl: settings.portalUrl ?? '' });
+      res.status(result.success ? 200 : 207).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // POST /api/sippy/dids — add a DID
   app.post('/api/sippy/dids', async (req: any, res) => {
     try {
