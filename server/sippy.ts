@@ -738,30 +738,34 @@ export async function connectSippy(
 // ── Active Calls ──────────────────────────────────────────────────────────────
 
 export interface SippyActiveCall {
-  id?: string;          // ID field — used by disconnectCall() (different from CALL_ID)
-  callId: string;       // CALL_ID — SIP Call-ID header
-  caller: string;       // CLI (calling number)
-  callee: string;       // CLD (destination number)
-  duration: number;     // DURATION in seconds
+  id?: string;            // ID field — used by disconnectCall() (different from CALL_ID)
+  callId: string;         // CALL_ID — SIP Call-ID header
+  caller: string;         // CLI (calling number)
+  callee: string;         // CLD (destination number)
+  duration: number;       // DURATION in seconds
   codec: string;
-  status: string;       // CC_STATE: Idle | WaitAuth | WaitRoute | ARComplete | Connected | Disconnecting | Dead
-  user?: string;        // account/customer label
-  accountId?: string;   // I_ACCOUNT numeric ID
-  iCustomer?: string;   // I_CUSTOMER numeric ID
+  status: string;         // CC_STATE: Idle | WaitAuth | WaitRoute | ARComplete | Connected | Disconnecting | Dead
+  user?: string;          // account/customer label
+  accountId?: string;     // I_ACCOUNT numeric ID
+  iCustomer?: string;     // I_CUSTOMER numeric ID
+  iEnvironment?: string;  // I_ENVIRONMENT numeric ID
   vendor?: string;
-  connection?: string;  // I_CONNECTION numeric ID
-  direction?: string;   // DIRECTION
+  connection?: string;    // I_CONNECTION numeric ID
+  direction?: string;     // DIRECTION
   mediaIpCaller?: string; // CALLER_MEDIA_IP
   mediaIpCallee?: string; // CALLEE_MEDIA_IP
-  delay?: number;       // DELAY in seconds (PDD / setup delay)
-  setupTime?: string;   // SETUP_TIME timestamp (available since Sippy 2022)
+  delay?: number;         // DELAY in seconds (PDD / setup delay)
+  setupTime?: string;     // SETUP_TIME timestamp (available since Sippy 2022)
+  nodeId?: string;        // NODE_ID (FreightSwitch)
 }
 
 export interface SippyActiveCallsFilter {
   order?: 'oldest_first' | 'oldest_last' | 'longest_first' | 'longest_last';
+  recursive?: boolean;   // include subcustomer calls (default: true)
   i_account?: number;    // return only calls for this account (Sippy 2020+)
   i_vendor?: number;     // return only calls via this vendor (Sippy 2020+)
   i_connection?: number; // return only calls via this connection (Sippy 2020+, takes precedence over i_vendor)
+  node_id?: string;      // return calls for specific node (FreightSwitch)
 }
 
 export async function getSippyActiveCalls(
@@ -787,10 +791,12 @@ export async function getSippyActiveCalls(
 
   // Build optional filter params (all optional per docs)
   const reqParams: Record<string, string | number | boolean | null> = {};
-  if (filter?.order)        reqParams.order        = filter.order;
-  if (filter?.i_account)    reqParams.i_account    = filter.i_account;
-  if (filter?.i_vendor)     reqParams.i_vendor     = filter.i_vendor;
-  if (filter?.i_connection) reqParams.i_connection = filter.i_connection;
+  if (filter?.order        !== undefined) reqParams.order        = filter.order;
+  if (filter?.recursive    !== undefined) reqParams.recursive    = filter.recursive;
+  if (filter?.i_account    !== undefined) reqParams.i_account    = filter.i_account;
+  if (filter?.i_vendor     !== undefined) reqParams.i_vendor     = filter.i_vendor;
+  if (filter?.i_connection !== undefined) reqParams.i_connection = filter.i_connection;
+  if (filter?.node_id      !== undefined) reqParams.node_id      = filter.node_id;
 
   // Official methods: listAllCalls (all states) | listActiveCalls (Connected/ARComplete/WaitRoute only)
   for (const method of ['listAllCalls', 'listActiveCalls']) {
@@ -827,12 +833,14 @@ export async function getSippyActiveCalls(
           iCustomer:     m['I_CUSTOMER'] || undefined,
           user:          m['username']  || m['account_name'] || undefined,
           vendor:        m['vendor_name'] || undefined,
-          connection:    m['I_CONNECTION'] ? String(m['I_CONNECTION']) : (m['NODE_ID'] || undefined),
+          connection:    m['I_CONNECTION'] ? String(m['I_CONNECTION']) : undefined,
           direction:     m['DIRECTION'] || undefined,
           mediaIpCaller: m['CALLER_MEDIA_IP'] || undefined,
           mediaIpCallee: m['CALLEE_MEDIA_IP'] || undefined,
           delay:         parseFloat(m['DELAY'] || '0') || 0,
           setupTime:     m['SETUP_TIME'] || undefined,
+          iEnvironment:  m['I_ENVIRONMENT'] ? String(m['I_ENVIRONMENT']) : undefined,
+          nodeId:        m['NODE_ID'] || undefined,
         });
       }
       return calls;
@@ -902,18 +910,22 @@ export async function disconnectSippyAccount(
 
 // ── disconnectCustomer() — docs 107462 (since 5.2) ───────────────────────────
 // Disconnects ALL calls of a given customer and all their subcustomers.
+// Trusted mode: supply iWholesaler to execute under specific access rights.
 export async function disconnectSippyCustomer(
   iCustomer: number,
   username: string,
   password: string,
-  explicitPortalUrl?: string,
+  opts?: { iWholesaler?: number; portalUrl?: string },
 ): Promise<{ success: boolean; count?: number; message: string }> {
-  const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
 
   const apiUrl = `${base}/xmlapi/xmlapi`;
+  const params: Record<string, number> = { i_customer: iCustomer };
+  if (opts?.iWholesaler !== undefined) params.i_wholesaler = opts.iWholesaler;
+
   try {
-    const resp = await sippyPost(apiUrl, xmlRpcCall('disconnectCustomer', { i_customer: iCustomer }), username, password);
+    const resp = await sippyPost(apiUrl, xmlRpcCall('disconnectCustomer', params as any), username, password);
     const text = resp.body;
     console.log(`[Sippy] disconnectCustomer(${iCustomer}) → HTTP ${resp.statusCode}: ${text.slice(0, 300)}`);
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
@@ -961,6 +973,44 @@ export async function getSippyCallStats(
     }
     const fault = extractTag(text, 'faultString');
     return { success: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'getAccountCallStats failed.' };
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
+}
+
+// ── getAccountCallStatsCustomer() — docs 107462 (new in 2024, FreightSwitch) ─
+// Same as getAccountCallStats but scoped to a single customer's accounts.
+// Trusted mode: supply iCustomer to specify the target customer.
+export async function getSippyCallStatsCustomer(
+  username: string,
+  password: string,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; data?: Record<string, [number, number]>; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const params: Record<string, number> = {};
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getAccountCallStatsCustomer', params as any), username, password);
+    const text = resp.body;
+    console.log(`[Sippy] getAccountCallStatsCustomer → HTTP ${resp.statusCode}: ${text.slice(0, 300)}`);
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const structs = extractAllTags(text, 'struct');
+      const data: Record<string, [number, number]> = {};
+      for (const s of structs) {
+        const m = extractStructMembers(s);
+        for (const [k, v] of Object.entries(m)) {
+          const nums = v.match ? String(v).match(/\d+/g) : null;
+          if (nums && nums.length >= 2) data[k] = [parseInt(nums[0]), parseInt(nums[1])];
+        }
+      }
+      return { success: true, data, message: 'OK' };
+    }
+    const fault = extractTag(text, 'faultString');
+    return { success: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'getAccountCallStatsCustomer failed.' };
   } catch (err: any) {
     return { success: false, message: err.message };
   }

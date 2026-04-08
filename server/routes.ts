@@ -1373,21 +1373,41 @@ export async function registerRoutes(
   });
 
   // POST /api/sippy/customers/:iCustomer/disconnect — disconnect all calls for a customer (since 5.2)
+  // Body (optional): { iWholesaler } — trusted mode
   app.post('/api/sippy/customers/:iCustomer/disconnect', async (req: any, res) => {
     const iCustomer = parseInt(req.params.iCustomer, 10);
     if (isNaN(iCustomer)) return res.status(400).json({ success: false, message: 'Invalid i_customer.' });
-    const settings = await storage.getSettings();
+    const settings = await storage.getSippySettings();
     const { username, password } = sippyXmlCreds(settings);
-    const result = await sippy.disconnectSippyCustomer(iCustomer, username, password);
+    const iWholesaler = req.body?.iWholesaler ? parseInt(req.body.iWholesaler, 10) : undefined;
+    const result = await sippy.disconnectSippyCustomer(iCustomer, username, password, {
+      iWholesaler,
+      portalUrl: settings?.portalUrl ?? '',
+    });
     res.json(result);
   });
 
   // GET /api/sippy/call-stats — lightweight active call count summary (getAccountCallStats)
+  // Root-only (all accounts). Returns { i_account: [total, connected] }
   app.get('/api/sippy/call-stats', async (_req, res) => {
     const settings = await storage.getSettings();
     const { username, password } = sippyXmlCreds(settings);
     const result = await sippy.getSippyCallStats(username, password);
     res.json(result);
+  });
+
+  // GET /api/sippy/call-stats/customer — getAccountCallStatsCustomer() — docs 107462 (2024+, FreightSwitch)
+  // Scoped to a single customer's accounts. Trusted mode: ?iCustomer=<id>
+  // Returns { i_account: [total, connected] }
+  app.get('/api/sippy/call-stats/customer', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      const result = await sippy.getSippyCallStatsCustomer(username, password, { iCustomer, portalUrl: settings.portalUrl ?? '' });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
   // GET /api/sippy/cdr — CDR records from Sippy
