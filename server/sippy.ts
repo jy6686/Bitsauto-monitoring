@@ -1379,18 +1379,24 @@ export async function getMonitoringGraph(
 //               getCustomerCDRs() (docs 107429) with documented field names.
 // CDR response fields: call_id, cli, cld, connect_time, billed_duration,
 //   cost, country, description, remote_ip, result, disconnect_time, duration
+//
+// Trusted-mode notes (per docs):
+//   getCustomerCDRs — trusted mode uses i_wholesaler (docs 107429)
+//   getAccountCDRs  — trusted mode uses i_customer   (docs 107367)
 export async function getSippyCDRs(
   username: string,
   password: string,
   limit = 50,
   opts: {
     iAccount?: number;
-    iCustomer?: number;
-    startDate?: string;   // ISO or Sippy format; auto-converted to Sippy format
-    endDate?: string;     // ISO or Sippy format; auto-converted to Sippy format
-    type?: string;        // 'all' | 'non_zero' | 'non_zero_and_errors' | 'complete' | 'incomplete' | 'errors'
-    cli?: string;         // filter by CLI (after translation)
-    cld?: string;         // filter by CLD (after translation)
+    iCustomer?: number;      // i_customer filter: which customer's CDRs to fetch
+    iWholesaler?: number;    // trusted mode for getCustomerCDRs (docs 107429); defaults to 1
+    iCdrsCustomer?: string;  // fetch only the single CDR with this i_cdrs_customer value (docs 107429)
+    startDate?: string;      // ISO or Sippy format; auto-converted to Sippy format
+    endDate?: string;        // ISO or Sippy format; auto-converted to Sippy format
+    type?: string;           // 'all' | 'non_zero' | 'non_zero_and_errors' | 'complete' | 'incomplete' | 'errors'
+    cli?: string;            // filter by CLI (after translation)
+    cld?: string;            // filter by CLD (after translation)
     offset?: number;
   } = {},
 ): Promise<SippyCDR[]> {
@@ -1400,34 +1406,46 @@ export async function getSippyCDRs(
   // Convert ISO dates to Sippy format if needed (Sippy requires '%H:%M:%S.000 GMT %a %b %d %Y')
   const formatDate = (d?: string) => {
     if (!d) return undefined;
-    // Already in Sippy format if it contains 'GMT'
     if (d.includes('GMT')) return d;
     try { return toSippyDate(d); } catch { return d; }
   };
 
-  const params: Record<string, unknown> = {
+  // Base params shared by both methods
+  const baseParams: Record<string, unknown> = {
     limit,
     type: opts.type || 'all',
-    i_customer: 1,   // trusted mode — root customer sees all CDRs
   };
-  if (opts.iAccount)              params.i_account   = opts.iAccount;
-  if (opts.iCustomer)             params.i_customer  = opts.iCustomer;
+  if (opts.iAccount)              baseParams.i_account        = opts.iAccount;
+  if (opts.iCustomer)             baseParams.i_customer       = opts.iCustomer;
+  if (opts.iCdrsCustomer)         baseParams.i_cdrs_customer  = opts.iCdrsCustomer;
   const fmtStart = formatDate(opts.startDate);
   const fmtEnd   = formatDate(opts.endDate);
-  if (fmtStart)                   params.start_date  = fmtStart;
-  if (fmtEnd)                     params.end_date    = fmtEnd;
-  if (opts.cli)                   params.cli         = opts.cli;
-  if (opts.cld)                   params.cld         = opts.cld;
-  if (opts.offset !== undefined)  params.offset      = opts.offset;
+  if (fmtStart)                   baseParams.start_date       = fmtStart;
+  if (fmtEnd)                     baseParams.end_date         = fmtEnd;
+  if (opts.cli)                   baseParams.cli              = opts.cli;
+  if (opts.cld)                   baseParams.cld              = opts.cld;
+  if (opts.offset !== undefined)  baseParams.offset           = opts.offset;
 
   // Official methods: getAccountCDRs() (docs 107367) / getCustomerCDRs() (docs 107429)
-  // Use getAccountCDRs first for account-scoped CDRs; getCustomerCDRs for customer-level
+  // Use getAccountCDRs first for account-scoped CDRs; getCustomerCDRs for customer-level.
+  // Each method has a different trusted-mode field:
+  //   getCustomerCDRs → i_wholesaler (defaults to 1 for root access)
+  //   getAccountCDRs  → i_customer   (defaults to 1 for root access)
   const methods = opts.iAccount
     ? ['getAccountCDRs', 'getCustomerCDRs']
     : ['getCustomerCDRs', 'getAccountCDRs'];
 
   for (const method of methods) {
     try {
+      // Set the correct trusted-mode field per method
+      const params: Record<string, unknown> = { ...baseParams };
+      if (method === 'getCustomerCDRs') {
+        params.i_wholesaler = opts.iWholesaler ?? 1;
+      } else {
+        // getAccountCDRs trusted mode: i_customer=1 (only set if caller hasn't overridden it)
+        if (!params.i_customer) params.i_customer = 1;
+      }
+
       const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password);
       if (resp.statusCode !== 200) continue;
       const text = resp.body.toString?.() ?? resp.body;

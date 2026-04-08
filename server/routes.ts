@@ -1411,7 +1411,10 @@ export async function registerRoutes(
   });
 
   // GET /api/sippy/cdr — CDR records from Sippy
-  // Query params: limit, startDate (ISO/Sippy), endDate, iCustomer, iAccount, type, cli, cld, offset
+  // Query params: limit, startDate (ISO/Sippy), endDate, iCustomer, iAccount, type,
+  //               cli, cld, offset, iWholesaler, iCdrsCustomer
+  // Trusted mode: getCustomerCDRs uses iWholesaler (default 1); getAccountCDRs uses iCustomer=1
+  // iCdrsCustomer: fetch only the single CDR with this i_cdrs_customer value (docs 107429)
   app.get('/api/sippy/cdr', async (req, res) => {
     try {
       const settings = await storage.getSettings();
@@ -1419,14 +1422,16 @@ export async function registerRoutes(
       const limit  = Number(req.query.limit)  || 50;
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
       const opts: Parameters<typeof sippy.getSippyCDRs>[3] = {};
-      if (req.query.startDate) opts.startDate = req.query.startDate as string;
-      if (req.query.endDate)   opts.endDate   = req.query.endDate   as string;
-      if (req.query.iCustomer) opts.iCustomer = Number(req.query.iCustomer);
-      if (req.query.iAccount)  opts.iAccount  = Number(req.query.iAccount);
-      if (req.query.type)      opts.type       = req.query.type      as string;
-      if (req.query.cli)       opts.cli        = req.query.cli       as string;
-      if (req.query.cld)       opts.cld        = req.query.cld       as string;
-      if (offset !== undefined) opts.offset    = offset;
+      if (req.query.startDate)      opts.startDate      = req.query.startDate      as string;
+      if (req.query.endDate)        opts.endDate        = req.query.endDate        as string;
+      if (req.query.iCustomer)      opts.iCustomer      = Number(req.query.iCustomer);
+      if (req.query.iAccount)       opts.iAccount       = Number(req.query.iAccount);
+      if (req.query.iWholesaler)    opts.iWholesaler    = Number(req.query.iWholesaler);
+      if (req.query.iCdrsCustomer)  opts.iCdrsCustomer  = req.query.iCdrsCustomer as string;
+      if (req.query.type)           opts.type           = req.query.type           as string;
+      if (req.query.cli)            opts.cli            = req.query.cli            as string;
+      if (req.query.cld)            opts.cld            = req.query.cld            as string;
+      if (offset !== undefined)     opts.offset         = offset;
       const cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
       res.json({ cdrs });
     } catch (e: any) { res.status(500).json({ cdrs: [], error: e.message }); }
