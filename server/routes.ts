@@ -2020,6 +2020,27 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // POST /api/sippy/customers/reset-otp — resetCustomerOneTimePassword() — docs 107431
+  // Body: { webLogin } — the web login of the customer/user whose OTP to reset
+  // Returns: { success, password (new OTP), message }
+  // NOTE: The new OTP is returned so it can be delivered to the customer out-of-band.
+  //       On their next authCustomer() call, Sippy returns error 410 prompting them to set a real password.
+  app.post('/api/sippy/customers/reset-otp', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const { webLogin } = req.body ?? {};
+      if (!webLogin) return res.status(400).json({ success: false, error: 'webLogin is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+
+      const result = await sippy.resetSippyCustomerOneTimePassword(username, password, webLogin, {
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(400).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // POST /api/sippy/customers — createCustomer() — docs 107417
   // Body: { name, webPassword, iTariff (number|null), ...optional fields }
   // Returns: { success, iCustomer, message }

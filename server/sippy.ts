@@ -2893,6 +2893,45 @@ export interface SippyCustomerInfo {
 }
 
 /**
+ * Reset the one-time password for a customer or user's web-interface login.
+ * Official method: resetCustomerOneTimePassword() — docs 107431
+ * Authenticated admin can reset any customer's OTP, their subcustomers', or their users'.
+ * The new OTP value is returned in the response so it can be communicated to the customer.
+ */
+export async function resetSippyCustomerOneTimePassword(
+  username:  string,
+  password:  string,
+  webLogin:  string,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; password?: string; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string> = { web_login: webLogin };
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('resetCustomerOneTimePassword', params), username, password);
+    const text = resp.body;
+
+    if (resp.statusCode !== 200 || text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'resetCustomerOneTimePassword failed.';
+      return { success: false, message: fault };
+    }
+
+    const m = extractStructMembers(text);
+    return {
+      success:  m.result === 'OK',
+      password: m.password ?? undefined,
+      message:  m.result ?? 'Unknown',
+    };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
  * Authenticate a customer using their self-care portal credentials.
  * Official method: authCustomer() — docs 107430
  * Parameters: username + password (customer's web-login credentials, NOT admin credentials).
