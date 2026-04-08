@@ -6355,6 +6355,476 @@ export async function unblockWebUser(
   }
 }
 
+// ── Destination Sets Management (docs 107473) ────────────────────────────────
+
+/**
+ * Format a JS Date into Sippy's ISO8601 compact format for sending dates in API calls.
+ * Format: YYYYMMDDThh:mm:ss (UTC, no timezone suffix) — docs 3000073101
+ * Used for activation_date / expiration_date in route methods.
+ */
+export function toSippyIso8601(d: Date | string): string {
+  const dt = typeof d === 'string' ? new Date(d) : d;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${dt.getUTCFullYear()}${pad(dt.getUTCMonth() + 1)}${pad(dt.getUTCDate())}T${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}:${pad(dt.getUTCSeconds())}`;
+}
+
+export interface SippyDestinationSet {
+  iDestinationSet:               number;
+  name:                          string;
+  iso4217:                       string;
+  cldTranslationRule?:           string | null;
+  cliTranslationRule?:           string | null;
+  isRemote?:                     boolean | null;
+  isExportable?:                 boolean | null;
+  // EXPORTABLE fields
+  postCallSurcharge?:            number | null;
+  connectFee?:                   number | null;
+  freeSeconds?:                  number | null;
+  gracePeriod?:                  number | null;
+  localCalling?:                 boolean | null;
+  localCallingCliValidationRule?: string | null;
+  lockForUpload?:                boolean | null;
+  exportKey?:                    string | null;
+  // IMPORTABLE fields
+  importHealth?:                 string | null;
+  firstImportFailureTs?:         string | null;
+  lastImportFailureTs?:          string | null;
+  importError?:                  string | null;
+  importHealthLastNotification?: string | null;
+  notifyOnImportError?:          boolean | null;
+  remoteId?:                     string | null;
+}
+
+export interface SippyDestinationSetRoute {
+  prefix:         string;
+  preference?:    number | null;
+  huntstop?:      number | null;
+  timeout?:       number | null;
+  price1?:        number | null;
+  priceN?:        number | null;
+  interval1?:     number | null;
+  intervalN?:     number | null;
+  timeout1xx?:    number | null;
+  forbidden?:     boolean | null;
+  activationDate?: string | null;
+  expirationDate?: string | null;
+}
+
+function parseDestinationSet(m: Record<string, string>): SippyDestinationSet {
+  const nullableStr  = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : m[k];
+  const nullableInt  = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : parseInt(m[k], 10);
+  const nullableFloat = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : parseFloat(m[k]);
+  const nullableBool = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : (m[k] === '1' || m[k].toLowerCase() === 'true');
+  return {
+    iDestinationSet:               parseInt(m['i_destination_set'] || '0', 10),
+    name:                          m['name'] ?? '',
+    iso4217:                       m['iso_4217'] ?? m['currency'] ?? '',
+    cldTranslationRule:            nullableStr('cld_translation_rule'),
+    cliTranslationRule:            nullableStr('cli_translation_rule'),
+    isRemote:                      nullableBool('is_remote'),
+    isExportable:                  nullableBool('is_exportable'),
+    postCallSurcharge:             nullableFloat('post_call_surcharge'),
+    connectFee:                    nullableFloat('connect_fee'),
+    freeSeconds:                   nullableInt('free_seconds'),
+    gracePeriod:                   nullableInt('grace_period'),
+    localCalling:                  nullableBool('local_calling'),
+    localCallingCliValidationRule: nullableStr('local_calling_cli_validation_rule'),
+    lockForUpload:                 nullableBool('lock_for_upload'),
+    exportKey:                     nullableStr('export_key'),
+    importHealth:                  nullableStr('import_health'),
+    firstImportFailureTs:          nullableStr('first_import_failure_ts'),
+    lastImportFailureTs:           nullableStr('last_import_failure_ts'),
+    importError:                   nullableStr('import_error'),
+    importHealthLastNotification:  nullableStr('import_health_last_notification'),
+    notifyOnImportError:           nullableBool('notify_on_import_error'),
+    remoteId:                      nullableStr('remote_id'),
+  };
+}
+
+function parseDestinationSetRoute(m: Record<string, string>): SippyDestinationSetRoute {
+  const nullableInt   = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : parseInt(m[k], 10);
+  const nullableFloat = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : parseFloat(m[k]);
+  const nullableBool  = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : (m[k] === '1' || m[k].toLowerCase() === 'true');
+  const nullableStr   = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : m[k];
+  return {
+    prefix:          m['prefix'] ?? '',
+    preference:      nullableInt('preference'),
+    huntstop:        nullableInt('huntstop'),
+    timeout:         nullableInt('timeout'),
+    price1:          nullableFloat('price_1'),
+    priceN:          nullableFloat('price_n'),
+    interval1:       nullableInt('interval_1'),
+    intervalN:       nullableInt('interval_n'),
+    timeout1xx:      nullableInt('timeout_1xx'),
+    forbidden:       nullableBool('forbidden'),
+    activationDate:  nullableStr('activation_date'),
+    expirationDate:  nullableStr('expiration_date'),
+  };
+}
+
+/** Create a new destination set — docs 107473 */
+export async function addDestinationSet(
+  username: string,
+  password: string,
+  opts: {
+    name: string;
+    currency: string;
+    remoteManagementType?: number;
+    remoteManagementKey?: string;
+    localCalling?: boolean;
+    localCallingCliValidationRule?: string;
+    description?: string;
+    postCallSurcharge?: number;
+    notifyOnImportError?: boolean;
+    connectFee?: number;
+    freeSeconds?: number;
+    gracePeriod?: number;
+    cldTranslationRule?: string;
+    cliTranslationRule?: string;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; iDestinationSet?: number; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { name: opts.name, currency: opts.currency };
+  if (opts.remoteManagementType !== undefined)        params.remote_management_type = opts.remoteManagementType;
+  if (opts.remoteManagementKey  !== undefined)        params.remote_management_key  = opts.remoteManagementKey;
+  if (opts.localCalling         !== undefined)        params.local_calling          = opts.localCalling;
+  if (opts.localCallingCliValidationRule !== undefined) params.local_calling_cli_validation_rule = opts.localCallingCliValidationRule;
+  if (opts.description          !== undefined)        params.description            = opts.description;
+  if (opts.postCallSurcharge    !== undefined)        params.post_call_surcharge    = opts.postCallSurcharge;
+  if (opts.notifyOnImportError  !== undefined)        params.notify_on_import_error = opts.notifyOnImportError;
+  if (opts.connectFee           !== undefined)        params.connect_fee            = opts.connectFee;
+  if (opts.freeSeconds          !== undefined)        params.free_seconds           = opts.freeSeconds;
+  if (opts.gracePeriod          !== undefined)        params.grace_period           = opts.gracePeriod;
+  if (opts.cldTranslationRule   !== undefined)        params.cld_translation_rule   = opts.cldTranslationRule;
+  if (opts.cliTranslationRule   !== undefined)        params.cli_translation_rule   = opts.cliTranslationRule;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addDestinationSet', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        const id = m['i_destination_set'] ? parseInt(m['i_destination_set'], 10) : undefined;
+        return { success: true, iDestinationSet: id, message: 'Destination set created.' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'addDestinationSet failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/** Update an existing destination set — docs 107473, Sippy 2024+ */
+export async function updateDestinationSet(
+  username: string,
+  password: string,
+  iDestinationSet: number,
+  opts: {
+    name?: string;
+    remoteManagementType?: number;
+    remoteManagementKey?: string;
+    localCalling?: boolean;
+    localCallingCliValidationRule?: string;
+    freeSeconds?: number;
+    gracePeriod?: number;
+    postCallSurcharge?: number;
+    connectFee?: number;
+    notifyOnImportError?: boolean;
+    cldTranslationRule?: string;
+    cliTranslationRule?: string;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; iDestinationSet?: number; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_destination_set: iDestinationSet };
+  if (opts.name                          !== undefined) params.name                            = opts.name;
+  if (opts.remoteManagementType          !== undefined) params.remote_management_type          = opts.remoteManagementType;
+  if (opts.remoteManagementKey           !== undefined) params.remote_management_key           = opts.remoteManagementKey;
+  if (opts.localCalling                  !== undefined) params.local_calling                   = opts.localCalling;
+  if (opts.localCallingCliValidationRule !== undefined) params.local_calling_cli_validation_rule = opts.localCallingCliValidationRule;
+  if (opts.freeSeconds                   !== undefined) params.free_seconds                    = opts.freeSeconds;
+  if (opts.gracePeriod                   !== undefined) params.grace_period                    = opts.gracePeriod;
+  if (opts.postCallSurcharge             !== undefined) params.post_call_surcharge             = opts.postCallSurcharge;
+  if (opts.connectFee                    !== undefined) params.connect_fee                     = opts.connectFee;
+  if (opts.notifyOnImportError           !== undefined) params.notify_on_import_error          = opts.notifyOnImportError;
+  if (opts.cldTranslationRule            !== undefined) params.cld_translation_rule            = opts.cldTranslationRule;
+  if (opts.cliTranslationRule            !== undefined) params.cli_translation_rule            = opts.cliTranslationRule;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateDestinationSet', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        const id = m['i_destination_set'] ? parseInt(m['i_destination_set'], 10) : iDestinationSet;
+        return { success: true, iDestinationSet: id, message: 'Destination set updated.' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'updateDestinationSet failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/** Get details of a destination set — docs 107473, Sippy 2024+ */
+export async function getDestinationSetInfo(
+  username: string,
+  password: string,
+  opts: { iDestinationSet?: number; name?: string; includeAllFields?: boolean; portalUrl?: string },
+): Promise<{ success: boolean; destinationSet?: SippyDestinationSet; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {};
+  if (opts.iDestinationSet  !== undefined) params.i_destination_set  = opts.iDestinationSet;
+  if (opts.name             !== undefined) params.name               = opts.name;
+  if (opts.includeAllFields !== undefined) params.include_all_fields = opts.includeAllFields;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getDestinationSetInfo', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const dsMatch = /<name>destination_set<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>/i.exec(text);
+      const m = dsMatch ? extractStructMembers(dsMatch[1]) : extractStructMembers(text);
+      return { success: true, destinationSet: parseDestinationSet(m), message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'getDestinationSetInfo failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/** List destination sets — docs 107473 */
+export async function listDestinationSets(
+  username: string,
+  password: string,
+  opts: { namePattern?: string; iDestinationSet?: number; offset?: number; limit?: number; portalUrl?: string } = {},
+): Promise<{ success: boolean; list: SippyDestinationSet[]; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, list: [], message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {};
+  if (opts.namePattern     !== undefined) params.name_pattern     = opts.namePattern;
+  if (opts.iDestinationSet !== undefined) params.i_destination_set = opts.iDestinationSet;
+  if (opts.offset          !== undefined) params.offset           = opts.offset;
+  if (opts.limit           !== undefined) params.limit            = opts.limit;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listDestinationSets', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+      const list: SippyDestinationSet[] = [];
+      let sm;
+      while ((sm = structRe.exec(text)) !== null) {
+        const m = extractStructMembers(sm[1]);
+        if (m['i_destination_set']) list.push(parseDestinationSet(m));
+      }
+      return { success: true, list, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'listDestinationSets failed.';
+    return { success: false, list: [], message: fault };
+  } catch (e: any) { return { success: false, list: [], message: e.message }; }
+}
+
+/** Delete a destination set — docs 107473, Sippy 2024+ */
+export async function deleteDestinationSet(
+  username: string,
+  password: string,
+  iDestinationSet: number,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteDestinationSet', { i_destination_set: iDestinationSet }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Destination set deleted.' };
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'deleteDestinationSet failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/** List routes in a destination set — docs 107473, Sippy 2024+ */
+export async function getDestinationSetRoutesList(
+  username: string,
+  password: string,
+  iDestinationSet: number,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; list: SippyDestinationSetRoute[]; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, list: [], message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getDestinationSetRoutesList', { i_destination_set: iDestinationSet }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+      const list: SippyDestinationSetRoute[] = [];
+      let sm;
+      while ((sm = structRe.exec(text)) !== null) {
+        const m = extractStructMembers(sm[1]);
+        if (m['prefix'] !== undefined) list.push(parseDestinationSetRoute(m));
+      }
+      return { success: true, list, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'getDestinationSetRoutesList failed.';
+    return { success: false, list: [], message: fault };
+  } catch (e: any) { return { success: false, list: [], message: e.message }; }
+}
+
+/** Add a route to a destination set — docs 107473 */
+export async function addRouteToDestinationSet(
+  username: string,
+  password: string,
+  iDestinationSet: number,
+  prefix: string,
+  opts: {
+    preference?: number;
+    huntstop?: number;
+    timeout?: number;
+    price1?: number;
+    priceN?: number;
+    interval1?: number;
+    intervalN?: number;
+    timeout1xx?: number;
+    forbidden?: boolean;
+    activationDate?: string;
+    expirationDate?: string;
+    portalUrl?: string;
+  } = {},
+): Promise<{ success: boolean; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_destination_set: iDestinationSet, prefix };
+  if (opts.preference      !== undefined) params.preference    = opts.preference;
+  if (opts.huntstop        !== undefined) params.huntstop      = opts.huntstop;
+  if (opts.timeout         !== undefined) params.timeout       = opts.timeout;
+  if (opts.price1          !== undefined) params.price_1       = opts.price1;
+  if (opts.priceN          !== undefined) params.price_n       = opts.priceN;
+  if (opts.interval1       !== undefined) params.interval_1    = opts.interval1;
+  if (opts.intervalN       !== undefined) params.interval_n    = opts.intervalN;
+  if (opts.timeout1xx      !== undefined) params.timeout_1xx   = opts.timeout1xx;
+  if (opts.forbidden       !== undefined) params.forbidden     = opts.forbidden;
+  if (opts.activationDate  !== undefined) params.activation_date  = toSippyIso8601(opts.activationDate);
+  if (opts.expirationDate  !== undefined) params.expiration_date  = toSippyIso8601(opts.expirationDate);
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addRouteToDestinationSet', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Route added to destination set.' };
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'addRouteToDestinationSet failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/** Update a route in a destination set — docs 107473 */
+export async function updateRouteInDestinationSet(
+  username: string,
+  password: string,
+  iDestinationSet: number,
+  prefix: string,
+  opts: {
+    newPrefix?: string;
+    preference?: number;
+    huntstop?: number;
+    timeout?: number;
+    price1?: number;
+    priceN?: number;
+    interval1?: number;
+    intervalN?: number;
+    timeout1xx?: number;
+    forbidden?: boolean;
+    portalUrl?: string;
+  } = {},
+): Promise<{ success: boolean; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_destination_set: iDestinationSet, prefix };
+  if (opts.newPrefix   !== undefined) params.new_prefix   = opts.newPrefix;
+  if (opts.preference  !== undefined) params.preference   = opts.preference;
+  if (opts.huntstop    !== undefined) params.huntstop     = opts.huntstop;
+  if (opts.timeout     !== undefined) params.timeout      = opts.timeout;
+  if (opts.price1      !== undefined) params.price_1      = opts.price1;
+  if (opts.priceN      !== undefined) params.price_n      = opts.priceN;
+  if (opts.interval1   !== undefined) params.interval_1   = opts.interval1;
+  if (opts.intervalN   !== undefined) params.interval_n   = opts.intervalN;
+  if (opts.timeout1xx  !== undefined) params.timeout_1xx  = opts.timeout1xx;
+  if (opts.forbidden   !== undefined) params.forbidden    = opts.forbidden;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateRouteInDestinationSet', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Route updated.' };
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'updateRouteInDestinationSet failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/** Remove a route from a destination set — docs 107473 */
+export async function delRouteFromDestinationSet(
+  username: string,
+  password: string,
+  iDestinationSet: number,
+  prefix: string,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('delRouteFromDestinationSet', { i_destination_set: iDestinationSet, prefix }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Route removed from destination set.' };
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'delRouteFromDestinationSet failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/** Remove all routes from a destination set — docs 107473, Sippy 2024+ */
+export async function deleteAllRoutesInDestinationSet(
+  username: string,
+  password: string,
+  iDestinationSet: number,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteAllRoutesInDestinationSet', { i_destination_set: iDestinationSet }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'All routes deleted from destination set.' };
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'deleteAllRoutesInDestinationSet failed.';
+    return { success: false, message: fault };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
 // ── Miscellaneous APIs ────────────────────────────────────────────────────────
 
 /**

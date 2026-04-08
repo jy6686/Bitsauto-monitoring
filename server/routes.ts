@@ -3132,6 +3132,156 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ── Destination Sets Management (docs 107473) ───────────────────────────────
+
+  // GET /api/sippy/destination-sets — list destination sets
+  app.get('/api/sippy/destination-sets', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, list: [], error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { namePattern, iDestinationSet, offset, limit } = req.query;
+      const result = await sippy.listDestinationSets(username, password, {
+        namePattern: namePattern as string | undefined,
+        iDestinationSet: iDestinationSet ? parseInt(iDestinationSet as string, 10) : undefined,
+        offset: offset ? parseInt(offset as string, 10) : undefined,
+        limit:  limit  ? parseInt(limit  as string, 10) : undefined,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, list: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/destination-sets — create a destination set (admin+management)
+  app.post('/api/sippy/destination-sets', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const { name, currency, ...rest } = req.body ?? {};
+      if (!name || !currency) return res.status(400).json({ success: false, error: 'name and currency are required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addDestinationSet(username, password, { name, currency, ...rest, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // GET /api/sippy/destination-sets/:id — get destination set info (Sippy 2024+)
+  app.get('/api/sippy/destination-sets/:id', async (req: any, res) => {
+    try {
+      const iDestinationSet = parseInt(req.params.id, 10);
+      if (isNaN(iDestinationSet)) return res.status(400).json({ success: false, error: 'Invalid i_destination_set.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const includeAllFields = req.query.includeAllFields === 'true';
+      const result = await sippy.getDestinationSetInfo(username, password, { iDestinationSet, includeAllFields, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(404).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/destination-sets/:id — update a destination set (admin+management, Sippy 2024+)
+  app.patch('/api/sippy/destination-sets/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iDestinationSet = parseInt(req.params.id, 10);
+      if (isNaN(iDestinationSet)) return res.status(400).json({ success: false, error: 'Invalid i_destination_set.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateDestinationSet(username, password, iDestinationSet, { ...req.body, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // DELETE /api/sippy/destination-sets/:id — delete a destination set (admin only, Sippy 2024+)
+  app.delete('/api/sippy/destination-sets/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const iDestinationSet = parseInt(req.params.id, 10);
+      if (isNaN(iDestinationSet)) return res.status(400).json({ success: false, error: 'Invalid i_destination_set.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteDestinationSet(username, password, iDestinationSet, { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // GET /api/sippy/destination-sets/:id/routes — list routes in a destination set (Sippy 2024+)
+  app.get('/api/sippy/destination-sets/:id/routes', async (req: any, res) => {
+    try {
+      const iDestinationSet = parseInt(req.params.id, 10);
+      if (isNaN(iDestinationSet)) return res.status(400).json({ success: false, list: [], error: 'Invalid i_destination_set.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, list: [], error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getDestinationSetRoutesList(username, password, iDestinationSet, { portalUrl: settings.portalUrl ?? '' });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, list: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/destination-sets/:id/routes — add a route to a destination set (admin+management)
+  app.post('/api/sippy/destination-sets/:id/routes', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iDestinationSet = parseInt(req.params.id, 10);
+      if (isNaN(iDestinationSet)) return res.status(400).json({ success: false, error: 'Invalid i_destination_set.' });
+      const { prefix, ...rest } = req.body ?? {};
+      if (!prefix) return res.status(400).json({ success: false, error: 'prefix is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addRouteToDestinationSet(username, password, iDestinationSet, prefix, { ...rest, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/destination-sets/:id/routes/:prefix — update a route (admin+management)
+  app.patch('/api/sippy/destination-sets/:id/routes/:prefix', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iDestinationSet = parseInt(req.params.id, 10);
+      const prefix = decodeURIComponent(req.params.prefix);
+      if (isNaN(iDestinationSet) || !prefix) return res.status(400).json({ success: false, error: 'Invalid destination set ID or prefix.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateRouteInDestinationSet(username, password, iDestinationSet, prefix, { ...req.body, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // DELETE /api/sippy/destination-sets/:id/routes — delete ALL routes (admin only, Sippy 2024+)
+  app.delete('/api/sippy/destination-sets/:id/routes', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const iDestinationSet = parseInt(req.params.id, 10);
+      if (isNaN(iDestinationSet)) return res.status(400).json({ success: false, error: 'Invalid i_destination_set.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteAllRoutesInDestinationSet(username, password, iDestinationSet, { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // DELETE /api/sippy/destination-sets/:id/routes/:prefix — delete a single route (admin only)
+  app.delete('/api/sippy/destination-sets/:id/routes/:prefix', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const iDestinationSet = parseInt(req.params.id, 10);
+      const prefix = decodeURIComponent(req.params.prefix);
+      if (isNaN(iDestinationSet) || !prefix) return res.status(400).json({ success: false, error: 'Invalid destination set ID or prefix.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.delRouteFromDestinationSet(username, password, iDestinationSet, prefix, { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // ── Miscellaneous APIs ──────────────────────────────────────────────────────
 
   // POST /api/sippy/send-email — send an email via Sippy's mail relay (docs 107472)
