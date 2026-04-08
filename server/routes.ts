@@ -3695,6 +3695,40 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ─── System Config (docs 3000050243) — root-only, since V4.5 ─────────────────
+
+  // GET /api/sippy/system-config — getSystemConfig()
+  // Root-only. Supports trusted mode. Optional ?key= to filter to one entry.
+  app.get('/api/sippy/system-config', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const key = req.query.key as string | undefined;
+      const result = await sippy.getSystemConfig(username, password, { key, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PUT /api/sippy/system-config — setSystemConfig()
+  // Root-only. Supports trusted mode. Body: { key, value }.
+  // CAUTION: Do NOT set sip/hep_tracing/* on OpenSIPs ≤ 3.1 — it will crash OpenSIPs.
+  app.put('/api/sippy/system-config', async (req: any, res) => {
+    try {
+      const { key, value } = req.body ?? {};
+      if (!key)             return res.status(400).json({ success: false, error: 'key is required.' });
+      if (value === undefined || value === null)
+                            return res.status(400).json({ success: false, error: 'value is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.setSystemConfig(username, password, key, String(value), { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // ─── Replication Status (docs 3000040133) — root-only, since V4.4 ─────────────
 
   // GET /api/sippy/replication/status — getReplicationStatus()

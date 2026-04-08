@@ -7864,6 +7864,87 @@ export async function writeAuditLog(
   }
 }
 
+// ─── System Config (docs 3000050243) — root-only, since V4.5 ─────────────────
+
+export interface SippySystemConfigRecord {
+  key:           string | null;
+  currentValue:  string | null;
+  defaultValue:  string | null;
+}
+
+/**
+ * Retrieve system_config* table entries (optionally filtered by key).
+ * Root customer only. Supports trusted mode.
+ * Official method: getSystemConfig() — docs 3000050243 (since V4.5)
+ * NOTE: Do NOT set sip/hep_tracing/* keys on OpenSIPs ≤ 3.1 — it will crash OpenSIPs.
+ */
+export async function getSystemConfig(
+  username: string,
+  password: string,
+  opts?: { key?: string; portalUrl?: string },
+): Promise<{ success: boolean; config: SippySystemConfigRecord[]; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, config: [], message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string> = {};
+  if (opts?.key) params.key = opts.key;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getSystemConfig', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      // Response: struct with a 'config' member containing an array of structs.
+      // Try to find the <config> array block first.
+      const configBlock = /<name>config<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/.exec(text)?.[1] ?? text;
+      const rawStructs = parseArrayOfStructs(configBlock);
+      const config: SippySystemConfigRecord[] = rawStructs.map((r: Record<string, string>) => ({
+        key:          r.key           ?? null,
+        currentValue: r.current_value ?? null,
+        defaultValue: r.default_value ?? null,
+      }));
+      return { success: true, config, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'getSystemConfig failed.';
+    return { success: false, config: [], message: fault };
+  } catch (e: any) {
+    return { success: false, config: [], message: e.message };
+  }
+}
+
+/**
+ * Set a system config value (system_config* tables only, not system table).
+ * Root customer only. Supports trusted mode.
+ * Official method: setSystemConfig() — docs 3000050243 (since V4.5)
+ * WARNING: Do NOT set sip/hep_tracing/* on OpenSIPs ≤ 3.1 — it crashes OpenSIPs on reload.
+ */
+export async function setSystemConfig(
+  username: string,
+  password: string,
+  key: string,
+  value: string,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('setSystemConfig', { key, value }), username, password);
+    const text = resp.body;
+    // setSystemConfig returns nothing on success — just a non-fault 200 response.
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'setSystemConfig failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 // ─── Replication Status (docs 3000040133) — root-only, since V4.4 ─────────────
 
 export interface SippyReplicationStatus {
