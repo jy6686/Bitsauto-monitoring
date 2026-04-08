@@ -1432,6 +1432,36 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ cdrs: [], error: e.message }); }
   });
 
+  // GET /api/sippy/cdr/vendors/mera — export vendor CDRs in Mera format (docs 107436)
+  // Query params: startDate, endDate (Sippy or ISO format), startICdrsConnection,
+  //               endICdrsConnection, trustedMode (default true)
+  // Returns: { success, lastICdrsConnection, cdrs: SippyMeraCDR[], message }
+  // Supports pagination: use lastICdrsConnection as startICdrsConnection on next call.
+  app.get('/api/sippy/cdr/vendors/mera', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+
+      const formatDate = (d?: string) => {
+        if (!d) return undefined;
+        if (d.includes('GMT')) return d;
+        try { return sippy.toSippyDate(d); } catch { return d; }
+      };
+
+      const result = await sippy.exportVendorsCDRsMera(username, password, {
+        startDate:            formatDate(req.query.startDate as string | undefined),
+        endDate:              formatDate(req.query.endDate   as string | undefined),
+        startICdrsConnection: req.query.startICdrsConnection as string | undefined,
+        endICdrsConnection:   req.query.endICdrsConnection   as string | undefined,
+        trustedMode:          req.query.trustedMode !== 'false',
+        portalUrl:            settings.portalUrl || undefined,
+      });
+
+      if (!result.success) return res.status(422).json({ success: false, error: result.message, cdrs: [] });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message, cdrs: [] }); }
+  });
+
   // GET /api/sippy/asr-report — ASR/ACD report computed from Sippy CDRs
   app.get('/api/sippy/asr-report', async (req, res) => {
     try {

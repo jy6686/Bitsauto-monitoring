@@ -1465,6 +1465,132 @@ export async function getSippyCDRs(
   return [];
 }
 
+// ── exportVendorsCDRs_Mera() (docs 107436) ───────────────────────────────────
+
+export interface SippyMeraCDR {
+  raw:              string;          // original Mera-format string from Sippy
+  host?:            string;          // HOST — switch IP
+  confId?:          string;          // CONFID — calls.call_id
+  callId?:          string;          // CALLID — i_cdrs_connection
+  iCall?:           string;          // I_CALL — cdrs_connections.i_call (since Sippy 2022)
+  cost?:            string;          // COST — cdrs_connections.cost (since Sippy 2022)
+  srcIp?:           string;          // SRC-IP — cdrs.remote_ip
+  dstIp?:           string;          // DST-IP — connections.destination
+  srcName?:         string;          // SRC-NAME — accounts.username
+  dstName?:         string;          // DST-NAME — vendors.name
+  srcNumberIn?:     string;          // SRC-NUMBER-IN — cdrs.cli_in
+  srcNumberBill?:   string;          // SRC-NUMBER-BILL — calls.cli
+  srcNumberOut?:    string;          // SRC-NUMBER-OUT — cdrs_connections.cli_out
+  dstNumberIn?:     string;          // DST-NUMBER-IN — cdrs.cld_in
+  dstNumberBill?:   string;          // DST-NUMBER-BILL — calls.cld
+  dstNumberOut?:    string;          // DST-NUMBER-OUT — cdrs_connections.cld_out
+  setupTime?:       string;          // SETUP-TIME — cdrs_connections.setup_time
+  connectTime?:     string;          // CONNECT-TIME — cdrs_connections.connect_time
+  disconnectTime?:  string;          // DISCONNECT-TIME — cdrs_connections.disconnect_time
+  elapsedTime?:     string;          // ELAPSED-TIME — duration in seconds
+  disconnectCodeQ931?: string;       // DISCONNECT-CODE-Q931 — H.323 disconnect cause
+}
+
+/** Parse a single Mera-format CDR string into a structured object. */
+function parseMeraCDRString(raw: string): SippyMeraCDR {
+  const kv: Record<string, string> = {};
+  for (const pair of raw.split(',')) {
+    const eq = pair.indexOf('=');
+    if (eq === -1) continue;
+    kv[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
+  }
+  return {
+    raw,
+    host:              kv['HOST'],
+    confId:            kv['CONFID'],
+    callId:            kv['CALLID'],
+    iCall:             kv['I_CALL'],
+    cost:              kv['COST'],
+    srcIp:             kv['SRC-IP'],
+    dstIp:             kv['DST-IP'],
+    srcName:           kv['SRC-NAME'],
+    dstName:           kv['DST-NAME'],
+    srcNumberIn:       kv['SRC-NUMBER-IN'],
+    srcNumberBill:     kv['SRC-NUMBER-BILL'],
+    srcNumberOut:      kv['SRC-NUMBER-OUT'],
+    dstNumberIn:       kv['DST-NUMBER-IN'],
+    dstNumberBill:     kv['DST-NUMBER-BILL'],
+    dstNumberOut:      kv['DST-NUMBER-OUT'],
+    setupTime:         kv['SETUP-TIME'],
+    connectTime:       kv['CONNECT-TIME'],
+    disconnectTime:    kv['DISCONNECT-TIME'],
+    elapsedTime:       kv['ELAPSED-TIME'],
+    disconnectCodeQ931: kv['DISCONNECT-CODE-Q931'],
+  };
+}
+
+/**
+ * Export all vendor CDRs in Mera format for external billing.
+ * Official method: exportVendorsCDRs_Mera() — docs 107436
+ * Available since Sippy 5.0. start_date defaults to 1 hour ago, end_date to now (since Sippy 2020).
+ * Supports sequential pagination via start_i_cdrs_connection / end_i_cdrs_connection.
+ */
+export async function exportVendorsCDRsMera(
+  username: string,
+  password: string,
+  opts: {
+    startDate?:            string;   // Sippy format: '%H:%M:%S.000 GMT %a %b %d %Y'
+    endDate?:              string;   // Sippy format
+    startICdrsConnection?: string;   // fetch CDRs where i_cdrs_connection >= this value
+    endICdrsConnection?:   string;   // fetch CDRs where i_cdrs_connection < this value
+    trustedMode?:          boolean;  // pass i_customer=1 for root access
+    portalUrl?:            string;
+  } = {},
+): Promise<{ success: boolean; lastICdrsConnection?: string; cdrs: SippyMeraCDR[]; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, cdrs: [], message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {};
+  if (opts.startDate)            params.start_date             = opts.startDate;
+  if (opts.endDate)              params.end_date               = opts.endDate;
+  if (opts.startICdrsConnection) params.start_i_cdrs_connection = opts.startICdrsConnection;
+  if (opts.endICdrsConnection)   params.end_i_cdrs_connection   = opts.endICdrsConnection;
+  if (opts.trustedMode !== false) params.i_customer             = 1;  // trusted mode by default
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('exportVendorsCDRs_Mera', params), username, password);
+    const text = resp.body;
+    console.log(`[Sippy] exportVendorsCDRs_Mera → HTTP ${resp.statusCode}: ${text.slice(0, 200)}`);
+
+    if (resp.statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode')) {
+      // Extract last_i_cdrs_connection (plain string or int value)
+      const lastConn = extractValue(text, 'last_i_cdrs_connection');
+
+      // Extract cdrs array of strings
+      // Shape: <name>cdrs</name><value><array><data><value><string>...</string></value>...</data></array></value>
+      const cdrsMatch = /<name>cdrs<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>\s*<\/array>\s*<\/value>/.exec(text);
+      const meras: SippyMeraCDR[] = [];
+      if (cdrsMatch) {
+        const stringRe = /<value>\s*<string>([\s\S]*?)<\/string>\s*<\/value>/gi;
+        let m;
+        while ((m = stringRe.exec(cdrsMatch[1])) !== null) {
+          const raw = m[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+          if (raw) meras.push(parseMeraCDRString(raw));
+        }
+      }
+
+      return {
+        success: true,
+        lastICdrsConnection: lastConn || undefined,
+        cdrs: meras,
+        message: `OK — ${meras.length} CDR(s) returned.`,
+      };
+    }
+
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'exportVendorsCDRs_Mera failed.';
+    return { success: false, cdrs: [], message: fault };
+  } catch (e: any) {
+    return { success: false, cdrs: [], message: e.message };
+  }
+}
+
 // ── Portal User Management ────────────────────────────────────────────────────
 
 export interface SippyPortalUser {
