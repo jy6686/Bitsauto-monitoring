@@ -3543,6 +3543,314 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── Payments (official Sippy docs 107440/107442/107443/107446/107438/150644) ──
+
+  // ─ Debit/Credit Cards (doc 107442) ──────────────────────────────────────────
+
+  // GET /api/sippy/cards — listDebitCreditCards() — docs 107442
+  // Query: iAccount? OR iCustomer? (at least one required), offset?, limit?
+  // Returns: { cards: SippyDebitCreditCard[] }
+  app.get('/api/sippy/cards', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ cards: [], error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const iAccount  = req.query.iAccount  ? parseInt(req.query.iAccount as string, 10)  : undefined;
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      if (!iAccount && !iCustomer)
+        return res.status(400).json({ cards: [], error: 'iAccount or iCustomer is required.' });
+      const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
+      const limit  = req.query.limit  ? parseInt(req.query.limit  as string, 10) : undefined;
+      const result = await sippy.listDebitCreditCards(username, password, { iAccount, iCustomer }, { offset, limit }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ cards: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/cards — addDebitCreditCard() — docs 107442
+  // Body: { iAccount? OR iCustomer?, alias, iCardType, number, holder, expMm, expYy,
+  //         streetAddr1, state, postalCode, city, country, phone, cvv?, streetAddr2?, primary? }
+  // Returns: { success, iDebitCreditCard, message }
+  app.post('/api/sippy/cards', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { iAccount, iCustomer, ...opts } = req.body ?? {};
+      if (!iAccount && !iCustomer)
+        return res.status(400).json({ success: false, message: 'iAccount or iCustomer is required.' });
+      const required = ['alias', 'iCardType', 'number', 'holder', 'expMm', 'expYy', 'streetAddr1', 'state', 'postalCode', 'city', 'country', 'phone'];
+      for (const f of required) if (!opts[f]) return res.status(400).json({ success: false, message: `${f} is required.` });
+      const result = await sippy.addDebitCreditCard(username, password, { iAccount, iCustomer }, opts, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // GET /api/sippy/cards/:id — getDebitCreditCardInfo() — docs 107442
+  // Query: iAccount? OR iCustomer? (at least one required)
+  // Returns: { success, card: SippyDebitCreditCard }
+  app.get('/api/sippy/cards/:id', async (req: any, res) => {
+    try {
+      const iDebitCreditCard = parseInt(req.params.id, 10);
+      if (isNaN(iDebitCreditCard)) return res.status(400).json({ success: false, error: 'Invalid i_debit_credit_card.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const iAccount  = req.query.iAccount  ? parseInt(req.query.iAccount  as string, 10) : undefined;
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      const result = await sippy.getDebitCreditCardInfo(username, password, iDebitCreditCard, { iAccount, iCustomer }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/cards/:id — updateDebitCreditCard() — docs 107442
+  // Body: { iAccount? OR iCustomer?, + any DebitCreditCardOpts fields }
+  // Returns: { success, message }
+  app.patch('/api/sippy/cards/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iDebitCreditCard = parseInt(req.params.id, 10);
+      if (isNaN(iDebitCreditCard)) return res.status(400).json({ success: false, message: 'Invalid i_debit_credit_card.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { iAccount, iCustomer, ...opts } = req.body ?? {};
+      const result = await sippy.updateDebitCreditCard(username, password, iDebitCreditCard, { iAccount, iCustomer }, opts, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/cards/:id — deleteDebitCreditCard() — docs 107442
+  // Query: iAccount? OR iCustomer? (at least one required)
+  // Returns: { success, message }
+  app.delete('/api/sippy/cards/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iDebitCreditCard = parseInt(req.params.id, 10);
+      if (isNaN(iDebitCreditCard)) return res.status(400).json({ success: false, message: 'Invalid i_debit_credit_card.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const iAccount  = req.query.iAccount  ? parseInt(req.query.iAccount  as string, 10) : undefined;
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      const result = await sippy.deleteDebitCreditCard(username, password, iDebitCreditCard, { iAccount, iCustomer }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // ─ Account Balance Mutations (doc 107440) ───────────────────────────────────
+
+  // POST /api/sippy/accounts/:id/add-funds — accountAddFunds() — docs 107440
+  // Body: { amount (req), currency (req), paymentNotes?, paymentTime? }
+  // Returns: { success, message }
+  app.post('/api/sippy/accounts/:id/add-funds', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { amount, currency, paymentNotes, paymentTime } = req.body ?? {};
+      if (!amount || !currency) return res.status(400).json({ success: false, message: 'amount and currency are required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.accountAddFunds(username, password, iAccount, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/accounts/:id/credit — accountCredit() — docs 107440
+  // Body: { amount (req), currency (req), paymentNotes?, paymentTime? }
+  // Returns: { success, message }
+  app.post('/api/sippy/accounts/:id/credit', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { amount, currency, paymentNotes, paymentTime } = req.body ?? {};
+      if (!amount || !currency) return res.status(400).json({ success: false, message: 'amount and currency are required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.accountCredit(username, password, iAccount, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/accounts/:id/debit — accountDebit() — docs 107440
+  // Body: { amount (req), currency (req), paymentNotes?, paymentTime? }
+  // Returns: { success, message }
+  app.post('/api/sippy/accounts/:id/debit', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { amount, currency, paymentNotes, paymentTime } = req.body ?? {};
+      if (!amount || !currency) return res.status(400).json({ success: false, message: 'amount and currency are required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.accountDebit(username, password, iAccount, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // ─ Customer Balance Mutations (doc 150644) ──────────────────────────────────
+
+  // POST /api/sippy/customers/:id/add-funds — customerAddFunds() — docs 150644
+  // Body: { amount (req), currency (req), paymentNotes?, paymentTime? }
+  // Returns: { success, message }
+  app.post('/api/sippy/customers/:id/add-funds', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iCustomer = parseInt(req.params.id, 10);
+      if (isNaN(iCustomer)) return res.status(400).json({ success: false, message: 'Invalid i_customer.' });
+      const { amount, currency, paymentNotes, paymentTime } = req.body ?? {};
+      if (!amount || !currency) return res.status(400).json({ success: false, message: 'amount and currency are required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.customerAddFunds(username, password, iCustomer, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/customers/:id/credit — customerCredit() — docs 150644
+  // Body: { amount (req), currency (req), paymentNotes?, paymentTime? }
+  // Returns: { success, message }
+  app.post('/api/sippy/customers/:id/credit', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iCustomer = parseInt(req.params.id, 10);
+      if (isNaN(iCustomer)) return res.status(400).json({ success: false, message: 'Invalid i_customer.' });
+      const { amount, currency, paymentNotes, paymentTime } = req.body ?? {};
+      if (!amount || !currency) return res.status(400).json({ success: false, message: 'amount and currency are required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.customerCredit(username, password, iCustomer, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/customers/:id/debit — customerDebit() — docs 150644
+  // Body: { amount (req), currency (req), paymentNotes?, paymentTime? }
+  // Returns: { success, message }
+  app.post('/api/sippy/customers/:id/debit', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iCustomer = parseInt(req.params.id, 10);
+      if (isNaN(iCustomer)) return res.status(400).json({ success: false, message: 'Invalid i_customer.' });
+      const { amount, currency, paymentNotes, paymentTime } = req.body ?? {};
+      if (!amount || !currency) return res.status(400).json({ success: false, message: 'amount and currency are required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.customerDebit(username, password, iCustomer, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // ─ Payment Details (doc 107446) ─────────────────────────────────────────────
+
+  // GET /api/sippy/payments/:id — getPaymentInfo() — docs 107446
+  // Query: iAccount? OR iCustomer? (at least one required)
+  // Returns: { success, payment: SippyPayment }
+  app.get('/api/sippy/payments/:id', async (req: any, res) => {
+    try {
+      const iPayment = parseInt(req.params.id, 10);
+      if (isNaN(iPayment)) return res.status(400).json({ success: false, error: 'Invalid i_payment.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const iAccount  = req.query.iAccount  ? parseInt(req.query.iAccount  as string, 10) : undefined;
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      const result = await sippy.getPaymentInfo(username, password, iPayment, { iAccount, iCustomer }, undefined, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // GET /api/sippy/payments — getPaymentsList() — docs 107446
+  // Query: iAccount?, iCustomer?, offset?, limit?, startDate?, endDate?, type? ('credit'|'debit')
+  // Returns: { payments: SippyPayment[] }
+  app.get('/api/sippy/payments', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ payments: [], error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const q = req.query as Record<string, string>;
+      const result = await sippy.getPaymentsList(username, password, {
+        iAccount:    q.iAccount    ? parseInt(q.iAccount, 10)    : undefined,
+        iCustomer:   q.iCustomer   ? parseInt(q.iCustomer, 10)   : undefined,
+        offset:      q.offset      ? parseInt(q.offset, 10)      : undefined,
+        limit:       q.limit       ? parseInt(q.limit, 10)       : undefined,
+        startDate:   q.startDate   || undefined,
+        endDate:     q.endDate     || undefined,
+        type:        (q.type === 'credit' || q.type === 'debit') ? q.type : undefined,
+      }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ payments: [], error: e.message }); }
+  });
+
+  // ─ Recharge Voucher (doc 107438) ────────────────────────────────────────────
+
+  // POST /api/sippy/accounts/:id/voucher — rechargeVoucher() — docs 107438
+  // Body: { voucherId (req), secretPin?, iVoucher? (trusted mode) }
+  // Returns: { success, value, voucherCurrency, payerAmount }
+  app.post('/api/sippy/accounts/:id/voucher', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { voucherId, secretPin, iVoucher } = req.body ?? {};
+      if (!voucherId && !iVoucher)
+        return res.status(400).json({ success: false, message: 'voucherId or iVoucher is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.rechargeVoucher(username, password, { iAccount, voucherId, secretPin, iVoucher }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // ─ Card Payments (doc 107443) ────────────────────────────────────────────────
+
+  // POST /api/sippy/payments — makePayment() — docs 107443
+  // Body: { iAccount? OR iCustomer?, amount, currency, payerIpAddress, iDebitCreditCard? }
+  // Returns: { success, result ('OK'|'FAILED'|'PENDING'), iPayment }
+  app.post('/api/sippy/payments', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { iAccount, iCustomer, amount, currency, payerIpAddress, iDebitCreditCard } = req.body ?? {};
+      if (!amount || !currency || !payerIpAddress)
+        return res.status(400).json({ success: false, message: 'amount, currency and payerIpAddress are required.' });
+      if (!iAccount && !iCustomer)
+        return res.status(400).json({ success: false, message: 'iAccount or iCustomer is required.' });
+      const result = await sippy.makePayment(
+        username, password,
+        { iAccount, iCustomer }, amount, currency, payerIpAddress,
+        { iDebitCreditCard },
+        settings.portalUrl ?? '',
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/payments/by-card — makePaymentByCard() — docs 107443
+  // Body: { iAccount? OR iCustomer?, amount, currency, payerIpAddress, + full card details }
+  // Returns: { success, result ('OK'|'FAILED'|'PENDING'), iPayment }
+  app.post('/api/sippy/payments/by-card', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { iAccount, iCustomer, amount, currency, payerIpAddress, iWholesaler, ...card } = req.body ?? {};
+      if (!amount || !currency || !payerIpAddress)
+        return res.status(400).json({ success: false, message: 'amount, currency and payerIpAddress are required.' });
+      if (!iAccount && !iCustomer)
+        return res.status(400).json({ success: false, message: 'iAccount or iCustomer is required.' });
+      const required = ['iCardType', 'number', 'expMm', 'expYy', 'holder', 'streetAddr1', 'state', 'postalCode', 'city', 'country', 'phone'];
+      for (const f of required) if (!card[f]) return res.status(400).json({ success: false, message: `${f} is required.` });
+      const result = await sippy.makePaymentByCard(
+        username, password,
+        { iAccount, iCustomer }, amount, currency, payerIpAddress,
+        card, iWholesaler, settings.portalUrl ?? '',
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // ── Tariff management (official Sippy API) ────────────────────────────────
 
   // POST /api/sippy/tariffs/create — create a new tariff

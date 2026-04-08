@@ -32,6 +32,7 @@ export interface IStorage {
   
   // Settings
   getSettings(): Promise<Settings>;
+  getSippySettings(): Promise<Settings>;   // alias of getSettings(); used by Sippy routes
   updateSettings(settings: UpdateSettingsRequest): Promise<Settings>;
   
   // Dashboard
@@ -157,6 +158,11 @@ export class DatabaseStorage implements IStorage {
     // Create default settings with Sippy credentials pre-seeded
     const [newSettings] = await db.insert(settings).values(SIPPY_DEFAULTS).returning();
     return newSettings;
+  }
+
+  /** Alias of getSettings() — used by all Sippy XML-RPC routes. */
+  async getSippySettings(): Promise<Settings> {
+    return this.getSettings();
   }
 
   async updateSettings(updates: UpdateSettingsRequest): Promise<Settings> {

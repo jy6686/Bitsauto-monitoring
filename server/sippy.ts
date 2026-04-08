@@ -6004,6 +6004,672 @@ export async function deleteSippyTariff(
   }
 }
 
+// ── Payments (official Sippy docs 107440/107442/107443/107446/107438/150644) ──
+
+// ─ Shared types ───────────────────────────────────────────────────────────────
+
+/** Card type IDs used by addDebitCreditCard / makePaymentByCard */
+export const CARD_TYPES: Record<number, string> = {
+  1: 'Visa',
+  2: 'American Express',
+  3: 'MasterCard',
+  4: 'Discover',
+  5: 'JCB',
+  6: "Diner's Club",
+};
+
+/** A stored debit/credit card returned by getDebitCreditCardInfo / listDebitCreditCards. */
+export interface SippyDebitCreditCard {
+  iDebitCreditCard: number;
+  alias:            string;
+  iCardType:        number;
+  cardName?:        string;   // human-readable type, from list response
+  number?:          string;   // last 4 digits only (never full number)
+  holder?:          string;
+  expMm?:           number;
+  expYy?:           number;
+  streetAddr1?:     string;
+  streetAddr2?:     string;
+  state?:           string;
+  postalCode?:      string;
+  city?:            string;
+  country?:         string;
+  phone?:           string;
+  primary?:         boolean;
+}
+
+/** A payment record returned by getPaymentInfo / getPaymentsList. */
+export interface SippyPayment {
+  iPayment?:         number;
+  paymentTime?:      string;   // '%H:%M:%S.000 GMT %a %b %d %Y'
+  amount?:           number;
+  currency?:         string;
+  txId?:             string;
+  txError?:          string;
+  txResult?:         number;   // 1=success, 2=failed
+  byCreditDebitCard?: boolean;
+  byVoucher?:        boolean;
+  notes?:            string;
+  iAccount?:         number;
+  iCustomer?:        number;
+}
+
+function parseDebitCreditCardStruct(xml: string): SippyDebitCreditCard {
+  const m = extractStructMembers(xml);
+  const parseBool = (v?: string) =>
+    v === '1' || v === 'true' ? true : (v === '0' || v === 'false' ? false : undefined);
+  return {
+    iDebitCreditCard: parseInt(m['i_debit_credit_card'] || '0', 10),
+    alias:            m['alias']       || '',
+    iCardType:        parseInt(m['i_card_type'] || '0', 10),
+    cardName:         m['card_name']   || undefined,
+    number:           m['number']      || undefined,
+    holder:           m['holder']      || undefined,
+    expMm:            m['exp_mm']      ? parseInt(m['exp_mm'], 10)  : undefined,
+    expYy:            m['exp_yy']      ? parseInt(m['exp_yy'], 10)  : undefined,
+    streetAddr1:      m['street_addr1'] || undefined,
+    streetAddr2:      m['street_addr2'] || undefined,
+    state:            m['state']       || undefined,
+    postalCode:       m['postal_code'] || undefined,
+    city:             m['city']        || undefined,
+    country:          m['country']     || undefined,
+    phone:            m['phone']       || undefined,
+    primary:          parseBool(m['primary']),
+  };
+}
+
+function parsePaymentStruct(xml: string): SippyPayment {
+  const m = extractStructMembers(xml);
+  const parseBool = (v?: string) =>
+    v === '1' || v === 'true' ? true : (v === '0' || v === 'false' ? false : undefined);
+  return {
+    iPayment:         m['i_payment']          ? parseInt(m['i_payment'], 10)    : undefined,
+    paymentTime:      m['payment_time']        || undefined,
+    amount:           m['amount']             ? parseFloat(m['amount'])          : undefined,
+    currency:         m['currency']            || undefined,
+    txId:             m['tx_id']               || undefined,
+    txError:          m['tx_error']            || undefined,
+    txResult:         m['tx_result']          ? parseInt(m['tx_result'], 10)    : undefined,
+    byCreditDebitCard: parseBool(m['by_credit_debit_card']),
+    byVoucher:        parseBool(m['by_voucher']),
+    notes:            m['notes']               || undefined,
+    iAccount:         m['i_account']          ? parseInt(m['i_account'], 10)    : undefined,
+    iCustomer:        m['i_customer']         ? parseInt(m['i_customer'], 10)   : undefined,
+  };
+}
+
+// ─ Debit / Credit Card CRUD (doc 107442) ─────────────────────────────────────
+
+/** Shared card fields used by addDebitCreditCard / updateDebitCreditCard. */
+export type DebitCreditCardOpts = {
+  alias?:       string;
+  iCardType?:   number;
+  number?:      string;
+  holder?:      string;
+  expMm?:       number;
+  expYy?:       number;
+  cvv?:         string;
+  streetAddr1?: string;
+  streetAddr2?: string;
+  state?:       string;
+  postalCode?:  string;
+  city?:        string;
+  country?:     string;
+  phone?:       string;
+  primary?:     boolean;
+};
+
+function buildCardParams(opts: DebitCreditCardOpts): Record<string, string | number | boolean> {
+  const p: Record<string, string | number | boolean> = {};
+  if (opts.alias       !== undefined) p.alias        = opts.alias;
+  if (opts.iCardType   !== undefined) p.i_card_type  = opts.iCardType;
+  if (opts.number      !== undefined) p.number       = opts.number;
+  if (opts.holder      !== undefined) p.holder       = opts.holder;
+  if (opts.expMm       !== undefined) p.exp_mm       = opts.expMm;
+  if (opts.expYy       !== undefined) p.exp_yy       = opts.expYy;
+  if (opts.cvv         !== undefined) p.cvv          = opts.cvv;
+  if (opts.streetAddr1 !== undefined) p.street_addr1 = opts.streetAddr1;
+  if (opts.streetAddr2 !== undefined) p.street_addr2 = opts.streetAddr2;
+  if (opts.state       !== undefined) p.state        = opts.state;
+  if (opts.postalCode  !== undefined) p.postal_code  = opts.postalCode;
+  if (opts.city        !== undefined) p.city         = opts.city;
+  if (opts.country     !== undefined) p.country      = opts.country;
+  if (opts.phone       !== undefined) p.phone        = opts.phone;
+  if (opts.primary     !== undefined) p.primary      = opts.primary;
+  return p;
+}
+
+/**
+ * Add a debit/credit card.
+ * Official method: addDebitCreditCard() — docs 107442
+ * Note: Either iAccount OR iCustomer must be supplied.
+ */
+export async function addDebitCreditCard(
+  username:   string,
+  password:   string,
+  owner:      { iAccount?: number; iCustomer?: number },
+  opts:       DebitCreditCardOpts & {
+    alias: string; iCardType: number; number: string; holder: string;
+    expMm: number; expYy: number; streetAddr1: string; state: string;
+    postalCode: string; city: string; country: string; phone: string;
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string; iDebitCreditCard?: number }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean> = { ...buildCardParams(opts) };
+  if (owner.iAccount  !== undefined) params.i_account  = owner.iAccount;
+  if (owner.iCustomer !== undefined) params.i_customer = owner.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addDebitCreditCard', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const iDebitCreditCard = parseInt(m['i_debit_credit_card'] || '0', 10);
+      return { success: true, message: 'Card added.', iDebitCreditCard: iDebitCreditCard || undefined };
+    }
+    return { success: false, message: extractTag(text, 'faultString') || 'addDebitCreditCard failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Update a debit/credit card.
+ * Official method: updateDebitCreditCard() — docs 107442
+ * Note: Either iAccount OR iCustomer must be supplied.
+ */
+export async function updateDebitCreditCard(
+  username:        string,
+  password:        string,
+  iDebitCreditCard: number,
+  owner:           { iAccount?: number; iCustomer?: number },
+  opts:            DebitCreditCardOpts,
+  portalUrl?:      string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean> = {
+    i_debit_credit_card: iDebitCreditCard,
+    ...buildCardParams(opts),
+  };
+  if (owner.iAccount  !== undefined) params.i_account  = owner.iAccount;
+  if (owner.iCustomer !== undefined) params.i_customer = owner.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateDebitCreditCard', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Card updated.' };
+    return { success: false, message: extractTag(text, 'faultString') || 'updateDebitCreditCard failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Delete a debit/credit card.
+ * Official method: deleteDebitCreditCard() — docs 107442
+ * Note: Either iAccount OR iCustomer must be supplied.
+ */
+export async function deleteDebitCreditCard(
+  username:         string,
+  password:         string,
+  iDebitCreditCard: number,
+  owner:            { iAccount?: number; iCustomer?: number },
+  portalUrl?:       string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_debit_credit_card: iDebitCreditCard };
+  if (owner.iAccount  !== undefined) params.i_account  = owner.iAccount;
+  if (owner.iCustomer !== undefined) params.i_customer = owner.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteDebitCreditCard', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Card deleted.' };
+    return { success: false, message: extractTag(text, 'faultString') || 'deleteDebitCreditCard failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Get info for a single debit/credit card.
+ * Official method: getDebitCreditCardInfo() — docs 107442
+ * Note: Card number returned as last 4 digits only. CVV never returned.
+ */
+export async function getDebitCreditCardInfo(
+  username:         string,
+  password:         string,
+  iDebitCreditCard: number,
+  owner:            { iAccount?: number; iCustomer?: number },
+  portalUrl?:       string,
+): Promise<{ success: boolean; card?: SippyDebitCreditCard; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_debit_credit_card: iDebitCreditCard };
+  if (owner.iAccount  !== undefined) params.i_account  = owner.iAccount;
+  if (owner.iCustomer !== undefined) params.i_customer = owner.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getDebitCreditCardInfo', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const s = text.indexOf('<struct>'), e = text.lastIndexOf('</struct>');
+      if (s === -1) return { success: false, error: 'No card data returned.' };
+      return { success: true, card: parseDebitCreditCardStruct(text.slice(s, e + 9)) };
+    }
+    return { success: false, error: extractTag(text, 'faultString') || 'getDebitCreditCardInfo failed.' };
+  } catch (e: any) { return { success: false, error: e.message }; }
+}
+
+/**
+ * List all debit/credit cards for an account or customer.
+ * Official method: listDebitCreditCards() — docs 107442
+ * Optional: offset, limit for pagination.
+ */
+export async function listDebitCreditCards(
+  username:  string,
+  password:  string,
+  owner:     { iAccount?: number; iCustomer?: number },
+  opts?:     { offset?: number; limit?: number },
+  portalUrl?: string,
+): Promise<{ cards: SippyDebitCreditCard[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { cards: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = {};
+  if (owner.iAccount  !== undefined) params.i_account  = owner.iAccount;
+  if (owner.iCustomer !== undefined) params.i_customer = owner.iCustomer;
+  if (opts?.offset    !== undefined) params.offset     = opts.offset;
+  if (opts?.limit     !== undefined) params.limit      = opts.limit;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listDebitCreditCards', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const cards: SippyDebitCreditCard[] = [];
+      const arrayMatch = /<name>debit_credit_cards<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>\s*<\/array>/i.exec(text);
+      if (arrayMatch) {
+        const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+        let m: RegExpExecArray | null;
+        while ((m = structRe.exec(arrayMatch[1])) !== null) {
+          try { cards.push(parseDebitCreditCardStruct(m[0])); } catch {}
+        }
+      }
+      return { cards };
+    }
+    return { cards: [], error: extractTag(text, 'faultString') || 'listDebitCreditCards failed.' };
+  } catch (e: any) { return { cards: [], error: e.message }; }
+}
+
+// ─ Account Balance Mutations (doc 107440) ─────────────────────────────────────
+
+/** Shared balance mutation helper for accountAddFunds / accountCredit / accountDebit. */
+async function accountBalanceMutation(
+  method:    string,
+  username:  string,
+  password:  string,
+  iAccount:  number,
+  amount:    number,
+  currency:  string,
+  opts?:     { paymentNotes?: string; paymentTime?: string },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const params: Record<string, string | number> = { i_account: iAccount, amount, currency };
+  if (opts?.paymentNotes !== undefined) params.payment_notes = opts.paymentNotes;
+  if (opts?.paymentTime  !== undefined) params.payment_time  = opts.paymentTime;
+  try {
+    const resp = await sippyPost(`${base}/xmlapi/xmlapi`, xmlRpcCall(method, params), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) return { success: true, message: `${method} OK.` };
+    return { success: false, message: extractTag(resp.body, 'faultString') || `${method} failed.` };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Add funds to (increase) an account balance.
+ * Official method: accountAddFunds() — docs 107440
+ */
+export const accountAddFunds = (u: string, p: string, iAccount: number, amount: number, currency: string,
+  opts?: { paymentNotes?: string; paymentTime?: string }, portalUrl?: string) =>
+  accountBalanceMutation('accountAddFunds', u, p, iAccount, amount, currency, opts, portalUrl);
+
+/**
+ * Credit an account (increase balance, recorded as credit transaction).
+ * Official method: accountCredit() — docs 107440
+ */
+export const accountCredit = (u: string, p: string, iAccount: number, amount: number, currency: string,
+  opts?: { paymentNotes?: string; paymentTime?: string }, portalUrl?: string) =>
+  accountBalanceMutation('accountCredit', u, p, iAccount, amount, currency, opts, portalUrl);
+
+/**
+ * Debit an account (reduce balance).
+ * Official method: accountDebit() — docs 107440
+ */
+export const accountDebit = (u: string, p: string, iAccount: number, amount: number, currency: string,
+  opts?: { paymentNotes?: string; paymentTime?: string }, portalUrl?: string) =>
+  accountBalanceMutation('accountDebit', u, p, iAccount, amount, currency, opts, portalUrl);
+
+// ─ Customer Balance Mutations (doc 150644) ────────────────────────────────────
+
+/** Shared balance mutation helper for customerAddFunds / customerCredit / customerDebit. */
+async function customerBalanceMutation(
+  method:    string,
+  username:  string,
+  password:  string,
+  iCustomer: number,
+  amount:    number,
+  currency:  string,
+  opts?:     { paymentNotes?: string; paymentTime?: string; iWholesaler?: number },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const params: Record<string, string | number> = { i_customer: iCustomer, amount, currency };
+  if (opts?.paymentNotes !== undefined) params.payment_notes = opts.paymentNotes;
+  if (opts?.paymentTime  !== undefined) params.payment_time  = opts.paymentTime;
+  if (opts?.iWholesaler  !== undefined) params.i_wholesaler  = opts.iWholesaler;
+  try {
+    const resp = await sippyPost(`${base}/xmlapi/xmlapi`, xmlRpcCall(method, params), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) return { success: true, message: `${method} OK.` };
+    return { success: false, message: extractTag(resp.body, 'faultString') || `${method} failed.` };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Add funds to (increase) a customer balance.
+ * Official method: customerAddFunds() — docs 150644
+ */
+export const customerAddFunds = (u: string, p: string, iCustomer: number, amount: number, currency: string,
+  opts?: { paymentNotes?: string; paymentTime?: string; iWholesaler?: number }, portalUrl?: string) =>
+  customerBalanceMutation('customerAddFunds', u, p, iCustomer, amount, currency, opts, portalUrl);
+
+/**
+ * Credit a customer (increase balance, recorded as credit transaction).
+ * Official method: customerCredit() — docs 150644
+ */
+export const customerCredit = (u: string, p: string, iCustomer: number, amount: number, currency: string,
+  opts?: { paymentNotes?: string; paymentTime?: string; iWholesaler?: number }, portalUrl?: string) =>
+  customerBalanceMutation('customerCredit', u, p, iCustomer, amount, currency, opts, portalUrl);
+
+/**
+ * Debit a customer (reduce balance).
+ * Official method: customerDebit() — docs 150644
+ */
+export const customerDebit = (u: string, p: string, iCustomer: number, amount: number, currency: string,
+  opts?: { paymentNotes?: string; paymentTime?: string; iWholesaler?: number }, portalUrl?: string) =>
+  customerBalanceMutation('customerDebit', u, p, iCustomer, amount, currency, opts, portalUrl);
+
+// ─ Payment Info (doc 107446) ──────────────────────────────────────────────────
+
+/**
+ * Get details for a single payment.
+ * Official method: getPaymentInfo() — docs 107446
+ * Note: Either iAccount OR iCustomer must be supplied.
+ * Trusted mode: supply iWholesaler.
+ */
+export async function getPaymentInfo(
+  username:    string,
+  password:    string,
+  iPayment:    number,
+  owner:       { iAccount?: number; iCustomer?: number },
+  iWholesaler?: number,
+  portalUrl?:  string,
+): Promise<{ success: boolean; payment?: SippyPayment; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = { i_payment: iPayment };
+  if (owner.iAccount    !== undefined) params.i_account    = owner.iAccount;
+  if (owner.iCustomer   !== undefined) params.i_customer   = owner.iCustomer;
+  if (iWholesaler       !== undefined) params.i_wholesaler = iWholesaler;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getPaymentInfo', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const s = text.indexOf('<struct>'), e = text.lastIndexOf('</struct>');
+      if (s === -1) return { success: false, error: 'No payment data returned.' };
+      return { success: true, payment: parsePaymentStruct(text.slice(s, e + 9)) };
+    }
+    return { success: false, error: extractTag(text, 'faultString') || 'getPaymentInfo failed.' };
+  } catch (e: any) { return { success: false, error: e.message }; }
+}
+
+/**
+ * List payments with optional filters.
+ * Official method: getPaymentsList() — docs 107446
+ * Optional: iAccount, iCustomer, offset, limit, startDate, endDate, type ('credit'|'debit')
+ */
+export async function getPaymentsList(
+  username:   string,
+  password:   string,
+  opts?: {
+    iAccount?:    number;
+    iCustomer?:   number;
+    offset?:      number;
+    limit?:       number;
+    startDate?:   string;      // '%H:%M:%S.000 GMT %a %b %d %Y'
+    endDate?:     string;
+    type?:        'credit' | 'debit';
+    iWholesaler?: number;
+  },
+  portalUrl?: string,
+): Promise<{ payments: SippyPayment[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { payments: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {};
+  if (opts?.iAccount    !== undefined) params.i_account    = opts.iAccount;
+  if (opts?.iCustomer   !== undefined) params.i_customer   = opts.iCustomer;
+  if (opts?.offset      !== undefined) params.offset       = opts.offset;
+  if (opts?.limit       !== undefined) params.limit        = opts.limit;
+  if (opts?.startDate   !== undefined) params.start_date   = opts.startDate;
+  if (opts?.endDate     !== undefined) params.end_date     = opts.endDate;
+  if (opts?.type        !== undefined) params.type         = opts.type;
+  if (opts?.iWholesaler !== undefined) params.i_wholesaler = opts.iWholesaler;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getPaymentsList', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const payments: SippyPayment[] = [];
+      const arrayMatch = /<name>payments<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>\s*<\/array>/i.exec(text);
+      if (arrayMatch) {
+        const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+        let m: RegExpExecArray | null;
+        while ((m = structRe.exec(arrayMatch[1])) !== null) {
+          try { payments.push(parsePaymentStruct(m[0])); } catch {}
+        }
+      }
+      return { payments };
+    }
+    return { payments: [], error: extractTag(text, 'faultString') || 'getPaymentsList failed.' };
+  } catch (e: any) { return { payments: [], error: e.message }; }
+}
+
+// ─ Recharge Voucher (doc 107438) ─────────────────────────────────────────────
+
+/**
+ * Top up an account balance using a recharge voucher.
+ * Official method: rechargeVoucher() — docs 107438
+ * Supply iAccount OR username; supply voucherId + optional secretPin (normal mode)
+ * OR iVoucher (trusted mode).
+ */
+export async function rechargeVoucher(
+  username:   string,
+  password:   string,
+  opts: {
+    iAccount?:   number;
+    accountUsername?: string;    // 'username' field in Sippy API
+    voucherId?:  string;         // voucher_id (normal mode)
+    secretPin?:  string;
+    iVoucher?:   number;         // trusted mode: use i_voucher directly
+  },
+  portalUrl?: string,
+): Promise<{
+  success: boolean;
+  message?: string;
+  value?: number;
+  voucherCurrency?: string;
+  payerAmount?: number;
+  error?: string;
+}> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {};
+  if (opts.iAccount         !== undefined) params.i_account  = opts.iAccount;
+  if (opts.accountUsername  !== undefined) params.username   = opts.accountUsername;
+  if (opts.voucherId        !== undefined) params.voucher_id = opts.voucherId;
+  if (opts.secretPin        !== undefined) params.secret_pin = opts.secretPin;
+  if (opts.iVoucher         !== undefined) params.i_voucher  = opts.iVoucher;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('rechargeVoucher', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      return {
+        success:        true,
+        message:        'Voucher applied.',
+        value:          m['value']           ? parseFloat(m['value'])           : undefined,
+        voucherCurrency: m['voucher_currency'] || undefined,
+        payerAmount:    m['payer_amount']    ? parseFloat(m['payer_amount'])    : undefined,
+      };
+    }
+    return { success: false, error: extractTag(text, 'faultString') || 'rechargeVoucher failed.' };
+  } catch (e: any) { return { success: false, error: e.message }; }
+}
+
+// ─ Card Payments (doc 107443) ─────────────────────────────────────────────────
+
+/**
+ * Make a payment using a stored debit/credit card.
+ * Official method: makePayment() — docs 107443
+ * Note: Either iAccount OR iCustomer must be supplied.
+ * If iDebitCreditCard not given, the primary card is used.
+ */
+export async function makePayment(
+  username:   string,
+  password:   string,
+  owner:      { iAccount?: number; iCustomer?: number },
+  amount:     number,
+  currency:   string,
+  payerIpAddress: string,
+  opts?: {
+    iDebitCreditCard?: number;
+    iWholesaler?:      number;
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; result?: string; iPayment?: number; message?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { amount, currency, payer_ip_address: payerIpAddress };
+  if (owner.iAccount          !== undefined) params.i_account           = owner.iAccount;
+  if (owner.iCustomer         !== undefined) params.i_customer          = owner.iCustomer;
+  if (opts?.iDebitCreditCard  !== undefined) params.i_debit_credit_card = opts.iDebitCreditCard;
+  if (opts?.iWholesaler       !== undefined) params.i_wholesaler        = opts.iWholesaler;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('makePayment', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const result = m['result'] || 'OK';
+      return {
+        success:  result !== 'FAILED',
+        result,
+        iPayment: m['i_payment'] ? parseInt(m['i_payment'], 10) : undefined,
+      };
+    }
+    return { success: false, message: extractTag(text, 'faultString') || 'makePayment failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Make a payment by providing card details inline (no stored card needed).
+ * Official method: makePaymentByCard() — docs 107443
+ * Note: Either iAccount OR iCustomer must be supplied.
+ */
+export async function makePaymentByCard(
+  username:       string,
+  password:       string,
+  owner:          { iAccount?: number; iCustomer?: number },
+  amount:         number,
+  currency:       string,
+  payerIpAddress: string,
+  card: {
+    iCardType:    number;
+    number:       string;
+    expMm:        number;
+    expYy:        number;
+    holder:       string;
+    streetAddr1:  string;
+    state:        string;
+    postalCode:   string;
+    city:         string;
+    country:      string;
+    phone:        string;
+    cvv?:         string;
+    streetAddr2?: string;
+  },
+  iWholesaler?:  number,
+  portalUrl?:    string,
+): Promise<{ success: boolean; result?: string; iPayment?: number; message?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {
+    amount, currency,
+    payer_ip_address: payerIpAddress,
+    i_card_type:      card.iCardType,
+    number:           card.number,
+    exp_mm:           card.expMm,
+    exp_yy:           card.expYy,
+    holder:           card.holder,
+    street_addr1:     card.streetAddr1,
+    state:            card.state,
+    postal_code:      card.postalCode,
+    city:             card.city,
+    country:          card.country,
+    phone:            card.phone,
+  };
+  if (owner.iAccount    !== undefined) params.i_account    = owner.iAccount;
+  if (owner.iCustomer   !== undefined) params.i_customer   = owner.iCustomer;
+  if (card.cvv          !== undefined) params.cvv          = card.cvv;
+  if (card.streetAddr2  !== undefined) params.street_addr2 = card.streetAddr2;
+  if (iWholesaler       !== undefined) params.i_wholesaler = iWholesaler;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('makePaymentByCard', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const result = m['result'] || 'OK';
+      return {
+        success:  result !== 'FAILED',
+        result,
+        iPayment: m['i_payment'] ? parseInt(m['i_payment'], 10) : undefined,
+      };
+    }
+    return { success: false, message: extractTag(text, 'faultString') || 'makePaymentByCard failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
 // ─── Low Balance / Auto-Recharge (doc 107444) ────────────────────────────────
 
 export interface SippyLowBalanceConfig {
