@@ -7050,3 +7050,475 @@ export async function checkMatchRule(
     return { success: false, message: e.message };
   }
 }
+
+// ─── DID Pool Management (docs 107502) ──────────────────────────────────────
+
+export interface SippyDID {
+  iDid:                    number;
+  did:                     string;
+  didRangeEnd:             string | null;
+  iDidAllocatedFrom:       number | null;
+  incomingDid:             string | null;
+  translationRule:         string | null;
+  cldTranslationRule:      string | null;
+  cliTranslationRule:      string | null;
+  description:             string | null;
+  iIvrApplication:         number | null;
+  iAccount:                number | null;
+  iDidsChargingGroup:      number | null;
+  iVendor:                 number | null;
+  iConnection:             number | null;
+  buyingIDidsChargingGroup: number | null;
+  iDidDelegation:          number | null;
+  delegatedTo:             number | null;
+  parentIDidDelegation:    number | null;
+  incomingCli:             string | null;
+}
+
+export interface SippyDIDChargingGroup {
+  iDidsChargingGroup: number;
+  iCustomer:          number | null;
+  name:               string;
+  description:        string | null;
+  connectFee:         number | null;
+  freeSeconds:        number | null;
+  gracePeriod:        number | null;
+  price1:             number | null;
+  priceN:             number | null;
+  interval1:          number | null;
+  intervalN:          number | null;
+  iso4217:            string | null;
+  price:              number | null;
+  setupFee:           number | null;
+  postCallSurcharge:  number | null;
+  type:               number | null;  // 1=selling 2=buying
+}
+
+function parseDIDStruct(m: Record<string, string>): SippyDID {
+  const ni = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : parseInt(m[k], 10);
+  const ns = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : m[k];
+  return {
+    iDid:                    parseInt(m['i_did'] || '0', 10),
+    did:                     m['did'] ?? '',
+    didRangeEnd:             ns('did_range_end'),
+    iDidAllocatedFrom:       ni('i_did_allocated_from'),
+    incomingDid:             ns('incoming_did'),
+    translationRule:         ns('translation_rule'),
+    cldTranslationRule:      ns('cld_translation_rule'),
+    cliTranslationRule:      ns('cli_translation_rule'),
+    description:             ns('description'),
+    iIvrApplication:         ni('i_ivr_application'),
+    iAccount:                ni('i_account'),
+    iDidsChargingGroup:      ni('i_dids_charging_group'),
+    iVendor:                 ni('i_vendor'),
+    iConnection:             ni('i_connection'),
+    buyingIDidsChargingGroup: ni('buying_i_dids_charging_group'),
+    iDidDelegation:          ni('i_did_delegation'),
+    delegatedTo:             ni('delegated_to'),
+    parentIDidDelegation:    ni('parent_i_did_delegation'),
+    incomingCli:             ns('incoming_cli'),
+  };
+}
+
+/**
+ * Add a DID to the pool.
+ * Official method: addDID() — docs 107502
+ */
+export async function addDID(
+  username: string,
+  password: string,
+  did: string,
+  incomingDid: string,
+  opts?: {
+    didRangeEnd?: string;
+    iDidAllocatedFrom?: number | null;
+    translationRule?: string;
+    cliTranslationRule?: string;
+    description?: string;
+    iIvrApplication?: number;
+    iAccount?: number;
+    iDidsChargingGroup?: number;
+    iVendor?: number;
+    iConnection?: number;
+    buyingIDidsChargingGroup?: number;
+    incomingCli?: string;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; iDid?: number; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | null> = { did, incoming_did: incomingDid };
+  if (opts?.didRangeEnd             !== undefined) params.did_range_end                = opts.didRangeEnd;
+  if (opts?.iDidAllocatedFrom       !== undefined) params.i_did_allocated_from         = opts.iDidAllocatedFrom;
+  if (opts?.translationRule         !== undefined) params.translation_rule             = opts.translationRule;
+  if (opts?.cliTranslationRule      !== undefined) params.cli_translation_rule         = opts.cliTranslationRule;
+  if (opts?.description             !== undefined) params.description                  = opts.description;
+  if (opts?.iIvrApplication         !== undefined) params.i_ivr_application            = opts.iIvrApplication;
+  if (opts?.iAccount                !== undefined) params.i_account                    = opts.iAccount;
+  if (opts?.iDidsChargingGroup      !== undefined) params.i_dids_charging_group        = opts.iDidsChargingGroup;
+  if (opts?.iVendor                 !== undefined) params.i_vendor                     = opts.iVendor;
+  if (opts?.iConnection             !== undefined) params.i_connection                 = opts.iConnection;
+  if (opts?.buyingIDidsChargingGroup !== undefined) params.buying_i_dids_charging_group = opts.buyingIDidsChargingGroup;
+  if (opts?.incomingCli             !== undefined) params.incoming_cli                 = opts.incomingCli;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addDID', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        return { success: true, iDid: parseInt(m['i_did'] || '0', 10), message: 'OK' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'addDID failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Update an existing DID. Either iDid or did must be specified.
+ * Official method: updateDID() — docs 107502
+ */
+export async function updateDID(
+  username: string,
+  password: string,
+  opts: {
+    iDid?: number;
+    did?: string;
+    didRangeEnd?: string;
+    incomingDid?: string;
+    translationRule?: string;
+    cliTranslationRule?: string;
+    description?: string;
+    iIvrApplication?: number | null;
+    iAccount?: number | null;
+    iDidsChargingGroup?: number;
+    iVendor?: number;
+    iConnection?: number;
+    buyingIDidsChargingGroup?: number;
+    incomingCli?: string;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; iDid?: number; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  if (!opts.iDid && !opts.did) return { success: false, message: 'Either iDid or did must be specified.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | null> = {};
+  if (opts.iDid                     !== undefined) params.i_did                        = opts.iDid;
+  if (opts.did                      !== undefined) params.did                          = opts.did;
+  if (opts.didRangeEnd              !== undefined) params.did_range_end                = opts.didRangeEnd;
+  if (opts.incomingDid              !== undefined) params.incoming_did                 = opts.incomingDid;
+  if (opts.translationRule          !== undefined) params.translation_rule             = opts.translationRule;
+  if (opts.cliTranslationRule       !== undefined) params.cli_translation_rule         = opts.cliTranslationRule;
+  if (opts.description              !== undefined) params.description                  = opts.description;
+  if (opts.iIvrApplication          !== undefined) params.i_ivr_application            = opts.iIvrApplication;
+  if (opts.iAccount                 !== undefined) params.i_account                    = opts.iAccount;
+  if (opts.iDidsChargingGroup       !== undefined) params.i_dids_charging_group        = opts.iDidsChargingGroup;
+  if (opts.iVendor                  !== undefined) params.i_vendor                     = opts.iVendor;
+  if (opts.iConnection              !== undefined) params.i_connection                 = opts.iConnection;
+  if (opts.buyingIDidsChargingGroup !== undefined) params.buying_i_dids_charging_group = opts.buyingIDidsChargingGroup;
+  if (opts.incomingCli              !== undefined) params.incoming_cli                 = opts.incomingCli;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateDID', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        return { success: true, iDid: parseInt(m['i_did'] || '0', 10), message: 'OK' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'updateDID failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a DID from the pool. Either iDid or did must be specified.
+ * Official method: deleteDID() — docs 107502
+ */
+export async function deleteDID(
+  username: string,
+  password: string,
+  opts: { iDid?: number; did?: string; didRangeEnd?: string; portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  if (!opts.iDid && !opts.did) return { success: false, message: 'Either iDid or did must be specified.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {};
+  if (opts.iDid        !== undefined) params.i_did         = opts.iDid;
+  if (opts.did         !== undefined) params.did           = opts.did;
+  if (opts.didRangeEnd !== undefined) params.did_range_end = opts.didRangeEnd;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteDID', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') return { success: true, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'deleteDID failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Get all attributes of a given DID. Either iDid or did must be specified.
+ * Official method: getDIDInfo() — docs 107502
+ */
+export async function getDIDInfo(
+  username: string,
+  password: string,
+  opts: { iDid?: number; did?: string; didRangeEnd?: string; portalUrl?: string },
+): Promise<{ success: boolean; did?: SippyDID; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  if (!opts.iDid && !opts.did) return { success: false, message: 'Either iDid or did must be specified.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {};
+  if (opts.iDid        !== undefined) params.i_did         = opts.iDid;
+  if (opts.did         !== undefined) params.did           = opts.did;
+  if (opts.didRangeEnd !== undefined) params.did_range_end = opts.didRangeEnd;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getDIDInfo', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        return { success: true, did: parseDIDStruct(m), message: 'OK' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'getDIDInfo failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * List DIDs with optional filters.
+ * Official method: getDIDsList() — docs 107502
+ */
+export async function getDIDsList(
+  username: string,
+  password: string,
+  filters?: {
+    did?: string;
+    incomingDid?: string;
+    delegatedTo?: number;
+    iAccount?: number;
+    iIvrApplication?: number;
+    notAssigned?: boolean;
+    offset?: number;
+    limit?: number;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; dids: SippyDID[]; message: string }> {
+  const base = filters?.portalUrl ? sippyBase(filters.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, dids: [], message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean> = {};
+  if (filters?.did            !== undefined) params.did             = filters.did;
+  if (filters?.incomingDid    !== undefined) params.incoming_did    = filters.incomingDid;
+  if (filters?.delegatedTo    !== undefined) params.delegated_to    = filters.delegatedTo;
+  if (filters?.iAccount       !== undefined) params.i_account       = filters.iAccount;
+  if (filters?.iIvrApplication !== undefined) params.i_ivr_application = filters.iIvrApplication;
+  if (filters?.notAssigned    !== undefined) params.not_assigned    = filters.notAssigned ? 1 : 0;
+  if (filters?.offset         !== undefined) params.offset          = filters.offset;
+  if (filters?.limit          !== undefined) params.limit           = filters.limit;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getDIDsList', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const dids = parseArrayOfStructs(text).map(parseDIDStruct);
+      return { success: true, dids, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'getDIDsList failed.';
+    return { success: false, dids: [], message: fault };
+  } catch (e: any) {
+    return { success: false, dids: [], message: e.message };
+  }
+}
+
+/**
+ * Get all attributes of a DID Charging Group.
+ * Official method: getDIDChargingGroupInfo() — docs 107502
+ */
+export async function getDIDChargingGroupInfo(
+  username: string,
+  password: string,
+  iDidsChargingGroup: number,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; group?: SippyDIDChargingGroup; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getDIDChargingGroupInfo', { i_dids_charging_group: iDidsChargingGroup }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        const nf = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : parseFloat(m[k]);
+        const ni = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : parseInt(m[k], 10);
+        const ns = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : m[k];
+        const group: SippyDIDChargingGroup = {
+          iDidsChargingGroup: parseInt(m['i_dids_charging_group'] || String(iDidsChargingGroup), 10),
+          iCustomer:          ni('i_customer'),
+          name:               m['name'] ?? '',
+          description:        ns('description'),
+          connectFee:         nf('connect_fee'),
+          freeSeconds:        ni('free_seconds'),
+          gracePeriod:        ni('grace_period'),
+          price1:             nf('price_1'),
+          priceN:             nf('price_n'),
+          interval1:          ni('interval_1'),
+          intervalN:          ni('interval_n'),
+          iso4217:            ns('iso_4217'),
+          price:              nf('price'),
+          setupFee:           nf('setup_fee'),
+          postCallSurcharge:  nf('post_call_surcharge'),
+          type:               ni('type'),
+        };
+        return { success: true, group, message: 'OK' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'getDIDChargingGroupInfo failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delegate a DID to a subcustomer.
+ * Official method: addDIDDelegation() — docs 107502
+ */
+export async function addDIDDelegation(
+  username: string,
+  password: string,
+  opts: {
+    iDid: number;
+    delegatedTo: number;
+    parentIDidDelegation: number | null;
+    iDidsChargingGroup?: number;
+    description?: string;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; iDidDelegation?: number; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | null> = {
+    i_did:                  opts.iDid,
+    delegated_to:           opts.delegatedTo,
+    parent_i_did_delegation: opts.parentIDidDelegation,
+  };
+  if (opts.iDidsChargingGroup !== undefined) params.i_dids_charging_group = opts.iDidsChargingGroup;
+  if (opts.description        !== undefined) params.description           = opts.description;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addDIDDelegation', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        return { success: true, iDidDelegation: parseInt(m['i_did_delegation'] || '0', 10), message: 'OK' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'addDIDDelegation failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Update a DID delegation entry.
+ * Official method: updateDIDDelegation() — docs 107502
+ */
+export async function updateDIDDelegation(
+  username: string,
+  password: string,
+  iDidDelegation: number,
+  opts?: { iDidsChargingGroup?: number; delegatedTo?: number; description?: string; portalUrl?: string },
+): Promise<{ success: boolean; iDidDelegation?: number; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_did_delegation: iDidDelegation };
+  if (opts?.iDidsChargingGroup !== undefined) params.i_dids_charging_group = opts.iDidsChargingGroup;
+  if (opts?.delegatedTo        !== undefined) params.delegated_to          = opts.delegatedTo;
+  if (opts?.description        !== undefined) params.description           = opts.description;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateDIDDelegation', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        return { success: true, iDidDelegation: parseInt(m['i_did_delegation'] || String(iDidDelegation), 10), message: 'OK' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'updateDIDDelegation failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a DID delegation entry.
+ * Official method: deleteDIDDelegation() — docs 107502
+ */
+export async function deleteDIDDelegation(
+  username: string,
+  password: string,
+  iDidDelegation: number,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteDIDDelegation', { i_did_delegation: iDidDelegation }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') return { success: true, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'deleteDIDDelegation failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}

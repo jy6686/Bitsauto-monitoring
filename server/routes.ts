@@ -3374,5 +3374,161 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ─── DID Pool Management (docs 107502) ────────────────────────────────────
+
+  // GET /api/sippy/dids — list DIDs with optional filters
+  app.get('/api/sippy/dids', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { did, incomingDid, delegatedTo, iAccount, iIvrApplication, notAssigned, offset, limit } = req.query as any;
+      const result = await sippy.getDIDsList(username, password, {
+        did,
+        incomingDid,
+        delegatedTo:     delegatedTo    ? parseInt(delegatedTo, 10)    : undefined,
+        iAccount:        iAccount       ? parseInt(iAccount, 10)       : undefined,
+        iIvrApplication: iIvrApplication ? parseInt(iIvrApplication, 10) : undefined,
+        notAssigned:     notAssigned === 'true' ? true : (notAssigned === 'false' ? false : undefined),
+        offset:          offset         ? parseInt(offset, 10)         : undefined,
+        limit:           limit          ? parseInt(limit, 10)          : undefined,
+        portalUrl:       settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // GET /api/sippy/dids/charging-groups/:id — get DID charging group info (BEFORE /:id)
+  app.get('/api/sippy/dids/charging-groups/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid i_dids_charging_group.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getDIDChargingGroupInfo(username, password, id, { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(404).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/dids/delegations/:id — update a DID delegation (BEFORE /:id)
+  app.patch('/api/sippy/dids/delegations/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid i_did_delegation.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { iDidsChargingGroup, delegatedTo, description } = req.body ?? {};
+      const result = await sippy.updateDIDDelegation(username, password, id, {
+        iDidsChargingGroup: iDidsChargingGroup !== undefined ? parseInt(iDidsChargingGroup, 10) : undefined,
+        delegatedTo:        delegatedTo        !== undefined ? parseInt(delegatedTo, 10)        : undefined,
+        description,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // DELETE /api/sippy/dids/delegations/:id — delete a DID delegation (BEFORE /:id)
+  app.delete('/api/sippy/dids/delegations/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid i_did_delegation.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteDIDDelegation(username, password, id, { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // GET /api/sippy/dids/:id — get DID info by i_did (integer) or did string
+  app.get('/api/sippy/dids/:id', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const rawId = req.params.id;
+      const numId = parseInt(rawId, 10);
+      const opts = isNaN(numId)
+        ? { did: rawId, didRangeEnd: req.query.didRangeEnd as string | undefined, portalUrl: settings.portalUrl ?? '' }
+        : { iDid: numId, portalUrl: settings.portalUrl ?? '' };
+      const result = await sippy.getDIDInfo(username, password, opts);
+      if (!result.success) return res.status(404).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/dids — add a DID
+  app.post('/api/sippy/dids', async (req: any, res) => {
+    try {
+      const { did, incomingDid, ...rest } = req.body ?? {};
+      if (!did || !incomingDid) return res.status(400).json({ success: false, error: 'did and incomingDid are required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addDID(username, password, did, incomingDid, { ...rest, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/dids/:id — update a DID by i_did
+  app.patch('/api/sippy/dids/:id', async (req: any, res) => {
+    try {
+      const iDid = parseInt(req.params.id, 10);
+      if (isNaN(iDid)) return res.status(400).json({ success: false, error: 'Invalid i_did.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateDID(username, password, { iDid, ...req.body, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // DELETE /api/sippy/dids/:id — delete a DID by i_did
+  app.delete('/api/sippy/dids/:id', async (req: any, res) => {
+    try {
+      const iDid = parseInt(req.params.id, 10);
+      if (isNaN(iDid)) return res.status(400).json({ success: false, error: 'Invalid i_did.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteDID(username, password, { iDid, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/dids/:id/delegations — delegate a DID to a subcustomer
+  app.post('/api/sippy/dids/:id/delegations', async (req: any, res) => {
+    try {
+      const iDid = parseInt(req.params.id, 10);
+      if (isNaN(iDid)) return res.status(400).json({ success: false, error: 'Invalid i_did.' });
+      const { delegatedTo, parentIDidDelegation, iDidsChargingGroup, description } = req.body ?? {};
+      if (delegatedTo === undefined) return res.status(400).json({ success: false, error: 'delegatedTo is required.' });
+      if (parentIDidDelegation === undefined) return res.status(400).json({ success: false, error: 'parentIDidDelegation is required (null for first delegation).' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addDIDDelegation(username, password, {
+        iDid,
+        delegatedTo:          parseInt(delegatedTo, 10),
+        parentIDidDelegation: parentIDidDelegation === null ? null : parseInt(parentIDidDelegation, 10),
+        iDidsChargingGroup:   iDidsChargingGroup !== undefined ? parseInt(iDidsChargingGroup, 10) : undefined,
+        description,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   return httpServer;
 }
