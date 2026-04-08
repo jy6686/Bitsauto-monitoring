@@ -7863,3 +7863,94 @@ export async function writeAuditLog(
     return { success: false, message: e.message };
   }
 }
+
+// ─── Replication Status (docs 3000040133) — root-only, since V4.4 ─────────────
+
+export interface SippyReplicationStatus {
+  replicationEnabled: boolean | null;
+  master:             string  | null;
+  slave:              string  | null;
+  replicationOk:      boolean | null;
+}
+
+export interface SippyReplicationLag {
+  stLagTime:           string | null;
+  replicationTestLag:  string | null;
+}
+
+/**
+ * Get the current replication status for a given environment.
+ * Root only. Supports trusted mode (i_environment).
+ * Official method: getReplicationStatus() — docs 3000040133 (since V4.4)
+ */
+export async function getReplicationStatus(
+  username: string,
+  password: string,
+  opts?: { iEnvironment?: number; portalUrl?: string },
+): Promise<{ success: boolean; status?: SippyReplicationStatus; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = {};
+  if (opts?.iEnvironment !== undefined) params.i_environment = opts.iEnvironment;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getReplicationStatus', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const nb = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : (m[k] === '1' || m[k].toLowerCase() === 'true');
+      const ns = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : m[k];
+      const status: SippyReplicationStatus = {
+        replicationEnabled: nb('replication_enabled'),
+        master:             ns('master'),
+        slave:              ns('slave'),
+        replicationOk:      nb('replication_ok'),
+      };
+      return { success: true, status, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'getReplicationStatus failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Get the current replication lag for a given environment.
+ * Root only. Supports trusted mode (i_environment).
+ * Official method: getReplicationLag() — docs 3000040133 (since V4.4)
+ */
+export async function getReplicationLag(
+  username: string,
+  password: string,
+  opts?: { iEnvironment?: number; portalUrl?: string },
+): Promise<{ success: boolean; lag?: SippyReplicationLag; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = {};
+  if (opts?.iEnvironment !== undefined) params.i_environment = opts.iEnvironment;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getReplicationLag', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const ns = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : m[k];
+      const lag: SippyReplicationLag = {
+        stLagTime:          ns('st_lag_time'),
+        replicationTestLag: ns('replication_test_lag'),
+      };
+      return { success: true, lag, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'getReplicationLag failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}

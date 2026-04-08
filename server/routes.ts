@@ -3695,5 +3695,35 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ─── Replication Status (docs 3000040133) — root-only, since V4.4 ─────────────
+
+  // GET /api/sippy/replication/status — getReplicationStatus()
+  // Root-only. Supports trusted mode via ?iEnvironment= query param.
+  app.get('/api/sippy/replication/status', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const iEnvironment = req.query.iEnvironment ? parseInt(req.query.iEnvironment as string, 10) : undefined;
+      const result = await sippy.getReplicationStatus(username, password, { iEnvironment, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // GET /api/sippy/replication/lag — getReplicationLag()
+  // Root-only. Supports trusted mode via ?iEnvironment= query param.
+  app.get('/api/sippy/replication/lag', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const iEnvironment = req.query.iEnvironment ? parseInt(req.query.iEnvironment as string, 10) : undefined;
+      const result = await sippy.getReplicationLag(username, password, { iEnvironment, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   return httpServer;
 }
