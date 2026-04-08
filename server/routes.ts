@@ -3100,5 +3100,37 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
+  // ── Web User Block / Unblock (docs 3000121328, Sippy 2023+) ─────────────────
+
+  // POST /api/sippy/web-users/:id/block — block a web user (admin+management)
+  app.post('/api/sippy/web-users/:id/block', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iWebUser = parseInt(req.params.id, 10);
+      if (isNaN(iWebUser)) return res.status(400).json({ success: false, error: 'Invalid i_web_user.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.body?.iCustomer !== undefined ? Number(req.body.iCustomer) : undefined;
+      const result = await sippy.blockWebUser(username, password, iWebUser, { iCustomer, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json({ success: true, iWebUser: result.iWebUser, message: result.message });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/web-users/:id/unblock — unblock a web user (admin+management)
+  app.post('/api/sippy/web-users/:id/unblock', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iWebUser = parseInt(req.params.id, 10);
+      if (isNaN(iWebUser)) return res.status(400).json({ success: false, error: 'Invalid i_web_user.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.body?.iCustomer !== undefined ? Number(req.body.iCustomer) : undefined;
+      const result = await sippy.unblockWebUser(username, password, iWebUser, { iCustomer, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json({ success: true, iWebUser: result.iWebUser, message: result.message });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   return httpServer;
 }

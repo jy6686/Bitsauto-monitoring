@@ -6282,3 +6282,75 @@ export async function deleteFollowMeEntry(
     return { success: false, message: e.message };
   }
 }
+
+// ── Block / Unblock Web Users (docs 3000121328) ───────────────────────────────
+// Available since Sippy 2023. Supports trusted mode (pass i_customer).
+// Cannot be used on the default web user created with the Customer.
+
+/**
+ * Block a web user by i_web_user ID.
+ * Official method: blockWebUser() — docs 3000121328
+ */
+export async function blockWebUser(
+  username: string,
+  password: string,
+  iWebUser: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; iWebUser?: number; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_web_user: iWebUser };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('blockWebUser', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const result = m['result'] ?? '';
+      const id = m['i_web_user'] ? parseInt(m['i_web_user'], 10) : iWebUser;
+      if (result === 'OK') return { success: true, iWebUser: id, message: 'Web user blocked.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'blockWebUser failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Unblock a web user by i_web_user ID.
+ * Official method: unblockWebUser() — docs 3000121328
+ */
+export async function unblockWebUser(
+  username: string,
+  password: string,
+  iWebUser: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; iWebUser?: number; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { i_web_user: iWebUser };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('unblockWebUser', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const result = m['result'] ?? '';
+      const id = m['i_web_user'] ? parseInt(m['i_web_user'], 10) : iWebUser;
+      if (result === 'OK') return { success: true, iWebUser: id, message: 'Web user unblocked.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'unblockWebUser failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
