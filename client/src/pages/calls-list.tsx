@@ -31,6 +31,7 @@ interface LiveCall {
   callee: string;        // CLD (destination number)
   gateway: string;
   clientName?: string;   // Account / customer name
+  accountId?: string;    // Sippy i_account (determines trunk class: 1xx=First, 2xx=Business, 7xx=Charlie)
   duration: number;
   callStatus: 'connected' | 'routing';
   ccState?: string;      // Full Sippy CC_STATE (Connected | ARComplete | WaitRoute | WaitAuth | Idle | Disconnecting | Dead)
@@ -574,25 +575,17 @@ function SwitchPanel({
                           )}
                         </td>
                         <td className="px-6 py-4" data-testid={`cell-trunk-${call.id}`}>
-                          {call.trunkClass ? (
-                            <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${
-                              call.trunkClass === 'First' ? 'text-blue-400 bg-blue-500/10' :
-                              call.trunkClass === 'Business' ? 'text-violet-400 bg-violet-500/10' :
-                              call.trunkClass === 'Charlie' ? 'text-orange-400 bg-orange-500/10' :
-                              'text-muted-foreground bg-muted/40'
-                            }`}>{call.trunkClass}</span>
-                          ) : (
-                            (() => {
-                              const d = call.callee?.replace(/^\+?1?/, '').charAt(0);
-                              const tc = d === '1' ? {label:'First', cls:'text-blue-400 bg-blue-500/10'}
-                                : d === '2' ? {label:'Business', cls:'text-violet-400 bg-violet-500/10'}
-                                : d === '7' ? {label:'Charlie', cls:'text-orange-400 bg-orange-500/10'}
-                                : null;
-                              return tc
-                                ? <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${tc.cls}`}>{tc.label}</span>
-                                : <span className="text-muted-foreground/30 text-xs">—</span>;
-                            })()
-                          )}
+                          {(() => {
+                            const tc = call.trunkClass?.toLowerCase();
+                            const acctFirst = String((call as any).accountId || (call as any).iAccount || '').charAt(0);
+                            const cls = tc === 'first'    || acctFirst === '1' ? { label: 'First',    color: 'text-blue-400 bg-blue-500/10' }
+                                      : tc === 'business' || acctFirst === '2' ? { label: 'Business', color: 'text-violet-400 bg-violet-500/10' }
+                                      : tc === 'charlie'  || acctFirst === '7' ? { label: 'Charlie',  color: 'text-orange-400 bg-orange-500/10' }
+                                      : null;
+                            return cls
+                              ? <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${cls.color}`}>{cls.label}</span>
+                              : <span className="text-muted-foreground/30 text-xs">—</span>;
+                          })()}
                         </td>
                         <td className="px-6 py-4 text-muted-foreground">
                           <div className="flex items-center gap-2">
@@ -777,11 +770,10 @@ function SwitchPanel({
                       {displayed.map((call, i) => {
                         const origCountry = call.caller ? lookupCountry(call.caller) : null;
                         const destCountry = call.callee ? lookupCountry(call.callee) : null;
-                        const cldDigit = call.callee?.replace(/^\+?1?/, '').charAt(0);
-                        const trunkClass = !cldDigit ? null
-                          : cldDigit === '1' ? { label: 'First', color: 'text-blue-400 bg-blue-500/10' }
-                          : cldDigit === '2' ? { label: 'Business', color: 'text-violet-400 bg-violet-500/10' }
-                          : cldDigit === '7' ? { label: 'Charlie', color: 'text-orange-400 bg-orange-500/10' }
+                        const acctFirst = String(call.accountId || '').charAt(0);
+                        const trunkClass = acctFirst === '1' ? { label: 'First',    color: 'text-blue-400 bg-blue-500/10' }
+                          : acctFirst === '2' ? { label: 'Business', color: 'text-violet-400 bg-violet-500/10' }
+                          : acctFirst === '7' ? { label: 'Charlie',  color: 'text-orange-400 bg-orange-500/10' }
                           : null;
                         const rowKey = call.id || String(i);
                         const isExpanded = expandedCallId === rowKey;

@@ -2,10 +2,10 @@
 /**
  * CDR Enrichment — country detection, trunk class, FAS, wrong number detection
  * 
- * Trunk class rules (by callee prefix):
- *   1x  → First Class
- *   2x  → Business Class
- *   7x  → Charlie
+ * Trunk class rules (by Sippy account ID first digit):
+ *   1xx → First Class  (e.g. account 192)
+ *   2xx → Business Class (e.g. account 292)
+ *   7xx → Charlie      (e.g. account 792)
  *   else → Unknown
  *
  * FAS detection (any of):
@@ -26,12 +26,19 @@ import type { TrunkClass } from '@shared/schema';
 
 // ── Trunk Class ────────────────────────────────────────────────────────────
 
-export function detectTrunkClass(callee: string): TrunkClass {
-  // Strip leading + if present, then check prefix digit
-  const digits = callee.replace(/^\+/, '');
-  if (digits.startsWith('1')) return 'first';
-  if (digits.startsWith('2')) return 'business';
-  if (digits.startsWith('7')) return 'charlie';
+/**
+ * Detect trunk class from Sippy account ID (i_account).
+ * The first digit of the account number determines the class:
+ *   1xx → First Class   (e.g. account 192)
+ *   2xx → Business Class (e.g. account 292)
+ *   7xx → Charlie       (e.g. account 792)
+ */
+export function detectTrunkClass(accountId: string | number | null | undefined): TrunkClass {
+  const s = String(accountId ?? '').trim();
+  if (!s) return 'unknown';
+  if (s.startsWith('1')) return 'first';
+  if (s.startsWith('2')) return 'business';
+  if (s.startsWith('7')) return 'charlie';
   return 'unknown';
 }
 
@@ -118,17 +125,18 @@ export type EnrichedCdr = {
 export function enrichCdr(opts: {
   caller: string;
   callee: string;
+  accountId?: string | number | null;
   sipCode?: number | null;
   pddSecs?: number | null;
   billSecs?: number | null;
   fasMinPddSecs: number;
   fasMaxBillSecs: number;
 }): EnrichedCdr {
-  const { caller, callee, sipCode, pddSecs, billSecs, fasMinPddSecs, fasMaxBillSecs } = opts;
+  const { caller, callee, accountId, sipCode, pddSecs, billSecs, fasMinPddSecs, fasMaxBillSecs } = opts;
 
   const originCountry = detectCountry(caller);
   const termCountry = detectCountry(callee);
-  const trunkClass = detectTrunkClass(callee);
+  const trunkClass = detectTrunkClass(accountId);
   const failReason = sipCodeToFailReason(sipCode);
   const { isFas, reason: fasReason } = detectFas({ sipCode, pddSecs, billSecs, fasMinPddSecs, fasMaxBillSecs });
 

@@ -722,6 +722,7 @@ export async function registerRoutes(
           duration: c.duration,
           callStatus: (c.status === 'connected' || c.duration > 0) ? 'connected' : 'routing',
           clientName: c.user || c.accountId || undefined,
+          accountId: c.accountId || undefined,
           vendor: c.vendor,
           connection: c.connection,
           direction: c.direction,
@@ -1549,17 +1550,19 @@ export async function registerRoutes(
   // Body: raw binary file content (any MIME type; set Content-Type as needed)
   // Returns: { success, body } — body is Sippy's raw HTTP response text
   app.post('/api/sippy/upload/file',
+    // Collect raw binary body (any Content-Type, up to 200 MB) without depending on require()
     (req: any, res: any, next: any) => {
-      // Parse as raw binary regardless of Content-Type (limit 200 MB)
-      const express = require('express');
-      express.raw({ type: '*/*', limit: '200mb' })(req, res, next);
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => { req.rawBinary = Buffer.concat(chunks); next(); });
+      req.on('error', next);
     },
     async (req: any, res) => {
       try {
         const uploadUrl = req.query.url as string | undefined;
         if (!uploadUrl) return res.status(400).json({ error: 'url query param is required' });
 
-        const data: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body ?? '');
+        const data: Buffer = req.rawBinary ?? Buffer.from('');
         const filename = (req.query.filename as string | undefined) ?? 'upload.csv';
 
         const result = await sippy.uploadBinaryFile(uploadUrl, data, filename);
@@ -2506,11 +2509,14 @@ export async function registerRoutes(
       const tariffId = String(req.query.tariffId || '');
       const switchId = req.query.switchId ? Number(req.query.switchId) : null;
       let portalUrl = settings.portalUrl ?? undefined;
-      let u = settings.portalUsername ?? '';
-      let p = settings.portalPassword ?? '';
+      let { username: u, password: p } = sippyXmlCreds(settings);
       if (switchId) {
-        const sw = (await storage.getSwitches()).find(s => s.id === switchId);
-        if (sw) { portalUrl = sw.portalUrl ?? undefined; u = sw.portalUsername ?? ''; p = sw.portalPassword ?? ''; }
+        const sw = (await storage.getSwitches()).find(s => s.id === switchId && s.type === 'sippy');
+        if (sw) {
+          portalUrl = sw.portalUrl ?? portalUrl;
+          const swCreds = sippyXmlCreds(settings, sw);
+          u = swCreds.username; p = swCreds.password;
+        }
       }
       if (!tariffId) return res.json({ rates: [], error: 'tariffId required' });
       const result = await sippy.getSippyRateList(u, p, tariffId, portalUrl);
@@ -2519,16 +2525,22 @@ export async function registerRoutes(
   });
 
   // POST /api/sippy/rates — add or update a single rate entry
+  // Uses admin XML-RPC credentials (sippyXmlCreds) — portal creds lack rate-write permissions
   app.post('/api/sippy/rates', async (req, res) => {
     try {
       const settings = await storage.getSettings();
       const { tariffId, prefix, rate, effectiveFrom, effectiveTill, switchId } = req.body;
       let portalUrl = settings.portalUrl ?? undefined;
-      let u = settings.portalUsername ?? '';
-      let p = settings.portalPassword ?? '';
+      // Always use admin XML-RPC creds for rate management — portal user lacks write access
+      let { username: u, password: p } = sippyXmlCreds(settings);
       if (switchId) {
-        const sw = (await storage.getSwitches()).find(s => s.id === switchId);
-        if (sw) { portalUrl = sw.portalUrl ?? undefined; u = sw.portalUsername ?? ''; p = sw.portalPassword ?? ''; }
+        const sw = (await storage.getSwitches()).find(s => s.id === Number(switchId) && s.type === 'sippy');
+        if (sw) {
+          portalUrl = sw.portalUrl ?? portalUrl;
+          const swCreds = sippyXmlCreds(settings, sw);
+          u = swCreds.username;
+          p = swCreds.password;
+        }
       }
       if (!tariffId || !prefix || rate === undefined) return res.status(400).json({ success: false, message: 'tariffId, prefix, rate required' });
       const result = await sippy.setSippyRateEntry(u, p, tariffId, { prefix, rate: Number(rate), effectiveFrom, effectiveTill }, portalUrl);
@@ -4682,6 +4694,7 @@ export async function registerRoutes(
         const result = enrichCdr({
           caller: cdr.caller ?? cdr.cli ?? '',
           callee: cdr.callee ?? cdr.cld ?? '',
+          accountId: cdr.accountId ?? cdr.iAccount ?? cdr.i_account ?? null,
           sipCode: cdr.sipCode ?? cdr.disconnect_code ?? null,
           pddSecs: cdr.pdd ?? null,
           billSecs: cdr.billSecs ?? cdr.billed_duration ?? null,

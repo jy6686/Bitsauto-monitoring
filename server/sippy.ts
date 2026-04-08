@@ -563,7 +563,7 @@ function buildStructMembers(params: Record<string, string | number | boolean | n
       let valTag: string;
       if (v === null)             valTag = `<nil/>`;
       else if (typeof v === 'boolean') valTag = `<boolean>${v ? 1 : 0}</boolean>`;
-      else if (typeof v === 'number')  valTag = `<int>${v}</int>`;
+      else if (typeof v === 'number')  valTag = Number.isInteger(v) ? `<int>${v}</int>` : `<double>${v}</double>`;
       else valTag = `<string>${String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</string>`;
       return `<member><name>${k}</name><value>${valTag}</value></member>`;
     })
@@ -1943,13 +1943,14 @@ export async function uploadBinaryFile(
 ): Promise<{ success: boolean; body: string }> {
   return new Promise((resolve) => {
     const url   = new URL(uploadUrl);
-    const proto = url.protocol === 'https:' ? require('https') : require('http');
+    const proto = url.protocol === 'https:' ? https : http;
 
     const options = {
-      hostname:         url.hostname,
-      port:             url.port || (url.protocol === 'https:' ? 443 : 80),
-      path:             url.pathname + url.search,
-      method:           'POST',
+      hostname:            url.hostname,
+      port:                url.port || (url.protocol === 'https:' ? 443 : 80),
+      path:                url.pathname + url.search,
+      method:              'POST',
+      rejectUnauthorized:  false,   // Sippy uses self-signed certs
       headers: {
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Content-Type':        'application/octet-stream',
@@ -4329,28 +4330,44 @@ export async function setSippyRateEntry(
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const lastErrors: string[] = [];
 
+  // Sippy 2022+: uses prefix / price_1 / price_n / interval_1 / interval_n (<double> types)
+  // Legacy:      uses destination / rate
+  const r = entry.rate;
   const params: Record<string, string | number> = {
-    i_tariff:    tariffId,
-    destination: entry.prefix,
-    rate:        entry.rate,
+    i_tariff:   Number(tariffId),   // must be <int> not <string>
+    prefix:     entry.prefix,       // Sippy 2022+ (getTariffRatesList uses 'prefix')
+    price_1:    r,                  // per-min rate, float → <double>
+    price_n:    r,                  // subsequent-min rate
+    interval_1: 1,                  // 1-second first interval
+    interval_n: 1,                  // 1-second subsequent interval
+    destination: entry.prefix,      // legacy alias
+    rate:        r,                 // legacy alias (<double> now fixed)
   };
-  if (entry.effectiveFrom) params.start_date = entry.effectiveFrom;
-  if (entry.effectiveTill) params.end_date   = entry.effectiveTill;
+  if (entry.effectiveFrom) { params.activation_date = entry.effectiveFrom; params.start_date = entry.effectiveFrom; }
+  if (entry.effectiveTill) { params.expiration_date = entry.effectiveTill; params.end_date   = entry.effectiveTill; }
 
-  // Official method: addRateTariff() (or setRate) from Sippy docs 3000118878
-  // Also covers legacy method names for older Sippy builds
-  for (const method of ['addRateTariff', 'tariff.setRate', 'tariff.addDestination', 'rate.setRate']) {
+  // Probe all known + plausible method names — Sippy 2022+ and legacy
+  for (const method of [
+    // Sippy 2022+ naming pattern (matching getTariffRatesList / deleteAllRatesInTariff)
+    'addRateToTariff', 'addRateInTariff', 'addRatesToTariff',
+    'setRateInTariff', 'setRateToTariff', 'updateRateInTariff',
+    // Original guesses — confirmed 404 but keeping for completeness
+    'addRateTariff', 'tariff.setRate', 'tariff.addDestination', 'rate.setRate',
+  ]) {
     try {
       const body = xmlRpcCall(method, params);
       const resp = await sippyPost(apiUrl, body, username, password);
+      console.log(`[Sippy] setSippyRateEntry ${method}: HTTP ${resp.statusCode} body=${resp.body.substring(0, 300)}`);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
         return { success: true, message: `Rate saved via ${method}` };
       }
-      const fault = extractTag(resp.body, 'faultString') || `${method} failed`;
+      const faultStr = extractTag(resp.body, 'faultString');
+      const faultCode = extractTag(resp.body, 'faultCode');
+      const fault = faultStr ? `${method}: ${faultStr} (code ${faultCode})` : `${method} HTTP ${resp.statusCode}`;
       lastErrors.push(fault);
-    } catch (e: any) { lastErrors.push(e.message); }
+    } catch (e: any) { lastErrors.push(`${method} exception: ${e.message}`); }
   }
-  return { success: false, message: lastErrors[0] || 'Could not save rate.' };
+  return { success: false, message: lastErrors.join(' | ') || 'Could not save rate.' };
 }
 
 export async function deleteSippyRateEntry(
