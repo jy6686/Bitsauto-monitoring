@@ -5314,6 +5314,501 @@ export async function listCgMembers(
   }
 }
 
+// ── Environments (official Sippy docs 3000043578 / 3000044255-3000044609) ─────
+// Available since V4.5. Root customer + first environment only.
+// All methods support trusted mode (i_customer).
+
+// ─ Shared types ───────────────────────────────────────────────────────────────
+
+/** Fields common to both createEnvironment and getEnvironmentInfo. */
+export type EnvironmentOpts = {
+  // Required for create, optional for update
+  name?:                   string;
+  httpsCname?:             string;             // hostname for HTTP-server
+  assignedIps?:            string | null;      // comma-separated IPs; null = "Unassigned"
+  // Capacity
+  maxCps?:                 number | null;      // null = Unlimited
+  maxSessions?:            number | null;      // null = Unlimited
+  description?:            string;
+  installedModules?:       string;             // comma-separated module list
+  // Monitoring flags
+  enableSysinfo?:          boolean;
+  enableNetband?:          boolean;
+  enableCpuutil?:          boolean;
+  enableDiskload?:         boolean;
+  // Expiry & notifications
+  expirationDate?:         string;             // '%H:%M:%S.000 GMT %a %b %d %Y'
+  notifyOnExpiration?:     boolean;
+  notifyAddresses?:        string;             // comma-separated emails / special <E-Mail> etc.
+  // HTTP server
+  httpdServers?:           number;             // 0 = Auto
+  // SIP logging
+  siplogIndexEnabled?:     boolean;
+  recordSdp?:              boolean;
+  // Contact info
+  companyName?:            string;
+  salutation?:             string;
+  firstName?:              string;
+  lastName?:               string;
+  midInit?:                string;
+  streetAddr?:             string;
+  state?:                  string;
+  postalCode?:             string;
+  city?:                   string;
+  country?:                string;
+  contact?:                string;
+  phone?:                  string;
+  fax?:                    string;
+  altPhone?:               string;
+  altContact?:             string;
+  email?:                  string;
+  cc?:                     string;
+  bcc?:                    string;
+  // Deprecated/removed fields (kept for ≤5.0 compat)
+  sipPorts?:               string;             // removed since 2021
+  httpsCertificate?:       string;             // removed since 2021
+  httpsKey?:               string;             // removed since 2021
+  // Trusted mode
+  iCustomer?:              number;
+};
+
+/** Summary row returned by listEnvironments(). */
+export interface SippyEnvironmentSummary {
+  iEnvironment:   number;
+  name:           string;
+  httpsCname?:    string;
+  description?:   string;
+  maxCps?:        number | null;
+  maxSessions?:   number | null;
+  expirationDate?: string;
+  enabled?:       boolean;
+  suspendDate?:   string;
+  pendingAction?: string;
+}
+
+/** Full environment struct returned by getEnvironmentInfo(). */
+export interface SippyEnvironmentInfo extends SippyEnvironmentSummary {
+  assignedIps?:          string;
+  installedModules?:     string;
+  enableSysinfo?:        boolean;
+  enableNetband?:        boolean;
+  enableCpuutil?:        boolean;
+  enableDiskload?:       boolean;
+  notifyOnExpiration?:   boolean;
+  notifyAddresses?:      string;
+  httpdServers?:         number;
+  siplogIndexEnabled?:   boolean;
+  recordSdp?:            boolean;
+  companyName?:          string;
+  salutation?:           string;
+  firstName?:            string;
+  lastName?:             string;
+  midInit?:              string;
+  streetAddr?:           string;
+  state?:                string;
+  postalCode?:           string;
+  city?:                 string;
+  country?:              string;
+  contact?:              string;
+  phone?:                string;
+  fax?:                  string;
+  altPhone?:             string;
+  altContact?:           string;
+  email?:                string;
+  cc?:                   string;
+  bcc?:                  string;
+}
+
+/** IP address entry from listSwitchIPs(). */
+export interface SippySwitchIp {
+  ip:     string;
+  status: 'INUSE' | 'AVAILABLE' | string;
+}
+
+function buildEnvParams(opts: EnvironmentOpts): Record<string, string | number | boolean | null> {
+  const p: Record<string, string | number | boolean | null> = {};
+  if (opts.name                !== undefined) p.name                  = opts.name;
+  if (opts.httpsCname          !== undefined) p.https_cname           = opts.httpsCname;
+  if (opts.assignedIps         !== undefined) p.assigned_ips          = opts.assignedIps;
+  if (opts.maxCps              !== undefined) p.max_cps               = opts.maxCps;
+  if (opts.maxSessions         !== undefined) p.max_sessions          = opts.maxSessions;
+  if (opts.description         !== undefined) p.description           = opts.description;
+  if (opts.installedModules    !== undefined) p.installed_modules     = opts.installedModules;
+  if (opts.enableSysinfo       !== undefined) p.enable_sysinfo        = opts.enableSysinfo;
+  if (opts.enableNetband       !== undefined) p.enable_netband        = opts.enableNetband;
+  if (opts.enableCpuutil       !== undefined) p.enable_cpuutil        = opts.enableCpuutil;
+  if (opts.enableDiskload      !== undefined) p.enable_diskload       = opts.enableDiskload;
+  if (opts.expirationDate      !== undefined) p.expiration_date       = opts.expirationDate;
+  if (opts.notifyOnExpiration  !== undefined) p.notify_on_expiration  = opts.notifyOnExpiration;
+  if (opts.notifyAddresses     !== undefined) p.notify_addresses      = opts.notifyAddresses;
+  if (opts.httpdServers        !== undefined) p.httpd_servers         = opts.httpdServers;
+  if (opts.siplogIndexEnabled  !== undefined) p.siplog_index_enabled  = opts.siplogIndexEnabled;
+  if (opts.recordSdp           !== undefined) p.record_sdp            = opts.recordSdp;
+  if (opts.companyName         !== undefined) p.company_name          = opts.companyName;
+  if (opts.salutation          !== undefined) p.salutation            = opts.salutation;
+  if (opts.firstName           !== undefined) p.first_name            = opts.firstName;
+  if (opts.lastName            !== undefined) p.last_name             = opts.lastName;
+  if (opts.midInit             !== undefined) p.mid_init              = opts.midInit;
+  if (opts.streetAddr          !== undefined) p.street_addr           = opts.streetAddr;
+  if (opts.state               !== undefined) p.state                 = opts.state;
+  if (opts.postalCode          !== undefined) p.postal_code           = opts.postalCode;
+  if (opts.city                !== undefined) p.city                  = opts.city;
+  if (opts.country             !== undefined) p.country               = opts.country;
+  if (opts.contact             !== undefined) p.contact               = opts.contact;
+  if (opts.phone               !== undefined) p.phone                 = opts.phone;
+  if (opts.fax                 !== undefined) p.fax                   = opts.fax;
+  if (opts.altPhone            !== undefined) p.alt_phone             = opts.altPhone;
+  if (opts.altContact          !== undefined) p.alt_contact           = opts.altContact;
+  if (opts.email               !== undefined) p.email                 = opts.email;
+  if (opts.cc                  !== undefined) p.cc                    = opts.cc;
+  if (opts.bcc                 !== undefined) p.bcc                   = opts.bcc;
+  if (opts.sipPorts            !== undefined) p.sip_ports             = opts.sipPorts;
+  if (opts.httpsCertificate    !== undefined) p.https_certificate     = opts.httpsCertificate;
+  if (opts.httpsKey            !== undefined) p.https_key             = opts.httpsKey;
+  if (opts.iCustomer           !== undefined) p.i_customer            = opts.iCustomer;
+  return p;
+}
+
+function parseEnvSummaryStruct(xml: string): SippyEnvironmentSummary {
+  const m = extractStructMembers(xml);
+  const parseBool = (v: string | undefined) =>
+    v === '1' || v === 'true' ? true : (v === '0' || v === 'false' ? false : undefined);
+  return {
+    iEnvironment:   parseInt(m['i_environment'] || '0', 10),
+    name:           m['name']             || '',
+    httpsCname:     m['https_cname']      || undefined,
+    description:    m['description']      || undefined,
+    maxCps:         m['max_cps']          ? parseInt(m['max_cps'], 10)      : (m['max_cps'] === '' ? null : undefined),
+    maxSessions:    m['max_sessions']     ? parseInt(m['max_sessions'], 10) : (m['max_sessions'] === '' ? null : undefined),
+    expirationDate: m['expiration_date']  || undefined,
+    enabled:        parseBool(m['enabled']),
+    suspendDate:    m['suspend_date']     || undefined,
+    pendingAction:  m['pending_action']   || undefined,
+  };
+}
+
+function parseEnvInfoStruct(xml: string): SippyEnvironmentInfo {
+  const m = extractStructMembers(xml);
+  const parseBool = (v: string | undefined) =>
+    v === '1' || v === 'true' ? true : (v === '0' || v === 'false' ? false : undefined);
+  const summary = {
+    iEnvironment:         parseInt(m['i_environment'] || '0', 10),
+    name:                 m['name']                  || '',
+    httpsCname:           m['https_cname']            || undefined,
+    description:          m['description']            || undefined,
+    maxCps:               m['max_cps']      ? parseInt(m['max_cps'], 10)      : (m['max_cps'] === '' ? null : undefined),
+    maxSessions:          m['max_sessions'] ? parseInt(m['max_sessions'], 10) : (m['max_sessions'] === '' ? null : undefined),
+    expirationDate:       m['expiration_date']        || undefined,
+    enabled:              parseBool(m['enabled']),
+    suspendDate:          m['suspend_date']           || undefined,
+    pendingAction:        m['pending_action']          || undefined,
+  };
+  return {
+    ...summary,
+    assignedIps:          m['assigned_ips']           || undefined,
+    installedModules:     m['installed_modules']      || undefined,
+    enableSysinfo:        parseBool(m['enable_sysinfo']),
+    enableNetband:        parseBool(m['enable_netband']),
+    enableCpuutil:        parseBool(m['enable_cpuutil']),
+    enableDiskload:       parseBool(m['enable_diskload']),
+    notifyOnExpiration:   parseBool(m['notify_on_expiration']),
+    notifyAddresses:      m['notify_addresses']       || undefined,
+    httpdServers:         m['httpd_servers']  ? parseInt(m['httpd_servers'], 10) : undefined,
+    siplogIndexEnabled:   parseBool(m['siplog_index_enabled']),
+    recordSdp:            parseBool(m['record_sdp']),
+    companyName:          m['company_name']            || undefined,
+    salutation:           m['salutation']              || undefined,
+    firstName:            m['first_name']              || undefined,
+    lastName:             m['last_name']               || undefined,
+    midInit:              m['mid_init']                || undefined,
+    streetAddr:           m['street_addr']             || undefined,
+    state:                m['state']                   || undefined,
+    postalCode:           m['postal_code']             || undefined,
+    city:                 m['city']                    || undefined,
+    country:              m['country']                 || undefined,
+    contact:              m['contact']                 || undefined,
+    phone:                m['phone']                   || undefined,
+    fax:                  m['fax']                     || undefined,
+    altPhone:             m['alt_phone']               || undefined,
+    altContact:           m['alt_contact']             || undefined,
+    email:                m['email']                   || undefined,
+    cc:                   m['cc']                      || undefined,
+    bcc:                  m['bcc']                     || undefined,
+  };
+}
+
+// ─ listSwitchIPs ──────────────────────────────────────────────────────────────
+
+/**
+ * List IP addresses configured on the softswitch.
+ * Official method: listSwitchIPs() — docs 3000043578
+ * Returns AVAILABLE (assignable to env) and INUSE (already assigned) IPs.
+ * Root customer + first environment only.
+ */
+export async function listSwitchIPs(
+  username:   string,
+  password:   string,
+  iCustomer?: number,
+  portalUrl?: string,
+): Promise<{ ips: SippySwitchIp[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { ips: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = {};
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listSwitchIPs', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const ips: SippySwitchIp[] = [];
+      const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+      let match: RegExpExecArray | null;
+      while ((match = structRe.exec(text)) !== null) {
+        const m = extractStructMembers(match[0]);
+        if (m['ip']) ips.push({ ip: m['ip'], status: m['status'] || '' });
+      }
+      return { ips };
+    }
+    const fault = extractTag(text, 'faultString') || 'listSwitchIPs failed.';
+    return { ips: [], error: fault };
+  } catch (e: any) {
+    return { ips: [], error: e.message };
+  }
+}
+
+// ─ createEnvironment ──────────────────────────────────────────────────────────
+
+/**
+ * Create a new environment.
+ * Official method: createEnvironment() — docs 3000044255
+ * Required: name, httpsCname, assignedIps
+ * Root customer + first environment only.
+ */
+export async function createEnvironment(
+  username:  string,
+  password:  string,
+  opts:      EnvironmentOpts & { name: string; httpsCname: string; assignedIps: string | null },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string; iEnvironment?: number }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params = buildEnvParams(opts);
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('createEnvironment', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const iEnvironment = parseInt(m['i_environment'] || '0', 10);
+      return { success: true, message: 'Environment created.', iEnvironment: iEnvironment || undefined };
+    }
+    const fault = extractTag(text, 'faultString') || 'createEnvironment failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ─ updateEnvironment ──────────────────────────────────────────────────────────
+
+/**
+ * Update an existing environment.
+ * Official method: updateEnvironment() — docs 3000044284
+ * Required: i_environment; Optional: any EnvironmentOpts field.
+ * Root customer + first environment only.
+ */
+export async function updateEnvironment(
+  username:      string,
+  password:      string,
+  iEnvironment:  number,
+  opts:          EnvironmentOpts,
+  portalUrl?:    string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params = { i_environment: iEnvironment, ...buildEnvParams(opts) };
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateEnvironment', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Environment updated.' };
+    }
+    const fault = extractTag(text, 'faultString') || 'updateEnvironment failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ─ deleteEnvironment ──────────────────────────────────────────────────────────
+
+/**
+ * Delete an environment (legacy — removed in Sippy 5.0+).
+ * Official method: deleteEnvironment() — docs 3000044399
+ * For Sippy 5.0+ use queueEnvironmentAction(delete) instead.
+ * Only stopped or suspended environments can be deleted.
+ * Root customer + first environment only.
+ */
+export async function deleteEnvironment(
+  username:      string,
+  password:      string,
+  iEnvironment:  number,
+  iCustomer?:    number,
+  portalUrl?:    string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = { i_environment: iEnvironment };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteEnvironment', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Environment deleted.' };
+    }
+    const fault = extractTag(text, 'faultString') || 'deleteEnvironment failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ─ getEnvironmentInfo ─────────────────────────────────────────────────────────
+
+/**
+ * Get full details for a single environment.
+ * Official method: getEnvironmentInfo() — docs 3000044572
+ * Root customer + first environment only.
+ */
+export async function getEnvironmentInfo(
+  username:      string,
+  password:      string,
+  iEnvironment:  number,
+  iCustomer?:    number,
+  portalUrl?:    string,
+): Promise<{ success: boolean; environment?: SippyEnvironmentInfo; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = { i_environment: iEnvironment };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getEnvironmentInfo', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const structStart = text.indexOf('<struct>');
+      const structEnd   = text.lastIndexOf('</struct>');
+      if (structStart === -1) return { success: false, error: 'No environment data returned.' };
+      return { success: true, environment: parseEnvInfoStruct(text.slice(structStart, structEnd + 9)) };
+    }
+    const fault = extractTag(text, 'faultString') || 'getEnvironmentInfo failed.';
+    return { success: false, error: fault };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ─ listEnvironments ───────────────────────────────────────────────────────────
+
+/**
+ * List all environments (summary records).
+ * Official method: listEnvironments() — docs 3000044582
+ * Optional: offset, limit (for pagination).
+ * Root customer + first environment only.
+ */
+export async function listEnvironments(
+  username:   string,
+  password:   string,
+  opts?: {
+    offset?:    number;
+    limit?:     number;
+    iCustomer?: number;
+  },
+  portalUrl?: string,
+): Promise<{ environments: SippyEnvironmentSummary[]; error?: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { environments: [], error: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = {};
+  if (opts?.offset    !== undefined) params.offset     = opts.offset;
+  if (opts?.limit     !== undefined) params.limit      = opts.limit;
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listEnvironments', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const environments: SippyEnvironmentSummary[] = [];
+      const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+      let match: RegExpExecArray | null;
+      while ((match = structRe.exec(text)) !== null) {
+        try { environments.push(parseEnvSummaryStruct(match[0])); } catch {}
+      }
+      return { environments };
+    }
+    const fault = extractTag(text, 'faultString') || 'listEnvironments failed.';
+    return { environments: [], error: fault };
+  } catch (e: any) {
+    return { environments: [], error: e.message };
+  }
+}
+
+// ─ queueEnvironmentAction ────────────────────────────────────────────────────
+
+/**
+ * Queue a lifecycle action for an environment.
+ * Official method: queueEnvironmentAction() — docs 3000044609
+ * action: 'start' | 'stop' | 'restart' | 'suspend' | 'delete'
+ * Optional: suspendMessage (shown in web UI when suspended)
+ * Note: 'delete' replaces deleteEnvironment() since Sippy 5.0+.
+ * Root customer + first environment only.
+ */
+export async function queueEnvironmentAction(
+  username:      string,
+  password:      string,
+  iEnvironment:  number,
+  action:        'start' | 'stop' | 'restart' | 'suspend' | 'delete',
+  suspendMessage?: string,
+  iCustomer?:    number,
+  portalUrl?:    string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {
+    i_environment: iEnvironment,
+    action,
+  };
+  if (suspendMessage !== undefined) params.suspend_message = suspendMessage;
+  if (iCustomer      !== undefined) params.i_customer      = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('queueEnvironmentAction', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: `Action '${action}' queued for environment ${iEnvironment}.` };
+    }
+    const fault = extractTag(text, 'faultString') || 'queueEnvironmentAction failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 // ── Tariff Management (official Sippy docs 3000098586, since Sippy 2020) ─────
 
 /**

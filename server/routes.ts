@@ -3428,6 +3428,121 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── Environments (official Sippy API docs 3000043578 / 3000044255-3000044609) ─
+  // Root customer + first environment only. All methods support trusted mode.
+
+  // GET /api/sippy/switch-ips — listSwitchIPs() — docs 3000043578
+  // Returns: { ips: [{ip, status}] }  status: 'AVAILABLE' | 'INUSE'
+  app.get('/api/sippy/switch-ips', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ ips: [], error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.listSwitchIPs(username, password, undefined, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ips: [], error: e.message }); }
+  });
+
+  // GET /api/sippy/environments — listEnvironments() — docs 3000044582
+  // Query: offset?, limit?
+  // Returns: { environments: SippyEnvironmentSummary[] }
+  app.get('/api/sippy/environments', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ environments: [], error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
+      const limit  = req.query.limit  ? parseInt(req.query.limit  as string, 10) : undefined;
+      const result = await sippy.listEnvironments(username, password, { offset, limit }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ environments: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/environments — createEnvironment() — docs 3000044255
+  // Body: { name (req), httpsCname (req), assignedIps (req), + EnvironmentOpts }
+  // Returns: { success, iEnvironment, message }
+  app.post('/api/sippy/environments', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const { name, httpsCname, assignedIps } = req.body ?? {};
+      if (!name)        return res.status(400).json({ success: false, message: 'name is required.' });
+      if (!httpsCname)  return res.status(400).json({ success: false, message: 'httpsCname is required.' });
+      if (assignedIps === undefined)
+        return res.status(400).json({ success: false, message: 'assignedIps is required (null = Unassigned).' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.createEnvironment(username, password, req.body, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // GET /api/sippy/environments/:id — getEnvironmentInfo() — docs 3000044572
+  // Returns: { success, environment: SippyEnvironmentInfo }
+  app.get('/api/sippy/environments/:id', async (req: any, res) => {
+    try {
+      const iEnvironment = parseInt(req.params.id, 10);
+      if (isNaN(iEnvironment)) return res.status(400).json({ success: false, error: 'Invalid i_environment.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getEnvironmentInfo(username, password, iEnvironment, undefined, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/environments/:id — updateEnvironment() — docs 3000044284
+  // Body: any subset of EnvironmentOpts
+  // Returns: { success, message }
+  app.patch('/api/sippy/environments/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const iEnvironment = parseInt(req.params.id, 10);
+      if (isNaN(iEnvironment)) return res.status(400).json({ success: false, message: 'Invalid i_environment.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateEnvironment(username, password, iEnvironment, req.body, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/environments/:id — deleteEnvironment() — docs 3000044399
+  // Legacy (removed in Sippy 5.0+). Only stopped/suspended environments can be deleted.
+  // Use POST /api/sippy/environments/:id/action { action: 'delete' } for 5.0+.
+  // Returns: { success, message }
+  app.delete('/api/sippy/environments/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const iEnvironment = parseInt(req.params.id, 10);
+      if (isNaN(iEnvironment)) return res.status(400).json({ success: false, message: 'Invalid i_environment.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteEnvironment(username, password, iEnvironment, undefined, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/environments/:id/action — queueEnvironmentAction() — docs 3000044609
+  // Body: { action: 'start'|'stop'|'restart'|'suspend'|'delete', suspendMessage? }
+  // 'delete' replaces DELETE endpoint for Sippy 5.0+.
+  // Returns: { success, message }
+  app.post('/api/sippy/environments/:id/action', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const iEnvironment = parseInt(req.params.id, 10);
+      if (isNaN(iEnvironment)) return res.status(400).json({ success: false, message: 'Invalid i_environment.' });
+      const { action, suspendMessage } = req.body ?? {};
+      const validActions = ['start', 'stop', 'restart', 'suspend', 'delete'];
+      if (!action || !validActions.includes(action))
+        return res.status(400).json({ success: false, message: `action must be one of: ${validActions.join(', ')}.` });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.queueEnvironmentAction(
+        username, password, iEnvironment, action, suspendMessage, undefined, settings.portalUrl ?? '',
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // ── Tariff management (official Sippy API) ────────────────────────────────
 
   // POST /api/sippy/tariffs/create — create a new tariff
