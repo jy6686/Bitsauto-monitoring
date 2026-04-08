@@ -2942,33 +2942,104 @@ export async function createCustomer(
 /**
  * Update a customer on Sippy.
  * Official method: updateCustomer() — docs 107419
- * Parameters: i_customer (required) + any createCustomer() optional fields.
+ * Accepts any field from createCustomer() — all optional, at least one required.
+ * Trusted mode: supply iWholesaler.
  */
 export async function updateSippyCustomer(
-  username: string,
-  password: string,
+  username:  string,
+  password:  string,
   iCustomer: number,
-  fields: Partial<SippyAccountOpts>,
+  fields:    Partial<CreateCustomerOpts>,
   portalUrl?: string,
 ): Promise<{ success: boolean; message: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
-  const params: Record<string, string | number | boolean> = { i_customer: iCustomer };
-  if (fields.companyName)    params.company_name          = fields.companyName;
-  if (fields.description)    params.description           = fields.description;
-  if (fields.language)       params.i_lang                = fields.language;
-  if (fields.creditLimit !== undefined) params.credit_limit = fields.creditLimit;
-  if (fields.maxSessions !== undefined) params.max_sessions = fields.maxSessions;
-  if (fields.routingGroup) {
-    const rg = parseInt(fields.routingGroup, 10);
-    if (!isNaN(rg)) params.i_routing_group = rg;
-  }
-  if (fields.servicePlan) {
-    const sp = parseInt(fields.servicePlan, 10);
-    if (!isNaN(sp)) params.i_tariff = sp;
-  }
+  const params: Record<string, string | number | boolean | null> = { i_customer: iCustomer };
+
+  // Mandatory-at-create but optional-at-update
+  if (fields.name        !== undefined) params.name         = fields.name;
+  if (fields.webPassword !== undefined) params.web_password = fields.webPassword;
+  if (fields.iTariff     !== undefined) params.i_tariff     = fields.iTariff;
+
+  // Contact / Identity
+  if (fields.webLogin    !== undefined) params.web_login    = fields.webLogin;
+  if (fields.companyName !== undefined) params.company_name = fields.companyName;
+  if (fields.salutation  !== undefined) params.salutation   = fields.salutation;
+  if (fields.firstName   !== undefined) params.first_name   = fields.firstName;
+  if (fields.lastName    !== undefined) params.last_name    = fields.lastName;
+  if (fields.midInit     !== undefined) params.mid_init     = fields.midInit;
+  if (fields.streetAddr  !== undefined) params.street_addr  = fields.streetAddr;
+  if (fields.state       !== undefined) params.state        = fields.state;
+  if (fields.postalCode  !== undefined) params.postal_code  = fields.postalCode;
+  if (fields.city        !== undefined) params.city         = fields.city;
+  if (fields.country     !== undefined) params.country      = fields.country;
+  if (fields.contact     !== undefined) params.contact      = fields.contact;
+  if (fields.phone       !== undefined) params.phone        = fields.phone;
+  if (fields.fax         !== undefined) params.fax          = fields.fax;
+  if (fields.altPhone    !== undefined) params.alt_phone    = fields.altPhone;
+  if (fields.altContact  !== undefined) params.alt_contact  = fields.altContact;
+  if (fields.email       !== undefined) params.email        = fields.email;
+  if (fields.cc          !== undefined) params.cc           = fields.cc;
+  if (fields.bcc         !== undefined) params.bcc          = fields.bcc;
+  if (fields.mailFrom    !== undefined) params.mail_from    = fields.mailFrom;
+  if (fields.description !== undefined) params.description  = fields.description;
+
+  // Billing
+  if (fields.balance          !== undefined) params.balance            = fields.balance;
+  if (fields.creditLimit      !== undefined) params.credit_limit       = fields.creditLimit;
+  if (fields.paymentCurrency  !== undefined) params.payment_currency   = fields.paymentCurrency;
+  if (fields.paymentMethod    !== undefined) params.payment_method     = fields.paymentMethod;
+  if (fields.minPaymentAmount !== undefined) params.min_payment_amount = fields.minPaymentAmount;
+  if (fields.iCommissionAgent !== undefined) params.i_commission_agent = fields.iCommissionAgent;
+  if (fields.commissionSize   !== undefined) params.commission_size    = fields.commissionSize;
+
+  // Routing
+  if (fields.iRoutingGroup !== undefined) params.i_routing_group = fields.iRoutingGroup;
+
+  // Permissions
+  if (fields.accountsMgmt  !== undefined) params.accounts_mgmt  = fields.accountsMgmt;
+  if (fields.customersMgmt !== undefined) params.customers_mgmt = fields.customersMgmt;
+  if (fields.systemMgmt    !== undefined) params.system_mgmt    = fields.systemMgmt;
+  if (fields.tariffsMgmt   !== undefined) params.tariffs_mgmt   = fields.tariffsMgmt;
+  if (fields.vouchersMgmt  !== undefined) params.vouchers_mgmt  = fields.vouchersMgmt;
+  if (fields.apiAccess     !== undefined) params.api_access     = fields.apiAccess;
+  if (fields.apiPassword   !== undefined) params.api_password   = fields.apiPassword;
+  if (fields.apiMgmt       !== undefined) params.api_mgmt       = fields.apiMgmt;
+
+  // Features
+  if (fields.maxDepth               !== undefined) params.max_depth                = fields.maxDepth;
+  if (fields.useOwnTariff           !== undefined) params.use_own_tariff           = fields.useOwnTariff;
+  if (fields.accountsMatchingRule   !== undefined) params.accounts_matching_rule   = fields.accountsMatchingRule;
+  if (fields.callshopEnabled        !== undefined) params.callshop_enabled         = fields.callshopEnabled;
+  if (fields.overcommitProtection   !== undefined) params.overcommit_protection    = fields.overcommitProtection;
+  if (fields.overcommitLimit        !== undefined) params.overcommit_limit         = fields.overcommitLimit;
+  if (fields.didPoolEnabled         !== undefined) params.did_pool_enabled         = fields.didPoolEnabled;
+  if (fields.ivrAppsEnabled         !== undefined) params.ivr_apps_enabled         = fields.ivrAppsEnabled;
+  if (fields.asrAcdEnabled          !== undefined) params.asr_acd_enabled          = fields.asrAcdEnabled;
+  if (fields.debitCreditCardsEnabled !== undefined) params.debit_credit_cards_enabled = fields.debitCreditCardsEnabled;
+  if (fields.conferencingEnabled    !== undefined) params.conferencing_enabled     = fields.conferencingEnabled;
+  if (fields.sharePaymentProcessors !== undefined) params.share_payment_processors = fields.sharePaymentProcessors;
+  if (fields.dnclEnabled            !== undefined) params.dncl_enabled             = fields.dnclEnabled;
+
+  // Locale / UI
+  if (fields.iTimeZone   !== undefined) params.i_time_zone   = fields.iTimeZone;
+  if (fields.iLang       !== undefined) params.i_lang         = fields.iLang;
+  if (fields.iExportType !== undefined) params.i_export_type  = fields.iExportType;
+  if (fields.startPage   !== undefined) params.start_page     = fields.startPage;
+  if (fields.css         !== undefined) params.css            = fields.css;
+  if (fields.dnsAlias    !== undefined) params.dns_alias      = fields.dnsAlias;
+
+  // Rate limits
+  if (fields.maxSessions       !== undefined) params.max_sessions         = fields.maxSessions;
+  if (fields.maxCallsPerSecond !== undefined) params.max_calls_per_second = fields.maxCallsPerSecond;
+
+  // Password policy
+  if (fields.iPasswordPolicy !== undefined) params.i_password_policy = fields.iPasswordPolicy;
+
+  // Trusted mode
+  if (fields.iWholesaler !== undefined) params.i_wholesaler = fields.iWholesaler;
 
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('updateCustomer', params), username, password);
