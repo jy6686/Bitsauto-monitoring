@@ -625,12 +625,22 @@ function extractAllTags(xml: string, tag: string): string[] {
 
 function extractStructMembers(structXml: string): Record<string, string> {
   const members: Record<string, string> = {};
+
+  // Pre-process: replace <nil/> and <value/> (self-closing nil indicators) with
+  // a sentinel empty string BEFORE the main regex runs.
+  // Per docs 3000073101: Sippy uses <nil/> (de-facto standard) to represent NULL values.
+  // Without this step, self-closing <nil/> breaks the member regex and the key is lost.
+  const normalised = structXml
+    .replace(/<value>\s*<nil\s*\/>\s*<\/value>/gi, '<value><string></string></value>')
+    .replace(/<value\s*\/>/gi, '<value><string></string></value>');
+
   const memberRe = /<member>\s*<name>([^<]+)<\/name>\s*<value>([^<]*(?:<[^/][^>]*>[^<]*<\/[^>]+>)?[^<]*)<\/value>\s*<\/member>/gi;
   let m;
-  while ((m = memberRe.exec(structXml)) !== null) {
+  while ((m = memberRe.exec(normalised)) !== null) {
     const key = m[1].trim();
     const rawVal = m[2].trim();
     const stripped = rawVal.replace(/<[^>]+>/g, '').trim();
+    // '' (empty) is our standard sentinel for NULL — callers use `=== ''` or `=== 'nil'` checks
     members[key] = stripped;
   }
   return members;
@@ -1117,8 +1127,9 @@ export interface SippyCDR {
 }
 
 /**
- * Format a JS Date or ISO string into Sippy's required date format:
+ * Format a JS Date or ISO string into Sippy's legacy string date format:
  * '%H:%M:%S.000 GMT %a %b %d %Y' (e.g. '09:57:29.000 GMT Wed Mar 18 2026')
+ * Docs: 3000073101 — used when sending dates to Sippy XML-RPC API.
  */
 export function toSippyDate(d: Date | string): string {
   const dt = typeof d === 'string' ? new Date(d) : d;
@@ -1126,6 +1137,53 @@ export function toSippyDate(d: Date | string): string {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}:${pad(dt.getUTCSeconds())}.000 GMT ${days[dt.getUTCDay()]} ${months[dt.getUTCMonth()]} ${pad(dt.getUTCDate())} ${dt.getUTCFullYear()}`;
+}
+
+/**
+ * Parse a date string returned by Sippy XML-RPC API into a JS Date (UTC).
+ * Docs: 3000073101 — two formats may be returned depending on Sippy version:
+ *
+ * 1. ISO8601 format (Sippy 2022+): 'YYYYMMDDThh:mm:ss[.SSS]'
+ *    e.g. '20260407T09:57:29' or '20260407T09:57:29.123'
+ *
+ * 2. Legacy string format: 'HH:MM:SS.mmm GMT DayName MonAbbr DD YYYY'
+ *    e.g. '09:57:29.000 GMT Tue Apr 07 2026'
+ *    (same format produced by toSippyDate())
+ *
+ * Returns null if the input is empty, 'nil', 'None', or unparseable.
+ * All dates are treated as UTC per Sippy API specification.
+ */
+export function parseSippyDate(raw: string | null | undefined): Date | null {
+  if (!raw || raw === 'nil' || raw === 'None' || raw.trim() === '') return null;
+  const s = raw.trim();
+
+  // ISO8601 compact format: YYYYMMDDThh:mm:ss[.SSS] — UTC per spec (no timezone suffix)
+  const iso8601 = /^(\d{4})(\d{2})(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/.exec(s);
+  if (iso8601) {
+    const [, year, month, day, hour, min, sec, msRaw] = iso8601;
+    const ms = msRaw ? parseInt(msRaw.slice(0, 3).padEnd(3, '0'), 10) : 0;
+    const d = new Date(Date.UTC(+year, +month - 1, +day, +hour, +min, +sec, ms));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // Legacy string format: 'HH:MM:SS.mmm GMT DayName MonAbbr DD YYYY'
+  const months: Record<string, number> = {
+    Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5,
+    Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11,
+  };
+  const legacy = /^(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?\s+GMT\s+\w+\s+(\w{3})\s+(\d{1,2})\s+(\d{4})$/.exec(s);
+  if (legacy) {
+    const [, hour, min, sec, msRaw, monStr, day, year] = legacy;
+    const mon = months[monStr];
+    if (mon === undefined) return null;
+    const ms = msRaw ? parseInt(msRaw.slice(0, 3).padEnd(3, '0'), 10) : 0;
+    const d = new Date(Date.UTC(+year, mon, +day, +hour, +min, +sec, ms));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // Fallback: try native Date parser (handles standard ISO strings like '2026-04-07T09:57:29Z')
+  const fallback = new Date(s);
+  return isNaN(fallback.getTime()) ? null : fallback;
 }
 
 // ── getMonitoringGraphData() — docs 107509 ───────────────────────────────────
