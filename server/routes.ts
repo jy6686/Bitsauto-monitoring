@@ -5005,5 +5005,81 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ─── Callback Calls (doc 107448) ─────────────────────────────────────────────
+
+  // POST /api/sippy/callbacks/make2way — make2WayCallback() — docs 107448
+  // Body: { authname, cldFirst, cldSecond, cliFirst?, cliSecond?, creditTime?, nextCall? }
+  // Returns: { success, iCallbackRequest, message }
+  app.post('/api/sippy/callbacks/make2way', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { authname, cldFirst, cldSecond, cliFirst, cliSecond, creditTime, nextCall } = req.body ?? {};
+      if (!authname || !cldFirst || !cldSecond)
+        return res.status(400).json({ success: false, message: 'authname, cldFirst and cldSecond are required.' });
+      const result = await sippy.make2WayCallback(
+        username, password,
+        { authname, cldFirst, cldSecond, cliFirst, cliSecond, creditTime, nextCall },
+        settings.portalUrl ?? '',
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/callbacks/calling-card — callbackCallingCard() — docs 107448
+  // Body: { authname, cld, cli?, langs?, creditTime?, + Calling Card CLD options }
+  // Returns: { success, iCallbackRequest, message }
+  app.post('/api/sippy/callbacks/calling-card', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { authname, cld, cli, langs, creditTime, chpassext, cliregext, directhotdial,
+              hotdialext, hotdialeditext, keepcli, nodial, playbalance, playduration,
+              noredial, topupext, trycliauth } = req.body ?? {};
+      if (!authname || !cld)
+        return res.status(400).json({ success: false, message: 'authname and cld are required.' });
+      const result = await sippy.callbackCallingCard(
+        username, password,
+        { authname, cld, cli, langs, creditTime, chpassext, cliregext, directhotdial,
+          hotdialext, hotdialeditext, keepcli, nodial, playbalance, playduration,
+          noredial, topupext, trycliauth },
+        settings.portalUrl ?? '',
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/callbacks/:id/cancel — cancelCallback() — docs 107448
+  // Returns: { success, message }
+  app.post('/api/sippy/callbacks/:id/cancel', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iCallbackRequest = parseInt(req.params.id, 10);
+      if (isNaN(iCallbackRequest)) return res.status(400).json({ success: false, message: 'Invalid i_callback_request.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.cancelCallback(username, password, iCallbackRequest, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // GET /api/sippy/callbacks/:id/status — getCallbackStatus() — docs 107448
+  // Query: ?fetchCdrs=true
+  // Returns: { success, callResult, callStatus, cdrs?, message }
+  app.get('/api/sippy/callbacks/:id/status', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iCallbackRequest = parseInt(req.params.id, 10);
+      if (isNaN(iCallbackRequest)) return res.status(400).json({ success: false, message: 'Invalid i_callback_request.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const fetchCdrs = req.query.fetchCdrs === 'true' || req.query.fetchCdrs === '1';
+      const result = await sippy.getCallbackStatus(username, password, iCallbackRequest, { fetchCdrs }, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   return httpServer;
 }

@@ -11458,3 +11458,218 @@ export async function getReplicationLag(
     return { success: false, message: e.message };
   }
 }
+
+// ─── Callback Calls (doc 107448) ─────────────────────────────────────────────
+
+/**
+ * Initiate a 2-way callback request.
+ * Official method: make2WayCallback() — docs 107448
+ * Supply authname, cldFirst, cldSecond (required); all others optional.
+ * nextCall: UTC datetime string in ISO8601 format, e.g. "20240101T12:00:00"
+ */
+export async function make2WayCallback(
+  username: string,
+  password: string,
+  opts: {
+    authname:    string;
+    cldFirst:    string;
+    cldSecond:   string;
+    cliFirst?:   string;
+    cliSecond?:  string;
+    creditTime?: number;
+    nextCall?:   string;  // UTC ISO8601 e.g. "20240101T12:00:00"
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; iCallbackRequest?: number; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {
+    authname:   opts.authname,
+    cld_first:  opts.cldFirst,
+    cld_second: opts.cldSecond,
+  };
+  if (opts.cliFirst   !== undefined) params.cli_first   = opts.cliFirst;
+  if (opts.cliSecond  !== undefined) params.cli_second  = opts.cliSecond;
+  if (opts.creditTime !== undefined) params.credit_time = opts.creditTime;
+  if (opts.nextCall   !== undefined) params.next_call   = opts.nextCall;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('make2WayCallback', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      return {
+        success:          true,
+        iCallbackRequest: m['i_callback_request'] ? parseInt(m['i_callback_request'], 10) : undefined,
+        message:          'Callback initiated.',
+      };
+    }
+    return { success: false, message: extractTag(text, 'faultString') || 'make2WayCallback failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Initiate a callback to the Calling Card application.
+ * Official method: callbackCallingCard() — docs 107448
+ * langs is an optional array of language strings sent as XML-RPC <array>.
+ * All Calling Card CLD option params are optional booleans/strings.
+ */
+export async function callbackCallingCard(
+  username: string,
+  password: string,
+  opts: {
+    authname:        string;
+    cld:             string;
+    cli?:            string;
+    langs?:          string[];   // Array of language codes, sent as XML-RPC array
+    creditTime?:     number;
+    chpassext?:      string;
+    cliregext?:      string;
+    directhotdial?:  boolean;
+    hotdialext?:     string;
+    hotdialeditext?: string;
+    keepcli?:        boolean;
+    nodial?:         boolean;
+    playbalance?:    boolean;
+    playduration?:   boolean;
+    noredial?:       boolean;
+    topupext?:       string;
+    trycliauth?:     boolean;
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; iCallbackRequest?: number; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  // Build all scalar params
+  const scalarParams: Record<string, string | number | boolean> = {
+    authname: opts.authname,
+    cld:      opts.cld,
+  };
+  if (opts.cli            !== undefined) scalarParams.cli            = opts.cli;
+  if (opts.creditTime     !== undefined) scalarParams.credit_time    = opts.creditTime;
+  if (opts.chpassext      !== undefined) scalarParams.chpassext      = opts.chpassext;
+  if (opts.cliregext      !== undefined) scalarParams.cliregext      = opts.cliregext;
+  if (opts.directhotdial  !== undefined) scalarParams.directhotdial  = opts.directhotdial;
+  if (opts.hotdialext     !== undefined) scalarParams.hotdialext     = opts.hotdialext;
+  if (opts.hotdialeditext !== undefined) scalarParams.hotdialeditext = opts.hotdialeditext;
+  if (opts.keepcli        !== undefined) scalarParams.keepcli        = opts.keepcli;
+  if (opts.nodial         !== undefined) scalarParams.nodial         = opts.nodial;
+  if (opts.playbalance    !== undefined) scalarParams.playbalance    = opts.playbalance;
+  if (opts.playduration   !== undefined) scalarParams.playduration   = opts.playduration;
+  if (opts.noredial       !== undefined) scalarParams.noredial       = opts.noredial;
+  if (opts.topupext       !== undefined) scalarParams.topupext       = opts.topupext;
+  if (opts.trycliauth     !== undefined) scalarParams.trycliauth     = opts.trycliauth;
+
+  // langs must be sent as an XML-RPC <array> — build it manually
+  let langsMember = '';
+  if (opts.langs && opts.langs.length > 0) {
+    const items = opts.langs
+      .map(l => `<value><string>${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</string></value>`)
+      .join('');
+    langsMember = `<member><name>langs</name><value><array><data>${items}</data></array></value></member>`;
+  }
+
+  const scalarMembers = buildStructMembers(scalarParams as any);
+  const body = `<?xml version="1.0" encoding="UTF-8"?><methodCall><methodName>callbackCallingCard</methodName><params><param><value><struct>${scalarMembers}${langsMember}</struct></value></param></params></methodCall>`;
+
+  try {
+    const resp = await sippyPost(apiUrl, body, username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      return {
+        success:          true,
+        iCallbackRequest: m['i_callback_request'] ? parseInt(m['i_callback_request'], 10) : undefined,
+        message:          'Calling Card callback initiated.',
+      };
+    }
+    return { success: false, message: extractTag(text, 'faultString') || 'callbackCallingCard failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Cancel a callback request (and the call if it has already started).
+ * Official method: cancelCallback() — docs 107448
+ */
+export async function cancelCallback(
+  username:         string,
+  password:         string,
+  iCallbackRequest: number,
+  portalUrl?:       string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(
+      apiUrl,
+      xmlRpcCall('cancelCallback', { i_callback_request: iCallbackRequest }),
+      username, password,
+    );
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Callback cancel request sent.' };
+    }
+    return { success: false, message: extractTag(text, 'faultString') || 'cancelCallback failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Get status (and optional CDRs) for a callback request.
+ * Official method: getCallbackStatus() — docs 107448
+ * callResult / callStatus values documented at:
+ * https://trac.sippysoft.com/trac/wiki/public/IVR/ANICallback#Statusandresultstrings
+ */
+export async function getCallbackStatus(
+  username:         string,
+  password:         string,
+  iCallbackRequest: number,
+  opts?: { fetchCdrs?: boolean },
+  portalUrl?: string,
+): Promise<{
+  success:     boolean;
+  callResult?: string;
+  callStatus?: string;
+  cdrs?:       Record<string, string>[];
+  message:     string;
+}> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number | boolean> = { i_callback_request: iCallbackRequest };
+  if (opts?.fetchCdrs !== undefined) params.fetch_cdrs = opts.fetchCdrs;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getCallbackStatus', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+
+      // Extract cdrs array if present (each element is a struct)
+      let cdrs: Record<string, string>[] = [];
+      const cdrsMatch = text.match(/<name>cdrs<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>/i);
+      if (cdrsMatch) {
+        const structRe = /<struct>([\s\S]*?)<\/struct>/gi;
+        let sm: RegExpExecArray | null;
+        while ((sm = structRe.exec(cdrsMatch[1])) !== null) {
+          cdrs.push(extractStructMembers(sm[1]));
+        }
+      }
+
+      return {
+        success:    true,
+        callResult: m['call_result'] || undefined,
+        callStatus: m['call_status'] || undefined,
+        cdrs,
+        message:    'OK',
+      };
+    }
+    return { success: false, message: extractTag(text, 'faultString') || 'getCallbackStatus failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
