@@ -3575,5 +3575,47 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ─── Packet Sniffer Scheduler (docs 107508) — root-only ──────────────────────
+
+  // POST /api/sippy/packet-dumps — schedule a packet capture (dumpIPTraffic)
+  // Root-only. target_hosts is an XML-RPC array sent manually.
+  app.post('/api/sippy/packet-dumps', async (req: any, res) => {
+    try {
+      const { email, targetHosts, period, iface } = req.body ?? {};
+      if (!email)                              return res.status(400).json({ success: false, error: 'email is required.' });
+      if (!Array.isArray(targetHosts) || !targetHosts.length)
+                                               return res.status(400).json({ success: false, error: 'targetHosts must be a non-empty array.' });
+      if (!period || period < 1 || period > 60) return res.status(400).json({ success: false, error: 'period must be an integer between 1 and 60.' });
+      if (!iface)                              return res.status(400).json({ success: false, error: 'iface is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.dumpIPTraffic(username, password, {
+        email,
+        targetHosts,
+        period: parseInt(period, 10),
+        iface,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // GET /api/sippy/packet-dumps/:id — get packet dump status (dumpIPTrafficStatus)
+  // Root-only. Returns status: 'pending' | 'in_progress' | 'timed_out' and url on success.
+  app.get('/api/sippy/packet-dumps/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid i_ip_traffic_dump.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.dumpIPTrafficStatus(username, password, id, { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   return httpServer;
 }

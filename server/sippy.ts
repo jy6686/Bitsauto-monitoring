@@ -7613,3 +7613,101 @@ export async function deleteConference(
     return { success: false, message: e.message };
   }
 }
+
+// ─── Packet Sniffer Scheduler (docs 107508) — root-only ──────────────────────
+
+/**
+ * Schedule a packet dump (tcpdump) for given hosts.
+ * Root customer user only. No trusted mode.
+ * Official method: dumpIPTraffic() — docs 107508
+ * target_hosts is an XML-RPC array — built manually since xmlRpcCall is flat-only.
+ */
+export async function dumpIPTraffic(
+  username: string,
+  password: string,
+  opts: {
+    email:        string;
+    targetHosts:  string[];
+    period:       number;   // 1–60 minutes
+    iface:        string;   // e.g. 'em0' or 'em0:1.2.3.4'
+    portalUrl?:   string;
+  },
+): Promise<{ success: boolean; iIpTrafficDump?: number; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const hostsXml = opts.targetHosts
+    .map(h => `<value><string>${h}</string></value>`)
+    .join('');
+
+  const body = `<?xml version="1.0" encoding="UTF-8"?>
+<methodCall>
+  <methodName>dumpIPTraffic</methodName>
+  <params>
+    <param>
+      <value>
+        <struct>
+          <member><name>email</name><value><string>${opts.email}</string></value></member>
+          <member><name>target_hosts</name><value><array><data>${hostsXml}</data></array></value></member>
+          <member><name>period</name><value><int>${opts.period}</int></value></member>
+          <member><name>interface</name><value><string>${opts.iface}</string></value></member>
+        </struct>
+      </value>
+    </param>
+  </params>
+</methodCall>`;
+
+  try {
+    const resp = await sippyPost(apiUrl, body, username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        return { success: true, iIpTrafficDump: parseInt(m['i_ip_traffic_dump'] || '0', 10), message: 'OK' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'dumpIPTraffic failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Get the status of a packet dump task.
+ * Root customer user only. No trusted mode.
+ * Official method: dumpIPTrafficStatus() — docs 107508
+ */
+export async function dumpIPTrafficStatus(
+  username: string,
+  password: string,
+  iIpTrafficDump: number,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; status?: string; url?: string; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('dumpIPTrafficStatus', { i_ip_traffic_dump: iIpTrafficDump }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        return {
+          success: true,
+          status:  m['status'] ?? '',
+          url:     m['url'] && m['url'] !== 'nil' && m['url'] !== 'None' ? m['url'] : undefined,
+          message: 'OK',
+        };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'dumpIPTrafficStatus failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
