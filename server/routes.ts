@@ -1797,6 +1797,72 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Network Services (docs 3000112519) ─────────────────────────────────────
+  // Network services are pre-existing in Sippy — no create or delete, only update + read.
+  // i_proto_transport identifies the service; see getDictionary('proto_transports') for values.
+  // Available since Sippy 2021. All routes support trusted mode via iCustomer.
+
+  // PATCH /api/sippy/network-services/:protoTransport — update listeners for a network service
+  // Body (JSON): { listeners: [{ ipAddress, port }, …], iCustomer? }
+  //   listeners: ordered array of IP+port pairs the service should bind on (required)
+  //   iCustomer: trusted-mode customer ID (optional)
+  // Returns: { iProtoTransport }
+  app.patch('/api/sippy/network-services/:protoTransport', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iProtoTransport = Number(req.params.protoTransport);
+      if (!iProtoTransport || isNaN(iProtoTransport)) {
+        return res.status(400).json({ error: 'protoTransport must be a valid integer' });
+      }
+      const b = req.body ?? {};
+      if (!Array.isArray(b.listeners)) {
+        return res.status(400).json({ error: 'listeners (array of {ipAddress, port}) is required' });
+      }
+      const listeners: sippy.SippyNetworkServiceListener[] = b.listeners.map((l: any) => ({
+        ipAddress: String(l.ipAddress ?? l.ip_address ?? ''),
+        port:      Number(l.port),
+      }));
+      const iCustomer = b.iCustomer !== undefined ? Number(b.iCustomer) : undefined;
+      const result = await sippy.updateNetworkService(username, password, iProtoTransport, listeners, iCustomer);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/sippy/network-services/:protoTransport — get listeners for one network service
+  // Query params: iCustomer (optional, trusted mode)
+  // Returns: { iProtoTransport, listeners: [{ ipAddress, port }, …] }
+  app.get('/api/sippy/network-services/:protoTransport', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iProtoTransport = Number(req.params.protoTransport);
+      if (!iProtoTransport || isNaN(iProtoTransport)) {
+        return res.status(400).json({ error: 'protoTransport must be a valid integer' });
+      }
+      const iCustomer = req.query.iCustomer ? Number(req.query.iCustomer) : undefined;
+      const result = await sippy.getNetworkServiceInfo(username, password, iProtoTransport, iCustomer);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/sippy/network-services — list all network services
+  // Query params: limit?, offset?, iCustomer?
+  // Returns: [{ iProtoTransport, listeners: [{ ipAddress, port }, …] }, …]
+  app.get('/api/sippy/network-services', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getNetworkServicesList(
+        username, password,
+        req.query.limit     ? Number(req.query.limit)     : undefined,
+        req.query.offset    ? Number(req.query.offset)    : undefined,
+        req.query.iCustomer ? Number(req.query.iCustomer) : undefined,
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/sippy/asr-report — ASR/ACD report computed from Sippy CDRs
   app.get('/api/sippy/asr-report', async (req, res) => {
     try {

@@ -2528,6 +2528,166 @@ export async function getCAListsList(
   return extractAllTags(arrMatch[1], 'struct').map(parseCAListStruct);
 }
 
+// ── Network Services (docs 3000112519) ───────────────────────────────────────
+
+/** One listener entry: an IP + port pair that a network service binds on. */
+export interface SippyNetworkServiceListener {
+  ipAddress: string;  // ip_address — IP address the service listens on
+  port: number;       // port — TCP/UDP port the service listens on
+}
+
+/** Network service record returned by getNetworkServiceInfo() and getNetworkServicesList(). */
+export interface SippyNetworkService {
+  iProtoTransport: number;                  // i_proto_transport — proto_transport ID (see getDictionary('proto_transports'))
+  listeners: SippyNetworkServiceListener[]; // ordered list of listeners (ip + port pairs)
+}
+
+/**
+ * Builds the XML body for updateNetworkService().
+ * `listeners` is an array of structs — cannot go through buildStructMembers().
+ */
+function buildUpdateNetworkServiceXml(
+  iProtoTransport: number,
+  listeners: SippyNetworkServiceListener[],
+  iCustomer?: number,
+): string {
+  const listenerItems = listeners.map(l =>
+    `<value><struct>` +
+    `<member><name>ip_address</name><value><string>${l.ipAddress.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</string></value></member>` +
+    `<member><name>port</name><value><int>${l.port}</int></value></member>` +
+    `</struct></value>`,
+  ).join('');
+
+  let members =
+    `<member><name>i_proto_transport</name><value><int>${iProtoTransport}</int></value></member>` +
+    `<member><name>listeners</name><value><array><data>${listenerItems}</data></array></value></member>`;
+
+  if (iCustomer !== undefined) {
+    members += `<member><name>i_customer</name><value><int>${iCustomer}</int></value></member>`;
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?><methodCall><methodName>updateNetworkService</methodName><params><param><value><struct>${members}</struct></value></param></params></methodCall>`;
+}
+
+/** Parse the listeners array out of a raw XML response body. */
+function parseListeners(text: string): SippyNetworkServiceListener[] {
+  const arrMatch = text.match(/<name>listeners<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>/i);
+  if (!arrMatch) return [];
+  return extractAllTags(arrMatch[1], 'struct').map(s => {
+    const m = extractStructMembers(s);
+    return {
+      ipAddress: m['ip_address'] || '',
+      port:      m['port']       ? parseInt(m['port'], 10) : 0,
+    };
+  });
+}
+
+/**
+ * updateNetworkService() — update the listener list for a network service (docs 3000112519).
+ *
+ * Network services are pre-existing in Sippy — there is no create or delete.
+ * `i_proto_transport` identifies which service to update (see getDictionary('proto_transports')).
+ *
+ * @param iProtoTransport  Proto-transport ID of the service to update (required)
+ * @param listeners        Ordered list of {ipAddress, port} pairs (required)
+ * @param iCustomer        Trusted-mode customer ID (optional)
+ */
+export async function updateNetworkService(
+  username: string,
+  password: string,
+  iProtoTransport: number,
+  listeners: SippyNetworkServiceListener[],
+  iCustomer?: number,
+): Promise<{ iProtoTransport: number }> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const xmlBody = buildUpdateNetworkServiceXml(iProtoTransport, listeners, iCustomer);
+  const resp = await sippyPost(apiUrl, xmlBody, username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`updateNetworkService HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'updateNetworkService');
+
+  const mm = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
+  return { iProtoTransport: mm['i_proto_transport'] ? parseInt(mm['i_proto_transport'], 10) : iProtoTransport };
+}
+
+/**
+ * getNetworkServiceInfo() — fetch listeners for one network service (docs 3000112519).
+ *
+ * @param iProtoTransport  Proto-transport ID (required)
+ * @param iCustomer        Trusted-mode customer ID (optional)
+ */
+export async function getNetworkServiceInfo(
+  username: string,
+  password: string,
+  iProtoTransport: number,
+  iCustomer?: number,
+): Promise<SippyNetworkService> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_proto_transport: iProtoTransport };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('getNetworkServiceInfo', params), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`getNetworkServiceInfo HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'getNetworkServiceInfo');
+
+  const mm = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
+  return {
+    iProtoTransport: mm['i_proto_transport'] ? parseInt(mm['i_proto_transport'], 10) : iProtoTransport,
+    listeners:       parseListeners(text),
+  };
+}
+
+/**
+ * getNetworkServicesList() — list all network services (docs 3000112519).
+ *
+ * @param username   XML-RPC admin username
+ * @param password   XML-RPC admin password
+ * @param limit      Maximum number of results (optional)
+ * @param offset     Skip first N results for pagination (optional)
+ * @param iCustomer  Trusted-mode customer ID (optional)
+ */
+export async function getNetworkServicesList(
+  username: string,
+  password: string,
+  limit?: number,
+  offset?: number,
+  iCustomer?: number,
+): Promise<SippyNetworkService[]> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {};
+  if (limit     !== undefined) params.limit      = limit;
+  if (offset    !== undefined) params.offset     = offset;
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('getNetworkServicesList', params), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`getNetworkServicesList HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'getNetworkServicesList');
+
+  // network_services is an array; each element is a network service struct containing
+  // i_proto_transport (scalar) and listeners (nested array of structs).
+  // We parse each top-level struct, then extract its listeners sub-array.
+  const arrMatch = text.match(/<name>network_services<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>/i);
+  if (!arrMatch) return [];
+
+  // Each service struct has its own listeners array — parse via regex scoped to that struct
+  const serviceStructs = extractAllTags(arrMatch[1], 'struct');
+  return serviceStructs.map(s => {
+    const mm = extractStructMembers(s);
+    return {
+      iProtoTransport: mm['i_proto_transport'] ? parseInt(mm['i_proto_transport'], 10) : 0,
+      listeners:       parseListeners(s),   // scope parseListeners to this struct's XML
+    };
+  });
+}
+
 // ── Portal User Management ────────────────────────────────────────────────────
 
 export interface SippyPortalUser {
