@@ -1753,8 +1753,10 @@ function SippyVendorsTab({ isManagement }: { isManagement: boolean }) {
       ) : data?.error ? (
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-6 py-8 flex flex-col items-center gap-3 text-rose-400">
           <AlertTriangle className="w-8 h-8 opacity-50" />
-          <p className="text-sm">{data.error}</p>
-          <p className="text-xs text-muted-foreground">Ensure Sippy API Admin Credentials are configured in Settings.</p>
+          <p className="text-sm font-medium">{data.error}</p>
+          <Link href="/settings" className="mt-1 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs font-medium hover:bg-rose-500/20 transition-colors">
+            Go to Settings →
+          </Link>
         </div>
       ) : vendors.length === 0 ? (
         <div className="rounded-xl border border-border bg-card/60 flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
@@ -1865,8 +1867,10 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
       ) : data?.error ? (
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-6 py-8 flex flex-col items-center gap-3 text-rose-400">
           <AlertTriangle className="w-8 h-8 opacity-50" />
-          <p className="text-sm">{data.error}</p>
-          <p className="text-xs text-muted-foreground">Ensure Sippy API Admin Credentials are configured in Settings.</p>
+          <p className="text-sm font-medium">{data.error}</p>
+          <Link href="/settings" className="mt-1 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs font-medium hover:bg-rose-500/20 transition-colors">
+            Go to Settings →
+          </Link>
         </div>
       ) : accounts.length === 0 ? (
         <div className="rounded-xl border border-border bg-card/60 flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">

@@ -2993,13 +2993,23 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
+      if (!username || !password) {
+        return res.json({ accounts: [], error: 'Sippy API credentials not configured. Go to Settings → Switch Configuration and enter your admin username and password.' });
+      }
+      const portalUrl = settings.portalUrl ?? undefined;
+      if (!portalUrl) {
+        return res.json({ accounts: [], error: 'Sippy URL not configured. Go to Settings → Switch Configuration and enter your Sippy switch URL.' });
+      }
       const opts: { iCustomer?: number; offset?: number; limit?: number } = {};
-      // Default iCustomer to 1 — listAccounts requires a customer scope when using admin creds;
-      // without it Sippy returns HTTP 401.
-      opts.iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : 1;
+      if (req.query.iCustomer) opts.iCustomer = parseInt(req.query.iCustomer as string, 10);
       if (req.query.offset)    opts.offset    = parseInt(req.query.offset    as string, 10);
       if (req.query.limit)     opts.limit     = parseInt(req.query.limit     as string, 10);
-      const result = await sippy.listSippyAccounts(username, password, opts);
+      // First try without i_customer (returns accounts owned by the authenticated admin user)
+      let result = await sippy.listSippyAccounts(username, password, opts, portalUrl);
+      // If that fails with an auth error, retry with i_customer=1 (trusted/root scope)
+      if (result.error && (result.error.includes('401') || result.error.includes('403'))) {
+        result = await sippy.listSippyAccounts(username, password, { ...opts, iCustomer: 1 }, portalUrl);
+      }
       res.json(result);
     } catch (e: any) { res.status(500).json({ accounts: [], error: e.message }); }
   });
