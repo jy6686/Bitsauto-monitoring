@@ -4343,74 +4343,61 @@ export async function getSippyVendorInfo(
   }
 }
 
+/** Shared helper for vendorDebit / vendorAddFunds / vendorCredit — docs 151210 */
+async function vendorBalanceMutation(
+  method:    string,
+  username:  string,
+  password:  string,
+  iVendor:   number,
+  amount:    number,
+  currency:  string,
+  opts?:     { paymentNotes?: string; paymentTime?: string },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const params: Record<string, string | number> = { i_vendor: iVendor, amount, currency };
+  if (opts?.paymentNotes !== undefined) params.payment_notes = opts.paymentNotes;
+  if (opts?.paymentTime  !== undefined) params.payment_time  = opts.paymentTime;
+  try {
+    const resp = await sippyPost(`${base}/xmlapi/xmlapi`, xmlRpcCall(method, params), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) return { success: true, message: `${method} OK.` };
+    return { success: false, message: extractTag(resp.body, 'faultString') || `${method} failed.` };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
 /**
  * Debit a currency amount from a vendor's balance.
- * Official method: vendorDebit() — docs 107434 (added in Sippy 4.0)
+ * Official method: vendorDebit() — docs 151210 (Sippy 4.0+)
+ * Mandatory: i_vendor, amount, currency. Optional: payment_notes, payment_time (5.0+).
  */
-export async function sippyVendorDebit(
-  username:  string,
-  password:  string,
-  iVendor:   number,
-  iCustomer: number,
-  amount:    number,
-  currency:  string,
-  portalUrl?: string,
-): Promise<{ success: boolean; message: string }> {
-  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
-  if (!base) return { success: false, message: 'Not connected to Sippy.' };
-  const apiUrl = `${base}/xmlapi/xmlapi`;
-  try {
-    const resp = await sippyPost(apiUrl, xmlRpcCall('vendorDebit', { i_vendor: iVendor, i_customer: iCustomer, amount, currency }), username, password);
-    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) return { success: true, message: 'OK' };
-    return { success: false, message: extractTag(resp.body, 'faultString') || 'vendorDebit failed.' };
-  } catch (e: any) { return { success: false, message: e.message }; }
-}
+export const sippyVendorDebit = (
+  username: string, password: string,
+  iVendor: number, amount: number, currency: string,
+  opts?: { paymentNotes?: string; paymentTime?: string }, portalUrl?: string,
+) => vendorBalanceMutation('vendorDebit', username, password, iVendor, amount, currency, opts, portalUrl);
 
 /**
- * Add funds (credit) to a vendor's balance.
- * Official method: vendorAddFunds() — docs 107434 (added in Sippy 4.0)
+ * Add funds to (increase) a vendor's balance.
+ * Official method: vendorAddFunds() — docs 151210 (Sippy 4.0+)
+ * Mandatory: i_vendor, amount, currency. Optional: payment_notes, payment_time (5.0+).
  */
-export async function sippyVendorAddFunds(
-  username:  string,
-  password:  string,
-  iVendor:   number,
-  iCustomer: number,
-  amount:    number,
-  currency:  string,
-  portalUrl?: string,
-): Promise<{ success: boolean; message: string }> {
-  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
-  if (!base) return { success: false, message: 'Not connected to Sippy.' };
-  const apiUrl = `${base}/xmlapi/xmlapi`;
-  try {
-    const resp = await sippyPost(apiUrl, xmlRpcCall('vendorAddFunds', { i_vendor: iVendor, i_customer: iCustomer, amount, currency }), username, password);
-    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) return { success: true, message: 'OK' };
-    return { success: false, message: extractTag(resp.body, 'faultString') || 'vendorAddFunds failed.' };
-  } catch (e: any) { return { success: false, message: e.message }; }
-}
+export const sippyVendorAddFunds = (
+  username: string, password: string,
+  iVendor: number, amount: number, currency: string,
+  opts?: { paymentNotes?: string; paymentTime?: string }, portalUrl?: string,
+) => vendorBalanceMutation('vendorAddFunds', username, password, iVendor, amount, currency, opts, portalUrl);
 
 /**
- * Credit a currency amount to a vendor's balance (same as addFunds but marked as 'Credit').
- * Official method: vendorCredit() — docs 107434 (added in Sippy 4.0)
+ * Credit a vendor's balance (same effect as addFunds; transaction labelled 'Credit').
+ * Official method: vendorCredit() — docs 151210 (Sippy 4.0+)
+ * Mandatory: i_vendor, amount, currency. Optional: payment_notes, payment_time (5.0+).
  */
-export async function sippyVendorCredit(
-  username:  string,
-  password:  string,
-  iVendor:   number,
-  iCustomer: number,
-  amount:    number,
-  currency:  string,
-  portalUrl?: string,
-): Promise<{ success: boolean; message: string }> {
-  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
-  if (!base) return { success: false, message: 'Not connected to Sippy.' };
-  const apiUrl = `${base}/xmlapi/xmlapi`;
-  try {
-    const resp = await sippyPost(apiUrl, xmlRpcCall('vendorCredit', { i_vendor: iVendor, i_customer: iCustomer, amount, currency }), username, password);
-    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) return { success: true, message: 'OK' };
-    return { success: false, message: extractTag(resp.body, 'faultString') || 'vendorCredit failed.' };
-  } catch (e: any) { return { success: false, message: e.message }; }
-}
+export const sippyVendorCredit = (
+  username: string, password: string,
+  iVendor: number, amount: number, currency: string,
+  opts?: { paymentNotes?: string; paymentTime?: string }, portalUrl?: string,
+) => vendorBalanceMutation('vendorCredit', username, password, iVendor, amount, currency, opts, portalUrl);
 
 /**
  * Delete a vendor from Sippy.

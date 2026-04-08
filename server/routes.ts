@@ -3125,56 +3125,59 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
-  // POST /api/sippy/vendors/:id/debit — vendorDebit() — docs 107434 (Sippy 4.0+)
-  // Body: { iCustomer, amount, currency }
+  // POST /api/sippy/vendors/:id/debit — vendorDebit() — docs 151210 (Sippy 4.0+)
+  // Body: { amount (req), currency (req), paymentNotes?, paymentTime? }
   // Returns: { success, message }
   app.post('/api/sippy/vendors/:id/debit', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
-      const { iCustomer, amount, currency } = req.body ?? {};
-      if (iCustomer === undefined || amount === undefined || !currency) {
-        return res.status(400).json({ success: false, error: 'iCustomer, amount, and currency are required.' });
-      }
+      const iVendor = parseInt(req.params.id, 10);
+      if (isNaN(iVendor)) return res.status(400).json({ success: false, message: 'Invalid i_vendor.' });
+      const { amount, currency, paymentNotes, paymentTime } = req.body ?? {};
+      if (amount === undefined || !currency)
+        return res.status(400).json({ success: false, message: 'amount and currency are required.' });
       const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.sippyVendorDebit(username, password, parseInt(req.params.id, 10), iCustomer, amount, currency, settings.portalUrl ?? '');
+      const result = await sippy.sippyVendorDebit(username, password, iVendor, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
       res.json(result);
-    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
-  // POST /api/sippy/vendors/:id/add-funds — vendorAddFunds() — docs 107434 (Sippy 4.0+)
-  // Body: { iCustomer, amount, currency }
+  // POST /api/sippy/vendors/:id/add-funds — vendorAddFunds() — docs 151210 (Sippy 4.0+)
+  // Body: { amount (req), currency (req), paymentNotes?, paymentTime? }
   // Returns: { success, message }
   app.post('/api/sippy/vendors/:id/add-funds', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
-      const { iCustomer, amount, currency } = req.body ?? {};
-      if (iCustomer === undefined || amount === undefined || !currency) {
-        return res.status(400).json({ success: false, error: 'iCustomer, amount, and currency are required.' });
-      }
+      const iVendor = parseInt(req.params.id, 10);
+      if (isNaN(iVendor)) return res.status(400).json({ success: false, message: 'Invalid i_vendor.' });
+      const { amount, currency, paymentNotes, paymentTime } = req.body ?? {};
+      if (amount === undefined || !currency)
+        return res.status(400).json({ success: false, message: 'amount and currency are required.' });
       const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.sippyVendorAddFunds(username, password, parseInt(req.params.id, 10), iCustomer, amount, currency, settings.portalUrl ?? '');
+      const result = await sippy.sippyVendorAddFunds(username, password, iVendor, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
       res.json(result);
-    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
-  // POST /api/sippy/vendors/:id/credit — vendorCredit() — docs 107434 (Sippy 4.0+)
-  // Body: { iCustomer, amount, currency }
-  // Same as add-funds but transaction marked as 'Credit'
+  // POST /api/sippy/vendors/:id/credit — vendorCredit() — docs 151210 (Sippy 4.0+)
+  // Body: { amount (req), currency (req), paymentNotes?, paymentTime? }
+  // Same as add-funds but transaction labelled 'Credit'
   // Returns: { success, message }
   app.post('/api/sippy/vendors/:id/credit', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
-      const { iCustomer, amount, currency } = req.body ?? {};
-      if (iCustomer === undefined || amount === undefined || !currency) {
-        return res.status(400).json({ success: false, error: 'iCustomer, amount, and currency are required.' });
-      }
+      const iVendor = parseInt(req.params.id, 10);
+      if (isNaN(iVendor)) return res.status(400).json({ success: false, message: 'Invalid i_vendor.' });
+      const { amount, currency, paymentNotes, paymentTime } = req.body ?? {};
+      if (amount === undefined || !currency)
+        return res.status(400).json({ success: false, message: 'amount and currency are required.' });
       const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.sippyVendorCredit(username, password, parseInt(req.params.id, 10), iCustomer, amount, currency, settings.portalUrl ?? '');
+      const result = await sippy.sippyVendorCredit(username, password, iVendor, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
       res.json(result);
-    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
   // ── Vendor connections (official Sippy API docs 107435) ───────────────────
