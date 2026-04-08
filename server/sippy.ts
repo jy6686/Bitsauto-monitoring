@@ -2893,6 +2893,66 @@ export interface SippyCustomerInfo {
 }
 
 /**
+ * Authenticate a customer using their self-care portal credentials.
+ * Official method: authCustomer() — docs 107430
+ * Parameters: username + password (customer's web-login credentials, NOT admin credentials).
+ * Returns: i_customer, i_web_user, i_access_level on success.
+ * Special: error code 410 = authenticated via One Time Password.
+ */
+export async function authSippyCustomer(
+  adminUsername: string,
+  adminPassword: string,
+  custUsername:  string,
+  custPassword:  string,
+  opts?: { portalUrl?: string },
+): Promise<{
+  success:      boolean;
+  iCustomer?:   number;
+  iWebUser?:    number;
+  iAccessLevel?: string;
+  oneTimePassword?: boolean;
+  message:      string;
+}> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string> = {
+    username: custUsername,
+    password: custPassword,
+  };
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('authCustomer', params), adminUsername, adminPassword);
+    const text = resp.body;
+
+    // Error 410 = authenticated via One Time Password — treat as a special success
+    const faultCode = extractTag(text, 'faultCode');
+    if (faultCode === '410') {
+      return { success: true, oneTimePassword: true, message: 'Authenticated via One Time Password.' };
+    }
+
+    if (resp.statusCode !== 200 || text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'authCustomer failed.';
+      return { success: false, message: fault };
+    }
+
+    const m = extractStructMembers(text);
+    return {
+      success:       m.result === 'OK',
+      iCustomer:     m.i_customer   ? parseInt(m.i_customer, 10)  : undefined,
+      iWebUser:      m.i_web_user   ? parseInt(m.i_web_user, 10)  : undefined,
+      iAccessLevel:  m.i_access_level ?? undefined,
+      oneTimePassword: false,
+      message:       m.result ?? 'Unknown',
+    };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
  * Retrieve all attributes of a customer.
  * Official method: getCustomerInfo() — docs 107426
  * Pass either iCustomer (int) OR name (string).

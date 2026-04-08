@@ -1998,6 +1998,28 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // POST /api/sippy/customers/authenticate — authCustomer() — docs 107430
+  // Body: { username, password } — customer's self-care portal credentials (NOT admin credentials)
+  // Returns: { success, iCustomer, iWebUser, iAccessLevel, oneTimePassword, message }
+  // NOTE: error 410 from Sippy = authenticated via One Time Password — treated as success with oneTimePassword:true
+  app.post('/api/sippy/customers/authenticate', async (req: any, res) => {
+    try {
+      const { username, password } = req.body ?? {};
+      if (!username || !password) {
+        return res.status(400).json({ success: false, error: 'username and password are required.' });
+      }
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username: adminUser, password: adminPass } = sippyXmlCreds(settings);
+
+      const result = await sippy.authSippyCustomer(adminUser, adminPass, username, password, {
+        portalUrl: settings.portalUrl ?? '',
+      });
+      const statusCode = result.success ? 200 : 401;
+      res.status(statusCode).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // POST /api/sippy/customers — createCustomer() — docs 107417
   // Body: { name, webPassword, iTariff (number|null), ...optional fields }
   // Returns: { success, iCustomer, message }
