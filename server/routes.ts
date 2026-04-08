@@ -3926,6 +3926,60 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ totals: [], error: e.message }); }
   });
 
+  // POST /api/sippy/balances — create a new balance entity (docs 3000070859)
+  // Body: { balance, creditLimit, commodity, refCount }
+  app.post('/api/sippy/balances', async (req: any, res) => {
+    try {
+      const { balance, creditLimit, commodity, refCount } = req.body ?? {};
+      if (balance === undefined || creditLimit === undefined || !commodity || refCount === undefined)
+        return res.status(400).json({ success: false, error: 'balance, creditLimit, commodity and refCount are required.' });
+      if (Number(refCount) < 1)
+        return res.status(400).json({ success: false, error: 'refCount must be at least 1.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.createSippyBalance(username, password, {
+        balance: Number(balance), creditLimit: Number(creditLimit),
+        commodity: String(commodity), refCount: Number(refCount),
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/balances/:id/inc-ref — increment reference counter (docs 3000070859)
+  // Body: { iBalanceUpdate } — unique update token (use 0 when calling from XML-RPC management path)
+  app.post('/api/sippy/balances/:id/inc-ref', async (req: any, res) => {
+    try {
+      const iBalance = parseInt(req.params.id, 10);
+      if (isNaN(iBalance)) return res.status(400).json({ success: false, error: 'Invalid i_balance.' });
+      const iBalanceUpdate = parseInt(req.body?.iBalanceUpdate ?? '0', 10);
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.incSippyBalanceRefCount(username, password, iBalance, iBalanceUpdate, settings.portalUrl ?? '');
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/balances/:id/dec-ref — decrement reference counter (docs 3000070859)
+  // Body: { iBalanceUpdate }
+  app.post('/api/sippy/balances/:id/dec-ref', async (req: any, res) => {
+    try {
+      const iBalance = parseInt(req.params.id, 10);
+      if (isNaN(iBalance)) return res.status(400).json({ success: false, error: 'Invalid i_balance.' });
+      const iBalanceUpdate = parseInt(req.body?.iBalanceUpdate ?? '0', 10);
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.decSippyBalanceRefCount(username, password, iBalance, iBalanceUpdate, settings.portalUrl ?? '');
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // ── SNMP Monitoring (Sippy SNMP — docs 81166) ─────────────────────────────
 
   // GET /api/sippy/snmp/stats — query live SNMP statistics from the Sippy switch.

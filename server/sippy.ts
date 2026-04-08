@@ -6016,6 +6016,114 @@ export async function setSippyBalanceCreditLimit(
 }
 
 /**
+ * Create a new balance entity on the External Balance Daemon.
+ * Official method: Customer.create_balance(balance, credit_limit, commodity, ref_count)
+ * Returns the i_balance ID of the newly created entity.
+ * The commodity becomes a read-only attribute (currency code, e.g. 'USD').
+ * ref_count must be at least 1.
+ * docs 3000070859
+ */
+export async function createSippyBalance(
+  username: string,
+  password: string,
+  opts: {
+    balance:      number;
+    creditLimit:  number;
+    commodity:    string;   // currency code, e.g. 'USD'
+    refCount:     number;   // must be >= 1
+    portalUrl?:   string;
+  },
+): Promise<{ success: boolean; iBalance?: number; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const body = xmlRpcCall('Customer.create_balance', {
+      balance:      opts.balance,
+      credit_limit: opts.creditLimit,
+      commodity:    opts.commodity,
+      ref_count:    opts.refCount,
+    });
+    const resp = await sippyPost(apiUrl, body, username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const iBalance = m['i_balance'] ? parseInt(m['i_balance'], 10) : undefined;
+      return { success: true, iBalance, message: 'Balance entity created.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'create_balance failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Increment the reference counter of a balance entity.
+ * Official method: Customer.inc_ref_count(i_balance, i_balance_update)
+ * i_balance_update is a unique token from next_i_balance_update() (Thrift side).
+ * When called via XML-RPC management path, pass 0 or omit i_balance_update.
+ * docs 3000070859
+ */
+export async function incSippyBalanceRefCount(
+  username: string,
+  password: string,
+  iBalance: number,
+  iBalanceUpdate: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('Customer.inc_ref_count', { i_balance: iBalance, i_balance_update: iBalanceUpdate }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Reference count incremented.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'inc_ref_count failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Decrement the reference counter of a balance entity.
+ * Official method: Customer.dec_ref_count(i_balance, i_balance_update)
+ * When the counter reaches zero the entity is safe to delete (no explicit delete method).
+ * docs 3000070859
+ */
+export async function decSippyBalanceRefCount(
+  username: string,
+  password: string,
+  iBalance: number,
+  iBalanceUpdate: number,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('Customer.dec_ref_count', { i_balance: iBalance, i_balance_update: iBalanceUpdate }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      return { success: true, message: 'Reference count decremented.' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'dec_ref_count failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
  * Delete a tariff from Sippy.
  * Official method: deleteTariff() — docs 3000098586 (available since Sippy 2020)
  */
