@@ -2093,6 +2093,31 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // GET /api/sippy/customers/:id — getCustomerInfo() — docs 107426
+  // Query: iWholesaler? (trusted mode) | use :id=name to look up by customer name
+  // Returns: { success, customer: SippyCustomerInfo, message }
+  // NOTE: balance is automatically corrected (Sippy returns it inverted)
+  app.get('/api/sippy/customers/:id', async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { iWholesaler } = req.query ?? {};
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+
+      // Determine lookup type: numeric = i_customer, string = name
+      const numId = parseInt(id, 10);
+      const lookup = !isNaN(numId) ? { iCustomer: numId } : { name: id };
+
+      const result = await sippy.getSippyCustomerInfo(username, password, lookup, {
+        iWholesaler: iWholesaler !== undefined ? parseInt(iWholesaler as string, 10) : undefined,
+        portalUrl:   settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(404).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // PATCH /api/sippy/customers/:id — updateCustomer() — docs 107419
   // Body: any subset of createCustomer() fields (all optional, at least one required)
   // Returns: { success, message }

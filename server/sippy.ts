@@ -2817,6 +2817,206 @@ export async function listSippyCustomers(
   }
 }
 
+export interface SippyCustomerInfo {
+  // Core identity
+  iCustomer:            number;
+  name:                 string;
+  webLogin:             string;
+  description:          string;
+  // Balance (already inverted: negative-on-wire → positive here)
+  balance:              number;
+  creditLimit:          number;
+  baseCurrency:         string;
+  // Contact
+  companyName:          string;
+  salutation:           string;
+  firstName:            string;
+  lastName:             string;
+  midInit:              string;
+  streetAddr:           string;
+  state:                string;
+  postalCode:           string;
+  city:                 string;
+  country:              string;
+  contact:              string;
+  phone:                string;
+  fax:                  string;
+  altPhone:             string;
+  altContact:           string;
+  email:                string;
+  cc:                   string;
+  bcc:                  string;
+  mailFrom:             string;
+  // Routing
+  iRoutingGroup:        number | null;
+  iTariff:              number | null;
+  // Permissions
+  accountsMgmt:         number;
+  customersMgmt:        number;
+  systemMgmt:           number;
+  tariffsMgmt:          number;
+  vouchersMgmt:         number;
+  apiAccess:            number;
+  apiMgmt:              number;
+  // Features
+  maxDepth:             number | null;
+  useOwnTariff:         number;
+  callshopEnabled:      boolean;
+  overcommitProtection: boolean;
+  overcommitLimit:      number;
+  didPoolEnabled:       boolean;
+  ivrAppsEnabled:       boolean;
+  asrAcdEnabled:        boolean;
+  conferencingEnabled:  boolean;
+  dnclEnabled:          boolean;
+  // Locale / UI
+  iTimeZone:            number | null;
+  iLang:                string;
+  iExportType:          number | null;
+  startPage:            number | null;
+  dnsAlias:             string;
+  // Rate limits
+  maxSessions:          number | null;   // null = unlimited
+  maxCallsPerSecond:    number | null;   // null = unlimited
+  // Commission
+  iCommissionAgent:     number | null;
+  commissionSize:       number;
+  // Payment
+  paymentCurrency:      string;
+  paymentMethod:        number | null;
+  minPaymentAmount:     number;
+  // Status / misc
+  iPasswordPolicy:      number | null;
+  accountsMatchingRule: string;
+  // Raw extra fields the switch may return
+  [key: string]: unknown;
+}
+
+/**
+ * Retrieve all attributes of a customer.
+ * Official method: getCustomerInfo() — docs 107426
+ * Pass either iCustomer (int) OR name (string).
+ * Trusted mode: supply iWholesaler.
+ * IMPORTANT: balance is returned inverted by Sippy — this function corrects it.
+ *   negative wire value → positive balance displayed
+ *   positive wire value → negative balance displayed
+ */
+export async function getSippyCustomerInfo(
+  username:  string,
+  password:  string,
+  lookup:    { iCustomer: number } | { name: string },
+  opts?: {
+    iWholesaler?: number;
+    portalUrl?:   string;
+  },
+): Promise<{ success: boolean; customer?: SippyCustomerInfo; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {};
+  if ('iCustomer' in lookup) params.i_customer = lookup.iCustomer;
+  else                       params.name       = lookup.name;
+  if (opts?.iWholesaler !== undefined) params.i_wholesaler = opts.iWholesaler;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getCustomerInfo', params), username, password);
+    const text = resp.body;
+
+    if (resp.statusCode !== 200 || text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'getCustomerInfo failed.';
+      return { success: false, message: fault };
+    }
+
+    // Extract the nested customer struct
+    const custMatch = /<name>customer<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>\s*<\/value>/.exec(text);
+    if (!custMatch) return { success: false, message: 'No customer struct in response.' };
+
+    const m = extractStructMembers(custMatch[1]);
+
+    // Balance: Sippy returns inverted — negative wire = positive balance
+    const rawBalance = parseFloat(m.balance ?? '0');
+    const balance    = -rawBalance;   // invert
+    const creditLimit = parseFloat(m.credit_limit ?? '0');
+
+    const customer: SippyCustomerInfo = {
+      iCustomer:            parseInt(m.i_customer ?? '0', 10),
+      name:                 m.name         ?? '',
+      webLogin:             m.web_login    ?? '',
+      description:          m.description  ?? '',
+      balance,
+      creditLimit,
+      baseCurrency:         m.base_currency ?? '',
+      // Contact
+      companyName:          m.company_name  ?? '',
+      salutation:           m.salutation    ?? '',
+      firstName:            m.first_name    ?? '',
+      lastName:             m.last_name     ?? '',
+      midInit:              m.mid_init      ?? '',
+      streetAddr:           m.street_addr   ?? '',
+      state:                m.state         ?? '',
+      postalCode:           m.postal_code   ?? '',
+      city:                 m.city          ?? '',
+      country:              m.country       ?? '',
+      contact:              m.contact       ?? '',
+      phone:                m.phone         ?? '',
+      fax:                  m.fax           ?? '',
+      altPhone:             m.alt_phone     ?? '',
+      altContact:           m.alt_contact   ?? '',
+      email:                m.email         ?? '',
+      cc:                   m.cc            ?? '',
+      bcc:                  m.bcc           ?? '',
+      mailFrom:             m.mail_from     ?? '',
+      // Routing
+      iRoutingGroup:        m.i_routing_group ? parseInt(m.i_routing_group, 10) : null,
+      iTariff:              m.i_tariff        ? parseInt(m.i_tariff, 10)         : null,
+      // Permissions
+      accountsMgmt:         parseInt(m.accounts_mgmt   ?? '0', 10),
+      customersMgmt:        parseInt(m.customers_mgmt  ?? '0', 10),
+      systemMgmt:           parseInt(m.system_mgmt     ?? '0', 10),
+      tariffsMgmt:          parseInt(m.tariffs_mgmt    ?? '0', 10),
+      vouchersMgmt:         parseInt(m.vouchers_mgmt   ?? '0', 10),
+      apiAccess:            parseInt(m.api_access       ?? '0', 10),
+      apiMgmt:              parseInt(m.api_mgmt         ?? '0', 10),
+      // Features
+      maxDepth:             m.max_depth               ? parseInt(m.max_depth, 10)    : null,
+      useOwnTariff:         parseInt(m.use_own_tariff ?? '0', 10),
+      callshopEnabled:      m.callshop_enabled         === '1' || m.callshop_enabled === 'true',
+      overcommitProtection: m.overcommit_protection    === '1' || m.overcommit_protection === 'true',
+      overcommitLimit:      parseFloat(m.overcommit_limit ?? '0'),
+      didPoolEnabled:       m.did_pool_enabled         === '1' || m.did_pool_enabled === 'true',
+      ivrAppsEnabled:       m.ivr_apps_enabled         === '1' || m.ivr_apps_enabled === 'true',
+      asrAcdEnabled:        m.asr_acd_enabled          === '1' || m.asr_acd_enabled === 'true',
+      conferencingEnabled:  m.conferencing_enabled     === '1' || m.conferencing_enabled === 'true',
+      dnclEnabled:          m.dncl_enabled             === '1' || m.dncl_enabled === 'true',
+      // Locale / UI
+      iTimeZone:            m.i_time_zone   ? parseInt(m.i_time_zone, 10)    : null,
+      iLang:                m.i_lang        ?? '',
+      iExportType:          m.i_export_type ? parseInt(m.i_export_type, 10)  : null,
+      startPage:            m.start_page    ? parseInt(m.start_page, 10)     : null,
+      dnsAlias:             m.dns_alias     ?? '',
+      // Rate limits — empty/nil → null (unlimited)
+      maxSessions:          m.max_sessions        ? parseInt(m.max_sessions, 10)           : null,
+      maxCallsPerSecond:    m.max_calls_per_second ? parseFloat(m.max_calls_per_second)    : null,
+      // Commission
+      iCommissionAgent:     m.i_commission_agent  ? parseInt(m.i_commission_agent, 10)    : null,
+      commissionSize:       parseFloat(m.commission_size ?? '0'),
+      // Payment
+      paymentCurrency:      m.payment_currency    ?? '',
+      paymentMethod:        m.payment_method      ? parseInt(m.payment_method, 10)        : null,
+      minPaymentAmount:     parseFloat(m.min_payment_amount ?? '0'),
+      // Misc
+      iPasswordPolicy:      m.i_password_policy   ? parseInt(m.i_password_policy, 10)    : null,
+      accountsMatchingRule: m.accounts_matching_rule ?? '',
+    };
+
+    return { success: true, customer, message: 'OK' };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 export interface CreateCustomerOpts {
   // ── Mandatory ──────────────────────────────────────────────────────────────
   name:        string;        // unique customer name
