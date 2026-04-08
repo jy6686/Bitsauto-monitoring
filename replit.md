@@ -13,21 +13,11 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 - Real-time call quality metrics (Jitter, Latency, Packet Loss, MOS)
 - Telecom KPIs: ASR, ACD, PDD, Call Back Ratio
 - Live IP endpoint probe (TCP SIP port check)
-- VOS3000 softswitch integration (CAPTCHA login, CDR, live calls, stats)
-- Sippy Softswitch integration (XML-RPC, HTTP Basic Auth)
-- Per-client stats from VOS3000 terminal accounts
+- **Sippy Softswitch ONLY** (VOS3000 permanently removed from all UI)
 - ASR/ACD origination reports with client/vendor profiles
 - Role-based access control (admin > management > viewer)
 - Alert engine with threshold-based triggers
-
-## VOS3000 Integration (`server/vos3000.ts`)
-- CAPTCHA fetched from `verifyimage.jsp` using `node:http` (native fetch drops Set-Cookie)
-- Login: POST to `login.jsp?randCode=<captcha>` with JSON body `{terminalName, terminalPassword, terminalType}`
-- Session stored in memory (`activeSession`)
-- Endpoints: CDR, live calls, summary stats, per-client stats, terminal account list
-- `fetchVosClients()` — queries terminal accounts (tries 4 endpoint variants)
-- `fetchClientStats()` — per-client traffic via `expenditureSummary.action`
-- `clientName` extracted from CDR and live call records
+- Team page with Quick Assign Role form (email + role dropdown + submit)
 
 ## Sippy Integration (`server/sippy.ts`)
 - XML-RPC POST to `/xmlapi/xmlapi`, HTTP **Digest** Auth (RFC-2617, NOT Basic) — `sippyPost()` handles 2-step probe-then-digest

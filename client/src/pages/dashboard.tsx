@@ -24,11 +24,9 @@ import {
   Signal,
   CheckCircle2,
   Globe,
-  TrendingUp,
   DollarSign,
   PhoneIncoming,
   Settings,
-  Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -70,60 +68,22 @@ export default function DashboardPage() {
   const { data: recentAlerts } = useAlerts();
   const { data: settings } = useSettings();
 
-  const activateMutation = useMutation({
-    mutationFn: (type: 'sippy' | 'vos3000') => apiRequest('POST', '/api/switch/activate', { type }),
-    onSuccess: (data: any, type) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/sippy/session'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/portal/session'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/sippy/live-calls'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/portal/live-calls'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/portal/stats'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/sippy/cdr'] });
-      const label = type === 'sippy' ? 'Sippy' : 'VOS3000';
-      toast({ title: `Switched to ${label}`, description: data?.message ?? `Now using ${label}` });
-    },
-    onError: () => toast({ title: 'Switch failed', description: 'Could not change active switch', variant: 'destructive' }),
-  });
 
   const { data: probe, isLoading: probeLoading } = useQuery<ProbeStatus>({
     queryKey: ['/api/probe/status'],
     refetchInterval: 15000,
   });
 
-  // VOS3000 portal data
-  const { data: portalSession } = useQuery<{ active: boolean; username?: string; loggedInAt?: string }>({
-    queryKey: ['/api/portal/session'],
-    refetchInterval: 30000,
-  });
   // Sippy session
   const { data: sippySession } = useQuery<{ active: boolean; username?: string; connectedAt?: string; portalUrl?: string }>({
     queryKey: ['/api/sippy/session'],
     refetchInterval: 30000,
-  });
-  const { data: portalStats } = useQuery<{
-    totalCalls: number; successCalls: number; failedCalls: number;
-    totalMinutes: number; totalCost: number; asr: number; error?: string;
-  }>({
-    queryKey: ['/api/portal/stats'],
-    refetchInterval: 60000,
-    enabled: !!portalSession?.active,
-  });
-  const { data: portalLiveCalls } = useQuery<{ calls: any[]; error?: string }>({
-    queryKey: ['/api/portal/live-calls'],
-    refetchInterval: 15000,
-    enabled: !!portalSession?.active,
   });
   // Sippy live calls — polled when Sippy session is active
   const { data: sippyLiveCalls } = useQuery<{ calls: any[]; error?: string }>({
     queryKey: ['/api/sippy/live-calls'],
     refetchInterval: 15000,
     enabled: !!sippySession?.active,
-  });
-  const { data: portalCdr } = useQuery<{ records: any[]; error?: string }>({
-    queryKey: ['/api/portal/cdr'],
-    refetchInterval: 60000,
-    enabled: !!portalSession?.active,
   });
   // Sippy CDR records
   const { data: sippyCdr } = useQuery<{ cdrs: any[]; error?: string }>({
@@ -138,7 +98,7 @@ export default function DashboardPage() {
   });
 
   const simulationOff = settings && !settings.simulationEnabled;
-  const anyPortalActive = !!portalSession?.active || !!sippySession?.active;
+  const anyPortalActive = !!sippySession?.active;
   const notConnected = simulationOff && !anyPortalActive;
 
   // Build chart data from recent call metrics (real or simulated)
@@ -150,55 +110,18 @@ export default function DashboardPage() {
     }))
     .reverse();
 
-  // Use portal stats for main cards when portal is active (prefer Sippy when both connected)
-  const liveCalls = sippySession?.active
-    ? (sippyLiveCalls?.calls ?? [])
-    : (portalLiveCalls?.calls ?? []);
-
-  const displayActiveCalls = anyPortalActive
-    ? (liveCalls.length ?? stats?.activeCalls ?? 0)
-    : (stats?.activeCalls ?? 0);
-  const displayAsr = portalSession?.active
-    ? (portalStats?.asr ?? stats?.asr ?? 0)
-    : (stats?.asr ?? 0);
-  const displayAcd = portalSession?.active
-    ? (portalStats ? Math.round(portalStats.totalMinutes * 60 / Math.max(portalStats.successCalls, 1)) : (stats?.acd ?? 0))
-    : (stats?.acd ?? 0);
+  const liveCalls = sippyLiveCalls?.calls ?? [];
+  const displayActiveCalls = anyPortalActive ? liveCalls.length : (stats?.activeCalls ?? 0);
+  const displayAsr = stats?.asr ?? 0;
+  const displayAcd = stats?.acd ?? 0;
 
   if (!stats) return <div className="p-8">Loading dashboard...</div>;
 
-  const activeSwitchType = settings?.switchType ?? 'sippy';
-
   return (
     <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">System Overview</h2>
-          <p className="text-muted-foreground mt-2">Real-time monitoring of VoIP infrastructure.</p>
-        </div>
-        {/* Switch Selector */}
-        <div className="flex items-center self-start gap-0.5 p-1 rounded-xl bg-muted/60 border border-border">
-          {(['sippy', 'vos3000'] as const).map((sw) => {
-            const isActive = activeSwitchType === sw;
-            const isLoading = activateMutation.isPending && activateMutation.variables === sw;
-            return (
-              <button
-                key={sw}
-                data-testid={`button-switch-${sw}`}
-                onClick={() => { if (!isActive) activateMutation.mutate(sw); }}
-                disabled={activateMutation.isPending}
-                className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all duration-150 disabled:opacity-60 ${
-                  isActive
-                    ? 'bg-card text-foreground shadow-sm border border-border'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
-                }`}
-              >
-                {isLoading && <Loader2 className="w-3 h-3 animate-spin" />}
-                {sw === 'sippy' ? 'Sippy' : 'VOS3000'}
-              </button>
-            );
-          })}
-        </div>
+      <div>
+        <h2 className="text-3xl font-bold tracking-tight">System Overview</h2>
+        <p className="text-muted-foreground mt-2">Real-time monitoring of VoIP infrastructure via Sippy Softswitch.</p>
       </div>
 
       {/* Connection required banner — shown when simulation is off and portal not connected */}
@@ -211,7 +134,7 @@ export default function DashboardPage() {
             <div>
               <p className="font-semibold text-sm">No live data source connected</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Simulation is disabled. Connect to your VOS3000 or Sippy softswitch to see real call data, CDR records, and traffic stats here.
+                Simulation is disabled. Connect to your Sippy softswitch to see real call data, CDR records, and traffic stats here.
               </p>
             </div>
           </div>
@@ -223,23 +146,15 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Connected source badge — shown when any switch is active */}
+      {/* Connected source badge — shown when Sippy session is active */}
       {anyPortalActive && (
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-5 py-3 flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            {sippySession?.active && (
-              <p className="text-sm text-emerald-400 font-medium">
-                Live data — connected to <span className="font-semibold">Sippy</span> as{' '}
-                <span className="font-mono">{sippySession.username}</span>
-              </p>
-            )}
-            {portalSession?.active && (
-              <p className="text-sm text-emerald-400 font-medium">
-                {sippySession?.active ? '·' : ''} <span className="font-semibold">VOS3000</span> as{' '}
-                <span className="font-mono">{portalSession.username}</span>
-              </p>
-            )}
+            <p className="text-sm text-emerald-400 font-medium">
+              Live data — connected to <span className="font-semibold">Sippy</span> as{' '}
+              <span className="font-mono">{sippySession?.username}</span>
+            </p>
           </div>
           <span className="text-xs text-muted-foreground ml-auto">All stats below reflect your real switch traffic</span>
         </div>
@@ -251,34 +166,28 @@ export default function DashboardPage() {
           value={notConnected ? '—' : displayActiveCalls} 
           icon={PhoneCall}
           className="border-blue-500/20"
-          description={anyPortalActive ? "Live calls on portal" : "Currently connected sessions"}
+          description={anyPortalActive ? "Live calls on Sippy" : "Currently connected sessions"}
         />
         <StatCard 
-          title={anyPortalActive ? "Total Calls (24h)" : "Average MOS"}
-          value={anyPortalActive
-            ? (portalStats?.totalCalls?.toLocaleString() ?? liveCalls.length.toString())
-            : (notConnected ? '—' : stats.avgMos.toFixed(2))}
-          icon={anyPortalActive ? PhoneCall : Activity}
-          className={anyPortalActive ? "border-blue-500/20" : (stats.avgMos > 4 ? "border-emerald-500/20" : "border-amber-500/20")}
-          description={anyPortalActive ? "Total call attempts in last 24h" : "Mean Opinion Score (5.0 scale)"}
+          title="Average MOS"
+          value={notConnected ? '—' : stats.avgMos.toFixed(2)}
+          icon={Activity}
+          className={stats.avgMos > 4 ? "border-emerald-500/20" : "border-amber-500/20"}
+          description="Mean Opinion Score (5.0 scale)"
         />
         <StatCard 
-          title={anyPortalActive ? "Answered" : "System Health"}
-          value={anyPortalActive
-            ? (portalStats?.successCalls?.toLocaleString() ?? '—')
-            : (notConnected ? '—' : stats.systemHealth)}
-          icon={anyPortalActive ? CheckCircle2 : Server}
-          className={anyPortalActive ? "border-emerald-500/20" : (stats.systemHealth === 'Healthy' ? "border-emerald-500/20" : "border-rose-500/20")}
-          description={anyPortalActive ? "Successfully answered calls" : "Infrastructure status"}
+          title="System Health"
+          value={notConnected ? '—' : stats.systemHealth}
+          icon={Server}
+          className={stats.systemHealth === 'Healthy' ? "border-emerald-500/20" : "border-rose-500/20"}
+          description="Infrastructure status"
         />
         <StatCard 
-          title={anyPortalActive ? "Total Minutes" : "Alerts Today"}
-          value={anyPortalActive
-            ? (portalStats?.totalMinutes?.toLocaleString() ?? '—')
-            : (notConnected ? '—' : stats.alertsToday)}
-          icon={anyPortalActive ? Clock : AlertTriangle}
-          className={anyPortalActive ? "border-violet-500/20" : (stats.alertsToday > 5 ? "border-rose-500/20" : "border-border/50")}
-          description={anyPortalActive ? "Total call minutes in last 24h" : "Threshold breaches detected"}
+          title="Alerts Today"
+          value={notConnected ? '—' : stats.alertsToday}
+          icon={AlertTriangle}
+          className={stats.alertsToday > 5 ? "border-rose-500/20" : "border-border/50"}
+          description="Threshold breaches detected"
         />
       </div>
 
@@ -589,176 +498,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* VOS3000 Portal Live Data — shown when VOS3000 is the active switch */}
-      {activeSwitchType === 'vos3000' && (
-      <div className="rounded-xl border overflow-hidden bg-card shadow-sm" style={{ borderColor: portalSession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-muted/20">
-          <div className="flex items-center gap-3">
-            <Globe className={`w-4 h-4 ${portalSession?.active ? 'text-violet-400' : 'text-muted-foreground'}`} />
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-sm">VOS3000 Portal Data</h3>
-                {portalSession?.active ? (
-                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
-                    Live
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
-                    Not Connected
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {portalSession?.active
-                  ? `Live CDR & stats from VOS3000 — logged in as ${portalSession.username}`
-                  : 'Connect via Settings → Portal Sign-In to see real call data here'}
-              </p>
-            </div>
-          </div>
-          {!portalSession?.active && (
-            <Link href="/settings"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
-              <Settings className="w-3 h-3" />
-              Connect
-            </Link>
-          )}
-        </div>
-
-        {portalSession?.active ? (
-          <div className="p-6 space-y-6">
-            {/* Stats strip */}
-            {portalStats && !portalStats.error && (
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                {[
-                  { label: 'Total Calls (24h)', value: portalStats.totalCalls.toLocaleString(), icon: PhoneCall, color: 'text-blue-400' },
-                  { label: 'Answered', value: portalStats.successCalls.toLocaleString(), icon: CheckCircle2, color: 'text-emerald-400' },
-                  { label: 'Failed', value: portalStats.failedCalls.toLocaleString(), icon: PhoneOff, color: 'text-rose-400' },
-                  { label: 'Total Minutes', value: portalStats.totalMinutes.toLocaleString(), icon: Clock, color: 'text-violet-400' },
-                  { label: 'ASR', value: `${portalStats.asr}%`, icon: TrendingUp, color: portalStats.asr >= 70 ? 'text-emerald-400' : 'text-amber-400' },
-                ].map(({ label, value, icon: Icon, color }) => (
-                  <div key={label} className="bg-muted/30 rounded-lg p-3 border border-border/50">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <Icon className={`w-3 h-3 ${color}`} />
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</span>
-                    </div>
-                    <span className={`text-xl font-bold font-mono ${color}`}>{value}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {portalStats?.error && (
-              <p className="text-sm text-amber-400 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" /> {portalStats.error}
-              </p>
-            )}
-
-            {/* Live calls from portal */}
-            {(portalLiveCalls?.calls?.length ?? 0) > 0 && (
-              <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Active Calls on Portal ({portalLiveCalls!.calls.length})
-                </h4>
-                <div className="overflow-x-auto rounded-lg border border-border/50">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-muted/30 text-muted-foreground text-xs">
-                      <tr>
-                        <th className="px-4 py-2">Client</th>
-                        <th className="px-4 py-2">Caller</th>
-                        <th className="px-4 py-2">Callee</th>
-                        <th className="px-4 py-2">Gateway</th>
-                        <th className="px-4 py-2">Duration</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/30">
-                      {portalLiveCalls!.calls.slice(0, 10).map((call: any, i: number) => (
-                        <tr key={i} className="hover:bg-muted/20 transition-colors">
-                          <td className="px-4 py-2 text-xs">
-                            {call.clientName
-                              ? <span className="text-violet-400 font-medium">{call.clientName}</span>
-                              : <span className="text-muted-foreground/50">—</span>
-                            }
-                          </td>
-                          <td className="px-4 py-2 font-mono text-xs">{call.caller || '—'}</td>
-                          <td className="px-4 py-2 font-mono text-xs">{call.callee || '—'}</td>
-                          <td className="px-4 py-2 text-xs text-muted-foreground">{call.gateway || '—'}</td>
-                          <td className="px-4 py-2 text-xs text-muted-foreground">{call.duration > 0 ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Recent CDRs from portal */}
-            {(portalCdr?.records?.length ?? 0) > 0 && (
-              <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Recent CDR Records from Portal ({portalCdr!.records.length})
-                </h4>
-                <div className="overflow-x-auto rounded-lg border border-border/50">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-muted/30 text-muted-foreground text-xs">
-                      <tr>
-                        <th className="px-4 py-2">Client</th>
-                        <th className="px-4 py-2">Start Time</th>
-                        <th className="px-4 py-2">Caller</th>
-                        <th className="px-4 py-2">Callee</th>
-                        <th className="px-4 py-2">Duration</th>
-                        <th className="px-4 py-2">Status</th>
-                        <th className="px-4 py-2">Gateway</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/30">
-                      {portalCdr!.records.slice(0, 10).map((rec: any, i: number) => (
-                        <tr key={i} className="hover:bg-muted/20 transition-colors">
-                          <td className="px-4 py-2 text-xs">
-                            {rec.clientName
-                              ? <span className="text-violet-400 font-medium">{rec.clientName}</span>
-                              : <span className="text-muted-foreground/50">—</span>
-                            }
-                          </td>
-                          <td className="px-4 py-2 text-xs text-muted-foreground">{rec.startTime || '—'}</td>
-                          <td className="px-4 py-2 font-mono text-xs">{rec.caller || '—'}</td>
-                          <td className="px-4 py-2 font-mono text-xs">{rec.callee || '—'}</td>
-                          <td className="px-4 py-2 text-xs">{rec.duration > 0 ? `${Math.floor(rec.duration / 60)}m ${rec.duration % 60}s` : '0s'}</td>
-                          <td className="px-4 py-2 text-xs">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                              rec.status?.toLowerCase().includes('answer') || rec.status === '200' || rec.cause === '16'
-                                ? 'bg-emerald-500/15 text-emerald-400'
-                                : 'bg-rose-500/15 text-rose-400'
-                            }`}>
-                              {rec.status || rec.cause || '—'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 text-xs text-muted-foreground">{rec.gateway || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* No data yet */}
-            {!portalStats?.error && (portalCdr?.records?.length ?? 0) === 0 && (portalLiveCalls?.calls?.length ?? 0) === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                Fetching data from VOS3000… This may take a moment on the first load.
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="p-6 text-center text-sm text-muted-foreground py-8">
-            <Globe className="w-8 h-8 mx-auto mb-3 opacity-20" />
-            <p>No portal session active.</p>
-            <p className="text-xs mt-1">Go to <Link href="/settings" className="text-primary hover:underline">Settings → Portal Sign-In</Link> to connect to your VOS3000 carrier portal.</p>
-          </div>
-        )}
-      </div>
-      )}
-
-      {/* Sippy Live Data — shown when Sippy is the active switch */}
-      {activeSwitchType === 'sippy' && (
+      {/* Sippy Live Data */}
       <div className="rounded-xl border overflow-hidden bg-card shadow-sm" style={{ borderColor: sippySession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-muted/20">
           <div className="flex items-center gap-3">
@@ -899,7 +639,6 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
-      )}
 
       {/* Active Calls Table */}
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">

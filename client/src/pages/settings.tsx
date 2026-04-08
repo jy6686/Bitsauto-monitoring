@@ -38,12 +38,6 @@ type TestResult = { ok: boolean; message: string } | null;
 // ── Switch type definitions ───────────────────────────────────────────────────
 const SWITCH_TYPES = [
   {
-    id: 'vos3000',
-    label: 'VOS3000',
-    description: 'Linknat VOS3000 carrier softswitch (CAPTCHA-based web portal login)',
-    color: 'blue',
-  },
-  {
     id: 'sippy',
     label: 'Sippy Softswitch',
     description: 'Sippy Software softswitch (XML-RPC API with Digest Auth)',
@@ -66,16 +60,7 @@ function useSippySession() {
   });
 }
 
-// ── Portal Login Panel ────────────────────────────────────────────────────────
-const VOS3000_LOGIN_TYPES = [
-  { value: 0, label: 'Phone' },
-  { value: 1, label: 'Mapping Gateway' },
-  { value: 2, label: 'PhoneCard' },
-  { value: 3, label: 'Clearing Gateway' },
-  { value: 4, label: 'Binded Number' },
-];
-
-function PortalLoginPanel({ username, password }: { username: string; password: string }) {
+function PortalLoginPanel_UNUSED({ username, password }: { username: string; password: string }) {
   const qc = useQueryClient();
   const { data: session, isLoading: sessionLoading } = usePortalSession();
 
@@ -1421,81 +1406,44 @@ export default function SettingsPage() {
           </div>
           <div className="p-6 space-y-5">
 
-            {/* Switch Type Selector */}
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Softswitch Type</label>
-              <p className="text-xs text-muted-foreground">Select the type of softswitch you are connecting to.</p>
-              <div className="grid grid-cols-2 gap-3">
-                {SWITCH_TYPES.map(sw => (
-                  <button
-                    key={sw.id}
-                    type="button"
-                    data-testid={`button-switch-type-${sw.id}`}
-                    onClick={() => form.setValue('switchType', sw.id, { shouldDirty: true })}
-                    className={`text-left p-4 rounded-xl border-2 transition-all ${
-                      switchType === sw.id
-                        ? sw.id === 'vos3000'
-                          ? 'border-blue-500 bg-blue-500/10'
-                          : 'border-violet-500 bg-violet-500/10'
-                        : 'border-border bg-background hover:border-muted-foreground/30'
-                    }`}
-                  >
-                    <div className={`text-sm font-semibold mb-1 ${
-                      switchType === sw.id
-                        ? sw.id === 'vos3000' ? 'text-blue-400' : 'text-violet-400'
-                        : 'text-foreground'
-                    }`}>
-                      {sw.label}
-                    </div>
-                    <div className="text-xs text-muted-foreground leading-relaxed">{sw.description}</div>
-                  </button>
-                ))}
+            {/* Switch Type — Sippy only */}
+            <div className="flex items-center gap-3 p-4 rounded-xl border-2 border-violet-500 bg-violet-500/10">
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-violet-400 mb-0.5">Sippy Softswitch</div>
+                <div className="text-xs text-muted-foreground">Sippy Software softswitch — XML-RPC API with Digest Auth</div>
               </div>
-              <input type="hidden" {...form.register('switchType')} />
+              <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/30">Active</span>
             </div>
+            <input type="hidden" {...form.register('switchType')} />
 
             {/* Portal URL */}
             <div className="grid gap-2">
               <label className="text-sm font-medium">Portal URL</label>
               <p className="text-xs text-muted-foreground">
-                {switchType === 'vos3000'
-                  ? <>Full URL including port — e.g. <span className="font-mono text-xs">http://45.59.163.182:8080</span> (VOS3000 default port is <strong>8080</strong>)</>
-                  : <>Full URL including port — e.g. <span className="font-mono text-xs">https://191.101.30.107</span> (Sippy default HTTPS port is <strong>443</strong>)</>
-                }
+                Full URL including port — e.g. <span className="font-mono text-xs">https://191.101.30.107</span> (Sippy default HTTPS port is <strong>443</strong>)
               </p>
-              {switchType === 'vos3000' && (
-                <div className="rounded-md bg-blue-500/10 border border-blue-500/20 px-3 py-2.5 text-xs text-blue-300 space-y-1.5">
-                  <p className="font-semibold text-blue-200">How to connect to VOS3000:</p>
-                  <p>1. Enter the full URL of your VOS3000 web portal including the port number (default <strong>8080</strong>)</p>
-                  <p>2. Enter your <strong>admin username</strong> and <strong>password</strong> for the VOS3000 web portal</p>
-                  <p>3. Click <strong>Save Changes</strong>, then use the <strong>Sign In</strong> section below — it will show a visual CAPTCHA that you must complete to log in</p>
-                  <p className="text-blue-300/70">VOS3000 uses a CAPTCHA-protected web portal login. A new CAPTCHA is required every session.</p>
-                </div>
-              )}
-              {switchType === 'sippy' && (
-                <div className="rounded-md bg-violet-500/10 border border-violet-500/20 px-3 py-2.5 text-xs text-violet-300 space-y-1.5">
-                  <p className="font-semibold text-violet-200">How to find your Sippy API credentials:</p>
-                  <p>1. Open your Sippy portal:{' '}
-                    <a
-                      href="https://191.101.30.107/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline text-violet-200 hover:text-white"
-                    >
-                      https://191.101.30.107/
-                    </a>
-                  </p>
-                  <p>2. Log in as an administrator, then click your username (top-right) → <strong>My Account</strong></p>
-                  <p>3. Find the <strong>API Credentials</strong> tab — copy the <strong>API Login</strong> and <strong>API Password</strong></p>
-                  <p className="text-violet-300/70">These are different from your regular web login — they are dedicated API-only credentials.</p>
-                </div>
-              )}
+              <div className="rounded-md bg-violet-500/10 border border-violet-500/20 px-3 py-2.5 text-xs text-violet-300 space-y-1.5">
+                <p className="font-semibold text-violet-200">How to find your Sippy API credentials:</p>
+                <p>1. Open your Sippy portal:{' '}
+                  <a
+                    href="https://191.101.30.107/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline text-violet-200 hover:text-white"
+                  >
+                    https://191.101.30.107/
+                  </a>
+                </p>
+                <p>2. Log in as an administrator, then click your username (top-right) → <strong>My Account</strong></p>
+                <p>3. Find the <strong>API Credentials</strong> tab — copy the <strong>API Login</strong> and <strong>API Password</strong></p>
+                <p className="text-violet-300/70">These are different from your regular web login — they are dedicated API-only credentials.</p>
+              </div>
               <div className="flex gap-2">
                 <input
                   {...form.register("portalUrl")}
                   data-testid="input-portal-url"
                   type="url"
-                  placeholder={switchType === 'vos3000' ? 'http://45.59.163.182:8080' : 'https://191.101.30.107'}
+                  placeholder="https://191.101.30.107"
                   className="flex-1 bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
                 />
                 {portalUrl && (
@@ -1514,27 +1462,21 @@ export default function SettingsPage() {
 
             {/* Username */}
             <div className="grid gap-2">
-              <label className="text-sm font-medium">
-                {switchType === 'sippy' ? 'API Login (Username)' : 'Admin Username'}
-              </label>
-              {switchType === 'sippy' && (
-                <p className="text-xs text-muted-foreground">Found under <strong>My Account → API Credentials</strong> in your Sippy portal</p>
-              )}
+              <label className="text-sm font-medium">API Login (Username)</label>
+              <p className="text-xs text-muted-foreground">Found under <strong>My Account → API Credentials</strong> in your Sippy portal</p>
               <input
                 {...form.register("portalUsername")}
                 data-testid="input-portal-username"
                 type="text"
                 autoComplete="username"
-                placeholder={switchType === 'sippy' ? 'API login from Sippy portal' : 'admin'}
+                placeholder="API login from Sippy portal"
                 className="w-full bg-background border border-border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
               />
             </div>
 
             {/* Password */}
             <div className="grid gap-2">
-              <label className="text-sm font-medium">
-                {switchType === 'sippy' ? 'API Password' : 'Admin Password'}
-              </label>
+              <label className="text-sm font-medium">API Password</label>
               <div className="relative">
                 <input
                   {...form.register("portalPassword")}
@@ -1735,11 +1677,9 @@ export default function SettingsPage() {
         {/* ── Switch Sign-In ── */}
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20">
-            <ShieldCheck className={`w-4 h-4 ${switchType === 'sippy' ? 'text-violet-400' : 'text-blue-400'}`} />
+            <ShieldCheck className="w-4 h-4 text-violet-400" />
             <div>
-              <h3 className="font-semibold text-sm">
-                {switchType === 'sippy' ? 'Sippy Softswitch Sign-In' : 'VOS3000 Portal Sign-In'}
-              </h3>
+              <h3 className="font-semibold text-sm">Sippy Softswitch Sign-In</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Authenticate to start pulling live calls and CDR data into this dashboard.
               </p>
@@ -1747,17 +1687,10 @@ export default function SettingsPage() {
           </div>
           <div className="p-6">
             {hasSavedPortal ? (
-              switchType === 'sippy' ? (
-                <SippyConnectPanel
-                  username={settings!.portalUsername!}
-                  password={settings!.portalPassword!}
-                />
-              ) : (
-                <PortalLoginPanel
-                  username={settings!.portalUsername!}
-                  password={settings!.portalPassword!}
-                />
-              )
+              <SippyConnectPanel
+                username={settings!.portalUsername!}
+                password={settings!.portalPassword!}
+              />
             ) : (
               <p className="text-sm text-muted-foreground">
                 Enter your Portal URL, username, and password above, then click <strong>Save Changes</strong> to unlock sign-in.

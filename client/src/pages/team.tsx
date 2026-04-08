@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth, type AuthUser } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
-import { Shield, Users, ChevronDown, Loader2, CheckCircle2 } from "lucide-react";
+import { Shield, Users, ChevronDown, Loader2, CheckCircle2, UserCog, Search } from "lucide-react";
+import { useState } from "react";
 import type { Role } from "@shared/schema";
 
 type TeamMember = AuthUser;
@@ -94,10 +95,32 @@ function RoleSelector({
 
 export default function TeamPage() {
   const { user, isAdmin } = useAuth();
+  const queryClient = useQueryClient();
+  const [assignEmail, setAssignEmail] = useState('');
+  const [assignRole, setAssignRole] = useState<Role>('viewer');
+  const [assignResult, setAssignResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const { data: members, isLoading } = useQuery<TeamMember[]>({
     queryKey: ["/api/team"],
     enabled: isAdmin,
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: async () => {
+      const email = assignEmail.trim().toLowerCase();
+      const target = members?.find(m => m.email?.toLowerCase() === email);
+      if (!target) throw new Error(`No team member found with email "${email}".`);
+      await apiRequest('PATCH', `/api/team/${target.id}/role`, { role: assignRole });
+      return target;
+    },
+    onSuccess: (target) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/team'] });
+      setAssignResult({ ok: true, msg: `Role updated to ${ROLE_META[assignRole].label} for ${target.email}.` });
+      setAssignEmail('');
+    },
+    onError: (err: any) => {
+      setAssignResult({ ok: false, msg: err.message || 'Failed to assign role.' });
+    },
   });
 
   if (!isAdmin) {
@@ -119,6 +142,60 @@ export default function TeamPage() {
         <p className="text-muted-foreground mt-1">
           Manage your support team's access levels. Changes take effect immediately on next page load.
         </p>
+      </div>
+
+      {/* Quick Assign Role */}
+      <div className="bg-card border border-violet-500/20 rounded-xl overflow-hidden">
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-violet-500/5">
+          <UserCog className="w-4 h-4 text-violet-400" />
+          <h3 className="font-semibold text-sm">Assign Role</h3>
+          <span className="text-xs text-muted-foreground">— quickly update a team member's access level</span>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <input
+                data-testid="input-assign-email"
+                type="email"
+                placeholder="user@example.com"
+                value={assignEmail}
+                onChange={e => { setAssignEmail(e.target.value); setAssignResult(null); }}
+                className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition-all"
+              />
+            </div>
+            <div className="relative">
+              <select
+                data-testid="select-assign-role"
+                value={assignRole}
+                onChange={e => setAssignRole(e.target.value as Role)}
+                className="appearance-none bg-background border border-border rounded-lg pl-3 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition-all cursor-pointer"
+              >
+                <option value="admin">Admin</option>
+                <option value="management">Management</option>
+                <option value="viewer">Viewer</option>
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            </div>
+            <button
+              data-testid="button-assign-role"
+              onClick={() => assignMutation.mutate()}
+              disabled={assignMutation.isPending || !assignEmail.trim()}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors disabled:opacity-50 whitespace-nowrap"
+            >
+              {assignMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              Assign Role
+            </button>
+          </div>
+          {assignResult && (
+            <p className={`text-sm flex items-center gap-2 ${assignResult.ok ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {assignResult.ok ? <CheckCircle2 className="w-4 h-4" /> : '⚠'} {assignResult.msg}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Enter the email of an existing team member and select the role to assign. Users must have signed in at least once to appear in the list.
+          </p>
+        </div>
       </div>
 
       {/* Role legend */}

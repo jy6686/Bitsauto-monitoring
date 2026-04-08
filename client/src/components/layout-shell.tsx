@@ -19,15 +19,15 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const { user, logout, role, isAdmin, isManagement } = useAuth();
 
   const allNavItems = [
-    { href: "/",          label: "Dashboard",         icon: LayoutDashboard, roles: ['admin','management','viewer'] },
-    { href: "/calls",     label: "Live Calls",        icon: Phone,           roles: ['admin','management','viewer'] },
-    { href: "/alerts",    label: "Alerts",            icon: Bell,            roles: ['admin','management']          },
-    { href: "/reports",   label: "Reports",           icon: BarChart2,       roles: ['admin','management']          },
-    { href: "/fraud",     label: "Fraud / FAS",       icon: ShieldAlert,     roles: ['admin','management']          },
-    { href: "/clients",   label: "Clients & Vendors", icon: Building2,       roles: ['admin','management']          },
-    { href: "/settings",  label: "Settings",          icon: Settings,        roles: ['admin']                       },
-    { href: "/team",      label: "Team",              icon: Users,           roles: ['admin']                       },
-    { href: "/account",   label: "My Account",        icon: UserCog,         roles: ['admin','management','viewer'] },
+    { href: "/",          label: "Dashboard",      icon: LayoutDashboard, roles: ['admin','management','viewer'] },
+    { href: "/calls",     label: "Live Calls",     icon: Phone,           roles: ['admin','management','viewer'] },
+    { href: "/clients",   label: "Client / Vendor",icon: Building2,       roles: ['admin','management']          },
+    { href: "/reports",   label: "Reports",        icon: BarChart2,       roles: ['admin','management']          },
+    { href: "/fraud",     label: "Fraud / FAS",    icon: ShieldAlert,     roles: ['admin','management']          },
+    { href: "/settings",  label: "Settings",       icon: Settings,        roles: ['admin']                       },
+    { href: "/alerts",    label: "Alerts",         icon: Bell,            roles: ['admin','management']          },
+    { href: "/account",   label: "My Account",     icon: UserCog,         roles: ['admin','management','viewer'] },
+    { href: "/team",      label: "Team",           icon: Users,           roles: ['admin']                       },
   ];
 
   const navItems = allNavItems.filter(item => item.roles.includes(role));
