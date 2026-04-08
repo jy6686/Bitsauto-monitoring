@@ -4129,27 +4129,152 @@ export async function billingRun(
 
 // ── Vendor Management (official Sippy docs 107434) ───────────────────────────
 
+export interface CreateVendorOpts {
+  name:              string;
+  webPassword:       string;
+  webLogin:          string;
+  iTimeZone:         number;
+  // Optional
+  baseCurrency?:     string;
+  companyName?:      string;
+  salutation?:       string;
+  firstName?:        string;
+  midInit?:          string;
+  lastName?:         string;
+  streetAddr?:       string;
+  state?:            string;
+  postalCode?:       string;
+  city?:             string;
+  country?:          string;
+  contact?:          string;
+  phone?:            string;
+  fax?:              string;
+  altPhone?:         string;
+  altContact?:       string;
+  email?:            string;
+  cc?:               string;
+  bcc?:              string;
+  balance?:          number;
+  iLang?:            string;
+  iExportType?:      number;
+  iPasswordPolicy?:  number;
+  roundUp?:          boolean;
+  costRoundUp?:      boolean;
+  decimalPrecision?: number;
+  // Trusted mode
+  iCustomer?:        number;
+}
+
+/**
+ * Create a new vendor on Sippy.
+ * Official method: createVendor() (alias: addVendor()) — docs 107434
+ * Returns i_vendor of the newly created vendor.
+ */
+export async function createSippyVendor(
+  username: string,
+  password: string,
+  opts:     CreateVendorOpts,
+  portalUrl?: string,
+): Promise<{ success: boolean; iVendor?: number; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean> = {
+    name:        opts.name,
+    web_password: opts.webPassword,
+    web_login:   opts.webLogin,
+    i_time_zone: opts.iTimeZone,
+  };
+  if (opts.baseCurrency     !== undefined) params.base_currency      = opts.baseCurrency;
+  if (opts.companyName      !== undefined) params.company_name       = opts.companyName;
+  if (opts.salutation       !== undefined) params.salutation         = opts.salutation;
+  if (opts.firstName        !== undefined) params.first_name         = opts.firstName;
+  if (opts.midInit          !== undefined) params.mid_init           = opts.midInit;
+  if (opts.lastName         !== undefined) params.last_name          = opts.lastName;
+  if (opts.streetAddr       !== undefined) params.street_addr        = opts.streetAddr;
+  if (opts.state            !== undefined) params.state              = opts.state;
+  if (opts.postalCode       !== undefined) params.postal_code        = opts.postalCode;
+  if (opts.city             !== undefined) params.city               = opts.city;
+  if (opts.country          !== undefined) params.country            = opts.country;
+  if (opts.contact          !== undefined) params.contact            = opts.contact;
+  if (opts.phone            !== undefined) params.phone              = opts.phone;
+  if (opts.fax              !== undefined) params.fax                = opts.fax;
+  if (opts.altPhone         !== undefined) params.alt_phone          = opts.altPhone;
+  if (opts.altContact       !== undefined) params.alt_contact        = opts.altContact;
+  if (opts.email            !== undefined) params.email              = opts.email;
+  if (opts.cc               !== undefined) params.cc                 = opts.cc;
+  if (opts.bcc              !== undefined) params.bcc                = opts.bcc;
+  if (opts.balance          !== undefined) params.balance            = opts.balance;
+  if (opts.iLang            !== undefined) params.i_lang             = opts.iLang;
+  if (opts.iExportType      !== undefined) params.i_export_type      = opts.iExportType;
+  if (opts.iPasswordPolicy  !== undefined) params.i_password_policy  = opts.iPasswordPolicy;
+  if (opts.roundUp          !== undefined) params.round_up           = opts.roundUp;
+  if (opts.costRoundUp      !== undefined) params.cost_round_up      = opts.costRoundUp;
+  if (opts.decimalPrecision !== undefined) params.decimal_precision  = opts.decimalPrecision;
+  if (opts.iCustomer        !== undefined) params.i_customer         = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('createVendor', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode !== 200 || text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString') || 'createVendor failed.';
+      return { success: false, message: fault };
+    }
+    const m = extractStructMembers(text);
+    const iVendor = m.i_vendor ? parseInt(m.i_vendor, 10) : undefined;
+    return { success: true, iVendor, message: m.result ?? 'OK' };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 /**
  * Update a vendor on Sippy.
  * Official method: updateVendor() — docs 107434
  * Parameters: i_vendor (required) + any createVendor() optional fields.
+ * NOTE: balance and base_currency cannot be changed via updateVendor().
  */
 export async function updateSippyVendor(
   username: string,
   password: string,
-  iVendor: number,
-  fields: { name?: string; companyName?: string; description?: string; email?: string; balance?: number },
+  iVendor:  number,
+  fields:   Partial<Omit<CreateVendorOpts, 'webPassword' | 'balance' | 'baseCurrency'>>,
   portalUrl?: string,
 ): Promise<{ success: boolean; message: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
-  const params: Record<string, string | number> = { i_vendor: iVendor };
-  if (fields.name)        params.name         = fields.name;
-  if (fields.companyName) params.company_name = fields.companyName;
-  if (fields.description) params.description  = fields.description;
-  if (fields.email)       params.email        = fields.email;
+  const params: Record<string, string | number | boolean> = { i_vendor: iVendor };
+  if (fields.name             !== undefined) params.name              = fields.name;
+  if (fields.webLogin         !== undefined) params.web_login         = fields.webLogin;
+  if (fields.iTimeZone        !== undefined) params.i_time_zone       = fields.iTimeZone;
+  if (fields.companyName      !== undefined) params.company_name      = fields.companyName;
+  if (fields.salutation       !== undefined) params.salutation        = fields.salutation;
+  if (fields.firstName        !== undefined) params.first_name        = fields.firstName;
+  if (fields.midInit          !== undefined) params.mid_init          = fields.midInit;
+  if (fields.lastName         !== undefined) params.last_name         = fields.lastName;
+  if (fields.streetAddr       !== undefined) params.street_addr       = fields.streetAddr;
+  if (fields.state            !== undefined) params.state             = fields.state;
+  if (fields.postalCode       !== undefined) params.postal_code       = fields.postalCode;
+  if (fields.city             !== undefined) params.city              = fields.city;
+  if (fields.country          !== undefined) params.country           = fields.country;
+  if (fields.contact          !== undefined) params.contact           = fields.contact;
+  if (fields.phone            !== undefined) params.phone             = fields.phone;
+  if (fields.fax              !== undefined) params.fax               = fields.fax;
+  if (fields.altPhone         !== undefined) params.alt_phone         = fields.altPhone;
+  if (fields.altContact       !== undefined) params.alt_contact       = fields.altContact;
+  if (fields.email            !== undefined) params.email             = fields.email;
+  if (fields.cc               !== undefined) params.cc                = fields.cc;
+  if (fields.bcc              !== undefined) params.bcc               = fields.bcc;
+  if (fields.iLang            !== undefined) params.i_lang            = fields.iLang;
+  if (fields.iExportType      !== undefined) params.i_export_type     = fields.iExportType;
+  if (fields.iPasswordPolicy  !== undefined) params.i_password_policy = fields.iPasswordPolicy;
+  if (fields.roundUp          !== undefined) params.round_up          = fields.roundUp;
+  if (fields.costRoundUp      !== undefined) params.cost_round_up     = fields.costRoundUp;
+  if (fields.decimalPrecision !== undefined) params.decimal_precision = fields.decimalPrecision;
+  if (fields.iCustomer        !== undefined) params.i_customer        = fields.iCustomer;
 
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('updateVendor', params), username, password);
@@ -4161,6 +4286,130 @@ export async function updateSippyVendor(
   } catch (e: any) {
     return { success: false, message: e.message };
   }
+}
+
+/**
+ * Get detailed info for a single vendor.
+ * Official method: getVendorInfo() — docs 107434
+ * Pass either iVendor (int) OR name (string). Trusted mode: iCustomer.
+ */
+export async function getSippyVendorInfo(
+  username: string,
+  password: string,
+  lookup:   { iVendor: number } | { name: string },
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; vendor?: SippyVendor & Record<string, unknown>; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {};
+  if ('iVendor' in lookup) params.i_vendor = lookup.iVendor;
+  else                     params.name     = lookup.name;
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getVendorInfo', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode !== 200 || text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString') || 'getVendorInfo failed.';
+      return { success: false, message: fault };
+    }
+
+    const vendorMatch = /<name>vendor<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>\s*<\/value>/.exec(text);
+    if (!vendorMatch) return { success: false, message: 'No vendor struct in response.' };
+
+    const m = extractStructMembers(vendorMatch[1]);
+    const vendor: SippyVendor & Record<string, unknown> = {
+      iVendor:      parseInt(m.i_vendor      || '0', 10),
+      name:         m.name                   || '',
+      balance:      m.balance      ? parseFloat(m.balance) : undefined,
+      baseCurrency: m.base_currency           || undefined,
+      email:        m.email                   || undefined,
+      companyName:  m.company_name            || undefined,
+      webLogin:     m.web_login               || undefined,
+      iTimeZone:    m.i_time_zone ? parseInt(m.i_time_zone, 10) : undefined,
+      iLang:        m.i_lang                  || undefined,
+      phone:        m.phone                   || undefined,
+      city:         m.city                    || undefined,
+      country:      m.country                 || undefined,
+      roundUp:      m.round_up === '1' || m.round_up === 'true',
+      costRoundUp:  m.cost_round_up === '1' || m.cost_round_up === 'true',
+      decimalPrecision: m.decimal_precision ? parseInt(m.decimal_precision, 10) : undefined,
+    };
+    return { success: true, vendor, message: 'OK' };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Debit a currency amount from a vendor's balance.
+ * Official method: vendorDebit() — docs 107434 (added in Sippy 4.0)
+ */
+export async function sippyVendorDebit(
+  username:  string,
+  password:  string,
+  iVendor:   number,
+  iCustomer: number,
+  amount:    number,
+  currency:  string,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('vendorDebit', { i_vendor: iVendor, i_customer: iCustomer, amount, currency }), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) return { success: true, message: 'OK' };
+    return { success: false, message: extractTag(resp.body, 'faultString') || 'vendorDebit failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Add funds (credit) to a vendor's balance.
+ * Official method: vendorAddFunds() — docs 107434 (added in Sippy 4.0)
+ */
+export async function sippyVendorAddFunds(
+  username:  string,
+  password:  string,
+  iVendor:   number,
+  iCustomer: number,
+  amount:    number,
+  currency:  string,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('vendorAddFunds', { i_vendor: iVendor, i_customer: iCustomer, amount, currency }), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) return { success: true, message: 'OK' };
+    return { success: false, message: extractTag(resp.body, 'faultString') || 'vendorAddFunds failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
+}
+
+/**
+ * Credit a currency amount to a vendor's balance (same as addFunds but marked as 'Credit').
+ * Official method: vendorCredit() — docs 107434 (added in Sippy 4.0)
+ */
+export async function sippyVendorCredit(
+  username:  string,
+  password:  string,
+  iVendor:   number,
+  iCustomer: number,
+  amount:    number,
+  currency:  string,
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('vendorCredit', { i_vendor: iVendor, i_customer: iCustomer, amount, currency }), username, password);
+    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) return { success: true, message: 'OK' };
+    return { success: false, message: extractTag(resp.body, 'faultString') || 'vendorCredit failed.' };
+  } catch (e: any) { return { success: false, message: e.message }; }
 }
 
 /**

@@ -3042,42 +3042,139 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
-  // ── Vendor management (official Sippy API) ────────────────────────────────
+  // ── Vendor management (official Sippy docs 107434) ───────────────────────
 
-  // PATCH /api/sippy/vendors/:id — update a vendor
-  app.patch('/api/sippy/vendors/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
-    try {
-      const settings = await storage.getSettings();
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateSippyVendor(username, password, parseInt(req.params.id, 10), req.body);
-      res.json(result);
-    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
-  });
-
-  // DELETE /api/sippy/vendors/:id — delete a vendor
-  app.delete('/api/sippy/vendors/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
-    try {
-      const settings = await storage.getSettings();
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteSippyVendor(username, password, parseInt(req.params.id, 10));
-      res.json(result);
-    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
-  });
-
-  // ── Vendor listing (official Sippy API) ──────────────────────────────────
-
-  // GET /api/sippy/vendors — list all vendors on Sippy (docs 107434)
+  // GET /api/sippy/vendors — listVendors() / getVendorsList() — docs 107434
+  // Query: limit?, offset?, namePattern?
   app.get('/api/sippy/vendors', async (req: any, res) => {
     try {
-      const settings = await storage.getSettings();
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ vendors: [], error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const opts: Parameters<typeof sippy.listSippyVendors>[2] = {};
       if (req.query.limit)       opts.limit       = parseInt(req.query.limit       as string, 10);
       if (req.query.offset)      opts.offset      = parseInt(req.query.offset      as string, 10);
       if (req.query.namePattern) opts.namePattern = req.query.namePattern as string;
-      const result = await sippy.listSippyVendors(username, password, opts);
+      const result = await sippy.listSippyVendors(username, password, opts, settings.portalUrl ?? '');
       res.json(result);
     } catch (e: any) { res.status(500).json({ vendors: [], error: e.message }); }
+  });
+
+  // POST /api/sippy/vendors — createVendor() — docs 107434
+  // Body: { name, webPassword, webLogin, iTimeZone, ...optional fields }
+  // Returns: { success, iVendor, message }
+  app.post('/api/sippy/vendors', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const { name, webPassword, webLogin, iTimeZone } = req.body ?? {};
+      if (!name || !webPassword || !webLogin || iTimeZone === undefined) {
+        return res.status(400).json({ success: false, error: 'name, webPassword, webLogin, and iTimeZone are required.' });
+      }
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.createSippyVendor(username, password, req.body, settings.portalUrl ?? '');
+      if (!result.success) return res.status(400).json(result);
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // GET /api/sippy/vendors/:id — getVendorInfo() — docs 107434
+  // :id can be numeric (i_vendor) or a string name
+  // Query: iCustomer? (trusted mode)
+  // Returns: { success, vendor: SippyVendor & extra fields, message }
+  app.get('/api/sippy/vendors/:id', async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { iCustomer } = req.query ?? {};
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const numId = parseInt(id, 10);
+      const lookup = !isNaN(numId) ? { iVendor: numId } : { name: id };
+      const result = await sippy.getSippyVendorInfo(username, password, lookup, {
+        iCustomer: iCustomer !== undefined ? parseInt(iCustomer as string, 10) : undefined,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(404).json(result);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/vendors/:id — updateVendor() — docs 107434
+  // Body: any subset of createVendor() fields (balance + baseCurrency excluded)
+  // Returns: { success, message }
+  app.patch('/api/sippy/vendors/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateSippyVendor(username, password, parseInt(req.params.id, 10), req.body, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // DELETE /api/sippy/vendors/:id — deleteVendor() — docs 107434
+  // Returns: { success, message }
+  app.delete('/api/sippy/vendors/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.deleteSippyVendor(username, password, parseInt(req.params.id, 10), settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // POST /api/sippy/vendors/:id/debit — vendorDebit() — docs 107434 (Sippy 4.0+)
+  // Body: { iCustomer, amount, currency }
+  // Returns: { success, message }
+  app.post('/api/sippy/vendors/:id/debit', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const { iCustomer, amount, currency } = req.body ?? {};
+      if (iCustomer === undefined || amount === undefined || !currency) {
+        return res.status(400).json({ success: false, error: 'iCustomer, amount, and currency are required.' });
+      }
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.sippyVendorDebit(username, password, parseInt(req.params.id, 10), iCustomer, amount, currency, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/vendors/:id/add-funds — vendorAddFunds() — docs 107434 (Sippy 4.0+)
+  // Body: { iCustomer, amount, currency }
+  // Returns: { success, message }
+  app.post('/api/sippy/vendors/:id/add-funds', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const { iCustomer, amount, currency } = req.body ?? {};
+      if (iCustomer === undefined || amount === undefined || !currency) {
+        return res.status(400).json({ success: false, error: 'iCustomer, amount, and currency are required.' });
+      }
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.sippyVendorAddFunds(username, password, parseInt(req.params.id, 10), iCustomer, amount, currency, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/vendors/:id/credit — vendorCredit() — docs 107434 (Sippy 4.0+)
+  // Body: { iCustomer, amount, currency }
+  // Same as add-funds but transaction marked as 'Credit'
+  // Returns: { success, message }
+  app.post('/api/sippy/vendors/:id/credit', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const { iCustomer, amount, currency } = req.body ?? {};
+      if (iCustomer === undefined || amount === undefined || !currency) {
+        return res.status(400).json({ success: false, error: 'iCustomer, amount, and currency are required.' });
+      }
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.sippyVendorCredit(username, password, parseInt(req.params.id, 10), iCustomer, amount, currency, settings.portalUrl ?? '');
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
   // ── Vendor connections (official Sippy API docs 107435) ───────────────────
