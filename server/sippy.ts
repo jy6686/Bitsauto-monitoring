@@ -7015,3 +7015,38 @@ export async function applyTranslationRule(
     return { success: false, message: e.message };
   }
 }
+
+/**
+ * Check if a number matches a regular-expression rule.
+ * Useful for validating CLI validation rules on Tariffs and Destination Sets.
+ * Official method: checkMatchRule() — docs 107500
+ * No trusted mode.
+ */
+export async function checkMatchRule(
+  username: string,
+  password: string,
+  rule: string,
+  number: string = '',
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; match?: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('checkMatchRule', { rule, number }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        const match = m['match'] === '1' || m['match']?.toLowerCase() === 'true';
+        return { success: true, match, message: 'OK' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'checkMatchRule failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}

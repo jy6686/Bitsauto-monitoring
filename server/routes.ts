@@ -3359,5 +3359,20 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // POST /api/sippy/check-match-rule — check if a number matches a regex rule (docs 107500)
+  // Used for CLI validation rules on Tariffs and Destination Sets. No trusted mode.
+  app.post('/api/sippy/check-match-rule', async (req: any, res) => {
+    try {
+      const { rule, number } = req.body ?? {};
+      if (!rule) return res.status(400).json({ success: false, error: 'rule is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.checkMatchRule(username, password, rule, number ?? '', { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json({ success: true, match: result.match, message: result.message });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   return httpServer;
 }
