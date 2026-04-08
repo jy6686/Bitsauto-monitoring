@@ -1568,6 +1568,127 @@ export async function registerRoutes(
     }
   );
 
+  // ── SSL Certificates (docs 3000108832) ─────────────────────────────────────
+  // All routes support trusted mode via iCustomer body/query param (i_customer = 1 for root).
+  // Available since Sippy 2021. i_ssl_use_domain_type available since Sippy 2023.
+
+  // POST /api/sippy/ssl-certificates — create a new SSL certificate
+  // Body (JSON): { name, commonName, iSslCertificateType?, iSslUseDomainType?,
+  //               altDnsNames?, certificate?, key?, iEnvironment?, iCustomer? }
+  //   For 'Upload Own' type: certificate + key are mandatory.
+  //   For 'Let's Encrypt' type: iSslCertificateType is mandatory; certificate/key are optional.
+  //   altDnsNames: array of strings — Subject Alternative Names (SANs).
+  //   certificate/key: base64-encoded PEM strings.
+  // Returns: { iSslCertificate, relayResult? }
+  app.post('/api/sippy/ssl-certificates', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const b = req.body ?? {};
+      if (!b.name || !b.commonName) {
+        return res.status(400).json({ error: 'name and commonName are required' });
+      }
+      const result = await sippy.createSSLCertificate(username, password, {
+        name:                 b.name,
+        commonName:           b.commonName,
+        iSslCertificateType:  b.iSslCertificateType  !== undefined ? Number(b.iSslCertificateType)  : undefined,
+        iSslUseDomainType:    b.iSslUseDomainType    !== undefined ? Number(b.iSslUseDomainType)    : undefined,
+        altDnsNames:          Array.isArray(b.altDnsNames) ? b.altDnsNames : undefined,
+        certificate:          b.certificate           as string | undefined,
+        key:                  b.key                  as string | undefined,
+        iEnvironment:         b.iEnvironment          !== undefined ? Number(b.iEnvironment)          : undefined,
+        iCustomer:            b.iCustomer             !== undefined ? Number(b.iCustomer)             : undefined,
+      });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/sippy/ssl-certificates/:id — update an existing SSL certificate
+  // Body (JSON): { name?, commonName?, iSslCertificateType?, iSslUseDomainType?,
+  //               altDnsNames?, certificate?, key?, iEnvironment?, iCustomer? }
+  // Returns: { iSslCertificate, relayResult? }
+  app.patch('/api/sippy/ssl-certificates/:id', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iSslCertificate = Number(req.params.id);
+      if (!iSslCertificate || isNaN(iSslCertificate)) {
+        return res.status(400).json({ error: 'id must be a valid integer' });
+      }
+      const b = req.body ?? {};
+      const result = await sippy.updateSSLCertificate(username, password, {
+        iSslCertificate,
+        name:                 b.name                 as string | undefined,
+        commonName:           b.commonName            as string | undefined,
+        iSslCertificateType:  b.iSslCertificateType  !== undefined ? Number(b.iSslCertificateType)  : undefined,
+        iSslUseDomainType:    b.iSslUseDomainType    !== undefined ? Number(b.iSslUseDomainType)    : undefined,
+        altDnsNames:          Array.isArray(b.altDnsNames) ? b.altDnsNames : undefined,
+        certificate:          b.certificate           as string | undefined,
+        key:                  b.key                  as string | undefined,
+        iEnvironment:         b.iEnvironment          !== undefined ? Number(b.iEnvironment)          : undefined,
+        iCustomer:            b.iCustomer             !== undefined ? Number(b.iCustomer)             : undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/sippy/ssl-certificates/:id — delete an SSL certificate
+  // Query params: iEnvironment (optional), iCustomer (optional)
+  // Returns: { iSslCertificate, relayResult? }
+  app.delete('/api/sippy/ssl-certificates/:id', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iSslCertificate = Number(req.params.id);
+      if (!iSslCertificate || isNaN(iSslCertificate)) {
+        return res.status(400).json({ error: 'id must be a valid integer' });
+      }
+      const iEnvironment = req.query.iEnvironment ? Number(req.query.iEnvironment) : undefined;
+      const iCustomer    = req.query.iCustomer    ? Number(req.query.iCustomer)    : undefined;
+      const result = await sippy.deleteSSLCertificate(username, password, iSslCertificate, iEnvironment, iCustomer);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/sippy/ssl-certificates/:id — get SSL certificate details
+  // Query params: iEnvironment (optional), iCustomer (optional)
+  // Returns: { certificate: SippySSLCertificate, relayResult? }
+  //   certificate.extra holds any undocumented fields returned by Sippy.
+  app.get('/api/sippy/ssl-certificates/:id', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iSslCertificate = Number(req.params.id);
+      if (!iSslCertificate || isNaN(iSslCertificate)) {
+        return res.status(400).json({ error: 'id must be a valid integer' });
+      }
+      const iEnvironment = req.query.iEnvironment ? Number(req.query.iEnvironment) : undefined;
+      const iCustomer    = req.query.iCustomer    ? Number(req.query.iCustomer)    : undefined;
+      const result = await sippy.getSSLCertificateInfo(username, password, iSslCertificate, iEnvironment, iCustomer);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/sippy/ssl-certificates — list SSL certificates
+  // Query params: namePattern?, limit?, offset?, iEnvironment?, iCustomer?
+  //   namePattern uses SQL ILIKE syntax (e.g. 'prod%', '%wildcard%').
+  // Returns: { certificates: SippySSLCertificate[], relayResult? }
+  app.get('/api/sippy/ssl-certificates', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getSSLCertificatesList(
+        username, password,
+        req.query.namePattern  as string | undefined,
+        req.query.limit        ? Number(req.query.limit)        : undefined,
+        req.query.offset       ? Number(req.query.offset)       : undefined,
+        req.query.iEnvironment ? Number(req.query.iEnvironment) : undefined,
+        req.query.iCustomer    ? Number(req.query.iCustomer)    : undefined,
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/sippy/asr-report — ASR/ACD report computed from Sippy CDRs
   app.get('/api/sippy/asr-report', async (req, res) => {
     try {

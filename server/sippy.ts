@@ -1971,6 +1971,346 @@ export async function uploadBinaryFile(
   });
 }
 
+// ── SSL Certificates (docs 3000108832) ───────────────────────────────────────
+
+/**
+ * SSL certificate record returned by getSSLCertificateInfo() and getSSLCertificatesList().
+ * The doc does not enumerate every field — known fields are typed; extras land in `extra`.
+ */
+export interface SippySSLCertificate {
+  iSslCertificate: number;       // i_ssl_certificate — unique certificate ID
+  name?: string;                 // name — human-readable certificate name
+  commonName?: string;           // common_name — CN field of the certificate
+  iSslCertificateType?: number;  // i_ssl_certificate_type — cert type (Upload Own / Let's Encrypt)
+  iSslUseDomainType?: number;    // i_ssl_use_domain_type — domain type (Web/HTTPS, etc.) [since 2023]
+  altDnsNames?: string[];        // alt_dns_names — Subject Alternative Names
+  certificate?: string;          // certificate — base64-encoded PEM certificate
+  iEnvironment?: number;         // i_environment — environment the certificate belongs to
+  expiryDate?: string;           // expiry_date — certificate expiry (Sippy date format)
+  status?: string;               // status — current certificate status string
+  extra: Record<string, string>; // any additional fields returned by Sippy
+}
+
+/**
+ * relay_result struct returned when the operation is relayed to another environment.
+ * Captured as a raw key-value map since Sippy does not document its internal fields.
+ */
+export type SippyRelayResult = Record<string, string>;
+
+/**
+ * Builds the XML `<struct>` members string for create/update SSL certificate calls.
+ * Handles the `alt_dns_names` array field that `buildStructMembers()` cannot produce.
+ */
+function buildSSLCertMembers(p: {
+  name?: string;
+  commonName?: string;
+  iSslCertificate?: number;
+  iSslCertificateType?: number;
+  iSslUseDomainType?: number;
+  altDnsNames?: string[];
+  certificate?: string;
+  key?: string;
+  iEnvironment?: number;
+  iCustomer?: number;
+}): string {
+  let m = '';
+  const str  = (k: string, v: string)  => { m += `<member><name>${k}</name><value><string>${v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</string></value></member>`; };
+  const int  = (k: string, v: number)  => { m += `<member><name>${k}</name><value><int>${v}</int></value></member>`; };
+
+  if (p.iSslCertificate    !== undefined) int('i_ssl_certificate',      p.iSslCertificate);
+  if (p.name               !== undefined) str('name',                   p.name);
+  if (p.commonName         !== undefined) str('common_name',            p.commonName);
+  if (p.iSslCertificateType !== undefined) int('i_ssl_certificate_type', p.iSslCertificateType);
+  if (p.iSslUseDomainType  !== undefined) int('i_ssl_use_domain_type',  p.iSslUseDomainType);
+  if (p.certificate        !== undefined) str('certificate',            p.certificate);
+  if (p.key                !== undefined) str('key',                    p.key);
+  if (p.iEnvironment       !== undefined) int('i_environment',          p.iEnvironment);
+  if (p.iCustomer          !== undefined) int('i_customer',             p.iCustomer);
+
+  // alt_dns_names — array of strings; must be built manually
+  if (p.altDnsNames && p.altDnsNames.length > 0) {
+    const items = p.altDnsNames
+      .map(n => `<value><string>${n.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</string></value>`)
+      .join('');
+    m += `<member><name>alt_dns_names</name><value><array><data>${items}</data></array></value></member>`;
+  }
+
+  return m;
+}
+
+/** Wraps a members string into a full XML-RPC method call body. */
+function xmlRpcCallFromMembers(method: string, members: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><methodCall><methodName>${method}</methodName><params><param><value><struct>${members}</struct></value></param></params></methodCall>`;
+}
+
+/** Parses a single `ssl_certificate` struct out of the raw XML response. */
+function parseSSLCertStruct(s: string): SippySSLCertificate {
+  const m = extractStructMembers(s);
+  const known = new Set(['i_ssl_certificate','name','common_name','i_ssl_certificate_type',
+    'i_ssl_use_domain_type','certificate','i_environment','expiry_date','status']);
+  const extra: Record<string, string> = {};
+  for (const [k, v] of Object.entries(m)) {
+    if (!known.has(k)) extra[k] = v;
+  }
+
+  // alt_dns_names is a nested array — extract with array regex
+  const altMatch = s.match(/<name>alt_dns_names<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>/i);
+  const altDnsNames: string[] = [];
+  if (altMatch) {
+    const strRe = /<value>\s*(?:<string>)?(.*?)(?:<\/string>)?\s*<\/value>/gi;
+    let hit: RegExpExecArray | null;
+    while ((hit = strRe.exec(altMatch[1])) !== null) {
+      if (hit[1].trim()) altDnsNames.push(hit[1].trim());
+    }
+  }
+
+  return {
+    iSslCertificate:      m['i_ssl_certificate']       ? parseInt(m['i_ssl_certificate'], 10) : 0,
+    name:                 m['name']                    || undefined,
+    commonName:           m['common_name']             || undefined,
+    iSslCertificateType:  m['i_ssl_certificate_type']  ? parseInt(m['i_ssl_certificate_type'], 10) : undefined,
+    iSslUseDomainType:    m['i_ssl_use_domain_type']   ? parseInt(m['i_ssl_use_domain_type'], 10)  : undefined,
+    altDnsNames:          altDnsNames.length ? altDnsNames : undefined,
+    certificate:          m['certificate']             || undefined,
+    iEnvironment:         m['i_environment']           ? parseInt(m['i_environment'], 10)          : undefined,
+    expiryDate:           m['expiry_date']             || undefined,
+    status:               m['status']                  || undefined,
+    extra,
+  };
+}
+
+/** Extracts the optional relay_result struct (present only for cross-environment ops). */
+function parseRelayResult(text: string): SippyRelayResult | undefined {
+  const relayMatch = text.match(/<name>relay_result<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>/i);
+  if (!relayMatch) return undefined;
+  return extractStructMembers(relayMatch[1]);
+}
+
+/** Shared error / fault check helper — throws if Sippy returned a fault. */
+function assertSippyOk(text: string, method: string): void {
+  if (text.includes('faultCode')) {
+    const fault = extractTag(text, 'faultString') ?? `${method} failed.`;
+    throw new Error(fault);
+  }
+}
+
+// ── createSSLCertificate() ────────────────────────────────────────────────────
+
+export interface CreateSSLCertificateOpts {
+  name: string;                    // Mandatory
+  commonName: string;              // Mandatory
+  iSslCertificateType?: number;    // Optional — see getDictionary('ssl_certificate_types')
+  iSslUseDomainType?: number;      // Optional — see getDictionary('ssl_use_domain_types') [2023+]
+  altDnsNames?: string[];          // Optional — Subject Alternative Names
+  certificate?: string;            // Mandatory for 'Upload Own'; base64 PEM
+  key?: string;                    // Mandatory for 'Upload Own'; base64 PEM private key
+  iEnvironment?: number;           // Optional — target environment
+  iCustomer?: number;              // Trusted mode
+}
+
+/**
+ * createSSLCertificate() — create a new SSL certificate (docs 3000108832).
+ *
+ * For 'Upload Own' type: `certificate` and `key` are mandatory.
+ * For 'Let's Encrypt' type: `i_ssl_certificate_type` is mandatory; cert/key are optional.
+ */
+export async function createSSLCertificate(
+  username: string,
+  password: string,
+  opts: CreateSSLCertificateOpts,
+): Promise<{ iSslCertificate: number; relayResult?: SippyRelayResult }> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const members = buildSSLCertMembers({
+    name:                 opts.name,
+    commonName:           opts.commonName,
+    iSslCertificateType:  opts.iSslCertificateType,
+    iSslUseDomainType:    opts.iSslUseDomainType,
+    altDnsNames:          opts.altDnsNames,
+    certificate:          opts.certificate,
+    key:                  opts.key,
+    iEnvironment:         opts.iEnvironment,
+    iCustomer:            opts.iCustomer,
+  });
+
+  const resp = await sippyPost(apiUrl, xmlRpcCallFromMembers('createSSLCertificate', members), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`createSSLCertificate HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'createSSLCertificate');
+
+  const s  = extractAllTags(text, 'struct')[0] ?? '';
+  const mm = extractStructMembers(s);
+  return {
+    iSslCertificate: mm['i_ssl_certificate'] ? parseInt(mm['i_ssl_certificate'], 10) : 0,
+    relayResult:     parseRelayResult(text),
+  };
+}
+
+// ── updateSSLCertificate() ────────────────────────────────────────────────────
+
+export interface UpdateSSLCertificateOpts {
+  iSslCertificate: number;         // Mandatory — ID of cert to update
+  name?: string;
+  commonName?: string;
+  iSslCertificateType?: number;
+  iSslUseDomainType?: number;
+  altDnsNames?: string[];
+  certificate?: string;            // base64 PEM
+  key?: string;                    // base64 PEM private key
+  iEnvironment?: number;
+  iCustomer?: number;              // Trusted mode
+}
+
+/**
+ * updateSSLCertificate() — update an existing SSL certificate (docs 3000108832).
+ */
+export async function updateSSLCertificate(
+  username: string,
+  password: string,
+  opts: UpdateSSLCertificateOpts,
+): Promise<{ iSslCertificate: number; relayResult?: SippyRelayResult }> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const members = buildSSLCertMembers(opts);
+  const resp = await sippyPost(apiUrl, xmlRpcCallFromMembers('updateSSLCertificate', members), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`updateSSLCertificate HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'updateSSLCertificate');
+
+  const s  = extractAllTags(text, 'struct')[0] ?? '';
+  const mm = extractStructMembers(s);
+  return {
+    iSslCertificate: mm['i_ssl_certificate'] ? parseInt(mm['i_ssl_certificate'], 10) : 0,
+    relayResult:     parseRelayResult(text),
+  };
+}
+
+// ── deleteSSLCertificate() ────────────────────────────────────────────────────
+
+/**
+ * deleteSSLCertificate() — delete an SSL certificate (docs 3000108832).
+ *
+ * @param iSslCertificate  ID of the certificate to delete (required)
+ * @param iEnvironment     Target environment (optional)
+ * @param iCustomer        Trusted-mode customer ID (optional)
+ */
+export async function deleteSSLCertificate(
+  username: string,
+  password: string,
+  iSslCertificate: number,
+  iEnvironment?: number,
+  iCustomer?: number,
+): Promise<{ iSslCertificate: number; relayResult?: SippyRelayResult }> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_ssl_certificate: iSslCertificate };
+  if (iEnvironment !== undefined) params.i_environment = iEnvironment;
+  if (iCustomer    !== undefined) params.i_customer    = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('deleteSSLCertificate', params), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`deleteSSLCertificate HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'deleteSSLCertificate');
+
+  const s  = extractAllTags(text, 'struct')[0] ?? '';
+  const mm = extractStructMembers(s);
+  return {
+    iSslCertificate: mm['i_ssl_certificate'] ? parseInt(mm['i_ssl_certificate'], 10) : iSslCertificate,
+    relayResult:     parseRelayResult(text),
+  };
+}
+
+// ── getSSLCertificateInfo() ───────────────────────────────────────────────────
+
+/**
+ * getSSLCertificateInfo() — fetch detailed info for one SSL certificate (docs 3000108832).
+ *
+ * @param iSslCertificate  Certificate ID (required)
+ * @param iEnvironment     Target environment (optional)
+ * @param iCustomer        Trusted-mode customer ID (optional)
+ */
+export async function getSSLCertificateInfo(
+  username: string,
+  password: string,
+  iSslCertificate: number,
+  iEnvironment?: number,
+  iCustomer?: number,
+): Promise<{ certificate: SippySSLCertificate; relayResult?: SippyRelayResult }> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_ssl_certificate: iSslCertificate };
+  if (iEnvironment !== undefined) params.i_environment = iEnvironment;
+  if (iCustomer    !== undefined) params.i_customer    = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('getSSLCertificateInfo', params), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`getSSLCertificateInfo HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'getSSLCertificateInfo');
+
+  // Extract the nested ssl_certificate struct
+  const certMatch = text.match(/<name>ssl_certificate<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>/i);
+  const certStruct = certMatch ? certMatch[1] : (extractAllTags(text, 'struct')[0] ?? '');
+
+  return {
+    certificate: parseSSLCertStruct(certStruct),
+    relayResult: parseRelayResult(text),
+  };
+}
+
+// ── getSSLCertificatesList() ──────────────────────────────────────────────────
+
+/**
+ * getSSLCertificatesList() — list SSL certificates with optional filtering (docs 3000108832).
+ *
+ * @param username       XML-RPC admin username
+ * @param password       XML-RPC admin password
+ * @param namePattern    SQL ILIKE pattern to filter by name (optional)
+ * @param limit          Maximum number of results (optional)
+ * @param offset         Skip first N results for pagination (optional)
+ * @param iEnvironment   Target environment (optional)
+ * @param iCustomer      Trusted-mode customer ID (optional)
+ */
+export async function getSSLCertificatesList(
+  username: string,
+  password: string,
+  namePattern?: string,
+  limit?: number,
+  offset?: number,
+  iEnvironment?: number,
+  iCustomer?: number,
+): Promise<{ certificates: SippySSLCertificate[]; relayResult?: SippyRelayResult }> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {};
+  if (namePattern  !== undefined) params.name_pattern  = namePattern;
+  if (limit        !== undefined) params.limit         = limit;
+  if (offset       !== undefined) params.offset        = offset;
+  if (iEnvironment !== undefined) params.i_environment = iEnvironment;
+  if (iCustomer    !== undefined) params.i_customer    = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('getSSLCertificatesList', params), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`getSSLCertificatesList HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'getSSLCertificatesList');
+
+  // The ssl_certificates array contains one struct per certificate
+  const arrMatch = text.match(/<name>ssl_certificates<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>/i);
+  const certificates: SippySSLCertificate[] = [];
+  if (arrMatch) {
+    const innerStructs = extractAllTags(arrMatch[1], 'struct');
+    for (const s of innerStructs) {
+      certificates.push(parseSSLCertStruct(s));
+    }
+  }
+
+  return { certificates, relayResult: parseRelayResult(text) };
+}
+
 // ── Portal User Management ────────────────────────────────────────────────────
 
 export interface SippyPortalUser {
