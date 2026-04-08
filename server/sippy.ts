@@ -1156,24 +1156,65 @@ async function createAccountViaPortal(
 // ── CDR Records ───────────────────────────────────────────────────────────────
 
 export interface SippyCDR {
-  callId: string;
-  caller: string;         // CLI after translation
-  callee: string;         // CLD after translation
-  callerIn?: string;      // CLI before translation (cli_in)
-  calleeIn?: string;      // CLD before translation (cld_in)
-  startTime: string;      // setup_time (Sippy format)
-  connectTime?: string;   // connect_time (Sippy format)
-  duration: number;       // billed_duration in seconds
-  cost: number;           // amount charged in base currency
-  connectFee?: number;    // connect_fee from tariff
-  accessibilityCost?: number; // accessibility surcharges cost
-  result: string;         // call result / disconnect reason
-  country?: string;       // dialed country
-  areaName?: string;      // area name of dialed prefix
-  description?: string;   // destination description
-  remoteIp?: string;      // caller's remote IP
-  pdd?: number;           // conn_proc_time = PDD in seconds
-  iCustomer?: number;     // which customer owns this CDR
+  // ── Core identity ────────────────────────────────────────────────────────
+  callId: string;           // call_id (Call-ID header)
+  iCall?: string;           // i_call — unique call identifier
+  iCdr?: string;            // i_cdr — unique CDR identifier (docs 107367)
+  iAccount?: number;        // i_account of the account (docs 107367)
+  iCustomer?: number;       // i_customer — which customer owns this CDR
+  iProtocol?: number;       // i_protocol — signaling protocol used
+
+  // ── Numbers ──────────────────────────────────────────────────────────────
+  caller: string;           // cli — CLI after translation
+  callee: string;           // cld — CLD after translation
+  callerIn?: string;        // cli_in — CLI before translation
+  calleeIn?: string;        // cld_in — CLD before translation
+  lrnCld?: string;          // lrn_cld — translated LRN CLD
+  lrnCldIn?: string;        // lrn_cld_in — incoming LRN CLD
+  lrnCldResult?: number;    // lrn_cld_result — LRN lookup result for CLD
+  lrnCli?: string;          // lrn_cli — translated LRN CLI
+  lrnCliIn?: string;        // lrn_cli_in — incoming LRN CLI before translation
+  lrnCliResult?: number;    // lrn_cli_result — LRN lookup result for CLI
+  pAssertedId?: string;     // p_asserted_id — P-Asserted-Identity
+  remotePartyId?: string;   // remote_party_id — RPID
+  prefix?: string;          // prefix — rate prefix used
+
+  // ── Timing ───────────────────────────────────────────────────────────────
+  startTime: string;        // setup_time (Sippy format; available from Sippy 2024)
+  connectTime?: string;     // connect_time (Sippy format)
+  disconnectTime?: string;  // disconnect_time (Sippy format)
+
+  // ── Duration & billing ───────────────────────────────────────────────────
+  duration: number;         // billed_duration — billed seconds
+  totalDuration?: number;   // duration — actual call duration (Double)
+  planDuration?: number;    // plan_duration — seconds covered by minute plan
+  freeSeconds?: number;     // free_seconds — free seconds from tariff
+  gracePeriod?: number;     // grace_period — grace period from tariff
+  interval1?: number;       // interval_1 — tariff interval 1
+  intervalN?: number;       // interval_n — tariff interval N
+  pdd?: number;             // conn_proc_time — PDD / call setup processing time
+  pdd1xx?: number;          // pdd1xx — time to first provisional/final response
+  delay?: number;           // delay — total call delay
+  mediaTimeoutCorrection?: number; // media_timeout_correction — CDR duration adjustment
+
+  // ── Cost & tariff ────────────────────────────────────────────────────────
+  cost: number;             // cost — amount charged in base currency
+  connectFee?: number;      // connect_fee — connect fee from tariff
+  accessibilityCost?: number; // accessibility_cost — accessibility surcharges
+  postCallSurcharge?: number; // post_call_surcharge — post-call surcharge from tariff
+  price1?: number;          // price_1 — tariff rate price 1
+  priceN?: number;          // price_n — tariff rate price N
+
+  // ── Call metadata ────────────────────────────────────────────────────────
+  result: string;           // result — call result / disconnect reason
+  country?: string;         // country — dialed country
+  areaName?: string;        // area_name — area name of dialed prefix
+  description?: string;     // description — destination description
+  remoteIp?: string;        // remote_ip — caller's remote IP
+  protocol?: string;        // protocol — SIP/IAX2
+  userAgent?: string;       // user_agent — User-Agent of caller
+  releaseSource?: string;   // release_source — who released the call
+  parentLocalICall?: string; // parent_local_i_call — parent leg i_call
 }
 
 /**
@@ -1391,7 +1432,8 @@ export async function getSippyCDRs(
     iAccount?: number;
     iCustomer?: number;      // i_customer filter: which customer's CDRs to fetch
     iWholesaler?: number;    // trusted mode for getCustomerCDRs (docs 107429); defaults to 1
-    iCdrsCustomer?: string;  // fetch only the single CDR with this i_cdrs_customer value (docs 107429)
+    iCdrsCustomer?: string;  // fetch only one CDR by i_cdrs_customer (docs 107429)
+    iCdr?: string;           // fetch only one CDR by i_cdr (docs 107367, getAccountCDRs)
     startDate?: string;      // ISO or Sippy format; auto-converted to Sippy format
     endDate?: string;        // ISO or Sippy format; auto-converted to Sippy format
     type?: string;           // 'all' | 'non_zero' | 'non_zero_and_errors' | 'complete' | 'incomplete' | 'errors'
@@ -1418,6 +1460,7 @@ export async function getSippyCDRs(
   if (opts.iAccount)              baseParams.i_account        = opts.iAccount;
   if (opts.iCustomer)             baseParams.i_customer       = opts.iCustomer;
   if (opts.iCdrsCustomer)         baseParams.i_cdrs_customer  = opts.iCdrsCustomer;
+  if (opts.iCdr)                  baseParams.i_cdr            = opts.iCdr;
   const fmtStart = formatDate(opts.startDate);
   const fmtEnd   = formatDate(opts.endDate);
   if (fmtStart)                   baseParams.start_date       = fmtStart;
@@ -1456,25 +1499,64 @@ export async function getSippyCDRs(
       for (const s of structs) {
         const m = extractStructMembers(s);
         if (!m['call_id'] && !m['i_call'] && !m['cli']) continue;
+        const nf = (k: string) => m[k] ? parseFloat(m[k]) : undefined;
+        const ni = (k: string) => m[k] ? parseInt(m[k], 10) : undefined;
+        const ns = (k: string) => m[k] || undefined;
         cdrs.push({
-          callId:             m['call_id']             || m['i_call']      || '-',
-          caller:             m['cli']                 || m['cli_in']      || '-',
-          callee:             m['cld']                 || m['cld_in']      || '-',
-          callerIn:           m['cli_in']              || undefined,
-          calleeIn:           m['cld_in']              || undefined,
-          startTime:          m['setup_time']          || m['connect_time']|| '',
-          connectTime:        m['connect_time']        || undefined,
-          duration:           parseFloat(m['billed_duration'] || m['duration'] || '0') || 0,
-          cost:               parseFloat(m['cost']     || '0') || 0,
-          connectFee:         m['connect_fee']         ? parseFloat(m['connect_fee'])          : undefined,
-          accessibilityCost:  m['accessibility_cost']  ? parseFloat(m['accessibility_cost'])   : undefined,
-          result:             m['result']              || m['disconnect_reason'] || '',
-          country:            m['country']             || undefined,
-          areaName:           m['area_name']           || undefined,
-          description:        m['description']         || undefined,
-          remoteIp:           m['remote_ip']           || undefined,
-          pdd:                m['conn_proc_time']      ? parseFloat(m['conn_proc_time'])        : undefined,
-          iCustomer:          m['i_customer']          ? parseInt(m['i_customer'], 10)          : undefined,
+          // Core identity
+          callId:                   m['call_id']          || m['i_call'] || '-',
+          iCall:                    ns('i_call'),
+          iCdr:                     ns('i_cdr'),
+          iAccount:                 ni('i_account'),
+          iCustomer:                ni('i_customer'),
+          iProtocol:                ni('i_protocol'),
+          // Numbers
+          caller:                   m['cli']              || m['cli_in'] || '-',
+          callee:                   m['cld']              || m['cld_in'] || '-',
+          callerIn:                 ns('cli_in'),
+          calleeIn:                 ns('cld_in'),
+          lrnCld:                   ns('lrn_cld'),
+          lrnCldIn:                 ns('lrn_cld_in'),
+          lrnCldResult:             ni('lrn_cld_result'),
+          lrnCli:                   ns('lrn_cli'),
+          lrnCliIn:                 ns('lrn_cli_in'),
+          lrnCliResult:             ni('lrn_cli_result'),
+          pAssertedId:              ns('p_asserted_id'),
+          remotePartyId:            ns('remote_party_id'),
+          prefix:                   ns('prefix'),
+          // Timing
+          startTime:                m['setup_time']       || m['connect_time'] || '',
+          connectTime:              ns('connect_time'),
+          disconnectTime:           ns('disconnect_time'),
+          // Duration & billing
+          duration:                 parseFloat(m['billed_duration'] || '0') || 0,
+          totalDuration:            nf('duration'),
+          planDuration:             ni('plan_duration'),
+          freeSeconds:              ni('free_seconds'),
+          gracePeriod:              ni('grace_period'),
+          interval1:                ni('interval_1'),
+          intervalN:                ni('interval_n'),
+          pdd:                      nf('conn_proc_time'),
+          pdd1xx:                   nf('pdd1xx'),
+          delay:                    nf('delay'),
+          mediaTimeoutCorrection:   nf('media_timeout_correction'),
+          // Cost & tariff
+          cost:                     parseFloat(m['cost'] || '0') || 0,
+          connectFee:               nf('connect_fee'),
+          accessibilityCost:        nf('accessibility_cost'),
+          postCallSurcharge:        nf('post_call_surcharge'),
+          price1:                   nf('price_1'),
+          priceN:                   nf('price_n'),
+          // Call metadata
+          result:                   m['result']           || m['disconnect_reason'] || '',
+          country:                  ns('country'),
+          areaName:                 ns('area_name'),
+          description:              ns('description'),
+          remoteIp:                 ns('remote_ip'),
+          protocol:                 ns('protocol'),
+          userAgent:                ns('user_agent'),
+          releaseSource:            ns('release_source'),
+          parentLocalICall:         ns('parent_local_i_call'),
         });
       }
       return cdrs;

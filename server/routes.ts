@@ -1428,6 +1428,7 @@ export async function registerRoutes(
       if (req.query.iAccount)       opts.iAccount       = Number(req.query.iAccount);
       if (req.query.iWholesaler)    opts.iWholesaler    = Number(req.query.iWholesaler);
       if (req.query.iCdrsCustomer)  opts.iCdrsCustomer  = req.query.iCdrsCustomer as string;
+      if (req.query.iCdr)           opts.iCdr           = req.query.iCdr           as string;
       if (req.query.type)           opts.type           = req.query.type           as string;
       if (req.query.cli)            opts.cli            = req.query.cli            as string;
       if (req.query.cld)            opts.cld            = req.query.cld            as string;
