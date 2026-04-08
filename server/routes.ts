@@ -1318,6 +1318,42 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/sippy/monitoring/graph-image — getMonitoringGraph() PNG image (docs 107509)
+  // Returns base64-encoded PNG. Query: type, hours, width, height, timezone, iEnvironment.
+  app.get('/api/sippy/monitoring/graph-image', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ ok: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const type  = (req.query.type  as string) || 'calls_in_progress_total';
+      const hours = Number(req.query.hours)      || 12;
+      const startDate = new Date(Date.now() - hours * 3600 * 1000);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const sippyDate = `${pad(startDate.getUTCHours())}:${pad(startDate.getUTCMinutes())}:${pad(startDate.getUTCSeconds())}.000 GMT `
+        + `${days[startDate.getUTCDay()]} ${months[startDate.getUTCMonth()]} ${pad(startDate.getUTCDate())} ${startDate.getUTCFullYear()}`;
+      const result = await sippy.getMonitoringGraph(username, password, type, {
+        startDate:    sippyDate,
+        interval:     hours * 3600,
+        width:        req.query.width        ? parseInt(req.query.width as string, 10)        : undefined,
+        height:       req.query.height       ? parseInt(req.query.height as string, 10)       : undefined,
+        timezone:     req.query.timezone     as string | undefined,
+        iEnvironment: req.query.iEnvironment ? parseInt(req.query.iEnvironment as string, 10) : undefined,
+        portalUrl:    settings.portalUrl ?? '',
+      });
+      if (!result.ok) return res.status(422).json(result);
+      // Optionally stream as PNG directly when ?format=png is requested
+      if (req.query.format === 'png' && result.graph) {
+        res.set('Content-Type', 'image/png');
+        return res.send(Buffer.from(result.graph, 'base64'));
+      }
+      res.json({ ok: true, graph: result.graph, type, hours });
+    } catch (err: any) {
+      res.json({ ok: false, error: err.message });
+    }
+  });
+
   // POST /api/sippy/calls/:id/disconnect — disconnect a single call by its ID field
   app.post('/api/sippy/calls/:id/disconnect', async (req: any, res) => {
     const settings = await storage.getSettings();

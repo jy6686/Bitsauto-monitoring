@@ -1279,6 +1279,52 @@ export async function getSippyMonitoringData(
   }
 }
 
+// ── getMonitoringGraph() — docs 107509 ────────────────────────────────────────
+// Returns a base64-encoded PNG image of the monitoring graph.
+// Supports trusted mode (i_environment for root env).
+export async function getMonitoringGraph(
+  username: string,
+  password: string,
+  type: string,
+  opts: {
+    startDate?:    string;
+    interval?:     number;
+    width?:        number;
+    height?:       number;
+    timezone?:     string;
+    iEnvironment?: number;
+    portalUrl?:    string;
+  } = {},
+): Promise<{ ok: boolean; graph?: string; error?: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { ok: false, error: 'Not connected.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = { type };
+  if (opts.startDate)    params.start_date    = opts.startDate;
+  if (opts.interval)     params.interval      = opts.interval;
+  if (opts.width)        params.width         = opts.width;
+  if (opts.height)       params.height        = opts.height;
+  if (opts.timezone)     params.timezone      = opts.timezone;
+  if (opts.iEnvironment) params.i_environment = opts.iEnvironment;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getMonitoringGraph', params as any), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (resp.statusCode !== 200 || text.includes('<fault>')) {
+      const fault = extractTag(text, 'faultString');
+      return { ok: false, error: fault?.replace(/<[^>]+>/g, '').trim() || 'getMonitoringGraph failed' };
+    }
+    // Response: base64 PNG in 'graph' struct member
+    const graphMatch = text.match(/graph[\s\S]*?<string>([\s\S]*?)<\/string>/);
+    const b64 = graphMatch ? graphMatch[1].trim() : extractTag(text, 'string');
+    if (!b64) return { ok: false, error: 'No graph data in response' };
+    return { ok: true, graph: b64 };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
+}
+
 // getSippyCDRs — uses official getAccountCDRs() (docs 107367) or
 //               getCustomerCDRs() (docs 107429) with documented field names.
 // CDR response fields: call_id, cli, cld, connect_time, billed_duration,
