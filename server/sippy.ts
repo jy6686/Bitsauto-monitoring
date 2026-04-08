@@ -2737,7 +2737,85 @@ export async function deleteSippyRateEntry(
   return { success: false, message: 'Delete not supported by this Sippy instance. Rate removed locally.' };
 }
 
-// ── Customer Management (official Sippy docs 107417-107421) ──────────────────
+// ── Customer Management (official Sippy docs 107417-107423) ──────────────────
+
+export interface SippyCustomerEntry {
+  iCustomer:    number;
+  name:         string;
+  webLogin:     string;
+  description:  string;
+  balance:      number;
+  creditLimit:  number;
+  baseCurrency: string;
+}
+
+export interface ListSippyCustomersResult {
+  success:   boolean;
+  customers: SippyCustomerEntry[];
+  message:   string;
+}
+
+/**
+ * Get list of customers belonging to the authenticated customer.
+ * Official method: listCustomers() — docs 107423
+ * Trusted mode: supply iWholesaler.
+ * Returns: i_customer, name, web_login, description, balance, credit_limit, base_currency
+ */
+export async function listSippyCustomers(
+  username: string,
+  password: string,
+  opts?: {
+    offset?:      number;
+    limit?:       number;
+    iWholesaler?: number;
+    portalUrl?:   string;
+  },
+): Promise<ListSippyCustomersResult> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, customers: [], message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = {};
+  if (opts?.offset      !== undefined) params.offset      = opts.offset;
+  if (opts?.limit       !== undefined) params.limit       = opts.limit;
+  if (opts?.iWholesaler !== undefined) params.i_wholesaler = opts.iWholesaler;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listCustomers', params as any), username, password);
+    const text = resp.body;
+
+    if (resp.statusCode !== 200 || text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'listCustomers failed.';
+      return { success: false, customers: [], message: fault };
+    }
+
+    // Extract the customers array of structs
+    const arrMatch = /<name>customers<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>\s*<\/array>\s*<\/value>/.exec(text);
+    const customers: SippyCustomerEntry[] = [];
+
+    if (arrMatch) {
+      const structs = parseArrayOfStructs(arrMatch[1]);
+      for (const s of structs) {
+        const iCustomer = parseInt(s.i_customer ?? '0', 10);
+        if (!iCustomer) continue;
+        customers.push({
+          iCustomer,
+          name:         s.name         ?? '',
+          webLogin:     s.web_login    ?? '',
+          description:  s.description  ?? '',
+          balance:      parseFloat(s.balance      ?? '0'),
+          creditLimit:  parseFloat(s.credit_limit ?? '0'),
+          baseCurrency: s.base_currency ?? '',
+        });
+      }
+    }
+
+    return { success: true, customers, message: 'OK' };
+  } catch (e: any) {
+    return { success: false, customers: [], message: e.message };
+  }
+}
 
 export interface CreateCustomerOpts {
   // ── Mandatory ──────────────────────────────────────────────────────────────

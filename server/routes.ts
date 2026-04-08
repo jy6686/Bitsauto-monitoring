@@ -1978,6 +1978,26 @@ export async function registerRoutes(
 
   // ── Customer management (official Sippy API) ─────────────────────────────
 
+  // GET /api/sippy/customers — listCustomers() — docs 107423
+  // Query params: offset?, limit?, iWholesaler? (trusted mode)
+  // Returns: { success, customers: SippyCustomerEntry[], message }
+  app.get('/api/sippy/customers', async (req: any, res) => {
+    try {
+      const { offset, limit, iWholesaler } = req.query ?? {};
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.listSippyCustomers(username, password, {
+        offset:      offset      !== undefined ? parseInt(offset as string, 10)      : undefined,
+        limit:       limit       !== undefined ? parseInt(limit as string, 10)       : undefined,
+        iWholesaler: iWholesaler !== undefined ? parseInt(iWholesaler as string, 10) : undefined,
+        portalUrl:   settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // POST /api/sippy/customers — createCustomer() — docs 107417
   // Body: { name, webPassword, iTariff (number|null), ...optional fields }
   // Returns: { success, iCustomer, message }
