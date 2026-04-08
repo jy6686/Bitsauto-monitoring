@@ -7864,6 +7864,122 @@ export async function writeAuditLog(
   }
 }
 
+// ─── Invoice Related Methods (docs 3000080953) — since V5.2, trusted mode ─────
+
+/**
+ * Generate a preview PDF for an invoice template using sample data.
+ * Trusted mode supported. Requires valid i_invoice_template ID.
+ * Official method: generateInvoicePreview() — docs 3000080953 (since V5.2)
+ */
+export async function generateInvoicePreview(
+  username: string,
+  password: string,
+  iInvoiceTemplate: number,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; pdf?: string; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('generateInvoicePreview', { i_invoice_template: iInvoiceTemplate }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      // pdf is a base64-encoded string — may be very large, use a targeted regex
+      const pdf = /<name>pdf<\/name>\s*<value>\s*(?:<string>)?([\s\S]*?)(?:<\/string>)?\s*<\/value>/.exec(text)?.[1]?.trim() ?? undefined;
+      return { success: true, pdf, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'generateInvoicePreview failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Validate an arbitrary invoice template (HTML) and optionally return a sample PDF.
+ * Trusted mode supported.
+ * Official method: validateInvoiceTemplate() — docs 3000080953 (since V5.2)
+ */
+export async function validateInvoiceTemplate(
+  username: string,
+  password: string,
+  template: string,  // base64-encoded HTML template
+  opts?: {
+    templateCss?:       string;  // base64-encoded CSS
+    converterOptions?:  string;
+    returnPdf?:         boolean;
+    portalUrl?:         string;
+  },
+): Promise<{ success: boolean; pdf?: string; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | boolean> = { template };
+  if (opts?.templateCss      !== undefined) params.template_css      = opts.templateCss;
+  if (opts?.converterOptions !== undefined) params.converter_options = opts.converterOptions;
+  if (opts?.returnPdf        !== undefined) params.return_pdf        = opts.returnPdf;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('validateInvoiceTemplate', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const pdf = /<name>pdf<\/name>\s*<value>\s*(?:<string>)?([\s\S]*?)(?:<\/string>)?\s*<\/value>/.exec(text)?.[1]?.trim() ?? undefined;
+      return { success: true, ...(pdf ? { pdf } : {}), message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'validateInvoiceTemplate failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Generate an invoice PDF for an account for a given billing period.
+ * Trusted mode supported.
+ * Official method: generateInvoice() — docs 3000080953 (since V5.2)
+ * Dates must be UTC (toSippyDate / toSippyIso8601).
+ */
+export async function generateInvoice(
+  username: string,
+  password: string,
+  iAccount: number,
+  periodBegin: Date | string,
+  periodEnd: Date | string,
+  opts?: {
+    iBillingPlan?: number;
+    portalUrl?:    string;
+  },
+): Promise<{ success: boolean; pdf?: string; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {
+    i_account:    iAccount,
+    period_begin: toSippyDate(periodBegin),
+    period_end:   toSippyDate(periodEnd),
+  };
+  if (opts?.iBillingPlan !== undefined) params.i_billing_plan = opts.iBillingPlan;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('generateInvoice', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const pdf = /<name>pdf<\/name>\s*<value>\s*(?:<string>)?([\s\S]*?)(?:<\/string>)?\s*<\/value>/.exec(text)?.[1]?.trim() ?? undefined;
+      return { success: true, pdf, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'generateInvoice failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 // ─── Test Dialplan (docs 3000054197) — System Management permission ───────────
 
 export interface SippyDialplanRoute {

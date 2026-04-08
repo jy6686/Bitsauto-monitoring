@@ -3695,6 +3695,70 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ─── Invoice Related Methods (docs 3000080953) — since V5.2, trusted mode ─────
+
+  // POST /api/sippy/invoices/preview — generateInvoicePreview()
+  // Body: { iInvoiceTemplate }
+  // Returns: { success, pdf (base64 PDF string), message }
+  app.post('/api/sippy/invoices/preview', async (req: any, res) => {
+    try {
+      const { iInvoiceTemplate } = req.body ?? {};
+      if (!iInvoiceTemplate) return res.status(400).json({ success: false, error: 'iInvoiceTemplate is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.generateInvoicePreview(username, password, parseInt(iInvoiceTemplate, 10), { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/invoices/validate-template — validateInvoiceTemplate()
+  // Body: { template (base64 HTML), templateCss? (base64 CSS), converterOptions?, returnPdf? }
+  // Returns: { success, pdf? (base64 PDF, if returnPdf=true), message }
+  app.post('/api/sippy/invoices/validate-template', async (req: any, res) => {
+    try {
+      const { template, templateCss, converterOptions, returnPdf } = req.body ?? {};
+      if (!template) return res.status(400).json({ success: false, error: 'template (base64-encoded HTML) is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.validateInvoiceTemplate(username, password, template, {
+        templateCss:      templateCss      || undefined,
+        converterOptions: converterOptions || undefined,
+        returnPdf:        returnPdf !== undefined ? Boolean(returnPdf) : undefined,
+        portalUrl:        settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/invoices/generate — generateInvoice()
+  // Body: { iAccount, periodBegin (UTC datetime), periodEnd (UTC datetime), iBillingPlan? }
+  // Returns: { success, pdf (base64 PDF), message }
+  app.post('/api/sippy/invoices/generate', async (req: any, res) => {
+    try {
+      const { iAccount, periodBegin, periodEnd, iBillingPlan } = req.body ?? {};
+      if (!iAccount)    return res.status(400).json({ success: false, error: 'iAccount is required.' });
+      if (!periodBegin) return res.status(400).json({ success: false, error: 'periodBegin is required.' });
+      if (!periodEnd)   return res.status(400).json({ success: false, error: 'periodEnd is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.generateInvoice(
+        username, password,
+        parseInt(iAccount, 10), periodBegin, periodEnd,
+        {
+          iBillingPlan: iBillingPlan !== undefined ? parseInt(iBillingPlan, 10) : undefined,
+          portalUrl:    settings.portalUrl ?? '',
+        },
+      );
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // ─── Test Dialplan (docs 3000054197) — System Management permission ───────────
 
   // POST /api/sippy/test-dialplan — testDialplan()
