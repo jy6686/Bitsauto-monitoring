@@ -3327,5 +3327,22 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // GET /api/sippy/service-plans/:id — retrieve service plan info (docs 107487)
+  // Supports trusted mode via ?iCustomer= query param.
+  // Service plan must belong to the authenticated customer unless trusted mode.
+  app.get('/api/sippy/service-plans/:id', async (req: any, res) => {
+    try {
+      const iBillingPlan = parseInt(req.params.id, 10);
+      if (isNaN(iBillingPlan)) return res.status(400).json({ success: false, error: 'Invalid i_billing_plan.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      const result = await sippy.getServicePlanInfo(username, password, iBillingPlan, { iCustomer, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(404).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   return httpServer;
 }

@@ -6921,3 +6921,63 @@ export async function validatePassword(
     return { success: false, message: e.message };
   }
 }
+
+export interface SippyServicePlanInfo {
+  iBillingPlan:    number;
+  iTariff:         number | null;
+  iCustomer:       number | null;
+  name:            string;
+  description:     string | null;
+  suspendAllCalls: boolean | null;
+  billingCycle:    number | null;  // 1=weekly 2=bi-weekly 3=monthly
+  iso4217:         string | null;
+  prepaid:         boolean | null;
+}
+
+/**
+ * Retrieve all attributes of a given service plan.
+ * Official method: getServicePlanInfo() — docs 107487
+ * Supports trusted mode (pass iCustomer). Service plan must belong to the
+ * authenticated customer unless trusted mode is used.
+ */
+export async function getServicePlanInfo(
+  username: string,
+  password: string,
+  iBillingPlan: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; servicePlan?: SippyServicePlanInfo; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | null> = { i_billing_plan: iBillingPlan };
+  if (opts?.iCustomer !== undefined) params.i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getServicePlanInfo', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const nullableInt  = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : parseInt(m[k], 10);
+      const nullableBool = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : (m[k] === '1' || m[k].toLowerCase() === 'true');
+      const nullableStr  = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : m[k];
+      const plan: SippyServicePlanInfo = {
+        iBillingPlan:    parseInt(m['i_billing_plan'] || String(iBillingPlan), 10),
+        iTariff:         nullableInt('i_tariff'),
+        iCustomer:       nullableInt('i_customer'),
+        name:            m['name'] ?? '',
+        description:     nullableStr('description'),
+        suspendAllCalls: nullableBool('suspend_all_calls'),
+        billingCycle:    nullableInt('billing_cycle'),
+        iso4217:         nullableStr('iso_4217'),
+        prepaid:         nullableBool('prepaid'),
+      };
+      return { success: true, servicePlan: plan, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'getServicePlanInfo failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
