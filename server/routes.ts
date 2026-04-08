@@ -1468,6 +1468,28 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message, cdrs: [] }); }
   });
 
+  // GET /api/sippy/cdr/sdp — retrieve SDP messages for a call (docs 3000039695)
+  // Query params: iCall (required, integer), iCustomer (optional, trusted mode)
+  // Returns: { records: SippyCDRSDPRecord[], iCustomer? }
+  //   Each record: { timeStamp, iCallsSdp, iCdrsConnection, sipMsgType, sdp }
+  //   iCallsSdp is set when the SDP relates to the Caller side.
+  //   iCdrsConnection is set when the SDP relates to the Callee side.
+  app.get('/api/sippy/cdr/sdp', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+
+      const iCall = req.query.iCall ? Number(req.query.iCall) : undefined;
+      if (!iCall || isNaN(iCall)) {
+        return res.status(400).json({ error: 'iCall (integer) is required' });
+      }
+      const iCustomer = req.query.iCustomer ? Number(req.query.iCustomer) : undefined;
+
+      const result = await sippy.getCDRSDP(username, password, iCall, iCustomer);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message, records: [] }); }
+  });
+
   // GET /api/sippy/asr-report — ASR/ACD report computed from Sippy CDRs
   app.get('/api/sippy/asr-report', async (req, res) => {
     try {

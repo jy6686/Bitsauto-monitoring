@@ -1691,6 +1691,75 @@ export async function exportVendorsCDRsMera(
   }
 }
 
+// ── getCDRSDP() (docs 3000039695) ────────────────────────────────────────────
+
+/** One SDP record linked to a call (either caller-side or callee-side). */
+export interface SippyCDRSDPRecord {
+  timeStamp?: string;         // time_stamp — record timestamp in Sippy format
+  iCallsSdp?: number;         // i_calls_sdp — set when SDP relates to the Caller
+  iCdrsConnection?: number;   // i_cdrs_connection — set when SDP relates to the Callee
+  sipMsgType?: string;        // sip_msg_type — INVITE, 183, 200, etc.
+  sdp: string;                // sdp — multiline SDP body
+}
+
+/**
+ * getCDRSDP() — retrieve SDP messages exchanged during a call (docs 3000039695).
+ *
+ * Supports trusted mode: supply iCustomer to fetch CDRs owned by that customer.
+ *
+ * @param username  XML-RPC admin username
+ * @param password  XML-RPC admin password
+ * @param iCall     Unique i_call value of the call (required)
+ * @param iCustomer Customer ID for trusted-mode access (optional)
+ * @returns Array of SDP records plus the resolved i_customer
+ */
+export async function getCDRSDP(
+  username: string,
+  password: string,
+  iCall: number,
+  iCustomer?: number,
+): Promise<{ records: SippyCDRSDPRecord[]; iCustomer?: number }> {
+  if (!activeSession) return { records: [] };
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_call: iCall };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getCDRSDP', params), username, password);
+    const text = resp.body.toString?.() ?? resp.body;
+    if (resp.statusCode !== 200 || text.includes('faultCode')) {
+      const fault = extractTag(text, 'faultString') ?? 'getCDRSDP failed.';
+      throw new Error(fault);
+    }
+
+    // Top-level i_customer from response (outside the records array)
+    const topStruct = extractAllTags(text, 'struct')[0] ?? '';
+    const topFields = extractStructMembers(topStruct);
+    const respICustomer = topFields['i_customer'] ? parseInt(topFields['i_customer'], 10) : undefined;
+
+    // Parse the nested <name>records</name><value><array><data>...</data></array></value>
+    const arrMatch = text.match(/<name>records<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>/i);
+    if (!arrMatch) return { records: [], iCustomer: respICustomer };
+
+    const innerStructs = extractAllTags(arrMatch[1], 'struct');
+    const records: SippyCDRSDPRecord[] = innerStructs.map(s => {
+      const m = extractStructMembers(s);
+      return {
+        timeStamp:       m['time_stamp']       || undefined,
+        iCallsSdp:       m['i_calls_sdp']      ? parseInt(m['i_calls_sdp'],     10) : undefined,
+        iCdrsConnection: m['i_cdrs_connection'] ? parseInt(m['i_cdrs_connection'], 10) : undefined,
+        sipMsgType:      m['sip_msg_type']     || undefined,
+        sdp:             m['sdp']              || '',
+      };
+    });
+
+    return { records, iCustomer: respICustomer };
+  } catch (e: any) {
+    throw new Error(`getCDRSDP: ${e.message}`);
+  }
+}
+
 // ── Portal User Management ────────────────────────────────────────────────────
 
 export interface SippyPortalUser {
