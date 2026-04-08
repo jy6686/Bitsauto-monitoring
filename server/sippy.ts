@@ -7864,6 +7864,457 @@ export async function writeAuditLog(
   }
 }
 
+// ─── Routing Groups CRUD (docs 3000051220) ────────────────────────────────────
+
+export interface SippyRoutingGroupDetail {
+  iRoutingGroup:              number  | null;
+  name:                       string  | null;
+  policy:                     string  | null;
+  description:                string  | null;
+  iMediaRelay:                number  | null;
+  disableOnnetRouting:        boolean | null;
+  onnetIConnection:           number  | null;
+  disableOnnetVoicemail:      boolean | null;
+  onnetVoicemailIConnection:  number  | null;
+  onnetScope:                 number  | null;
+  lrnEnabled:                 boolean | null;
+  lrnTranslationRule:         string  | null;
+  timeout2xx:                 number  | null;
+  onnetTimeout100:            number  | null;
+  onnetTimeout1xx:            number  | null;
+  onnetTimeout2xx:            number  | null;
+  stirShakenEnabled:          boolean | null;
+  safeToDelete:               boolean | null;
+  membersCount:               number  | null;
+}
+
+export interface SippyRoutingGroupMember {
+  iRoutingGroupMember:  number  | null;
+  iRoutingGroup:        number  | null;
+  iConnection:          number  | null;
+  iVendor:              number  | null;
+  iConnectionGroup:     number  | null;
+  iDestinationSet:      number  | null;
+  preference:           number  | null;
+  activationDate:       string  | null;
+  expirationDate:       string  | null;
+  weight:               number  | null;
+  stirShakenAsMode:     string  | null;
+}
+
+/** Parse a raw struct map into a SippyRoutingGroupDetail. */
+function parseRoutingGroupDetail(m: Record<string, string>): SippyRoutingGroupDetail {
+  const ni = (k: string) => { const v = m[k]; return (!v || v === 'nil' || v === 'None') ? null : parseInt(v, 10) || null; };
+  const ns = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : m[k];
+  const nb = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : (m[k] === '1' || m[k].toLowerCase() === 'true');
+  return {
+    iRoutingGroup:             ni('i_routing_group'),
+    name:                      ns('name'),
+    policy:                    ns('policy'),
+    description:               ns('description'),
+    iMediaRelay:               ni('i_media_relay'),
+    disableOnnetRouting:       nb('disable_onnet_routing'),
+    onnetIConnection:          ni('onnet_i_connection'),
+    disableOnnetVoicemail:     nb('disable_onnet_voicemail'),
+    onnetVoicemailIConnection: ni('onnet_voicemail_i_connection'),
+    onnetScope:                ni('onnet_scope'),
+    lrnEnabled:                nb('lrn_enabled'),
+    lrnTranslationRule:        ns('lrn_translation_rule'),
+    timeout2xx:                ni('timeout_2xx'),
+    onnetTimeout100:           ni('onnet_timeout_100'),
+    onnetTimeout1xx:           ni('onnet_timeout_1xx'),
+    onnetTimeout2xx:           ni('onnet_timeout_2xx'),
+    stirShakenEnabled:         nb('stir_shaken_enabled'),
+    safeToDelete:              nb('safe_to_delete'),
+    membersCount:              ni('members_count'),
+  };
+}
+
+/** Parse a raw struct map into a SippyRoutingGroupMember. */
+function parseRoutingGroupMember(m: Record<string, string>): SippyRoutingGroupMember {
+  const ni = (k: string) => { const v = m[k]; return (!v || v === 'nil' || v === 'None') ? null : parseInt(v, 10) || null; };
+  const ns = (k: string) => (!m[k] || m[k] === 'nil' || m[k] === 'None') ? null : m[k];
+  return {
+    iRoutingGroupMember: ni('i_routing_group_member'),
+    iRoutingGroup:       ni('i_routing_group'),
+    iConnection:         ni('i_connection'),
+    iVendor:             ni('i_vendor'),
+    iConnectionGroup:    ni('i_connection_group'),
+    iDestinationSet:     ni('i_destination_set'),
+    preference:          ni('preference'),
+    activationDate:      ns('activation_date'),
+    expirationDate:      ns('expiration_date'),
+    weight:              ni('weight'),
+    stirShakenAsMode:    ns('stir_shaken_as_mode'),
+  };
+}
+
+/**
+ * List routing groups with optional filters.
+ * Official method: listRoutingGroups() — docs 3000051220
+ * Filters name_pattern_not and include_members_count available since 2025.
+ */
+export async function listRoutingGroups(
+  username: string,
+  password: string,
+  opts?: {
+    namePattern?:         string;
+    namePatternNot?:      string;
+    iRoutingGroup?:       number;
+    includeMembersCount?: boolean;
+    portalUrl?:           string;
+  },
+): Promise<{ success: boolean; groups: SippyRoutingGroupDetail[]; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, groups: [], message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean> = {};
+  if (opts?.namePattern        !== undefined) params.name_pattern          = opts.namePattern;
+  if (opts?.namePatternNot     !== undefined) params.name_pattern_not      = opts.namePatternNot;
+  if (opts?.iRoutingGroup      !== undefined) params.i_routing_group        = opts.iRoutingGroup;
+  if (opts?.includeMembersCount !== undefined) params.include_members_count = opts.includeMembersCount;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listRoutingGroups', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      // Response: struct with a 'list' member that is an array of structs.
+      const listBlock = /<name>list<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/.exec(text)?.[1] ?? text;
+      const rawStructs = parseArrayOfStructs(listBlock);
+      const groups = rawStructs.map((r: Record<string, string>) => parseRoutingGroupDetail(r));
+      return { success: true, groups, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'listRoutingGroups failed.';
+    return { success: false, groups: [], message: fault };
+  } catch (e: any) {
+    return { success: false, groups: [], message: e.message };
+  }
+}
+
+/**
+ * Create a new routing group.
+ * Official method: addRoutingGroup() — docs 3000051220
+ */
+export async function addRoutingGroup(
+  username: string,
+  password: string,
+  name: string,
+  policy: string,
+  opts?: {
+    description?:               string;
+    iMediaRelay?:               number | null;
+    disableOnnetRouting?:       boolean;
+    onnetIConnection?:          number | null;
+    disableOnnetVoicemail?:     boolean;
+    onnetVoicemailIConnection?: number | null;
+    onnetScope?:                number;
+    lrnEnabled?:                boolean;
+    lrnTranslationRule?:        string;
+    timeout2xx?:                number;
+    onnetTimeout100?:           number;
+    onnetTimeout1xx?:           number;
+    onnetTimeout2xx?:           number;
+    stirShakenEnabled?:         boolean;
+    portalUrl?:                 string;
+  },
+): Promise<{ success: boolean; iRoutingGroup?: number; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { name, policy };
+  if (opts?.description               !== undefined) params.description                 = opts.description;
+  if (opts?.iMediaRelay               !== undefined) params.i_media_relay               = opts.iMediaRelay;
+  if (opts?.disableOnnetRouting       !== undefined) params.disable_onnet_routing        = opts.disableOnnetRouting;
+  if (opts?.onnetIConnection          !== undefined) params.onnet_i_connection           = opts.onnetIConnection;
+  if (opts?.disableOnnetVoicemail     !== undefined) params.disable_onnet_voicemail      = opts.disableOnnetVoicemail;
+  if (opts?.onnetVoicemailIConnection !== undefined) params.onnet_voicemail_i_connection = opts.onnetVoicemailIConnection;
+  if (opts?.onnetScope                !== undefined) params.onnet_scope                  = opts.onnetScope;
+  if (opts?.lrnEnabled                !== undefined) params.lrn_enabled                  = opts.lrnEnabled;
+  if (opts?.lrnTranslationRule        !== undefined) params.lrn_translation_rule          = opts.lrnTranslationRule;
+  if (opts?.timeout2xx                !== undefined) params.timeout_2xx                  = opts.timeout2xx;
+  if (opts?.onnetTimeout100           !== undefined) params.onnet_timeout_100            = opts.onnetTimeout100;
+  if (opts?.onnetTimeout1xx           !== undefined) params.onnet_timeout_1xx            = opts.onnetTimeout1xx;
+  if (opts?.onnetTimeout2xx           !== undefined) params.onnet_timeout_2xx            = opts.onnetTimeout2xx;
+  if (opts?.stirShakenEnabled         !== undefined) params.stir_shaken_enabled          = opts.stirShakenEnabled;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addRoutingGroup', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const iRoutingGroup = m.i_routing_group ? parseInt(m.i_routing_group, 10) : undefined;
+      return { success: true, iRoutingGroup, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'addRoutingGroup failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Update properties of an existing routing group.
+ * Official method: updateRoutingGroup() — docs 3000051220
+ */
+export async function updateRoutingGroup(
+  username: string,
+  password: string,
+  iRoutingGroup: number,
+  opts?: {
+    name?:                      string;
+    policy?:                    string;
+    description?:               string;
+    iMediaRelay?:               number | null;
+    disableOnnetRouting?:       boolean;
+    onnetIConnection?:          number | null;
+    disableOnnetVoicemail?:     boolean;
+    onnetVoicemailIConnection?: number | null;
+    onnetScope?:                number;
+    lrnEnabled?:                boolean;
+    lrnTranslationRule?:        string;
+    timeout2xx?:                number;
+    onnetTimeout100?:           number;
+    onnetTimeout1xx?:           number;
+    onnetTimeout2xx?:           number;
+    stirShakenEnabled?:         boolean;
+    portalUrl?:                 string;
+  },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_routing_group: iRoutingGroup };
+  if (opts?.name                      !== undefined) params.name                         = opts.name;
+  if (opts?.policy                    !== undefined) params.policy                       = opts.policy;
+  if (opts?.description               !== undefined) params.description                  = opts.description;
+  if (opts?.iMediaRelay               !== undefined) params.i_media_relay                = opts.iMediaRelay;
+  if (opts?.disableOnnetRouting       !== undefined) params.disable_onnet_routing         = opts.disableOnnetRouting;
+  if (opts?.onnetIConnection          !== undefined) params.onnet_i_connection            = opts.onnetIConnection;
+  if (opts?.disableOnnetVoicemail     !== undefined) params.disable_onnet_voicemail       = opts.disableOnnetVoicemail;
+  if (opts?.onnetVoicemailIConnection !== undefined) params.onnet_voicemail_i_connection  = opts.onnetVoicemailIConnection;
+  if (opts?.onnetScope                !== undefined) params.onnet_scope                   = opts.onnetScope;
+  if (opts?.lrnEnabled                !== undefined) params.lrn_enabled                   = opts.lrnEnabled;
+  if (opts?.lrnTranslationRule        !== undefined) params.lrn_translation_rule           = opts.lrnTranslationRule;
+  if (opts?.timeout2xx                !== undefined) params.timeout_2xx                   = opts.timeout2xx;
+  if (opts?.onnetTimeout100           !== undefined) params.onnet_timeout_100             = opts.onnetTimeout100;
+  if (opts?.onnetTimeout1xx           !== undefined) params.onnet_timeout_1xx             = opts.onnetTimeout1xx;
+  if (opts?.onnetTimeout2xx           !== undefined) params.onnet_timeout_2xx             = opts.onnetTimeout2xx;
+  if (opts?.stirShakenEnabled         !== undefined) params.stir_shaken_enabled           = opts.stirShakenEnabled;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateRoutingGroup', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'OK' };
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'updateRoutingGroup failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a routing group.
+ * Official method: delRoutingGroup() — docs 3000051220
+ */
+export async function delRoutingGroup(
+  username: string,
+  password: string,
+  iRoutingGroup: number,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('delRoutingGroup', { i_routing_group: iRoutingGroup }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'OK' };
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'delRoutingGroup failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * List members of a routing group.
+ * Official method: listRoutingGroupMembers() — docs 3000051220
+ * Returns 'list' in ≤2024 or 'routing_group_members' in ≥2025.
+ */
+export async function listRoutingGroupMembers(
+  username: string,
+  password: string,
+  iRoutingGroup: number,
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; members: SippyRoutingGroupMember[]; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, members: [], message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listRoutingGroupMembers', { i_routing_group: iRoutingGroup }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      // Response: struct with 'list' (≤2024) or 'routing_group_members' (≥2025) — array of member structs.
+      const memberBlock =
+        /<name>routing_group_members<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/.exec(text)?.[1]
+        ?? /<name>list<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/.exec(text)?.[1]
+        ?? text;
+      const rawStructs = parseArrayOfStructs(memberBlock);
+      const members = rawStructs.map((r: Record<string, string>) => parseRoutingGroupMember(r));
+      return { success: true, members, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'listRoutingGroupMembers failed.';
+    return { success: false, members: [], message: fault };
+  } catch (e: any) {
+    return { success: false, members: [], message: e.message };
+  }
+}
+
+/**
+ * Add a member entry to a routing group.
+ * Official method: addRoutingGroupMember() — docs 3000051220
+ * In ≤2024: i_connection is mandatory. In ≥2025: either i_connection or i_connection_group required.
+ */
+export async function addRoutingGroupMember(
+  username: string,
+  password: string,
+  iRoutingGroup: number,
+  iDestinationSet: number,
+  preference: number,
+  opts?: {
+    iConnection?:       number;
+    iConnectionGroup?:  number;
+    activationDate?:    Date | string;
+    expirationDate?:    Date | string | null;
+    weight?:            number;
+    stirShakenAsMode?:  string;
+    portalUrl?:         string;
+  },
+): Promise<{ success: boolean; iRoutingGroupMember?: number; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | null> = {
+    i_routing_group:   iRoutingGroup,
+    i_destination_set: iDestinationSet,
+    preference,
+  };
+  if (opts?.iConnection       !== undefined) params.i_connection        = opts.iConnection;
+  if (opts?.iConnectionGroup  !== undefined) params.i_connection_group  = opts.iConnectionGroup;
+  if (opts?.activationDate    !== undefined) params.activation_date     = toSippyDate(opts.activationDate);
+  if (opts?.expirationDate    !== undefined) params.expiration_date     = opts.expirationDate === null ? null : toSippyDate(opts.expirationDate);
+  if (opts?.weight            !== undefined) params.weight              = opts.weight;
+  if (opts?.stirShakenAsMode  !== undefined) params.stir_shaken_as_mode = opts.stirShakenAsMode;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addRoutingGroupMember', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      const iRoutingGroupMember = m.i_routing_group_member ? parseInt(m.i_routing_group_member, 10) : undefined;
+      return { success: true, iRoutingGroupMember, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'addRoutingGroupMember failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Update properties of a routing group member.
+ * Official method: updateRoutingGroupMember() — docs 3000051220
+ * In ≤2024: i_routing_group is required. Since 2025: optional.
+ */
+export async function updateRoutingGroupMember(
+  username: string,
+  password: string,
+  iRoutingGroupMember: number,
+  opts?: {
+    iRoutingGroup?:     number;
+    iConnection?:       number;
+    iConnectionGroup?:  number;
+    iDestinationSet?:   number;
+    preference?:        number;
+    activationDate?:    Date | string;
+    expirationDate?:    Date | string | null;
+    weight?:            number;
+    stirShakenAsMode?:  string;
+    portalUrl?:         string;
+  },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | null> = { i_routing_group_member: iRoutingGroupMember };
+  if (opts?.iRoutingGroup     !== undefined) params.i_routing_group      = opts.iRoutingGroup;
+  if (opts?.iConnection       !== undefined) params.i_connection          = opts.iConnection;
+  if (opts?.iConnectionGroup  !== undefined) params.i_connection_group    = opts.iConnectionGroup;
+  if (opts?.iDestinationSet   !== undefined) params.i_destination_set     = opts.iDestinationSet;
+  if (opts?.preference        !== undefined) params.preference             = opts.preference;
+  if (opts?.activationDate    !== undefined) params.activation_date        = toSippyDate(opts.activationDate);
+  if (opts?.expirationDate    !== undefined) params.expiration_date        = opts.expirationDate === null ? null : toSippyDate(opts.expirationDate);
+  if (opts?.weight            !== undefined) params.weight                 = opts.weight;
+  if (opts?.stirShakenAsMode  !== undefined) params.stir_shaken_as_mode   = opts.stirShakenAsMode;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('updateRoutingGroupMember', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'OK' };
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'updateRoutingGroupMember failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete a routing group member entry.
+ * Official method: delRoutingGroupMember() — docs 3000051220
+ * In ≤2024: i_routing_group is required. Since 2025: optional.
+ */
+export async function delRoutingGroupMember(
+  username: string,
+  password: string,
+  iRoutingGroupMember: number,
+  opts?: {
+    iRoutingGroup?: number;
+    portalUrl?:     string;
+  },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = { i_routing_group_member: iRoutingGroupMember };
+  if (opts?.iRoutingGroup !== undefined) params.i_routing_group = opts.iRoutingGroup;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('delRoutingGroupMember', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'OK' };
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'delRoutingGroupMember failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
 // ─── System Config (docs 3000050243) — root-only, since V4.5 ─────────────────
 
 export interface SippySystemConfigRecord {

@@ -3695,6 +3695,162 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ─── Routing Groups CRUD (docs 3000051220) ────────────────────────────────────
+  // NOTE: GET /api/sippy/routing-groups (listSippyRoutingGroups discovery helper) already
+  // registered above at line ~1486. The routes below implement the full official CRUD.
+
+  // GET /api/sippy/routing-groups/list — listRoutingGroups() with full filter support
+  // Query: namePattern, namePatternNot, iRoutingGroup, includeMembersCount
+  app.get('/api/sippy/routing-groups/list', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { namePattern, namePatternNot, iRoutingGroup, includeMembersCount } = req.query as any;
+      const result = await sippy.listRoutingGroups(username, password, {
+        namePattern:         namePattern        || undefined,
+        namePatternNot:      namePatternNot     || undefined,
+        iRoutingGroup:       iRoutingGroup      ? parseInt(iRoutingGroup, 10) : undefined,
+        includeMembersCount: includeMembersCount ? includeMembersCount === 'true' : undefined,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/routing-groups — addRoutingGroup()
+  // Body: { name, policy, description?, iMediaRelay?, disableOnnetRouting?, onnetIConnection?,
+  //         disableOnnetVoicemail?, onnetVoicemailIConnection?, onnetScope?, lrnEnabled?,
+  //         lrnTranslationRule?, timeout2xx?, onnetTimeout100?, onnetTimeout1xx?,
+  //         onnetTimeout2xx?, stirShakenEnabled? }
+  app.post('/api/sippy/routing-groups', async (req: any, res) => {
+    try {
+      const { name, policy, ...rest } = req.body ?? {};
+      if (!name)            return res.status(400).json({ success: false, error: 'name is required.' });
+      if (policy === undefined) return res.status(400).json({ success: false, error: 'policy is required (can be empty string).' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addRoutingGroup(username, password, name, policy, { ...rest, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PUT /api/sippy/routing-groups/:id — updateRoutingGroup()
+  // Body: any subset of addRoutingGroup params (all optional).
+  app.put('/api/sippy/routing-groups/:id', async (req: any, res) => {
+    try {
+      const iRoutingGroup = parseInt(req.params.id, 10);
+      if (isNaN(iRoutingGroup)) return res.status(400).json({ success: false, error: 'Invalid routing group ID.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateRoutingGroup(username, password, iRoutingGroup, { ...req.body, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // DELETE /api/sippy/routing-groups/:id — delRoutingGroup()
+  app.delete('/api/sippy/routing-groups/:id', async (req: any, res) => {
+    try {
+      const iRoutingGroup = parseInt(req.params.id, 10);
+      if (isNaN(iRoutingGroup)) return res.status(400).json({ success: false, error: 'Invalid routing group ID.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.delRoutingGroup(username, password, iRoutingGroup, { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // GET /api/sippy/routing-groups/:id/members — listRoutingGroupMembers()
+  app.get('/api/sippy/routing-groups/:id/members', async (req: any, res) => {
+    try {
+      const iRoutingGroup = parseInt(req.params.id, 10);
+      if (isNaN(iRoutingGroup)) return res.status(400).json({ success: false, error: 'Invalid routing group ID.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.listRoutingGroupMembers(username, password, iRoutingGroup, { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/routing-groups/:id/members — addRoutingGroupMember()
+  // Body: { iDestinationSet, preference, iConnection?, iConnectionGroup?,
+  //         activationDate?, expirationDate?, weight?, stirShakenAsMode? }
+  app.post('/api/sippy/routing-groups/:id/members', async (req: any, res) => {
+    try {
+      const iRoutingGroup = parseInt(req.params.id, 10);
+      if (isNaN(iRoutingGroup)) return res.status(400).json({ success: false, error: 'Invalid routing group ID.' });
+      const { iDestinationSet, preference, iConnection, iConnectionGroup, ...rest } = req.body ?? {};
+      if (!iDestinationSet) return res.status(400).json({ success: false, error: 'iDestinationSet is required.' });
+      if (preference === undefined) return res.status(400).json({ success: false, error: 'preference is required.' });
+      if (iConnection === undefined && iConnectionGroup === undefined)
+        return res.status(400).json({ success: false, error: 'Either iConnection or iConnectionGroup is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addRoutingGroupMember(
+        username, password, iRoutingGroup,
+        parseInt(iDestinationSet, 10), parseInt(preference, 10),
+        {
+          iConnection:      iConnection      !== undefined ? parseInt(iConnection, 10)      : undefined,
+          iConnectionGroup: iConnectionGroup !== undefined ? parseInt(iConnectionGroup, 10) : undefined,
+          ...rest,
+          portalUrl: settings.portalUrl ?? '',
+        },
+      );
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PUT /api/sippy/routing-groups/:id/members/:memberId — updateRoutingGroupMember()
+  // Body: any subset of addRoutingGroupMember params (all optional).
+  app.put('/api/sippy/routing-groups/:id/members/:memberId', async (req: any, res) => {
+    try {
+      const iRoutingGroup       = parseInt(req.params.id, 10);
+      const iRoutingGroupMember = parseInt(req.params.memberId, 10);
+      if (isNaN(iRoutingGroup) || isNaN(iRoutingGroupMember))
+        return res.status(400).json({ success: false, error: 'Invalid routing group or member ID.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.updateRoutingGroupMember(username, password, iRoutingGroupMember, {
+        iRoutingGroup,
+        ...req.body,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // DELETE /api/sippy/routing-groups/:id/members/:memberId — delRoutingGroupMember()
+  app.delete('/api/sippy/routing-groups/:id/members/:memberId', async (req: any, res) => {
+    try {
+      const iRoutingGroup       = parseInt(req.params.id, 10);
+      const iRoutingGroupMember = parseInt(req.params.memberId, 10);
+      if (isNaN(iRoutingGroup) || isNaN(iRoutingGroupMember))
+        return res.status(400).json({ success: false, error: 'Invalid routing group or member ID.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.delRoutingGroupMember(username, password, iRoutingGroupMember, {
+        iRoutingGroup,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // ─── System Config (docs 3000050243) — root-only, since V4.5 ─────────────────
 
   // GET /api/sippy/system-config — getSystemConfig()
