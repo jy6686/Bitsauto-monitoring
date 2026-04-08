@@ -1854,7 +1854,17 @@ export async function getUploadToken(
   if (!activeSession) throw new Error('No active Sippy session');
   const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
 
-  const xmlBody = buildGetUploadTokenXml(iUploadType, processOn, expiresOn, uploadParams, iCustomer);
+  // Normalise dates to Sippy's compact ISO8601 format (YYYYMMDDThh:mm:ss).
+  // If the string already matches Sippy format (8 digits + T + hh:mm:ss), leave it alone.
+  // Otherwise convert from any Date-parseable string (e.g. 2024-01-15T14:30:00Z).
+  const sippyIso8601Re = /^\d{8}T\d{2}:\d{2}:\d{2}$/;
+  const toIso = (d?: string) => {
+    if (!d) return undefined;
+    if (sippyIso8601Re.test(d)) return d;
+    try { return toSippyIso8601(d); } catch { return d; }
+  };
+
+  const xmlBody = buildGetUploadTokenXml(iUploadType, toIso(processOn), toIso(expiresOn), uploadParams, iCustomer);
   const resp = await sippyPost(apiUrl, xmlBody, username, password);
   const text = resp.body.toString?.() ?? resp.body;
 

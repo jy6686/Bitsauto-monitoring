@@ -1495,8 +1495,10 @@ export async function registerRoutes(
   // POST /api/sippy/upload/token — initiate a bulk binary upload (docs 3000073011)
   // Body (JSON): { iUploadType, processOn?, expiresOn?, params?, iCustomer? }
   //   iUploadType: integer (1 = Rates/Tariff, 2 = Routes/Destination Set; see getDictionary('upload_types'))
-  //   processOn:   ISO8601 UTC — when to start processing (default: now)
-  //   expiresOn:   ISO8601 UTC — when the upload URL expires (default: now + 1 day)
+  //   processOn:   date string — when to start processing (default: now).
+  //                Accepts standard ISO (2024-01-15T14:30:00Z) or Sippy format (20240115T14:30:00);
+  //                auto-converted to Sippy's compact dateTime.iso8601 UTC format internally.
+  //   expiresOn:   date string — when the upload URL expires (default: now + 1 day); same format rules.
   //   params:      nested struct e.g. { i_tariff: 5 } for rates or { i_destination_set: 3 } for routes
   //   iCustomer:   trusted-mode customer ID (optional)
   // Returns: { token, url } — POST the binary file to `url` using chunked encoding
