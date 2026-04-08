@@ -7522,3 +7522,94 @@ export async function deleteDIDDelegation(
     return { success: false, message: e.message };
   }
 }
+
+// ─── Conferencing Management (docs 107507) ───────────────────────────────────
+
+/**
+ * Add a conference on a given account.
+ * Requires conference to be enabled on the Account Class and Customer Permissions.
+ * Official method: addConference() — docs 107507
+ * Supports trusted mode (pass iCustomer).
+ * Dates use '%H:%M:%S.000 GMT %a %b %d %Y' format (toSippyDate).
+ */
+export async function addConference(
+  username: string,
+  password: string,
+  opts: {
+    iAccount:    number;
+    startTime:   Date | string;
+    subject?:    string;
+    expire?:     Date | string;
+    confnoLen?:  number;
+    iCustomer?:  number;
+    portalUrl?:  string;
+  },
+): Promise<{ success: boolean; iConference?: number; confno?: string; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {
+    i_account:  opts.iAccount,
+    start_time: toSippyDate(opts.startTime),
+  };
+  if (opts.subject   !== undefined) params.subject     = opts.subject;
+  if (opts.expire    !== undefined) params.expire       = toSippyDate(opts.expire);
+  if (opts.confnoLen !== undefined) params.confno_len   = opts.confnoLen;
+  if (opts.iCustomer !== undefined) params.i_customer   = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('addConference', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        return {
+          success:     true,
+          iConference: parseInt(m['i_conference'] || '0', 10),
+          confno:      m['confno'] ?? '',
+          message:     'OK',
+        };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'addConference failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * Delete an existing conference.
+ * Official method: deleteConference() — docs 107507
+ * Supports trusted mode (pass iCustomer).
+ */
+export async function deleteConference(
+  username: string,
+  password: string,
+  iAccount: number,
+  iConference: number,
+  opts?: { iCustomer?: number; portalUrl?: string },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = { i_account: iAccount, i_conference: iConference };
+  if (opts?.iCustomer !== undefined) (params as any).i_customer = opts.iCustomer;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('deleteConference', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') return { success: true, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'deleteConference failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}

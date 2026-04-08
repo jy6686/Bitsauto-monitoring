@@ -3530,5 +3530,50 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ─── Conferencing Management (docs 107507) ───────────────────────────────────
+
+  // POST /api/sippy/accounts/:id/conferences — create a conference on an account
+  // Requires conference enabled on Account Class + Customer Permissions.
+  // Supports trusted mode via body.iCustomer.
+  app.post('/api/sippy/accounts/:id/conferences', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, error: 'Invalid i_account.' });
+      const { startTime, subject, expire, confnoLen, iCustomer } = req.body ?? {};
+      if (!startTime) return res.status(400).json({ success: false, error: 'startTime is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.addConference(username, password, {
+        iAccount,
+        startTime,
+        subject,
+        expire,
+        confnoLen: confnoLen !== undefined ? parseInt(confnoLen, 10) : undefined,
+        iCustomer: iCustomer !== undefined ? parseInt(iCustomer, 10) : undefined,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // DELETE /api/sippy/accounts/:id/conferences/:confId — delete a conference
+  // Supports trusted mode via ?iCustomer= query param.
+  app.delete('/api/sippy/accounts/:id/conferences/:confId', async (req: any, res) => {
+    try {
+      const iAccount     = parseInt(req.params.id, 10);
+      const iConference  = parseInt(req.params.confId, 10);
+      if (isNaN(iAccount) || isNaN(iConference)) return res.status(400).json({ success: false, error: 'Invalid i_account or i_conference.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
+      const result = await sippy.deleteConference(username, password, iAccount, iConference, { iCustomer, portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   return httpServer;
 }
