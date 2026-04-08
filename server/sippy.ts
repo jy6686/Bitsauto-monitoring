@@ -6981,3 +6981,37 @@ export async function getServicePlanInfo(
     return { success: false, message: e.message };
   }
 }
+
+/**
+ * Apply a number translation rule to a given number and return the result.
+ * Useful for testing CLD/CLI translation rules on accounts, connections, DIDs, account classes.
+ * Official method: applyTranslationRule() — docs 107499
+ * No trusted mode.
+ */
+export async function applyTranslationRule(
+  username: string,
+  password: string,
+  rule: string,
+  number: string = '',
+  opts?: { portalUrl?: string },
+): Promise<{ success: boolean; number?: string; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('applyTranslationRule', { rule, number }), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? '').trim() === 'OK') {
+        return { success: true, number: m['number'] ?? '', message: 'OK' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'applyTranslationRule failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}

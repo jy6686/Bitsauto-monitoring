@@ -3344,5 +3344,20 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // POST /api/sippy/apply-translation-rule — test a translation rule against a number (docs 107499)
+  // No trusted mode. Returns the translated number when rule syntax is valid.
+  app.post('/api/sippy/apply-translation-rule', async (req: any, res) => {
+    try {
+      const { rule, number } = req.body ?? {};
+      if (!rule) return res.status(400).json({ success: false, error: 'rule is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.applyTranslationRule(username, password, rule, number ?? '', { portalUrl: settings.portalUrl ?? '' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json({ success: true, number: result.number, message: result.message });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   return httpServer;
 }
