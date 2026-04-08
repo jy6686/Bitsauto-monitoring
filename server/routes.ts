@@ -1863,6 +1863,164 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Tariffs Management (docs 3000098586) ───────────────────────────────────
+  // All routes support trusted mode via iCustomer. Available since Sippy 2020.
+  // NOTE: currency and i_tariff_type cannot be changed after tariff creation.
+
+  // POST /api/sippy/tariffs — create a new tariff
+  // Body (JSON): { name, currency, iTariffType?, connectFee?, freeSeconds?,
+  //               postCallSurcharge?, gracePeriod?, lossProtection?, maxLoss?,
+  //               costRoundUp?, decimalPrecision?, averageDuration?,
+  //               localCalling?, localCallingCliValidationRule?, iCustomer? }
+  // Returns: { iTariff }
+  app.post('/api/sippy/tariffs', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const b = req.body ?? {};
+      if (!b.name || !b.currency) {
+        return res.status(400).json({ error: 'name and currency are required' });
+      }
+      const result = await sippy.createTariff(username, password, {
+        name:                          b.name,
+        currency:                      b.currency,
+        iTariffType:                   b.iTariffType      !== undefined ? Number(b.iTariffType)      : undefined,
+        connectFee:                    b.connectFee       !== undefined ? Number(b.connectFee)       : undefined,
+        freeSeconds:                   b.freeSeconds      !== undefined ? Number(b.freeSeconds)      : undefined,
+        postCallSurcharge:             b.postCallSurcharge !== undefined ? Number(b.postCallSurcharge) : undefined,
+        gracePeriod:                   b.gracePeriod      !== undefined ? Number(b.gracePeriod)      : undefined,
+        lossProtection:                b.lossProtection   !== undefined ? Boolean(b.lossProtection)  : undefined,
+        maxLoss:                       b.maxLoss          !== undefined ? Number(b.maxLoss)          : undefined,
+        costRoundUp:                   b.costRoundUp      !== undefined ? Boolean(b.costRoundUp)     : undefined,
+        decimalPrecision:              b.decimalPrecision !== undefined ? Number(b.decimalPrecision) : undefined,
+        averageDuration:               b.averageDuration  !== undefined ? Number(b.averageDuration)  : undefined,
+        localCalling:                  b.localCalling     !== undefined ? Boolean(b.localCalling)    : undefined,
+        localCallingCliValidationRule: b.localCallingCliValidationRule as string | undefined,
+        iCustomer:                     b.iCustomer        !== undefined ? Number(b.iCustomer)        : undefined,
+      });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/sippy/tariffs/:id — update an existing tariff
+  // Body: same optional fields as POST except name is also optional; currency+iTariffType ignored
+  // Returns: 204 No Content on success
+  app.patch('/api/sippy/tariffs/:id', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iTariff = Number(req.params.id);
+      if (!iTariff || isNaN(iTariff)) return res.status(400).json({ error: 'id must be a valid integer' });
+      const b = req.body ?? {};
+      await sippy.updateTariff(username, password, iTariff, {
+        name:                          b.name                          as string | undefined,
+        connectFee:                    b.connectFee       !== undefined ? Number(b.connectFee)       : undefined,
+        freeSeconds:                   b.freeSeconds      !== undefined ? Number(b.freeSeconds)      : undefined,
+        postCallSurcharge:             b.postCallSurcharge !== undefined ? Number(b.postCallSurcharge) : undefined,
+        gracePeriod:                   b.gracePeriod      !== undefined ? Number(b.gracePeriod)      : undefined,
+        lossProtection:                b.lossProtection   !== undefined ? Boolean(b.lossProtection)  : undefined,
+        maxLoss:                       b.maxLoss          !== undefined ? Number(b.maxLoss)          : undefined,
+        costRoundUp:                   b.costRoundUp      !== undefined ? Boolean(b.costRoundUp)     : undefined,
+        decimalPrecision:              b.decimalPrecision !== undefined ? Number(b.decimalPrecision) : undefined,
+        averageDuration:               b.averageDuration  !== undefined ? Number(b.averageDuration)  : undefined,
+        localCalling:                  b.localCalling     !== undefined ? Boolean(b.localCalling)    : undefined,
+        localCallingCliValidationRule: b.localCallingCliValidationRule  as string | undefined,
+        iCustomer:                     b.iCustomer        !== undefined ? Number(b.iCustomer)        : undefined,
+      });
+      res.status(204).end();
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/sippy/tariffs/:id — delete a tariff
+  // Query params: iCustomer (optional)
+  // Returns: 204 No Content on success
+  app.delete('/api/sippy/tariffs/:id', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iTariff = Number(req.params.id);
+      if (!iTariff || isNaN(iTariff)) return res.status(400).json({ error: 'id must be a valid integer' });
+      const iCustomer = req.query.iCustomer ? Number(req.query.iCustomer) : undefined;
+      await sippy.deleteTariff(username, password, iTariff, iCustomer);
+      res.status(204).end();
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/sippy/tariffs/:id — get full tariff parameters
+  // Query params: iCustomer (optional)
+  // Returns: SippyTariff — full struct with all fields including extra catch-all
+  app.get('/api/sippy/tariffs/:id', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iTariff = Number(req.params.id);
+      if (!iTariff || isNaN(iTariff)) return res.status(400).json({ error: 'id must be a valid integer' });
+      const iCustomer = req.query.iCustomer ? Number(req.query.iCustomer) : undefined;
+      const result = await sippy.getTariffInfo(username, password, iTariff, iCustomer);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/sippy/tariffs — list tariffs (lightweight: iTariff, name, currency, iTariffType)
+  // Query params: namePattern?, offset?, limit?, iCustomer?
+  //   namePattern: SQL ILIKE pattern (e.g. 'USD%')
+  // Returns: SippyTariffListEntry[]
+  app.get('/api/sippy/tariffs', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getTariffsList(
+        username, password,
+        req.query.namePattern as string | undefined,
+        req.query.offset      ? Number(req.query.offset)    : undefined,
+        req.query.limit       ? Number(req.query.limit)     : undefined,
+        req.query.iCustomer   ? Number(req.query.iCustomer) : undefined,
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Tariff Rates (docs 3000118878) ─────────────────────────────────────────
+
+  // GET /api/sippy/tariffs/:id/rates — list rates in a tariff (full official fields)
+  // Available since Sippy 2022.
+  // Query params: offset?, limit? (1–1000, default 50), iCustomer?
+  // Returns: SippyTariffRate[] — i_rate, prefix, price_1/n, interval_1/n, forbidden,
+  //   grace_period_enable, activation_date, expiration_date
+  //   + local-calling fields when applicable (local_price_1/n, local_interval_1/n, area_name)
+  app.get('/api/sippy/tariffs/:id/rates', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iTariff = Number(req.params.id);
+      if (!iTariff || isNaN(iTariff)) return res.status(400).json({ error: 'id must be a valid integer' });
+      const result = await sippy.getTariffRatesListFull(
+        username, password,
+        iTariff,
+        req.query.offset    ? Number(req.query.offset)    : undefined,
+        req.query.limit     ? Number(req.query.limit)     : undefined,
+        req.query.iCustomer ? Number(req.query.iCustomer) : undefined,
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/sippy/tariffs/:id/rates — delete ALL rates in a tariff in one call
+  // Available since Sippy 2024.
+  // Query params: iCustomer (optional)
+  // Returns: 204 No Content on success
+  app.delete('/api/sippy/tariffs/:id/rates', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iTariff = Number(req.params.id);
+      if (!iTariff || isNaN(iTariff)) return res.status(400).json({ error: 'id must be a valid integer' });
+      const iCustomer = req.query.iCustomer ? Number(req.query.iCustomer) : undefined;
+      await sippy.deleteAllRatesInTariff(username, password, iTariff, iCustomer);
+      res.status(204).end();
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/sippy/asr-report — ASR/ACD report computed from Sippy CDRs
   app.get('/api/sippy/asr-report', async (req, res) => {
     try {

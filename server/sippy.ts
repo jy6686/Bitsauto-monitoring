@@ -2688,6 +2688,377 @@ export async function getNetworkServicesList(
   });
 }
 
+// ── Tariffs Management (docs 3000098586) + Rates (docs 3000118878) ───────────
+
+/**
+ * Full tariff record returned by getTariffInfo().
+ * Field list mirrors the createTariff() optional params plus i_tariff.
+ */
+export interface SippyTariff {
+  iTariff: number;                        // i_tariff — unique tariff ID
+  name: string;                           // tariff name
+  currency: string;                       // tariff currency (ISO 4217, e.g. 'USD')
+  iTariffType?: number;                   // i_tariff_type — see getDictionary('tariff_types')
+  connectFee?: number;                    // connect_fee — connect fee (Double)
+  freeSeconds?: number;                   // free_seconds — free seconds (Integer)
+  postCallSurcharge?: number;             // post_call_surcharge — fraction part (Double)
+  gracePeriod?: number;                   // grace_period (Integer)
+  lossProtection?: boolean;               // loss_protection — is loss protection enabled
+  maxLoss?: number;                       // max_loss — max loss fraction (Double)
+  costRoundUp?: boolean;                  // cost_round_up — round up call cost
+  decimalPrecision?: number;              // decimal_precision — cost decimal precision
+  averageDuration?: number;               // average_duration — ACD in seconds
+  localCalling?: boolean;                 // local_calling — is local calling enabled
+  localCallingCliValidationRule?: string; // local_calling_cli_validation_rule
+  extra: Record<string, string>;          // undocumented fields returned by Sippy
+}
+
+/** Simplified tariff entry returned inside the getTariffsList() array. */
+export interface SippyTariffListEntry {
+  iTariff: number;       // i_tariff
+  name: string;          // tariff name
+  currency: string;      // tariff currency
+  iTariffType?: number;  // i_tariff_type
+}
+
+/**
+ * Rate record returned by getTariffRatesList() — docs 3000118878.
+ * Optional local-calling fields appear only when the tariff has local_calling enabled
+ * and the tariff type is not 'Incoming Tariff'.
+ */
+export interface SippyTariffRate {
+  iRate: number;              // i_rate — unique rate identifier
+  prefix: string;             // prefix — dial prefix
+  price1: number;             // price_1 — price per minute (first interval)
+  priceN: number;             // price_n — price per minute (subsequent intervals)
+  interval1: number;          // interval_1 — first billing interval in seconds
+  intervalN: number;          // interval_n — subsequent billing interval in seconds
+  forbidden?: boolean;        // forbidden — true if this prefix is blocked (not for Incoming tariffs)
+  gracePeriodEnable?: boolean; // grace_period_enable — grace period enabled for this rate
+  activationDate?: string;    // activation_date — ISO8601 UTC timestamp
+  expirationDate?: string;    // expiration_date — ISO8601 UTC timestamp; nil = never expires
+  // local_calling extras (only when tariff has local_calling enabled and type is 'Tariff')
+  localPrice1?: number;       // local_price_1
+  localPriceN?: number;       // local_price_n
+  localInterval1?: number;    // local_interval_1
+  localIntervalN?: number;    // local_interval_n
+  areaName?: string;          // area_name — associated geographic region
+}
+
+/** Parse a single tariff struct returned by getTariffInfo(). */
+function parseTariffStruct(s: string): SippyTariff {
+  const m = extractStructMembers(s);
+  const known = new Set(['i_tariff','name','currency','i_tariff_type','connect_fee',
+    'free_seconds','post_call_surcharge','grace_period','loss_protection','max_loss',
+    'cost_round_up','decimal_precision','average_duration','local_calling',
+    'local_calling_cli_validation_rule']);
+  const extra: Record<string, string> = {};
+  for (const [k, v] of Object.entries(m)) { if (!known.has(k)) extra[k] = v; }
+  return {
+    iTariff:                       m['i_tariff']             ? parseInt(m['i_tariff'], 10)             : 0,
+    name:                          m['name']                 || '',
+    currency:                      m['currency']             || '',
+    iTariffType:                   m['i_tariff_type']        ? parseInt(m['i_tariff_type'], 10)        : undefined,
+    connectFee:                    m['connect_fee']          ? parseFloat(m['connect_fee'])            : undefined,
+    freeSeconds:                   m['free_seconds']         ? parseInt(m['free_seconds'], 10)         : undefined,
+    postCallSurcharge:             m['post_call_surcharge']  ? parseFloat(m['post_call_surcharge'])    : undefined,
+    gracePeriod:                   m['grace_period']         ? parseInt(m['grace_period'], 10)         : undefined,
+    lossProtection:                m['loss_protection']      ? m['loss_protection'] !== '0'            : undefined,
+    maxLoss:                       m['max_loss']             ? parseFloat(m['max_loss'])               : undefined,
+    costRoundUp:                   m['cost_round_up']        ? m['cost_round_up'] !== '0'             : undefined,
+    decimalPrecision:              m['decimal_precision']    ? parseInt(m['decimal_precision'], 10)    : undefined,
+    averageDuration:               m['average_duration']     ? parseInt(m['average_duration'], 10)     : undefined,
+    localCalling:                  m['local_calling']        ? m['local_calling'] !== '0'              : undefined,
+    localCallingCliValidationRule: m['local_calling_cli_validation_rule'] || undefined,
+    extra,
+  };
+}
+
+/** Parse one rate struct from getTariffRatesList() response. */
+function parseTariffRateStruct(s: string): SippyTariffRate {
+  const m = extractStructMembers(s);
+  return {
+    iRate:             m['i_rate']             ? parseInt(m['i_rate'], 10)              : 0,
+    prefix:            m['prefix']             || '',
+    price1:            m['price_1']            ? parseFloat(m['price_1'])               : 0,
+    priceN:            m['price_n']            ? parseFloat(m['price_n'])               : 0,
+    interval1:         m['interval_1']         ? parseInt(m['interval_1'], 10)          : 0,
+    intervalN:         m['interval_n']         ? parseInt(m['interval_n'], 10)          : 0,
+    forbidden:         m['forbidden']          !== undefined ? m['forbidden'] !== '0'   : undefined,
+    gracePeriodEnable: m['grace_period_enable'] !== undefined ? m['grace_period_enable'] !== '0' : undefined,
+    activationDate:    m['activation_date']    || undefined,
+    expirationDate:    m['expiration_date']    || undefined,
+    localPrice1:       m['local_price_1']      ? parseFloat(m['local_price_1'])         : undefined,
+    localPriceN:       m['local_price_n']      ? parseFloat(m['local_price_n'])         : undefined,
+    localInterval1:    m['local_interval_1']   ? parseInt(m['local_interval_1'], 10)    : undefined,
+    localIntervalN:    m['local_interval_n']   ? parseInt(m['local_interval_n'], 10)    : undefined,
+    areaName:          m['area_name']          || undefined,
+  };
+}
+
+// ── createTariff() ────────────────────────────────────────────────────────────
+
+export interface CreateTariffOpts {
+  name: string;                           // Mandatory
+  currency: string;                       // Mandatory — ISO 4217 (e.g. 'USD')
+  iTariffType?: number;                   // Optional — see getDictionary('tariff_types'); default 1
+  connectFee?: number;                    // Double; default 0
+  freeSeconds?: number;                   // Integer; default 0
+  postCallSurcharge?: number;             // Double fraction; default 0
+  gracePeriod?: number;                   // Integer; default 0
+  lossProtection?: boolean;               // Boolean; default false
+  maxLoss?: number;                       // Double fraction
+  costRoundUp?: boolean;                  // Boolean; default false
+  decimalPrecision?: number;              // Integer; default 20
+  averageDuration?: number;              // Integer (ACD); default 200
+  localCalling?: boolean;                 // Boolean; default false
+  localCallingCliValidationRule?: string; // String
+  iCustomer?: number;                     // Trusted mode
+}
+
+/**
+ * createTariff() — create a new tariff (docs 3000098586). Available since Sippy 2020.
+ * NOTE: currency and i_tariff_type cannot be changed after creation.
+ */
+export async function createTariff(
+  username: string,
+  password: string,
+  opts: CreateTariffOpts,
+): Promise<{ iTariff: number }> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const p: Record<string, string | number | boolean | null> = {
+    name:     opts.name,
+    currency: opts.currency,
+  };
+  if (opts.iTariffType      !== undefined) p.i_tariff_type                     = opts.iTariffType;
+  if (opts.connectFee       !== undefined) p.connect_fee                       = opts.connectFee;
+  if (opts.freeSeconds      !== undefined) p.free_seconds                      = opts.freeSeconds;
+  if (opts.postCallSurcharge !== undefined) p.post_call_surcharge               = opts.postCallSurcharge;
+  if (opts.gracePeriod      !== undefined) p.grace_period                      = opts.gracePeriod;
+  if (opts.lossProtection   !== undefined) p.loss_protection                   = opts.lossProtection;
+  if (opts.maxLoss          !== undefined) p.max_loss                          = opts.maxLoss;
+  if (opts.costRoundUp      !== undefined) p.cost_round_up                     = opts.costRoundUp;
+  if (opts.decimalPrecision !== undefined) p.decimal_precision                 = opts.decimalPrecision;
+  if (opts.averageDuration  !== undefined) p.average_duration                  = opts.averageDuration;
+  if (opts.localCalling     !== undefined) p.local_calling                     = opts.localCalling;
+  if (opts.localCallingCliValidationRule !== undefined) p.local_calling_cli_validation_rule = opts.localCallingCliValidationRule;
+  if (opts.iCustomer        !== undefined) p.i_customer                        = opts.iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('createTariff', p), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`createTariff HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'createTariff');
+
+  const mm = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
+  return { iTariff: mm['i_tariff'] ? parseInt(mm['i_tariff'], 10) : 0 };
+}
+
+// ── updateTariff() ────────────────────────────────────────────────────────────
+
+/**
+ * updateTariff() — update an existing tariff (docs 3000098586). Available since Sippy 2020.
+ * NOTE: currency and i_tariff_type cannot be changed — Sippy will reject those fields.
+ */
+export async function updateTariff(
+  username: string,
+  password: string,
+  iTariff: number,
+  opts: Omit<CreateTariffOpts, 'name' | 'currency'> & { name?: string },
+): Promise<void> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const p: Record<string, string | number | boolean | null> = { i_tariff: iTariff };
+  if (opts.name             !== undefined) p.name                              = opts.name;
+  if (opts.connectFee       !== undefined) p.connect_fee                       = opts.connectFee;
+  if (opts.freeSeconds      !== undefined) p.free_seconds                      = opts.freeSeconds;
+  if (opts.postCallSurcharge !== undefined) p.post_call_surcharge               = opts.postCallSurcharge;
+  if (opts.gracePeriod      !== undefined) p.grace_period                      = opts.gracePeriod;
+  if (opts.lossProtection   !== undefined) p.loss_protection                   = opts.lossProtection;
+  if (opts.maxLoss          !== undefined) p.max_loss                          = opts.maxLoss;
+  if (opts.costRoundUp      !== undefined) p.cost_round_up                     = opts.costRoundUp;
+  if (opts.decimalPrecision !== undefined) p.decimal_precision                 = opts.decimalPrecision;
+  if (opts.averageDuration  !== undefined) p.average_duration                  = opts.averageDuration;
+  if (opts.localCalling     !== undefined) p.local_calling                     = opts.localCalling;
+  if (opts.localCallingCliValidationRule !== undefined) p.local_calling_cli_validation_rule = opts.localCallingCliValidationRule;
+  if (opts.iCustomer        !== undefined) p.i_customer                        = opts.iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('updateTariff', p), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`updateTariff HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'updateTariff');
+}
+
+// ── deleteTariff() ────────────────────────────────────────────────────────────
+
+/**
+ * deleteTariff() — delete an existing tariff (docs 3000098586). Available since Sippy 2020.
+ */
+export async function deleteTariff(
+  username: string,
+  password: string,
+  iTariff: number,
+  iCustomer?: number,
+): Promise<void> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const p: Record<string, string | number | boolean | null> = { i_tariff: iTariff };
+  if (iCustomer !== undefined) p.i_customer = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('deleteTariff', p), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`deleteTariff HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'deleteTariff');
+}
+
+// ── getTariffInfo() ───────────────────────────────────────────────────────────
+
+/**
+ * getTariffInfo() — fetch full parameters for one tariff (docs 3000098586). Available since Sippy 2020.
+ */
+export async function getTariffInfo(
+  username: string,
+  password: string,
+  iTariff: number,
+  iCustomer?: number,
+): Promise<SippyTariff> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const p: Record<string, string | number | boolean | null> = { i_tariff: iTariff };
+  if (iCustomer !== undefined) p.i_customer = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('getTariffInfo', p), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`getTariffInfo HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'getTariffInfo');
+
+  // Sippy wraps the detail under <name>tariff</name><value><struct>…</struct></value>
+  const nested = text.match(/<name>tariff<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>/i);
+  const structStr = nested ? nested[1] : (extractAllTags(text, 'struct')[0] ?? '');
+  return parseTariffStruct(structStr);
+}
+
+// ── getTariffsList() ──────────────────────────────────────────────────────────
+
+/**
+ * getTariffsList() — list tariffs with optional name filtering (docs 3000098586). Available since Sippy 2020.
+ * Returns a lightweight array: { iTariff, name, currency, iTariffType }.
+ *
+ * @param namePattern  SQL ILIKE pattern to filter by name (optional)
+ * @param offset       Skip first N records (optional)
+ * @param limit        Return at most N records (optional)
+ * @param iCustomer    Trusted-mode customer ID (optional)
+ */
+export async function getTariffsList(
+  username: string,
+  password: string,
+  namePattern?: string,
+  offset?: number,
+  limit?: number,
+  iCustomer?: number,
+): Promise<SippyTariffListEntry[]> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const p: Record<string, string | number | boolean | null> = {};
+  if (namePattern !== undefined) p.name_pattern = namePattern;
+  if (offset      !== undefined) p.offset       = offset;
+  if (limit       !== undefined) p.limit        = limit;
+  if (iCustomer   !== undefined) p.i_customer   = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('getTariffsList', p), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`getTariffsList HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'getTariffsList');
+
+  const arrMatch = text.match(/<name>tariffs<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>/i);
+  if (!arrMatch) return [];
+
+  return extractAllTags(arrMatch[1], 'struct').map(s => {
+    const m = extractStructMembers(s);
+    return {
+      iTariff:    m['i_tariff']     ? parseInt(m['i_tariff'], 10)     : 0,
+      name:       m['name']         || '',
+      currency:   m['currency']     || '',
+      iTariffType: m['i_tariff_type'] ? parseInt(m['i_tariff_type'], 10) : undefined,
+    };
+  });
+}
+
+// ── getTariffRatesList() — full official impl (docs 3000118878) ───────────────
+
+/**
+ * getTariffRatesList() — get rates within a tariff (docs 3000118878). Available since Sippy 2022.
+ *
+ * Returns the full SippyTariffRate type including all 15 documented fields.
+ * Local-calling fields (localPrice1, localPriceN, etc.) only appear when the tariff
+ * has local_calling enabled and is of type 'Tariff' (not 'Incoming Tariff').
+ *
+ * Default limit is 50 (Sippy default); maximum is 1000.
+ *
+ * @param iTariff    Tariff ID (required)
+ * @param offset     Skip first N rates ordered by prefix (optional)
+ * @param limit      Max number of rates to return; 1–1000 (optional, default 50)
+ * @param iCustomer  Trusted-mode customer ID (optional)
+ */
+export async function getTariffRatesListFull(
+  username: string,
+  password: string,
+  iTariff: number,
+  offset?: number,
+  limit?: number,
+  iCustomer?: number,
+): Promise<SippyTariffRate[]> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const p: Record<string, string | number | boolean | null> = { i_tariff: iTariff };
+  if (offset    !== undefined) p.offset     = offset;
+  if (limit     !== undefined) p.limit      = Math.min(Math.max(1, limit), 1000);
+  if (iCustomer !== undefined) p.i_customer = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('getTariffRatesList', p), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`getTariffRatesList HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'getTariffRatesList');
+
+  const arrMatch = text.match(/<name>rates<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>/i);
+  if (!arrMatch) return [];
+
+  return extractAllTags(arrMatch[1], 'struct').map(parseTariffRateStruct);
+}
+
+// ── deleteAllRatesInTariff() — docs 3000118878 ────────────────────────────────
+
+/**
+ * deleteAllRatesInTariff() — delete every rate in a tariff in one call (docs 3000118878).
+ * Available since Sippy 2024.
+ *
+ * @param iTariff    Tariff ID whose rates should all be deleted (required)
+ * @param iCustomer  Trusted-mode customer ID (optional)
+ */
+export async function deleteAllRatesInTariff(
+  username: string,
+  password: string,
+  iTariff: number,
+  iCustomer?: number,
+): Promise<void> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const p: Record<string, string | number | boolean | null> = { i_tariff: iTariff };
+  if (iCustomer !== undefined) p.i_customer = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('deleteAllRatesInTariff', p), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`deleteAllRatesInTariff HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'deleteAllRatesInTariff');
+}
+
 // ── Portal User Management ────────────────────────────────────────────────────
 
 export interface SippyPortalUser {
@@ -3698,12 +4069,6 @@ export async function getSippyStats(username: string, password: string, explicit
 
 // ── Rate Analysis ─────────────────────────────────────────────────────────────
 
-export interface SippyTariff {
-  id: string;
-  name: string;
-  type: string;
-}
-
 export interface SippyCarrierEntry {
   id: string;
   name: string;
@@ -3752,7 +4117,9 @@ export interface RateAnalysisParams {
   format?: 'default' | 'partial' | 'full';
 }
 
-export async function getSippyTariffList(username: string, password: string): Promise<SippyTariff[]> {
+export interface SippyTariffLegacy { id: string; name: string; type: string; }
+
+export async function getSippyTariffList(username: string, password: string): Promise<SippyTariffLegacy[]> {
   if (!activeSession) return [];
   const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
   const methods = [
@@ -3768,7 +4135,7 @@ export async function getSippyTariffList(username: string, password: string): Pr
       const text = resp.body.toString('utf-8');
       if (text.includes('faultCode')) continue;
       const structs = extractAllTags(text, 'struct');
-      const tariffs: SippyTariff[] = [];
+      const tariffs: SippyTariffLegacy[] = [];
       for (const s of structs) {
         const m = extractStructMembers(s);
         const id = m['i_tariff'] || m['tariff_id'] || '';
