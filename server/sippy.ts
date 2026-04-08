@@ -7757,3 +7757,109 @@ export async function dumpIPTrafficStatus(
     return { success: false, message: e.message };
   }
 }
+
+// ─── Audit Logs (docs 3000038971) — root-only ─────────────────────────────────
+
+export interface SippyAuditRecord {
+  [key: string]: string;
+}
+
+/**
+ * Retrieve audit log records within a date range.
+ * Root customer only. Supports trusted mode.
+ * Official method: getAuditLogs() — docs 3000038971
+ * Dates use '%H:%M:%S.000 GMT %a %b %d %Y' format (toSippyDate). Default window: last hour.
+ */
+export async function getAuditLogs(
+  username: string,
+  password: string,
+  opts?: {
+    startDate?: Date | string;
+    endDate?:   Date | string;
+    limit?:     number;   // max 100
+    offset?:    number;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; records: SippyAuditRecord[]; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, records: [], message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {};
+  if (opts?.startDate !== undefined) params.start_date = toSippyDate(opts.startDate);
+  if (opts?.endDate   !== undefined) params.end_date   = toSippyDate(opts.endDate);
+  if (opts?.limit     !== undefined) params.limit       = Math.min(opts.limit, 100);
+  if (opts?.offset    !== undefined) params.offset      = opts.offset;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('getAuditLogs', params as any), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const records = parseArrayOfStructs(text) as SippyAuditRecord[];
+      return { success: true, records, message: 'OK' };
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'getAuditLogs failed.';
+    return { success: false, records: [], message: fault };
+  } catch (e: any) {
+    return { success: false, records: [], message: e.message };
+  }
+}
+
+/**
+ * Write a custom audit log entry.
+ * Root customer only. Supports trusted mode.
+ * Official method: writeAuditLog() — docs 3000038971
+ * audit_info is an optional struct of arbitrary key-value pairs.
+ */
+export async function writeAuditLog(
+  username: string,
+  password: string,
+  action: string,
+  resource: string,
+  opts?: {
+    auditInfo?: Record<string, string | number | boolean | null>;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  // Build audit_info struct XML member if provided
+  const auditInfoMember = opts?.auditInfo
+    ? `<member><name>audit_info</name><value><struct>${buildStructMembers(opts.auditInfo)}</struct></value></member>`
+    : '';
+
+  const body = `<?xml version="1.0" encoding="UTF-8"?>
+<methodCall>
+  <methodName>writeAuditLog</methodName>
+  <params>
+    <param>
+      <value>
+        <struct>
+          <member><name>action</name><value><string>${action}</string></value></member>
+          <member><name>resource</name><value><string>${resource}</string></value></member>
+          ${auditInfoMember}
+        </struct>
+      </value>
+    </param>
+  </params>
+</methodCall>`;
+
+  try {
+    const resp = await sippyPost(apiUrl, body, username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? extractTag(text, 'string') ?? '').trim() === 'OK') {
+        return { success: true, message: 'OK' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'writeAuditLog failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}

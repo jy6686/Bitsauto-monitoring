@@ -3653,5 +3653,47 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ─── Audit Logs (docs 3000038971) — root-only ─────────────────────────────────
+
+  // GET /api/sippy/audit-logs — retrieve audit log records (getAuditLogs)
+  // Root-only. Supports trusted mode. Query: startDate, endDate (ISO or Sippy format),
+  // limit (max 100), offset.
+  app.get('/api/sippy/audit-logs', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { startDate, endDate, limit, offset } = req.query as any;
+      const result = await sippy.getAuditLogs(username, password, {
+        startDate: startDate || undefined,
+        endDate:   endDate   || undefined,
+        limit:     limit     ? parseInt(limit, 10)  : undefined,
+        offset:    offset    ? parseInt(offset, 10) : undefined,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/sippy/audit-logs — write a custom audit log entry (writeAuditLog)
+  // Root-only. Supports trusted mode. Body: { action, resource, auditInfo? }.
+  app.post('/api/sippy/audit-logs', async (req: any, res) => {
+    try {
+      const { action, resource, auditInfo } = req.body ?? {};
+      if (!action)   return res.status(400).json({ success: false, error: 'action is required.' });
+      if (!resource) return res.status(400).json({ success: false, error: 'resource is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.writeAuditLog(username, password, action, resource, {
+        auditInfo: auditInfo || undefined,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   return httpServer;
 }
