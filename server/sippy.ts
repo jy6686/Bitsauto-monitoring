@@ -3585,8 +3585,8 @@ export async function pushAccountToSippy(
     preferred_codec:          codecValue,
     use_preferred_codec_only: opts.usePreferredCodecOnly ? 1 : 0,
     reg_allowed:              opts.regAllowed            ?? 1,
-    welcome_call_ivr:         null,  // null → <nil/>
-    on_payment_action:        opts.onPaymentAction !== undefined ? opts.onPaymentAction : null,
+    welcome_call_ivr:         0,     // 0 = disabled (must NOT be null/<nil/> — crashes server)
+    on_payment_action:        0,     // 0 = no action (must be 0 integer, not null)
     min_payment_amount:       opts.minPaymentAmount     ?? 0.0,
     trust_cli:                opts.trustCli             ?? 0,
     disallow_loops:           opts.disallowLoops ? 1 : 0,
