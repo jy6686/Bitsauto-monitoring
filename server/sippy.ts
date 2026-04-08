@@ -2311,6 +2311,223 @@ export async function getSSLCertificatesList(
   return { certificates, relayResult: parseRelayResult(text) };
 }
 
+// ── CA Lists (docs 3000111712) ────────────────────────────────────────────────
+
+/**
+ * CA list record returned by getCAListInfo() and getCAListsList().
+ * Sippy does not enumerate the struct fields — known fields are typed; extras go in `extra`.
+ */
+export interface SippyCAList {
+  iCaList: number;            // i_ca_list — unique CA list ID
+  name?: string;              // name — human-readable CA list name
+  caList?: string;            // ca_list — base64 PEM content or folder path
+  iCaListType?: number;       // i_ca_list_type — see getDictionary('ca_list_types')
+  iSslUseDomainType?: number; // i_ssl_use_domain_type — see getDictionary('ssl_use_domain_types') [2023+]
+  extra: Record<string, string>; // any additional undocumented fields from Sippy
+}
+
+/** Parse a single ca_list struct out of a raw XML struct string. */
+function parseCAListStruct(s: string): SippyCAList {
+  const m = extractStructMembers(s);
+  const known = new Set(['i_ca_list', 'name', 'ca_list', 'i_ca_list_type', 'i_ssl_use_domain_type']);
+  const extra: Record<string, string> = {};
+  for (const [k, v] of Object.entries(m)) {
+    if (!known.has(k)) extra[k] = v;
+  }
+  return {
+    iCaList:           m['i_ca_list']            ? parseInt(m['i_ca_list'], 10)            : 0,
+    name:              m['name']                 || undefined,
+    caList:            m['ca_list']              || undefined,
+    iCaListType:       m['i_ca_list_type']       ? parseInt(m['i_ca_list_type'], 10)       : undefined,
+    iSslUseDomainType: m['i_ssl_use_domain_type'] ? parseInt(m['i_ssl_use_domain_type'], 10) : undefined,
+    extra,
+  };
+}
+
+/**
+ * createCAList() — create a new CA list (docs 3000111712).
+ *
+ * CA list types (from getDictionary('ca_list_types')):
+ *   'Uploaded'     — caList must be a base64-encoded CA list in PEM format
+ *   'Local Folder' — caList must be a path to a folder on the Sippy server
+ *
+ * @param username         XML-RPC admin username
+ * @param password         XML-RPC admin password
+ * @param name             Human-readable name (required)
+ * @param caList           CA list value — base64 PEM or folder path (required)
+ * @param iCaListType      CA list type integer (optional, default: 'Uploaded')
+ * @param iSslUseDomainType  Domain type integer (optional, default: 'Web/HTTPS') [Sippy 2023+]
+ * @param iCustomer        Trusted-mode customer ID (optional)
+ */
+export async function createCAList(
+  username: string,
+  password: string,
+  name: string,
+  caList: string,
+  iCaListType?: number,
+  iSslUseDomainType?: number,
+  iCustomer?: number,
+): Promise<{ iCaList: number }> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { name, ca_list: caList };
+  if (iCaListType       !== undefined) params.i_ca_list_type       = iCaListType;
+  if (iSslUseDomainType !== undefined) params.i_ssl_use_domain_type = iSslUseDomainType;
+  if (iCustomer         !== undefined) params.i_customer            = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('createCAList', params), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`createCAList HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'createCAList');
+
+  const mm = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
+  return { iCaList: mm['i_ca_list'] ? parseInt(mm['i_ca_list'], 10) : 0 };
+}
+
+/**
+ * updateCAList() — update an existing CA list (docs 3000111712).
+ *
+ * Note: `iSslUseDomainType` and `caList` are co-dependent — both must be supplied together.
+ *
+ * @param iCaList          CA list ID to update (required)
+ * @param name             New name (optional)
+ * @param iCaListType      New CA list type (optional)
+ * @param iSslUseDomainType  New domain type [Sippy 2023+]; must be paired with caList
+ * @param caList           New CA list value; must be paired with iSslUseDomainType
+ * @param iCustomer        Trusted-mode customer ID (optional)
+ */
+export async function updateCAList(
+  username: string,
+  password: string,
+  iCaList: number,
+  opts: {
+    name?: string;
+    iCaListType?: number;
+    iSslUseDomainType?: number; // must be paired with caList
+    caList?: string;            // must be paired with iSslUseDomainType
+    iCustomer?: number;
+  } = {},
+): Promise<{ iCaList: number }> {
+  if (!activeSession) throw new Error('No active Sippy session');
+
+  // Enforce co-dependency documented in the spec
+  if ((opts.iSslUseDomainType !== undefined) !== (opts.caList !== undefined)) {
+    throw new Error('updateCAList: iSslUseDomainType and caList must be supplied together');
+  }
+
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const params: Record<string, string | number | boolean | null> = { i_ca_list: iCaList };
+  if (opts.name             !== undefined) params.name                 = opts.name;
+  if (opts.iCaListType      !== undefined) params.i_ca_list_type       = opts.iCaListType;
+  if (opts.iSslUseDomainType !== undefined) params.i_ssl_use_domain_type = opts.iSslUseDomainType;
+  if (opts.caList           !== undefined) params.ca_list              = opts.caList;
+  if (opts.iCustomer        !== undefined) params.i_customer           = opts.iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('updateCAList', params), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`updateCAList HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'updateCAList');
+
+  const mm = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
+  return { iCaList: mm['i_ca_list'] ? parseInt(mm['i_ca_list'], 10) : iCaList };
+}
+
+/**
+ * deleteCAList() — delete a CA list (docs 3000111712).
+ *
+ * @param iCaList    CA list ID to delete (required)
+ * @param iCustomer  Trusted-mode customer ID (optional)
+ */
+export async function deleteCAList(
+  username: string,
+  password: string,
+  iCaList: number,
+  iCustomer?: number,
+): Promise<{ iCaList: number }> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_ca_list: iCaList };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('deleteCAList', params), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`deleteCAList HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'deleteCAList');
+
+  const mm = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
+  return { iCaList: mm['i_ca_list'] ? parseInt(mm['i_ca_list'], 10) : iCaList };
+}
+
+/**
+ * getCAListInfo() — fetch detailed info for one CA list (docs 3000111712).
+ *
+ * @param iCaList    CA list ID (required)
+ * @param iCustomer  Trusted-mode customer ID (optional)
+ */
+export async function getCAListInfo(
+  username: string,
+  password: string,
+  iCaList: number,
+  iCustomer?: number,
+): Promise<SippyCAList> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_ca_list: iCaList };
+  if (iCustomer !== undefined) params.i_customer = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('getCAListInfo', params), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`getCAListInfo HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'getCAListInfo');
+
+  // Sippy wraps the detail under <name>ca_list</name><value><struct>…</struct></value>
+  const nested = text.match(/<name>ca_list<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>/i);
+  const structStr = nested ? nested[1] : (extractAllTags(text, 'struct')[0] ?? '');
+  return parseCAListStruct(structStr);
+}
+
+/**
+ * getCAListsList() — list CA lists with optional filtering (docs 3000111712).
+ *
+ * @param username      XML-RPC admin username
+ * @param password      XML-RPC admin password
+ * @param namePattern   SQL ILIKE pattern to filter by name (e.g. 'prod%') (optional)
+ * @param limit         Maximum number of results (optional)
+ * @param offset        Skip first N results for pagination (optional)
+ * @param iCustomer     Trusted-mode customer ID (optional)
+ */
+export async function getCAListsList(
+  username: string,
+  password: string,
+  namePattern?: string,
+  limit?: number,
+  offset?: number,
+  iCustomer?: number,
+): Promise<SippyCAList[]> {
+  if (!activeSession) throw new Error('No active Sippy session');
+  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {};
+  if (namePattern !== undefined) params.name_pattern = namePattern;
+  if (limit       !== undefined) params.limit        = limit;
+  if (offset      !== undefined) params.offset       = offset;
+  if (iCustomer   !== undefined) params.i_customer   = iCustomer;
+
+  const resp = await sippyPost(apiUrl, xmlRpcCall('getCAListsList', params), username, password);
+  const text = resp.body.toString?.() ?? resp.body;
+  if (resp.statusCode !== 200) throw new Error(`getCAListsList HTTP ${resp.statusCode}`);
+  assertSippyOk(text, 'getCAListsList');
+
+  // Extract the ca_lists array (note: singular "ca_list" in the array name per doc)
+  const arrMatch = text.match(/<name>ca_lists<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>/i);
+  if (!arrMatch) return [];
+
+  return extractAllTags(arrMatch[1], 'struct').map(parseCAListStruct);
+}
+
 // ── Portal User Management ────────────────────────────────────────────────────
 
 export interface SippyPortalUser {

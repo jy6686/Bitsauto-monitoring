@@ -1689,6 +1689,114 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── CA Lists (docs 3000111712) ──────────────────────────────────────────────
+  // All routes support trusted mode via iCustomer. Available since Sippy 2021.
+  // i_ssl_use_domain_type available from Sippy 2023.
+
+  // POST /api/sippy/ca-lists — create a new CA list
+  // Body (JSON): { name, caList, iCaListType?, iSslUseDomainType?, iCustomer? }
+  //   name:              Human-readable name (required)
+  //   caList:            base64 PEM string for 'Uploaded' type, or folder path for 'Local Folder'
+  //   iCaListType:       CA list type integer (optional; see getDictionary('ca_list_types'))
+  //   iSslUseDomainType: Domain type integer (optional; see getDictionary('ssl_use_domain_types'))
+  // Returns: { iCaList }
+  app.post('/api/sippy/ca-lists', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const b = req.body ?? {};
+      if (!b.name || !b.caList) {
+        return res.status(400).json({ error: 'name and caList are required' });
+      }
+      const result = await sippy.createCAList(
+        username, password,
+        b.name as string,
+        b.caList as string,
+        b.iCaListType       !== undefined ? Number(b.iCaListType)       : undefined,
+        b.iSslUseDomainType !== undefined ? Number(b.iSslUseDomainType) : undefined,
+        b.iCustomer         !== undefined ? Number(b.iCustomer)         : undefined,
+      );
+      res.status(201).json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/sippy/ca-lists/:id — update an existing CA list
+  // Body (JSON): { name?, iCaListType?, iSslUseDomainType?, caList?, iCustomer? }
+  //   iSslUseDomainType and caList are co-dependent — both must be supplied together.
+  // Returns: { iCaList }
+  app.patch('/api/sippy/ca-lists/:id', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCaList = Number(req.params.id);
+      if (!iCaList || isNaN(iCaList)) {
+        return res.status(400).json({ error: 'id must be a valid integer' });
+      }
+      const b = req.body ?? {};
+      const result = await sippy.updateCAList(username, password, iCaList, {
+        name:              b.name              as string | undefined,
+        iCaListType:       b.iCaListType       !== undefined ? Number(b.iCaListType)       : undefined,
+        iSslUseDomainType: b.iSslUseDomainType !== undefined ? Number(b.iSslUseDomainType) : undefined,
+        caList:            b.caList            as string | undefined,
+        iCustomer:         b.iCustomer         !== undefined ? Number(b.iCustomer)         : undefined,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/sippy/ca-lists/:id — delete a CA list
+  // Query params: iCustomer (optional, trusted mode)
+  // Returns: { iCaList }
+  app.delete('/api/sippy/ca-lists/:id', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCaList = Number(req.params.id);
+      if (!iCaList || isNaN(iCaList)) {
+        return res.status(400).json({ error: 'id must be a valid integer' });
+      }
+      const iCustomer = req.query.iCustomer ? Number(req.query.iCustomer) : undefined;
+      const result = await sippy.deleteCAList(username, password, iCaList, iCustomer);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/sippy/ca-lists/:id — get CA list details
+  // Query params: iCustomer (optional, trusted mode)
+  // Returns: SippyCAList — { iCaList, name?, caList?, iCaListType?, iSslUseDomainType?, extra }
+  app.get('/api/sippy/ca-lists/:id', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const iCaList = Number(req.params.id);
+      if (!iCaList || isNaN(iCaList)) {
+        return res.status(400).json({ error: 'id must be a valid integer' });
+      }
+      const iCustomer = req.query.iCustomer ? Number(req.query.iCustomer) : undefined;
+      const result = await sippy.getCAListInfo(username, password, iCaList, iCustomer);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/sippy/ca-lists — list CA lists with optional filtering
+  // Query params: namePattern?, limit?, offset?, iCustomer?
+  //   namePattern: SQL ILIKE pattern (e.g. 'prod%', '%wildcard%')
+  // Returns: SippyCAList[]
+  app.get('/api/sippy/ca-lists', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.getCAListsList(
+        username, password,
+        req.query.namePattern as string | undefined,
+        req.query.limit       ? Number(req.query.limit)    : undefined,
+        req.query.offset      ? Number(req.query.offset)   : undefined,
+        req.query.iCustomer   ? Number(req.query.iCustomer): undefined,
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/sippy/asr-report — ASR/ACD report computed from Sippy CDRs
   app.get('/api/sippy/asr-report', async (req, res) => {
     try {
