@@ -17,12 +17,19 @@ import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detect
 // Admin credentials (apiAdminUsername/apiAdminPassword) provide root-level API access
 // and are always preferred over customer-level portal credentials.
 // Portal username/password are used as a fallback (e.g. when admin creds are not set).
-type SippyCreds = { apiAdminUsername?: string | null; apiAdminPassword?: string | null; portalUsername?: string | null; portalPassword?: string | null };
+// Hardcoded defaults ensure the system works out-of-the-box without manual configuration.
+const DEFAULT_SIPPY_URL      = 'https://191.101.30.107';
+const DEFAULT_SIPPY_USERNAME = 'ssp-root';
+const DEFAULT_SIPPY_PASSWORD = '!chiaan1';
+type SippyCreds = { portalUrl?: string | null; apiAdminUsername?: string | null; apiAdminPassword?: string | null; portalUsername?: string | null; portalPassword?: string | null };
 function sippyXmlCreds(s: SippyCreds, sw?: { portalUsername?: string | null; portalPassword?: string | null }) {
   return {
-    username: s.apiAdminUsername || sw?.portalUsername || s.portalUsername || '',
-    password: s.apiAdminPassword || sw?.portalPassword || s.portalPassword || '',
+    username: s.apiAdminUsername || sw?.portalUsername || s.portalUsername || DEFAULT_SIPPY_USERNAME,
+    password: s.apiAdminPassword || sw?.portalPassword || s.portalPassword || DEFAULT_SIPPY_PASSWORD,
   };
+}
+function sippyPortalUrl(s: { portalUrl?: string | null }): string {
+  return s.portalUrl || DEFAULT_SIPPY_URL;
 }
 
 // Simulation Constants
@@ -222,14 +229,15 @@ export async function registerRoutes(
   (async () => {
     try {
       const s = await storage.getSettings();
-      if (s.portalUrl && s.switchType === 'sippy') {
-        console.log('[startup] Sippy credentials found — attempting auto-connect...');
-        const result = await smartSippyConnect(s.portalUrl, s.apiAdminUsername, s.apiAdminPassword, s.portalUsername, s.portalPassword);
-        if (result.success) {
-          console.log('[startup] Sippy auto-connected:', result.message);
-        } else {
-          console.warn('[startup] Sippy auto-connect failed:', result.message);
-        }
+      // Always attempt — fall back to built-in defaults if settings not yet configured
+      const url      = sippyPortalUrl(s);
+      const { username, password } = sippyXmlCreds(s);
+      console.log('[startup] Sippy credentials found — attempting auto-connect...');
+      const result = await smartSippyConnect(url, username, password, s.portalUsername, s.portalPassword);
+      if (result.success) {
+        console.log('[startup] Sippy auto-connected:', result.message);
+      } else {
+        console.warn('[startup] Sippy auto-connect failed:', result.message);
       }
     } catch (err) {
       console.error('[startup] Sippy auto-connect error:', err);
@@ -1184,11 +1192,10 @@ export async function registerRoutes(
   // POST /api/sippy/connect — authenticate and store session
   app.post('/api/sippy/connect', async (req, res) => {
     const settings = await storage.getSettings();
-    const { portalUrl, portalUsername, portalPassword, apiAdminUsername, apiAdminPassword } = settings;
-    if (!portalUrl) {
-      return res.status(400).json({ success: false, message: 'Portal URL not saved in Settings.' });
-    }
-    const result = await smartSippyConnect(portalUrl, apiAdminUsername, apiAdminPassword, portalUsername, portalPassword);
+    const { portalUsername, portalPassword } = settings;
+    const { username: adminUser, password: adminPass } = sippyXmlCreds(settings);
+    const portalUrl = sippyPortalUrl(settings);
+    const result = await smartSippyConnect(portalUrl, adminUser, adminPass, portalUsername, portalPassword);
     if (result.success) return res.json(result);
     return res.status(400).json(result);
   });
@@ -1341,7 +1348,7 @@ export async function registerRoutes(
         height:       req.query.height       ? parseInt(req.query.height as string, 10)       : undefined,
         timezone:     req.query.timezone     as string | undefined,
         iEnvironment: req.query.iEnvironment ? parseInt(req.query.iEnvironment as string, 10) : undefined,
-        portalUrl:    settings.portalUrl ?? '',
+        portalUrl:    sippyPortalUrl(settings),
       });
       if (!result.ok) return res.status(422).json(result);
       // Optionally stream as PNG directly when ?format=png is requested
@@ -1383,7 +1390,7 @@ export async function registerRoutes(
     const iWholesaler = req.body?.iWholesaler ? parseInt(req.body.iWholesaler, 10) : undefined;
     const result = await sippy.disconnectSippyCustomer(iCustomer, username, password, {
       iWholesaler,
-      portalUrl: settings?.portalUrl ?? '',
+      portalUrl: sippyPortalUrl(settings),
     });
     res.json(result);
   });
@@ -1406,7 +1413,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
-      const result = await sippy.getSippyCallStatsCustomer(username, password, { iCustomer, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.getSippyCallStatsCustomer(username, password, { iCustomer, portalUrl: sippyPortalUrl(settings) });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -1461,7 +1468,7 @@ export async function registerRoutes(
         startICdrsConnection: req.query.startICdrsConnection as string | undefined,
         endICdrsConnection:   req.query.endICdrsConnection   as string | undefined,
         trustedMode:          req.query.trustedMode !== 'false',
-        portalUrl:            settings.portalUrl || undefined,
+        portalUrl:            sippyPortalUrl(settings),
       });
 
       if (!result.success) return res.status(422).json({ success: false, error: result.message, cdrs: [] });
@@ -2102,7 +2109,7 @@ export async function registerRoutes(
       let { username, password } = sippyXmlCreds(settings);
       username = (req.query.inlineUser as string) || username;
       password = (req.query.inlinePass as string) || password;
-      let portalUrl: string | undefined = (req.query.inlineUrl as string) || settings.portalUrl || undefined;
+      let portalUrl: string | undefined = (req.query.inlineUrl as string) || sippyPortalUrl(settings);
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
         if (sw) { ({ username, password } = sippyXmlCreds(settings, sw)); portalUrl = sw.portalUrl ?? undefined; }
@@ -2121,7 +2128,7 @@ export async function registerRoutes(
       let { username, password } = sippyXmlCreds(settings);
       username = (req.query.inlineUser as string) || username;
       password = (req.query.inlinePass as string) || password;
-      let portalUrl: string | undefined = (req.query.inlineUrl as string) || settings.portalUrl || undefined;
+      let portalUrl: string | undefined = (req.query.inlineUrl as string) || sippyPortalUrl(settings);
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
         if (sw) { ({ username, password } = sippyXmlCreds(settings, sw)); portalUrl = sw.portalUrl ?? undefined; }
@@ -2141,7 +2148,7 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSettings();
       let { username, password } = sippyXmlCreds(settings);
-      let portalUrl: string | undefined = settings.portalUrl || undefined;
+      let portalUrl: string | undefined = sippyPortalUrl(settings);
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
         if (sw) { ({ username, password } = sippyXmlCreds(settings, sw)); portalUrl = sw.portalUrl ?? undefined; }
@@ -2162,7 +2169,7 @@ export async function registerRoutes(
       let { username, password } = sippyXmlCreds(settings);
       username = (req.query.inlineUser as string) || username;
       password = (req.query.inlinePass as string) || password;
-      let portalUrl: string | undefined = (req.query.inlineUrl as string) || settings.portalUrl || undefined;
+      let portalUrl: string | undefined = (req.query.inlineUrl as string) || sippyPortalUrl(settings);
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
         if (sw) { ({ username, password } = sippyXmlCreds(settings, sw)); portalUrl = sw.portalUrl ?? undefined; }
@@ -2188,7 +2195,7 @@ export async function registerRoutes(
         const { username: adminUser, password: adminPass } = sippyXmlCreds(settings);
         username = adminUser;
         password = adminPass;
-        targetUrl = settings.portalUrl ?? undefined;
+        targetUrl = sippyPortalUrl(settings);
         if (req.body.switchId) {
           const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.body.switchId) && s.type === 'sippy');
           if (!sw) return res.status(404).json({ success: false, message: 'Sippy switch not found.' });
@@ -2201,13 +2208,6 @@ export async function registerRoutes(
             password = swCreds.password;
           }
         }
-      }
-
-      if (!username || !password) {
-        return res.status(400).json({ success: false, message: 'Sippy credentials are required. Enter your Sippy URL, username, and password in the form above.' });
-      }
-      if (!targetUrl) {
-        return res.status(400).json({ success: false, message: 'Sippy URL is required. Enter your Sippy switch URL in the form above.' });
       }
       const opts: sippy.SippyAccountOpts = {
         name:               req.body.name,
@@ -2546,7 +2546,7 @@ export async function registerRoutes(
       const settings = await storage.getSettings();
       const tariffId = String(req.query.tariffId || '');
       const switchId = req.query.switchId ? Number(req.query.switchId) : null;
-      let portalUrl = settings.portalUrl ?? undefined;
+      let portalUrl = sippyPortalUrl(settings);
       let { username: u, password: p } = sippyXmlCreds(settings);
       if (switchId) {
         const sw = (await storage.getSwitches()).find(s => s.id === switchId && s.type === 'sippy');
@@ -2568,7 +2568,7 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSettings();
       const { tariffId, prefix, rate, effectiveFrom, effectiveTill, switchId } = req.body;
-      let portalUrl = settings.portalUrl ?? undefined;
+      let portalUrl = sippyPortalUrl(settings);
       // Always use admin XML-RPC creds for rate management — portal user lacks write access
       let { username: u, password: p } = sippyXmlCreds(settings);
       if (switchId) {
@@ -2591,7 +2591,7 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSettings();
       const { tariffId, prefix, switchId } = req.body;
-      let portalUrl = settings.portalUrl ?? undefined;
+      let portalUrl = sippyPortalUrl(settings);
       let u = settings.portalUsername ?? '';
       let p = settings.portalPassword ?? '';
       if (switchId) {
@@ -2650,7 +2650,7 @@ export async function registerRoutes(
         offset:      offset      !== undefined ? parseInt(offset as string, 10)      : undefined,
         limit:       limit       !== undefined ? parseInt(limit as string, 10)       : undefined,
         iWholesaler: iWholesaler !== undefined ? parseInt(iWholesaler as string, 10) : undefined,
-        portalUrl:   settings.portalUrl ?? '',
+        portalUrl:   sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
@@ -2672,7 +2672,7 @@ export async function registerRoutes(
       const { username: adminUser, password: adminPass } = sippyXmlCreds(settings);
 
       const result = await sippy.authSippyCustomer(adminUser, adminPass, username, password, {
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       const statusCode = result.success ? 200 : 401;
       res.status(statusCode).json(result);
@@ -2693,7 +2693,7 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
 
       const result = await sippy.resetSippyCustomerOneTimePassword(username, password, webLogin, {
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(400).json({ success: false, error: result.message });
       res.json(result);
@@ -2788,7 +2788,7 @@ export async function registerRoutes(
         iPasswordPolicy:       body.iPasswordPolicy    !== undefined ? parseInt(body.iPasswordPolicy, 10) : undefined,
         // Trusted mode
         iWholesaler:           body.iWholesaler        !== undefined ? parseInt(body.iWholesaler, 10)    : undefined,
-      }, settings.portalUrl ?? '');
+      }, sippyPortalUrl(settings));
 
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
@@ -2813,7 +2813,7 @@ export async function registerRoutes(
 
       const result = await sippy.getSippyCustomerInfo(username, password, lookup, {
         iWholesaler: iWholesaler !== undefined ? parseInt(iWholesaler as string, 10) : undefined,
-        portalUrl:   settings.portalUrl ?? '',
+        portalUrl:   sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(404).json({ success: false, error: result.message });
       res.json(result);
@@ -2903,7 +2903,7 @@ export async function registerRoutes(
         iPasswordPolicy:       body.iPasswordPolicy   !== undefined ? parseInt(body.iPasswordPolicy, 10) : undefined,
         // Trusted mode
         iWholesaler:           body.iWholesaler       !== undefined ? parseInt(body.iWholesaler, 10)    : undefined,
-      }, settings.portalUrl ?? '');
+      }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -2993,13 +2993,7 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
-      if (!username || !password) {
-        return res.json({ accounts: [], error: 'Sippy API credentials not configured. Go to Settings → Switch Configuration and enter your admin username and password.' });
-      }
-      const portalUrl = settings.portalUrl ?? undefined;
-      if (!portalUrl) {
-        return res.json({ accounts: [], error: 'Sippy URL not configured. Go to Settings → Switch Configuration and enter your Sippy switch URL.' });
-      }
+      const portalUrl = sippyPortalUrl(settings);
       const opts: { iCustomer?: number; offset?: number; limit?: number } = {};
       if (req.query.iCustomer) opts.iCustomer = parseInt(req.query.iCustomer as string, 10);
       if (req.query.offset)    opts.offset    = parseInt(req.query.offset    as string, 10);
@@ -3726,7 +3720,7 @@ export async function registerRoutes(
       if (req.query.limit)       opts.limit       = parseInt(req.query.limit       as string, 10);
       if (req.query.offset)      opts.offset      = parseInt(req.query.offset      as string, 10);
       if (req.query.namePattern) opts.namePattern = req.query.namePattern as string;
-      const result = await sippy.listSippyVendors(username, password, opts, settings.portalUrl ?? '');
+      const result = await sippy.listSippyVendors(username, password, opts, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ vendors: [], error: e.message }); }
   });
@@ -3743,7 +3737,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.createSippyVendor(username, password, req.body, settings.portalUrl ?? '');
+      const result = await sippy.createSippyVendor(username, password, req.body, sippyPortalUrl(settings));
       if (!result.success) return res.status(400).json(result);
       res.status(201).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -3764,7 +3758,7 @@ export async function registerRoutes(
       const lookup = !isNaN(numId) ? { iVendor: numId } : { name: id };
       const result = await sippy.getSippyVendorInfo(username, password, lookup, {
         iCustomer: iCustomer !== undefined ? parseInt(iCustomer as string, 10) : undefined,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(404).json(result);
       res.json(result);
@@ -3779,7 +3773,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateSippyVendor(username, password, parseInt(req.params.id, 10), req.body, settings.portalUrl ?? '');
+      const result = await sippy.updateSippyVendor(username, password, parseInt(req.params.id, 10), req.body, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -3791,7 +3785,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteSippyVendor(username, password, parseInt(req.params.id, 10), settings.portalUrl ?? '');
+      const result = await sippy.deleteSippyVendor(username, password, parseInt(req.params.id, 10), sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -3809,7 +3803,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.sippyVendorDebit(username, password, iVendor, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      const result = await sippy.sippyVendorDebit(username, password, iVendor, amount, currency, { paymentNotes, paymentTime }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -3827,7 +3821,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.sippyVendorAddFunds(username, password, iVendor, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      const result = await sippy.sippyVendorAddFunds(username, password, iVendor, amount, currency, { paymentNotes, paymentTime }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -3846,7 +3840,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.sippyVendorCredit(username, password, iVendor, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      const result = await sippy.sippyVendorCredit(username, password, iVendor, amount, currency, { paymentNotes, paymentTime }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -3863,7 +3857,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ connections: [], error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.listVendorConnections(username, password, iVendor, settings.portalUrl ?? '');
+      const result = await sippy.listVendorConnections(username, password, iVendor, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ connections: [], error: e.message }); }
   });
@@ -3881,7 +3875,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.createVendorConnection(username, password, { iVendor, ...req.body }, settings.portalUrl ?? '');
+      const result = await sippy.createVendorConnection(username, password, { iVendor, ...req.body }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -3895,7 +3889,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.getVendorConnectionInfo(username, password, iConnection, settings.portalUrl ?? '');
+      const result = await sippy.getVendorConnectionInfo(username, password, iConnection, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -3910,7 +3904,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateVendorConnection(username, password, iConnection, req.body, settings.portalUrl ?? '');
+      const result = await sippy.updateVendorConnection(username, password, iConnection, req.body, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -3924,7 +3918,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteVendorConnection(username, password, iConnection, settings.portalUrl ?? '');
+      const result = await sippy.deleteVendorConnection(username, password, iConnection, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -3948,7 +3942,7 @@ export async function registerRoutes(
           namePatternNot:      namePatternNot      || undefined,
           includeMembersCount: includeMembersCount === 'true' ? true : (includeMembersCount === 'false' ? false : undefined),
         },
-        settings.portalUrl ?? '',
+        sippyPortalUrl(settings),
       );
       res.json(result);
     } catch (e: any) { res.status(500).json({ connectionGroups: [], error: e.message }); }
@@ -3964,7 +3958,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.createConnectionGroup(username, password, req.body, settings.portalUrl ?? '');
+      const result = await sippy.createConnectionGroup(username, password, req.body, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -3978,7 +3972,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.getConnectionGroupInfo(username, password, iConnectionGroup, undefined, settings.portalUrl ?? '');
+      const result = await sippy.getConnectionGroupInfo(username, password, iConnectionGroup, undefined, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -3993,7 +3987,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateConnectionGroup(username, password, iConnectionGroup, req.body, settings.portalUrl ?? '');
+      const result = await sippy.updateConnectionGroup(username, password, iConnectionGroup, req.body, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4007,7 +4001,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteConnectionGroup(username, password, iConnectionGroup, undefined, settings.portalUrl ?? '');
+      const result = await sippy.deleteConnectionGroup(username, password, iConnectionGroup, undefined, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4024,7 +4018,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ cgMembers: [], error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.listCgMembers(username, password, iConnectionGroup, undefined, settings.portalUrl ?? '');
+      const result = await sippy.listCgMembers(username, password, iConnectionGroup, undefined, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ cgMembers: [], error: e.message }); }
   });
@@ -4045,7 +4039,7 @@ export async function registerRoutes(
       const result = await sippy.createCgMember(
         username, password,
         iConnectionGroup, parseInt(iConnection, 10),
-        parsedOrderNo, undefined, settings.portalUrl ?? '',
+        parsedOrderNo, undefined, sippyPortalUrl(settings),
       );
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
@@ -4060,7 +4054,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.getCgMemberInfo(username, password, iCgMember, undefined, settings.portalUrl ?? '');
+      const result = await sippy.getCgMemberInfo(username, password, iCgMember, undefined, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -4082,7 +4076,7 @@ export async function registerRoutes(
         username, password,
         iCgMember, orderNo,
         iConnection ? parseInt(iConnection, 10) : undefined,
-        undefined, settings.portalUrl ?? '',
+        undefined, sippyPortalUrl(settings),
       );
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
@@ -4097,7 +4091,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteCgMember(username, password, iCgMember, undefined, settings.portalUrl ?? '');
+      const result = await sippy.deleteCgMember(username, password, iCgMember, undefined, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4112,7 +4106,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ ips: [], error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.listSwitchIPs(username, password, undefined, settings.portalUrl ?? '');
+      const result = await sippy.listSwitchIPs(username, password, undefined, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ ips: [], error: e.message }); }
   });
@@ -4127,7 +4121,7 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
       const limit  = req.query.limit  ? parseInt(req.query.limit  as string, 10) : undefined;
-      const result = await sippy.listEnvironments(username, password, { offset, limit }, settings.portalUrl ?? '');
+      const result = await sippy.listEnvironments(username, password, { offset, limit }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ environments: [], error: e.message }); }
   });
@@ -4145,7 +4139,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.createEnvironment(username, password, req.body, settings.portalUrl ?? '');
+      const result = await sippy.createEnvironment(username, password, req.body, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4159,7 +4153,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.getEnvironmentInfo(username, password, iEnvironment, undefined, settings.portalUrl ?? '');
+      const result = await sippy.getEnvironmentInfo(username, password, iEnvironment, undefined, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -4174,7 +4168,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateEnvironment(username, password, iEnvironment, req.body, settings.portalUrl ?? '');
+      const result = await sippy.updateEnvironment(username, password, iEnvironment, req.body, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4190,7 +4184,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteEnvironment(username, password, iEnvironment, undefined, settings.portalUrl ?? '');
+      const result = await sippy.deleteEnvironment(username, password, iEnvironment, undefined, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4211,7 +4205,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.queueEnvironmentAction(
-        username, password, iEnvironment, action, suspendMessage, undefined, settings.portalUrl ?? '',
+        username, password, iEnvironment, action, suspendMessage, undefined, sippyPortalUrl(settings),
       );
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
@@ -4235,7 +4229,7 @@ export async function registerRoutes(
         return res.status(400).json({ cards: [], error: 'iAccount or iCustomer is required.' });
       const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
       const limit  = req.query.limit  ? parseInt(req.query.limit  as string, 10) : undefined;
-      const result = await sippy.listDebitCreditCards(username, password, { iAccount, iCustomer }, { offset, limit }, settings.portalUrl ?? '');
+      const result = await sippy.listDebitCreditCards(username, password, { iAccount, iCustomer }, { offset, limit }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ cards: [], error: e.message }); }
   });
@@ -4254,7 +4248,7 @@ export async function registerRoutes(
         return res.status(400).json({ success: false, message: 'iAccount or iCustomer is required.' });
       const required = ['alias', 'iCardType', 'number', 'holder', 'expMm', 'expYy', 'streetAddr1', 'state', 'postalCode', 'city', 'country', 'phone'];
       for (const f of required) if (!opts[f]) return res.status(400).json({ success: false, message: `${f} is required.` });
-      const result = await sippy.addDebitCreditCard(username, password, { iAccount, iCustomer }, opts, settings.portalUrl ?? '');
+      const result = await sippy.addDebitCreditCard(username, password, { iAccount, iCustomer }, opts, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4271,7 +4265,7 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const iAccount  = req.query.iAccount  ? parseInt(req.query.iAccount  as string, 10) : undefined;
       const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
-      const result = await sippy.getDebitCreditCardInfo(username, password, iDebitCreditCard, { iAccount, iCustomer }, settings.portalUrl ?? '');
+      const result = await sippy.getDebitCreditCardInfo(username, password, iDebitCreditCard, { iAccount, iCustomer }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -4287,7 +4281,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const { iAccount, iCustomer, ...opts } = req.body ?? {};
-      const result = await sippy.updateDebitCreditCard(username, password, iDebitCreditCard, { iAccount, iCustomer }, opts, settings.portalUrl ?? '');
+      const result = await sippy.updateDebitCreditCard(username, password, iDebitCreditCard, { iAccount, iCustomer }, opts, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4304,7 +4298,7 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const iAccount  = req.query.iAccount  ? parseInt(req.query.iAccount  as string, 10) : undefined;
       const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
-      const result = await sippy.deleteDebitCreditCard(username, password, iDebitCreditCard, { iAccount, iCustomer }, settings.portalUrl ?? '');
+      const result = await sippy.deleteDebitCreditCard(username, password, iDebitCreditCard, { iAccount, iCustomer }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4323,7 +4317,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.accountAddFunds(username, password, iAccount, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      const result = await sippy.accountAddFunds(username, password, iAccount, amount, currency, { paymentNotes, paymentTime }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4340,7 +4334,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.accountCredit(username, password, iAccount, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      const result = await sippy.accountCredit(username, password, iAccount, amount, currency, { paymentNotes, paymentTime }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4357,7 +4351,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.accountDebit(username, password, iAccount, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      const result = await sippy.accountDebit(username, password, iAccount, amount, currency, { paymentNotes, paymentTime }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4376,7 +4370,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.customerAddFunds(username, password, iCustomer, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      const result = await sippy.customerAddFunds(username, password, iCustomer, amount, currency, { paymentNotes, paymentTime }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4393,7 +4387,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.customerCredit(username, password, iCustomer, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      const result = await sippy.customerCredit(username, password, iCustomer, amount, currency, { paymentNotes, paymentTime }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4410,7 +4404,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.customerDebit(username, password, iCustomer, amount, currency, { paymentNotes, paymentTime }, settings.portalUrl ?? '');
+      const result = await sippy.customerDebit(username, password, iCustomer, amount, currency, { paymentNotes, paymentTime }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4429,7 +4423,7 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const iAccount  = req.query.iAccount  ? parseInt(req.query.iAccount  as string, 10) : undefined;
       const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
-      const result = await sippy.getPaymentInfo(username, password, iPayment, { iAccount, iCustomer }, undefined, settings.portalUrl ?? '');
+      const result = await sippy.getPaymentInfo(username, password, iPayment, { iAccount, iCustomer }, undefined, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -4451,7 +4445,7 @@ export async function registerRoutes(
         startDate:   q.startDate   || undefined,
         endDate:     q.endDate     || undefined,
         type:        (q.type === 'credit' || q.type === 'debit') ? q.type : undefined,
-      }, settings.portalUrl ?? '');
+      }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ payments: [], error: e.message }); }
   });
@@ -4471,7 +4465,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.rechargeVoucher(username, password, { iAccount, voucherId, secretPin, iVoucher }, settings.portalUrl ?? '');
+      const result = await sippy.rechargeVoucher(username, password, { iAccount, voucherId, secretPin, iVoucher }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -4495,7 +4489,7 @@ export async function registerRoutes(
         username, password,
         { iAccount, iCustomer }, amount, currency, payerIpAddress,
         { iDebitCreditCard },
-        settings.portalUrl ?? '',
+        sippyPortalUrl(settings),
       );
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
@@ -4519,7 +4513,7 @@ export async function registerRoutes(
       const result = await sippy.makePaymentByCard(
         username, password,
         { iAccount, iCustomer }, amount, currency, payerIpAddress,
-        card, iWholesaler, settings.portalUrl ?? '',
+        card, iWholesaler, sippyPortalUrl(settings),
       );
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
@@ -4592,7 +4586,7 @@ export async function registerRoutes(
       const result = await sippy.createSippyBalance(username, password, {
         balance: Number(balance), creditLimit: Number(creditLimit),
         commodity: String(commodity), refCount: Number(refCount),
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
@@ -4609,7 +4603,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.incSippyBalanceRefCount(username, password, iBalance, iBalanceUpdate, settings.portalUrl ?? '');
+      const result = await sippy.incSippyBalanceRefCount(username, password, iBalance, iBalanceUpdate, sippyPortalUrl(settings));
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -4625,7 +4619,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.decSippyBalanceRefCount(username, password, iBalance, iBalanceUpdate, settings.portalUrl ?? '');
+      const result = await sippy.decSippyBalanceRefCount(username, password, iBalance, iBalanceUpdate, sippyPortalUrl(settings));
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -4801,7 +4795,7 @@ export async function registerRoutes(
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
       const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
-      const info = await sippy.getAccountInfo(username, password, settings.portalUrl ?? '', iAccount, undefined, iCustomer);
+      const info = await sippy.getAccountInfo(username, password, sippyPortalUrl(settings), iAccount, undefined, iCustomer);
       if (!info) return res.status(404).json({ error: 'Account not found or Sippy returned a fault.' });
       res.json(info);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -4814,7 +4808,7 @@ export async function registerRoutes(
       const iAccount = Number(req.params.id);
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
-      const info = await sippy.getAccountInfo(username, password, settings.portalUrl ?? '', iAccount);
+      const info = await sippy.getAccountInfo(username, password, sippyPortalUrl(settings), iAccount);
       const balance = info?.balance ?? 0;
       const creditLimit = info?.creditLimit ?? 0;   // camelCase (was credit_limit)
       const threshold = settings.balanceAlertThreshold ?? 10;
@@ -4842,7 +4836,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const iCustomer = req.body?.iCustomer !== undefined ? Number(req.body.iCustomer) : undefined;
-      const result = await sippy.blockWebUser(username, password, iWebUser, { iCustomer, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.blockWebUser(username, password, iWebUser, { iCustomer, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json({ success: true, iWebUser: result.iWebUser, message: result.message });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -4857,7 +4851,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const iCustomer = req.body?.iCustomer !== undefined ? Number(req.body.iCustomer) : undefined;
-      const result = await sippy.unblockWebUser(username, password, iWebUser, { iCustomer, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.unblockWebUser(username, password, iWebUser, { iCustomer, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json({ success: true, iWebUser: result.iWebUser, message: result.message });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -4877,7 +4871,7 @@ export async function registerRoutes(
         iDestinationSet: iDestinationSet ? parseInt(iDestinationSet as string, 10) : undefined,
         offset: offset ? parseInt(offset as string, 10) : undefined,
         limit:  limit  ? parseInt(limit  as string, 10) : undefined,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, list: [], error: e.message }); }
@@ -4891,7 +4885,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.addDestinationSet(username, password, { name, currency, ...rest, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.addDestinationSet(username, password, { name, currency, ...rest, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -4906,7 +4900,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const includeAllFields = req.query.includeAllFields === 'true';
-      const result = await sippy.getDestinationSetInfo(username, password, { iDestinationSet, includeAllFields, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.getDestinationSetInfo(username, password, { iDestinationSet, includeAllFields, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(404).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -4920,7 +4914,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateDestinationSet(username, password, iDestinationSet, { ...req.body, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.updateDestinationSet(username, password, iDestinationSet, { ...req.body, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -4934,7 +4928,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteDestinationSet(username, password, iDestinationSet, { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.deleteDestinationSet(username, password, iDestinationSet, { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -4948,7 +4942,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, list: [], error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.getDestinationSetRoutesList(username, password, iDestinationSet, { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.getDestinationSetRoutesList(username, password, iDestinationSet, { portalUrl: sippyPortalUrl(settings) });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, list: [], error: e.message }); }
   });
@@ -4963,7 +4957,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.addRouteToDestinationSet(username, password, iDestinationSet, prefix, { ...rest, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.addRouteToDestinationSet(username, password, iDestinationSet, prefix, { ...rest, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -4978,7 +4972,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateRouteInDestinationSet(username, password, iDestinationSet, prefix, { ...req.body, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.updateRouteInDestinationSet(username, password, iDestinationSet, prefix, { ...req.body, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -4992,7 +4986,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteAllRoutesInDestinationSet(username, password, iDestinationSet, { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.deleteAllRoutesInDestinationSet(username, password, iDestinationSet, { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5007,7 +5001,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.delRouteFromDestinationSet(username, password, iDestinationSet, prefix, { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.delRouteFromDestinationSet(username, password, iDestinationSet, prefix, { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5027,7 +5021,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.sendSippyEmail(username, password, {
-        from, to, cc, bcc, subject, body: emailBody, portalUrl: settings.portalUrl ?? '',
+        from, to, cc, bcc, subject, body: emailBody, portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json({ success: true, message: result.message });
@@ -5051,7 +5045,7 @@ export async function registerRoutes(
         webLabel,
         lang,
         iCustomer: iCustomer !== undefined ? Number(iCustomer) : undefined,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json({ success: true, message: result.message });
@@ -5069,7 +5063,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
-      const result = await sippy.getServicePlanInfo(username, password, iBillingPlan, { iCustomer, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.getServicePlanInfo(username, password, iBillingPlan, { iCustomer, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(404).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5084,7 +5078,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.applyTranslationRule(username, password, rule, number ?? '', { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.applyTranslationRule(username, password, rule, number ?? '', { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json({ success: true, number: result.number, message: result.message });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5099,7 +5093,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.checkMatchRule(username, password, rule, number ?? '', { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.checkMatchRule(username, password, rule, number ?? '', { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json({ success: true, match: result.match, message: result.message });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5123,7 +5117,7 @@ export async function registerRoutes(
         notAssigned:     notAssigned === 'true' ? true : (notAssigned === 'false' ? false : undefined),
         offset:          offset         ? parseInt(offset, 10)         : undefined,
         limit:           limit          ? parseInt(limit, 10)          : undefined,
-        portalUrl:       settings.portalUrl ?? '',
+        portalUrl:       sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
@@ -5138,7 +5132,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.getDIDChargingGroupInfo(username, password, id, { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.getDIDChargingGroupInfo(username, password, id, { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(404).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5157,7 +5151,7 @@ export async function registerRoutes(
         iDidsChargingGroup: iDidsChargingGroup !== undefined ? parseInt(iDidsChargingGroup, 10) : undefined,
         delegatedTo:        delegatedTo        !== undefined ? parseInt(delegatedTo, 10)        : undefined,
         description,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
@@ -5172,7 +5166,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteDIDDelegation(username, password, id, { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.deleteDIDDelegation(username, password, id, { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5187,8 +5181,8 @@ export async function registerRoutes(
       const rawId = req.params.id;
       const numId = parseInt(rawId, 10);
       const opts = isNaN(numId)
-        ? { did: rawId, didRangeEnd: req.query.didRangeEnd as string | undefined, portalUrl: settings.portalUrl ?? '' }
-        : { iDid: numId, portalUrl: settings.portalUrl ?? '' };
+        ? { did: rawId, didRangeEnd: req.query.didRangeEnd as string | undefined, portalUrl: sippyPortalUrl(settings) }
+        : { iDid: numId, portalUrl: sippyPortalUrl(settings) };
       const result = await sippy.getDIDInfo(username, password, opts);
       if (!result.success) return res.status(404).json({ success: false, error: result.message });
       res.json(result);
@@ -5204,7 +5198,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.bulkAddDIDs(username, password, dids, { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.bulkAddDIDs(username, password, dids, { portalUrl: sippyPortalUrl(settings) });
       res.status(result.success ? 200 : 207).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -5221,7 +5215,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.bulkDeleteDIDs(username, password, ids, { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.bulkDeleteDIDs(username, password, ids, { portalUrl: sippyPortalUrl(settings) });
       res.status(result.success ? 200 : 207).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -5234,7 +5228,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.addDID(username, password, did, incomingDid, { ...rest, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.addDID(username, password, did, incomingDid, { ...rest, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5248,7 +5242,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateDID(username, password, { iDid, ...req.body, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.updateDID(username, password, { iDid, ...req.body, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5262,7 +5256,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteDID(username, password, { iDid, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.deleteDID(username, password, { iDid, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5285,7 +5279,7 @@ export async function registerRoutes(
         parentIDidDelegation: parentIDidDelegation === null ? null : parseInt(parentIDidDelegation, 10),
         iDidsChargingGroup:   iDidsChargingGroup !== undefined ? parseInt(iDidsChargingGroup, 10) : undefined,
         description,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
@@ -5313,7 +5307,7 @@ export async function registerRoutes(
         expire,
         confnoLen: confnoLen !== undefined ? parseInt(confnoLen, 10) : undefined,
         iCustomer: iCustomer !== undefined ? parseInt(iCustomer, 10) : undefined,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
@@ -5331,7 +5325,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const iCustomer = req.query.iCustomer ? parseInt(req.query.iCustomer as string, 10) : undefined;
-      const result = await sippy.deleteConference(username, password, iAccount, iConference, { iCustomer, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.deleteConference(username, password, iAccount, iConference, { iCustomer, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5357,7 +5351,7 @@ export async function registerRoutes(
         targetHosts,
         period: parseInt(period, 10),
         iface,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
@@ -5373,7 +5367,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.dumpIPTrafficStatus(username, password, id, { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.dumpIPTrafficStatus(username, password, id, { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5395,7 +5389,7 @@ export async function registerRoutes(
         endDate:   endDate   || undefined,
         limit:     limit     ? parseInt(limit, 10)  : undefined,
         offset:    offset    ? parseInt(offset, 10) : undefined,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
@@ -5414,7 +5408,7 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.writeAuditLog(username, password, action, resource, {
         auditInfo: auditInfo || undefined,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
@@ -5433,7 +5427,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.generateInvoicePreview(username, password, parseInt(iInvoiceTemplate, 10), { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.generateInvoicePreview(username, password, parseInt(iInvoiceTemplate, 10), { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5453,7 +5447,7 @@ export async function registerRoutes(
         templateCss:      templateCss      || undefined,
         converterOptions: converterOptions || undefined,
         returnPdf:        returnPdf !== undefined ? Boolean(returnPdf) : undefined,
-        portalUrl:        settings.portalUrl ?? '',
+        portalUrl:        sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
@@ -5477,7 +5471,7 @@ export async function registerRoutes(
         parseInt(iAccount, 10), periodBegin, periodEnd,
         {
           iBillingPlan: iBillingPlan !== undefined ? parseInt(iBillingPlan, 10) : undefined,
-          portalUrl:    settings.portalUrl ?? '',
+          portalUrl:    sippyPortalUrl(settings),
         },
       );
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
@@ -5514,7 +5508,7 @@ export async function registerRoutes(
         callStartTime:    callStartTime    || undefined,
         paiHdr:           paiHdr           || undefined,
         rpidHdr:          rpidHdr          || undefined,
-        portalUrl:        settings.portalUrl ?? '',
+        portalUrl:        sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
@@ -5535,7 +5529,7 @@ export async function registerRoutes(
       const result = await sippy.listExtendedRouting(username, password, parseInt(iCustomer as string, 10), {
         offset:    offset    !== undefined ? parseInt(offset    as string, 10) : undefined,
         limit:     limit     !== undefined ? parseInt(limit     as string, 10) : undefined,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
@@ -5559,7 +5553,7 @@ export async function registerRoutes(
         namePatternNot:      namePatternNot     || undefined,
         iRoutingGroup:       iRoutingGroup      ? parseInt(iRoutingGroup, 10) : undefined,
         includeMembersCount: includeMembersCount ? includeMembersCount === 'true' : undefined,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
@@ -5579,7 +5573,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.addRoutingGroup(username, password, name, policy, { ...rest, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.addRoutingGroup(username, password, name, policy, { ...rest, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5594,7 +5588,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateRoutingGroup(username, password, iRoutingGroup, { ...req.body, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.updateRoutingGroup(username, password, iRoutingGroup, { ...req.body, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5608,7 +5602,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.delRoutingGroup(username, password, iRoutingGroup, { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.delRoutingGroup(username, password, iRoutingGroup, { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5622,7 +5616,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.listRoutingGroupMembers(username, password, iRoutingGroup, { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.listRoutingGroupMembers(username, password, iRoutingGroup, { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5650,7 +5644,7 @@ export async function registerRoutes(
           iConnection:      iConnection      !== undefined ? parseInt(iConnection, 10)      : undefined,
           iConnectionGroup: iConnectionGroup !== undefined ? parseInt(iConnectionGroup, 10) : undefined,
           ...rest,
-          portalUrl: settings.portalUrl ?? '',
+          portalUrl: sippyPortalUrl(settings),
         },
       );
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
@@ -5672,7 +5666,7 @@ export async function registerRoutes(
       const result = await sippy.updateRoutingGroupMember(username, password, iRoutingGroupMember, {
         iRoutingGroup,
         ...req.body,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
@@ -5691,7 +5685,7 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.delRoutingGroupMember(username, password, iRoutingGroupMember, {
         iRoutingGroup,
-        portalUrl: settings.portalUrl ?? '',
+        portalUrl: sippyPortalUrl(settings),
       });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
@@ -5708,7 +5702,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const key = req.query.key as string | undefined;
-      const result = await sippy.getSystemConfig(username, password, { key, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.getSystemConfig(username, password, { key, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5726,7 +5720,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.setSystemConfig(username, password, key, String(value), { portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.setSystemConfig(username, password, key, String(value), { portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5742,7 +5736,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const iEnvironment = req.query.iEnvironment ? parseInt(req.query.iEnvironment as string, 10) : undefined;
-      const result = await sippy.getReplicationStatus(username, password, { iEnvironment, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.getReplicationStatus(username, password, { iEnvironment, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5756,7 +5750,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const iEnvironment = req.query.iEnvironment ? parseInt(req.query.iEnvironment as string, 10) : undefined;
-      const result = await sippy.getReplicationLag(username, password, { iEnvironment, portalUrl: settings.portalUrl ?? '' });
+      const result = await sippy.getReplicationLag(username, password, { iEnvironment, portalUrl: sippyPortalUrl(settings) });
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5778,7 +5772,7 @@ export async function registerRoutes(
       const result = await sippy.make2WayCallback(
         username, password,
         { authname, cldFirst, cldSecond, cliFirst, cliSecond, creditTime, nextCall },
-        settings.portalUrl ?? '',
+        sippyPortalUrl(settings),
       );
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
@@ -5802,7 +5796,7 @@ export async function registerRoutes(
         { authname, cld, cli, langs, creditTime, chpassext, cliregext, directhotdial,
           hotdialext, hotdialeditext, keepcli, nodial, playbalance, playduration,
           noredial, topupext, trycliauth },
-        settings.portalUrl ?? '',
+        sippyPortalUrl(settings),
       );
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
@@ -5817,7 +5811,7 @@ export async function registerRoutes(
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.cancelCallback(username, password, iCallbackRequest, settings.portalUrl ?? '');
+      const result = await sippy.cancelCallback(username, password, iCallbackRequest, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -5833,7 +5827,7 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const fetchCdrs = req.query.fetchCdrs === 'true' || req.query.fetchCdrs === '1';
-      const result = await sippy.getCallbackStatus(username, password, iCallbackRequest, { fetchCdrs }, settings.portalUrl ?? '');
+      const result = await sippy.getCallbackStatus(username, password, iCallbackRequest, { fetchCdrs }, sippyPortalUrl(settings));
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
