@@ -6354,3 +6354,54 @@ export async function unblockWebUser(
     return { success: false, message: e.message };
   }
 }
+
+// ── Miscellaneous APIs ────────────────────────────────────────────────────────
+
+/**
+ * Send an email via Sippy's built-in mail relay.
+ * Official method: sendEMail() — docs 107472
+ *
+ * All six parameters are required by Sippy. Pass empty string for cc/bcc if unused.
+ */
+export async function sendSippyEmail(
+  username: string,
+  password: string,
+  opts: {
+    from: string;
+    to: string;
+    cc?: string;
+    bcc?: string;
+    subject: string;
+    body: string;
+    portalUrl?: string;
+  },
+): Promise<{ success: boolean; message: string }> {
+  const base = opts.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string> = {
+    from:    opts.from,
+    to:      opts.to,
+    cc:      opts.cc  ?? '',
+    bcc:     opts.bcc ?? '',
+    subject: opts.subject,
+    body:    opts.body,
+  };
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('sendEMail', params), username, password);
+    const text = resp.body;
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const m = extractStructMembers(text);
+      if ((m['result'] ?? extractTag(text, 'string') ?? '').trim() === 'OK') {
+        return { success: true, message: 'Email sent.' };
+      }
+    }
+    const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+      ?? extractTag(text, 'faultString') ?? 'sendEMail failed.';
+    return { success: false, message: fault };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}

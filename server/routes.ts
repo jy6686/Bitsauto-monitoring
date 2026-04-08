@@ -3132,5 +3132,26 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ── Miscellaneous APIs ──────────────────────────────────────────────────────
+
+  // POST /api/sippy/send-email — send an email via Sippy's mail relay (docs 107472)
+  // Admin + management only. Body: { from, to, cc?, bcc?, subject, body }
+  app.post('/api/sippy/send-email', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const { from, to, cc, bcc, subject, body: emailBody } = req.body ?? {};
+      if (!from || !to || !subject || !emailBody) {
+        return res.status(400).json({ success: false, error: 'from, to, subject and body are required.' });
+      }
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.sendSippyEmail(username, password, {
+        from, to, cc, bcc, subject, body: emailBody, portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json({ success: true, message: result.message });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   return httpServer;
 }
