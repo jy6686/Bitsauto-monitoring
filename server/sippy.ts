@@ -8245,6 +8245,80 @@ export async function testDialplan(
   }
 }
 
+// ─── Extended Routing (docs 3000126868) — since Sippy2023, trusted mode ───────
+
+export interface ExtendedRoutingEntry {
+  iExtendedRouting: number;
+  iWholesaler:      number;
+  iCustomer:        number;
+  iRoutingGroup:    number;
+  iTariff:          number | null;  // nil when customer's own tariff is used
+  description:      string;
+}
+
+export interface ListExtendedRoutingResult {
+  success:         boolean;
+  extendedRouting: ExtendedRoutingEntry[];
+  message:         string;
+}
+
+/**
+ * Get the list of extended routing entries for a customer.
+ * Trusted mode: supply i_wholesaler.
+ * Official method: listExtendedRouting() — docs 3000126868 (since Sippy2023)
+ */
+export async function listExtendedRouting(
+  username:   string,
+  password:   string,
+  iCustomer:  number,
+  opts?: {
+    offset?:     number;
+    limit?:      number;
+    portalUrl?:  string;
+  },
+): Promise<ListExtendedRoutingResult> {
+  const base = opts?.portalUrl ? sippyBase(opts.portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, extendedRouting: [], message: 'Not connected to Sippy.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, number> = { i_customer: iCustomer };
+  if (opts?.offset !== undefined) params.offset = opts.offset;
+  if (opts?.limit  !== undefined) params.limit  = opts.limit;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('listExtendedRouting', params as any), username, password);
+    const text = resp.body;
+
+    if (resp.statusCode !== 200 || text.includes('<fault>')) {
+      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(text, 'faultString') ?? 'listExtendedRouting failed.';
+      return { success: false, extendedRouting: [], message: fault };
+    }
+
+    // Extract the extended_routing array of structs
+    const arrMatch = /<name>extended_routing<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>\s*<\/array>\s*<\/value>/.exec(text);
+    const extendedRouting: ExtendedRoutingEntry[] = [];
+
+    if (arrMatch) {
+      const structs = parseArrayOfStructs(arrMatch[1]);
+      for (const s of structs) {
+        extendedRouting.push({
+          iExtendedRouting: parseInt(s.i_extended_routing ?? '0', 10),
+          iWholesaler:      parseInt(s.i_wholesaler      ?? '0', 10),
+          iCustomer:        parseInt(s.i_customer        ?? '0', 10),
+          iRoutingGroup:    parseInt(s.i_routing_group   ?? '0', 10),
+          iTariff:          s.i_tariff ? parseInt(s.i_tariff, 10) : null,
+          description:      s.description ?? '',
+        });
+      }
+    }
+
+    return { success: true, extendedRouting, message: 'OK' };
+  } catch (e: any) {
+    return { success: false, extendedRouting: [], message: e.message };
+  }
+}
+
 // ─── Routing Groups CRUD (docs 3000051220) ────────────────────────────────────
 
 export interface SippyRoutingGroupDetail {

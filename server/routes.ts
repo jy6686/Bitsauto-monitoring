@@ -3795,6 +3795,27 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ─── Extended Routing (docs 3000126868) — since Sippy2023, trusted mode ───────
+
+  // GET /api/sippy/extended-routing?iCustomer=&offset=&limit=
+  // Returns: { success, extendedRouting: ExtendedRoutingEntry[], message }
+  app.get('/api/sippy/extended-routing', async (req: any, res) => {
+    try {
+      const { iCustomer, offset, limit } = req.query ?? {};
+      if (!iCustomer) return res.status(400).json({ success: false, error: 'iCustomer is required.' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const result = await sippy.listExtendedRouting(username, password, parseInt(iCustomer as string, 10), {
+        offset:    offset    !== undefined ? parseInt(offset    as string, 10) : undefined,
+        limit:     limit     !== undefined ? parseInt(limit     as string, 10) : undefined,
+        portalUrl: settings.portalUrl ?? '',
+      });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // ─── Routing Groups CRUD (docs 3000051220) ────────────────────────────────────
   // NOTE: GET /api/sippy/routing-groups (listSippyRoutingGroups discovery helper) already
   // registered above at line ~1486. The routes below implement the full official CRUD.
