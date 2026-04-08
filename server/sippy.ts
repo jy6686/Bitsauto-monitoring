@@ -3268,6 +3268,8 @@ export interface SippyPushResult {
   vm_password?: string;       // voice mail PIN
   // True when account was created via portal sub-account form (not a real SIP account)
   portalSubcustomer?: boolean;
+  // Count of extra auth rules added (additional IPs) after account creation
+  extraAuthRules?: number;
 }
 
 function fmtSippyDate(d: Date): string {

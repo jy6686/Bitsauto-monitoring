@@ -2250,7 +2250,45 @@ export async function registerRoutes(
         currency:           req.body.currency      || undefined,
       };
       if (!opts.name) return res.status(400).json({ success: false, message: 'Account name is required.' });
+      // Additional opts from wizard
+      const body = req.body;
+      if (body.disallowLoops !== undefined)        opts.disallowLoops          = !!body.disallowLoops;
+      if (body.usePreferredCodecOnly !== undefined) opts.usePreferredCodecOnly  = !!body.usePreferredCodecOnly;
+      if (body.passPAssertedId !== undefined)       opts.passPAssertedId        = !!body.passPAssertedId;
+      if (body.pAssrtIdTranslationRule)             opts.pAssrtIdTranslationRule = String(body.pAssrtIdTranslationRule);
+      if (body.maxSessionTime !== undefined)        opts.maxSessionTime         = Number(body.maxSessionTime);
+      if (body.phone)                               opts.phone                  = String(body.phone);
+      if (body.fax)                                 opts.fax                    = String(body.fax);
+      if (body.cc)                                  opts.cc                     = String(body.cc);
+      if (body.bcc)                                 opts.bcc                    = String(body.bcc);
+
       const result = await sippy.pushAccountToSippy(opts, { username, password }, targetUrl);
+
+      // After successful creation — add extra IP auth rules and set low-balance alert
+      if (result.success && result.i_account) {
+        const iAccount = result.i_account;
+        const extraIps: string[] = [];
+        if (Array.isArray(body.ipAddresses)) extraIps.push(...body.ipAddresses);
+        else if (typeof body.ipAddresses === 'string' && body.ipAddresses.trim()) {
+          extraIps.push(...body.ipAddresses.split(',').map((s: string) => s.trim()).filter(Boolean));
+        }
+        // First IP was already added via ipAddress in opts; add extras
+        const firstIp = String(opts.ipAddress ?? '').trim();
+        const ipsToAdd = extraIps.filter(ip => ip && ip !== firstIp);
+        for (const ip of ipsToAdd) {
+          await sippy.addSippyAuthRule(username, password, { iAccount, iProtocol: 1, remoteIp: ip }, targetUrl);
+        }
+        // Balance threshold / alert email
+        if (body.balanceThreshold !== undefined || body.alertEmailTo) {
+          await sippy.setSippyLowBalance(username, password, {
+            iAccount,
+            ...(body.balanceThreshold !== undefined ? { threshold: Number(body.balanceThreshold) } : {}),
+            ...(body.alertEmailTo ? { notifyByEmail: 1 } : {}),
+          }, targetUrl);
+        }
+        result.extraAuthRules = ipsToAdd.length;
+      }
+
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message ?? 'Failed to create Sippy account.' });

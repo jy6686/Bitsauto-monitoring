@@ -1995,10 +1995,20 @@ const CODEC_OPTIONS = [
   { value: '15',  label: 'G.728' },
 ];
 
-// ── New Sippy Account Modal ──────────────────────────────────────────────────
+// ── New Sippy Account Modal — Multi-Step Wizard ──────────────────────────────
+const WIZARD_STEPS = [
+  { label: 'Basic Info',     icon: 'user'    },
+  { label: 'Network',        icon: 'network' },
+  { label: 'SIP Config',     icon: 'sip'     },
+  { label: 'Billing',        icon: 'billing' },
+];
+
 function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; switches: SwitchOption[] }) {
   const sippySwitches = switches.filter((s: SwitchOption) => s.type === 'sippy');
   const useInlineCreds = sippySwitches.length === 0;
+
+  // Wizard step
+  const [step, setStep] = useState(1);
 
   // Connection
   const [switchId, setSwitchId] = useState<string>('');
@@ -2007,17 +2017,17 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [inlinePass, setInlinePass] = useState('');
   const [showInlinePass, setShowInlinePass] = useState(false);
 
-  // Core account
+  // Step 1: Basic Info
   const [name, setName] = useState('');
   const [type, setType] = useState<'client' | 'vendor'>('client');
   const [companyName, setCompanyName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [fax, setFax] = useState('');
   const [country, setCountry] = useState('');
   const [description, setDescription] = useState('');
-
-  // Credentials
   const [username, setUsername] = useState('');
   const [webPassword, setWebPassword] = useState('');
   const [authname, setAuthname] = useState('');
@@ -2025,31 +2035,43 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [showWebPass, setShowWebPass] = useState(false);
   const [showVoipPass, setShowVoipPass] = useState(false);
 
-  // Network & routing
-  const [ipAddress, setIpAddress] = useState('');
+  // Step 2: Network & Routing
+  const [ipTags, setIpTags] = useState<string[]>([]);
+  const [ipInput, setIpInput] = useState('');
   const [routingGroupId, setRoutingGroupId] = useState('');
   const [tariffId, setTariffId] = useState('');
-
-  // Billing
-  const [creditLimit, setCreditLimit] = useState('');
-  const [balance, setBalance] = useState('');
-  const [lifetime, setLifetime] = useState('-1');
-  const [maxSessions, setMaxSessions] = useState('');
-  const [maxCps, setMaxCps] = useState('');
   const [ratePerMin, setRatePerMin] = useState('');
+  const [cliTranslationRule, setCliTranslationRule] = useState('');
+  const [cldTranslationRule, setCldTranslationRule] = useState('');
+  const [maxSessionTime, setMaxSessionTime] = useState('');
 
-  // SIP behaviour
+  // Step 3: SIP Configuration
   const [codec, setCodec] = useState('null');
+  const [usePreferredCodecOnly, setUsePreferredCodecOnly] = useState(false);
   const [regAllowed, setRegAllowed] = useState(true);
   const [trustCli, setTrustCli] = useState(false);
-
-  // Localisation
+  const [passPAssertedId, setPassPAssertedId] = useState(false);
+  const [pAssrtIdTranslationRule, setPAssrtIdTranslationRule] = useState('');
+  const [disallowLoops, setDisallowLoops] = useState(false);
   const [timezone, setTimezone] = useState('');
   const [currency, setCurrency] = useState('');
 
-  const [result, setResult] = useState<{ success: boolean; message: string; detail?: string; username?: string; authname?: string; voip_password?: string; web_password?: string; portalSubcustomer?: boolean } | null>(null);
+  // Step 4: Billing & Alerts
+  const [creditLimit, setCreditLimit] = useState('');
+  const [balance, setBalance] = useState('');
+  const [maxSessions, setMaxSessions] = useState('');
+  const [maxCps, setMaxCps] = useState('');
+  const [lifetime, setLifetime] = useState('-1');
+  const [balanceThreshold, setBalanceThreshold] = useState('');
+  const [alertEmailTo, setAlertEmailTo] = useState('');
+  const [alertEmailCc, setAlertEmailCc] = useState('');
 
-  // Query the active Sippy session — if connected via Settings, use it directly
+  const [result, setResult] = useState<{
+    success: boolean; message: string; detail?: string;
+    username?: string; authname?: string; voip_password?: string;
+    web_password?: string; portalSubcustomer?: boolean; extraAuthRules?: number;
+  } | null>(null);
+
   const { data: sippySession } = useQuery<{ active: boolean; mode?: string; username?: string }>({
     queryKey: ['/api/sippy/session'],
     staleTime: 30_000,
@@ -2057,7 +2079,6 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const hasActiveSession = !!(sippySession?.active);
 
   const inlineReady = useInlineCreds && !!inlineUrl.trim() && !!inlineUser.trim() && !!inlinePass.trim();
-  // We can proceed when: a switch is selected, OR inline creds entered, OR an active session exists
   const canProceed = !!(switchId || inlineReady || hasActiveSession);
 
   const switchQs = switchId
@@ -2096,162 +2117,258 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
 
   const currencies = currencyDict?.entries ?? [];
   const timezones = timezoneDict?.entries ?? [];
-
   const routingGroups = rgData?.groups ?? [];
   const billingPlans = billingPlanData?.plans ?? [];
 
+  // IP tag helpers
+  const addIpTag = (val: string) => {
+    const cleaned = val.trim();
+    if (cleaned && !ipTags.includes(cleaned)) setIpTags(prev => [...prev, cleaned]);
+    setIpInput('');
+  };
+  const removeIpTag = (ip: string) => setIpTags(prev => prev.filter(t => t !== ip));
+  const handleIpKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addIpTag(ipInput); }
+    if (e.key === 'Backspace' && !ipInput && ipTags.length) setIpTags(prev => prev.slice(0, -1));
+  };
+
   const createMut = useMutation({
     mutationFn: () => apiRequest('POST', '/api/sippy/accounts', {
-      // Connection
-      switchId:          switchId ? Number(switchId) : undefined,
-      inlineUrl:         useInlineCreds ? inlineUrl  : undefined,
-      inlineUser:        useInlineCreds ? inlineUser : undefined,
-      inlinePass:        useInlineCreds ? inlinePass : undefined,
-      // Core
+      switchId:              switchId ? Number(switchId) : undefined,
+      inlineUrl:             useInlineCreds ? inlineUrl  : undefined,
+      inlineUser:            useInlineCreds ? inlineUser : undefined,
+      inlinePass:            useInlineCreds ? inlinePass : undefined,
       name, type,
-      companyName:       companyName || undefined,
-      firstName:         firstName   || undefined,
-      lastName:          lastName    || undefined,
-      email:             email       || undefined,
-      country:           country     || undefined,
-      description:       description || undefined,
-      // Credentials
-      username:          username    || undefined,
-      webPassword:       webPassword || undefined,
-      authname:          authname    || undefined,
-      voipPassword:      voipPassword || undefined,
-      // Network & routing
-      ipAddress:         ipAddress   || undefined,
-      ratePerMin:        ratePerMin  ? Number(ratePerMin)  : undefined,
-      routingGroup:      routingGroupId || undefined,
-      servicePlan:       tariffId    || undefined,
-      // Billing
-      creditLimit:       creditLimit ? Number(creditLimit) : undefined,
-      balance:           balance     ? Number(balance)     : undefined,
-      lifetime:          lifetime !== '' ? Number(lifetime) : undefined,
-      maxSessions:       maxSessions ? Number(maxSessions) : undefined,
-      maxCallsPerSecond: maxCps      ? Number(maxCps)      : undefined,
-      // SIP behaviour
-      preferredCodec:    codec === 'null' ? null : Number(codec),
-      regAllowed:        regAllowed ? 1 : 0,
-      trustCli:          trustCli   ? 1 : 0,
-      // Localisation
-      timezone:          timezone   || undefined,
-      currency:          currency   || undefined,
+      companyName:           companyName     || undefined,
+      firstName:             firstName       || undefined,
+      lastName:              lastName        || undefined,
+      email:                 email           || undefined,
+      phone:                 phone           || undefined,
+      fax:                   fax             || undefined,
+      country:               country         || undefined,
+      description:           description     || undefined,
+      username:              username        || undefined,
+      webPassword:           webPassword     || undefined,
+      authname:              authname        || undefined,
+      voipPassword:          voipPassword    || undefined,
+      ipAddress:             ipTags[0]       || undefined,
+      ipAddresses:           ipTags,
+      ratePerMin:            ratePerMin      ? Number(ratePerMin)      : undefined,
+      routingGroup:          routingGroupId  || undefined,
+      servicePlan:           tariffId        || undefined,
+      cliTranslationRule:    cliTranslationRule || undefined,
+      cldTranslationRule:    cldTranslationRule || undefined,
+      maxSessionTime:        maxSessionTime  ? Number(maxSessionTime)  : undefined,
+      preferredCodec:        codec === 'null' ? null : Number(codec),
+      usePreferredCodecOnly: usePreferredCodecOnly || undefined,
+      regAllowed:            regAllowed ? 1 : 0,
+      trustCli:              trustCli   ? 1 : 0,
+      passPAssertedId:       passPAssertedId || undefined,
+      pAssrtIdTranslationRule: pAssrtIdTranslationRule || undefined,
+      disallowLoops:         disallowLoops || undefined,
+      timezone:              timezone        || undefined,
+      currency:              currency        || undefined,
+      creditLimit:           creditLimit     ? Number(creditLimit)     : undefined,
+      balance:               balance         ? Number(balance)         : undefined,
+      maxSessions:           maxSessions     ? Number(maxSessions)     : undefined,
+      maxCallsPerSecond:     maxCps          ? Number(maxCps)          : undefined,
+      lifetime:              lifetime !== '' ? Number(lifetime)        : undefined,
+      balanceThreshold:      balanceThreshold ? Number(balanceThreshold) : undefined,
+      alertEmailTo:          alertEmailTo    || undefined,
+      alertEmailCc:          alertEmailCc    || undefined,
     }),
-    onSuccess: async (res: any) => {
-      const data = await res.json();
-      setResult(data);
-    },
+    onSuccess: async (res: any) => { const data = await res.json(); setResult(data); },
     onError: (err: any) => {
       const msg = err.message ?? '';
       const json = msg.replace(/^\d+:\s*/, '');
-      try {
-        const parsed = JSON.parse(json);
-        setResult({ success: false, message: parsed.message ?? msg, detail: parsed.detail });
-      } catch {
-        setResult({ success: false, message: msg || 'Failed to create account.' });
-      }
+      try { const p = JSON.parse(json); setResult({ success: false, message: p.message ?? msg, detail: p.detail }); }
+      catch { setResult({ success: false, message: msg || 'Failed to create account.' }); }
     },
   });
 
   const fieldCls = "w-full px-3 py-2 text-sm rounded-lg bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/50";
   const labelCls = "text-xs font-medium text-muted-foreground mb-1 block";
+  const sectionTitle = (t: string) => (
+    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+      <span className="flex-1 h-px bg-border" />{t}<span className="flex-1 h-px bg-border" />
+    </p>
+  );
+  const checkboxRow = (id: string, label: string, checked: boolean, onChange: (v: boolean) => void, hint?: string) => (
+    <label className="flex items-start gap-2 cursor-pointer select-none">
+      <input data-testid={`checkbox-${id}`} type="checkbox" checked={checked}
+        onChange={e => onChange(e.target.checked)}
+        className="w-4 h-4 mt-0.5 rounded border-border accent-primary shrink-0" />
+      <span className="text-sm leading-tight">{label}{hint && <span className="block text-xs text-muted-foreground mt-0.5">{hint}</span>}</span>
+    </label>
+  );
+
+  const canAdvanceStep1 = !!name.trim() && (sippySwitches.length === 0 || !!switchId || hasActiveSession || inlineReady);
+
+  const ResultBanner = result ? (
+    <div className={`rounded-lg px-4 py-3 text-sm space-y-2 ${
+      result.portalSubcustomer ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
+        : result.success ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+        : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
+    }`}>
+      <div className="flex items-start gap-2">
+        {result.success && !result.portalSubcustomer
+          ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+          : <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />}
+        <span data-testid="text-sippy-create-result">
+          {result.portalSubcustomer ? (
+            <span className="space-y-1.5 block">
+              <strong className="block text-amber-200">Portal sub-account created — not a full SIP account</strong>
+              <span className="block text-xs text-amber-300/80">
+                A sub-account entry was added under your connected portal user, but <strong>this is not a proper Sippy SIP account</strong>.
+              </span>
+              <span className="block text-xs text-amber-300/80">
+                To create real accounts, go to <strong>Settings → Sippy Admin API Credentials</strong> and enter admin credentials.
+              </span>
+            </span>
+          ) : (
+            <>
+              {result.message}
+              {result.detail && <span className="block text-xs mt-1 opacity-80">{result.detail}</span>}
+              {result.extraAuthRules && result.extraAuthRules > 0 && (
+                <span className="block text-xs mt-1 opacity-80">+ {result.extraAuthRules} extra IP auth rule{result.extraAuthRules > 1 ? 's' : ''} added.</span>
+              )}
+            </>
+          )}
+        </span>
+      </div>
+      {result.success && !result.portalSubcustomer && (result.username || result.authname || result.voip_password) && (
+        <div className="mt-2 rounded-md bg-emerald-900/30 border border-emerald-500/20 p-3 space-y-1.5 text-xs">
+          <p className="font-semibold text-emerald-300 mb-1">Generated credentials — save these now:</p>
+          {result.username     && <div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">Self-care login:</span><strong className="font-mono">{result.username}</strong></div>}
+          {result.web_password && <div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">Portal password:</span><strong className="font-mono">{result.web_password}</strong></div>}
+          {result.authname     && <div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">SIP authname:</span><strong className="font-mono">{result.authname}</strong></div>}
+          {result.voip_password&& <div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">SIP password:</span><strong className="font-mono">{result.voip_password}</strong></div>}
+        </div>
+      )}
+      {result.portalSubcustomer && (
+        <div className="mt-2 pt-2 border-t border-amber-500/20">
+          <Link to="/settings" onClick={onClose} className="inline-flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 font-medium transition-colors">
+            Go to Settings → Add Admin API Credentials
+          </Link>
+        </div>
+      )}
+    </div>
+  ) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between rounded-t-2xl">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-xl max-h-[92vh] flex flex-col">
+
+        {/* ── Header ── */}
+        <div className="bg-card border-b border-border px-6 py-4 flex items-center justify-between rounded-t-2xl shrink-0">
           <div>
             <h3 className="font-semibold text-lg">New Sippy Account</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Create a customer/vendor account directly on your Sippy switch</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Create a customer/vendor account on your Sippy switch</p>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted transition-colors">
+          <button data-testid="button-close-wizard" onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-6 space-y-5">
-
-          {/* ── Connection ── */}
-          {sippySwitches.length > 0 ? (
-            <div>
-              <label className={labelCls}>Target Sippy Switch <span className="text-rose-400">*</span></label>
-              <select
-                data-testid="select-sippy-switch"
-                value={switchId}
-                onChange={e => { setSwitchId(e.target.value); setRoutingGroupId(''); setTariffId(''); }}
-                className={`${fieldCls} ${!switchId ? 'border-amber-500/50 focus:ring-amber-500/50' : ''}`}
-              >
-                <option value="">— Select a Sippy switch —</option>
-                {sippySwitches.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-              {!switchId && (
-                <p className="text-xs text-amber-400 mt-1">Select the Sippy switch to create this account on.</p>
-              )}
-            </div>
-          ) : hasActiveSession ? (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-4 py-3 flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-              <div>
-                <p className="text-xs font-semibold text-emerald-300">Using connected Sippy session</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Connected as <strong>{sippySession?.username ?? 'your account'}</strong>. Admin API credentials from Settings will be used for XML-RPC account creation.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-violet-500/30 bg-violet-500/[0.08] p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-violet-400" />
-                <span className="text-xs font-semibold text-violet-300 uppercase tracking-wide">Sippy Connection Required</span>
-              </div>
-              <p className="text-xs text-muted-foreground">No active Sippy session. Enter your Sippy admin credentials below, or connect first in Settings.</p>
-              <div>
-                <label className={labelCls}>Sippy URL <span className="text-rose-400">*</span></label>
-                <input data-testid="input-sippy-inline-url" value={inlineUrl}
-                  onChange={e => setInlineUrl(e.target.value)}
-                  placeholder="https://your-sippy-server" className={fieldCls} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelCls}>Admin Username <span className="text-rose-400">*</span></label>
-                  <input data-testid="input-sippy-inline-user" value={inlineUser}
-                    onChange={e => setInlineUser(e.target.value)}
-                    placeholder="admin" className={fieldCls} autoComplete="off" />
-                </div>
-                <div>
-                  <label className={labelCls}>Admin Password <span className="text-rose-400">*</span></label>
-                  <div className="relative">
-                    <input data-testid="input-sippy-inline-pass" value={inlinePass}
-                      type={showInlinePass ? 'text' : 'password'}
-                      onChange={e => setInlinePass(e.target.value)}
-                      placeholder="••••••••" className={`${fieldCls} pr-8`} autoComplete="off" />
-                    <button type="button" onClick={() => setShowInlinePass(p => !p)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                      {showInlinePass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+        {/* ── Step Indicator ── */}
+        {!result?.success && !result?.portalSubcustomer && (
+          <div className="px-6 py-3 border-b border-border shrink-0">
+            <div className="flex items-center gap-0">
+              {WIZARD_STEPS.map((s, i) => {
+                const idx = i + 1;
+                const active = step === idx;
+                const done   = step > idx;
+                return (
+                  <div key={idx} className="flex items-center flex-1 min-w-0">
+                    <button
+                      data-testid={`step-indicator-${idx}`}
+                      onClick={() => done ? setStep(idx) : undefined}
+                      className={`flex items-center gap-1.5 shrink-0 text-xs font-medium transition-colors ${active ? 'text-primary' : done ? 'text-emerald-400 cursor-pointer hover:text-emerald-300' : 'text-muted-foreground cursor-default'}`}
+                    >
+                      <span className={`w-5 h-5 rounded-full text-xs flex items-center justify-center shrink-0 ${active ? 'bg-primary text-primary-foreground' : done ? 'bg-emerald-500/20 text-emerald-400' : 'bg-muted text-muted-foreground'}`}>
+                        {done ? '✓' : idx}
+                      </span>
+                      <span className="hidden sm:block truncate">{s.label}</span>
                     </button>
+                    {i < WIZARD_STEPS.length - 1 && (
+                      <div className={`h-px flex-1 mx-1.5 transition-colors ${done ? 'bg-emerald-500/40' : 'bg-border'}`} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Scrollable body ── */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+
+          {/* ══ STEP 1: Basic Info ══ */}
+          {step === 1 && (<>
+
+            {/* Connection */}
+            {sippySwitches.length > 0 ? (
+              <div>
+                <label className={labelCls}>Target Sippy Switch <span className="text-rose-400">*</span></label>
+                <select data-testid="select-sippy-switch" value={switchId}
+                  onChange={e => { setSwitchId(e.target.value); setRoutingGroupId(''); setTariffId(''); }}
+                  className={`${fieldCls} ${!switchId ? 'border-amber-500/50' : ''}`}>
+                  <option value="">— Select a Sippy switch —</option>
+                  {sippySwitches.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                {!switchId && <p className="text-xs text-amber-400 mt-1">Select the Sippy switch to create this account on.</p>}
+              </div>
+            ) : hasActiveSession ? (
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-4 py-3 flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-emerald-300">Connected Sippy session active</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Admin API credentials from Settings will be used.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-violet-500/30 bg-violet-500/[0.08] p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-violet-400" />
+                  <span className="text-xs font-semibold text-violet-300 uppercase tracking-wide">Sippy Connection Required</span>
+                </div>
+                <p className="text-xs text-muted-foreground">Enter Sippy admin credentials, or connect in Settings first.</p>
+                <div>
+                  <label className={labelCls}>Sippy URL <span className="text-rose-400">*</span></label>
+                  <input data-testid="input-sippy-inline-url" value={inlineUrl} onChange={e => setInlineUrl(e.target.value)}
+                    placeholder="https://your-sippy-server" className={fieldCls} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelCls}>Admin Username <span className="text-rose-400">*</span></label>
+                    <input data-testid="input-sippy-inline-user" value={inlineUser} onChange={e => setInlineUser(e.target.value)}
+                      placeholder="admin" className={fieldCls} autoComplete="off" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Admin Password <span className="text-rose-400">*</span></label>
+                    <div className="relative">
+                      <input data-testid="input-sippy-inline-pass" value={inlinePass}
+                        type={showInlinePass ? 'text' : 'password'} onChange={e => setInlinePass(e.target.value)}
+                        placeholder="••••••••" className={`${fieldCls} pr-8`} autoComplete="off" />
+                      <button type="button" onClick={() => setShowInlinePass(p => !p)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                        {showInlinePass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* ── Section: Account Info ── */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <span className="w-4 h-px bg-border inline-block" />Account Info<span className="flex-1 h-px bg-border inline-block" />
-            </p>
+            {sectionTitle('Account Identity')}
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
-                <label className={labelCls}>Account / Display Name <span className="text-rose-400">*</span></label>
+                <label className={labelCls}>Display Name <span className="text-rose-400">*</span></label>
                 <input data-testid="input-sippy-name" value={name} onChange={e => setName(e.target.value)}
-                  placeholder="e.g. Acme Corp" className={fieldCls} />
+                  placeholder="e.g. Acme Telecom" className={fieldCls} />
               </div>
               <div>
-                <label className={labelCls}>Type</label>
+                <label className={labelCls}>Account Type</label>
                 <select data-testid="select-sippy-type" value={type} onChange={e => setType(e.target.value as 'client' | 'vendor')} className={fieldCls}>
                   <option value="client">Client (Customer)</option>
                   <option value="vendor">Vendor (Carrier)</option>
@@ -2265,7 +2382,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               <div>
                 <label className={labelCls}>First Name</label>
                 <input data-testid="input-sippy-firstname" value={firstName} onChange={e => setFirstName(e.target.value)}
-                  placeholder="Auto-derived from name" className={fieldCls} />
+                  placeholder="Auto-derived" className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>Last Name</label>
@@ -2282,87 +2399,98 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                 <input data-testid="input-sippy-country" value={country} onChange={e => setCountry(e.target.value)}
                   placeholder="e.g. US" className={fieldCls} />
               </div>
+              <div>
+                <label className={labelCls}>Phone</label>
+                <input data-testid="input-sippy-phone" value={phone} onChange={e => setPhone(e.target.value)}
+                  placeholder="+1 555 000 0000" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Fax</label>
+                <input data-testid="input-sippy-fax" value={fax} onChange={e => setFax(e.target.value)}
+                  placeholder="+1 555 000 0001" className={fieldCls} />
+              </div>
               <div className="col-span-2">
                 <label className={labelCls}>Description</label>
                 <input data-testid="input-sippy-description" value={description} onChange={e => setDescription(e.target.value)}
-                  placeholder="Optional account description" className={fieldCls} />
+                  placeholder="Optional notes" className={fieldCls} />
               </div>
             </div>
-          </div>
 
-          {/* ── Section: Credentials ── */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <span className="w-4 h-px bg-border inline-block" />Portal &amp; SIP Credentials<span className="flex-1 h-px bg-border inline-block" />
-            </p>
+            {sectionTitle('Portal & SIP Credentials')}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>Self-Care Username</label>
                 <input data-testid="input-sippy-username" value={username} onChange={e => setUsername(e.target.value)}
-                  placeholder="Auto-derived from name"
-                  className={fieldCls} autoComplete="off" />
-                <p className="text-xs text-muted-foreground mt-1">Login for the Sippy portal.</p>
+                  placeholder="Auto-derived from name" className={fieldCls} autoComplete="off" />
+                <p className="text-xs text-muted-foreground mt-1">Portal login. Leave blank to auto-derive.</p>
               </div>
               <div>
                 <label className={labelCls}>Portal Password</label>
                 <div className="relative">
                   <input data-testid="input-sippy-webpass" value={webPassword} onChange={e => setWebPassword(e.target.value)}
-                    type={showWebPass ? 'text' : 'password'}
-                    placeholder="Auto-generated" className={`${fieldCls} pr-8`} autoComplete="new-password" />
+                    type={showWebPass ? 'text' : 'password'} placeholder="Auto-generated"
+                    className={`${fieldCls} pr-8`} autoComplete="new-password" />
                   <button type="button" onClick={() => setShowWebPass(p => !p)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                     {showWebPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </button>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">Leave blank to auto-generate.</p>
               </div>
               <div>
-                <label className={labelCls}>SIP Authname (VoIP login)</label>
+                <label className={labelCls}>SIP Authname</label>
                 <input data-testid="input-sippy-authname" value={authname} onChange={e => setAuthname(e.target.value)}
-                  placeholder={name ? name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'sipuser' : 'Auto-derived from name'}
+                  placeholder={name ? name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'sipuser' : 'Auto-derived'}
                   className={fieldCls} autoComplete="off" />
-                <p className="text-xs text-muted-foreground mt-1">Used for SIP REGISTER authentication.</p>
+                <p className="text-xs text-muted-foreground mt-1">For SIP REGISTER authentication.</p>
               </div>
               <div>
-                <label className={labelCls}>SIP Password (VoIP)</label>
+                <label className={labelCls}>SIP Password</label>
                 <div className="relative">
                   <input data-testid="input-sippy-voippass" value={voipPassword} onChange={e => setVoipPassword(e.target.value)}
-                    type={showVoipPass ? 'text' : 'password'}
-                    placeholder="Auto-generated" className={`${fieldCls} pr-8`} autoComplete="new-password" />
+                    type={showVoipPass ? 'text' : 'password'} placeholder="Auto-generated"
+                    className={`${fieldCls} pr-8`} autoComplete="new-password" />
                   <button type="button" onClick={() => setShowVoipPass(p => !p)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                     {showVoipPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </button>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">Leave blank to auto-generate.</p>
               </div>
             </div>
-          </div>
+          </>)}
 
-          {/* ── Section: Routing & Plans ── */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <span className="w-4 h-px bg-border inline-block" />Network &amp; Routing<span className="flex-1 h-px bg-border inline-block" />
-            </p>
+          {/* ══ STEP 2: Network & Routing ══ */}
+          {step === 2 && (<>
+            {sectionTitle('Client IP Addresses')}
+            <div>
+              <label className={labelCls}>Allowed IPs <span className="text-muted-foreground">(press Enter or comma to add)</span></label>
+              <div className={`${fieldCls} flex flex-wrap gap-1.5 min-h-[40px] cursor-text`}
+                onClick={() => document.getElementById('ip-tag-input')?.focus()}>
+                {ipTags.map(ip => (
+                  <span key={ip} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/15 text-primary text-xs font-mono">
+                    {ip}
+                    <button type="button" onClick={() => removeIpTag(ip)} className="hover:text-rose-400 transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+                <input id="ip-tag-input" data-testid="input-sippy-ip-tags"
+                  value={ipInput} onChange={e => setIpInput(e.target.value)}
+                  onKeyDown={handleIpKeyDown}
+                  onBlur={() => ipInput.trim() && addIpTag(ipInput)}
+                  placeholder={ipTags.length === 0 ? 'e.g. 192.168.1.1' : ''}
+                  className="flex-1 min-w-[120px] bg-transparent outline-none text-sm placeholder:text-muted-foreground" />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Each IP becomes an auth rule (IP-based authentication). Add all SBC/trunk IPs.</p>
+            </div>
+
+            {sectionTitle('Routing & Service Plan')}
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>IP Address</label>
-                <input data-testid="input-sippy-ip" value={ipAddress} onChange={e => setIpAddress(e.target.value)}
-                  placeholder="e.g. 192.168.1.1" className={fieldCls} />
-              </div>
-              <div>
-                <label className={labelCls}>Rate / Min ($)</label>
-                <input data-testid="input-sippy-rate" type="number" step="0.0001" min="0" value={ratePerMin}
-                  onChange={e => setRatePerMin(e.target.value)} placeholder="0.0050" className={fieldCls} />
-              </div>
               <div>
                 <label className={labelCls}>Routing Group</label>
                 {routingGroups.length > 0 ? (
                   <select data-testid="select-sippy-routing" value={routingGroupId} onChange={e => setRoutingGroupId(e.target.value)} className={fieldCls}>
                     <option value="">— Auto-select first —</option>
-                    {routingGroups.map(g => (
-                      <option key={g.id} value={String(g.id)}>{g.name} (#{g.id})</option>
-                    ))}
+                    {routingGroups.map(g => <option key={g.id} value={String(g.id)}>{g.name} (#{g.id})</option>)}
                   </select>
                 ) : (
                   <input data-testid="input-sippy-routing" value={routingGroupId} onChange={e => setRoutingGroupId(e.target.value)}
@@ -2379,17 +2507,15 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                 ) : billingPlans.length > 0 ? (
                   <select data-testid="select-sippy-tariff" value={tariffId} onChange={e => setTariffId(e.target.value)} className={fieldCls}>
                     <option value="">— Select a service plan —</option>
-                    {billingPlans.map(p => (
-                      <option key={p.id} value={String(p.id)}>{p.name}{p.currency ? ` (${p.currency})` : ''} (#{p.id})</option>
-                    ))}
+                    {billingPlans.map(p => <option key={p.id} value={String(p.id)}>{p.name}{p.currency ? ` (${p.currency})` : ''} (#{p.id})</option>)}
                   </select>
                 ) : (
                   <>
                     <input data-testid="input-sippy-plan" value={tariffId} onChange={e => setTariffId(e.target.value)}
                       placeholder="Enter billing plan ID" type="number" min="1" className={fieldCls} />
                     <div className="mt-2 rounded-lg px-3 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs flex items-start gap-2">
-                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                      <span>Create a plan in your Sippy portal → <em>Billing → Service Plans</em>, then reload this modal.</span>
+                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <span>Create a plan in Sippy portal → <em>Billing → Service Plans</em>, then re-open this form.</span>
                     </div>
                   </>
                 )}
@@ -2397,45 +2523,99 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                   <p className="text-xs text-muted-foreground mt-1 italic">{billingPlanData.error}</p>
                 )}
               </div>
+              <div>
+                <label className={labelCls}>Rate / Min ($)</label>
+                <input data-testid="input-sippy-rate" type="number" step="0.0001" min="0" value={ratePerMin}
+                  onChange={e => setRatePerMin(e.target.value)} placeholder="0.0050" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Max Session Time (sec)</label>
+                <input data-testid="input-sippy-session-time" type="number" min="0" value={maxSessionTime}
+                  onChange={e => setMaxSessionTime(e.target.value)} placeholder="3600 (1 hour)" className={fieldCls} />
+              </div>
             </div>
-          </div>
 
-          {/* ── Section: SIP Settings ── */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <span className="w-4 h-px bg-border inline-block" />SIP Settings<span className="flex-1 h-px bg-border inline-block" />
-            </p>
+            {sectionTitle('Translation Rules')}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>CLI Translation Rule</label>
+                <input data-testid="input-sippy-cli-rule" value={cliTranslationRule} onChange={e => setCliTranslationRule(e.target.value)}
+                  placeholder="e.g. s/^/+/" className={fieldCls} />
+                <p className="text-xs text-muted-foreground mt-1">Applied to caller-ID (CLI).</p>
+              </div>
+              <div>
+                <label className={labelCls}>CLD Translation Rule</label>
+                <input data-testid="input-sippy-cld-rule" value={cldTranslationRule} onChange={e => setCldTranslationRule(e.target.value)}
+                  placeholder="e.g. s/^0//" className={fieldCls} />
+                <p className="text-xs text-muted-foreground mt-1">Applied to called number (CLD).</p>
+              </div>
+            </div>
+          </>)}
+
+          {/* ══ STEP 3: SIP Configuration ══ */}
+          {step === 3 && (<>
+            {sectionTitle('Codec & Media')}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>Preferred Codec</label>
                 <select data-testid="select-sippy-codec" value={codec} onChange={e => setCodec(e.target.value)} className={fieldCls}>
-                  {CODEC_OPTIONS.map(c => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
-                  ))}
+                  {CODEC_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
               </div>
-              <div className="flex flex-col gap-2 pt-1">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input data-testid="checkbox-sippy-reg" type="checkbox" checked={regAllowed}
-                    onChange={e => setRegAllowed(e.target.checked)}
-                    className="w-4 h-4 rounded border-border accent-primary" />
-                  <span className="text-sm">Allow SIP Registration</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input data-testid="checkbox-sippy-trust-cli" type="checkbox" checked={trustCli}
-                    onChange={e => setTrustCli(e.target.checked)}
-                    className="w-4 h-4 rounded border-border accent-primary" />
-                  <span className="text-sm">Trust CLI (caller ID)</span>
-                </label>
+              <div className="flex flex-col justify-end pb-0.5">
+                {checkboxRow('use-codec-only', 'Use preferred codec only', usePreferredCodecOnly, setUsePreferredCodecOnly, 'Reject calls that cannot use this codec')}
               </div>
             </div>
-          </div>
 
-          {/* ── Section: Billing & Limits ── */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <span className="w-4 h-px bg-border inline-block" />Billing &amp; Limits<span className="flex-1 h-px bg-border inline-block" />
-            </p>
+            {sectionTitle('SIP Behaviour')}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2.5">
+                {checkboxRow('sippy-reg', 'Allow SIP Registration', regAllowed, setRegAllowed)}
+                {checkboxRow('sippy-trust-cli', 'Trust CLI (caller ID)', trustCli, setTrustCli)}
+                {checkboxRow('sippy-disallow-loops', 'Disallow Loop Calls', disallowLoops, setDisallowLoops, 'Reject calls routed back to this account')}
+              </div>
+              <div className="space-y-2.5">
+                {checkboxRow('sippy-p-asserted', 'Pass P-Asserted-Identity', passPAssertedId, setPassPAssertedId)}
+              </div>
+            </div>
+
+            <div>
+              <label className={labelCls}>P-Asserted-ID Translation Rule</label>
+              <input data-testid="input-sippy-pai-rule" value={pAssrtIdTranslationRule} onChange={e => setPAssrtIdTranslationRule(e.target.value)}
+                placeholder="e.g. s/^/+/" className={fieldCls} />
+              <p className="text-xs text-muted-foreground mt-1">Only used when Pass P-Asserted-Identity is enabled.</p>
+            </div>
+
+            {sectionTitle('Localisation')}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Currency</label>
+                {currencies.length > 0 ? (
+                  <select data-testid="select-sippy-currency" value={currency} onChange={e => setCurrency(e.target.value)} className={fieldCls}>
+                    <option value="">— Default (USD) —</option>
+                    {currencies.map(c => <option key={c.id} value={c.id}>{c.id} — {c.name}</option>)}
+                  </select>
+                ) : (
+                  <input data-testid="input-sippy-currency" value={currency} onChange={e => setCurrency(e.target.value)} placeholder="USD" className={fieldCls} />
+                )}
+              </div>
+              <div>
+                <label className={labelCls}>Time Zone</label>
+                {timezones.length > 0 ? (
+                  <select data-testid="select-sippy-timezone" value={timezone} onChange={e => setTimezone(e.target.value)} className={fieldCls}>
+                    <option value="">— Default (UTC) —</option>
+                    {timezones.map(tz => <option key={tz.id} value={tz.id}>{tz.name} (#{tz.id})</option>)}
+                  </select>
+                ) : (
+                  <input data-testid="input-sippy-timezone" value={timezone} onChange={e => setTimezone(e.target.value)} placeholder="1 (UTC)" className={fieldCls} />
+                )}
+              </div>
+            </div>
+          </>)}
+
+          {/* ══ STEP 4: Billing & Alerts ══ */}
+          {step === 4 && (<>
+            {sectionTitle('Billing & Limits')}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>Credit Limit ($)</label>
@@ -2448,7 +2628,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                   onChange={e => setBalance(e.target.value)} placeholder="0.00" className={fieldCls} />
               </div>
               <div>
-                <label className={labelCls}>Max Sessions</label>
+                <label className={labelCls}>Max Concurrent Sessions</label>
                 <input data-testid="input-sippy-sessions" type="number" min="0" value={maxSessions}
                   onChange={e => setMaxSessions(e.target.value)} placeholder="0 (unlimited)" className={fieldCls} />
               </div>
@@ -2457,115 +2637,76 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                 <input data-testid="input-sippy-cps" type="number" min="1" value={maxCps}
                   onChange={e => setMaxCps(e.target.value)} placeholder="Unlimited" className={fieldCls} />
               </div>
-              <div>
-                <label className={labelCls}>Lifetime (days)</label>
+              <div className="col-span-2">
+                <label className={labelCls}>Account Lifetime (days)</label>
                 <input data-testid="input-sippy-lifetime" type="number" value={lifetime}
                   onChange={e => setLifetime(e.target.value)} placeholder="-1 (unlimited)" className={fieldCls} />
-                <p className="text-xs text-muted-foreground mt-1">-1 = unlimited. 0+ = expires in N days.</p>
-              </div>
-              <div>
-                <label className={labelCls}>Currency</label>
-                {currencies.length > 0 ? (
-                  <select data-testid="select-sippy-currency" value={currency} onChange={e => setCurrency(e.target.value)} className={fieldCls}>
-                    <option value="">— Default (USD) —</option>
-                    {currencies.map(c => (
-                      <option key={c.id} value={c.id}>{c.id} — {c.name}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input data-testid="input-sippy-currency" value={currency} onChange={e => setCurrency(e.target.value)}
-                    placeholder="USD" className={fieldCls} />
-                )}
-              </div>
-              <div>
-                <label className={labelCls}>Time Zone</label>
-                {timezones.length > 0 ? (
-                  <select data-testid="select-sippy-timezone" value={timezone} onChange={e => setTimezone(e.target.value)} className={fieldCls}>
-                    <option value="">— Default (UTC) —</option>
-                    {timezones.map(tz => (
-                      <option key={tz.id} value={tz.id}>{tz.name} (#{tz.id})</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input data-testid="input-sippy-timezone" value={timezone} onChange={e => setTimezone(e.target.value)}
-                    placeholder="1 (UTC)" className={fieldCls} />
-                )}
+                <p className="text-xs text-muted-foreground mt-1">-1 = unlimited. 0+ = expires in N days from creation.</p>
               </div>
             </div>
-          </div>
 
-          {result && (
-            <div className={`rounded-lg px-4 py-3 text-sm space-y-2 ${
-              result.portalSubcustomer
-                ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
-                : result.success
-                  ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
-                  : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
-            }`}>
-              <div className="flex items-start gap-2">
-                {result.portalSubcustomer
-                  ? <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-400" />
-                  : result.success
-                    ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                    : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
-                <span data-testid="text-sippy-create-result">
-                  {result.portalSubcustomer ? (
-                    <span className="space-y-1.5 block">
-                      <strong className="block text-amber-200">Portal sub-account created — not a full SIP account</strong>
-                      <span className="block text-xs text-amber-300/80">
-                        A sub-account entry was added under your connected portal user, but <strong>this is not a proper Sippy SIP account</strong>. It will not appear in the main accounts list and has no SIP credentials.
-                      </span>
-                      <span className="block text-xs text-amber-300/80">
-                        To create real Sippy accounts with SIP credentials, go to <strong>Settings → Sippy Admin API Credentials</strong> and enter your administrator username and password.
-                      </span>
-                    </span>
-                  ) : (
-                    <>
-                      {result.message}
-                      {result.detail && <span className="block text-xs mt-1 opacity-80">{result.detail}</span>}
-                    </>
-                  )}
-                </span>
+            {sectionTitle('Low Balance Alerts')}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className={labelCls}>Balance Threshold ($)</label>
+                <input data-testid="input-sippy-threshold" type="number" min="0" step="0.01" value={balanceThreshold}
+                  onChange={e => setBalanceThreshold(e.target.value)} placeholder="e.g. 10.00" className={fieldCls} />
+                <p className="text-xs text-muted-foreground mt-1">Send alert when balance drops below this amount. Leave blank to disable.</p>
               </div>
-              {/* Show generated SIP credentials on real success (XML-RPC path) */}
-              {result.success && !result.portalSubcustomer && (result.username || result.authname || result.voip_password) && (
-                <div className="mt-2 rounded-md bg-emerald-900/30 border border-emerald-500/20 p-3 space-y-1.5 text-xs">
-                  <p className="font-semibold text-emerald-300 mb-1">Generated SIP Credentials — save these now:</p>
-                  {result.username    && <div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">Self-care login:</span><strong className="font-mono">{result.username}</strong></div>}
-                  {result.web_password&& <div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">Portal password:</span><strong className="font-mono">{result.web_password}</strong></div>}
-                  {result.authname    && <div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">SIP authname:</span><strong className="font-mono">{result.authname}</strong></div>}
-                  {result.voip_password&&<div className="flex gap-2"><span className="text-muted-foreground w-28 shrink-0">SIP password:</span><strong className="font-mono">{result.voip_password}</strong></div>}
-                </div>
-              )}
-              {/* When portal sub-account: show a direct link to Settings */}
-              {result.portalSubcustomer && (
-                <div className="mt-2 pt-2 border-t border-amber-500/20">
-                  <Link
-                    to="/settings"
-                    onClick={onClose}
-                    className="inline-flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 font-medium transition-colors"
-                  >
-                    Go to Settings → Add Admin API Credentials
-                  </Link>
-                </div>
-              )}
+              <div>
+                <label className={labelCls}>Alert Email (To)</label>
+                <input data-testid="input-sippy-alert-email-to" type="email" value={alertEmailTo}
+                  onChange={e => setAlertEmailTo(e.target.value)}
+                  placeholder="billing@example.com" className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Alert Email (CC)</label>
+                <input data-testid="input-sippy-alert-email-cc" type="email" value={alertEmailCc}
+                  onChange={e => setAlertEmailCc(e.target.value)}
+                  placeholder="manager@example.com" className={fieldCls} />
+              </div>
             </div>
-          )}
+
+            {result && ResultBanner}
+          </>)}
+
         </div>
 
-        <div className="px-6 pb-6 flex items-center gap-3 justify-end">
+        {/* ── Footer ── */}
+        <div className="px-6 py-4 border-t border-border flex items-center gap-3 shrink-0">
+          {/* Done / Cancel */}
           <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors">
             {(result?.success || result?.portalSubcustomer) ? 'Close' : 'Cancel'}
           </button>
-          {!(result?.success || result?.portalSubcustomer) && (
+
+          <div className="flex-1" />
+
+          {/* Back */}
+          {step > 1 && !(result?.success || result?.portalSubcustomer) && (
+            <button data-testid="button-wizard-back"
+              onClick={() => setStep(s => s - 1)}
+              className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors flex items-center gap-1.5">
+              ← Back
+            </button>
+          )}
+
+          {/* Next */}
+          {step < 4 && (
+            <button data-testid="button-wizard-next"
+              disabled={step === 1 && !canAdvanceStep1}
+              onClick={() => setStep(s => s + 1)}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors">
+              Next →
+            </button>
+          )}
+
+          {/* Create (step 4 only) */}
+          {step === 4 && !(result?.success || result?.portalSubcustomer) && (
             <button
               data-testid="button-sippy-create-account"
-              disabled={!name.trim() || createMut.isPending
-                || (sippySwitches.length > 0 && !switchId)
-                || (useInlineCreds && !hasActiveSession && (!inlineUrl.trim() || !inlineUser.trim() || !inlinePass.trim()))}
+              disabled={!name.trim() || createMut.isPending}
               onClick={() => createMut.mutate()}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-            >
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors">
               {createMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
               {createMut.isPending ? 'Creating…' : 'Create on Sippy'}
             </button>
