@@ -530,8 +530,8 @@ function SwitchPanel({
       {/* ── DETAILS TAB ──────────────────────────────────────────────────── */}
       {callViewTab === 'details' && (
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-          {isPrimary ? (
-            // Primary: show DB call records
+          {isPrimary && !isPrimarySippy ? (
+            // Primary non-Sippy: show local DB call records
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="bg-muted/40 text-muted-foreground border-b border-border/50">
