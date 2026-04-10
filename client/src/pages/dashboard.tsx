@@ -79,17 +79,17 @@ export default function DashboardPage() {
     queryKey: ['/api/sippy/session'],
     refetchInterval: 30000,
   });
-  // Sippy live calls — polled frequently when Sippy session is active
-  const { data: sippyLiveCalls } = useQuery<{ calls: any[]; error?: string }>({
+  // Sippy live calls — always polled; server uses hardcoded defaults so no session needed
+  const { data: sippyLiveCalls } = useQuery<{ calls: any[]; connected?: boolean; error?: string }>({
     queryKey: ['/api/sippy/live-calls'],
     refetchInterval: 5000,
-    enabled: !!sippySession?.active,
   });
-  // Sippy CDR records
+  // Sippy CDR records — poll once connected
+  const isSippyReachable = sippyLiveCalls?.connected === true || !!sippySession?.active;
   const { data: sippyCdr } = useQuery<{ cdrs: any[]; error?: string }>({
     queryKey: ['/api/sippy/cdr'],
     refetchInterval: 60000,
-    enabled: !!sippySession?.active,
+    enabled: isSippyReachable,
   });
 
   const probeMutation = useMutation({
@@ -98,7 +98,8 @@ export default function DashboardPage() {
   });
 
   const simulationOff = settings && !settings.simulationEnabled;
-  const anyPortalActive = !!sippySession?.active;
+  // anyPortalActive: true as soon as live-calls endpoint confirms reachability (no session dependency)
+  const anyPortalActive = isSippyReachable;
   const notConnected = simulationOff && !anyPortalActive;
 
   // Build chart data from recent call metrics (real or simulated)

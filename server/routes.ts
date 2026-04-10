@@ -1242,28 +1242,35 @@ export async function registerRoutes(
   });
 
   // GET /api/sippy/live-calls — active calls from Sippy
+  // Always passes portalUrl explicitly so it works even if activeSession is null
   app.get('/api/sippy/live-calls', async (_req, res) => {
-    const settings = await storage.getSettings();
-    const { username, password } = sippyXmlCreds(settings);
-    const raw = await sippy.getSippyActiveCalls(username, password);
-    // Map CC_STATE → callStatus; filter out terminated states (Dead, Disconnecting, Disconnected)
-    const ccStateMap: Record<string, 'connected' | 'routing'> = {
-      Connected:    'connected',
-      ARComplete:   'routing',
-      WaitRoute:    'routing',
-      WaitAuth:     'routing',
-      Idle:         'routing',
-    };
-    const TERMINATED = new Set(['Dead', 'Disconnecting', 'Disconnected', 'Released', 'Rejected']);
-    const calls = raw
-      .filter(c => !TERMINATED.has(c.status ?? ''))
-      .map(c => ({
-        ...c,
-        clientName:  c.user || c.accountId || undefined,
-        ccState:     c.status,
-        callStatus:  ccStateMap[c.status ?? ''] ?? (c.status?.toLowerCase().includes('connect') ? 'connected' : 'routing'),
-      }));
-    res.json({ calls });
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings); // explicit — no activeSession dependency
+      const raw = await sippy.getSippyActiveCalls(username, password, portalUrl);
+      // Map CC_STATE → callStatus; filter out terminated states
+      const ccStateMap: Record<string, 'connected' | 'routing'> = {
+        Connected:    'connected',
+        ARComplete:   'routing',
+        WaitRoute:    'routing',
+        WaitAuth:     'routing',
+        Idle:         'routing',
+      };
+      const TERMINATED = new Set(['Dead', 'Disconnecting', 'Disconnected', 'Released', 'Rejected']);
+      const calls = raw
+        .filter(c => !TERMINATED.has(c.status ?? ''))
+        .map(c => ({
+          ...c,
+          clientName:  c.user || c.accountId || undefined,
+          ccState:     c.status,
+          callStatus:  ccStateMap[c.status ?? ''] ?? (c.status?.toLowerCase().includes('connect') ? 'connected' : 'routing'),
+        }));
+      // connected=true tells the frontend that Sippy is reachable regardless of call count
+      res.json({ calls, connected: true });
+    } catch (err: any) {
+      res.json({ calls: [], connected: false, error: err.message });
+    }
   });
 
   // GET /api/sippy/monitoring/acd-asr — ACD/ASR time-series from Sippy monitoring API
