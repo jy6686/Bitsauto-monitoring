@@ -75,32 +75,130 @@ export function sipCodeToFailReason(sipCode: number | null | undefined): FailRea
 export type FasResult = {
   isFas: boolean;
   reason: string;
+  fraudScore: number; // 0-100 composite score (higher = more suspicious)
 };
 
+/**
+ * Composite FAS score formula (CDR-only adaptation of the reference document):
+ *   40pts — zero_billed  : answered (200) but 0 seconds billed
+ *   30pts — high_pdd     : PDD > fasMinPddSecs (suspiciously slow answer)
+ *   20pts — short_billed : billed < fasMaxBillSecs but > 0 (nearly instant hang-up)
+ *   15pts — early_answer : PDD < fasEarlyAnswerSecs (suspiciously instant answer — pre-answer billing)
+ *   10pts — short_call   : billed < fasShortCallSecs (short call, minor indicator)
+ * Max = 100 (capped).
+ */
 export function detectFas(opts: {
   sipCode: number | null | undefined;
   pddSecs: number | null | undefined;
   billSecs: number | null | undefined;
   fasMinPddSecs: number;
   fasMaxBillSecs: number;
+  fasEarlyAnswerSecs?: number;
+  fasShortCallSecs?: number;
 }): FasResult {
-  const { sipCode, pddSecs, billSecs, fasMinPddSecs, fasMaxBillSecs } = opts;
+  const {
+    sipCode, pddSecs, billSecs, fasMinPddSecs, fasMaxBillSecs,
+    fasEarlyAnswerSecs = 2, fasShortCallSecs = 10,
+  } = opts;
   const isAnswered = sipCode === 200;
 
-  if (!isAnswered) return { isFas: false, reason: '' };
+  if (!isAnswered) return { isFas: false, reason: '', fraudScore: 0 };
 
   const reasons: string[] = [];
+  let score = 0;
 
+  // Zero billed: 200 OK but 0 or null billing duration — strongest indicator
+  if (billSecs != null && billSecs <= 0) {
+    reasons.push('zero_billed');
+    score += 40;
+  }
+  // High PDD: too slow to answer — wholesaler may be injecting fake ringback
   if (pddSecs != null && pddSecs > fasMinPddSecs) {
-    reasons.push(`high_pdd (${pddSecs.toFixed(1)}s > ${fasMinPddSecs}s)`);
+    reasons.push(`high_pdd`);
+    score += 30;
   }
-  if (billSecs != null && billSecs < fasMaxBillSecs && billSecs > 0) {
-    reasons.push(`short_billed (${billSecs}s < ${fasMaxBillSecs}s)`);
+  // Short billed: answered but disconnected almost immediately
+  if (billSecs != null && billSecs > 0 && billSecs < fasMaxBillSecs) {
+    reasons.push('short_billed');
+    score += 20;
   }
+  // Early answer: PDD suspiciously low — possible pre-answer billing
+  if (pddSecs != null && pddSecs < fasEarlyAnswerSecs && pddSecs >= 0) {
+    reasons.push('early_answer');
+    score += 15;
+  }
+  // Short call: not a hard FAS indicator but adds to pattern
+  if (billSecs != null && billSecs > 0 && billSecs < fasShortCallSecs &&
+      !reasons.includes('short_billed')) {
+    reasons.push('short_call');
+    score += 10;
+  }
+
+  const fraudScore = Math.min(100, score);
+  return {
+    isFas: reasons.some(r => ['zero_billed', 'high_pdd', 'short_billed'].includes(r)),
+    reason: reasons.join(','),
+    fraudScore,
+  };
+}
+
+// ── Vendor Fraud Score ──────────────────────────────────────────────────────
+
+export type VendorFraudStats = {
+  vendor: string;
+  totalCalls: number;
+  answeredCalls: number;
+  fasCount: number;        // hard FAS events
+  zeroBilledCount: number;
+  earlyAnswerCount: number;
+  shortCallCount: number;
+  highPddCount: number;
+  avgPdd: number;
+  avgBillSecs: number;
+  fasRate: number;         // %
+  shortCallRate: number;   // %
+  zeroBilledRate: number;  // %
+  earlyAnswerRate: number; // %
+  fraudScore: number;      // 0-100 vendor-level aggregate
+  riskLevel: 'green' | 'yellow' | 'red';
+};
+
+export function calcVendorFraudStats(
+  vendor: string,
+  cdrs: Array<{ sipCode?: number | null; pddSecs?: number | null; billSecs?: number | null; reason?: string; isFas?: boolean; fraudScore?: number }>,
+): VendorFraudStats {
+  const total = cdrs.length;
+  const answered = cdrs.filter(c => c.sipCode === 200).length;
+  const fasCount = cdrs.filter(c => c.isFas).length;
+  const zeroBilledCount = cdrs.filter(c => c.reason?.includes('zero_billed')).length;
+  const earlyAnswerCount = cdrs.filter(c => c.reason?.includes('early_answer')).length;
+  const shortCallCount = cdrs.filter(c => c.reason?.includes('short_call') || c.reason?.includes('short_billed')).length;
+  const highPddCount = cdrs.filter(c => c.reason?.includes('high_pdd')).length;
+  const totalPdd = cdrs.reduce((s, c) => s + (c.pddSecs ?? 0), 0);
+  const totalBill = cdrs.reduce((s, c) => s + (c.billSecs ?? 0), 0);
+  const avgFraudScore = total > 0 ? cdrs.reduce((s, c) => s + (c.fraudScore ?? 0), 0) / total : 0;
+
+  const fasRate = answered > 0 ? (fasCount / answered) * 100 : 0;
+  const shortCallRate = answered > 0 ? (shortCallCount / answered) * 100 : 0;
+  const zeroBilledRate = answered > 0 ? (zeroBilledCount / answered) * 100 : 0;
+  const earlyAnswerRate = answered > 0 ? (earlyAnswerCount / answered) * 100 : 0;
+
+  // Vendor-level fraud score (weighted average of per-call scores, boosted by high rates)
+  let vendorScore = avgFraudScore;
+  if (fasRate > 30) vendorScore = Math.min(100, vendorScore + 20);
+  if (zeroBilledRate > 20) vendorScore = Math.min(100, vendorScore + 15);
+  vendorScore = Math.min(100, Math.round(vendorScore));
+
+  const riskLevel: 'green' | 'yellow' | 'red' =
+    vendorScore >= 50 ? 'red' : vendorScore >= 20 ? 'yellow' : 'green';
 
   return {
-    isFas: reasons.length > 0,
-    reason: reasons.join(', '),
+    vendor, totalCalls: total, answeredCalls: answered,
+    fasCount, zeroBilledCount, earlyAnswerCount, shortCallCount, highPddCount,
+    avgPdd: total > 0 ? totalPdd / total : 0,
+    avgBillSecs: total > 0 ? totalBill / total : 0,
+    fasRate, shortCallRate, zeroBilledRate, earlyAnswerRate,
+    fraudScore: vendorScore, riskLevel,
   };
 }
 
@@ -120,6 +218,7 @@ export type EnrichedCdr = {
   failReason: FailReason;
   isFas: boolean;
   fasReason: string;
+  fraudScore: number;
 };
 
 export function enrichCdr(opts: {
@@ -131,16 +230,21 @@ export function enrichCdr(opts: {
   billSecs?: number | null;
   fasMinPddSecs: number;
   fasMaxBillSecs: number;
+  fasEarlyAnswerSecs?: number;
+  fasShortCallSecs?: number;
 }): EnrichedCdr {
-  const { caller, callee, accountId, sipCode, pddSecs, billSecs, fasMinPddSecs, fasMaxBillSecs } = opts;
+  const { caller, callee, accountId, sipCode, pddSecs, billSecs,
+          fasMinPddSecs, fasMaxBillSecs, fasEarlyAnswerSecs, fasShortCallSecs } = opts;
 
   const originCountry = detectCountry(caller);
   const termCountry = detectCountry(callee);
   const trunkClass = detectTrunkClass(accountId);
   const failReason = sipCodeToFailReason(sipCode);
-  const { isFas, reason: fasReason } = detectFas({ sipCode, pddSecs, billSecs, fasMinPddSecs, fasMaxBillSecs });
+  const { isFas, reason: fasReason, fraudScore } = detectFas({
+    sipCode, pddSecs, billSecs, fasMinPddSecs, fasMaxBillSecs, fasEarlyAnswerSecs, fasShortCallSecs,
+  });
 
-  return { originCountry, termCountry, trunkClass, failReason, isFas, fasReason };
+  return { originCountry, termCountry, trunkClass, failReason, isFas, fasReason, fraudScore };
 }
 
 // ── Revenue / Cost / Profit ────────────────────────────────────────────────

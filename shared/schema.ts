@@ -89,8 +89,10 @@ export const settings = pgTable("settings", {
   alertEnabled: boolean("alert_enabled").default(false),
   // Alert thresholds
   balanceAlertThreshold: real("balance_alert_threshold").default(10), // alert if balance < this (USD)
-  fasMinPddSecs: integer("fas_min_pdd_secs").default(10),     // PDD > this = FAS candidate
-  fasMaxBillSecs: integer("fas_max_bill_secs").default(5),    // billed < this but answered = FAS
+  fasMinPddSecs: integer("fas_min_pdd_secs").default(10),        // PDD > this = FAS candidate
+  fasMaxBillSecs: integer("fas_max_bill_secs").default(5),       // billed < this but answered = FAS
+  fasEarlyAnswerSecs: integer("fas_early_answer_secs").default(2), // PDD < this = suspiciously fast answer
+  fasShortCallSecs: integer("fas_short_call_secs").default(10),   // billed < this = short call (not FAS by itself)
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports
@@ -159,7 +161,8 @@ export const fasEvents = pgTable("fas_events", {
   pddSecs: real("pdd_secs"),
   billSecs: integer("bill_secs"),
   sipCode: integer("sip_code"),
-  reason: varchar("reason", { length: 128 }),  // 'high_pdd' | 'short_billed' | 'vendor_pattern'
+  reason: varchar("reason", { length: 255 }),  // comma-sep: 'high_pdd' | 'short_billed' | 'zero_billed' | 'early_answer' | 'short_call'
+  fraudScore: real("fraud_score"),             // composite score 0-100 (higher = more suspicious)
   detectedAt: timestamp("detected_at").defaultNow(),
   alertSent: boolean("alert_sent").default(false),
 });

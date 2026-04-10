@@ -241,6 +241,8 @@ type AlertConfig = {
   balanceAlertThreshold: number;
   fasMinPddSecs: number;
   fasMaxBillSecs: number;
+  fasEarlyAnswerSecs: number;
+  fasShortCallSecs: number;
 };
 
 function EmailAlertPanel() {
@@ -261,6 +263,8 @@ function EmailAlertPanel() {
     balanceAlertThreshold: 10,
     fasMinPddSecs: 10,
     fasMaxBillSecs: 5,
+    fasEarlyAnswerSecs: 2,
+    fasShortCallSecs: 10,
   });
 
   useEffect(() => {
@@ -405,6 +409,30 @@ function EmailAlertPanel() {
                     data-testid="input-fas-bill"
                     value={form.fasMaxBillSecs}
                     onChange={e => setForm(f => ({ ...f, fasMaxBillSecs: Number(e.target.value) }))}
+                    min={1} step={1}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Early Answer Max PDD (seconds)</label>
+                  <p className="text-xs text-muted-foreground">PDD below this = suspiciously instant answer (pre-billing)</p>
+                  <input
+                    type="number"
+                    data-testid="input-fas-early-answer"
+                    value={form.fasEarlyAnswerSecs}
+                    onChange={e => setForm(f => ({ ...f, fasEarlyAnswerSecs: Number(e.target.value) }))}
+                    min={0} step={1}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Short Call Max Billed (seconds)</label>
+                  <p className="text-xs text-muted-foreground">Answered calls billed under this are flagged as short-call pattern</p>
+                  <input
+                    type="number"
+                    data-testid="input-fas-short-call"
+                    value={form.fasShortCallSecs}
+                    onChange={e => setForm(f => ({ ...f, fasShortCallSecs: Number(e.target.value) }))}
                     min={1} step={1}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   />

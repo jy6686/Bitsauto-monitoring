@@ -9,7 +9,7 @@ import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import * as sippy from "./sippy";
 import * as sippySnmp from "./snmp";
 import * as emailSvc from "./email";
-import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas } from "./cdr-enrichment";
+import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas, calcVendorFraudStats } from "./cdr-enrichment";
 
 // ── Account name cache — populated whenever /api/sippy/accounts is called ─────
 // Maps iAccount string → username (e.g. "1" → "PUSHTOTALK").
@@ -4566,6 +4566,8 @@ export async function registerRoutes(
         balanceAlertThreshold: s.balanceAlertThreshold,
         fasMinPddSecs: s.fasMinPddSecs,
         fasMaxBillSecs: s.fasMaxBillSecs,
+        fasEarlyAnswerSecs: s.fasEarlyAnswerSecs,
+        fasShortCallSecs: s.fasShortCallSecs,
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -4583,6 +4585,8 @@ export async function registerRoutes(
       if (req.body.balanceAlertThreshold !== undefined) updates.balanceAlertThreshold = Number(req.body.balanceAlertThreshold);
       if (req.body.fasMinPddSecs !== undefined) updates.fasMinPddSecs = Number(req.body.fasMinPddSecs);
       if (req.body.fasMaxBillSecs !== undefined) updates.fasMaxBillSecs = Number(req.body.fasMaxBillSecs);
+      if (req.body.fasEarlyAnswerSecs !== undefined) updates.fasEarlyAnswerSecs = Number(req.body.fasEarlyAnswerSecs);
+      if (req.body.fasShortCallSecs !== undefined) updates.fasShortCallSecs = Number(req.body.fasShortCallSecs);
       await storage.updateSettings(updates);
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -4605,6 +4609,118 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ events: [], error: e.message }); }
   });
 
+  // POST /api/fas/analyze — fetch Sippy CDRs for a date range and run full FAS analysis.
+  // Stores new FAS events in DB and returns vendor-level fraud scoring.
+  // Body: { startDate, endDate, limit? }
+  app.post('/api/fas/analyze', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+
+      const startDate = req.body.startDate ?? sippy.toSippyDate(new Date(Date.now() - 86400000));
+      const endDate   = req.body.endDate   ?? sippy.toSippyDate(new Date());
+      const limit     = Math.min(1000, Number(req.body.limit ?? 500));
+
+      const fasMinPdd          = settings.fasMinPddSecs ?? 10;
+      const fasMaxBill         = settings.fasMaxBillSecs ?? 5;
+      const fasEarlyAnswerSecs = settings.fasEarlyAnswerSecs ?? 2;
+      const fasShortCallSecs   = settings.fasShortCallSecs ?? 10;
+
+      // Fetch CDRs from Sippy
+      const cdrs = await sippy.getSippyCDRs(username, password, limit, { startDate, endDate });
+
+      if (cdrs.length === 0) {
+        return res.json({ analyzed: 0, fasEvents: 0, vendorScores: [], message: 'No CDRs found for the selected period.' });
+      }
+
+      // Enrich every CDR with FAS analysis
+      type EnrichedRow = {
+        callId?: string; caller?: string; callee?: string; vendor?: string;
+        sipCode?: number | null; pddSecs?: number | null; billSecs?: number | null;
+        isFas: boolean; fasReason: string; fraudScore: number; reason?: string;
+      };
+      const enriched: EnrichedRow[] = cdrs.map(cdr => {
+        const result = detectFas({
+          sipCode:  cdr.sipCode   ?? null,
+          pddSecs:  cdr.pdd       ?? null,
+          billSecs: cdr.billSecs  ?? null,
+          fasMinPddSecs, fasMaxBillSecs: fasMaxBill, fasEarlyAnswerSecs, fasShortCallSecs,
+        });
+        return {
+          callId:     cdr.callId ?? cdr.id ?? '',
+          caller:     cdr.caller ?? cdr.cli ?? '',
+          callee:     cdr.callee ?? cdr.cld ?? '',
+          vendor:     cdr.clientName ?? '',
+          sipCode:    cdr.sipCode ?? null,
+          pddSecs:    cdr.pdd    ?? null,
+          billSecs:   cdr.billSecs ?? null,
+          isFas:      result.isFas,
+          fasReason:  result.reason,
+          fraudScore: result.fraudScore,
+          reason:     result.reason,
+        };
+      });
+
+      // Store new FAS events (skip duplicates silently)
+      let savedCount = 0;
+      for (const r of enriched) {
+        if (r.isFas && r.callId) {
+          try {
+            await storage.createFasEvent({
+              callId:     String(r.callId),
+              caller:     r.caller ?? '',
+              callee:     r.callee ?? '',
+              vendor:     r.vendor ?? '',
+              pddSecs:    r.pddSecs ?? null,
+              billSecs:   r.billSecs ?? null,
+              sipCode:    r.sipCode ?? null,
+              reason:     r.fasReason,
+              fraudScore: r.fraudScore,
+              alertSent:  false,
+            });
+            savedCount++;
+          } catch { /* duplicate */ }
+        }
+      }
+
+      // Build vendor fraud scores
+      const byVendor: Record<string, typeof enriched> = {};
+      for (const r of enriched) {
+        const v = r.vendor || 'Unknown';
+        if (!byVendor[v]) byVendor[v] = [];
+        byVendor[v].push(r);
+      }
+      const vendorScores = Object.entries(byVendor).map(([vendor, rows]) =>
+        calcVendorFraudStats(vendor, rows.map(r => ({
+          sipCode: r.sipCode, pddSecs: r.pddSecs, billSecs: r.billSecs,
+          reason: r.reason, isFas: r.isFas, fraudScore: r.fraudScore,
+        })))
+      ).sort((a, b) => b.fraudScore - a.fraudScore);
+
+      res.json({ analyzed: enriched.length, fasEvents: savedCount, vendorScores });
+    } catch (e: any) { res.status(500).json({ analyzed: 0, fasEvents: 0, vendorScores: [], error: e.message }); }
+  });
+
+  // GET /api/fas/vendor-scores — compute vendor fraud scores from stored FAS events in DB
+  app.get('/api/fas/vendor-scores', async (_req, res) => {
+    try {
+      const events = await storage.getFasEvents(500);
+      const byVendor: Record<string, typeof events> = {};
+      for (const e of events) {
+        const v = e.vendor || 'Unknown';
+        if (!byVendor[v]) byVendor[v] = [];
+        byVendor[v].push(e);
+      }
+      const vendorScores = Object.entries(byVendor).map(([vendor, rows]) =>
+        calcVendorFraudStats(vendor, rows.map(r => ({
+          sipCode: r.sipCode, pddSecs: r.pddSecs, billSecs: r.billSecs,
+          reason: r.reason, isFas: true, fraudScore: r.fraudScore ?? 0,
+        })))
+      ).sort((a, b) => b.fraudScore - a.fraudScore);
+      res.json({ vendorScores });
+    } catch (e: any) { res.status(500).json({ vendorScores: [], error: e.message }); }
+  });
+
   // ── CDR ENRICHMENT ENDPOINT ───────────────────────────────────────────────
   // POST /api/enrich-cdr — enriches a batch of CDR records with country, trunk class, FAS, etc.
   // Used by the frontend to enhance CDR data from Sippy/VOS3000
@@ -4613,8 +4729,10 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSettings();
       const cdrs: any[] = req.body.cdrs ?? [];
-      const fasMinPdd = settings.fasMinPddSecs ?? 10;
-      const fasMaxBill = settings.fasMaxBillSecs ?? 5;
+      const fasMinPdd          = settings.fasMinPddSecs ?? 10;
+      const fasMaxBill         = settings.fasMaxBillSecs ?? 5;
+      const fasEarlyAnswerSecs = settings.fasEarlyAnswerSecs ?? 2;
+      const fasShortCallSecs   = settings.fasShortCallSecs ?? 10;
 
       const enriched = cdrs.map(cdr => {
         const result = enrichCdr({
@@ -4626,6 +4744,8 @@ export async function registerRoutes(
           billSecs: cdr.billSecs ?? cdr.billed_duration ?? null,
           fasMinPddSecs: fasMinPdd,
           fasMaxBillSecs: fasMaxBill,
+          fasEarlyAnswerSecs,
+          fasShortCallSecs,
         });
         return { ...cdr, ...result };
       });
@@ -4643,6 +4763,7 @@ export async function registerRoutes(
               billSecs: cdr.billSecs ?? null,
               sipCode: cdr.sipCode ?? null,
               reason: cdr.fasReason ?? '',
+              fraudScore: cdr.fraudScore ?? null,
               alertSent: false,
             });
             // Fire email alert (non-blocking)
