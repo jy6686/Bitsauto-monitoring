@@ -70,6 +70,7 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 - `/alerts` — Alert feed
 - `/reports` — ASR/ACD report + client stats table
 - `/cdrs` — CDR Viewer: full CDR table (CLI, CLD, country, duration, billed, charged), date presets, call type filter, CLI/CLD search, pagination (50/page), CSV export, summary stats. Shows data when RTST1 accounts make completed calls. API: GET /api/sippy/cdr
+- `/tools` — Telecom Tools & Calculators: 4 tabs — (1) Carrier Quality Scoring (ASR/ACD/PDD/FraudRisk → 0-100 score + rating from Sippy CDRs), (2) SIP Capacity Calculator (employees × concurrency × codec → channels + bandwidth, industry presets), (3) Bandwidth Planner (concurrent calls × codec → Mbps, QoS/VPN overhead, max calls table), (4) Burst Capacity Simulator (normal × peak multiplier + overflow %, scenario presets)
 - `/clients` — Client/vendor profiles
 - `/settings` — Thresholds, IP probe, softswitch connection
 - `/team` — Team member management
