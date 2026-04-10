@@ -157,7 +157,8 @@ export const fasEvents = pgTable("fas_events", {
   callId: varchar("call_id", { length: 64 }).notNull(), // CDR call-id from switch
   caller: varchar("caller", { length: 64 }),
   callee: varchar("callee", { length: 64 }),
-  vendor: varchar("vendor", { length: 128 }),
+  clientName: varchar("client_name", { length: 128 }), // originating account/customer name
+  vendor: varchar("vendor", { length: 128 }),           // terminating carrier/vendor name
   pddSecs: real("pdd_secs"),
   billSecs: integer("bill_secs"),
   sipCode: integer("sip_code"),
