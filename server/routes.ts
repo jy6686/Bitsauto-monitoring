@@ -1478,6 +1478,24 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/sippy/asr-acd-stats — full report scraped from /asr_acd.php
+  // Returns: totalCalls, billableCalls, ASR, ACD, PDD, Revenue, Cost, Margin for last 90 minutes
+  // Polling interval: 2 minutes (data changes slowly between CDR batches)
+  app.get('/api/sippy/asr-acd-stats', async (_req, res) => {
+    try {
+      // Now uses XML-RPC CDR API (no portal login needed) — credentials from active session
+      const result = await sippy.getSippyAsrAcdReport('', '', '', 90);
+      res.json(result);
+    } catch (err: any) {
+      res.json({ ok: false, error: err.message,
+        period: '90 min',
+        origination: { totalCalls: 0, billableCalls: 0, totalDurationSec: 0, acd: 0, asr: 0, avgPdd: 0, revenue: 0 },
+        termination: { totalCalls: 0, billableCalls: 0, totalDurationSec: 0, acd: 0, asr: 0, avgPdd: 0, cost: 0 },
+        margin: 0,
+      });
+    }
+  });
+
   // GET /api/sippy/call-stats — lightweight active call count summary (getAccountCallStats)
   // Root-only (all accounts). Returns { i_account: [total, connected] }
   app.get('/api/sippy/call-stats', async (_req, res) => {

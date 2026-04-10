@@ -468,6 +468,128 @@ export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string)
   return calls;
 }
 
+// ── ASR/ACD Report scraper ─────────────────────────────────────────────────────
+// Scrapes /asr_acd.php from the Sippy admin portal to get real traffic stats:
+// ASR, ACD, PDD (origination side) + Revenue (from customers) + Cost (to vendors)
+
+export interface SippyAsrAcdStats {
+  ok: boolean;
+  period: string;
+  origination: {
+    totalCalls: number;
+    billableCalls: number;
+    totalDurationSec: number;
+    acd: number;        // seconds
+    asr: number;        // %
+    avgPdd: number;     // seconds
+    revenue: number;    // USD
+  };
+  termination: {
+    totalCalls: number;
+    billableCalls: number;
+    totalDurationSec: number;
+    acd: number;
+    asr: number;
+    avgPdd: number;
+    cost: number;       // USD
+  };
+  margin: number;       // revenue - cost
+}
+
+const EMPTY_ORIG = { totalCalls: 0, billableCalls: 0, totalDurationSec: 0, acd: 0, asr: 0, avgPdd: 0, revenue: 0 };
+const EMPTY_TERM = { totalCalls: 0, billableCalls: 0, totalDurationSec: 0, acd: 0, asr: 0, avgPdd: 0, cost: 0 };
+
+function parseMMSS(s: string): number {
+  const parts = s.trim().split(':');
+  if (parts.length >= 2) return (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
+  return parseInt(s) || 0;
+}
+
+// getSippyAsrAcdReport — uses XML-RPC getCustomerCDRs (i_wholesaler=1 for root)
+// to compute origination ASR/ACD/PDD/Revenue and termination cost in one pass.
+// No portal web-login needed — uses the active XML-RPC session credentials.
+export async function getSippyAsrAcdReport(
+  _portalUsername: string,   // kept for backward compat — not used (XML-RPC session handles auth)
+  _portalPassword: string,
+  _portalUrl: string,
+  periodMinutes = 90,
+): Promise<SippyAsrAcdStats> {
+  const FAIL = { ok: false, period: `${periodMinutes} min`, origination: { ...EMPTY_ORIG }, termination: { ...EMPTY_TERM }, margin: 0 };
+  if (!activeSession) return FAIL;
+
+  const now     = new Date();
+  const startDt = new Date(now.getTime() - periodMinutes * 60_000);
+
+  // Fetch origination CDRs via XML-RPC (trusted root access via i_wholesaler=1)
+  // 'cost' in getCustomerCDRs = amount charged to the customer = our revenue
+  const origCdrs = await getSippyCDRs(activeSession.username, activeSession.password, 2000, {
+    startDate:   startDt.toISOString(),
+    endDate:     now.toISOString(),
+    type:        'all',
+    iWholesaler: 1,   // trusted root access
+  });
+
+  if (origCdrs.length === 0) {
+    // No CDRs in the window — return success with zeros (not an error)
+    return { ok: true, period: `${periodMinutes} min`, origination: { ...EMPTY_ORIG }, termination: { ...EMPTY_TERM }, margin: 0 };
+  }
+
+  // Compute origination stats from CDRs
+  // Billable = CDRs where billed_duration > 0 (call was answered and billed)
+  const oTotal    = origCdrs.length;
+  const oBillable = origCdrs.filter(c => c.duration > 0).length;
+  const oDuration = origCdrs.reduce((s, c) => s + (c.duration || 0), 0);
+  const oRevenue  = origCdrs.reduce((s, c) => s + (c.cost || 0), 0);
+  // PDD = conn_proc_time field mapped to cdr.pdd
+  const pddCdrs   = origCdrs.filter(c => c.pdd != null && c.pdd! > 0);
+  const oAvgPdd   = pddCdrs.length > 0 ? pddCdrs.reduce((s, c) => s + c.pdd!, 0) / pddCdrs.length : 0;
+
+  // Termination: vendor cost
+  // Use getAccountCDRs with i_customer=1 (trusted) which includes vendor connection cost
+  // The 'cost' field on account CDRs = termination cost (what we pay vendors)
+  let tTotal = 0, tBillable = 0, tDuration = 0, tCost = 0, tAvgPdd = 0;
+  try {
+    const termCdrs = await getSippyCDRs(activeSession.username, activeSession.password, 2000, {
+      startDate: startDt.toISOString(),
+      endDate:   now.toISOString(),
+      type:      'all',
+      iCustomer: 1,   // trusted root access for getAccountCDRs
+    });
+    if (termCdrs.length > 0) {
+      tTotal    = termCdrs.length;
+      tBillable = termCdrs.filter(c => c.duration > 0).length;
+      tDuration = termCdrs.reduce((s, c) => s + (c.duration || 0), 0);
+      tCost     = termCdrs.reduce((s, c) => s + (c.cost || 0), 0);
+      const tPddCdrs = termCdrs.filter(c => c.pdd != null && c.pdd! > 0);
+      tAvgPdd   = tPddCdrs.length > 0 ? tPddCdrs.reduce((s, c) => s + c.pdd!, 0) / tPddCdrs.length : 0;
+    }
+  } catch { /* termination CDRs optional — continue with zeros */ }
+
+  return {
+    ok: true,
+    period: `${periodMinutes} min`,
+    origination: {
+      totalCalls:       oTotal,
+      billableCalls:    oBillable,
+      totalDurationSec: oDuration,
+      acd:     oBillable > 0 ? Math.round(oDuration / oBillable) : 0,
+      asr:     oTotal > 0 ? parseFloat((oBillable / oTotal * 100).toFixed(2)) : 0,
+      avgPdd:  parseFloat(oAvgPdd.toFixed(2)),
+      revenue: parseFloat(oRevenue.toFixed(4)),
+    },
+    termination: {
+      totalCalls:       tTotal,
+      billableCalls:    tBillable,
+      totalDurationSec: tDuration,
+      acd:     tBillable > 0 ? Math.round(tDuration / tBillable) : 0,
+      asr:     tTotal > 0 ? parseFloat((tBillable / tTotal * 100).toFixed(2)) : 0,
+      avgPdd:  parseFloat(tAvgPdd.toFixed(2)),
+      cost:    parseFloat(tCost.toFixed(4)),
+    },
+    margin: parseFloat((oRevenue - tCost).toFixed(4)),
+  };
+}
+
 export async function getPortalSubcustomers(cookies: CookieJar, base: string): Promise<Array<{ name: string; status: string; description: string; balance: string; creditLimit: string; tariff: string }>> {
   const { html } = await portalGet('/c2/subcustomers.php', cookies, base);
   if (!html) return [];

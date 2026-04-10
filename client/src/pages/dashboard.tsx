@@ -100,6 +100,17 @@ export default function DashboardPage() {
     refetchInterval: 60000,
     enabled: isSippyReachable,
   });
+  // Sippy ASR/ACD report — CDR-based revenue & margin stats for last 90 min
+  const { data: sippyFinancials } = useQuery<{
+    ok: boolean; period: string;
+    origination: { totalCalls: number; billableCalls: number; totalDurationSec: number; acd: number; asr: number; avgPdd: number; revenue: number };
+    termination: { totalCalls: number; billableCalls: number; totalDurationSec: number; acd: number; asr: number; avgPdd: number; cost: number };
+    margin: number;
+  }>({
+    queryKey: ['/api/sippy/asr-acd-stats'],
+    refetchInterval: 120000,
+    enabled: isSippyReachable,
+  });
 
   const probeMutation = useMutation({
     mutationFn: () => apiRequest('POST', '/api/probe/run'),
@@ -575,6 +586,92 @@ export default function DashboardPage() {
                   {displayPdd > 0 ? `${displayPdd.toFixed(2)}s` : '—'}
                 </p>
                 <p className="text-[10px] text-muted-foreground mt-0.5">Post-dial delay</p>
+              </div>
+            </div>
+
+            {/* Revenue / Cost / Margin panel — from CDR API (90 min window) */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <DollarSign className="w-3.5 h-3.5" />
+                  Revenue &amp; Cost (last 90 min — CDR data)
+                </h4>
+                {sippyFinancials && sippyFinancials.origination.totalCalls === 0 && (
+                  <span className="text-[10px] text-muted-foreground/60 italic">No CDR records in window</span>
+                )}
+              </div>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {/* Origination: calls, billable, ASR */}
+                <div className="rounded-lg bg-muted/30 border border-border/40 px-3 py-2.5 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Calls (Orig)</p>
+                  <p className="text-lg font-bold text-foreground tabular-nums" data-testid="fin-orig-calls">
+                    {sippyFinancials?.origination.totalCalls ?? '—'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {sippyFinancials ? `${sippyFinancials.origination.billableCalls} billable` : 'Loading...'}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-muted/30 border border-border/40 px-3 py-2.5 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">ASR (Orig)</p>
+                  <p className={`text-lg font-bold tabular-nums ${
+                    (sippyFinancials?.origination.asr ?? 0) >= 30 ? 'text-emerald-400' :
+                    (sippyFinancials?.origination.asr ?? 0) > 0 ? 'text-amber-400' : 'text-muted-foreground'
+                  }`} data-testid="fin-orig-asr">
+                    {sippyFinancials?.origination.totalCalls ? `${sippyFinancials.origination.asr}%` : '—'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    ACD: {sippyFinancials?.origination.acd ? `${sippyFinancials.origination.acd}s` : '—'}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-muted/20 border border-emerald-500/20 px-3 py-2.5 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Revenue</p>
+                  <p className="text-lg font-bold text-emerald-400 tabular-nums" data-testid="fin-revenue">
+                    {sippyFinancials?.origination.revenue != null
+                      ? sippyFinancials.origination.revenue > 0
+                        ? `$${sippyFinancials.origination.revenue.toFixed(2)}`
+                        : '—'
+                      : '—'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Customer billed</p>
+                </div>
+                <div className="rounded-lg bg-muted/30 border border-border/40 px-3 py-2.5 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Calls (Term)</p>
+                  <p className="text-lg font-bold text-foreground tabular-nums" data-testid="fin-term-calls">
+                    {sippyFinancials?.termination.totalCalls ?? '—'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {sippyFinancials ? `${sippyFinancials.termination.billableCalls} billable` : 'Loading...'}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-muted/20 border border-rose-500/20 px-3 py-2.5 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Cost</p>
+                  <p className="text-lg font-bold text-rose-400 tabular-nums" data-testid="fin-cost">
+                    {sippyFinancials?.termination.cost != null
+                      ? sippyFinancials.termination.cost > 0
+                        ? `$${sippyFinancials.termination.cost.toFixed(2)}`
+                        : '—'
+                      : '—'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Vendor cost</p>
+                </div>
+                <div className={`rounded-lg border px-3 py-2.5 text-center ${
+                  (sippyFinancials?.margin ?? 0) > 0
+                    ? 'bg-emerald-500/10 border-emerald-500/30'
+                    : (sippyFinancials?.margin ?? 0) < 0
+                    ? 'bg-rose-500/10 border-rose-500/30'
+                    : 'bg-muted/20 border-border/40'
+                }`}>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Margin</p>
+                  <p className={`text-lg font-bold tabular-nums ${
+                    (sippyFinancials?.margin ?? 0) > 0 ? 'text-emerald-400' :
+                    (sippyFinancials?.margin ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground'
+                  }`} data-testid="fin-margin">
+                    {sippyFinancials?.margin != null && sippyFinancials.margin !== 0
+                      ? `${sippyFinancials.margin > 0 ? '+' : ''}$${sippyFinancials.margin.toFixed(2)}`
+                      : '—'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Revenue − Cost</p>
+                </div>
               </div>
             </div>
 
