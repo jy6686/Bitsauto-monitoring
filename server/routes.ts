@@ -1166,27 +1166,41 @@ export async function registerRoutes(
   // ── Sippy Softswitch Routes ──────────────────────────────────────────────
 
   // POST /api/sippy/test — test connection
+  // Body: { url, username, password, apiAdminUsername?, apiAdminPassword? }
+  // Priority: admin creds from body → admin creds from DB → portal creds from body → portal creds from DB
   app.post('/api/sippy/test', async (req, res) => {
-    const { url, username, password } = req.body as { url?: string; username?: string; password?: string };
+    const { url, username, password, apiAdminUsername: bodyAdminUser, apiAdminPassword: bodyAdminPass }
+      = req.body as { url?: string; username?: string; password?: string; apiAdminUsername?: string; apiAdminPassword?: string };
     if (!url) return res.status(400).json({ reachable: false, message: 'No URL provided.' });
     const s = await storage.getSettings();
-    // 1. Try admin XML-RPC credentials first (full API access, no "unavailable" note)
-    if (s.apiAdminUsername && s.apiAdminPassword) {
-      const adminResult = await sippy.testSippyConnection(url, s.apiAdminUsername, s.apiAdminPassword);
-      if (adminResult.authenticated) return res.json(adminResult);
+
+    // 1. Admin credentials from request body (even if not yet saved — lets user test before saving)
+    if (bodyAdminUser && bodyAdminPass) {
+      const r = await sippy.testSippyConnection(url, bodyAdminUser, bodyAdminPass);
+      if (r.authenticated) return res.json(r);
     }
-    // 2. Try supplied credentials
+
+    // 2. Admin credentials from DB
+    const dbAdminUser = s.apiAdminUsername;
+    const dbAdminPass = s.apiAdminPassword;
+    if (dbAdminUser && dbAdminPass && (dbAdminUser !== bodyAdminUser || dbAdminPass !== bodyAdminPass)) {
+      const r = await sippy.testSippyConnection(url, dbAdminUser, dbAdminPass);
+      if (r.authenticated) return res.json(r);
+    }
+
+    // 3. Portal credentials from request body
     if (username) {
-      const result = await sippy.testSippyConnection(url, username, password ?? '');
-      if (result.authenticated) return res.json(result);
+      const r = await sippy.testSippyConnection(url, username, password ?? '');
+      if (r.authenticated) return res.json(r);
     }
-    // 3. Fallback: portal credentials from DB
+
+    // 4. Portal credentials from DB
     if (s.portalUsername && s.portalPassword) {
-      const portalResult = await sippy.testSippyConnection(url, s.portalUsername, s.portalPassword);
-      return res.json(portalResult);
+      const r = await sippy.testSippyConnection(url, s.portalUsername, s.portalPassword);
+      return res.json(r);
     }
-    // Nothing worked — return a generic failure
-    res.json({ reachable: true, authenticated: false, message: 'Server is reachable but all credential attempts failed.' });
+
+    res.json({ reachable: true, authenticated: false, message: 'Server is reachable but all credential attempts failed. Check your username and password.' });
   });
 
   // POST /api/sippy/connect — authenticate and store session

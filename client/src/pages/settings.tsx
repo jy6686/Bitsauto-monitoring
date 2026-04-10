@@ -1361,7 +1361,13 @@ export default function SettingsPage() {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, username: form.getValues('portalUsername'), password: form.getValues('portalPassword') }),
+        body: JSON.stringify({
+          url,
+          username: form.getValues('portalUsername'),
+          password: form.getValues('portalPassword'),
+          apiAdminUsername: form.getValues('apiAdminUsername'),
+          apiAdminPassword: form.getValues('apiAdminPassword'),
+        }),
       });
       const data = await res.json();
       // For Sippy, success requires both reachable AND authenticated
