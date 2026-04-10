@@ -1497,7 +1497,9 @@ export async function registerRoutes(
       const settings = await storage.getSettings();
       const portalUser = settings?.portalUsername ?? '';
       const portalPass = settings?.portalPassword ?? '';
-      const result = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 90);
+      const adminUser  = settings?.apiAdminUsername ?? '';
+      const adminPass  = settings?.apiAdminPassword ?? '';
+      const result = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 90, adminUser, adminPass);
       res.json(result);
     } catch (err: any) {
       res.json({ ok: false, error: err.message,
@@ -1516,8 +1518,10 @@ export async function registerRoutes(
       const settings = await storage.getSettings();
       const portalUser = settings?.portalUsername ?? '';
       const portalPass = settings?.portalPassword ?? '';
+      const adminUser  = settings?.apiAdminUsername ?? '';
+      const adminPass  = settings?.apiAdminPassword ?? '';
       const period = parseInt((req.query.period as string) || '90', 10);
-      const result = await sippy.getSippyPerAccountStats(portalUser, portalPass, period);
+      const result = await sippy.getSippyPerAccountStats(portalUser, portalPass, period, adminUser, adminPass);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message, clients: [], vendors: [] });

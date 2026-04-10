@@ -632,6 +632,8 @@ export async function getSippyPerAccountStats(
   portalUsername: string,
   portalPassword: string,
   periodMinutes = 90,
+  fallbackUsername?: string,
+  fallbackPassword?: string,
 ): Promise<SippyPerAccountStats> {
   const FAIL = (error: string): SippyPerAccountStats => ({
     ok: false, period: `${periodMinutes} min`, fetchedAt: new Date().toISOString(),
@@ -646,8 +648,14 @@ export async function getSippyPerAccountStats(
   }
 
   try {
-    // ── Step 1: Login as portal customer ────────────────────────────────────
-    const loginRes = await portalLogin(base, portalUsername, portalPassword, 'customer');
+    // ── Step 1: Login as portal customer — auto-retry with swapped credentials ──
+    // Production DB may have apiAdminUsername and portalUsername fields swapped;
+    // try both pairs so login works regardless of which slot holds the customer creds.
+    let loginRes = await portalLogin(base, portalUsername, portalPassword, 'customer');
+    if (!loginRes.success && fallbackUsername && fallbackPassword && fallbackUsername !== portalUsername) {
+      console.log('[Sippy] getSippyPerAccountStats: primary portal login failed, trying fallback credentials');
+      loginRes = await portalLogin(base, fallbackUsername, fallbackPassword, 'customer');
+    }
     if (!loginRes.success) return FAIL(`Portal login failed: ${loginRes.message}`);
 
     const cookies = loginRes.cookies;
@@ -728,8 +736,10 @@ export async function getSippyAsrAcdReport(
   portalPassword: string,
   _portalUrl: string,
   periodMinutes = 90,
+  fallbackUsername?: string,
+  fallbackPassword?: string,
 ): Promise<SippyAsrAcdStats> {
-  const perAccount = await getSippyPerAccountStats(portalUsername, portalPassword, periodMinutes);
+  const perAccount = await getSippyPerAccountStats(portalUsername, portalPassword, periodMinutes, fallbackUsername, fallbackPassword);
 
   const o = perAccount.origTotal;
   const t = perAccount.termTotal;
