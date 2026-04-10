@@ -22,6 +22,18 @@ const DEFAULT_SIPPY_URL      = 'https://191.101.30.107';
 const DEFAULT_SIPPY_USERNAME = 'ssp-root';
 const DEFAULT_SIPPY_PASSWORD = '!chiaan1';
 type SippyCreds = { portalUrl?: string | null; apiAdminUsername?: string | null; apiAdminPassword?: string | null; portalUsername?: string | null; portalPassword?: string | null };
+
+// Returns [primary, fallback] credential pairs ordered so that the most likely
+// admin/XML-RPC pair comes first. When the user has the fields swapped, the
+// fallback pair lets callers retry without a 401 surfacing to the UI.
+function sippyXmlCredsPairs(s: SippyCreds): Array<{ username: string; password: string }> {
+  const pairs: Array<{ username: string; password: string }> = [];
+  if (s.apiAdminUsername && s.apiAdminPassword) pairs.push({ username: s.apiAdminUsername, password: s.apiAdminPassword });
+  if (s.portalUsername && s.portalPassword)     pairs.push({ username: s.portalUsername,   password: s.portalPassword   });
+  if (!pairs.length) pairs.push({ username: DEFAULT_SIPPY_USERNAME, password: DEFAULT_SIPPY_PASSWORD });
+  return pairs;
+}
+
 function sippyXmlCreds(s: SippyCreds, sw?: { portalUsername?: string | null; portalPassword?: string | null }) {
   return {
     username: s.apiAdminUsername || sw?.portalUsername || s.portalUsername || DEFAULT_SIPPY_USERNAME,
@@ -3109,17 +3121,20 @@ export async function registerRoutes(
   app.get('/api/sippy/accounts', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
-      const { username, password } = sippyXmlCreds(settings);
       const portalUrl = sippyPortalUrl(settings);
       const opts: { iCustomer?: number; offset?: number; limit?: number } = {};
       if (req.query.iCustomer) opts.iCustomer = parseInt(req.query.iCustomer as string, 10);
       if (req.query.offset)    opts.offset    = parseInt(req.query.offset    as string, 10);
       if (req.query.limit)     opts.limit     = parseInt(req.query.limit     as string, 10);
-      // First try without i_customer (returns accounts owned by the authenticated admin user)
-      let result = await sippy.listSippyAccounts(username, password, opts, portalUrl);
-      // If that fails with an auth error, retry with i_customer=1 (trusted/root scope)
-      if (result.error && (result.error.includes('401') || result.error.includes('403'))) {
-        result = await sippy.listSippyAccounts(username, password, { ...opts, iCustomer: 1 }, portalUrl);
+      // Try each credential pair in order — stop at first non-401 result
+      const credPairs = sippyXmlCredsPairs(settings);
+      let result = { accounts: [] as any[], error: 'No credentials configured.' };
+      for (const { username, password } of credPairs) {
+        result = await sippy.listSippyAccounts(username, password, opts, portalUrl);
+        if (!result.error || (!result.error.includes('401') && !result.error.includes('403'))) break;
+        // 401 → try with iCustomer=1 scope before moving to next pair
+        const r2 = await sippy.listSippyAccounts(username, password, { ...opts, iCustomer: 1 }, portalUrl);
+        if (!r2.error || (!r2.error.includes('401') && !r2.error.includes('403'))) { result = r2; break; }
       }
       res.json(result);
     } catch (e: any) { res.status(500).json({ accounts: [], error: e.message }); }
@@ -3832,12 +3847,17 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ vendors: [], error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
       const opts: Parameters<typeof sippy.listSippyVendors>[2] = {};
       if (req.query.limit)       opts.limit       = parseInt(req.query.limit       as string, 10);
       if (req.query.offset)      opts.offset      = parseInt(req.query.offset      as string, 10);
       if (req.query.namePattern) opts.namePattern = req.query.namePattern as string;
-      const result = await sippy.listSippyVendors(username, password, opts, sippyPortalUrl(settings));
+      // Try each credential pair — swap automatically if primary returns 401
+      const credPairs = sippyXmlCredsPairs(settings);
+      let result = { vendors: [] as any[], error: 'No credentials configured.' };
+      for (const { username, password } of credPairs) {
+        result = await sippy.listSippyVendors(username, password, opts, sippyPortalUrl(settings));
+        if (!result.error || (!result.error.includes('401') && !result.error.includes('403'))) break;
+      }
       res.json(result);
     } catch (e: any) { res.status(500).json({ vendors: [], error: e.message }); }
   });

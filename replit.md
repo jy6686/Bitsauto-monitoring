@@ -55,6 +55,7 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
   - Aircel + TALK profiles registered in local client_profiles table (ID=1, ID=2)
 - Balance inversion: listAccounts does NOT invert; createAccount/getAccountInfo DO invert
 - Registration status fault 403 = not registered (returns `{ registered: false }` silently)
+- **Credential swap resilience (2026-04-10)**: `sippyXmlCredsPairs()` returns both credential pairs (apiAdmin first, portal fallback). `GET /api/sippy/accounts` and `GET /api/sippy/vendors` now retry with the second pair on HTTP 401/403. `listSippyVendors` now checks `resp.statusCode` (previously 401 was silently swallowed returning empty array). This makes the system immune to the production credential-swap bug where `apiAdminUsername=RTST1` and `portalUsername=ssp-root` are stored in the wrong fields.
 
 ## Important State
 - Simulation is **disabled** (`simulationEnabled = false` in DB)

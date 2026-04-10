@@ -6478,6 +6478,9 @@ export async function listSippyVendors(
   for (const method of ['listVendors', 'getVendorsList']) {
     try {
       const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password);
+      if (resp.statusCode === 401 || resp.statusCode === 403) {
+        return { vendors: [], error: `HTTP ${resp.statusCode}: Authentication failed for getVendorsList` };
+      }
       const text = resp.body;
       if (text.includes('<fault>')) continue;
 
