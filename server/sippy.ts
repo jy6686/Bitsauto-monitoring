@@ -407,63 +407,123 @@ function scrapeHtmlTable(html: string): string[][] {
   return rows;
 }
 
+// ── Admin portal active-calls scraper ─────────────────────────────────────────
+// Scrapes /activecalls.php (admin portal — logged in as ssp-root / admin type).
+// Page structure (confirmed from live HTML):
+//   Header row 1 (12 cells, Media IP has colspan=2):
+//     #, Caller, CLI, CLD, State, Vendor, Connection, Direction, Media IP, Delay, Duration, Action
+//   Header row 2 (2 cells = sub-headers for Media IP):
+//     Caller, Callee
+//   Data rows (13 cells per row — Media IP expands into 2 separate cells):
+//     0:#, 1:Account, 2:CLI, 3:CLD, 4:State, 5:Vendor, 6:Connection,
+//     7:Direction, 8:MediaIPCaller, 9:MediaIPCallee, 10:Delay(ms), 11:Duration(MM:SS), 12:Action
 export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string): Promise<SippyActiveCall[]> {
-  const { html } = await portalGet('/c2/activecalls.php', cookies, base);
+  const { html } = await portalGet('/activecalls.php', cookies, base);
   if (!html) return [];
+
+  // Extract disconnect IDs from delete_warning(ID) calls — these are the IDs needed for disconnectCall()
+  const disconnectIds: Record<number, string> = {};
+  const dwRe = /delete_warning\((\d+)\)/g;
+  let dwMatch: RegExpExecArray | null;
+  while ((dwMatch = dwRe.exec(html)) !== null) {
+    disconnectIds[Object.keys(disconnectIds).length] = dwMatch[1];
+  }
+
+  // Extract account IDs from accounts.php?action=edit&account=N links
+  const accountIds: Record<number, string> = {};
+  const acctRe = /accounts\.php\?action=edit&amp;account=(\d+)/g;
+  let acctMatch: RegExpExecArray | null;
+  while ((acctMatch = acctRe.exec(html)) !== null) {
+    accountIds[Object.keys(accountIds).length] = acctMatch[1];
+  }
+
+  // Extract vendor IDs from vendors.php?i_vendor=N links
+  const vendorIds: Record<number, string> = {};
+  const vendRe = /vendors\.php\?i_vendor=(\d+)/g;
+  let vendMatch: RegExpExecArray | null;
+  while ((vendMatch = vendRe.exec(html)) !== null) {
+    vendorIds[Object.keys(vendorIds).length] = vendMatch[1];
+  }
 
   const rows = scrapeHtmlTable(html);
   const calls: SippyActiveCall[] = [];
-  let headerRow = -1;
 
-  // Find the ACTUAL calls table header — it must have 'caller' AND ('state' OR 'duration')
-  // to distinguish from the CLI/CLD filter form rows that only have one keyword
+  // Locate the main data table header row that contains 'Caller','CLI','CLD','State' all together
+  let headerRow = -1;
   for (let i = 0; i < rows.length; i++) {
-    const lower = rows[i].map(c => c.toLowerCase());
-    const hasCaller = lower.some(c => c === 'caller' || c === 'cli');
-    const hasDur = lower.some(c => c.includes('duration') || c.includes('state') || c.includes('delay'));
-    if (hasCaller && hasDur) {
+    const lower = rows[i].map(c => c.toLowerCase().trim());
+    if (lower.includes('cli') && lower.includes('cld') && lower.includes('state') && lower.includes('duration')) {
       headerRow = i;
       break;
     }
   }
-
   if (headerRow < 0) return calls;
 
-  const headers = rows[headerRow].map(c => c.toLowerCase().trim());
-  const colIdx = (names: string[]) => names.map(n => headers.findIndex(h => h === n || h.includes(n))).find(i => i >= 0) ?? -1;
-  const callerCol = colIdx(['caller', 'cli', 'from']);
-  const calleeCol = colIdx(['cld', 'callee', 'to', 'destination']);
-  const stateCol  = colIdx(['state', 'status']);
-  const delayCol  = colIdx(['delay', 'pdd']);
-  const durCol    = colIdx(['duration', 'dur']);
+  // Known hardcoded column indices for Sippy admin activecalls.php (confirmed from live HTML).
+  // Data rows have 13 cells; header has 12 (Media IP uses colspan=2 → shifts everything after index 8).
+  // Col 0:#  1:Account  2:CLI  3:CLD  4:State  5:Vendor  6:Connection
+  //     7:Direction  8:MediaIPCaller  9:MediaIPCallee  10:Delay(ms)  11:Duration(MM:SS)  12:Action
+  const COL_ACCOUNT    = 1;
+  const COL_CLI        = 2;
+  const COL_CLD        = 3;
+  const COL_STATE      = 4;
+  const COL_VENDOR     = 5;
+  const COL_CONNECTION = 6;
+  const COL_DIRECTION  = 7;
+  const COL_MEDIA_SRC  = 8;
+  const COL_MEDIA_DST  = 9;
+  const COL_DELAY      = 10;
+  const COL_DURATION   = 11;
 
-  for (let i = headerRow + 1; i < rows.length; i++) {
+  let callIndex = 0;
+  for (let i = headerRow + 2; i < rows.length; i++) {  // +2 skips both header rows
     const row = rows[i];
+    if (row.length < 10) continue;
     const joined = row.join('').trim().toLowerCase();
-    if (!row.length || joined === '' || joined.includes('list is empty') || joined.startsWith('page ')) continue;
-    // Skip rows that look like column headers repeated (pagination-style)
-    if (row.some(c => c.toLowerCase() === 'caller' || c.toLowerCase() === 'cli')) continue;
+    if (!joined || joined.includes('list is empty') || joined.startsWith('page ')) continue;
+    // Skip sub-header row ("Caller" / "Callee" for Media IP)
+    if (row[0]?.toLowerCase() === 'caller' || row[0]?.toLowerCase() === '#') continue;
 
-    const get = (idx: number) => (idx >= 0 && idx < row.length) ? row[idx] : '';
-    const durStr = get(durCol);
+    const get = (idx: number) => (idx >= 0 && idx < row.length ? row[idx].trim() : '');
+
+    const cli    = get(COL_CLI);
+    const cld    = get(COL_CLD);
+    if (!cli && !cld) continue;
+
+    const durStr = get(COL_DURATION);
     const durParts = durStr.split(':');
     const durationSec = durParts.length >= 2
       ? (parseInt(durParts[0] || '0') * 60 + parseInt(durParts[1] || '0'))
-      : parseInt(durStr || '0') || 0;
+      : (parseInt(durStr || '0') || 0);
 
-    const caller = get(callerCol);
-    const callee = get(calleeCol);
-    if (!caller && !callee) continue;
+    const delayStr = get(COL_DELAY);
+    // Delay on this page is in milliseconds (e.g. "19.566"), convert to seconds for consistency
+    const delayMs = parseFloat(delayStr) || 0;
+
+    const disconnectId = disconnectIds[callIndex];
+    const accountId    = accountIds[callIndex];
+    const vendorId     = vendorIds[callIndex];
 
     calls.push({
-      callId: `portal-${i}`,
-      caller: caller || '-',
-      callee: callee || '-',
-      duration: durationSec,
-      codec: '-',
-      status: get(stateCol) || 'active',
-      delay: parseFloat(get(delayCol)) || 0,
+      id:           disconnectId || `portal-${i}`,
+      callId:       `portal-${i}`,
+      caller:       cli  || '-',
+      callee:       cld  || '-',
+      duration:     durationSec,
+      codec:        '-',
+      status:       get(COL_STATE) || 'active',
+      delay:        delayMs / 1000,             // store as seconds (consistent with XML-RPC DELAY field)
+      user:         get(COL_ACCOUNT) || undefined,
+      accountId:    accountId || undefined,
+      vendor:       get(COL_VENDOR) || undefined,
+      connection:   get(COL_CONNECTION) || undefined,
+      direction:    get(COL_DIRECTION) || undefined,
+      mediaIpCaller: get(COL_MEDIA_SRC) || undefined,
+      mediaIpCallee: get(COL_MEDIA_DST) || undefined,
+      iCustomer:    undefined,
+      iEnvironment: undefined,
     });
+    callIndex++;
   }
   return calls;
 }
@@ -1087,6 +1147,8 @@ export async function getSippyActiveCalls(
   password: string,
   explicitPortalUrl?: string,
   filter?: SippyActiveCallsFilter,
+  fallbackUsername?: string,   // alternate cred pair for admin portal login (handles DB swap)
+  fallbackPassword?: string,
 ): Promise<SippyActiveCall[]> {
   const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
   if (!base) return [];
@@ -1112,16 +1174,37 @@ export async function getSippyActiveCalls(
   if (filter?.i_connection !== undefined) reqParams.i_connection = filter.i_connection;
   if (filter?.node_id      !== undefined) reqParams.node_id      = filter.node_id;
 
+  // ── Admin portal login helper — for fallback when XML-RPC is restricted ────
+  // ssp-root has XML-RPC restrictions on listActiveCalls/listAllCalls.
+  // Fall back to scraping /activecalls.php via admin portal session.
+  // Also handles the production DB swap where apiAdmin credentials are stored in portalUsername field.
+  async function tryAdminPortalScrape(): Promise<SippyActiveCall[]> {
+    // Build ordered list of credential pairs to try for admin portal login.
+    // Primary: passed-in credentials. Fallback: the other settings credential pair.
+    const pairs: Array<[string, string]> = [];
+    if (username && password) pairs.push([username, password]);
+    if (fallbackUsername && fallbackPassword && fallbackUsername !== username)
+      pairs.push([fallbackUsername, fallbackPassword]);
+
+    for (const [u, p] of pairs) {
+      const loginRes = await portalLogin(base, u, p, 'admin');
+      if (loginRes.success) {
+        console.log(`[Sippy] listActiveCalls: XML-RPC restricted — scraping /activecalls.php as admin (${u})`);
+        return getPortalActiveCallsHtml(loginRes.cookies, base);
+      }
+    }
+    console.log('[Sippy] listActiveCalls: admin portal login failed, returning empty list');
+    return [];
+  }
+
   // Official methods: listActiveCalls (Connected/ARComplete/WaitRoute only) | listAllCalls (all states fallback)
   // Prefer listActiveCalls to avoid including Dead/Disconnecting/terminated calls in the live view.
   for (const method of ['listActiveCalls', 'listAllCalls']) {
     try {
       const resp = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), username, password);
       if (resp.statusCode === 401 || resp.statusCode === 403) {
-        // Auth failure — try portal scraping
-        const loginRes = await portalLogin(base, username, password, 'customer');
-        if (loginRes.success) return getPortalActiveCallsHtml(loginRes.cookies, base);
-        return [];
+        // XML-RPC method restricted for this user — fall back to admin portal scraping
+        return tryAdminPortalScrape();
       }
       if (resp.statusCode !== 200) continue;
 
@@ -1530,6 +1613,9 @@ export interface SippyCDR {
   userAgent?: string;       // user_agent — User-Agent of caller
   releaseSource?: string;   // release_source — who released the call
   parentLocalICall?: string; // parent_local_i_call — parent leg i_call
+  // ── Portal-scraped extras ─────────────────────────────────────────────────
+  clientName?: string;      // account/caller display name from portal
+  billedDuration?: number;  // billed duration in seconds (from portal CDR page)
 }
 
 /**
@@ -1732,6 +1818,135 @@ export async function getMonitoringGraph(
   }
 }
 
+// ── Portal CDR scraper ───────────────────────────────────────────────────────
+// Scrapes /cdrs_customer.php from the Sippy admin portal (using RTST1 or portal
+// credentials). Used as fallback when XML-RPC CDR methods return 401.
+//
+// CDR table columns (confirmed from portal HTML inspection):
+//  [0] row#  [1] Caller(acct) [2] CLI [3] CLD [4] Country [5] Description
+//  [6] SetupTime [7] Duration mm:ss [8] BilledDuration mm:ss [9] Amount USD
+export async function scrapePortalCDRs(
+  portalUsername: string,
+  portalPassword: string,
+  base: string,
+  opts: {
+    limit?: number;
+    startDate?: string;   // natural-language OR MM/DD/YYYY HH:MM:SS
+    endDate?: string;
+    callsSelect?: string; // '1'=all '3'=non-zero+errors '4'=non-zero '6'=errors
+    fallbackUsername?: string;
+    fallbackPassword?: string;
+  } = {},
+): Promise<SippyCDR[]> {
+  const FAIL = (): SippyCDR[] => [];
+
+  const startDate = opts.startDate || '1 day ago';
+  const endDate   = opts.endDate   || 'now';
+  const limit     = opts.limit     || 100;
+  const callsSel  = opts.callsSelect || '1';
+
+  // Login with primary, then fallback credentials
+  let loginRes = await portalLogin(base, portalUsername, portalPassword, 'customer');
+  if (!loginRes.success && opts.fallbackUsername && opts.fallbackPassword &&
+      opts.fallbackUsername !== portalUsername) {
+    loginRes = await portalLogin(base, opts.fallbackUsername, opts.fallbackPassword, 'customer');
+  }
+  if (!loginRes.success) return FAIL();
+  const cookies = loginRes.cookies;
+
+  try {
+    const qs = [
+      'n=0', 'action=search', 'from_form=1',
+      'startDate=' + encodeURIComponent(startDate),
+      'endDate='   + encodeURIComponent(endDate),
+      'source=', 'destination=', 'caller=0_0',
+      'calls_select=' + callsSel,
+      'cdr_currency=USD', 'cli_clause=0', 'cld_clause=0',
+      'bt_clause=0', 'bt_pattern=', 'account_class=0',
+      'result_filter_opt=0_0',
+      'limit=' + limit,
+    ].join('&');
+
+    const resp = await rawRequest('GET', `${base}/cdrs_customer.php?${qs}`, null, cookies);
+    const html = resp.body;
+    if (!html || html.length < 500) return FAIL();
+
+    // Find the CDR data table (after the navform)
+    const tableStart = html.lastIndexOf('<TABLE');
+    if (tableStart === -1) return FAIL();
+    const tableHtml = html.slice(tableStart);
+
+    // Parse rows (skip header row and "List is Empty" row)
+    const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let m: RegExpExecArray | null;
+    const cdrs: SippyCDR[] = [];
+    let rowIndex = 0;
+
+    while ((m = trRe.exec(tableHtml)) !== null) {
+      const rowHtml = m[1];
+      // Extract cell texts
+      const tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+      const cells: string[] = [];
+      let td: RegExpExecArray | null;
+      while ((td = tdRe.exec(rowHtml)) !== null) {
+        const txt = td[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
+        cells.push(txt);
+      }
+
+      // Skip header row (contains "Caller" or "CLI") and empty/filler rows
+      if (cells.length < 7) continue;
+      if (/^(caller|cli|cld)/i.test(cells[1] || '') || /^(caller|cli|cld)/i.test(cells[0] || '')) continue;
+      if (/list is empty/i.test(cells.join(' '))) continue;
+      // Skip rows where cells[2] (CLI) looks non-numeric/empty and cells[3] (CLD) is empty
+      if (!cells[2] && !cells[3]) continue;
+
+      // Columns: [0]=rowNum [1]=Caller/Acct [2]=CLI [3]=CLD [4]=Country [5]=Desc [6]=SetupTime [7]=Dur [8]=BilledDur [9]=Amount
+      const callerAcct  = cells[1] || '';
+      const cli         = cells[2] || '-';
+      const cld         = cells[3] || '-';
+      const country     = cells[4] || '';
+      const description = cells[5] || '';
+      const setupTime   = cells[6] || '';
+      const durationRaw = cells[7] || '0:00';
+      const billedRaw   = cells[8] || '0:00';
+      const amountRaw   = cells[9] || '0';
+
+      if (!cli || cli === '-') continue;
+
+      const durationSec = parseMMSS(durationRaw);
+      const billedSec   = parseMMSS(billedRaw);
+      const cost        = parseFloat(amountRaw) || 0;
+
+      // Parse setup time: "MM/DD/YYYY HH:MM:SS" → ISO
+      let connectTime: string | undefined;
+      const dtMatch = setupTime.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+      if (dtMatch) {
+        connectTime = `${dtMatch[3]}-${dtMatch[1]}-${dtMatch[2]}T${dtMatch[4]}Z`;
+      }
+
+      cdrs.push({
+        callId:        `portal-cdr-${rowIndex++}`,
+        caller:        cli,
+        callee:        cld,
+        country:       country || undefined,
+        description,
+        connectTime,
+        startTime:     connectTime || setupTime || new Date().toISOString(),
+        duration:      billedSec,      // SippyCDR.duration = billed seconds
+        totalDuration: durationSec,    // actual duration
+        billedDuration: billedSec,
+        cost,
+        result:        description || 'ok',
+        clientName:    callerAcct || undefined,
+      });
+    }
+
+    return cdrs;
+  } catch {
+    return FAIL();
+  }
+}
+
 // getSippyCDRs — uses official getAccountCDRs() (docs 107367) or
 //               getCustomerCDRs() (docs 107429) with documented field names.
 // CDR response fields: call_id, cli, cld, connect_time, billed_duration,
@@ -1878,6 +2093,7 @@ export async function getSippyCDRs(
       return cdrs;
     } catch { continue; }
   }
+
   return [];
 }
 

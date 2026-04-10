@@ -12,6 +12,14 @@ import * as sippySnmp from "./snmp";
 import * as emailSvc from "./email";
 import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas } from "./cdr-enrichment";
 
+// ── Account name cache — populated whenever /api/sippy/accounts is called ─────
+// Maps iAccount string → username (e.g. "1" → "PUSHTOTALK").
+const accountNameCache: Map<string, string> = new Map([
+  ['1',  'PUSHTOTALK'],
+  ['4',  'aircel'],
+  ['55', 'asif'],
+]);
+
 // ── Sippy credential helper ────────────────────────────────────────────────────
 // Per Sippy docs (106909): XML-RPC API authenticates with Web Login + API Password.
 // Admin credentials (apiAdminUsername/apiAdminPassword) provide root-level API access
@@ -741,7 +749,7 @@ export async function registerRoutes(
           gateway: '',
           duration: c.duration,
           callStatus: (c.status === 'connected' || c.duration > 0) ? 'connected' : 'routing',
-          clientName: c.user || c.accountId || undefined,
+          clientName: c.user || accountNameCache.get(c.accountId ?? '') || c.accountId || undefined,
           accountId: c.accountId || undefined,
           vendor: c.vendor,
           connection: c.connection,
@@ -1274,7 +1282,11 @@ export async function registerRoutes(
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
       const portalUrl = sippyPortalUrl(settings); // explicit — no activeSession dependency
-      const raw = await sippy.getSippyActiveCalls(username, password, portalUrl);
+      // Pass both credential pairs so admin portal fallback can handle DB-swap scenario:
+      // primary = apiAdminUsername/Password, fallback = portalUsername/Password (or vice-versa)
+      const fallbackUser = settings?.portalUsername ?? '';
+      const fallbackPass = settings?.portalPassword ?? '';
+      const raw = await sippy.getSippyActiveCalls(username, password, portalUrl, undefined, fallbackUser, fallbackPass);
       // Map CC_STATE → callStatus; filter out terminated states
       const ccStateMap: Record<string, 'connected' | 'routing'> = {
         Connected:    'connected',
@@ -1288,7 +1300,7 @@ export async function registerRoutes(
         .filter(c => !TERMINATED.has(c.status ?? ''))
         .map(c => ({
           ...c,
-          clientName:  c.user || c.accountId || undefined,
+          clientName:  c.user || accountNameCache.get(c.accountId ?? '') || c.accountId || undefined,
           ccState:     c.status,
           callStatus:  ccStateMap[c.status ?? ''] ?? (c.status?.toLowerCase().includes('connect') ? 'connected' : 'routing'),
         }));
@@ -1454,7 +1466,8 @@ export async function registerRoutes(
           iEnvironment: 5,
           explicitPortalUrl: portalUrl,
         }),
-        sippy.getSippyActiveCalls(username, password, portalUrl),
+        sippy.getSippyActiveCalls(username, password, portalUrl, undefined,
+          settings?.portalUsername ?? '', settings?.portalPassword ?? ''),
       ]);
 
       // Take most recent non-zero data point for ASR/ACD
@@ -1574,7 +1587,25 @@ export async function registerRoutes(
       if (req.query.cli)            opts.cli            = req.query.cli            as string;
       if (req.query.cld)            opts.cld            = req.query.cld            as string;
       if (offset !== undefined)     opts.offset         = offset;
-      const cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
+      let cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
+      // Fallback: XML-RPC CDR methods both blocked (401) → scrape portal with portal credentials
+      if (cdrs.length === 0 && settings) {
+        const portalUser = settings.portalUsername ?? '';
+        const portalPass = settings.portalPassword ?? '';
+        const portalUrl  = sippyPortalUrl(settings);
+        const adminUser  = settings.apiAdminUsername ?? '';
+        const adminPass  = settings.apiAdminPassword ?? '';
+        const startDate  = (req.query.startDate as string) || '1 day ago';
+        const endDate    = (req.query.endDate   as string) || 'now';
+        const callsSel   = (req.query.type === 'errors') ? '6' : (req.query.type === 'non_zero' ? '4' : '1');
+        try {
+          const scraped = await sippy.scrapePortalCDRs(portalUser, portalPass, portalUrl, {
+            limit, startDate, endDate, callsSelect: callsSel,
+            fallbackUsername: adminUser, fallbackPassword: adminPass,
+          });
+          if (scraped.length > 0) cdrs = scraped;
+        } catch { /* ignore */ }
+      }
       res.json({ cdrs });
     } catch (e: any) { res.status(500).json({ cdrs: [], error: e.message }); }
   });
@@ -3139,6 +3170,12 @@ export async function registerRoutes(
         // 401 → try with iCustomer=1 scope before moving to next pair
         const r2 = await sippy.listSippyAccounts(username, password, { ...opts, iCustomer: 1 }, portalUrl);
         if (!r2.error || (!r2.error.includes('401') && !r2.error.includes('403'))) { result = r2; break; }
+      }
+      // Update account name cache from fresh results
+      if (result.accounts?.length) {
+        for (const acct of result.accounts) {
+          if (acct.iAccount && acct.username) accountNameCache.set(String(acct.iAccount), acct.username);
+        }
       }
       res.json(result);
     } catch (e: any) { res.status(500).json({ accounts: [], error: e.message }); }
