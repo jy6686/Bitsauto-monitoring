@@ -1403,6 +1403,67 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // GET /api/sippy/dashboard-stats — real-time switch stats from monitoring + live calls
+  // Uses getMonitoringGraphData (env=5) for ASR/ACD and listActiveCalls for PDD/count
+  // Explicit portalUrl so it works without activeSession
+  app.get('/api/sippy/dashboard-stats', async (_req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+
+      // Build a Sippy-format start_date for last 1 hour
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const startDate = new Date(Date.now() - 3600 * 1000); // 1 hour ago
+      const sippyDate = `${pad(startDate.getUTCHours())}:${pad(startDate.getUTCMinutes())}:${pad(startDate.getUTCSeconds())}.000 GMT `
+        + `${DAYS[startDate.getUTCDay()]} ${MONTHS[startDate.getUTCMonth()]} ${pad(startDate.getUTCDate())} ${startDate.getUTCFullYear()}`;
+
+      // Run monitoring (acd_asr with env=5 — where all traffic runs) + live calls in parallel
+      const [monResult, liveCallsRaw] = await Promise.all([
+        sippy.getSippyMonitoringData(username, password, 'acd_asr', {
+          startDate: sippyDate,
+          interval:  3600, // 1-hour window
+          iEnvironment: 5,
+          explicitPortalUrl: portalUrl,
+        }),
+        sippy.getSippyActiveCalls(username, password, portalUrl),
+      ]);
+
+      // Take most recent non-zero data point for ASR/ACD
+      // Filter by timestamp ≤ now to exclude future buckets
+      const nowTs = Math.floor(Date.now() / 1000);
+      const nonZeroPts = monResult.points.filter(p => (p.asr > 0 || p.acd > 0) && p.ts <= nowTs);
+      const latestPt   = nonZeroPts.length > 0 ? nonZeroPts[nonZeroPts.length - 1] : null;
+      const asr = latestPt ? parseFloat(latestPt.asr.toFixed(2)) : 0;
+      const acd = latestPt ? Math.round(latestPt.acd) : 0;      // already in seconds
+
+      // PDD = average delay field across currently routing calls
+      const routingCalls = liveCallsRaw.filter(c => c.delay && c.delay > 0);
+      const pdd = routingCalls.length > 0
+        ? parseFloat((routingCalls.reduce((s, c) => s + c.delay, 0) / routingCalls.length).toFixed(2))
+        : 0;
+
+      // Active call count from snapshot (use liveCallsRaw for most accurate current count)
+      const activeCalls = liveCallsRaw.length;
+
+      res.json({
+        activeCalls,
+        asr,
+        acd,
+        pdd,
+        connected:   true,
+        liveCount:   liveCallsRaw.length,
+        monOk:       monResult.ok,
+        dataPoints:  monResult.points.length,
+        nonZeroPts:  nonZeroPts.length,
+      });
+    } catch (err: any) {
+      res.json({ activeCalls: 0, asr: 0, acd: 0, pdd: 0, connected: false, error: err.message });
+    }
+  });
+
   // GET /api/sippy/call-stats — lightweight active call count summary (getAccountCallStats)
   // Root-only (all accounts). Returns { i_account: [total, connected] }
   app.get('/api/sippy/call-stats', async (_req, res) => {

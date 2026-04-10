@@ -1286,10 +1286,11 @@ export async function getSippyMonitoringData(
   username: string,
   password: string,
   type: string,
-  opts: { startDate?: string; interval?: number; iEnvironment?: number } = {},
+  opts: { startDate?: string; interval?: number; iEnvironment?: number; explicitPortalUrl?: string } = {},
 ): Promise<{ ok: boolean; points: Array<{ ts: number; [k: string]: number }>; error?: string }> {
-  if (!activeSession) return { ok: false, points: [], error: 'Not connected.' };
-  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const base = opts.explicitPortalUrl ? sippyBase(opts.explicitPortalUrl) : activeSession?.portalUrl;
+  if (!base) return { ok: false, points: [], error: 'Not connected.' };
+  const apiUrl = `${base}/xmlapi/xmlapi`;
 
   const params: Record<string, unknown> = { type };
   if (opts.startDate)    params.start_date    = opts.startDate;
@@ -4068,6 +4069,47 @@ export async function getSippyStats(username: string, password: string, explicit
     };
   } catch {
     return { totalCalls: 0, activeCalls: 0, successRate: 0, totalMinutes: 0 };
+  }
+}
+
+// ── getSippyDashboardMetrics — real-time stats from call_control.getCountersStats ──
+// Returns activeCalls, ASR, ACD (secs), total/answered counts.
+// Always requires explicitPortalUrl so it works without activeSession.
+export interface SippyDashboardMetrics {
+  activeCalls: number;
+  totalCalls: number;
+  answeredCalls: number;
+  asr: number;       // percent 0-100
+  acd: number;       // seconds
+  totalMinutes: number;
+  rawFields: Record<string, string>;
+}
+
+export async function getSippyDashboardMetrics(
+  username: string,
+  password: string,
+  explicitPortalUrl: string,
+): Promise<SippyDashboardMetrics> {
+  const empty: SippyDashboardMetrics = { activeCalls: 0, totalCalls: 0, answeredCalls: 0, asr: 0, acd: 0, totalMinutes: 0, rawFields: {} };
+  try {
+    const base = sippyBase(explicitPortalUrl);
+    const apiUrl = `${base}/xmlapi/xmlapi`;
+    const resp = await sippyPost(apiUrl, xmlRpcCall('call_control.getCountersStats'), username, password);
+    if (resp.statusCode !== 200) return empty;
+    const m = extractStructMembers(resp.body);
+    // Sippy may use different field names across versions
+    const total    = parseInt(m['total']    || m['total_calls']    || m['calls_total']   || '0') || 0;
+    const answered = parseInt(m['answered'] || m['answered_calls'] || m['calls_answered']|| '0') || 0;
+    const active   = parseInt(m['active']   || m['active_calls']   || m['calls_active']  || '0') || 0;
+    // total_duration may be in seconds; fall back to minutes * 60
+    const durSecs  = parseFloat(m['total_duration'] || m['duration'] || '0') || 0;
+    const minsFallback = parseFloat(m['minutes'] || '0') * 60;
+    const totalSecs = durSecs || minsFallback;
+    const asr = total > 0 ? Math.round((answered / total) * 100) : 0;
+    const acd = answered > 0 ? Math.round(totalSecs / answered) : 0;
+    return { activeCalls: active, totalCalls: total, answeredCalls: answered, asr, acd, totalMinutes: Math.round(totalSecs / 60), rawFields: m };
+  } catch {
+    return empty;
   }
 }
 

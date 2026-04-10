@@ -84,8 +84,17 @@ export default function DashboardPage() {
     queryKey: ['/api/sippy/live-calls'],
     refetchInterval: 5000,
   });
+  // Sippy real-time dashboard stats — ASR, ACD, PDD, active calls direct from Sippy switch
+  const { data: sippyStats } = useQuery<{
+    activeCalls: number; totalCalls: number; answeredCalls: number;
+    asr: number; acd: number; pdd: number; totalMinutes: number;
+    connected: boolean; liveCount: number; rawFields: Record<string, string>;
+  }>({
+    queryKey: ['/api/sippy/dashboard-stats'],
+    refetchInterval: 15000,
+  });
   // Sippy CDR records — poll once connected
-  const isSippyReachable = sippyLiveCalls?.connected === true || !!sippySession?.active;
+  const isSippyReachable = sippyLiveCalls?.connected === true || !!sippySession?.active || sippyStats?.connected === true;
   const { data: sippyCdr } = useQuery<{ cdrs: any[]; error?: string }>({
     queryKey: ['/api/sippy/cdr'],
     refetchInterval: 60000,
@@ -98,7 +107,7 @@ export default function DashboardPage() {
   });
 
   const simulationOff = settings && !settings.simulationEnabled;
-  // anyPortalActive: true as soon as live-calls endpoint confirms reachability (no session dependency)
+  // anyPortalActive: true as soon as any Sippy endpoint confirms reachability
   const anyPortalActive = isSippyReachable;
   const notConnected = simulationOff && !anyPortalActive;
 
@@ -112,9 +121,17 @@ export default function DashboardPage() {
     .reverse();
 
   const liveCalls = sippyLiveCalls?.calls ?? [];
-  const displayActiveCalls = anyPortalActive ? liveCalls.length : (stats?.activeCalls ?? 0);
-  const displayAsr = stats?.asr ?? 0;
-  const displayAcd = stats?.acd ?? 0;
+
+  // When Sippy is connected, use Sippy switch data for all KPI cards.
+  // sippyStats.activeCalls comes from call_control.getCountersStats (real concurrent count).
+  // Fall back to liveCount (snapshot) or local DB when Sippy stats not yet loaded.
+  const displayActiveCalls = anyPortalActive
+    ? (sippyStats?.activeCalls ?? sippyStats?.liveCount ?? liveCalls.length)
+    : (stats?.activeCalls ?? 0);
+  const displayAsr = anyPortalActive ? (sippyStats?.asr ?? 0) : (stats?.asr ?? 0);
+  // ACD: Sippy returns seconds; format for display separately
+  const displayAcd = anyPortalActive ? (sippyStats?.acd ?? 0) : (stats?.acd ?? 0);
+  const displayPdd = anyPortalActive ? (sippyStats?.pdd ?? 0) : (stats?.pdd ?? 0);
 
   if (!stats) return <div className="p-8">Loading dashboard...</div>;
 
@@ -213,9 +230,9 @@ export default function DashboardPage() {
         />
         <StatCard
           title="PDD"
-          value={notConnected ? '—' : ((stats.pdd ?? 0) > 0 ? `${(stats.pdd ?? 0).toFixed(2)}s` : '—')}
+          value={notConnected ? '—' : (displayPdd > 0 ? `${displayPdd.toFixed(2)}s` : '—')}
           icon={Timer}
-          className={(stats.pdd ?? 0) > 0 && (stats.pdd ?? 0) <= 1.5 ? "border-emerald-500/20" : (stats.pdd ?? 0) > 1.5 ? "border-amber-500/20" : "border-border/50"}
+          className={displayPdd > 0 && displayPdd <= 1.5 ? "border-emerald-500/20" : displayPdd > 1.5 ? "border-amber-500/20" : "border-border/50"}
           description="Post-Dial Delay — avg time from dial to first ringback"
         />
       </div>
@@ -529,16 +546,36 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {sippySession?.active ? (
+        {anyPortalActive ? (
           <div className="p-6 space-y-6">
-            {/* Live calls summary — full table is below */}
-            <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-muted/30 border border-border/40">
-              <PhoneCall className="w-4 h-4 text-violet-400 flex-shrink-0" />
-              <p className="text-sm text-muted-foreground flex-1">
-                {liveCalls.length > 0
-                  ? <><span className="font-semibold text-foreground">{liveCalls.length}</span> active call{liveCalls.length !== 1 ? 's' : ''} currently on the switch — see the <span className="font-medium text-violet-400">Live Calls table below</span> for details.</>
-                  : 'No active calls on Sippy right now.'}
-              </p>
+            {/* Real-time Sippy switch KPIs */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Active Calls</p>
+                <p className="text-2xl font-bold text-foreground tabular-nums">{displayActiveCalls}</p>
+                <p className="text-[10px] text-violet-400 mt-0.5">Live snapshot</p>
+              </div>
+              <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">ASR</p>
+                <p className={`text-2xl font-bold tabular-nums ${displayAsr >= 10 ? 'text-emerald-400' : displayAsr > 0 ? 'text-amber-400' : 'text-rose-400'}`}>
+                  {displayAsr.toFixed(2)}%
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Last hour</p>
+              </div>
+              <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">ACD</p>
+                <p className="text-2xl font-bold text-foreground tabular-nums">
+                  {displayAcd >= 60 ? `${Math.floor(displayAcd/60)}m ${displayAcd%60}s` : `${displayAcd}s`}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Avg call duration</p>
+              </div>
+              <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">PDD</p>
+                <p className={`text-2xl font-bold tabular-nums ${displayPdd > 0 && displayPdd <= 2 ? 'text-emerald-400' : displayPdd > 2 ? 'text-amber-400' : 'text-muted-foreground'}`}>
+                  {displayPdd > 0 ? `${displayPdd.toFixed(2)}s` : '—'}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Post-dial delay</p>
+              </div>
             </div>
 
             {/* Recent CDRs */}
