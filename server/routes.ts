@@ -2256,23 +2256,75 @@ export async function registerRoutes(
     } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
   });
 
-  // ASR/ACD Report — per-client breakdown
+  // ASR/ACD Report — built from live Sippy CDRs (not local DB)
   app.get('/api/reports/asr-acd', async (req, res) => {
     try {
+      const settings = await storage.getSettings();
+      const credPairs = sippyXmlCredsPairs(settings);
+
       const {
         cli, cld, startTime, endTime,
-        groupBy, sortBy, hideEmpty,
+        groupBy = 'caller', sortBy = 'totalCalls', hideEmpty,
       } = req.query as Record<string, string>;
 
-      const rows = await storage.getAsrAcdReport({
-        cliFilter: cli || undefined,
-        cldFilter: cld || undefined,
-        startTime: startTime || undefined,
-        endTime: endTime || undefined,
-        groupBy: (groupBy as 'caller' | 'callee') || 'caller',
-        sortBy: (sortBy as any) || 'totalCalls',
-        hideEmpty: hideEmpty !== 'false',
-      });
+      // Fetch a large CDR window from Sippy (type=all for true ASR: answered + unanswered)
+      const CDR_LIMIT = 5000;
+      const cdrOpts: Parameters<typeof sippy.getSippyCDRs>[3] = { type: 'all' };
+      if (startTime) cdrOpts.startDate = startTime;
+      if (endTime)   cdrOpts.endDate   = endTime;
+      if (cli)       cdrOpts.cli       = cli;
+      if (cld)       cdrOpts.cld       = cld;
+
+      // Credential-pair loop — handles swapped settings in production DB
+      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      for (const { username, password } of credPairs) {
+        cdrs = await sippy.getSippyCDRs(username, password, CDR_LIMIT, cdrOpts);
+        if (cdrs.length > 0) break;
+      }
+
+      // Aggregate by groupBy dimension
+      type G = { totalCalls: number; answeredCalls: number; billedSecs: number; pddSum: number; pddCount: number; totalCost: number };
+      const grouped = new Map<string, G>();
+
+      for (const cdr of cdrs) {
+        const key = groupBy === 'callee' ? (cdr.callee || '-') : (cdr.caller || '-');
+        if (!grouped.has(key)) grouped.set(key, { totalCalls: 0, answeredCalls: 0, billedSecs: 0, pddSum: 0, pddCount: 0, totalCost: 0 });
+        const g = grouped.get(key)!;
+        g.totalCalls++;
+        // Answered = billed duration > 0 (Sippy result=0 means success)
+        const answered = (cdr.duration != null && cdr.duration > 0) ||
+          /^(0|200|ok|answered|success)/i.test(String(cdr.result ?? ''));
+        if (answered) {
+          g.answeredCalls++;
+          g.billedSecs += cdr.duration ?? 0;
+        }
+        if (cdr.pdd != null && cdr.pdd >= 0) { g.pddSum += cdr.pdd; g.pddCount++; }
+        g.totalCost += cdr.cost ?? 0;
+      }
+
+      const shouldHideEmpty = hideEmpty !== 'false';
+      let rows = Array.from(grouped.entries())
+        .filter(([, g]) => !shouldHideEmpty || g.totalCalls > 0)
+        .map(([label, g]) => ({
+          caller:                label,
+          totalCalls:            g.totalCalls,
+          billableCalls:         g.answeredCalls,
+          billedDurationSeconds: g.billedSecs,
+          acdSeconds:            g.answeredCalls > 0 ? g.billedSecs / g.answeredCalls : 0,
+          asr:                   g.totalCalls   > 0 ? (g.answeredCalls / g.totalCalls) * 100 : 0,
+          avgPdd:                g.pddCount     > 0 ? g.pddSum / g.pddCount : 0,
+          revenueUsd:            0,
+        }));
+
+      // Sort
+      const sortFn: Record<string, (a: typeof rows[0], b: typeof rows[0]) => number> = {
+        totalCalls:    (a, b) => b.totalCalls    - a.totalCalls,
+        asr:           (a, b) => b.asr           - a.asr,
+        billableCalls: (a, b) => b.billableCalls - a.billableCalls,
+        revenueUsd:    (a, b) => b.revenueUsd    - a.revenueUsd,
+      };
+      rows.sort(sortFn[sortBy] ?? sortFn.totalCalls);
+
       res.json(rows);
     } catch (err) {
       console.error('ASR/ACD report error:', err);
