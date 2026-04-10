@@ -4253,6 +4253,30 @@ export async function listSippyBillingPlans(
       return { plans };
     } catch { continue; }
   }
+
+  // ── Fallback: probe IDs 1–20 individually via getServicePlanInfo ─────────
+  // The list API is not available on this Sippy version, but individual lookups work.
+  console.log('[Sippy] listSippyBillingPlans: list API unavailable — probing IDs 1-20 via getServicePlanInfo');
+  const probeResults = await Promise.allSettled(
+    Array.from({ length: 20 }, (_, i) => i + 1).map(async (id) => {
+      const params: Record<string, string | number> = { i_billing_plan: id };
+      const resp = await sippyPost(apiUrl, xmlRpcCall('getServicePlanInfo', params), username, password);
+      if (resp.statusCode !== 200 || resp.body.includes('<fault>')) return null;
+      const m = extractStructMembers(resp.body);
+      const name = m['name'];
+      if (!name) return null;
+      const currency = m['iso_4217'] || m['currency'] || undefined;
+      return { id, name, ...(currency ? { currency } : {}) } as SippyBillingPlan;
+    })
+  );
+  const probedPlans = probeResults
+    .filter((r): r is PromiseFulfilledResult<SippyBillingPlan> => r.status === 'fulfilled' && r.value !== null)
+    .map(r => r.value);
+  if (probedPlans.length > 0) {
+    console.log(`[Sippy] listSippyBillingPlans: found ${probedPlans.length} plans via probe:`, probedPlans.map(p => `${p.name}(#${p.id})`).join(', '));
+    return { plans: probedPlans };
+  }
+
   return { plans: [], error: 'No billing plan list method found on this Sippy instance. Create Service Plans in your Sippy portal (Billing → Service Plans) first.' };
 }
 
