@@ -148,16 +148,7 @@ export default function FraudPage() {
   });
 
   function sipDate(localDt: string) {
-    // Convert "YYYY-MM-DDTHH:MM" → "MM/DD/YYYY HH:MM:SS"
-    try {
-      const d = new Date(localDt);
-      const mm = String(d.getMonth() + 1).padStart(2, "0");
-      const dd = String(d.getDate()).padStart(2, "0");
-      const yy = d.getFullYear();
-      const hh = String(d.getHours()).padStart(2, "0");
-      const min = String(d.getMinutes()).padStart(2, "0");
-      return `${mm}/${dd}/${yy} ${hh}:${min}:00`;
-    } catch { return localDt; }
+    return toSippyDateUTC(localDt);
   }
 
   function setPreset(hours: number) {
@@ -230,12 +221,12 @@ export default function FraudPage() {
             ))}
           </div>
           <div>
-            <Label className="text-xs text-muted-foreground mb-1">From</Label>
+            <Label className="text-xs text-muted-foreground mb-1">From <span className="font-medium text-primary/60">(UTC)</span></Label>
             <Input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)}
               className="h-8 text-xs w-48" data-testid="input-start-date" />
           </div>
           <div>
-            <Label className="text-xs text-muted-foreground mb-1">To</Label>
+            <Label className="text-xs text-muted-foreground mb-1">To <span className="font-medium text-primary/60">(UTC)</span></Label>
             <Input type="datetime-local" value={endDate} onChange={e => setEndDate(e.target.value)}
               className="h-8 text-xs w-48" data-testid="input-end-date" />
           </div>

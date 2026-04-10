@@ -300,7 +300,7 @@ export default function CDRsPage() {
         {/* Date + filters row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Start Date/Time</label>
+            <label className="text-xs text-muted-foreground">Start Date/Time <span className="font-medium text-primary/60">(UTC)</span></label>
             <Input
               type="datetime-local"
               value={startInput}
@@ -310,7 +310,7 @@ export default function CDRsPage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">End Date/Time</label>
+            <label className="text-xs text-muted-foreground">End Date/Time <span className="font-medium text-primary/60">(UTC)</span></label>
             <Input
               type="datetime-local"
               value={endInput}

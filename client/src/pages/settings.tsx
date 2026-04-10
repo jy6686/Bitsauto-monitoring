@@ -123,7 +123,7 @@ function SippyConnectPanel({ username, password }: { username: string; password:
               <p className="text-xs text-muted-foreground mt-0.5">
                 Logged in as <span className="font-mono">{session.username}</span>
                 {session.connectedAt && (
-                  <> · since {new Date(session.connectedAt).toLocaleTimeString()}</>
+                  <> · since {new Date(session.connectedAt).toLocaleTimeString('en-GB', { timeZone: 'UTC', hour12: false })}</>
                 )}
               </p>
               {!isXmlRpc && (

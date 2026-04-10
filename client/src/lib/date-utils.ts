@@ -20,17 +20,20 @@ export function formatUTC(d: Date | number | string, pattern: string): string {
   const Mon = MONTHS_SHORT[dt.getUTCMonth()];
 
   return pattern
-    .replace("yyyy-MM-dd'T'HH:mm", `${Y}-${Mo}-${D2}T${H}:${Mi}`)
-    .replace('yyyyMMdd_HHmmss',    `${Y}${Mo}${D2}_${H}${Mi}${S}`)
-    .replace('yyyyMMdd_HHmm',      `${Y}${Mo}${D2}_${H}${Mi}`)
-    .replace('dd MMM yyyy HH:mm:ss', `${D2} ${Mon} ${Y} ${H}:${Mi}:${S}`)
-    .replace('dd MMM yyyy HH:mm',  `${D2} ${Mon} ${Y} ${H}:${Mi}`)
-    .replace('d MMM HH:mm:ss',     `${D1} ${Mon} ${H}:${Mi}:${S}`)
-    .replace('d MMM HH:mm',        `${D1} ${Mon} ${H}:${Mi}`)
-    .replace('MMM d, HH:mm:ss',    `${Mon} ${D1}, ${H}:${Mi}:${S}`)
-    .replace('MMM d, HH:mm',       `${Mon} ${D1}, ${H}:${Mi}`)
-    .replace('HH:mm:ss',           `${H}:${Mi}:${S}`)
-    .replace('HH:mm',              `${H}:${Mi}`);
+    .replace("yyyy-MM-dd'T'HH:mm",      `${Y}-${Mo}-${D2}T${H}:${Mi}`)
+    .replace('yyyyMMdd_HHmmss',          `${Y}${Mo}${D2}_${H}${Mi}${S}`)
+    .replace('yyyyMMdd_HHmm',            `${Y}${Mo}${D2}_${H}${Mi}`)
+    .replace('dd MMM yyyy HH:mm:ss',     `${D2} ${Mon} ${Y} ${H}:${Mi}:${S}`)
+    .replace('dd MMM yyyy HH:mm',        `${D2} ${Mon} ${Y} ${H}:${Mi}`)
+    .replace('MMM d, yyyy HH:mm:ss',     `${Mon} ${D1}, ${Y} ${H}:${Mi}:${S}`)
+    .replace('MMM d, yyyy HH:mm',        `${Mon} ${D1}, ${Y} ${H}:${Mi}`)
+    .replace('d MMM HH:mm:ss',           `${D1} ${Mon} ${H}:${Mi}:${S}`)
+    .replace('d MMM HH:mm',              `${D1} ${Mon} ${H}:${Mi}`)
+    .replace('MMM d, HH:mm:ss',          `${Mon} ${D1}, ${H}:${Mi}:${S}`)
+    .replace('MMM d, HH:mm',             `${Mon} ${D1}, ${H}:${Mi}`)
+    .replace('HH:mm:ss',                 `${H}:${Mi}:${S}`)
+    .replace('HH:mm',                    `${H}:${Mi}`)
+    .replace('mm:ss',                    `${Mi}:${S}`);
 }
 
 /**

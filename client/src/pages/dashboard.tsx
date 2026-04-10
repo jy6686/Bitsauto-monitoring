@@ -38,7 +38,7 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from "recharts";
-import { format } from "date-fns";
+import { formatUTC } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import { lookupCountry } from "@/lib/country-lookup";
 
@@ -126,7 +126,7 @@ export default function DashboardPage() {
   const chartData = (recentCalls ?? [])
     .filter((c: any) => c.latestMetric)
     .map((c: any) => ({
-      time: format(new Date(c.startTime), 'HH:mm'),
+      time: formatUTC(new Date(c.startTime), 'HH:mm'),
       mos: parseFloat((c.latestMetric?.mos ?? 0).toFixed(2)),
     }))
     .reverse();
@@ -422,7 +422,7 @@ export default function DashboardPage() {
                         <div className="h-6 w-px bg-border/50" />
                         <div>
                           <p className="text-xs text-muted-foreground">Last Checked</p>
-                          <p className="text-xs text-muted-foreground/80">{format(new Date(entry.timestamp), 'HH:mm:ss')}</p>
+                          <p className="text-xs text-muted-foreground/80">{formatUTC(new Date(entry.timestamp), 'HH:mm:ss')}</p>
                         </div>
                       </>
                     )}
@@ -513,7 +513,7 @@ export default function DashboardPage() {
                   <p className="text-sm font-medium leading-none">{alert.type.replace('_', ' ').toUpperCase()}</p>
                   <p className="text-xs text-muted-foreground line-clamp-2">{alert.message}</p>
                   <p className="text-[10px] text-muted-foreground/60">
-                    {format(new Date(alert.createdAt!), 'MMM d, HH:mm:ss')}
+                    {formatUTC(new Date(alert.createdAt!), 'MMM d, HH:mm:ss')}
                   </p>
                 </div>
               </div>
@@ -860,7 +860,7 @@ export default function DashboardPage() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-muted-foreground">
-                        {call.startTime ? format(new Date(call.startTime), 'HH:mm:ss') : '-'}
+                        {call.startTime ? formatUTC(new Date(call.startTime), 'HH:mm:ss') : '-'}
                       </td>
                       <td className="px-6 py-4">
                         <MosBadge value={call.latestMetric?.mos || 0} />

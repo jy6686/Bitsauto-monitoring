@@ -312,7 +312,7 @@ export default function ReportsPage() {
             {/* Custom date inputs */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground uppercase tracking-wider">From</label>
+                <label className="text-xs text-muted-foreground uppercase tracking-wider">From <span className="normal-case font-medium text-primary/60">(UTC)</span></label>
                 <input
                   data-testid="input-start-time"
                   type="datetime-local"
@@ -322,7 +322,7 @@ export default function ReportsPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground uppercase tracking-wider">To</label>
+                <label className="text-xs text-muted-foreground uppercase tracking-wider">To <span className="normal-case font-medium text-primary/60">(UTC)</span></label>
                 <input
                   data-testid="input-end-time"
                   type="datetime-local"

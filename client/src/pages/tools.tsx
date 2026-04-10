@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
+import { toUTCDateInput, toSippyDateUTC } from "@/lib/date-utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -93,17 +94,10 @@ const TABS: { id: Tab; label: string; icon: typeof Wrench }[] = [
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function toLocalDateInput(d: Date) { return d.toISOString().slice(0, 16); }
+function toLocalDateInput(d: Date) { return toUTCDateInput(d); }
 
 function sipDate(localDt: string) {
-  try {
-    const d = new Date(localDt);
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const min = String(d.getMinutes()).padStart(2, "0");
-    return `${mm}/${dd}/${d.getFullYear()} ${hh}:${min}:00`;
-  } catch { return localDt; }
+  return toSippyDateUTC(localDt);
 }
 
 function kbpsToMbps(kbps: number) { return (kbps / 1000).toFixed(2); }

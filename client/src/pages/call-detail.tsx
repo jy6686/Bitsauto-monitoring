@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
   Legend
 } from "recharts";
-import { format } from "date-fns";
+import { formatUTC } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import { lookupCountry } from "@/lib/country-lookup";
 
@@ -31,7 +31,7 @@ export default function CallDetailPage() {
 
   // Transform metrics for the chart
   const chartData = metrics?.map(m => ({
-    time: m.timestamp ? format(new Date(m.timestamp), 'mm:ss') : '',
+    time: m.timestamp ? formatUTC(new Date(m.timestamp), 'mm:ss') : '',
     jitter: m.jitter,
     latency: m.latency,
     packetLoss: m.packetLoss * 10, // Scale up for visibility
@@ -65,7 +65,7 @@ export default function CallDetailPage() {
         <div className="ml-auto flex items-center gap-3">
           <div className="px-3 py-1 bg-secondary rounded-full text-xs font-medium flex items-center gap-2">
             <Clock className="w-3 h-3" />
-            {call.startTime && format(new Date(call.startTime), 'HH:mm:ss')}
+            {call.startTime && formatUTC(new Date(call.startTime), 'HH:mm:ss')}
           </div>
           <MosBadge value={metrics?.[metrics.length - 1]?.mos || 0} />
         </div>

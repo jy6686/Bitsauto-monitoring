@@ -1,6 +1,6 @@
 import { useAlerts } from "@/hooks/use-alerts";
 import { AlertTriangle, CheckCircle, Clock } from "lucide-react";
-import { format } from "date-fns";
+import { formatUTC } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 
 export default function AlertsPage() {
@@ -48,7 +48,7 @@ export default function AlertsPage() {
                   <div className="mt-4 flex items-center gap-4 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5" />
-                      {alert.createdAt && format(new Date(alert.createdAt), 'MMM d, yyyy HH:mm:ss')}
+                      {alert.createdAt && formatUTC(new Date(alert.createdAt), 'MMM d, yyyy HH:mm:ss')}
                     </span>
                     <span className="flex items-center gap-1.5">
                       <CheckCircle className="w-3.5 h-3.5" />
