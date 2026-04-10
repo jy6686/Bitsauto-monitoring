@@ -994,16 +994,18 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/sippy/monitoring/acd-asr — ACD/ASR time-series from Sippy monitoring API
+  // GET /api/sippy/monitoring/acd-asr — ACD/ASR time-series
+  // Tries Sippy monitoring API first; falls back to CDR-based computation if restricted.
   app.get('/api/sippy/monitoring/acd-asr', async (req, res) => {
     try {
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
-      // Default: last 24 h, 5-min resolution (300 s), total (root env)
+      const credPairs = sippyXmlCredsPairs(settings);
       const hoursBack = Number(req.query.hours) || 24;
       const intervalSec = Number(req.query.interval) || 300;
       const iEnv = req.query.env ? Number(req.query.env) : undefined;
       const startDate = new Date(Date.now() - hoursBack * 3600 * 1000);
+
       // Sippy start_date format: 'HH:MM:SS.000 GMT Www Mmm DD YYYY'
       const pad = (n: number) => String(n).padStart(2, '0');
       const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -1011,14 +1013,15 @@ export async function registerRoutes(
       const sippyDate = `${pad(startDate.getUTCHours())}:${pad(startDate.getUTCMinutes())}:${pad(startDate.getUTCSeconds())}.000 GMT `
         + `${days[startDate.getUTCDay()]} ${months[startDate.getUTCMonth()]} ${pad(startDate.getUTCDate())} ${startDate.getUTCFullYear()}`;
 
-      // Try acd_asr_total first (root/aggregate) then fall back to acd_asr per-env
+      // ── Attempt 1: Sippy monitoring API (acd_asr_total) ──────────────────
       let result = await sippy.getSippyMonitoringData(username, password, 'acd_asr_total', {
         startDate: sippyDate,
         interval: hoursBack * 3600,
       });
       let graphType = 'acd_asr_total';
+
+      // ── Attempt 2: Sippy monitoring API (acd_asr per-env) ────────────────
       if (!result.ok || !result.points.length) {
-        // Fall back to acd_asr (per-environment or all-env without i_environment)
         result = await sippy.getSippyMonitoringData(username, password, 'acd_asr', {
           startDate: sippyDate,
           interval: hoursBack * 3600,
@@ -1026,6 +1029,58 @@ export async function registerRoutes(
         });
         graphType = 'acd_asr';
       }
+
+      // ── Attempt 3: CDR-based fallback ─────────────────────────────────────
+      // When getMonitoringGraphData is restricted, compute ASR/ACD per time-bucket from CDRs.
+      if (!result.ok || !result.points.length) {
+        const bucketMs = intervalSec * 1000;   // bucket width in ms
+        const startMs  = startDate.getTime();
+        const endMs    = Date.now();
+
+        let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+        for (const { username: u, password: p } of credPairs) {
+          cdrs = await sippy.getSippyCDRs(u, p, 5000, {
+            startDate: startDate.toISOString(),
+            endDate:   new Date().toISOString(),
+            type: 'all',
+          });
+          if (cdrs.length > 0) break;
+        }
+
+        // Group CDRs into buckets by startTime (ISO string already)
+        type Bucket = { total: number; answered: number; billedSecs: number };
+        const buckets = new Map<number, Bucket>();
+
+        for (const cdr of cdrs) {
+          const ts = cdr.startTime ? new Date(cdr.startTime).getTime() : NaN;
+          if (isNaN(ts) || ts < startMs || ts > endMs) continue;
+          const bucketKey = Math.floor((ts - startMs) / bucketMs) * bucketMs + startMs;
+          if (!buckets.has(bucketKey)) buckets.set(bucketKey, { total: 0, answered: 0, billedSecs: 0 });
+          const b = buckets.get(bucketKey)!;
+          b.total++;
+          const rawResult = parseInt(String(cdr.result ?? '').trim()) || 0;
+          const isAnswered = rawResult === 0 || (cdr.duration != null && cdr.duration > 0);
+          if (isAnswered) { b.answered++; b.billedSecs += cdr.duration ?? 0; }
+        }
+
+        const points = Array.from(buckets.entries())
+          .sort(([a], [b]) => a - b)
+          .map(([tsMs, b]) => ({
+            ts:  Math.floor(tsMs / 1000),   // chart expects Unix seconds (multiplies by 1000 in UI)
+            asr: b.total > 0 ? Math.round((b.answered / b.total) * 100 * 100) / 100 : 0,
+            acd: b.answered > 0 ? Math.round((b.billedSecs / b.answered) * 10) / 10 : 0,
+          }));
+
+        return res.json({
+          ok: true,
+          points,
+          graphType: 'cdr_computed',
+          hours: hoursBack,
+          intervalSec,
+          source: 'CDR-based (getMonitoringGraphData unavailable)',
+        });
+      }
+
       res.json({ ...result, graphType, hours: hoursBack, intervalSec });
     } catch (err: any) {
       res.json({ ok: false, points: [], error: err.message });
@@ -4704,30 +4759,43 @@ export async function registerRoutes(
       }
 
       // Enrich every CDR with FAS analysis
+      // Sippy CDR result field: '0' = success (SIP 200 OK); other values are SIP response codes (486, 603, etc.)
       type EnrichedRow = {
         callId?: string; caller?: string; callee?: string; vendor?: string;
         sipCode?: number | null; pddSecs?: number | null; billSecs?: number | null;
         isFas: boolean; fasReason: string; fraudScore: number; reason?: string;
       };
       const enriched: EnrichedRow[] = cdrs.map(cdr => {
-        const result = detectFas({
-          sipCode:  cdr.sipCode   ?? null,
-          pddSecs:  cdr.pdd       ?? null,
-          billSecs: cdr.billSecs  ?? null,
-          fasMinPddSecs, fasMaxBillSecs: fasMaxBill, fasEarlyAnswerSecs, fasShortCallSecs,
+        // Map Sippy result string → numeric SIP code (0 = success → 200)
+        const rawResult = parseInt(String(cdr.result ?? '').trim()) || 0;
+        const sipCodeVal: number | null = rawResult === 0 ? 200 : (rawResult >= 100 ? rawResult : null);
+        // cdr.duration = billed_duration in seconds (the correct field for billing)
+        const billSecsVal = cdr.duration ?? 0;
+        // Use pdd1xx (time to 1st SIP response) as PDD for FAS detection.
+        // cdr.pdd is Sippy's internal conn_proc_time (~5ms), not the ring delay.
+        // pdd1xx is the actual post-dial delay (SIP INVITE → first 1xx response).
+        const ringDelay = cdr.pdd1xx ?? cdr.pdd ?? null;
+        const fasResult = detectFas({
+          sipCode:  sipCodeVal,
+          pddSecs:  ringDelay,
+          billSecs: billSecsVal,
+          fasMinPddSecs:    fasMinPdd,
+          fasMaxBillSecs:   fasMaxBill,
+          fasEarlyAnswerSecs,
+          fasShortCallSecs,
         });
         return {
-          callId:     cdr.callId ?? cdr.id ?? '',
-          caller:     cdr.caller ?? cdr.cli ?? '',
-          callee:     cdr.callee ?? cdr.cld ?? '',
+          callId:     cdr.callId ?? '',
+          caller:     cdr.caller ?? '',
+          callee:     cdr.callee ?? '',
           vendor:     cdr.clientName ?? '',
-          sipCode:    cdr.sipCode ?? null,
+          sipCode:    sipCodeVal,
           pddSecs:    cdr.pdd    ?? null,
-          billSecs:   cdr.billSecs ?? null,
-          isFas:      result.isFas,
-          fasReason:  result.reason,
-          fraudScore: result.fraudScore,
-          reason:     result.reason,
+          billSecs:   billSecsVal,
+          isFas:      fasResult.isFas,
+          fasReason:  fasResult.reason,
+          fraudScore: fasResult.fraudScore,
+          reason:     fasResult.reason,
         };
       });
 

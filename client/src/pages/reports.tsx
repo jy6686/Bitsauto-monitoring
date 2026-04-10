@@ -128,7 +128,7 @@ export default function ReportsPage() {
     refetchInterval: 30000,
   });
   type MonitorPoint = { ts: number; acd?: number; asr?: number; [k: string]: number | undefined };
-  const { data: monitorData, isLoading: monitorLoading, refetch: refetchMonitor } = useQuery<{ ok: boolean; points: MonitorPoint[]; error?: string }>({
+  const { data: monitorData, isLoading: monitorLoading, refetch: refetchMonitor } = useQuery<{ ok: boolean; points: MonitorPoint[]; error?: string; graphType?: string; source?: string }>({
     queryKey: ['/api/sippy/monitoring/acd-asr', monitorHours],
     queryFn: async () => {
       const res = await fetch(`/api/sippy/monitoring/acd-asr?hours=${monitorHours}`);
@@ -536,11 +536,18 @@ export default function ReportsPage() {
           ) : !monitorData?.ok || !monitorData?.points?.length ? (
             <div className="flex flex-col items-center justify-center h-48 gap-2 text-muted-foreground/60">
               <Activity className="w-8 h-8 opacity-30" />
-              <span className="text-sm">{monitorData?.error ?? 'No data available'}</span>
-              <span className="text-xs opacity-70">getMonitoringGraphData may require root-level Sippy access</span>
+              <span className="text-sm">{monitorData?.error ?? 'No CDR data found for this time range'}</span>
+              <span className="text-xs opacity-70">Try a wider time range or run the report again after calls complete.</span>
             </div>
           ) : (
             <>
+              {/* Source badge — shown when falling back to CDR-computed data */}
+              {monitorData?.graphType === 'cdr_computed' && (
+                <div className="flex items-center gap-1.5 mb-3 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 w-fit text-xs text-amber-400">
+                  <Activity className="w-3 h-3" />
+                  CDR-computed (Sippy monitoring API unavailable for this account)
+                </div>
+              )}
               {/* Chart */}
               <ResponsiveContainer width="100%" height={280}>
                 <ComposedChart data={monitorData.points.map(p => ({
