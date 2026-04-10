@@ -505,88 +505,257 @@ function parseMMSS(s: string): number {
   return parseInt(s) || 0;
 }
 
-// getSippyAsrAcdReport — uses XML-RPC getCustomerCDRs (i_wholesaler=1 for root)
-// to compute origination ASR/ACD/PDD/Revenue and termination cost in one pass.
-// No portal web-login needed — uses the active XML-RPC session credentials.
+// ── Portal-based ASR/ACD scraper ──────────────────────────────────────────────
+// Scrapes /asr_acd.php from the Sippy portal using customer (RTST1) credentials.
+// Returns aggregate origination + termination stats, and per-client/per-vendor rows.
+
+export interface SippyAccountStatRow {
+  name:         string;
+  totalCalls:   number;
+  billableCalls:number;
+  durationSec:  number;  // billed duration in seconds
+  acdSec:       number;  // ACD in seconds
+  asr:          number;  // ASR %
+  avgPdd:       number;  // average PDD seconds
+  amount:       number;  // revenue (origination) or cost (termination)
+}
+
+export interface SippyPerAccountStats {
+  ok:           boolean;
+  period:       string;
+  fetchedAt:    string;
+  clients:      SippyAccountStatRow[];   // origination rows (per customer/caller)
+  vendors:      SippyAccountStatRow[];   // termination rows (per vendor/connection)
+  origTotal:    SippyAccountStatRow;
+  termTotal:    SippyAccountStatRow;
+  error?:       string;
+}
+
+const EMPTY_ROW: SippyAccountStatRow = {
+  name: '', totalCalls: 0, billableCalls: 0, durationSec: 0, acdSec: 0, asr: 0, avgPdd: 0, amount: 0,
+};
+
+function scrapeAsrAcdRows(html: string): {
+  origRows: SippyAccountStatRow[];
+  termRows: SippyAccountStatRow[];
+} {
+  // Find Origination and Termination sections in the HTML
+  // The page has two report tables separated by section headings
+  const origRows: SippyAccountStatRow[] = [];
+  const termRows: SippyAccountStatRow[] = [];
+
+  // Parse all <tr> rows in the page
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let m: RegExpExecArray | null;
+
+  // Section tracking: 'orig' or 'term'
+  let section: 'orig' | 'term' | null = null;
+
+  while ((m = trRe.exec(html)) !== null) {
+    const rowHtml = m[1];
+    const text    = rowHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // Detect section headings
+    if (/origination/i.test(text) && !text.match(/^\d/)) { section = 'orig'; continue; }
+    if (/termination/i.test(text) && !text.match(/^\d/)) { section = 'term'; continue; }
+    if (!section) continue;
+
+    // Skip header rows (column header rows contain "Number of Calls" or "Billable Calls")
+    // Note: must NOT skip data rows like "System Vendor / System Connection"
+    if (/number of calls|billable calls/i.test(text)) continue;
+    // Also skip section heading rows like "Caller ..." and "Vendor / Connection ..."
+    // but only when they appear as standalone header text (no digits in the row)
+    if (/^(caller|vendor\s*\/\s*connection)\s+/i.test(text)) continue;
+
+    // Extract cells (td/th elements)
+    const tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+    const cells: string[] = [];
+    let td: RegExpExecArray | null;
+    while ((td = tdRe.exec(rowHtml)) !== null) {
+      const cellText = td[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
+      cells.push(cellText);
+    }
+
+    // Data row: [Name, NumCalls, BillableCalls, BilledDuration mm:ss, ACD mm:ss, ASR%, AvgPDD, Amount]
+    if (cells.length < 6) continue;
+
+    const name         = cells[0].replace(/Acct\.\s*/i, '').trim();
+    const totalCalls   = parseInt(cells[1]) || 0;
+    const billableCalls= parseInt(cells[2]) || 0;
+    const durationSec  = parseMMSS(cells[3] || '0:0');
+    const acdSec       = parseMMSS(cells[4] || '0:0');
+    const asr          = parseFloat(cells[5]) || 0;
+    const avgPdd       = parseFloat(cells[6]) || 0;
+    const amount       = parseFloat(cells[7]) || 0;
+
+    // Skip if all zeros and no name (empty filler rows)
+    if (!name && totalCalls === 0) continue;
+
+    const row: SippyAccountStatRow = { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount };
+
+    // Total rows go to their respective totals (handled separately)
+    if (/^total for all/i.test(name)) {
+      // Already captured separately — skip here
+      continue;
+    }
+
+    if (section === 'orig') origRows.push(row);
+    else                    termRows.push(row);
+  }
+
+  return { origRows, termRows };
+}
+
+function sumRows(rows: SippyAccountStatRow[], amountKey: 'revenue' | 'cost'): SippyAccountStatRow {
+  if (rows.length === 0) return { ...EMPTY_ROW };
+  const totalCalls    = rows.reduce((s, r) => s + r.totalCalls,    0);
+  const billableCalls = rows.reduce((s, r) => s + r.billableCalls, 0);
+  const durationSec   = rows.reduce((s, r) => s + r.durationSec,   0);
+  const amount        = rows.reduce((s, r) => s + r.amount,        0);
+  const asr           = totalCalls > 0 ? parseFloat((billableCalls / totalCalls * 100).toFixed(2)) : 0;
+  const acdSec        = billableCalls > 0 ? Math.round(durationSec / billableCalls) : 0;
+  const avgPdd        = rows.length > 0 ? parseFloat((rows.reduce((s, r) => s + r.avgPdd, 0) / rows.length).toFixed(2)) : 0;
+  return { name: 'Total', totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount };
+}
+
+// formatSippyDate: converts a JS Date to the Sippy portal date format
+// e.g. "09:45:00.000 GMT Thu Apr 10 2026"
+function formatSippyPortalDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}.000 GMT `
+    + `${DAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${pad(d.getUTCDate())} ${d.getUTCFullYear()}`;
+}
+
+export async function getSippyPerAccountStats(
+  portalUsername: string,
+  portalPassword: string,
+  periodMinutes = 90,
+): Promise<SippyPerAccountStats> {
+  const FAIL = (error: string): SippyPerAccountStats => ({
+    ok: false, period: `${periodMinutes} min`, fetchedAt: new Date().toISOString(),
+    clients: [], vendors: [], origTotal: { ...EMPTY_ROW }, termTotal: { ...EMPTY_ROW }, error,
+  });
+
+  if (!activeSession) return FAIL('Not connected to Sippy.');
+
+  const base = activeSession.portalUrl;
+  if (!portalUsername || !portalPassword) {
+    return FAIL('Portal credentials not configured (set Portal Username/Password in Settings).');
+  }
+
+  try {
+    // ── Step 1: Login as portal customer ────────────────────────────────────
+    const loginRes = await portalLogin(base, portalUsername, portalPassword, 'customer');
+    if (!loginRes.success) return FAIL(`Portal login failed: ${loginRes.message}`);
+
+    const cookies = loginRes.cookies;
+
+    // ── Step 2: POST /asr_acd.php with correct form parameters ─────────────
+    // orig_disp=1 → group by Caller (account)
+    // term_disp=2 → group by Connection (vendor/connection)
+    const now   = new Date();
+    const start = new Date(now.getTime() - periodMinutes * 60_000);
+
+    const postBody = encodeForm({
+      startDate:        formatSippyPortalDate(start),
+      endDate:          formatSippyPortalDate(now),
+      orig_disp:        '1',     // group origination by Caller
+      term_disp:        '2',     // group termination by Connection
+      orig_hide_zcalls: '0',     // show all (including 0-call entries)
+      term_hide_zcalls: '0',
+      from_form:        '1',
+      action:           'update',
+      cdr_currency:     'USD',
+      vendor:           '0',     // all vendors
+      orig_sort_by:     '0',
+      term_sort_by:     '0',
+      cli_clause:       '0',
+      cld_clause:       '0',
+      hl_asr_below:     '10',
+    });
+
+    const acrHtml = await new Promise<string>((resolve, reject) => {
+      const url = new URL(`${base}/asr_acd.php`);
+      const options = {
+        hostname: url.hostname,
+        port:     parseInt(url.port) || (url.protocol === 'https:' ? 443 : 80),
+        path:     url.pathname,
+        method:   'POST',
+        headers:  {
+          'Content-Type':   'application/x-www-form-urlencoded',
+          'Content-Length': Buffer.byteLength(postBody),
+          'Cookie':         [...cookies.entries()].map(([k,v]) => `${k}=${v}`).join('; '),
+          'User-Agent':     'Mozilla/5.0 (compatible; SippyMonitor/1.0)',
+        },
+        rejectUnauthorized: false,
+      };
+
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', d => { data += d; });
+        res.on('end', () => resolve(data));
+      });
+      req.on('error', reject);
+      req.write(postBody);
+      req.end();
+    });
+
+    if (!acrHtml || acrHtml.length < 500) return FAIL('Empty response from portal ASR/ACD page.');
+
+    // ── Step 3: Parse origination + termination rows ─────────────────────────
+    const { origRows, termRows } = scrapeAsrAcdRows(acrHtml);
+
+    return {
+      ok:          true,
+      period:      `${periodMinutes} min`,
+      fetchedAt:   new Date().toISOString(),
+      clients:     origRows,
+      vendors:     termRows,
+      origTotal:   sumRows(origRows, 'revenue'),
+      termTotal:   sumRows(termRows, 'cost'),
+    };
+  } catch (e: any) {
+    return FAIL(e.message ?? 'Unknown error fetching per-account stats.');
+  }
+}
+
+// getSippyAsrAcdReport — portal-based (uses RTST1 customer login to scrape /asr_acd.php)
+// Falls back to zeros when no traffic in the window (shows real data when calls exist).
 export async function getSippyAsrAcdReport(
-  _portalUsername: string,   // kept for backward compat — not used (XML-RPC session handles auth)
-  _portalPassword: string,
+  portalUsername: string,
+  portalPassword: string,
   _portalUrl: string,
   periodMinutes = 90,
 ): Promise<SippyAsrAcdStats> {
-  const FAIL = { ok: false, period: `${periodMinutes} min`, origination: { ...EMPTY_ORIG }, termination: { ...EMPTY_TERM }, margin: 0 };
-  if (!activeSession) return FAIL;
+  const perAccount = await getSippyPerAccountStats(portalUsername, portalPassword, periodMinutes);
 
-  const now     = new Date();
-  const startDt = new Date(now.getTime() - periodMinutes * 60_000);
-
-  // Fetch origination CDRs via XML-RPC (trusted root access via i_wholesaler=1)
-  // 'cost' in getCustomerCDRs = amount charged to the customer = our revenue
-  const origCdrs = await getSippyCDRs(activeSession.username, activeSession.password, 2000, {
-    startDate:   startDt.toISOString(),
-    endDate:     now.toISOString(),
-    type:        'all',
-    iWholesaler: 1,   // trusted root access
-  });
-
-  if (origCdrs.length === 0) {
-    // No CDRs in the window — return success with zeros (not an error)
-    return { ok: true, period: `${periodMinutes} min`, origination: { ...EMPTY_ORIG }, termination: { ...EMPTY_TERM }, margin: 0 };
-  }
-
-  // Compute origination stats from CDRs
-  // Billable = CDRs where billed_duration > 0 (call was answered and billed)
-  const oTotal    = origCdrs.length;
-  const oBillable = origCdrs.filter(c => c.duration > 0).length;
-  const oDuration = origCdrs.reduce((s, c) => s + (c.duration || 0), 0);
-  const oRevenue  = origCdrs.reduce((s, c) => s + (c.cost || 0), 0);
-  // PDD = conn_proc_time field mapped to cdr.pdd
-  const pddCdrs   = origCdrs.filter(c => c.pdd != null && c.pdd! > 0);
-  const oAvgPdd   = pddCdrs.length > 0 ? pddCdrs.reduce((s, c) => s + c.pdd!, 0) / pddCdrs.length : 0;
-
-  // Termination: vendor cost
-  // Use getAccountCDRs with i_customer=1 (trusted) which includes vendor connection cost
-  // The 'cost' field on account CDRs = termination cost (what we pay vendors)
-  let tTotal = 0, tBillable = 0, tDuration = 0, tCost = 0, tAvgPdd = 0;
-  try {
-    const termCdrs = await getSippyCDRs(activeSession.username, activeSession.password, 2000, {
-      startDate: startDt.toISOString(),
-      endDate:   now.toISOString(),
-      type:      'all',
-      iCustomer: 1,   // trusted root access for getAccountCDRs
-    });
-    if (termCdrs.length > 0) {
-      tTotal    = termCdrs.length;
-      tBillable = termCdrs.filter(c => c.duration > 0).length;
-      tDuration = termCdrs.reduce((s, c) => s + (c.duration || 0), 0);
-      tCost     = termCdrs.reduce((s, c) => s + (c.cost || 0), 0);
-      const tPddCdrs = termCdrs.filter(c => c.pdd != null && c.pdd! > 0);
-      tAvgPdd   = tPddCdrs.length > 0 ? tPddCdrs.reduce((s, c) => s + c.pdd!, 0) / tPddCdrs.length : 0;
-    }
-  } catch { /* termination CDRs optional — continue with zeros */ }
+  const o = perAccount.origTotal;
+  const t = perAccount.termTotal;
 
   return {
-    ok: true,
-    period: `${periodMinutes} min`,
+    ok:     perAccount.ok,
+    period: perAccount.period,
     origination: {
-      totalCalls:       oTotal,
-      billableCalls:    oBillable,
-      totalDurationSec: oDuration,
-      acd:     oBillable > 0 ? Math.round(oDuration / oBillable) : 0,
-      asr:     oTotal > 0 ? parseFloat((oBillable / oTotal * 100).toFixed(2)) : 0,
-      avgPdd:  parseFloat(oAvgPdd.toFixed(2)),
-      revenue: parseFloat(oRevenue.toFixed(4)),
+      totalCalls:       o.totalCalls,
+      billableCalls:    o.billableCalls,
+      totalDurationSec: o.durationSec,
+      acd:              o.acdSec,
+      asr:              o.asr,
+      avgPdd:           o.avgPdd,
+      revenue:          parseFloat(o.amount.toFixed(4)),
     },
     termination: {
-      totalCalls:       tTotal,
-      billableCalls:    tBillable,
-      totalDurationSec: tDuration,
-      acd:     tBillable > 0 ? Math.round(tDuration / tBillable) : 0,
-      asr:     tTotal > 0 ? parseFloat((tBillable / tTotal * 100).toFixed(2)) : 0,
-      avgPdd:  parseFloat(tAvgPdd.toFixed(2)),
-      cost:    parseFloat(tCost.toFixed(4)),
+      totalCalls:       t.totalCalls,
+      billableCalls:    t.billableCalls,
+      totalDurationSec: t.durationSec,
+      acd:              t.acdSec,
+      asr:              t.asr,
+      avgPdd:           t.avgPdd,
+      cost:             parseFloat(t.amount.toFixed(4)),
     },
-    margin: parseFloat((oRevenue - tCost).toFixed(4)),
+    margin: parseFloat((o.amount - t.amount).toFixed(4)),
   };
 }
 
@@ -766,6 +935,19 @@ function extractStructMembers(structXml: string): Record<string, string> {
     members[key] = stripped;
   }
   return members;
+}
+
+// ── parseArrayOfStructs — parse XML-RPC array-of-structs ─────────────────────
+// Used by listSippyCustomers and other functions that receive an XML-RPC
+// <array><data><value><struct>…</struct></value>…</data></array> response.
+function parseArrayOfStructs(arrayXml: string): Record<string, string>[] {
+  const results: Record<string, string>[] = [];
+  const re = /<struct>([\s\S]*?)<\/struct>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(arrayXml)) !== null) {
+    results.push(extractStructMembers(m[1]));
+  }
+  return results;
 }
 
 // ── Connection Test ───────────────────────────────────────────────────────────

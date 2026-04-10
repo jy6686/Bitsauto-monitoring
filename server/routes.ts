@@ -1478,13 +1478,14 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/sippy/asr-acd-stats — full report scraped from /asr_acd.php
-  // Returns: totalCalls, billableCalls, ASR, ACD, PDD, Revenue, Cost, Margin for last 90 minutes
-  // Polling interval: 2 minutes (data changes slowly between CDR batches)
+  // GET /api/sippy/asr-acd-stats — aggregate totals scraped from /asr_acd.php
+  // Returns: totalCalls, billableCalls, ASR, ACD, PDD, Revenue, Cost, Margin
   app.get('/api/sippy/asr-acd-stats', async (_req, res) => {
     try {
-      // Now uses XML-RPC CDR API (no portal login needed) — credentials from active session
-      const result = await sippy.getSippyAsrAcdReport('', '', '', 90);
+      const settings = await storage.getSettings();
+      const portalUser = settings?.portalUsername ?? '';
+      const portalPass = settings?.portalPassword ?? '';
+      const result = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 90);
       res.json(result);
     } catch (err: any) {
       res.json({ ok: false, error: err.message,
@@ -1493,6 +1494,21 @@ export async function registerRoutes(
         termination: { totalCalls: 0, billableCalls: 0, totalDurationSec: 0, acd: 0, asr: 0, avgPdd: 0, cost: 0 },
         margin: 0,
       });
+    }
+  });
+
+  // GET /api/sippy/per-account-stats — per-client and per-vendor ASR/ACD from portal
+  // Returns: clients[] and vendors[] with individual call stats, ASR, ACD, revenue/cost
+  app.get('/api/sippy/per-account-stats', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const portalUser = settings?.portalUsername ?? '';
+      const portalPass = settings?.portalPassword ?? '';
+      const period = parseInt((req.query.period as string) || '90', 10);
+      const result = await sippy.getSippyPerAccountStats(portalUser, portalPass, period);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message, clients: [], vendors: [] });
     }
   });
 

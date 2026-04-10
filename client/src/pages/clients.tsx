@@ -1711,6 +1711,358 @@ function VendorConnectionsPanel({ iVendor, isManagement }: { iVendor: number; is
   );
 }
 
+// ── Sippy Live Stats Tab ───────────────────────────────────────────────────────
+
+interface AccountStatRow {
+  name: string;
+  totalCalls: number;
+  billableCalls: number;
+  durationSec: number;
+  acdSec: number;
+  asr: number;
+  avgPdd: number;
+  amount: number;
+}
+interface PerAccountStats {
+  ok: boolean;
+  period: string;
+  fetchedAt: string;
+  clients: AccountStatRow[];
+  vendors: AccountStatRow[];
+  origTotal: AccountStatRow;
+  termTotal: AccountStatRow;
+  error?: string;
+}
+interface SippyCustomerEntry {
+  iCustomer: number;
+  name: string;
+  webLogin: string;
+  balance: number;
+  creditLimit: number;
+  baseCurrency: string;
+}
+interface SippyVendorEntry {
+  iVendor: number;
+  name: string;
+  balance: number;
+  baseCurrency: string;
+}
+
+function fmtDuration(sec: number): string {
+  if (!sec) return '—';
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+function fmtAsr(v: number): string {
+  if (!v) return '—';
+  return v.toFixed(2) + '%';
+}
+function fmtUsd(v: number): string {
+  if (!v) return '—';
+  return '$' + v.toFixed(4);
+}
+function fmtBal(v: number | undefined, cur: string = 'USD'): string {
+  if (v === undefined || v === null) return '—';
+  return (v < 0 ? '-' : '') + '$' + Math.abs(v).toFixed(2) + ' ' + cur;
+}
+
+function StatRow({ row, amountLabel, highlight }: { row: AccountStatRow; amountLabel: string; highlight?: boolean }) {
+  const bg = highlight ? 'bg-muted/30 font-semibold' : 'hover:bg-muted/10';
+  return (
+    <tr className={`text-sm border-b border-border/30 ${bg} transition-colors`}>
+      <td className="px-3 py-2.5 text-left max-w-[180px] truncate" title={row.name}>
+        {row.name || <span className="text-muted-foreground italic">Total</span>}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums">{row.totalCalls || '—'}</td>
+      <td className="px-3 py-2.5 text-right tabular-nums">{row.billableCalls || '—'}</td>
+      <td className="px-3 py-2.5 text-right tabular-nums">{fmtDuration(row.durationSec)}</td>
+      <td className="px-3 py-2.5 text-right tabular-nums">{fmtDuration(row.acdSec)}</td>
+      <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${
+        row.asr >= 50 ? 'text-emerald-400' : row.asr > 0 ? 'text-amber-400' : 'text-muted-foreground'
+      }`}>{fmtAsr(row.asr)}</td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{row.avgPdd ? row.avgPdd.toFixed(2) : '—'}</td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-emerald-400">{fmtUsd(row.amount)}</td>
+    </tr>
+  );
+}
+
+function SippyLiveStatsTab() {
+  const [period, setPeriod] = useState(90);
+  const [subTab, setSubTab] = useState<'clients' | 'vendors'>('clients');
+
+  const { data: stats, isLoading: statsLoading, refetch, dataUpdatedAt } = useQuery<PerAccountStats>({
+    queryKey: ['/api/sippy/per-account-stats', period],
+    queryFn: () => fetch(`/api/sippy/per-account-stats?period=${period}`).then(r => r.json()),
+    refetchInterval: 60000,
+  });
+
+  // Fetch individual accounts (PUSHTOTALK/aircel/asif) under RTST1 (iCustomer=2)
+  const { data: accountsData } = useQuery<{ accounts: SippyAccount[] }>({
+    queryKey: ['/api/sippy/accounts'],
+    queryFn: () => fetch('/api/sippy/accounts?iCustomer=2').then(r => r.json()),
+    refetchInterval: 120000,
+  });
+
+  const { data: vendData } = useQuery<{ vendors: SippyVendorEntry[] }>({
+    queryKey: ['/api/sippy/vendors'],
+    queryFn: () => fetch('/api/sippy/vendors').then(r => r.json()),
+    refetchInterval: 120000,
+  });
+
+  const accounts = accountsData?.accounts ?? [];
+  const vendors   = vendData?.vendors   ?? [];
+
+  const clientRows = stats?.clients  ?? [];
+  const vendorRows  = stats?.vendors   ?? [];
+
+  const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : null;
+
+  const PERIODS = [
+    { label: '30 min', value: 30 },
+    { label: '1 hour', value: 60 },
+    { label: '90 min', value: 90 },
+    { label: '3 hours', value: 180 },
+    { label: '6 hours', value: 360 },
+    { label: '24 hours', value: 1440 },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Header row */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+            <Activity className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div>
+            <span className="font-semibold text-sm">Sippy Live Traffic — Per Account</span>
+            {lastUpdated && (
+              <span className="text-xs text-muted-foreground ml-2">Updated {lastUpdated}</span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={period}
+            onChange={e => setPeriod(Number(e.target.value))}
+            className="h-8 rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+            data-testid="select-stats-period"
+          >
+            {PERIODS.map(p => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => refetch()}
+            disabled={statsLoading}
+            data-testid="button-refresh-live-stats"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card text-xs font-medium hover:bg-muted/30 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${statsLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Error / warning */}
+      {stats?.error && (
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20 text-amber-400 text-sm">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div>
+            <span className="font-medium">Could not load live stats: </span>
+            {stats.error}
+          </div>
+        </div>
+      )}
+
+      {/* Totals summary cards */}
+      {stats?.ok && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: 'Orig Calls', value: stats.origTotal.totalCalls || '—', sub: `${stats.origTotal.billableCalls} billable`, color: 'emerald' },
+            { label: 'Orig ASR', value: fmtAsr(stats.origTotal.asr), sub: `ACD ${fmtDuration(stats.origTotal.acdSec)}`, color: stats.origTotal.asr >= 50 ? 'emerald' : 'amber' },
+            { label: 'Term Calls', value: stats.termTotal.totalCalls || '—', sub: `${stats.termTotal.billableCalls} billable`, color: 'violet' },
+            { label: 'Term ASR', value: fmtAsr(stats.termTotal.asr), sub: `ACD ${fmtDuration(stats.termTotal.acdSec)}`, color: stats.termTotal.asr >= 50 ? 'emerald' : 'amber' },
+          ].map(c => (
+            <div key={c.label} className="bg-card border border-border/60 rounded-xl p-3">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium mb-1">{c.label}</p>
+              <p className={`text-xl font-bold text-${c.color}-400`}>{c.value}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{c.sub}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Sub-tab: Clients / Vendors */}
+      <div className="flex gap-1 bg-muted/20 p-1 rounded-lg w-fit border border-border/40">
+        {(['clients', 'vendors'] as const).map(t => (
+          <button
+            key={t}
+            data-testid={`tab-live-${t}`}
+            onClick={() => setSubTab(t)}
+            className={`px-4 py-1.5 rounded-md text-xs font-medium transition-all capitalize ${
+              subTab === t
+                ? 'bg-card text-foreground shadow-sm border border-border/50'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t === 'clients' ? `Clients / Origination (${clientRows.length})` : `Vendors / Termination (${vendorRows.length})`}
+          </button>
+        ))}
+      </div>
+
+      {/* Accounts list + stats table */}
+      {subTab === 'clients' ? (
+        <div className="space-y-4">
+          {/* Balance cards for individual accounts (PUSHTOTALK / aircel / asif) */}
+          {accounts.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {accounts.map(acc => (
+                <div key={acc.iAccount} className="bg-card border border-border/60 rounded-xl p-3 flex items-center justify-between gap-2"
+                  data-testid={`card-account-${acc.iAccount}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                      acc.blocked ? 'bg-rose-500/10 border border-rose-500/20' : 'bg-emerald-500/10 border border-emerald-500/20'
+                    }`}>
+                      <Building2 className={`w-4 h-4 ${acc.blocked ? 'text-rose-400' : 'text-emerald-400'}`} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{acc.username}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Acct {acc.iAccount}
+                        {acc.blocked ? <span className="ml-1 text-rose-400">· Blocked</span> : ''}
+                        {acc.expired ? <span className="ml-1 text-amber-400">· Expired</span> : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className={`text-sm font-semibold ${acc.balance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                      {fmtBal(acc.balance, acc.baseCurrency)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Limit {fmtBal(acc.creditLimit, acc.baseCurrency)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Origination stats table */}
+          <div className="bg-card border border-border/60 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-border/50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Origination — by Caller</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground">Last {stats?.period ?? `${period} min`}</span>
+            </div>
+            {statsLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : clientRows.length === 0 ? (
+              <div className="py-10 text-center space-y-1">
+                <p className="text-sm text-muted-foreground">No account-authenticated origination traffic in the selected period.</p>
+                <p className="text-xs text-muted-foreground/60">
+                  IP-authenticated calls are tracked in the Termination (vendor) section.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border/50 bg-muted/20">
+                      {['Caller / Account', 'Calls', 'Billable', 'Duration', 'ACD', 'ASR %', 'Avg PDD', 'Revenue USD'].map(h => (
+                        <th key={h} className="px-3 py-2 text-right first:text-left font-semibold uppercase tracking-wider text-muted-foreground/70 text-[10px]">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clientRows.map((row, i) => (
+                      <StatRow key={i} row={row} amountLabel="Revenue" />
+                    ))}
+                    {stats?.origTotal && stats.origTotal.totalCalls > 0 && (
+                      <StatRow row={{ ...stats.origTotal, name: 'Total' }} amountLabel="Revenue" highlight />
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Balance cards for known vendors */}
+          {vendors.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {vendors.map(v => (
+                <div key={v.iVendor} className="bg-card border border-border/60 rounded-xl p-3 flex items-center justify-between gap-2"
+                  data-testid={`card-vendor-${v.iVendor}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center flex-shrink-0">
+                      <Server className="w-4 h-4 text-violet-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{v.name}</p>
+                      <p className="text-[10px] text-muted-foreground">Vendor ID {v.iVendor}</p>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className={`text-sm font-semibold ${(v.balance ?? 0) < 0 ? 'text-rose-400' : 'text-violet-400'}`}>{fmtBal(v.balance, v.baseCurrency)}</p>
+                    <p className="text-[10px] text-muted-foreground">Balance</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Termination stats table */}
+          <div className="bg-card border border-border/60 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-border/50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Server className="w-3.5 h-3.5 text-violet-400" />
+                <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Termination — by Vendor/Connection</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground">Last {stats?.period ?? `${period} min`}</span>
+            </div>
+            {statsLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : vendorRows.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">
+                No termination traffic in the last {period} minutes
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border/50 bg-muted/20">
+                      {['Vendor / Connection', 'Calls', 'Billable', 'Duration', 'ACD', 'ASR %', 'Avg PDD', 'Cost USD'].map(h => (
+                        <th key={h} className="px-3 py-2 text-right first:text-left font-semibold uppercase tracking-wider text-muted-foreground/70 text-[10px]">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vendorRows.map((row, i) => (
+                      <StatRow key={i} row={row} amountLabel="Cost" />
+                    ))}
+                    {stats?.termTotal && stats.termTotal.totalCalls > 0 && (
+                      <StatRow row={{ ...stats.termTotal, name: 'Total' }} amountLabel="Cost" highlight />
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Sippy Vendors Tab ─────────────────────────────────────────────────────────
 
 function SippyVendorsTab({ isManagement }: { isManagement: boolean }) {
@@ -2724,7 +3076,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
 export default function ClientsPage() {
   const { isManagement } = useAuth();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<'profiles' | 'send-rate' | 'sippy' | 'sippy-vendors'>('profiles');
+  const [tab, setTab] = useState<'profiles' | 'send-rate' | 'sippy' | 'sippy-vendors' | 'live-stats'>('live-stats');
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [importingId, setImportingId] = useState<string | null>(null);
@@ -2854,6 +3206,18 @@ export default function ClientsPage() {
         {(sippySession?.active || allSwitches.some((s: SwitchOption) => s.type === 'sippy' && s.enabled)) && (
           <>
             <button
+              data-testid="tab-live-stats"
+              onClick={() => setTab('live-stats')}
+              className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+                tab === 'live-stats'
+                  ? 'bg-card text-foreground shadow-sm border border-border/50'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5 text-emerald-400" />
+              Live Stats
+            </button>
+            <button
               data-testid="tab-sippy-accounts"
               onClick={() => setTab('sippy')}
               className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -2881,7 +3245,9 @@ export default function ClientsPage() {
         )}
       </div>
 
-      {tab === 'sippy' ? (
+      {tab === 'live-stats' ? (
+        <SippyLiveStatsTab />
+      ) : tab === 'sippy' ? (
         <SippyAccountsTab isManagement={isManagement} />
       ) : tab === 'sippy-vendors' ? (
         <SippyVendorsTab isManagement={isManagement} />
