@@ -18,6 +18,7 @@ import ReportsPage from "@/pages/reports";
 import TeamPage from "@/pages/team";
 import ClientsPage from "@/pages/clients";
 import FraudPage from "@/pages/fraud";
+import CDRsPage from "@/pages/cdrs";
 import AccountPage from "@/pages/account";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
@@ -106,6 +107,9 @@ function Router() {
       </Route>
       <Route path="/fraud">
         {() => <ProtectedRoute component={FraudPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/cdrs">
+        {() => <ProtectedRoute component={CDRsPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/team">
         {() => <ProtectedRoute component={TeamPage} requiredRoles={['admin']} />}

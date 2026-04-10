@@ -1271,7 +1271,7 @@ export async function registerRoutes(
       if (req.query.cld)            opts.cld            = req.query.cld            as string;
       if (offset !== undefined)     opts.offset         = offset;
       let cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
-      // Fallback: XML-RPC CDR methods both blocked (401) → scrape portal with portal credentials
+      // Fallback 1: XML-RPC returned 0 → scrape customer portal with RTST1 credentials
       if (cdrs.length === 0 && settings) {
         const portalUser = settings.portalUsername ?? '';
         const portalPass = settings.portalPassword ?? '';
@@ -1280,7 +1280,11 @@ export async function registerRoutes(
         const adminPass  = settings.apiAdminPassword ?? '';
         const startDate  = (req.query.startDate as string) || '1 day ago';
         const endDate    = (req.query.endDate   as string) || 'now';
-        const callsSel   = (req.query.type === 'errors') ? '6' : (req.query.type === 'non_zero' ? '4' : '1');
+        const typeMap: Record<string, string> = {
+          errors: '6', non_zero: '4', complete: '5', non_zero_and_errors: '3', incomplete: '2',
+        };
+        const callsSel = typeMap[req.query.type as string] || '1';
+        const pageOffset = offset || 0;
         try {
           const scraped = await sippy.scrapePortalCDRs(portalUser, portalPass, portalUrl, {
             limit, startDate, endDate, callsSelect: callsSel,
@@ -1288,6 +1292,23 @@ export async function registerRoutes(
           });
           if (scraped.length > 0) cdrs = scraped;
         } catch { /* ignore */ }
+
+        // Fallback 2: customer portal also empty → scrape ADMIN portal as ssp-root (admin login)
+        // This gives access to ALL customers' CDRs (Vovida, Manor-It, etc.)
+        if (cdrs.length === 0 && adminUser && adminPass) {
+          try {
+            const adminScraped = await sippy.scrapeAdminPortalCDRs(adminUser, adminPass, portalUrl, {
+              limit,
+              startDate,
+              endDate,
+              callsSelect: callsSel,
+              source:      req.query.cli  as string | undefined,
+              destination: req.query.cld  as string | undefined,
+              offset:      pageOffset,
+            });
+            if (adminScraped.length > 0) cdrs = adminScraped;
+          } catch { /* ignore */ }
+        }
       }
       res.json({ cdrs });
     } catch (e: any) { res.status(500).json({ cdrs: [], error: e.message }); }

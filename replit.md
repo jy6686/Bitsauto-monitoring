@@ -68,8 +68,9 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 - `/calls` — Call list with metrics
 - `/calls/:id` — Call detail page
 - `/alerts` — Alert feed
-- `/reports` — ASR/ACD report + VOS3000 Client Stats table
-- `/clients` — Client/vendor profiles + VOS3000 terminal account sync
+- `/reports` — ASR/ACD report + client stats table
+- `/cdrs` — CDR Viewer: full CDR table (CLI, CLD, country, duration, billed, charged), date presets, call type filter, CLI/CLD search, pagination (50/page), CSV export, summary stats. Shows data when RTST1 accounts make completed calls. API: GET /api/sippy/cdr
+- `/clients` — Client/vendor profiles
 - `/settings` — Thresholds, IP probe, softswitch connection
 - `/team` — Team member management
 - `/account` — User profile

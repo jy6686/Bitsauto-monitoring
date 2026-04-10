@@ -1958,6 +1958,160 @@ export async function scrapePortalCDRs(
   }
 }
 
+// scrapeAdminPortalCDRs — logs into admin portal as 'admin' (acct_type=admin) using
+// ssp-root credentials and scrapes /cdrs_customer.php for ALL customers' CDRs.
+// This is the only way to access system-wide CDRs since getCustomerCDRs XML-RPC
+// returns empty for ssp-root's scope.
+export async function scrapeAdminPortalCDRs(
+  adminUsername: string,
+  adminPassword: string,
+  base: string,
+  opts: {
+    limit?: number;
+    startDate?: string;   // natural-language (e.g. '1 hour ago') or Sippy date string
+    endDate?: string;
+    callsSelect?: string; // '1'=all '3'=non-zero+errors '4'=non-zero '5'=complete '6'=errors
+    source?: string;       // CLI filter
+    destination?: string;  // CLD filter
+    offset?: number;
+  } = {},
+): Promise<SippyCDR[]> {
+  const FAIL = (): SippyCDR[] => [];
+  const startDate = opts.startDate || '1 day ago';
+  const endDate   = opts.endDate   || 'now';
+  const limit     = opts.limit     || 100;
+  const callsSel  = opts.callsSelect || '1';
+  const offset    = opts.offset ?? 0;
+
+  // Try admin login, then reseller, then customer (fallback)
+  let loginRes = await portalLogin(base, adminUsername, adminPassword, 'admin');
+  if (!loginRes.success) {
+    loginRes = await portalLogin(base, adminUsername, adminPassword, 'reseller');
+  }
+  if (!loginRes.success) {
+    loginRes = await portalLogin(base, adminUsername, adminPassword, 'customer');
+  }
+  if (!loginRes.success) return FAIL();
+  const cookies = loginRes.cookies;
+
+  try {
+    const qs = [
+      `n=${offset}`, 'action=search', 'from_form=1',
+      'startDate=' + encodeURIComponent(startDate),
+      'endDate='   + encodeURIComponent(endDate),
+      'source='    + encodeURIComponent(opts.source  || ''),
+      'destination=' + encodeURIComponent(opts.destination || ''),
+      'caller=0_0',
+      'calls_select=' + callsSel,
+      'cdr_currency=USD', 'cli_clause=0', 'cld_clause=0',
+      'bt_clause=0', 'bt_pattern=', 'account_class=0',
+      'result_filter_opt=0_0',
+      'limit=' + limit,
+    ].join('&');
+
+    const resp = await rawRequest('GET', `${base}/cdrs_customer.php?${qs}`, null, cookies);
+    const html = resp.body;
+    if (!html || html.length < 500) return FAIL();
+
+    // Find the CDR data table (last TABLE element)
+    const tableStart = html.lastIndexOf('<TABLE');
+    if (tableStart === -1) return FAIL();
+    const tableHtml = html.slice(tableStart);
+
+    // Extract status icon tooltip from td[0] (ext:qtip attribute or title)
+    const getRowStatus = (rowHtml: string): string => {
+      const tipMatch = rowHtml.match(/ext:qtip=['"]([^'"]+)['"]/i) || rowHtml.match(/title=['"]([^'"]+)['"]/i);
+      return tipMatch ? tipMatch[1] : '';
+    };
+
+    const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let m: RegExpExecArray | null;
+    const cdrs: SippyCDR[] = [];
+    let rowIndex = 0;
+
+    // Month name map for admin portal date format "DD Mon YYYY HH:MM:SS"
+    const MONTHS: Record<string, string> = {
+      Jan:'01', Feb:'02', Mar:'03', Apr:'04', May:'05', Jun:'06',
+      Jul:'07', Aug:'08', Sep:'09', Oct:'10', Nov:'11', Dec:'12',
+    };
+
+    while ((m = trRe.exec(tableHtml)) !== null) {
+      const rowHtml = m[1];
+      const statusTip = getRowStatus(rowHtml);
+
+      const tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+      const cells: string[] = [];
+      let td: RegExpExecArray | null;
+      while ((td = tdRe.exec(rowHtml)) !== null) {
+        const txt = td[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
+        cells.push(txt);
+      }
+
+      if (cells.length < 7) continue;
+      if (/^(caller|cli|cld|country|description|setup)/i.test(cells[1] || '') ||
+          /^(caller|cli|cld)/i.test(cells[0] || '')) continue;
+      if (/list is empty/i.test(cells.join(' '))) continue;
+      if (!cells[2] && !cells[3]) continue;
+
+      // Admin portal columns: [0]=status_icon [1]=Caller/Acct [2]=CLI [3]=CLD [4]=Country [5]=Desc [6]=SetupTime [7]=Dur [8]=BilledDur [9]=Amount
+      const callerAcct  = cells[1] || '';
+      const cli         = cells[2] || '-';
+      const cld         = cells[3] || '-';
+      const country     = cells[4] || '';
+      const description = cells[5] || '';
+      const setupTime   = cells[6] || '';
+      const durationRaw = cells[7] || '0:00';
+      const billedRaw   = cells[8] || '0:00';
+      const amountRaw   = cells[9] || '0';
+
+      if (!cli || cli === '-') continue;
+
+      const durationSec = parseMMSS(durationRaw);
+      const billedSec   = parseMMSS(billedRaw);
+      const cost        = parseFloat(amountRaw) || 0;
+
+      // Parse setup time — admin portal format: "DD Mon YYYY HH:MM:SS" or "MM/DD/YYYY HH:MM:SS"
+      let startTime = '';
+      const adminDtMatch = setupTime.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+      if (adminDtMatch) {
+        const [, day, mon, year, time] = adminDtMatch;
+        const mo = MONTHS[mon] || '01';
+        startTime = `${year}-${mo}-${day.padStart(2,'0')}T${time}Z`;
+      } else {
+        // Fallback: MM/DD/YYYY HH:MM:SS
+        const custDtMatch = setupTime.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+        if (custDtMatch) {
+          startTime = `${custDtMatch[3]}-${custDtMatch[1]}-${custDtMatch[2]}T${custDtMatch[4]}Z`;
+        } else {
+          startTime = setupTime || new Date().toISOString();
+        }
+      }
+
+      // Determine result from status icon tooltip
+      const result = statusTip || (billedSec > 0 ? 'OK' : '');
+
+      cdrs.push({
+        callId:        `admin-cdr-${rowIndex++}`,
+        caller:        cli,
+        callee:        cld,
+        country:       country || undefined,
+        areaName:      description || undefined,
+        startTime,
+        duration:      billedSec,
+        totalDuration: durationSec,
+        billedDuration: billedSec,
+        cost,
+        result,
+        clientName:    callerAcct || undefined,
+      });
+    }
+
+    return cdrs;
+  } catch {
+    return FAIL();
+  }
+}
+
 // getSippyCDRs — uses official getAccountCDRs() (docs 107367) or
 //               getCustomerCDRs() (docs 107429) with documented field names.
 // CDR response fields: call_id, cli, cld, connect_time, billed_duration,
