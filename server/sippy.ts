@@ -2218,10 +2218,10 @@ export async function getSippyCDRs(
           pAssertedId:              ns('p_asserted_id'),
           remotePartyId:            ns('remote_party_id'),
           prefix:                   ns('prefix'),
-          // Timing
-          startTime:                m['setup_time']       || m['connect_time'] || '',
-          connectTime:              ns('connect_time'),
-          disconnectTime:           ns('disconnect_time'),
+          // Timing — convert raw Sippy date strings to ISO 8601 so clients can parse reliably
+          startTime:                (parseSippyDate(m['setup_time'] || m['connect_time']))?.toISOString() || m['setup_time'] || m['connect_time'] || '',
+          connectTime:              parseSippyDate(m['connect_time'])?.toISOString()    || m['connect_time']    || undefined,
+          disconnectTime:           parseSippyDate(m['disconnect_time'])?.toISOString() || m['disconnect_time'] || undefined,
           // Duration & billing
           duration:                 parseFloat(m['billed_duration'] || '0') || 0,
           totalDuration:            nf('duration'),

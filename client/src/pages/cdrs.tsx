@@ -30,15 +30,35 @@ function fmtDurSec(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
+function parseSippyRawDate(raw: string): Date | null {
+  if (!raw || raw === '-') return null;
+  // ISO 8601 — already standard, e.g. "2026-04-10T19:22:56.000Z"
+  let d = new Date(raw);
+  if (!isNaN(d.getTime())) return d;
+  // Sippy compact ISO: "20260410T19:22:56"
+  const compact = /^(\d{4})(\d{2})(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(raw.trim());
+  if (compact) {
+    d = new Date(`${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`);
+    if (!isNaN(d.getTime())) return d;
+  }
+  // Sippy legacy GMT: "19:22:56.000 GMT Fri Apr 10 2026"
+  const legacy = /^(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?\s+GMT\s+\w+\s+(\w+)\s+(\d+)\s+(\d{4})/.exec(raw.trim());
+  if (legacy) {
+    const months: Record<string, number> = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+    const mo = months[legacy[4]];
+    if (mo !== undefined) {
+      d = new Date(Date.UTC(+legacy[6], mo, +legacy[5], +legacy[1], +legacy[2], +legacy[3]));
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+  return null;
+}
+
 function fmtSetupTime(raw: string): string {
   if (!raw || raw === '-') return '-';
-  try {
-    const d = new Date(raw);
-    if (isNaN(d.getTime())) return raw;
-    return format(d, 'dd MMM yyyy HH:mm:ss');
-  } catch {
-    return raw;
-  }
+  const d = parseSippyRawDate(raw);
+  if (d) return format(d, 'dd MMM yyyy HH:mm:ss');
+  return raw;
 }
 
 function fmtCurrency(val: number): string {
@@ -60,11 +80,11 @@ const PRESETS = [
 ];
 
 const CALL_TYPE_OPTIONS = [
+  { value: 'non_zero',          label: 'Answered / Billed' },
   { value: 'all',               label: 'All Calls' },
-  { value: 'non_zero_and_errors', label: 'Non-zero Duration & Errors' },
-  { value: 'non_zero',          label: 'Non-zero Duration' },
-  { value: 'complete',          label: 'Complete' },
-  { value: 'incomplete',        label: 'Incomplete' },
+  { value: 'complete',          label: 'Completed Only' },
+  { value: 'non_zero_and_errors', label: 'Answered + Errors' },
+  { value: 'incomplete',        label: 'Incomplete / Unanswered' },
   { value: 'errors',            label: 'Errors Only' },
 ];
 
@@ -124,12 +144,12 @@ export default function CDRsPage() {
   const [end,   setEnd]         = useState(defaultEnd);
   const [startInput, setStartInput] = useState(toInput(defaultStart));
   const [endInput,   setEndInput]   = useState(toInput(defaultEnd));
-  const [callType,  setCallType]    = useState('all');
+  const [callType,  setCallType]    = useState('non_zero');
   const [cli,       setCli]         = useState('');
   const [cld,       setCld]         = useState('');
   const [page,      setPage]        = useState(0);
   const [applied,   setApplied]     = useState({
-    start: defaultStart, end: defaultEnd, callType: 'all', cli: '', cld: '',
+    start: defaultStart, end: defaultEnd, callType: 'non_zero', cli: '', cld: '',
   });
 
   const offset = page * PAGE_SIZE;
