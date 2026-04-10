@@ -1255,7 +1255,7 @@ export async function registerRoutes(
   app.get('/api/sippy/cdr', async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      const { username, password } = sippyXmlCreds(settings);
+      const credPairs = sippyXmlCredsPairs(settings);
       const limit  = Number(req.query.limit)  || 50;
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
       const opts: Parameters<typeof sippy.getSippyCDRs>[3] = {};
@@ -1270,7 +1270,12 @@ export async function registerRoutes(
       if (req.query.cli)            opts.cli            = req.query.cli            as string;
       if (req.query.cld)            opts.cld            = req.query.cld            as string;
       if (offset !== undefined)     opts.offset         = offset;
-      let cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
+      // Try each credential pair (handles cases where apiAdmin and portal creds are swapped in settings)
+      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      for (const { username, password } of credPairs) {
+        cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
+        if (cdrs.length > 0) break;
+      }
       // Enrich with clientName from account cache
       cdrs = cdrs.map(c => ({
         ...c,
@@ -1908,7 +1913,7 @@ export async function registerRoutes(
   app.get('/api/sippy/asr-report', async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      const { username, password } = sippyXmlCreds(settings);
+      const credPairs = sippyXmlCredsPairs(settings);
       const limit  = Number(req.query.limit) || 2000;
       // groupBy: 'caller' (CLI) | 'callee' (CLD) | 'country' | 'destination' (area_name)
       const groupBy = (req.query.groupBy as string) || 'caller';
@@ -1917,8 +1922,12 @@ export async function registerRoutes(
       if (req.query.endDate)   opts.endDate   = req.query.endDate   as string;
       if (req.query.cli)       opts.cli       = req.query.cli as string;
       if (req.query.cld)       opts.cld       = req.query.cld as string;
-      // Fetch CDRs in trusted mode — customer 1 = root sees all
-      const cdrs = await sippy.getSippyCDRs(username, password, limit, { ...opts });
+      // Try each credential pair (handles swapped settings in DB)
+      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      for (const { username, password } of credPairs) {
+        cdrs = await sippy.getSippyCDRs(username, password, limit, { ...opts });
+        if (cdrs.length > 0) break;
+      }
       if (cdrs.length === 0) return res.json({ rows: [], source: 'sippy-cdr', count: 0 });
 
       // Group CDRs by selected dimension
@@ -4620,7 +4629,7 @@ export async function registerRoutes(
   app.post('/api/fas/analyze', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
-      const { username, password } = sippyXmlCreds(settings);
+      const credPairs = sippyXmlCredsPairs(settings);
 
       const startDate = req.body.startDate ?? sippy.toSippyDate(new Date(Date.now() - 86400000));
       const endDate   = req.body.endDate   ?? sippy.toSippyDate(new Date());
@@ -4631,8 +4640,12 @@ export async function registerRoutes(
       const fasEarlyAnswerSecs = settings.fasEarlyAnswerSecs ?? 2;
       const fasShortCallSecs   = settings.fasShortCallSecs ?? 10;
 
-      // Fetch CDRs from Sippy
-      const cdrs = await sippy.getSippyCDRs(username, password, limit, { startDate, endDate });
+      // Fetch CDRs from Sippy — try each credential pair (handles swapped settings in DB)
+      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      for (const { username, password } of credPairs) {
+        cdrs = await sippy.getSippyCDRs(username, password, limit, { startDate, endDate });
+        if (cdrs.length > 0) break;
+      }
 
       if (cdrs.length === 0) {
         return res.json({ analyzed: 0, fasEvents: 0, vendorScores: [], message: 'No CDRs found for the selected period.' });
