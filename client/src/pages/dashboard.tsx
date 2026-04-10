@@ -633,12 +633,30 @@ export default function DashboardPage() {
                     <th className="px-6 py-3">Account</th>
                     <th className="px-6 py-3">State</th>
                     <th className="px-6 py-3">Duration</th>
+                    <th className="px-6 py-3">Answer Type</th>
                     <th className="px-6 py-3">Setup Time</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {liveCalls.slice(0, 20).map((call: any, i: number) => {
                     const isConnected = call.callStatus === 'connected';
+                    const dur = parseFloat(call.duration ?? 0);
+                    const durMins = Math.floor(dur / 60);
+                    const durSecs = Math.round(dur % 60);
+                    const durLabel = dur > 0 ? (durMins > 0 ? `${durMins}m ${durSecs}s` : `${durSecs}s`) : '0s';
+
+                    // FAS detection: Connected call with duration < 3s = likely False Answer Supervision
+                    // Not-yet-answered (routing): ARComplete/WaitRoute etc.
+                    // Real answer: Connected with duration >= 3s
+                    let answerType: { label: string; cls: string; title: string };
+                    if (!isConnected) {
+                      answerType = { label: 'Routing', cls: 'bg-amber-500/15 text-amber-400', title: 'Call is being routed — not yet answered' };
+                    } else if (dur < 3) {
+                      answerType = { label: 'FAS Risk', cls: 'bg-red-500/15 text-red-400', title: `Connected in ${durLabel} — possible False Answer Supervision (billing started before real answer)` };
+                    } else {
+                      answerType = { label: 'Real Answer', cls: 'bg-emerald-500/15 text-emerald-400', title: `Answered after ${durLabel} — genuine human answer` };
+                    }
+
                     return (
                       <tr key={i} className="hover:bg-muted/30 transition-colors" data-testid={`row-live-call-${i}`}>
                         <td className="px-6 py-3 font-mono text-xs">{call.caller || '—'}</td>
@@ -649,8 +667,13 @@ export default function DashboardPage() {
                             isConnected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'
                           }`}>{call.ccState || call.status || '—'}</span>
                         </td>
-                        <td className="px-6 py-3 text-xs text-muted-foreground">
-                          {call.duration > 0 ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : '0s'}
+                        <td className={`px-6 py-3 text-xs font-mono ${isConnected && dur < 3 ? 'text-red-400 font-semibold' : 'text-muted-foreground'}`}>
+                          {durLabel}
+                        </td>
+                        <td className="px-6 py-3 text-xs">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${answerType.cls}`} title={answerType.title}>
+                            {answerType.label}
+                          </span>
                         </td>
                         <td className="px-6 py-3 text-xs text-muted-foreground">
                           {call.setupTime ? call.setupTime.replace('T', ' ').replace(/\.\d+$/, '') : '—'}
