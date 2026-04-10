@@ -1201,10 +1201,21 @@ export async function getSippyActiveCalls(
   // Prefer listActiveCalls to avoid including Dead/Disconnecting/terminated calls in the live view.
   for (const method of ['listActiveCalls', 'listAllCalls']) {
     try {
-      const resp = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), username, password);
+      let resp = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), username, password);
       if (resp.statusCode === 401 || resp.statusCode === 403) {
-        // XML-RPC method restricted for this user — fall back to admin portal scraping
-        return tryAdminPortalScrape();
+        // Primary creds rejected — try fallback credentials (handles production DB credential-swap bug)
+        if (fallbackUsername && fallbackPassword && fallbackUsername !== username) {
+          const fb = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), fallbackUsername, fallbackPassword);
+          if (fb.statusCode === 200) {
+            resp = fb; // fallback worked — use its response body below
+          } else {
+            // Both pairs rejected — scrape admin portal as last resort
+            return tryAdminPortalScrape();
+          }
+        } else {
+          // No fallback — scrape admin portal
+          return tryAdminPortalScrape();
+        }
       }
       if (resp.statusCode !== 200) continue;
 
