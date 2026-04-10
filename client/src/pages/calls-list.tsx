@@ -2,6 +2,7 @@ import {
   Phone, Clock, Search, BarChart3, List, RefreshCw, CheckCircle2,
   ArrowRightLeft, Globe, Server, Loader2, AlertCircle,
   ChevronDown, ChevronRight, PhoneOff, ArrowUpRight, ArrowDownLeft, Network,
+  Activity, Wifi, Info,
 } from "lucide-react";
 import { useState, useRef, Fragment } from "react";
 import { lookupCountry } from "@/lib/country-lookup";
@@ -34,6 +35,7 @@ interface LiveCall {
   // Sippy-specific fields
   callId?: string;       // SIP Call-ID (CALL_ID)
   iCustomer?: string;    // Customer ID (I_CUSTOMER)
+  iEnvironment?: string; // Environment ID (I_ENVIRONMENT)
   vendor?: string;
   connection?: string;
   direction?: string;    // DIRECTION: vendor | onnet_in | onnet_out | originate
@@ -613,42 +615,140 @@ function SwitchPanel({
                         </tr>
                         {isExpanded && (
                           <tr key={`${rowKey}-detail`} className="bg-muted/5 border-b border-border/20">
-                            <td colSpan={totalCols} className="px-6 py-3">
-                              <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs text-muted-foreground">
-                                {call.callId && (
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-muted-foreground/50 uppercase tracking-wide text-[10px]">Call-ID</span>
-                                    <span className="font-mono text-foreground/60 truncate max-w-[200px]">{call.callId}</span>
+                            <td colSpan={totalCols} className="px-4 py-4">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+
+                                {/* ── Panel 1: Call Identity ── */}
+                                <div className="rounded-lg border border-border/40 bg-background/40 p-3 space-y-2">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 flex items-center gap-1.5">
+                                    <Phone className="w-3 h-3" /> Call Identity
+                                  </p>
+                                  {call.callId && (
+                                    <div className="space-y-0.5">
+                                      <p className="text-[10px] text-muted-foreground/50 uppercase">SIP Call-ID</p>
+                                      <p className="font-mono text-[11px] text-foreground/70 truncate" title={call.callId}>{call.callId}</p>
+                                    </div>
+                                  )}
+                                  {call.setupTime && (
+                                    <div className="space-y-0.5">
+                                      <p className="text-[10px] text-muted-foreground/50 uppercase">Setup Time</p>
+                                      <p className="font-mono text-[11px] text-foreground/70">{call.setupTime}</p>
+                                    </div>
+                                  )}
+                                  <div className="flex gap-3 flex-wrap">
+                                    {call.iCustomer && (
+                                      <div className="space-y-0.5">
+                                        <p className="text-[10px] text-muted-foreground/50 uppercase">Customer ID</p>
+                                        <p className="font-mono text-[11px] text-foreground/70">#{call.iCustomer}</p>
+                                      </div>
+                                    )}
+                                    {call.iEnvironment && (
+                                      <div className="space-y-0.5">
+                                        <p className="text-[10px] text-muted-foreground/50 uppercase">Environment</p>
+                                        <p className="font-mono text-[11px] text-foreground/70">#{call.iEnvironment}</p>
+                                      </div>
+                                    )}
+                                    {call.direction && (
+                                      <div className="space-y-0.5">
+                                        <p className="text-[10px] text-muted-foreground/50 uppercase">Direction</p>
+                                        <p className="text-[11px] text-foreground/70 capitalize">{call.direction.replace(/_/g,' ')}</p>
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                                {call.setupTime && (
-                                  <div className="flex items-center gap-1.5">
-                                    <Clock className="w-3 h-3 opacity-50" />
-                                    <span className="text-muted-foreground/50 uppercase tracking-wide text-[10px]">Setup</span>
-                                    <span className="font-mono text-foreground/60">{call.setupTime}</span>
+                                </div>
+
+                                {/* ── Panel 2: Network / Media Path ── */}
+                                <div className="rounded-lg border border-border/40 bg-background/40 p-3 space-y-2">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 flex items-center gap-1.5">
+                                    <Network className="w-3 h-3" /> Network / Media
+                                  </p>
+                                  {(call.mediaIpCaller || call.mediaIpCallee) ? (
+                                    <div className="space-y-1">
+                                      <p className="text-[10px] text-muted-foreground/50 uppercase">RTP Media Path</p>
+                                      <div className="flex items-center gap-1 font-mono text-[11px]">
+                                        <span className="text-blue-400">{call.mediaIpCaller || '?'}</span>
+                                        <ArrowRightLeft className="w-3 h-3 text-muted-foreground/40 flex-shrink-0" />
+                                        <span className="text-emerald-400">{call.mediaIpCallee || '?'}</span>
+                                      </div>
+                                      <p className="text-[10px] text-muted-foreground/40">
+                                        {call.mediaIpCaller === call.mediaIpCallee
+                                          ? 'Same media proxy'
+                                          : 'Media proxied through Sippy'}
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-[11px] text-muted-foreground/40 italic">Media IPs not reported</p>
+                                  )}
+                                  {call.codec && call.codec !== '-' && (
+                                    <div className="space-y-0.5">
+                                      <p className="text-[10px] text-muted-foreground/50 uppercase">Codec</p>
+                                      <p className="text-[11px] text-foreground/70 font-mono">{call.codec}</p>
+                                    </div>
+                                  )}
+                                  <div className="flex gap-3 flex-wrap">
+                                    {call.vendor && (
+                                      <div className="space-y-0.5">
+                                        <p className="text-[10px] text-muted-foreground/50 uppercase">Vendor</p>
+                                        <p className="text-[11px] text-foreground/70">{call.vendor}</p>
+                                      </div>
+                                    )}
+                                    {call.connection && (
+                                      <div className="space-y-0.5">
+                                        <p className="text-[10px] text-muted-foreground/50 uppercase">Connection</p>
+                                        <p className="text-[11px] text-foreground/70 font-mono">#{call.connection}</p>
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                                {(call.mediaIpCaller || call.mediaIpCallee) && (
-                                  <div className="flex items-center gap-1.5">
-                                    <Network className="w-3 h-3 opacity-50" />
-                                    <span className="text-muted-foreground/50 uppercase tracking-wide text-[10px]">Media</span>
-                                    <span className="font-mono text-foreground/60">
-                                      {call.mediaIpCaller || '?'} → {call.mediaIpCallee || '?'}
-                                    </span>
+                                </div>
+
+                                {/* ── Panel 3: Quality Signals ── */}
+                                <div className="rounded-lg border border-border/40 bg-background/40 p-3 space-y-2">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 flex items-center gap-1.5">
+                                    <Activity className="w-3 h-3" /> Quality Signals
+                                  </p>
+                                  {/* PDD Grade */}
+                                  {(() => {
+                                    const pdd = call.delay ?? 0;
+                                    const pddMs = Math.round(pdd * 1000);
+                                    const grade = pddMs === 0 ? null
+                                      : pddMs < 500  ? { label: 'Excellent', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' }
+                                      : pddMs < 1000 ? { label: 'Good',      color: 'text-green-400',   bg: 'bg-green-500/10 border-green-500/30' }
+                                      : pddMs < 2000 ? { label: 'Fair',      color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/30' }
+                                      : pddMs < 3000 ? { label: 'Poor',      color: 'text-orange-400',  bg: 'bg-orange-500/10 border-orange-500/30' }
+                                      :               { label: 'Critical',   color: 'text-red-400',     bg: 'bg-red-500/10 border-red-500/30' };
+                                    return (
+                                      <div className="flex items-center justify-between">
+                                        <div>
+                                          <p className="text-[10px] text-muted-foreground/50 uppercase">Setup Latency (PDD)</p>
+                                          <p className="font-mono text-[13px] font-semibold text-foreground/80 mt-0.5">
+                                            {pddMs > 0 ? `${pddMs} ms` : '—'}
+                                          </p>
+                                        </div>
+                                        {grade && (
+                                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${grade.color} ${grade.bg}`}>
+                                            {grade.label}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                  {/* CC State */}
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <p className="text-[10px] text-muted-foreground/50 uppercase">Switch State</p>
+                                      <p className="text-[11px] text-foreground/70 mt-0.5">{call.ccState || call.callStatus || '—'}</p>
+                                    </div>
+                                    <Wifi className="w-3.5 h-3.5 text-muted-foreground/30" />
                                   </div>
-                                )}
-                                {call.codec && call.codec !== '-' && (
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-muted-foreground/50 uppercase tracking-wide text-[10px]">Codec</span>
-                                    <span className="text-foreground/60">{call.codec}</span>
+                                  {/* RTP metrics note */}
+                                  <div className="flex items-start gap-1.5 rounded bg-muted/20 border border-border/30 px-2 py-1.5 mt-1">
+                                    <Info className="w-3 h-3 text-muted-foreground/40 flex-shrink-0 mt-0.5" />
+                                    <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
+                                      MOS, Jitter &amp; Packet Loss require RTCP-XR or a dedicated RTP monitor. Sippy's live session API provides PDD only.
+                                    </p>
                                   </div>
-                                )}
-                                {call.iCustomer && (
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-muted-foreground/50 uppercase tracking-wide text-[10px]">Customer</span>
-                                    <span className="font-mono text-foreground/60">#{call.iCustomer}</span>
-                                  </div>
-                                )}
+                                </div>
+
                               </div>
                             </td>
                           </tr>
