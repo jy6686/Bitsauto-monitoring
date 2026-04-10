@@ -4,7 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import {
   Plus, Pencil, Trash2, Loader2, Building2, Server, X, Check,
-  Globe, RefreshCw, Download, AlertTriangle, Send, Upload,
+  RefreshCw, AlertTriangle, Send, Upload,
   Clock, CalendarClock, CheckCircle2, XCircle, Activity,
   ChevronUp, ChevronDown, Eye, EyeOff,
   Wifi, WifiOff, Shield, DollarSign, ShieldCheck, Info, Save,
@@ -13,13 +13,7 @@ import {
 import { Link } from "wouter";
 import type { ClientProfile } from "@shared/schema";
 
-interface VosClient {
-  id: string;
-  name: string;
-  balance: number;
-  status: string;
-  type: string;
-}
+
 
 const TYPE_META = {
   client: {
@@ -108,7 +102,7 @@ function SippyAdvancedFields({ form, set }: { form: Partial<ClientProfile>; set:
         className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors mb-2"
       >
         <Server className="w-3 h-3" />
-        Softswitch Parameters (VOS3000 / Sippy)
+        Softswitch Parameters (Sippy)
         {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
         <span className="text-muted-foreground/40">— codec, sessions, translation rules, routing…</span>
       </button>
@@ -752,14 +746,12 @@ function SendRatePanel({ profiles }: { profiles: ClientProfile[] }) {
                 onClick={() => toggleSwitch(sw.id)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                   selectedSwitchIds.includes(sw.id)
-                    ? sw.type === 'vos3000'
-                      ? 'bg-blue-500/15 border-blue-500/60 text-blue-300'
-                      : 'bg-violet-500/15 border-violet-500/60 text-violet-300'
+                    ? 'bg-violet-500/15 border-violet-500/60 text-violet-300'
                     : 'border-border/50 text-muted-foreground hover:bg-muted/30'
                 }`}
               >
                 {selectedSwitchIds.includes(sw.id) && <Check className="w-3 h-3" />}
-                <span className={`w-1.5 h-1.5 rounded-full ${sw.type === 'vos3000' ? 'bg-blue-400' : 'bg-violet-400'}`} />
+                <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
                 {sw.name}
                 <span className="opacity-60 font-mono">{sw.type}</span>
               </button>
@@ -3095,7 +3087,6 @@ export default function ClientsPage() {
   const [tab, setTab] = useState<'profiles' | 'send-rate' | 'sippy' | 'sippy-vendors' | 'live-stats'>('live-stats');
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [importingId, setImportingId] = useState<string | null>(null);
   const [newSippyOpen, setNewSippyOpen] = useState(false);
 
   const { data: profiles = [], isLoading } = useQuery<ClientProfile[]>({
@@ -3106,32 +3097,6 @@ export default function ClientsPage() {
   const { data: sippySession } = useQuery<{ active: boolean; username?: string }>({
     queryKey: ['/api/sippy/session'],
     refetchInterval: 30000,
-  });
-
-  const { data: portalSession } = useQuery<{ active: boolean; username?: string }>({
-    queryKey: ['/api/portal/session'],
-    refetchInterval: 30000,
-  });
-  const {
-    data: vosClientsData,
-    isLoading: vosClientsLoading,
-    refetch: refetchVosClients,
-  } = useQuery<{ clients: VosClient[]; error?: string; source?: string }>({
-    queryKey: ['/api/portal/clients'],
-    enabled: portalSession?.active === true,
-  });
-
-  const importMut = useMutation({
-    mutationFn: (vosClient: VosClient) =>
-      apiRequest('POST', '/api/clients', {
-        name: vosClient.name,
-        type: 'client',
-        prefix: '',
-        ratePerMin: 0.025,
-        notes: `Imported from VOS3000 — ID: ${vosClient.id}`,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/clients'] }),
-    onSettled: () => setImportingId(null),
   });
 
   const createMut = useMutation({
@@ -3276,10 +3241,10 @@ export default function ClientsPage() {
             <div>
               <h3 className="font-semibold">Send Rate to Switch</h3>
               <p className="text-xs text-muted-foreground">
-                Push a rate with effective date/time (GMT+00) to your VOS3000 or Sippy switch
+                Push a rate with effective date/time (GMT+00) to your Sippy switch
               </p>
             </div>
-            {portalSession?.active ? (
+            {sippySession?.active ? (
               <span className="ml-auto text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
                 Switch Connected
               </span>
@@ -3289,11 +3254,11 @@ export default function ClientsPage() {
               </span>
             )}
           </div>
-          {!portalSession?.active && (
+          {!sippySession?.active && (
             <div className="flex items-center gap-3 mb-4 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20 text-amber-400 text-sm">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" />
               <span>
-                Connect to your VOS3000 or Sippy switch in{' '}
+                Connect to your Sippy switch in{' '}
                 <Link href="/settings" className="underline hover:text-amber-300">Settings</Link>{' '}
                 before sending rates.
               </span>
@@ -3367,145 +3332,6 @@ export default function ClientsPage() {
             </>
           )}
 
-          {/* VOS3000 Terminal Accounts */}
-          <div className="rounded-xl border overflow-hidden bg-card/60"
-               style={{ borderColor: portalSession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-muted/20">
-              <div className="flex items-center gap-3">
-                <Globe className={`w-4 h-4 ${portalSession?.active ? 'text-violet-400' : 'text-muted-foreground'}`} />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-sm">VOS3000 Terminal Accounts</h3>
-                    {portalSession?.active ? (
-                      <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
-                        Portal Connected
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
-                        Not Connected
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {portalSession?.active
-                      ? vosClientsData?.source === 'expenditure-summary'
-                        ? 'Client names extracted from your call traffic records'
-                        : 'Client accounts configured in your VOS3000 switch'
-                      : 'Connect to VOS3000 in Settings to load client accounts from the switch'}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {portalSession?.active && (
-                  <button
-                    data-testid="button-refresh-vos-clients"
-                    onClick={() => refetchVosClients()}
-                    disabled={vosClientsLoading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${vosClientsLoading ? 'animate-spin' : ''}`} />
-                    Refresh
-                  </button>
-                )}
-                {!portalSession?.active && (
-                  <Link href="/settings"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
-                    Connect
-                  </Link>
-                )}
-              </div>
-            </div>
-
-            {!portalSession?.active ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
-                <Globe className="w-8 h-8 opacity-30" />
-                <p className="text-sm">Connect to your VOS3000 portal to load terminal accounts.</p>
-              </div>
-            ) : vosClientsLoading ? (
-              <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Loading terminal accounts from VOS3000…
-              </div>
-            ) : vosClientsData?.error ? (
-              <div className="flex flex-col items-center justify-center py-10 gap-2 text-amber-400 text-sm text-center px-6">
-                <AlertTriangle className="w-5 h-5" />
-                <p>{vosClientsData.error}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  This can happen if no call data has been recorded yet, or if the portal account lacks list permissions.
-                </p>
-              </div>
-            ) : !vosClientsData?.clients?.length ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
-                <Building2 className="w-7 h-7 opacity-30" />
-                <p>No terminal accounts found on the portal.</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-border/30">
-                {vosClientsData?.source === 'expenditure-summary' && (
-                  <div className="flex items-center gap-2 px-6 py-2.5 bg-violet-500/5 border-b border-violet-500/10 text-xs text-violet-300/70">
-                    <AlertTriangle className="w-3 h-3 text-violet-400 flex-shrink-0" />
-                    Clients derived from call traffic records — direct terminal list not available for this account type
-                  </div>
-                )}
-                {vosClientsData!.clients.map((c) => {
-                  const alreadyImported = importedNames.has(c.name);
-                  return (
-                    <div
-                      key={c.id}
-                      data-testid={`row-vos-client-${c.id}`}
-                      className="flex items-center justify-between px-6 py-3.5 hover:bg-muted/20 transition-colors"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <Building2 className="w-4 h-4 text-violet-400 flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="font-medium text-sm truncate">{c.name}</p>
-                          <div className="flex items-center gap-3 mt-0.5">
-                            <span className="text-xs text-muted-foreground font-mono">ID: {c.id}</span>
-                            {c.type && <span className="text-xs text-muted-foreground">{c.type}</span>}
-                            {c.balance !== 0 && (
-                              <span className={`text-xs ${c.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                Balance: ${c.balance.toFixed(2)}
-                              </span>
-                            )}
-                            {c.status && (
-                              <span className={`text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ${
-                                c.status.toLowerCase().includes('active') || c.status === '1' || c.status === 'enabled'
-                                  ? 'bg-emerald-500/10 text-emerald-400'
-                                  : 'bg-muted text-muted-foreground'
-                              }`}>
-                                {c.status.toLowerCase().includes('active') || c.status === '1' ? 'Active' : c.status}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      {isManagement && (
-                        alreadyImported ? (
-                          <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium px-3 py-1.5">
-                            <Check className="w-3.5 h-3.5" />
-                            Imported
-                          </span>
-                        ) : (
-                          <button
-                            data-testid={`button-import-vos-${c.id}`}
-                            onClick={() => { setImportingId(c.id); importMut.mutate(c); }}
-                            disabled={importMut.isPending && importingId === c.id}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-500/40 text-xs text-violet-400 hover:bg-violet-500/10 transition-colors disabled:opacity-50"
-                          >
-                            {importMut.isPending && importingId === c.id
-                              ? <Loader2 className="w-3 h-3 animate-spin" />
-                              : <Download className="w-3 h-3" />
-                            }
-                            Import
-                          </button>
-                        )
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </>
       )}
 

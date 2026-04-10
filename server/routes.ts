@@ -6,7 +6,6 @@ import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
-import * as vos3000 from "./vos3000";
 import * as sippy from "./sippy";
 import * as sippySnmp from "./snmp";
 import * as emailSvc from "./email";
@@ -264,118 +263,6 @@ export async function registerRoutes(
     }
   })();
 
-  // === VOS3000 SESSION RESTORE ON STARTUP ===
-  // Only runs when switchType is 'vos3000' and a saved session exists
-  (async () => {
-    try {
-      const s = await storage.getSettings();
-      if (s.switchType === 'vos3000' && s.portalSessionToken && s.portalSessionBase && s.portalSessionUser) {
-        vos3000.restoreSession(s.portalSessionToken, s.portalSessionBase, s.portalSessionUser);
-        console.log('[startup] VOS3000 session restored for', s.portalSessionUser);
-        const staleCalls = await storage.getCalls(500);
-        for (const c of staleCalls) {
-          if (c.status === 'active') await storage.endCall(c.id, 'completed');
-        }
-      }
-    } catch (err) {
-      console.error('[startup] Session restore error:', err);
-    }
-  })();
-
-  // === VOS3000 LIVE SYNC ENGINE ===
-  // Runs every 15 seconds when a VOS3000 session is active.
-  // Fetches live calls from the portal, syncs them into the local DB,
-  // and keeps the Tomcat session alive (preventing the 30-min idle timeout).
-  const vosCallIdMap = new Map<string, number>(); // vosCallId → local DB call id
-
-  async function runVos3000Sync() {
-    // Only run when VOS3000 is the selected active switch
-    const currentSettings = await storage.getSettings();
-    if (currentSettings.switchType !== 'vos3000') return;
-    const sessionStatus = vos3000.getSessionStatus();
-    if (!sessionStatus.active) return;
-
-    try {
-      const { calls: vosCalls, error } = await vos3000.fetchLiveCalls();
-
-      if (error === 'Session expired.') {
-        console.log('[VOS3000 Sync] Session expired — clearing stored token');
-        vos3000.clearSession();
-        await storage.updateSettings({ portalSessionToken: null, portalSessionUser: null, portalSessionBase: null });
-        vosCallIdMap.clear();
-        return;
-      }
-
-      const liveSettings = await storage.getSettings();
-      const vosCallIds = new Set((vosCalls ?? []).map((c: any) => c.id as string));
-
-      // End DB calls that are no longer active in VOS3000
-      for (const [vosId, dbId] of vosCallIdMap.entries()) {
-        if (!vosCallIds.has(vosId)) {
-          await storage.endCall(dbId, 'completed');
-          vosCallIdMap.delete(vosId);
-        }
-      }
-
-      // Create or update calls from VOS3000
-      for (const vc of (vosCalls ?? [])) {
-        const latency = lastProbeResult?.latency ?? 50;
-        const jitter = parseFloat((3 + Math.random() * 10).toFixed(2));
-        const packetLoss = parseFloat((Math.random() * 0.3).toFixed(4));
-        let rFactor = 94 - (latency / 20) - jitter - (packetLoss * 20);
-        rFactor = Math.max(0, rFactor);
-        let mos = 1 + (0.035 * rFactor) + (rFactor * (rFactor - 60) * (100 - rFactor) * 0.000007);
-        mos = parseFloat(Math.max(1, Math.min(5, mos)).toFixed(4));
-
-        if (!vosCallIdMap.has(vc.id)) {
-          // New call — create in DB
-          const dbCall = await storage.createCall({
-            caller: vc.caller || 'unknown',
-            callee: vc.callee || 'unknown',
-            direction: 'outbound',
-            status: 'active',
-            pdd: null,
-          });
-          vosCallIdMap.set(vc.id, dbCall.id);
-          await storage.createMetric({ callId: dbCall.id, jitter, latency, packetLoss, mos });
-
-          // Alert if latency is above threshold
-          if (latency > (liveSettings.latencyThreshold ?? 150)) {
-            const existing = await storage.getAlerts();
-            const hasAlert = existing.some((a: any) => !a.resolved && a.type === 'high_latency' && a.message.includes(`call ${dbCall.id}`));
-            if (!hasAlert) {
-              await storage.createAlert({
-                type: 'high_latency',
-                severity: 'warning',
-                message: `High Latency (${Math.round(latency)}ms) from live source on call ${dbCall.id}`,
-                resolved: false,
-              });
-            }
-          }
-        } else {
-          // Existing call — add fresh metric
-          const dbId = vosCallIdMap.get(vc.id)!;
-          await storage.createMetric({ callId: dbId, jitter, latency, packetLoss, mos });
-        }
-      }
-
-      if ((vosCalls ?? []).length > 0 || vosCallIdMap.size > 0) {
-        console.log(`[VOS3000 Sync] Live calls: ${(vosCalls ?? []).length} | DB active: ${vosCallIdMap.size}`);
-      }
-    } catch (err: any) {
-      if (err?.message === 'SESSION_EXPIRED') {
-        vos3000.clearSession();
-        await storage.updateSettings({ portalSessionToken: null, portalSessionUser: null, portalSessionBase: null });
-        vosCallIdMap.clear();
-        console.log('[VOS3000 Sync] Session expired — cleared');
-      } else {
-        console.error('[VOS3000 Sync] Error:', err?.message);
-      }
-    }
-  }
-
-  // VOS3000 live sync — runs every 15 seconds; switchType guard inside runVos3000Sync()
-  setInterval(runVos3000Sync, 15000);
 
   // === SIMULATION ENGINE ===
   setInterval(async () => {
@@ -723,9 +610,7 @@ export async function registerRoutes(
       const allSwitches = await storage.getSwitches();
       const sw = allSwitches.find(s => s.id === Number(req.params.id));
       if (!sw) return res.status(404).json({ active: false });
-      if (sw.type === 'sippy') return res.json({ active: true, note: 'Sippy uses Basic Auth — no login required' });
-      const session = sw.portalUrl ? vos3000.getSessionForUrl(sw.portalUrl) : null;
-      res.json({ active: !!session, loggedInAt: session ? (session as any).loggedInAt : undefined });
+      res.json({ active: true, note: 'Sippy uses Basic Auth — no login required' });
     } catch { res.status(500).json({ active: false }); }
   });
 
@@ -763,13 +648,6 @@ export async function registerRoutes(
         return res.json({ calls, switchType: 'sippy', switchName: sw.name });
       }
 
-      if (sw.type === 'vos3000') {
-        const session = vos3000.getSessionForUrl(sw.portalUrl);
-        if (!session) return res.json({ calls: [], error: 'Not logged in to this VOS3000 switch. Connect via Settings.', needsLogin: true });
-        const result = await vos3000.fetchLiveCallsForSession(session as any);
-        return res.json({ ...result, switchType: 'vos3000', switchName: sw.name });
-      }
-
       return res.json({ calls: [], error: 'Unsupported switch type.' });
     } catch (err: any) {
       res.status(500).json({ calls: [], error: err.message });
@@ -789,79 +667,30 @@ export async function registerRoutes(
         return res.json(stats);
       }
 
-      if (sw.type === 'vos3000') {
-        const session = vos3000.getSessionForUrl(sw.portalUrl);
-        if (!session) return res.json({ error: 'Not logged in.' });
-        const stats = await vos3000.fetchStats();
-        return res.json(stats);
-      }
-
       return res.json({ error: 'Unsupported switch type.' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // GET /api/switches/:id/captcha — get CAPTCHA for secondary VOS3000 switch login
-  app.get('/api/switches/:id/captcha', async (req, res) => {
-    try {
-      const allSwitches = await storage.getSwitches();
-      const sw = allSwitches.find(s => s.id === Number(req.params.id));
-      if (!sw || sw.type !== 'vos3000' || !sw.portalUrl) return res.status(400).json({ error: 'Switch not found or not VOS3000.' });
-      const result = await vos3000.fetchCaptcha(sw.portalUrl);
-      if (!result) return res.status(502).json({ error: 'Could not fetch CAPTCHA from switch portal.' });
-      res.json(result);
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
-  });
-
-  // POST /api/switches/:id/login — login to secondary VOS3000 switch with CAPTCHA
-  app.post('/api/switches/:id/login', async (req, res) => {
-    try {
-      const allSwitches = await storage.getSwitches();
-      const sw = allSwitches.find(s => s.id === Number(req.params.id));
-      if (!sw || sw.type !== 'vos3000' || !sw.portalUrl) return res.status(400).json({ success: false, message: 'Switch not found or not VOS3000.' });
-      const { challengeId, captchaCode } = req.body as { challengeId?: string; captchaCode?: string };
-      if (!challengeId || !captchaCode) return res.status(400).json({ success: false, message: 'CAPTCHA challenge required.' });
-      const username = sw.portalUsername || '';
-      const password = sw.portalPassword || '';
-      const result = await vos3000.loginWithCaptcha(sw.portalUrl, username, password, challengeId, captchaCode, sw.loginType ?? 1);
-      res.json(result);
-    } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
-  });
 
   // ── Shared helper: push profile + rate to a single switch ──────────────────
+
+  interface PushRateOptions {
+    accountName: string;
+    prefix: string;
+    ratePerMin: number;
+    effectiveFrom?: Date;
+    effectiveTo?: Date;
+    format?: 'full' | 'partial' | 'default';
+  }
 
   async function pushProfileToOneSwitch(
     profile: Awaited<ReturnType<typeof storage.getClientProfiles>>[number],
     sw: { id: number; type: string; portalUrl: string | null; portalUsername: string | null; portalPassword: string | null },
-    pushOpts?: vos3000.PushRateOptions,
+    pushOpts?: PushRateOptions,
   ): Promise<{ success: boolean; message: string; detail?: string }> {
     if (!sw.portalUrl) return { success: false, message: `Switch "${sw.type}" has no URL configured.` };
-
-    if (sw.type === 'vos3000') {
-      const session = vos3000.getSessionForUrl(sw.portalUrl);
-      if (!session) return { success: false, message: `Not logged in to VOS3000 at ${sw.portalUrl}. Connect in Settings first.` };
-
-      const acctRes = await vos3000.pushAccountToVos3000({
-        name: profile.name,
-        type: profile.type as 'client' | 'vendor',
-        ipAddress: profile.ipAddress || undefined,
-        ratePerMin: profile.ratePerMin || undefined,
-      }, session);
-
-      if (pushOpts || (profile.prefix && profile.ratePerMin)) {
-        const rOpts = pushOpts ?? {
-          accountName: profile.name,
-          prefix: profile.prefix!,
-          ratePerMin: profile.ratePerMin!,
-          effectiveFrom: profile.rateEffectiveFrom ? new Date(profile.rateEffectiveFrom) : undefined,
-          effectiveTo:   profile.rateEffectiveTo   ? new Date(profile.rateEffectiveTo)   : undefined,
-        };
-        const rateRes = await vos3000.pushRateToVos3000(rOpts, session);
-        return rateRes.success ? rateRes : rateRes;
-      }
-      return acctRes;
-    }
 
     if (sw.type === 'sippy') {
       // Prefer global admin API credentials for XML-RPC; fall back to switch portal creds
@@ -989,7 +818,7 @@ export async function registerRoutes(
         return res.status(400).json({ success: false, message: 'accountName, prefix, and ratePerMin are required.' });
       }
 
-      const pushOpts: vos3000.PushRateOptions = {
+      const pushOpts: PushRateOptions = {
         accountName,
         prefix,
         ratePerMin: Number(ratePerMin),
@@ -1011,11 +840,7 @@ export async function registerRoutes(
         const key = sw.id === 0 ? sw.type : `${sw.name} (${sw.type})`;
         if (!sw.portalUrl) { results[key] = { success: false, message: 'No URL configured' }; continue; }
 
-        if (sw.type === 'vos3000') {
-          const session = vos3000.getSessionForUrl(sw.portalUrl);
-          if (!session) { results[key] = { success: false, message: `Not logged in. Connect to ${sw.portalUrl} first.` }; continue; }
-          results[key] = await vos3000.pushRateToVos3000(pushOpts, session);
-        } else if (sw.type === 'sippy') {
+        if (sw.type === 'sippy') {
           // Prefer global admin API credentials for XML-RPC; fall back to switch portal creds
           const globalSettings = await storage.getSettings();
           const adminUser = globalSettings.apiAdminUsername || sw.portalUsername || '';
@@ -1050,138 +875,6 @@ export async function registerRoutes(
     }
   });
 
-  // Portal connection test — tries to reach the configured management portal URL
-  app.post('/api/portal/test', async (req, res) => {
-    const { url, username } = req.body as { url?: string; username?: string; password?: string };
-    if (!url) return res.status(400).json({ reachable: false, message: 'No URL provided.' });
-
-    try {
-      const parsed = new URL(url);
-      const isHttps = parsed.protocol === 'https:';
-      const port = parsed.port
-        ? Number(parsed.port)
-        : isHttps ? 443 : 80;
-      const host = parsed.hostname;
-
-      const result = await new Promise<{ reachable: boolean; latency: number }>((resolve) => {
-        const start = Date.now();
-        const socket = new net.Socket();
-        socket.setTimeout(5000);
-        socket.connect(port, host, () => {
-          const latency = Date.now() - start;
-          socket.destroy();
-          resolve({ reachable: true, latency });
-        });
-        socket.on('timeout', () => { socket.destroy(); resolve({ reachable: false, latency: -1 }); });
-        socket.on('error', () => { socket.destroy(); resolve({ reachable: false, latency: -1 }); });
-      });
-
-      if (result.reachable) {
-        res.json({
-          reachable: true,
-          message: `Portal reachable at ${host}:${port} — latency ${result.latency}ms. Enter your credentials and save to enable data extraction.`,
-          latency: result.latency,
-        });
-      } else {
-        res.json({
-          reachable: false,
-          message: `Could not reach ${host}:${port}. Check the URL or ensure the portal allows connections from this server.`,
-        });
-      }
-    } catch (err) {
-      res.json({ reachable: false, message: `Invalid URL format. Use http://IP:PORT or https://domain.` });
-    }
-  });
-
-  // ── VOS3000 Portal Integration ──────────────────────────────────────────────
-
-  // GET /api/portal/captcha — fetch a fresh CAPTCHA image from VOS3000
-  app.get('/api/portal/captcha', async (req, res) => {
-    const settings = await storage.getSettings();
-    const portalUrl = settings.portalUrl;
-    if (!portalUrl) {
-      return res.status(400).json({ error: 'No portal URL configured in Settings.' });
-    }
-    const result = await vos3000.fetchCaptcha(portalUrl);
-    if (!result) {
-      return res.status(502).json({ error: 'Could not fetch CAPTCHA from portal. Check the Portal URL.' });
-    }
-    res.json(result);
-  });
-
-  // POST /api/portal/login — complete VOS3000 login with CAPTCHA answer
-  app.post('/api/portal/login', async (req, res) => {
-    const { username, password, challengeId, captchaCode, loginType } = req.body as {
-      username?: string;
-      password?: string;
-      challengeId?: string;
-      captchaCode?: string;
-      loginType?: number;
-    };
-    if (!username || !password || !challengeId || !captchaCode) {
-      return res.status(400).json({ success: false, message: 'Missing required fields.' });
-    }
-    const settings = await storage.getSettings();
-    const portalUrl = settings.portalUrl;
-    if (!portalUrl) {
-      return res.status(400).json({ success: false, message: 'No portal URL configured in Settings.' });
-    }
-    const result = await vos3000.loginWithCaptcha(portalUrl, username, password, challengeId, captchaCode, loginType ?? 1);
-    // Persist session token to DB so it survives server restarts
-    if (result.success) {
-      const token = vos3000.getActiveSessionToken();
-      const base = vos3000.getActiveSessionBase();
-      if (token && base) {
-        await storage.updateSettings({ portalSessionToken: token, portalSessionUser: username, portalSessionBase: base });
-        console.log('[VOS3000] Session token saved to DB for user:', username);
-      }
-    }
-    res.json(result);
-  });
-
-  // GET /api/portal/session — return current portal session status
-  app.get('/api/portal/session', (_req, res) => {
-    const status = vos3000.getSessionStatus();
-    res.json(status);
-  });
-
-  // DELETE /api/portal/session — logout from portal
-  app.delete('/api/portal/session', (_req, res) => {
-    vos3000.clearSession();
-    res.json({ success: true, message: 'Logged out from portal.' });
-  });
-
-  // GET /api/portal/live-calls — fetch active calls from VOS3000
-  app.get('/api/portal/live-calls', async (_req, res) => {
-    const result = await vos3000.fetchLiveCalls();
-    res.json(result);
-  });
-
-  // GET /api/portal/cdr — fetch CDR records from VOS3000
-  app.get('/api/portal/cdr', async (req, res) => {
-    const limit = Number(req.query.limit) || 100;
-    const hoursAgo = Number(req.query.hoursAgo) || 24;
-    const result = await vos3000.fetchCdrRecords({ limit, startHoursAgo: hoursAgo });
-    res.json(result);
-  });
-
-  // GET /api/portal/stats — fetch summary stats from VOS3000
-  app.get('/api/portal/stats', async (_req, res) => {
-    const result = await vos3000.fetchStats();
-    res.json(result);
-  });
-
-  // GET /api/portal/clients — list terminal accounts (clients) from VOS3000
-  app.get('/api/portal/clients', async (_req, res) => {
-    const result = await vos3000.fetchVosClients();
-    res.json(result);
-  });
-
-  // GET /api/portal/client-stats — per-client call stats from VOS3000 (24h)
-  app.get('/api/portal/client-stats', async (_req, res) => {
-    const result = await vos3000.fetchClientStats();
-    res.json(result);
-  });
 
   // ── Sippy Softswitch Routes ──────────────────────────────────────────────
 
@@ -1248,30 +941,20 @@ export async function registerRoutes(
   // POST /api/switch/activate — change the active switch type and auto-connect
   app.post('/api/switch/activate', async (req, res) => {
     const { type } = req.body as { type: string };
-    if (type !== 'sippy' && type !== 'vos3000') {
-      return res.status(400).json({ error: 'Invalid switch type. Must be "sippy" or "vos3000".' });
+    if (type !== 'sippy') {
+      return res.status(400).json({ error: 'Invalid switch type. Must be "sippy".' });
     }
     const s = await storage.getSettings();
-    await storage.updateSettings({ switchType: type as 'sippy' | 'vos3000' });
+    await storage.updateSettings({ switchType: 'sippy' });
 
-    if (type === 'sippy') {
-      if (!s.portalUrl || !s.portalUsername || !s.portalPassword) {
-        return res.json({ success: false, message: 'Sippy credentials not configured. Go to Settings → Switch Configuration.' });
-      }
-      try {
-        const result = await sippy.connectSippy(s.portalUrl, s.portalUsername, s.portalPassword);
-        return res.json({ success: result.success, message: result.message });
-      } catch (err: any) {
-        return res.json({ success: false, message: `Sippy connect error: ${err.message}` });
-      }
+    if (!s.portalUrl || !s.portalUsername || !s.portalPassword) {
+      return res.json({ success: false, message: 'Sippy credentials not configured. Go to Settings → Switch Configuration.' });
     }
-
-    if (type === 'vos3000') {
-      if (s.portalSessionToken && s.portalSessionBase && s.portalSessionUser) {
-        vos3000.restoreSession(s.portalSessionToken, s.portalSessionBase, s.portalSessionUser);
-        return res.json({ success: true, message: `VOS3000 session restored for ${s.portalSessionUser}` });
-      }
-      return res.json({ success: false, message: 'No saved VOS3000 session. Go to Settings → Portal Sign-In to log in first.' });
+    try {
+      const result = await sippy.connectSippy(s.portalUrl, s.portalUsername, s.portalPassword);
+      return res.json({ success: result.success, message: result.message });
+    } catch (err: any) {
+      return res.json({ success: false, message: `Sippy connect error: ${err.message}` });
     }
   });
 

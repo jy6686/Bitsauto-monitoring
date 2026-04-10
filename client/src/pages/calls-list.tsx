@@ -1,12 +1,8 @@
-import { useCalls } from "@/hooks/use-calls";
-import { MosBadge } from "@/components/mos-badge";
-import { Link } from "wouter";
 import {
   Phone, Clock, Search, BarChart3, List, RefreshCw, CheckCircle2,
-  ArrowRightLeft, Globe, Wifi, WifiOff, Server, Loader2, X, AlertCircle,
+  ArrowRightLeft, Globe, Server, Loader2, AlertCircle,
   ChevronDown, ChevronRight, PhoneOff, ArrowUpRight, ArrowDownLeft, Network,
 } from "lucide-react";
-import { format } from "date-fns";
 import { useState, useRef, Fragment } from "react";
 import { lookupCountry } from "@/lib/country-lookup";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -74,11 +70,6 @@ interface SwitchRecord {
   enabled: boolean;
 }
 
-interface CaptchaChallenge {
-  challengeId: string;
-  imageBase64: string;
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildSummary(calls: LiveCall[]): SummaryRow[] {
@@ -107,110 +98,6 @@ function formatDuration(seconds: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-// ─── Captcha Modal ────────────────────────────────────────────────────────────
-
-function CaptchaModal({
-  switchId,
-  switchName,
-  onClose,
-  onSuccess,
-}: {
-  switchId: number;
-  switchName: string;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const qc = useQueryClient();
-  const [code, setCode] = useState('');
-  const [error, setError] = useState('');
-
-  const { data: captcha, isLoading: captchaLoading } = useQuery<CaptchaChallenge>({
-    queryKey: ['/api/switches', switchId, 'captcha'],
-    queryFn: () => fetch(`/api/switches/${switchId}/captcha`).then(r => r.json()),
-  });
-
-  const loginMutation = useMutation({
-    mutationFn: () => apiRequest('POST', `/api/switches/${switchId}/login`, {
-      challengeId: captcha?.challengeId,
-      captchaCode: code,
-    }),
-    onSuccess: async (data: any) => {
-      if (data.success) {
-        await qc.invalidateQueries({ queryKey: ['/api/switches', switchId, 'session'] });
-        onSuccess();
-        onClose();
-      } else {
-        setError(data.message || 'Login failed. Check CAPTCHA code.');
-        setCode('');
-      }
-    },
-    onError: () => setError('Connection error. Try again.'),
-  });
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-semibold text-lg">Connect to Switch</h3>
-            <p className="text-sm text-muted-foreground mt-0.5">{switchName}</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted/40 transition-colors" data-testid="button-close-captcha">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {captchaLoading ? (
-          <div className="flex items-center justify-center h-20">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : captcha ? (
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs text-muted-foreground mb-2">Enter the code shown below:</p>
-              <div className="rounded-lg overflow-hidden border border-border bg-white flex items-center justify-center p-2">
-                <img
-                  src={`data:image/jpeg;base64,${captcha.imageBase64}`}
-                  alt="CAPTCHA"
-                  className="h-14 object-contain"
-                  data-testid="img-captcha"
-                />
-              </div>
-            </div>
-            <input
-              type="text"
-              placeholder="Type CAPTCHA code..."
-              value={code}
-              onChange={e => { setCode(e.target.value); setError(''); }}
-              onKeyDown={e => e.key === 'Enter' && loginMutation.mutate()}
-              className="w-full bg-background border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all font-mono tracking-widest"
-              data-testid="input-captcha-code"
-              autoFocus
-            />
-            {error && (
-              <div className="flex items-center gap-2 text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                {error}
-              </div>
-            )}
-            <button
-              onClick={() => loginMutation.mutate()}
-              disabled={!code || loginMutation.isPending}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              data-testid="button-captcha-submit"
-            >
-              {loginMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
-              {loginMutation.isPending ? 'Connecting...' : 'Connect'}
-            </button>
-          </div>
-        ) : (
-          <div className="text-sm text-rose-400 text-center py-4">Failed to load CAPTCHA. Check switch URL in Settings.</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ─── Switch Panel (per-switch live call view) ─────────────────────────────────
 
 function SwitchPanel({
@@ -222,7 +109,6 @@ function SwitchPanel({
   switchType: string;
   switchName: string;
 }) {
-  const { data: calls } = useCalls(200);
   const [callViewTab, setCallViewTab] = useState<'summary' | 'details'>('summary');
   const [search, setSearch] = useState('');
   const [filterCli, setFilterCli] = useState('');
@@ -232,7 +118,6 @@ function SwitchPanel({
   const [filterConnection, setFilterConnection] = useState('all');
   const [filterDirection, setFilterDirection] = useState('all');
   const [showLatestFirst, setShowLatestFirst] = useState(false);
-  const [captchaOpen, setCaptchaOpen] = useState(false);
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const [disconnectingCallId, setDisconnectingCallId] = useState<string | null>(null);
   const qc = useQueryClient();
@@ -247,67 +132,33 @@ function SwitchPanel({
   });
 
   const isPrimary = switchId === 'primary';
-  const isPrimarySippy = isPrimary && switchType === 'sippy';
-  const isPrimaryVos  = isPrimary && switchType !== 'sippy';
 
   // Primary Sippy: use /api/sippy/session + /api/sippy/live-calls
   const { data: primarySippySession } = useQuery<{ active: boolean }>({
     queryKey: ['/api/sippy/session'],
     refetchInterval: 30000,
-    enabled: isPrimarySippy,
+    enabled: isPrimary,
   });
   const { data: primarySippyLiveCalls, isLoading: sippyLoading, refetch: refetchSippy } = useQuery<{ calls: LiveCall[] }>({
     queryKey: ['/api/sippy/live-calls'],
     refetchInterval: 15000,
-    enabled: isPrimarySippy && !!primarySippySession?.active,
-  });
-
-  // Primary VOS3000: use /api/portal/session + /api/portal/live-calls
-  const { data: primaryVosSession } = useQuery<{ active: boolean }>({
-    queryKey: ['/api/portal/session'],
-    refetchInterval: 30000,
-    enabled: isPrimaryVos,
-  });
-  const { data: primaryVosLiveCalls, isLoading: vosLoading, refetch: refetchVos } = useQuery<{ calls: LiveCall[]; error?: string }>({
-    queryKey: ['/api/portal/live-calls'],
-    refetchInterval: 15000,
-    enabled: isPrimaryVos && !!primaryVosSession?.active,
+    enabled: isPrimary && !!primarySippySession?.active,
   });
 
   // Secondary switch: use per-switch endpoints
-  const { data: switchSession } = useQuery<{ active: boolean; needsLogin?: boolean; note?: string }>({
-    queryKey: ['/api/switches', switchId, 'session'],
-    refetchInterval: 30000,
-    enabled: !isPrimary,
-    queryFn: () => fetch(`/api/switches/${switchId}/session`).then(r => r.json()),
-  });
-  const { data: switchLiveCalls, isLoading: switchLoading, refetch: refetchSwitch } = useQuery<{ calls: LiveCall[]; error?: string; needsLogin?: boolean }>({
+  const { data: switchLiveCalls, isLoading: switchLoading, refetch: refetchSwitch } = useQuery<{ calls: LiveCall[]; error?: string }>({
     queryKey: ['/api/switches', switchId, 'live-calls'],
     refetchInterval: 15000,
     enabled: !isPrimary,
     queryFn: () => fetch(`/api/switches/${switchId}/live-calls`).then(r => r.json()),
   });
 
-  // Resolve active state
-  const isActive = isPrimarySippy
-    ? !!primarySippySession?.active
-    : isPrimaryVos
-    ? !!primaryVosSession?.active
-    : (switchType === 'sippy' ? true : !!switchSession?.active);
+  const isActive = isPrimary ? !!primarySippySession?.active : true;
+  const isLoading = isPrimary ? sippyLoading : switchLoading;
 
-  const isLoading = isPrimarySippy ? sippyLoading : isPrimaryVos ? vosLoading : switchLoading;
-  const needsLogin = isPrimaryVos
-    ? !primaryVosSession?.active
-    : !isPrimary && switchType === 'vos3000' && !switchSession?.active;
+  const handleRefresh = () => isPrimary ? refetchSippy() : refetchSwitch();
 
-  const handleRefresh = () =>
-    isPrimarySippy ? refetchSippy() : isPrimaryVos ? refetchVos() : refetchSwitch();
-
-  const liveCallData = isPrimarySippy
-    ? primarySippyLiveCalls
-    : isPrimaryVos
-    ? primaryVosLiveCalls
-    : switchLiveCalls;
+  const liveCallData = isPrimary ? primarySippyLiveCalls : switchLiveCalls;
 
   // Build live calls list
   const liveCalls: LiveCall[] = liveCallData?.calls ?? [];
@@ -317,34 +168,9 @@ function SwitchPanel({
   const totalRouting = summaryRows.reduce((s, r) => s + r.routing, 0);
   const totalCalls = summaryRows.reduce((s, r) => s + r.total, 0);
 
-  const filteredCalls = calls?.filter((call: any) =>
-    call.caller.includes(search) || call.callee.includes(search)
-  );
-
   return (
     <div className="space-y-4">
-      {/* Connection banner */}
-      {needsLogin && (
-        <div className="flex items-center justify-between gap-4 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl">
-          <div className="flex items-center gap-3">
-            <WifiOff className="w-5 h-5 text-amber-400 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-amber-300">Not connected to {switchName}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Login with CAPTCHA to see live calls from this VOS3000 switch.</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setCaptchaOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm font-medium hover:bg-amber-500/20 transition-colors flex-shrink-0"
-            data-testid={`button-connect-switch-${switchId}`}
-          >
-            <Wifi className="w-4 h-4" />
-            Connect
-          </button>
-        </div>
-      )}
-
-      {liveCallData?.error && !needsLogin && (
+      {liveCallData?.error && (
         <div className="flex items-center gap-3 p-3 bg-rose-500/5 border border-rose-500/20 rounded-xl text-sm text-rose-400">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           {liveCallData.error}
@@ -530,99 +356,7 @@ function SwitchPanel({
       {/* ── DETAILS TAB ──────────────────────────────────────────────────── */}
       {callViewTab === 'details' && (
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-          {isPrimary && !isPrimarySippy ? (
-            // Primary non-Sippy: show local DB call records
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-muted/40 text-muted-foreground border-b border-border/50">
-                  <tr>
-                    <th className="px-6 py-4 font-medium">Caller</th>
-                    <th className="px-6 py-4 font-medium">Destination</th>
-                    <th className="px-6 py-4 font-medium">Trunk</th>
-                    <th className="px-6 py-4 font-medium">Started</th>
-                    <th className="px-6 py-4 font-medium">Quality (MOS)</th>
-                    <th className="px-6 py-4 font-medium">Status</th>
-                    <th className="px-6 py-4 font-medium text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {filteredCalls?.map((call: any) => {
-                    const callerCountry = lookupCountry(call.caller);
-                    const calleeCountry = lookupCountry(call.callee);
-                    return (
-                      <tr key={call.id} className="hover:bg-muted/20 transition-colors" data-testid={`row-call-${call.id}`}>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
-                              <Phone className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <span className="font-mono text-sm">{call.caller}</span>
-                              {callerCountry ? (
-                                <p className="text-xs text-muted-foreground mt-0.5">{callerCountry.flag} {callerCountry.name}</p>
-                              ) : (
-                                <p className="text-xs text-muted-foreground/50 mt-0.5">Local / Unknown</p>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="font-mono text-sm">{call.callee}</span>
-                          {calleeCountry ? (
-                            <p className="text-xs text-muted-foreground mt-0.5">{calleeCountry.flag} {calleeCountry.name}</p>
-                          ) : (
-                            <p className="text-xs text-muted-foreground/50 mt-0.5">Local / Unknown</p>
-                          )}
-                        </td>
-                        <td className="px-6 py-4" data-testid={`cell-trunk-${call.id}`}>
-                          {(() => {
-                            const tc = call.trunkClass?.toLowerCase();
-                            const acctFirst = String((call as any).accountId || (call as any).iAccount || '').charAt(0);
-                            const cls = tc === 'first'    || acctFirst === '1' ? { label: 'First',    color: 'text-blue-400 bg-blue-500/10' }
-                                      : tc === 'business' || acctFirst === '2' ? { label: 'Business', color: 'text-violet-400 bg-violet-500/10' }
-                                      : tc === 'charlie'  || acctFirst === '7' ? { label: 'Charlie',  color: 'text-orange-400 bg-orange-500/10' }
-                                      : null;
-                            return cls
-                              ? <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${cls.color}`}>{cls.label}</span>
-                              : <span className="text-muted-foreground/30 text-xs">—</span>;
-                          })()}
-                        </td>
-                        <td className="px-6 py-4 text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-3 h-3" />
-                            {call.startTime ? format(new Date(call.startTime), 'HH:mm:ss') : '-'}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4"><MosBadge value={call.latestMetric?.mos || 0} /></td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            call.status === 'active'
-                              ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                              : call.status === 'failed'
-                              ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
-                              : 'bg-muted text-muted-foreground border border-border/50'
-                          }`}>
-                            {call.status === 'active' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                            {call.status.charAt(0).toUpperCase() + call.status.slice(1)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <Link href={`/calls/${call.id}`} className="inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium bg-secondary hover:bg-secondary/80 transition-colors" data-testid={`link-inspect-${call.id}`}>
-                            Inspect
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {filteredCalls?.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-muted-foreground">No calls found matching your search.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          ) : (() => {
+          {(() => {
             // Build unique vendor/connection/direction lists for dropdowns
             const vendors = Array.from(new Set(liveCalls.map(c => c.vendor).filter(Boolean))) as string[];
             const connections = Array.from(new Set(liveCalls.map(c => c.connection).filter(Boolean))) as string[];
@@ -763,7 +497,7 @@ function SwitchPanel({
                         <th className="px-4 py-3 font-medium">Connection</th>
                         <th className="px-4 py-3 font-medium text-right">PDD</th>
                         <th className="px-4 py-3 font-medium text-right">Duration</th>
-                        {isPrimarySippy && <th className="px-3 py-3 font-medium w-10"></th>}
+                        {isPrimary && <th className="px-3 py-3 font-medium w-10"></th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/30">
@@ -782,7 +516,7 @@ function SwitchPanel({
                         const pddDisplay = pddSec > 0
                           ? pddSec >= 1 ? `${pddSec.toFixed(1)}s` : `${Math.round(pddSec * 1000)}ms`
                           : null;
-                        const totalCols = isPrimarySippy ? 15 : 14;
+                        const totalCols = isPrimary ? 15 : 14;
                         return (
                         <Fragment key={rowKey}>
                         <tr
@@ -861,7 +595,7 @@ function SwitchPanel({
                           <td className="px-4 py-3 text-right font-mono text-foreground/70" data-testid={`cell-duration-${i}`}>
                             {formatDuration(call.duration)}
                           </td>
-                          {isPrimarySippy && (
+                          {isPrimary && (
                             <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
                               {call.id ? (
                                 <button
@@ -926,8 +660,8 @@ function SwitchPanel({
                       })}
                       {displayed.length === 0 && (
                         <tr>
-                          <td colSpan={isPrimarySippy ? 15 : 14} className="px-6 py-12 text-center text-muted-foreground">
-                            {needsLogin ? 'Connect to this switch to see live calls.' : 'No active calls match the current filters.'}
+                          <td colSpan={isPrimary ? 15 : 14} className="px-6 py-12 text-center text-muted-foreground">
+                            No active calls match the current filters.
                           </td>
                         </tr>
                       )}
@@ -940,17 +674,6 @@ function SwitchPanel({
         </div>
       )}
 
-      {/* CAPTCHA modal */}
-      {captchaOpen && typeof switchId === 'number' && (
-        <CaptchaModal
-          switchId={switchId}
-          switchName={switchName}
-          onClose={() => setCaptchaOpen(false)}
-          onSuccess={() => {
-            qc.invalidateQueries({ queryKey: ['/api/switches', switchId, 'live-calls'] });
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -965,38 +688,22 @@ export default function CallsListPage() {
     refetchInterval: 60000,
   });
 
-  // Load settings to know the primary switch type (sippy vs vos3000)
-  const { data: settings } = useQuery<{ switchType?: string }>({
-    queryKey: ['/api/settings'],
-    refetchInterval: 60000,
-    select: d => ({ switchType: (d as any).switchType }),
-  });
-  const primarySwitchType: string = settings?.switchType ?? 'vos3000';
-  const primaryLabel = primarySwitchType === 'sippy' ? 'Primary Sippy' : 'Primary VOS3000';
+  const primaryLabel = 'Primary Sippy';
 
-  // Primary session: Sippy uses /api/sippy/session; VOS3000 uses /api/portal/session
   const { data: primarySippySession } = useQuery<{ active: boolean }>({
     queryKey: ['/api/sippy/session'],
     refetchInterval: 30000,
-    enabled: primarySwitchType === 'sippy',
   });
-  const { data: primaryVosSession } = useQuery<{ active: boolean }>({
-    queryKey: ['/api/portal/session'],
-    refetchInterval: 30000,
-    enabled: primarySwitchType !== 'sippy',
-  });
-  const primarySessionActive = primarySwitchType === 'sippy'
-    ? !!primarySippySession?.active
-    : !!primaryVosSession?.active;
+  const primarySessionActive = !!primarySippySession?.active;
 
   const enabledSwitches = switches.filter(sw => sw.enabled !== false);
 
   const currentSwitchInfo = selectedSwitch === 'primary'
-    ? { name: 'Primary', type: primarySwitchType, active: primarySessionActive }
+    ? { name: 'Primary', type: 'sippy', active: primarySessionActive }
     : enabledSwitches.find(sw => sw.id === selectedSwitch);
 
   const currentName = selectedSwitch === 'primary' ? primaryLabel : (currentSwitchInfo as SwitchRecord)?.name ?? 'Switch';
-  const currentType = selectedSwitch === 'primary' ? primarySwitchType : (currentSwitchInfo as SwitchRecord)?.type ?? 'vos3000';
+  const currentType = selectedSwitch === 'primary' ? 'sippy' : (currentSwitchInfo as SwitchRecord)?.type ?? 'sippy';
 
   return (
     <div className="space-y-6">
@@ -1023,7 +730,7 @@ export default function CallsListPage() {
           <Server className="w-4 h-4" />
           <span>{primaryLabel}</span>
           <span className="text-xs text-muted-foreground/60 bg-muted/30 px-1.5 py-0.5 rounded border border-border/40">
-            {primarySwitchType === 'sippy' ? 'Sippy' : 'VOS3000'}
+            Sippy
           </span>
           {primarySessionActive ? (
             <span className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">
@@ -1082,7 +789,7 @@ function SwitchTab({
     queryFn: () => fetch(`/api/switches/${sw.id}/session`).then(r => r.json()),
   });
 
-  const isLive = sw.type === 'sippy' ? true : !!session?.active;
+  const isLive = !!session?.active || sw.type === 'sippy';
 
   return (
     <button
@@ -1097,7 +804,7 @@ function SwitchTab({
       <Server className="w-4 h-4" />
       <span>{sw.name}</span>
       <span className="text-xs text-muted-foreground/60 bg-muted/30 px-1.5 py-0.5 rounded border border-border/40">
-        {sw.type === 'sippy' ? 'Sippy' : 'VOS3000'}
+        Sippy
       </span>
       {isLive ? (
         <span className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">

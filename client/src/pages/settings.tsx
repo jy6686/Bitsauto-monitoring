@@ -45,14 +45,6 @@ const SWITCH_TYPES = [
   },
 ] as const;
 
-// ── Portal Session Status ─────────────────────────────────────────────────────
-function usePortalSession() {
-  return useQuery<{ active: boolean; username?: string; loggedInAt?: string; portalBase?: string }>({
-    queryKey: ['/api/portal/session'],
-    refetchInterval: 30000,
-  });
-}
-
 function useSippySession() {
   return useQuery<{ active: boolean; username?: string; connectedAt?: string; portalBase?: string; mode?: 'xmlrpc' | 'portal' }>({
     queryKey: ['/api/sippy/session'],
@@ -60,242 +52,6 @@ function useSippySession() {
   });
 }
 
-function PortalLoginPanel_UNUSED({ username, password }: { username: string; password: string }) {
-  const qc = useQueryClient();
-  const { data: session, isLoading: sessionLoading } = usePortalSession();
-
-  const [loginType, setLoginType] = useState(1); // default: Mapping Gateway
-  const [captchaImg, setCaptchaImg] = useState<string | null>(null);
-  const [challengeId, setChallengeId] = useState<string | null>(null);
-  const [captchaCode, setCaptchaCode] = useState('');
-  const [fetchingCaptcha, setFetchingCaptcha] = useState(false);
-  const [loginResult, setLoginResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [loggingIn, setLoggingIn] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
-
-  async function loadCaptcha() {
-    setFetchingCaptcha(true);
-    setCaptchaImg(null);
-    setChallengeId(null);
-    setLoginResult(null);
-    setCaptchaCode('');
-    try {
-      const resp = await fetch('/api/portal/captcha');
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        setLoginResult({ ok: false, message: body.error || 'Failed to fetch CAPTCHA from portal.' });
-        return;
-      }
-      const data = await resp.json();
-      setCaptchaImg(data.imageBase64);
-      setChallengeId(data.challengeId);
-    } catch {
-      setLoginResult({ ok: false, message: 'Network error contacting portal.' });
-    } finally {
-      setFetchingCaptcha(false);
-    }
-  }
-
-  async function handleLogin() {
-    if (!challengeId || !captchaCode.trim()) return;
-    setLoggingIn(true);
-    setLoginResult(null);
-    try {
-      const resp = await fetch('/api/portal/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, challengeId, captchaCode, loginType }),
-      });
-      const data = await resp.json();
-      setLoginResult({ ok: data.success, message: data.message });
-      if (data.success) {
-        qc.invalidateQueries({ queryKey: ['/api/portal/session'] });
-        setCaptchaImg(null);
-        setChallengeId(null);
-        setCaptchaCode('');
-      } else {
-        // Wrong captcha — load a new one automatically
-        loadCaptcha();
-      }
-    } catch {
-      setLoginResult({ ok: false, message: 'Network error during login.' });
-    } finally {
-      setLoggingIn(false);
-    }
-  }
-
-  async function handleLogout() {
-    setLoggingOut(true);
-    try {
-      await fetch('/api/portal/session', { method: 'DELETE' });
-      qc.invalidateQueries({ queryKey: ['/api/portal/session'] });
-      setLoginResult(null);
-    } finally {
-      setLoggingOut(false);
-    }
-  }
-
-  if (sessionLoading) {
-    return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-        <Loader2 className="w-4 h-4 animate-spin" /> Checking session…
-      </div>
-    );
-  }
-
-  if (session?.active) {
-    return (
-      <div className="space-y-4">
-        {/* Active session badge */}
-        <div className="flex items-center justify-between p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
-          <div className="flex items-center gap-3">
-            <ShieldCheck className="w-5 h-5 text-emerald-400" />
-            <div>
-              <p className="text-sm font-semibold text-emerald-400">Connected to VOS3000</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Logged in as <span className="font-mono">{session.username}</span>
-                {session.loggedInAt && (
-                  <> · since {new Date(session.loggedInAt).toLocaleTimeString()}</>
-                )}
-              </p>
-            </div>
-          </div>
-          <button
-            data-testid="button-portal-logout"
-            onClick={handleLogout}
-            disabled={loggingOut}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-rose-400 hover:border-rose-400/50 transition-colors disabled:opacity-50"
-          >
-            {loggingOut ? <Loader2 className="w-3 h-3 animate-spin" /> : <LogOut className="w-3 h-3" />}
-            Logout
-          </button>
-        </div>
-
-        {/* Info: live data is flowing */}
-        <p className="text-xs text-muted-foreground">
-          Live CDR records and call stats are now being pulled from the VOS3000 portal.
-          Check the <strong>Dashboard</strong> and <strong>Reports</strong> pages.
-        </p>
-      </div>
-    );
-  }
-
-  // Not logged in — show CAPTCHA login flow
-  return (
-    <div className="space-y-4">
-      {/* Status / result */}
-      {loginResult && (
-        <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border ${loginResult.ok ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-rose-400 border-rose-500/30 bg-rose-500/10'}`}>
-          {loginResult.ok
-            ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-            : <XCircle className="w-4 h-4 flex-shrink-0" />}
-          <span data-testid="text-portal-login-result">{loginResult.message}</span>
-        </div>
-      )}
-
-      {/* Account Type Selector */}
-      <div className="grid gap-2">
-        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Account Type</label>
-        <div className="flex flex-wrap gap-2">
-          {VOS3000_LOGIN_TYPES.map(t => (
-            <button
-              key={t.value}
-              type="button"
-              data-testid={`button-login-type-${t.value}`}
-              onClick={() => setLoginType(t.value)}
-              className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
-                loginType === t.value
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'bg-background border-border text-muted-foreground hover:text-foreground hover:border-primary/50'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Explanation */}
-      {!captchaImg && !fetchingCaptcha && (
-        <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-4 space-y-2">
-          <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">One-Time Login Required</p>
-          <p className="text-xs text-muted-foreground">
-            VOS3000 requires a visual verification code (CAPTCHA) for every login.
-            Click the button below to load the code from the portal — you'll type what you see to complete sign-in.
-            Your session stays active until the server restarts.
-          </p>
-        </div>
-      )}
-
-      {/* CAPTCHA display */}
-      {captchaImg && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="border border-border rounded-lg p-2 bg-white">
-              <img
-                src={captchaImg}
-                alt="CAPTCHA verification code"
-                className="h-10 object-contain"
-                style={{ imageRendering: 'pixelated' }}
-                data-testid="img-captcha"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={loadCaptcha}
-              disabled={fetchingCaptcha}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              data-testid="button-refresh-captcha"
-            >
-              <RefreshCcw className="w-3.5 h-3.5" />
-              New code
-            </button>
-          </div>
-
-          <div className="flex gap-2">
-            <input
-              value={captchaCode}
-              onChange={e => setCaptchaCode(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleLogin()}
-              type="text"
-              placeholder="Type the code you see above"
-              maxLength={10}
-              autoFocus
-              data-testid="input-captcha-code"
-              className="flex-1 bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-            />
-            <button
-              type="button"
-              onClick={handleLogin}
-              disabled={loggingIn || !captchaCode.trim()}
-              data-testid="button-portal-login"
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
-            >
-              {loggingIn ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
-              Sign in
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Load captcha button */}
-      {!captchaImg && (
-        <button
-          type="button"
-          onClick={loadCaptcha}
-          disabled={fetchingCaptcha}
-          data-testid="button-load-captcha"
-          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
-        >
-          {fetchingCaptcha
-            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            : <LogIn className="w-3.5 h-3.5" />}
-          {fetchingCaptcha ? 'Loading verification code…' : 'Load Verification Code & Sign In'}
-        </button>
-      )}
-    </div>
-  );
-}
 
 // ── Sippy Connect Panel ────────────────────────────────────────────────────────
 function SippyConnectPanel({ username, password }: { username: string; password: string }) {
@@ -1102,7 +858,7 @@ function SwitchesPanel() {
         <div className="flex-1 text-left">
           <h3 className="font-semibold text-sm">Additional Switches</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Add extra VOS3000 or Sippy instances to push rates to multiple softswitches simultaneously.
+            Add extra Sippy instances to push rates to multiple softswitches simultaneously.
           </p>
         </div>
         {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
@@ -1122,7 +878,7 @@ function SwitchesPanel() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium truncate">{sw.name}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${sw.type === 'vos3000' ? 'bg-blue-500/20 text-blue-300' : 'bg-violet-500/20 text-violet-300'}`}>{sw.type}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded font-mono bg-violet-500/20 text-violet-300">{sw.type}</span>
                     </div>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">{sw.portalUrl}</p>
                     {sw.lastSyncStatus && (
@@ -1356,7 +1112,7 @@ export default function SettingsPage() {
     }
     setIsTesting(true);
     setTestResult(null);
-    const endpoint = switchType === 'sippy' ? '/api/sippy/test' : '/api/portal/test';
+    const endpoint = '/api/sippy/test';
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
