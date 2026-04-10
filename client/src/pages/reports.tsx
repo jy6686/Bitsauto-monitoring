@@ -1,10 +1,11 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  format, subMinutes, subHours, subDays, startOfDay, endOfDay,
-  startOfWeek, endOfWeek, startOfMonth, endOfMonth,
-  subWeeks, subMonths,
-} from "date-fns";
+  formatUTC, toUTCDateInput,
+  subMinutesUTC, subHoursUTC, subDaysUTC, subWeeksUTC, subMonthsUTC,
+  startOfDayUTC, endOfDayUTC, startOfWeekUTC, endOfWeekUTC,
+  startOfMonthUTC, endOfMonthUTC,
+} from "@/lib/date-utils";
 import {
   Download, RefreshCw, Filter, TrendingUp, TrendingDown, Minus,
   Calendar, Clock, Globe, Building2, PhoneCall, CheckCircle2, PhoneOff,
@@ -30,43 +31,43 @@ function fmtDuration(seconds: number): string {
 }
 
 function toInput(d: Date): string {
-  return format(d, "yyyy-MM-dd'T'HH:mm");
+  return toUTCDateInput(d);
 }
 
 const PRESET_GROUPS = [
   {
     label: "Quick",
     presets: [
-      { label: "Last 15 min",  fn: () => [subMinutes(new Date(), 15), new Date()] },
-      { label: "Last 30 min",  fn: () => [subMinutes(new Date(), 30), new Date()] },
-      { label: "Last 1 hr",    fn: () => [subHours(new Date(), 1),   new Date()] },
-      { label: "Last 3 hr",    fn: () => [subHours(new Date(), 3),   new Date()] },
-      { label: "Last 6 hr",    fn: () => [subHours(new Date(), 6),   new Date()] },
-      { label: "Last 12 hr",   fn: () => [subHours(new Date(), 12),  new Date()] },
-      { label: "Last 24 hr",   fn: () => [subHours(new Date(), 24),  new Date()] },
+      { label: "Last 15 min",  fn: () => [subMinutesUTC(new Date(), 15), new Date()] },
+      { label: "Last 30 min",  fn: () => [subMinutesUTC(new Date(), 30), new Date()] },
+      { label: "Last 1 hr",    fn: () => [subHoursUTC(new Date(), 1),   new Date()] },
+      { label: "Last 3 hr",    fn: () => [subHoursUTC(new Date(), 3),   new Date()] },
+      { label: "Last 6 hr",    fn: () => [subHoursUTC(new Date(), 6),   new Date()] },
+      { label: "Last 12 hr",   fn: () => [subHoursUTC(new Date(), 12),  new Date()] },
+      { label: "Last 24 hr",   fn: () => [subHoursUTC(new Date(), 24),  new Date()] },
     ],
   },
   {
     label: "Daily",
     presets: [
-      { label: "Today",       fn: () => [startOfDay(new Date()), new Date()] },
-      { label: "Yesterday",   fn: () => [startOfDay(subDays(new Date(), 1)), endOfDay(subDays(new Date(), 1))] },
-      { label: "Last 2 days", fn: () => [startOfDay(subDays(new Date(), 1)), new Date()] },
-      { label: "Last 7 days", fn: () => [startOfDay(subDays(new Date(), 6)), new Date()] },
+      { label: "Today",       fn: () => [startOfDayUTC(new Date()), new Date()] },
+      { label: "Yesterday",   fn: () => [startOfDayUTC(subDaysUTC(new Date(), 1)), endOfDayUTC(subDaysUTC(new Date(), 1))] },
+      { label: "Last 2 days", fn: () => [startOfDayUTC(subDaysUTC(new Date(), 1)), new Date()] },
+      { label: "Last 7 days", fn: () => [startOfDayUTC(subDaysUTC(new Date(), 6)), new Date()] },
     ],
   },
   {
     label: "Weekly",
     presets: [
-      { label: "This week",  fn: () => [startOfWeek(new Date(), { weekStartsOn: 1 }), new Date()] },
-      { label: "Last week",  fn: () => [startOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 }), endOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 })] },
+      { label: "This week",  fn: () => [startOfWeekUTC(new Date()), new Date()] },
+      { label: "Last week",  fn: () => [startOfWeekUTC(subWeeksUTC(new Date(), 1)), endOfWeekUTC(subWeeksUTC(new Date(), 1))] },
     ],
   },
   {
     label: "Monthly",
     presets: [
-      { label: "This month",  fn: () => [startOfMonth(new Date()), new Date()] },
-      { label: "Last month",  fn: () => [startOfMonth(subMonths(new Date(), 1)), endOfMonth(subMonths(new Date(), 1))] },
+      { label: "This month",  fn: () => [startOfMonthUTC(new Date()), new Date()] },
+      { label: "Last month",  fn: () => [startOfMonthUTC(subMonthsUTC(new Date(), 1)), endOfMonthUTC(subMonthsUTC(new Date(), 1))] },
     ],
   },
 ];
@@ -206,7 +207,7 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `asr_acd_report_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`;
+    a.download = `asr_acd_report_${formatUTC(new Date(), 'yyyyMMdd_HHmmss')}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -242,7 +243,7 @@ export default function ReportsPage() {
     };
   }, [displayRows, profiles]);
 
-  const rangeLabel = `${format(new Date(startTime), 'd MMM HH:mm')} → ${format(new Date(endTime), 'd MMM HH:mm')}`;
+  const rangeLabel = `${formatUTC(new Date(startTime), 'd MMM HH:mm')} → ${formatUTC(new Date(endTime), 'd MMM HH:mm')} UTC`;
 
   return (
     <div className="space-y-6">
@@ -254,7 +255,7 @@ export default function ReportsPage() {
             <Calendar className="w-3.5 h-3.5" />
             {rangeLabel}
             {dataUpdatedAt > 0 && (
-              <span className="text-muted-foreground/50 ml-2">· Updated {format(new Date(dataUpdatedAt), 'HH:mm:ss')}</span>
+              <span className="text-muted-foreground/50 ml-2">· Updated {formatUTC(new Date(dataUpdatedAt), 'HH:mm:ss')} UTC</span>
             )}
           </p>
         </div>
@@ -551,7 +552,7 @@ export default function ReportsPage() {
               {/* Chart */}
               <ResponsiveContainer width="100%" height={280}>
                 <ComposedChart data={monitorData.points.map(p => ({
-                  time: format(new Date(p.ts * 1000), 'HH:mm'),
+                  time: formatUTC(new Date(p.ts * 1000), 'HH:mm'),
                   acd:  p.acd != null ? Math.round(p.acd) : undefined,
                   asr:  p.asr != null ? parseFloat(p.asr.toFixed(1)) : undefined,
                 }))}>

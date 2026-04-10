@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { toUTCDateInput, toSippyDateUTC, formatUTC } from "@/lib/date-utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,7 @@ type AnalyzeResult = {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function toLocalDateInput(d: Date) {
-  return d.toISOString().slice(0, 16);
+  return toUTCDateInput(d);
 }
 
 function reasonBadges(reason: string | null) {

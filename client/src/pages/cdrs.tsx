@@ -1,10 +1,11 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  format, subHours, subDays, startOfDay, endOfDay,
-  startOfWeek, endOfWeek, startOfMonth, endOfMonth,
-  subWeeks, subMonths, subMinutes,
-} from "date-fns";
+  formatUTC, toUTCDateInput,
+  subMinutesUTC, subHoursUTC, subDaysUTC, subWeeksUTC, subMonthsUTC,
+  startOfDayUTC, endOfDayUTC, startOfWeekUTC, endOfWeekUTC,
+  startOfMonthUTC, endOfMonthUTC,
+} from "@/lib/date-utils";
 import {
   RefreshCw, Download, Phone, PhoneOff, PhoneMissed,
   ChevronLeft, ChevronRight, Filter, Search, X, Clock,
@@ -20,7 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 function toInput(d: Date): string {
-  return format(d, "yyyy-MM-dd'T'HH:mm");
+  return toUTCDateInput(d);
 }
 
 function fmtDurSec(seconds: number): string {
@@ -57,7 +58,7 @@ function parseSippyRawDate(raw: string): Date | null {
 function fmtSetupTime(raw: string): string {
   if (!raw || raw === '-') return '-';
   const d = parseSippyRawDate(raw);
-  if (d) return format(d, 'dd MMM yyyy HH:mm:ss');
+  if (d) return formatUTC(d, 'dd MMM yyyy HH:mm:ss');
   return raw;
 }
 
@@ -66,17 +67,17 @@ function fmtCurrency(val: number): string {
 }
 
 const PRESETS = [
-  { label: "Last 15 min",  fn: () => [subMinutes(new Date(), 15), new Date()] },
-  { label: "Last 1 hr",    fn: () => [subHours(new Date(), 1),    new Date()] },
-  { label: "Last 6 hr",    fn: () => [subHours(new Date(), 6),    new Date()] },
-  { label: "Last 24 hr",   fn: () => [subHours(new Date(), 24),   new Date()] },
-  { label: "Today",        fn: () => [startOfDay(new Date()),      new Date()] },
-  { label: "Yesterday",    fn: () => [startOfDay(subDays(new Date(), 1)), endOfDay(subDays(new Date(), 1))] },
-  { label: "Last 7 days",  fn: () => [startOfDay(subDays(new Date(), 6)), new Date()] },
-  { label: "This week",    fn: () => [startOfWeek(new Date(), { weekStartsOn: 1 }), new Date()] },
-  { label: "Last week",    fn: () => [startOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 }), endOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 1 })] },
-  { label: "This month",   fn: () => [startOfMonth(new Date()),   new Date()] },
-  { label: "Last month",   fn: () => [startOfMonth(subMonths(new Date(), 1)), endOfMonth(subMonths(new Date(), 1))] },
+  { label: "Last 15 min",  fn: () => [subMinutesUTC(new Date(), 15), new Date()] },
+  { label: "Last 1 hr",    fn: () => [subHoursUTC(new Date(), 1),    new Date()] },
+  { label: "Last 6 hr",    fn: () => [subHoursUTC(new Date(), 6),    new Date()] },
+  { label: "Last 24 hr",   fn: () => [subHoursUTC(new Date(), 24),   new Date()] },
+  { label: "Today",        fn: () => [startOfDayUTC(new Date()),      new Date()] },
+  { label: "Yesterday",    fn: () => [startOfDayUTC(subDaysUTC(new Date(), 1)), endOfDayUTC(subDaysUTC(new Date(), 1))] },
+  { label: "Last 7 days",  fn: () => [startOfDayUTC(subDaysUTC(new Date(), 6)), new Date()] },
+  { label: "This week",    fn: () => [startOfWeekUTC(new Date()), new Date()] },
+  { label: "Last week",    fn: () => [startOfWeekUTC(subWeeksUTC(new Date(), 1)), endOfWeekUTC(subWeeksUTC(new Date(), 1))] },
+  { label: "This month",   fn: () => [startOfMonthUTC(new Date()),   new Date()] },
+  { label: "Last month",   fn: () => [startOfMonthUTC(subMonthsUTC(new Date(), 1)), endOfMonthUTC(subMonthsUTC(new Date(), 1))] },
 ];
 
 const CALL_TYPE_OPTIONS = [
@@ -243,7 +244,7 @@ export default function CDRsPage() {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `cdrs_${format(applied.start, 'yyyyMMdd_HHmm')}_${format(applied.end, 'yyyyMMdd_HHmm')}.csv`;
+    a.download = `cdrs_${formatUTC(applied.start, 'yyyyMMdd_HHmm')}_${formatUTC(applied.end, 'yyyyMMdd_HHmm')}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -373,7 +374,7 @@ export default function CDRsPage() {
             </Button>
           )}
           <span className="text-xs text-muted-foreground ml-auto">
-            {format(applied.start, 'dd MMM yyyy HH:mm')} → {format(applied.end, 'dd MMM yyyy HH:mm')}
+            {formatUTC(applied.start, 'dd MMM yyyy HH:mm')} → {formatUTC(applied.end, 'dd MMM yyyy HH:mm')} UTC
           </span>
         </div>
       </div>
