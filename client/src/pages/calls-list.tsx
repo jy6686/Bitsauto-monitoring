@@ -280,13 +280,11 @@ function SwitchPanel({
                 <Phone className="w-7 h-7 text-muted-foreground/40" />
               </div>
               <p className="text-muted-foreground">
-                {needsLogin
+                {!isActive
                   ? 'Connect to this switch to see live calls.'
                   : switchType === 'sippy'
                   ? 'No active calls on this Sippy switch right now.'
-                  : isActive
-                  ? 'No active calls on the switch right now.'
-                  : 'No active calls. Connect to see live data.'}
+                  : 'No active calls on the switch right now.'}
               </p>
             </div>
           ) : (
@@ -542,16 +540,16 @@ function SwitchPanel({
                           <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-orig-country-${i}`}>
                             {origCountry ? (
                               <span className="flex items-center gap-1">
-                                <Globe className="w-3 h-3 opacity-50" />
-                                {origCountry}
+                                <span>{origCountry.flag}</span>
+                                {origCountry.name}
                               </span>
                             ) : <span className="text-muted-foreground/30">—</span>}
                           </td>
                           <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-dest-country-${i}`}>
                             {destCountry ? (
                               <span className="flex items-center gap-1">
-                                <Globe className="w-3 h-3 opacity-50" />
-                                {destCountry}
+                                <span>{destCountry.flag}</span>
+                                {destCountry.name}
                               </span>
                             ) : <span className="text-muted-foreground/30">—</span>}
                           </td>
