@@ -85,7 +85,7 @@ export default function DashboardPage() {
     refetchInterval: 5000,
   });
   // Sippy real-time dashboard stats — ASR, ACD, PDD, active calls direct from Sippy switch
-  const { data: sippyStats } = useQuery<{
+  const { data: sippyStats, isLoading: sippyStatsLoading } = useQuery<{
     activeCalls: number; totalCalls: number; answeredCalls: number;
     asr: number; acd: number; pdd: number; totalMinutes: number;
     connected: boolean; liveCount: number; rawFields: Record<string, string>;
@@ -224,14 +224,14 @@ export default function DashboardPage() {
       <div className="grid gap-6 md:grid-cols-3">
         <StatCard
           title="ASR"
-          value={notConnected ? '—' : `${displayAsr.toFixed(1)}%`}
+          value={notConnected ? '—' : (sippyStatsLoading && !sippyStats) ? '…' : `${displayAsr.toFixed(1)}%`}
           icon={BarChart2}
           className={displayAsr >= 70 ? "border-emerald-500/20" : displayAsr >= 50 ? "border-amber-500/20" : (notConnected ? "border-border/50" : "border-rose-500/20")}
           description="Answer-Seizure Ratio — calls answered vs attempted"
         />
         <StatCard
           title="ACD"
-          value={notConnected ? '—' : (() => {
+          value={notConnected ? '—' : (sippyStatsLoading && !sippyStats) ? '…' : (() => {
             const acd = displayAcd;
             return acd >= 60 ? `${Math.floor(acd / 60)}m ${acd % 60}s` : `${acd}s`;
           })()}
@@ -241,7 +241,7 @@ export default function DashboardPage() {
         />
         <StatCard
           title="PDD"
-          value={notConnected ? '—' : (displayPdd > 0 ? `${displayPdd.toFixed(2)}s` : '—')}
+          value={notConnected ? '—' : (sippyStatsLoading && !sippyStats) ? '…' : (displayPdd > 0 ? `${displayPdd.toFixed(2)}s` : '—')}
           icon={Timer}
           className={displayPdd > 0 && displayPdd <= 1.5 ? "border-emerald-500/20" : displayPdd > 1.5 ? "border-amber-500/20" : "border-border/50"}
           description="Post-Dial Delay — avg time from dial to first ringback"
@@ -563,28 +563,44 @@ export default function DashboardPage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
                 <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Active Calls</p>
-                <p className="text-2xl font-bold text-foreground tabular-nums">{displayActiveCalls}</p>
+                {sippyStatsLoading && !sippyStats ? (
+                  <div className="h-8 w-12 mx-auto bg-muted/60 rounded animate-pulse" />
+                ) : (
+                  <p className="text-2xl font-bold text-foreground tabular-nums">{displayActiveCalls}</p>
+                )}
                 <p className="text-[10px] text-violet-400 mt-0.5">Live snapshot</p>
               </div>
               <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
                 <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">ASR</p>
-                <p className={`text-2xl font-bold tabular-nums ${displayAsr >= 10 ? 'text-emerald-400' : displayAsr > 0 ? 'text-amber-400' : 'text-rose-400'}`}>
-                  {displayAsr.toFixed(2)}%
-                </p>
+                {sippyStatsLoading && !sippyStats ? (
+                  <div className="h-8 w-20 mx-auto bg-muted/60 rounded animate-pulse" />
+                ) : (
+                  <p className={`text-2xl font-bold tabular-nums ${displayAsr >= 10 ? 'text-emerald-400' : displayAsr > 0 ? 'text-amber-400' : 'text-rose-400'}`}>
+                    {displayAsr.toFixed(2)}%
+                  </p>
+                )}
                 <p className="text-[10px] text-muted-foreground mt-0.5">Last hour</p>
               </div>
               <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
                 <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">ACD</p>
-                <p className="text-2xl font-bold text-foreground tabular-nums">
-                  {displayAcd >= 60 ? `${Math.floor(displayAcd/60)}m ${displayAcd%60}s` : `${displayAcd}s`}
-                </p>
+                {sippyStatsLoading && !sippyStats ? (
+                  <div className="h-8 w-16 mx-auto bg-muted/60 rounded animate-pulse" />
+                ) : (
+                  <p className="text-2xl font-bold text-foreground tabular-nums">
+                    {sippyStats ? (displayAcd >= 60 ? `${Math.floor(displayAcd/60)}m ${displayAcd%60}s` : `${displayAcd}s`) : '—'}
+                  </p>
+                )}
                 <p className="text-[10px] text-muted-foreground mt-0.5">Avg call duration</p>
               </div>
               <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
                 <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">PDD</p>
-                <p className={`text-2xl font-bold tabular-nums ${displayPdd > 0 && displayPdd <= 2 ? 'text-emerald-400' : displayPdd > 2 ? 'text-amber-400' : 'text-muted-foreground'}`}>
-                  {displayPdd > 0 ? `${displayPdd.toFixed(2)}s` : '—'}
-                </p>
+                {sippyStatsLoading && !sippyStats ? (
+                  <div className="h-8 w-16 mx-auto bg-muted/60 rounded animate-pulse" />
+                ) : (
+                  <p className={`text-2xl font-bold tabular-nums ${displayPdd > 0 && displayPdd <= 2 ? 'text-emerald-400' : displayPdd > 2 ? 'text-amber-400' : 'text-muted-foreground'}`}>
+                    {displayPdd > 0 ? `${displayPdd.toFixed(2)}s` : '—'}
+                  </p>
+                )}
                 <p className="text-[10px] text-muted-foreground mt-0.5">Post-dial delay</p>
               </div>
             </div>
@@ -597,7 +613,7 @@ export default function DashboardPage() {
                   Revenue &amp; Cost (last 90 min — CDR data)
                 </h4>
                 {sippyFinancials && sippyFinancials.origination.totalCalls === 0 && (
-                  <span className="text-[10px] text-muted-foreground/60 italic">No CDR records in window</span>
+                  <span className="text-[10px] text-muted-foreground/60 italic">No completed calls in the last 90 min — active calls appear here after they end</span>
                 )}
               </div>
               <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
