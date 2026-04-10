@@ -1246,22 +1246,23 @@ export async function registerRoutes(
     const settings = await storage.getSettings();
     const { username, password } = sippyXmlCreds(settings);
     const raw = await sippy.getSippyActiveCalls(username, password);
-    // Map CC_STATE → callStatus for the frontend, expose full ccState separately
+    // Map CC_STATE → callStatus; filter out terminated states (Dead, Disconnecting, Disconnected)
     const ccStateMap: Record<string, 'connected' | 'routing'> = {
       Connected:    'connected',
       ARComplete:   'routing',
       WaitRoute:    'routing',
       WaitAuth:     'routing',
       Idle:         'routing',
-      Disconnecting:'routing',
-      Dead:         'routing',
     };
-    const calls = raw.map(c => ({
-      ...c,
-      clientName:  c.user || c.accountId || undefined,
-      ccState:     c.status,                                          // full CC_STATE string
-      callStatus:  ccStateMap[c.status] ?? (c.status?.toLowerCase().includes('connect') ? 'connected' : 'routing'),
-    }));
+    const TERMINATED = new Set(['Dead', 'Disconnecting', 'Disconnected', 'Released', 'Rejected']);
+    const calls = raw
+      .filter(c => !TERMINATED.has(c.status ?? ''))
+      .map(c => ({
+        ...c,
+        clientName:  c.user || c.accountId || undefined,
+        ccState:     c.status,
+        callStatus:  ccStateMap[c.status ?? ''] ?? (c.status?.toLowerCase().includes('connect') ? 'connected' : 'routing'),
+      }));
     res.json({ calls });
   });
 

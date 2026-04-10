@@ -79,10 +79,10 @@ export default function DashboardPage() {
     queryKey: ['/api/sippy/session'],
     refetchInterval: 30000,
   });
-  // Sippy live calls — polled when Sippy session is active
+  // Sippy live calls — polled frequently when Sippy session is active
   const { data: sippyLiveCalls } = useQuery<{ calls: any[]; error?: string }>({
     queryKey: ['/api/sippy/live-calls'],
-    refetchInterval: 15000,
+    refetchInterval: 5000,
     enabled: !!sippySession?.active,
   });
   // Sippy CDR records
@@ -530,47 +530,15 @@ export default function DashboardPage() {
 
         {sippySession?.active ? (
           <div className="p-6 space-y-6">
-            {/* Live active calls */}
-            {(sippyLiveCalls?.calls?.length ?? 0) > 0 ? (
-              <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Active Calls on Sippy ({sippyLiveCalls!.calls.length})
-                </h4>
-                <div className="overflow-x-auto rounded-lg border border-border/50">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-muted/30 text-muted-foreground text-xs">
-                      <tr>
-                        <th className="px-4 py-2">Account</th>
-                        <th className="px-4 py-2">Caller</th>
-                        <th className="px-4 py-2">Callee</th>
-                        <th className="px-4 py-2">Codec</th>
-                        <th className="px-4 py-2">Duration</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/30">
-                      {sippyLiveCalls!.calls.slice(0, 10).map((call: any, i: number) => (
-                        <tr key={i} className="hover:bg-muted/20 transition-colors">
-                          <td className="px-4 py-2 text-xs">
-                            {call.user
-                              ? <span className="text-violet-400 font-medium">{call.user}</span>
-                              : <span className="text-muted-foreground/50">{call.accountId || '—'}</span>
-                            }
-                          </td>
-                          <td className="px-4 py-2 font-mono text-xs">{call.caller || '—'}</td>
-                          <td className="px-4 py-2 font-mono text-xs">{call.callee || '—'}</td>
-                          <td className="px-4 py-2 text-xs text-muted-foreground">{call.codec || '—'}</td>
-                          <td className="px-4 py-2 text-xs text-muted-foreground">
-                            {call.duration > 0 ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-2">No active calls on Sippy right now.</p>
-            )}
+            {/* Live calls summary — full table is below */}
+            <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-muted/30 border border-border/40">
+              <PhoneCall className="w-4 h-4 text-violet-400 flex-shrink-0" />
+              <p className="text-sm text-muted-foreground flex-1">
+                {liveCalls.length > 0
+                  ? <><span className="font-semibold text-foreground">{liveCalls.length}</span> active call{liveCalls.length !== 1 ? 's' : ''} currently on the switch — see the <span className="font-medium text-violet-400">Live Calls table below</span> for details.</>
+                  : 'No active calls on Sippy right now.'}
+              </p>
+            </div>
 
             {/* Recent CDRs */}
             {(sippyCdr?.cdrs?.length ?? 0) > 0 && (
@@ -640,58 +608,100 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Active Calls Table */}
+      {/* Active Calls Table — Sippy live when connected, local DB otherwise */}
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         <div className="p-6 border-b border-border/50 flex items-center justify-between">
           <h3 className="font-semibold flex items-center gap-2">
             <PhoneCall className="w-4 h-4 text-blue-500" />
-            Recent Active Calls
+            {anyPortalActive ? `Live Calls on Sippy (${liveCalls.length})` : 'Recent Active Calls'}
           </h3>
           <Link href="/calls" className="inline-flex items-center text-sm font-medium text-primary hover:text-primary/80 transition-colors">
             View All Calls <ArrowRight className="ml-1 w-4 h-4" />
           </Link>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-muted/50 text-muted-foreground font-medium">
-              <tr>
-                <th className="px-6 py-3">Caller</th>
-                <th className="px-6 py-3">Callee</th>
-                <th className="px-6 py-3">Started</th>
-                <th className="px-6 py-3">MOS Score</th>
-                <th className="px-6 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/50">
-              {recentCalls?.map((call) => {
-                const calleeCountry = lookupCountry(call.callee);
-                return (
-                  <tr key={call.id} className="hover:bg-muted/30 transition-colors group">
-                    <td className="px-6 py-4 font-mono text-xs">{call.caller}</td>
-                    <td className="px-6 py-4">
-                      <span className="font-mono text-xs">{call.callee}</span>
-                      {calleeCountry && (
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {calleeCountry.flag} {calleeCountry.name}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-muted-foreground">
-                      {call.startTime ? format(new Date(call.startTime), 'HH:mm:ss') : '-'}
-                    </td>
-                    <td className="px-6 py-4">
-                      <MosBadge value={call.latestMetric?.mos || 0} />
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <Link href={`/calls/${call.id}`} className="text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
-                        Details
-                      </Link>
-                    </td>
+          {anyPortalActive ? (
+            liveCalls.length === 0 ? (
+              <div className="px-6 py-12 text-center text-sm text-muted-foreground">No active calls on Sippy right now.</div>
+            ) : (
+              <table className="w-full text-sm text-left">
+                <thead className="bg-muted/50 text-muted-foreground font-medium">
+                  <tr>
+                    <th className="px-6 py-3">Caller</th>
+                    <th className="px-6 py-3">Callee</th>
+                    <th className="px-6 py-3">Account</th>
+                    <th className="px-6 py-3">State</th>
+                    <th className="px-6 py-3">Duration</th>
+                    <th className="px-6 py-3">Setup Time</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {liveCalls.slice(0, 20).map((call: any, i: number) => {
+                    const isConnected = call.callStatus === 'connected';
+                    return (
+                      <tr key={i} className="hover:bg-muted/30 transition-colors" data-testid={`row-live-call-${i}`}>
+                        <td className="px-6 py-3 font-mono text-xs">{call.caller || '—'}</td>
+                        <td className="px-6 py-3 font-mono text-xs">{call.callee || '—'}</td>
+                        <td className="px-6 py-3 text-xs text-violet-400">{call.clientName || call.accountId || '—'}</td>
+                        <td className="px-6 py-3 text-xs">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                            isConnected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'
+                          }`}>{call.ccState || call.status || '—'}</span>
+                        </td>
+                        <td className="px-6 py-3 text-xs text-muted-foreground">
+                          {call.duration > 0 ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : '0s'}
+                        </td>
+                        <td className="px-6 py-3 text-xs text-muted-foreground">
+                          {call.setupTime ? call.setupTime.replace('T', ' ').replace(/\.\d+$/, '') : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )
+          ) : (
+            <table className="w-full text-sm text-left">
+              <thead className="bg-muted/50 text-muted-foreground font-medium">
+                <tr>
+                  <th className="px-6 py-3">Caller</th>
+                  <th className="px-6 py-3">Callee</th>
+                  <th className="px-6 py-3">Started</th>
+                  <th className="px-6 py-3">MOS Score</th>
+                  <th className="px-6 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {recentCalls?.map((call) => {
+                  const calleeCountry = lookupCountry(call.callee);
+                  return (
+                    <tr key={call.id} className="hover:bg-muted/30 transition-colors group">
+                      <td className="px-6 py-4 font-mono text-xs">{call.caller}</td>
+                      <td className="px-6 py-4">
+                        <span className="font-mono text-xs">{call.callee}</span>
+                        {calleeCountry && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            {calleeCountry.flag} {calleeCountry.name}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-muted-foreground">
+                        {call.startTime ? format(new Date(call.startTime), 'HH:mm:ss') : '-'}
+                      </td>
+                      <td className="px-6 py-4">
+                        <MosBadge value={call.latestMetric?.mos || 0} />
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <Link href={`/calls/${call.id}`} className="text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
+                          Details
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

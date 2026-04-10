@@ -798,8 +798,9 @@ export async function getSippyActiveCalls(
   if (filter?.i_connection !== undefined) reqParams.i_connection = filter.i_connection;
   if (filter?.node_id      !== undefined) reqParams.node_id      = filter.node_id;
 
-  // Official methods: listAllCalls (all states) | listActiveCalls (Connected/ARComplete/WaitRoute only)
-  for (const method of ['listAllCalls', 'listActiveCalls']) {
+  // Official methods: listActiveCalls (Connected/ARComplete/WaitRoute only) | listAllCalls (all states fallback)
+  // Prefer listActiveCalls to avoid including Dead/Disconnecting/terminated calls in the live view.
+  for (const method of ['listActiveCalls', 'listAllCalls']) {
     try {
       const resp = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), username, password);
       if (resp.statusCode === 401 || resp.statusCode === 403) {
