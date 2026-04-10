@@ -1918,34 +1918,39 @@ function SippyLiveStatsTab() {
           {/* Balance cards for individual accounts (PUSHTOTALK / aircel / asif) */}
           {accounts.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {accounts.map(acc => (
-                <div key={acc.iAccount} className="bg-card border border-border/60 rounded-xl p-3 flex items-center justify-between gap-2"
-                  data-testid={`card-account-${acc.iAccount}`}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                      acc.blocked ? 'bg-rose-500/10 border border-rose-500/20' : 'bg-emerald-500/10 border border-emerald-500/20'
-                    }`}>
-                      <Building2 className={`w-4 h-4 ${acc.blocked ? 'text-rose-400' : 'text-emerald-400'}`} />
+              {accounts.map(acc => {
+                const availCredits = acc.creditLimit + acc.balance;
+                const noCredit = !acc.blocked && !acc.expired && availCredits <= 0;
+                const iconColor = acc.blocked ? 'text-rose-400' : noCredit ? 'text-amber-400' : 'text-emerald-400';
+                const iconBg   = acc.blocked ? 'bg-rose-500/10 border-rose-500/20' : noCredit ? 'bg-amber-500/10 border-amber-500/20' : 'bg-emerald-500/10 border-emerald-500/20';
+                return (
+                  <div key={acc.iAccount} className="bg-card border border-border/60 rounded-xl p-3 flex items-center justify-between gap-2"
+                    data-testid={`card-account-${acc.iAccount}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 border ${iconBg}`}>
+                        <Building2 className={`w-4 h-4 ${iconColor}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{acc.username}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          Acct {acc.iAccount}
+                          {acc.blocked ? <span className="ml-1 text-rose-400">· Blocked</span> : ''}
+                          {acc.expired ? <span className="ml-1 text-amber-400">· Expired</span> : ''}
+                          {noCredit  ? <span className="ml-1 text-amber-400">· No Credit</span> : ''}
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{acc.username}</p>
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-sm font-semibold ${availCredits <= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {fmtBal(availCredits, acc.baseCurrency)}
+                      </p>
                       <p className="text-[10px] text-muted-foreground">
-                        Acct {acc.iAccount}
-                        {acc.blocked ? <span className="ml-1 text-rose-400">· Blocked</span> : ''}
-                        {acc.expired ? <span className="ml-1 text-amber-400">· Expired</span> : ''}
+                        Avail · Limit {fmtBal(acc.creditLimit, acc.baseCurrency)}
                       </p>
                     </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className={`text-sm font-semibold ${acc.balance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                      {fmtBal(acc.balance, acc.baseCurrency)}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">
-                      Limit {fmtBal(acc.creditLimit, acc.baseCurrency)}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -2232,10 +2237,11 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
         </div>
       ) : (
         <div className="rounded-xl border border-border overflow-hidden bg-card/60">
-          <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 px-5 py-2.5 bg-muted/20 border-b border-border/50 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 px-5 py-2.5 bg-muted/20 border-b border-border/50 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
             <span>Account</span>
             <span className="text-right">Balance</span>
-            <span className="text-right">Credit Limit</span>
+            <span className="text-right">Available</span>
+            <span className="text-right">Limit</span>
             <span className="text-center">SIP</span>
             <span className="text-center">Actions</span>
           </div>
@@ -2244,9 +2250,11 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
             {accounts.map(acc => {
               const isExpanded = expandedId === acc.iAccount;
               const reg = acc.registration;
+              const availCredits = acc.creditLimit + acc.balance;
+              const noCredit = !acc.blocked && !acc.expired && availCredits <= 0;
               return (
                 <div key={acc.iAccount} data-testid={`row-sippy-account-${acc.iAccount}`}>
-                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-x-4 px-5 py-3.5 hover:bg-muted/10 transition-colors">
+                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-x-4 px-5 py-3.5 hover:bg-muted/10 transition-colors">
                     {/* Account name + badges */}
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -2256,6 +2264,9 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
                         )}
                         {acc.expired && (
                           <span className="text-[10px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Expired</span>
+                        )}
+                        {noCredit && (
+                          <span className="text-[10px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">No Credit</span>
                         )}
                       </div>
                       {acc.description && (
@@ -2267,7 +2278,14 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
                     {/* Balance */}
                     <div className="text-right">
                       <span className={`text-sm font-mono font-semibold ${acc.balance < 0 ? 'text-rose-400' : acc.balance === 0 ? 'text-muted-foreground' : 'text-emerald-400'}`}>
-                        {acc.balance < 0 ? '-' : ''}{acc.baseCurrency} {Math.abs(acc.balance).toFixed(2)}
+                        {acc.balance < 0 ? '-' : ''}{acc.baseCurrency} {Math.abs(acc.balance).toFixed(4)}
+                      </span>
+                    </div>
+
+                    {/* Available credits = creditLimit + balance */}
+                    <div className="text-right">
+                      <span className={`text-sm font-mono font-semibold ${availCredits <= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {acc.baseCurrency} {availCredits.toFixed(4)}
                       </span>
                     </div>
 
