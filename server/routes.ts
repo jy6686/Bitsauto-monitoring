@@ -1271,6 +1271,11 @@ export async function registerRoutes(
       if (req.query.cld)            opts.cld            = req.query.cld            as string;
       if (offset !== undefined)     opts.offset         = offset;
       let cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
+      // Enrich with clientName from account cache
+      cdrs = cdrs.map(c => ({
+        ...c,
+        clientName: c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || (c.iAccount ? `Acct.${c.iAccount}` : undefined),
+      }));
       // Fallback 1: XML-RPC returned 0 → scrape customer portal with RTST1 credentials
       if (cdrs.length === 0 && settings) {
         const portalUser = settings.portalUsername ?? '';

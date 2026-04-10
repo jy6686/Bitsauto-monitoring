@@ -2180,10 +2180,8 @@ export async function getSippyCDRs(
       const params: Record<string, unknown> = { ...baseParams };
       if (method === 'getCustomerCDRs') {
         params.i_wholesaler = opts.iWholesaler ?? 1;
-      } else {
-        // getAccountCDRs trusted mode: i_customer=1 (only set if caller hasn't overridden it)
-        if (!params.i_customer) params.i_customer = 1;
       }
+      // getAccountCDRs: do NOT default i_customer — omitting it returns ALL accounts' CDRs
 
       const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password);
       if (resp.statusCode !== 200) continue;
@@ -2255,7 +2253,7 @@ export async function getSippyCDRs(
           parentLocalICall:         ns('parent_local_i_call'),
         });
       }
-      return cdrs;
+      if (cdrs.length > 0) return cdrs;
     } catch { continue; }
   }
 
