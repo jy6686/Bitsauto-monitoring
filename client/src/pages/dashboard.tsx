@@ -53,6 +53,78 @@ import { formatUTC } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import { lookupCountry } from "@/lib/country-lookup";
 
+// Parses Sippy's non-standard timestamp "20260411T20:20:32.055" → ms since epoch
+function parseSippyTime(setupTime: string): number | null {
+  const normalized = setupTime.replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T');
+  const t = new Date(normalized).getTime();
+  return isNaN(t) ? null : t;
+}
+
+function fmtDur(secs: number): string {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+// Row component so each live-call row has its own ticking duration state
+function LiveCallRow({ call, index }: { call: any; index: number }) {
+  const [elapsed, setElapsed] = useState<number>(() => {
+    if (call.setupTime) {
+      const start = parseSippyTime(call.setupTime);
+      if (start !== null) return Math.max(0, Math.floor((Date.now() - start) / 1000));
+    }
+    return parseFloat(call.duration ?? 0);
+  });
+
+  useEffect(() => {
+    const start = call.setupTime ? parseSippyTime(call.setupTime) : null;
+    if (start !== null) {
+      const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+      tick();
+      const id = setInterval(tick, 1000);
+      return () => clearInterval(id);
+    } else {
+      setElapsed(parseFloat(call.duration ?? 0));
+      const id = setInterval(() => setElapsed(v => v + 1), 1000);
+      return () => clearInterval(id);
+    }
+  }, [call.setupTime]);
+
+  const isConnected = call.callStatus === 'connected';
+  const durLabel = elapsed > 0 ? fmtDur(elapsed) : '0s';
+  let answerType: { label: string; cls: string; title: string };
+  if (!isConnected) {
+    answerType = { label: 'Routing', cls: 'bg-amber-500/15 text-amber-400', title: 'Call is being routed — not yet answered' };
+  } else if (elapsed < 3) {
+    answerType = { label: 'FAS Risk', cls: 'bg-red-500/15 text-red-400', title: `Connected in ${durLabel} — possible False Answer Supervision` };
+  } else {
+    answerType = { label: 'Real Answer', cls: 'bg-emerald-500/15 text-emerald-400', title: `Answered after ${durLabel} — genuine human answer` };
+  }
+
+  return (
+    <tr key={index} className="hover:bg-muted/30 transition-colors" data-testid={`row-live-call-${index}`}>
+      <td className="px-6 py-3 font-mono text-xs">{call.caller || '—'}</td>
+      <td className="px-6 py-3 font-mono text-xs">{call.callee || '—'}</td>
+      <td className="px-6 py-3 text-xs text-violet-400">{call.clientName || call.accountId || '—'}</td>
+      <td className="px-6 py-3 text-xs">
+        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+          isConnected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'
+        }`}>{call.ccState || call.status || '—'}</span>
+      </td>
+      <td className={`px-6 py-3 text-xs font-mono ${isConnected && elapsed < 3 ? 'text-red-400 font-semibold' : 'text-muted-foreground'}`}>
+        {durLabel}
+      </td>
+      <td className="px-6 py-3 text-xs">
+        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${answerType.cls}`} title={answerType.title}>
+          {answerType.label}
+        </span>
+      </td>
+      <td className="px-6 py-3 text-xs text-muted-foreground">
+        {call.setupTime ? call.setupTime.replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3 ').replace(/\.\d+$/, '') : '—'}
+      </td>
+    </tr>
+  );
+}
 
 export default function DashboardPage() {
   const queryClient = useQueryClient();
@@ -636,44 +708,9 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {liveCalls.slice(0, 20).map((call: any, i: number) => {
-                    const isConnected = call.callStatus === 'connected';
-                    const dur = parseFloat(call.duration ?? 0);
-                    const durMins = Math.floor(dur / 60);
-                    const durSecs = Math.round(dur % 60);
-                    const durLabel = dur > 0 ? (durMins > 0 ? `${durMins}m ${durSecs}s` : `${durSecs}s`) : '0s';
-                    let answerType: { label: string; cls: string; title: string };
-                    if (!isConnected) {
-                      answerType = { label: 'Routing', cls: 'bg-amber-500/15 text-amber-400', title: 'Call is being routed — not yet answered' };
-                    } else if (dur < 3) {
-                      answerType = { label: 'FAS Risk', cls: 'bg-red-500/15 text-red-400', title: `Connected in ${durLabel} — possible False Answer Supervision (billing started before real answer)` };
-                    } else {
-                      answerType = { label: 'Real Answer', cls: 'bg-emerald-500/15 text-emerald-400', title: `Answered after ${durLabel} — genuine human answer` };
-                    }
-                    return (
-                      <tr key={i} className="hover:bg-muted/30 transition-colors" data-testid={`row-live-call-${i}`}>
-                        <td className="px-6 py-3 font-mono text-xs">{call.caller || '—'}</td>
-                        <td className="px-6 py-3 font-mono text-xs">{call.callee || '—'}</td>
-                        <td className="px-6 py-3 text-xs text-violet-400">{call.clientName || call.accountId || '—'}</td>
-                        <td className="px-6 py-3 text-xs">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                            isConnected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'
-                          }`}>{call.ccState || call.status || '—'}</span>
-                        </td>
-                        <td className={`px-6 py-3 text-xs font-mono ${isConnected && dur < 3 ? 'text-red-400 font-semibold' : 'text-muted-foreground'}`}>
-                          {durLabel}
-                        </td>
-                        <td className="px-6 py-3 text-xs">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${answerType.cls}`} title={answerType.title}>
-                            {answerType.label}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3 text-xs text-muted-foreground">
-                          {call.setupTime ? call.setupTime.replace('T', ' ').replace(/\.\d+$/, '') : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {liveCalls.slice(0, 20).map((call: any, i: number) => (
+                    <LiveCallRow key={call.callId || i} call={call} index={i} />
+                  ))}
                 </tbody>
               </table>
             )

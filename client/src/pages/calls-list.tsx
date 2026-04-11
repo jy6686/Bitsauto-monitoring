@@ -171,6 +171,48 @@ function formatDuration(seconds: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
+// Parses Sippy's non-standard setup time "20260411T20:20:32.055" → Date
+function parseSippyTime(setupTime: string): number | null {
+  // Insert dashes: "20260411T..." → "2026-04-11T..."
+  const normalized = setupTime.replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T');
+  const t = new Date(normalized).getTime();
+  return isNaN(t) ? null : t;
+}
+
+// Real-time ticking duration — uses setupTime to compute elapsed locally so
+// the counter never freezes between API polls.
+function LiveDuration({ setupTime, durationSecs }: { setupTime?: string; durationSecs: number }) {
+  const startRef = useRef<number | null>(null);
+  if (setupTime && startRef.current === null) {
+    startRef.current = parseSippyTime(setupTime);
+  }
+
+  const [elapsed, setElapsed] = useState<number>(() => {
+    if (setupTime) {
+      const start = parseSippyTime(setupTime);
+      if (start !== null) return Math.max(0, Math.floor((Date.now() - start) / 1000));
+    }
+    return durationSecs;
+  });
+
+  useEffect(() => {
+    const start = setupTime ? parseSippyTime(setupTime) : null;
+    if (start !== null) {
+      const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+      tick();
+      const id = setInterval(tick, 1000);
+      return () => clearInterval(id);
+    } else {
+      // No setupTime — count up from last-known duration
+      setElapsed(durationSecs);
+      const id = setInterval(() => setElapsed(v => v + 1), 1000);
+      return () => clearInterval(id);
+    }
+  }, [setupTime]);
+
+  return <>{formatDuration(elapsed)}</>;
+}
+
 // ─── Switch Panel (per-switch live call view) ─────────────────────────────────
 
 const VALID_VIEWS = ['summary', 'details', 'quality', 'history'] as const;
@@ -752,7 +794,7 @@ function SwitchPanel({
                             {pddDisplay ?? <span className="text-muted-foreground/30">—</span>}
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-foreground/70" data-testid={`cell-duration-${i}`}>
-                            {formatDuration(call.duration)}
+                            <LiveDuration setupTime={call.setupTime} durationSecs={call.duration} />
                           </td>
                           {isPrimary && (
                             <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
@@ -1202,7 +1244,7 @@ function SwitchPanel({
 
                             {/* Duration */}
                             <td className="px-3 py-3 font-mono text-[12px] text-foreground/70">
-                              {formatDuration(Math.floor(call.duration))}
+                              <LiveDuration setupTime={call.setupTime} durationSecs={call.duration} />
                             </td>
 
                             {/* SIP CC State */}
