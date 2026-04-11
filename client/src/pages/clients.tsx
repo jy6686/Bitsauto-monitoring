@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -2486,6 +2486,24 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const routingGroups = rgData?.groups ?? [];
   const billingPlans = billingPlanData?.plans ?? [];
 
+  const [tariffAutoMatched, setTariffAutoMatched] = useState<string | null>(null);
+
+  // Auto-select the billing plan whose name matches the client name (Display Name from Step 1).
+  // Triggers when billing plans load OR when step advances to 2, but only if tariffId is not already set.
+  useEffect(() => {
+    if (!name.trim() || !billingPlans.length || tariffId) return;
+    const needle = name.trim().toLowerCase();
+    const exact = billingPlans.find(p => p.name.toLowerCase() === needle);
+    const partial = !exact && billingPlans.find(p =>
+      p.name.toLowerCase().includes(needle) || needle.includes(p.name.toLowerCase())
+    );
+    const match = exact ?? partial;
+    if (match) {
+      setTariffId(String(match.id));
+      setTariffAutoMatched(match.name);
+    }
+  }, [billingPlans, name, step]);
+
   // IP tag helpers
   const addIpTag = (val: string) => {
     const cleaned = val.trim();
@@ -2872,13 +2890,23 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                   </div>
                 ) : (
                   <div className="space-y-1.5">
+                    {tariffAutoMatched && tariffId && (
+                      <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-medium">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                        Auto-matched plan <span className="font-semibold">"{tariffAutoMatched}"</span> from client name
+                        <button type="button" onClick={() => { setTariffId(''); setTariffAutoMatched(null); }}
+                          className="ml-1 text-muted-foreground hover:text-foreground underline text-[10px]">clear</button>
+                      </div>
+                    )}
                     {billingPlans.length > 0 && (
-                      <select data-testid="select-sippy-tariff" value={tariffId} onChange={e => setTariffId(e.target.value)} className={fieldCls}>
+                      <select data-testid="select-sippy-tariff" value={tariffId}
+                        onChange={e => { setTariffId(e.target.value); setTariffAutoMatched(null); }} className={fieldCls}>
                         <option value="">— Select a discovered plan —</option>
                         {billingPlans.map(p => <option key={p.id} value={String(p.id)}>{p.name}{p.currency ? ` (${p.currency})` : ''} — #{p.id}</option>)}
                       </select>
                     )}
-                    <input data-testid="input-sippy-plan" value={tariffId} onChange={e => setTariffId(e.target.value)}
+                    <input data-testid="input-sippy-plan" value={tariffId}
+                      onChange={e => { setTariffId(e.target.value); setTariffAutoMatched(null); }}
                       placeholder={billingPlans.length > 0 ? 'Or enter plan ID directly (e.g. 3)' : 'Enter billing plan ID (e.g. 1)'}
                       type="number" min="1" className={fieldCls} />
                     <p className="text-[10px] text-muted-foreground/70">
