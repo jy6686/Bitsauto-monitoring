@@ -103,6 +103,20 @@ function ReachabilityTab() {
   const [editHost, setEditHost] = useState<null | { id: number; label: string; ip: string; type: string; ports: string; notifyEmail: string }>(null);
   const [form, setForm] = useState({ label: "", ip: "", type: "vendor", ports: "", notifyEmail: "" });
   const [selectedHostId, setSelectedHostId] = useState<number | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+
+  // Live diagnostics — only fetched on demand
+  const { data: diagData, isLoading: diagLoading, refetch: refetchDiag } = useQuery<{
+    host: string;
+    summary: string;
+    ts: string;
+    checks: { name: string; ok: boolean; latencyMs?: number; detail: string }[];
+  }>({
+    queryKey: ["/api/monitoring/diagnostics"],
+    enabled: showDiagnostics,
+    staleTime: 0,
+    refetchInterval: showDiagnostics ? 30000 : false,
+  });
 
   const { data, isLoading, refetch, isRefetching } = useQuery<{
     up: boolean; checkedAt: string; cause?: string; uptimePct: number;
@@ -211,13 +225,87 @@ function ReachabilityTab() {
           </div>
           <p className="text-xs text-muted-foreground mt-1">Last checked: {fmtTs(data?.checkedAt)} · polls every 30 s</p>
         </div>
-        <button onClick={() => refetch()} disabled={isRefetching}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border/50 hover:bg-muted/30 transition-colors disabled:opacity-50"
-          data-testid="button-refresh-reachability">
-          <RefreshCw className={cn("w-3.5 h-3.5", isRefetching && "animate-spin")} />
-          {isRefetching ? "Checking…" : "Check now"}
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {!isLoading && !data?.up && (
+            <button
+              onClick={() => { setShowDiagnostics(v => !v); if (!showDiagnostics) refetchDiag(); }}
+              data-testid="button-run-diagnostics"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25 transition-colors font-medium"
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {showDiagnostics ? "Hide Diagnostics" : "Why is it down?"}
+            </button>
+          )}
+          <button onClick={() => refetch()} disabled={isRefetching}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border/50 hover:bg-muted/30 transition-colors disabled:opacity-50"
+            data-testid="button-refresh-reachability">
+            <RefreshCw className={cn("w-3.5 h-3.5", isRefetching && "animate-spin")} />
+            {isRefetching ? "Checking…" : "Check now"}
+          </button>
+        </div>
       </div>
+
+      {/* ── Diagnostics Panel ────────────────────────────────────────────────── */}
+      {showDiagnostics && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-rose-500/20 bg-rose-500/8">
+            <AlertTriangle className="w-4 h-4 text-rose-400" />
+            <h3 className="text-sm font-semibold text-rose-300">Live Diagnostics — {diagData?.host ?? "Sippy Server"}</h3>
+            <button onClick={() => refetchDiag()} disabled={diagLoading} className="ml-auto text-xs px-2 py-1 rounded border border-rose-500/30 hover:bg-rose-500/20 text-rose-400 flex items-center gap-1 transition-colors">
+              <RefreshCw className={cn("w-3 h-3", diagLoading && "animate-spin")} />
+              Re-run
+            </button>
+          </div>
+
+          {diagLoading && !diagData ? (
+            <div className="px-5 py-8 text-center text-muted-foreground text-sm">
+              <RefreshCw className="w-5 h-5 mx-auto mb-2 animate-spin" />
+              Running connectivity probes… (may take up to 15s)
+            </div>
+          ) : diagData ? (
+            <div className="p-5 space-y-4">
+              {/* Summary */}
+              <div className="px-4 py-3 rounded-lg bg-muted/20 border border-border/40">
+                <p className="text-sm font-medium text-foreground">{diagData.summary}</p>
+                <p className="text-xs text-muted-foreground mt-1">Probed at {new Date(diagData.ts).toLocaleTimeString()}</p>
+              </div>
+
+              {/* Per-check results */}
+              <div className="space-y-2">
+                {diagData.checks.map((c, i) => (
+                  <div key={i} className={cn(
+                    "flex items-start gap-3 px-4 py-3 rounded-lg border",
+                    c.ok ? "border-emerald-500/20 bg-emerald-500/5" : "border-rose-500/20 bg-rose-500/5"
+                  )} data-testid={`diag-check-${i}`}>
+                    <div className={cn("mt-0.5 flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center",
+                      c.ok ? "bg-emerald-500/20" : "bg-rose-500/20")}>
+                      {c.ok
+                        ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                        : <WifiOff className="w-3.5 h-3.5 text-rose-400" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold">{c.name}</span>
+                        {c.ok && c.latencyMs !== undefined && (
+                          <span className={cn("text-xs font-mono px-1.5 py-0.5 rounded",
+                            c.latencyMs < 50 ? "bg-emerald-500/15 text-emerald-400" : c.latencyMs < 150 ? "bg-amber-500/15 text-amber-400" : "bg-rose-500/15 text-rose-400")}>
+                            {c.latencyMs}ms
+                          </span>
+                        )}
+                        <span className={cn("ml-auto text-xs font-bold px-2 py-0.5 rounded-full",
+                          c.ok ? "bg-emerald-500/15 text-emerald-400" : "bg-rose-500/15 text-rose-400")}>
+                          {c.ok ? "PASS" : "FAIL"}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">{c.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {/* Summary stats */}
       <StatRow items={[
@@ -327,10 +415,16 @@ function ReachabilityTab() {
                     <td className="px-4 py-2.5 text-xs text-muted-foreground font-mono">{i + 1}</td>
                     <td className="px-4 py-2.5">
                       {data.monitoredHost ? (
-                        <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block flex-shrink-0" />
+                        <button
+                          onClick={() => { setShowDiagnostics(true); refetchDiag(); }}
+                          title="Click to run live diagnostics"
+                          className="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-500/20 hover:text-rose-200 transition-colors cursor-pointer"
+                          data-testid="btn-diag-from-ip"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block flex-shrink-0 animate-pulse" />
                           {data.monitoredHost}
-                        </span>
+                          <AlertTriangle className="w-3 h-3 ml-0.5 opacity-70" />
+                        </button>
                       ) : <span className="text-xs text-muted-foreground/40">—</span>}
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs text-rose-400">{fmtTs(e.downAt)}</td>

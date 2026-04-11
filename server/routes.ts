@@ -6705,6 +6705,40 @@ export async function registerRoutes(
     up: true, checkedAt: new Date(),
   };
 
+  // ── Restore outage state from DB on startup (prevents duplicate entries after restarts) ──
+  async function initReachabilityState(): Promise<void> {
+    try {
+      const allLog = await storage.getOutageLog(50);
+      const openOutages = allLog.filter(e => !e.recoveredAt);
+      if (openOutages.length === 0) return;
+
+      // Sort open outages: oldest first
+      openOutages.sort((a, b) => new Date(a.downAt).getTime() - new Date(b.downAt).getTime());
+
+      // If more than one open outage (stale from previous restarts), merge them:
+      // mark all but the FIRST as resolved immediately (0-second duration) — they were phantom
+      for (let i = 1; i < openOutages.length; i++) {
+        await storage.updateOutageEntry(openOutages[i].id, {
+          recoveredAt: new Date(openOutages[i].downAt), // recovered instantly = duplicate artifact
+          durationSec: 0,
+        });
+        console.log(`[monitoring] Closed phantom outage #${openOutages[i].id} (duplicate from restart)`);
+      }
+
+      // Restore state from the earliest (real) open outage
+      const realOutage = openOutages[0];
+      reachabilityState = {
+        up: false,
+        checkedAt: new Date(),
+        cause: realOutage.cause ?? 'unknown',
+        openOutageId: realOutage.id,
+      };
+      console.log(`[monitoring] Restored open outage #${realOutage.id} from DB (server was down)`);
+    } catch (e: any) {
+      console.warn('[monitoring] initReachabilityState error:', e.message);
+    }
+  }
+
   // ── Reachability background poller (every 30 s) ───────────────────────────────
   async function checkReachability(): Promise<void> {
     try {
@@ -6731,6 +6765,7 @@ export async function registerRoutes(
       }
 
       const wasUp = reachabilityState.up;
+      const prevOpenOutageId = reachabilityState.openOutageId; // save before overwrite
       reachabilityState = { up: nowUp, checkedAt: new Date(), cause: nowUp ? undefined : cause };
 
       if (wasUp && !nowUp) {
@@ -6742,16 +6777,19 @@ export async function registerRoutes(
         await fireAlertRules('server_down', 1, { cause: cause ?? 'unknown' });
       } else if (!wasUp && nowUp) {
         // Server just came BACK UP — close the outage entry
-        if (reachabilityState.openOutageId) {
-          const downRow = (await storage.getOutageLog(50)).find(r => r.id === reachabilityState.openOutageId);
+        if (prevOpenOutageId) {
+          const downRow = (await storage.getOutageLog(50)).find(r => r.id === prevOpenOutageId);
           const durationSec = downRow ? Math.round((Date.now() - new Date(downRow.downAt).getTime()) / 1000) : null;
-          await storage.updateOutageEntry(reachabilityState.openOutageId, {
+          await storage.updateOutageEntry(prevOpenOutageId, {
             recoveredAt: new Date(),
             durationSec: durationSec ?? undefined,
           });
-          reachabilityState.openOutageId = undefined;
         }
+        reachabilityState.openOutageId = undefined;
         console.log('[monitoring] Sippy server RECOVERED');
+      } else if (!wasUp && !nowUp && prevOpenOutageId) {
+        // Still down — keep openOutageId alive (no new entry)
+        reachabilityState.openOutageId = prevOpenOutageId;
       }
     } catch (e: any) {
       console.warn('[monitoring] checkReachability error:', e.message);
@@ -6824,6 +6862,77 @@ export async function registerRoutes(
       }, 0);
       const uptimePct = parseFloat((100 - (downMs / weekMs) * 100).toFixed(2));
       res.json({ up: reachabilityState.up, checkedAt: reachabilityState.checkedAt, cause: reachabilityState.cause, uptimePct, outageLog: log, monitoredHost });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/monitoring/diagnostics — detailed multi-layer connectivity probe
+  app.get('/api/monitoring/diagnostics', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const settings = await storage.getSippySettings();
+      const portalUrl = sippyPortalUrl(settings);
+      const { username, password } = sippyXmlCreds(settings);
+      let host = '191.101.30.107';
+      try { host = new URL(portalUrl).hostname; } catch {}
+
+      const checks: { name: string; ok: boolean; latencyMs?: number; detail: string }[] = [];
+
+      // ── Check 1: TCP probe key SIP/HTTP ports ─────────────────────────────────
+      const tcpPorts = [5060, 5080, 443, 80, 8080];
+      for (const port of tcpPorts) {
+        const result = await probeIp(host, [port]);
+        checks.push({
+          name: `TCP port ${port}`,
+          ok: result.reachable,
+          latencyMs: result.reachable ? result.latency : undefined,
+          detail: result.reachable
+            ? `Port ${port} open — TCP handshake OK (${result.latency}ms)`
+            : `Port ${port} refused or timed out`,
+        });
+      }
+
+      // ── Check 2: HTTP portal reachability ─────────────────────────────────────
+      let httpOk = false; let httpDetail = '';
+      try {
+        const r = await Promise.race([
+          fetch(portalUrl, { method: 'HEAD', signal: AbortSignal.timeout(6000) }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000)),
+        ]) as Response;
+        httpOk = r.status < 500;
+        httpDetail = `HTTP ${r.status} ${r.statusText}`;
+      } catch (e: any) {
+        httpDetail = e.message?.includes('timeout') ? 'HTTP request timed out (>6s)' : `HTTP error: ${e.message}`;
+      }
+      checks.push({ name: 'HTTP portal', ok: httpOk, detail: httpDetail });
+
+      // ── Check 3: XML-RPC API ──────────────────────────────────────────────────
+      let xmlOk = false; let xmlDetail = '';
+      try {
+        const result = await Promise.race([
+          sippy.connectSippy(portalUrl, username, password),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+        ]) as { ok?: boolean; success?: boolean; error?: string } | null;
+        if (result && (result.ok || result.success)) {
+          xmlOk = true;
+          xmlDetail = 'XML-RPC authentication succeeded';
+        } else {
+          xmlDetail = `XML-RPC responded but auth failed: ${(result as any)?.error ?? 'unknown'}`;
+        }
+      } catch (e: any) {
+        xmlDetail = e.message?.includes('timeout') ? 'XML-RPC request timed out (>8s)' : `XML-RPC error: ${e.message}`;
+      }
+      checks.push({ name: 'XML-RPC API', ok: xmlOk, detail: xmlDetail });
+
+      // ── Diagnosis summary ─────────────────────────────────────────────────────
+      const anyTcpOpen = checks.filter(c => c.name.startsWith('TCP')).some(c => c.ok);
+      let summary = '';
+      if (xmlOk && httpOk) summary = 'All systems reachable — transient outage likely resolved';
+      else if (xmlOk && !httpOk) summary = 'XML-RPC API is responding but HTTP portal is not — portal process may be down';
+      else if (anyTcpOpen && !xmlOk) summary = 'Network path OK (TCP open) but application layer unresponsive — softswitch process may be crashed or overloaded';
+      else if (!anyTcpOpen) summary = 'No TCP ports are reachable — firewall block, network outage, or server is completely offline';
+      else summary = 'Partial reachability — some services responding, others not';
+
+      res.json({ host, checks, summary, ts: new Date().toISOString() });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -7162,7 +7271,11 @@ export async function registerRoutes(
   setInterval(() => snapshotActiveCalls(), 30 * 1000);      // every 30 seconds
 
   // ── Reachability poller (every 30 s) ─────────────────────────────────────────
-  setTimeout(() => checkReachability(), 15000);              // first run 15s after startup
+  // Init state from DB first (restores open outage + closes phantom duplicates)
+  setTimeout(async () => {
+    await initReachabilityState();
+    await checkReachability();
+  }, 15000);
   setInterval(() => checkReachability(), 30 * 1000);
 
   // ── GEO ENDPOINTS ──────────────────────────────────────────────────────────
