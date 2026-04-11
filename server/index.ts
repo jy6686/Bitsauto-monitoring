@@ -2,6 +2,8 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { storage } from "./storage";
+import { updateAccountSettings } from "./sippy";
 
 const app = express();
 const httpServer = createServer(app);
@@ -98,6 +100,23 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      // ── One-time startup: ensure PUSHTOTALK (iAccount=1) has max_sessions=200 ──
+      (async () => {
+        try {
+          const settings = await storage.getSettings();
+          if (!settings?.portalUrl) return;
+          const user = settings.apiAdminUsername || settings.portalUsername || '';
+          const pass = settings.apiAdminPassword || settings.portalPassword || '';
+          const portalUrl = settings.portalUrl;
+          if (!user || !pass) return;
+
+          const result = await updateAccountSettings(user, pass, portalUrl, 1, { maxSessions: 200 });
+          log(`[startup] PUSHTOTALK max_sessions update: ${result.message}`, 'sippy');
+        } catch (e: any) {
+          log(`[startup] PUSHTOTALK max_sessions update failed: ${e.message}`, 'sippy');
+        }
+      })();
     },
   );
 })();

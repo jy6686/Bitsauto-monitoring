@@ -3338,6 +3338,35 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // PATCH /api/sippy/accounts/:id/settings — update core account settings (max_sessions, max_calls_per_second, etc.)
+  // Body: { maxSessions?, maxCallsPerSecond?, maxSessionTime?, blocked?, iCustomer? }
+  // Uses Sippy XML-RPC updateAccount() — docs 107312+. Admin credentials required.
+  app.patch('/api/sippy/accounts/:id/settings', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+      if (!portalUrl) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+
+      const opts = {
+        maxSessions:       req.body.maxSessions        !== undefined ? Number(req.body.maxSessions)      : undefined,
+        maxCallsPerSecond: req.body.maxCallsPerSecond   !== undefined ? Number(req.body.maxCallsPerSecond) : undefined,
+        maxCreditTime:     req.body.maxSessionTime       !== undefined ? Number(req.body.maxSessionTime)    : undefined,
+        blocked:           req.body.blocked             !== undefined ? Boolean(req.body.blocked)          : undefined,
+        iCustomer:         req.body.iCustomer           !== undefined ? Number(req.body.iCustomer)         : undefined,
+      };
+      if (Object.values(opts).every(v => v === undefined)) {
+        return res.status(400).json({ success: false, message: 'No settings to update.' });
+      }
+
+      const result = await sippy.updateAccountSettings(username, password, portalUrl, iAccount, opts);
+      if (!result.success) return res.status(422).json(result);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // PATCH /api/sippy/accounts/:id/low-balance — set low balance / auto-recharge config (docs 107444)
   // Body accepts any subset of: threshold (null = disabled), notifyByEmail, chargeCard,
   // chargeAmount, iDebitCreditCard (null = primary), notificationRetryCount,

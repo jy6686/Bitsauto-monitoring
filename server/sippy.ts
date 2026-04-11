@@ -6173,6 +6173,53 @@ export async function getAccountInfo(
   }
 }
 
+/**
+ * Update core account settings via XML-RPC updateAccount (docs 107312+).
+ * Only fields explicitly passed are sent. Unknown fields are ignored by Sippy.
+ */
+export async function updateAccountSettings(
+  username: string,
+  password: string,
+  portalUrl: string,
+  iAccount: number,
+  opts: {
+    maxSessions?: number;
+    maxCallsPerSecond?: number;
+    maxCreditTime?: number;
+    blocked?: boolean;
+    iCustomer?: number;
+  },
+): Promise<{ success: boolean; message: string; method?: string }> {
+  const apiUrl = `${sippyBase(portalUrl)}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = { i_account: iAccount };
+  if (opts.maxSessions        !== undefined) params.max_sessions          = opts.maxSessions;
+  if (opts.maxCallsPerSecond  !== undefined) params.max_calls_per_second  = opts.maxCallsPerSecond;
+  if (opts.maxCreditTime      !== undefined) params.max_credit_time       = opts.maxCreditTime;
+  if (opts.blocked            !== undefined) params.blocked               = opts.blocked ? 1 : 0;
+  if (opts.iCustomer          !== undefined) params.i_customer            = opts.iCustomer;
+
+  const lastErrors: string[] = [];
+
+  for (const method of ['updateAccount', 'customer.updateAccount'] as const) {
+    try {
+      const body = xmlRpcCall(method, params as any);
+      const resp = await sippyPost(apiUrl, body, username, password);
+      if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+        return { success: true, message: `Account ${iAccount} updated via ${method}.`, method };
+      }
+      const fault = extractTag(resp.body, 'faultString') ?? resp.body.substring(0, 120);
+      console.warn(`[Sippy] updateAccountSettings ${method} rejected: ${fault}`);
+      lastErrors.push(`${method}: ${fault}`);
+    } catch (e: any) {
+      console.warn(`[Sippy] updateAccountSettings ${method} error:`, e.message);
+      lastErrors.push(`${method}: ${e.message}`);
+    }
+  }
+
+  return { success: false, message: `All updateAccount methods rejected: ${lastErrors.join(' | ')}` };
+}
+
 // ── GET /api/sippy/accounts/:id/info — expose getAccountInfo via REST ─────────
 // (Route registered in routes.ts)
 
