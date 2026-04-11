@@ -1,7 +1,8 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
+import { useState, useEffect } from "react";
 import type { Role } from "@shared/schema";
 
 interface LayoutShellProps {
@@ -14,29 +15,47 @@ const ROLE_BADGE: Record<Role, { label: string; color: string }> = {
   viewer:     { label: "Viewer",     color: "text-blue-400 bg-blue-500/10"   },
 };
 
+const CALLS_SUBITEMS = [
+  { view: 'summary', label: 'Active Call Summary', icon: BarChart3,  iconColor: 'text-violet-400' },
+  { view: 'details', label: 'Active Call Details',  icon: List,       iconColor: 'text-cyan-400'   },
+  { view: 'quality', label: 'Quality Monitoring',   icon: HeartPulse, iconColor: 'text-rose-400'   },
+  { view: 'history', label: 'Call History',         icon: History,    iconColor: 'text-amber-400'  },
+] as const;
+
 export function LayoutShell({ children }: LayoutShellProps) {
   const [location] = useLocation();
   const { user, logout, role, isAdmin, isManagement } = useAuth();
 
+  const isCallsActive = location.startsWith('/calls');
+  const [callsExpanded, setCallsExpanded] = useState(isCallsActive);
+
+  useEffect(() => {
+    if (isCallsActive) setCallsExpanded(true);
+  }, [isCallsActive]);
+
   const allNavItems = [
-    { href: "/",          label: "Dashboard",      icon: LayoutDashboard, roles: ['admin','management','viewer'] },
-    { href: "/calls",     label: "Live Calls",     icon: Phone,           roles: ['admin','management','viewer'] },
-    { href: "/clients",   label: "Client / Vendor",icon: Building2,       roles: ['admin','management']          },
-    { href: "/balance",   label: "Balance Monitor",icon: Wallet,          roles: ['admin','management']          },
-    { href: "/dids",      label: "DID Management", icon: PhoneIncoming,   roles: ['admin','management']          },
-    { href: "/traffic-map", label: "Traffic Map",  icon: Globe,           roles: ['admin','management']          },
-    { href: "/reports",   label: "Reports",        icon: BarChart2,       roles: ['admin','management']          },
-    { href: "/cdrs",      label: "CDR Viewer",     icon: FileText,        roles: ['admin','management']          },
-    { href: "/fraud",     label: "Fraud / FAS",    icon: ShieldAlert,     roles: ['admin','management']          },
-    { href: "/tools",     label: "Tools",          icon: Wrench,          roles: ['admin','management']          },
-    { href: "/settings",  label: "Settings",       icon: Settings,        roles: ['admin']                       },
-    { href: "/alerts",    label: "Alerts",         icon: Bell,            roles: ['admin','management']          },
-    { href: "/account",   label: "My Account",     icon: UserCog,         roles: ['admin','management','viewer'] },
-    { href: "/team",      label: "Team",           icon: Users,           roles: ['admin']                       },
+    { href: "/",          label: "Dashboard",       icon: LayoutDashboard, roles: ['admin','management','viewer'] },
+    { href: "/calls",     label: "Live Calls",       icon: Phone,           roles: ['admin','management','viewer'], hasSubmenu: true },
+    { href: "/clients",   label: "Client / Vendor",  icon: Building2,       roles: ['admin','management']          },
+    { href: "/balance",   label: "Balance Monitor",  icon: Wallet,          roles: ['admin','management']          },
+    { href: "/dids",      label: "DID Management",   icon: PhoneIncoming,   roles: ['admin','management']          },
+    { href: "/traffic-map", label: "Traffic Map",    icon: Globe,           roles: ['admin','management']          },
+    { href: "/reports",   label: "Reports",          icon: BarChart2,       roles: ['admin','management']          },
+    { href: "/cdrs",      label: "CDR Viewer",       icon: FileText,        roles: ['admin','management']          },
+    { href: "/fraud",     label: "Fraud / FAS",      icon: ShieldAlert,     roles: ['admin','management']          },
+    { href: "/tools",     label: "Tools",            icon: Wrench,          roles: ['admin','management']          },
+    { href: "/settings",  label: "Settings",         icon: Settings,        roles: ['admin']                       },
+    { href: "/alerts",    label: "Alerts",           icon: Bell,            roles: ['admin','management']          },
+    { href: "/account",   label: "My Account",       icon: UserCog,         roles: ['admin','management','viewer'] },
+    { href: "/team",      label: "Team",             icon: Users,           roles: ['admin']                       },
   ];
 
   const navItems = allNavItems.filter(item => item.roles.includes(role));
   const badge = ROLE_BADGE[role];
+
+  const currentView = isCallsActive
+    ? (new URLSearchParams(location.split('?')[1] ?? '').get('view') ?? 'summary')
+    : null;
 
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
@@ -56,7 +75,62 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
         <nav className="p-4 space-y-1">
           {navItems.map((item) => {
-            const isActive = location === item.href;
+            const isActive = item.href === '/'
+              ? location === '/'
+              : location.startsWith(item.href);
+
+            if (item.hasSubmenu) {
+              return (
+                <div key={item.href}>
+                  {/* Parent row — clicking toggles the submenu; navigates to /calls */}
+                  <button
+                    onClick={() => setCallsExpanded(o => !o)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 group",
+                      isActive
+                        ? "bg-primary text-primary-foreground shadow-md shadow-primary/10"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    )}
+                  >
+                    <item.icon className={cn(
+                      "h-4 w-4 transition-colors flex-shrink-0",
+                      isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground"
+                    )} />
+                    <span className="flex-1 text-left">{item.label}</span>
+                    <ChevronDown className={cn(
+                      "h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+                      callsExpanded ? "rotate-180" : "",
+                      isActive ? "text-primary-foreground/70" : "text-muted-foreground/50"
+                    )} />
+                  </button>
+
+                  {/* Subitems */}
+                  {callsExpanded && (
+                    <div className="mt-1 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+                      {CALLS_SUBITEMS.map(sub => {
+                        const subActive = isActive && currentView === sub.view;
+                        return (
+                          <Link
+                            key={sub.view}
+                            href={`/calls?view=${sub.view}`}
+                            className={cn(
+                              "flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
+                              subActive
+                                ? "bg-primary/10 text-primary"
+                                : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                            )}
+                          >
+                            <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
+                            {sub.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
             return (
               <Link key={item.href} href={item.href} className={cn(
                 "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 group",

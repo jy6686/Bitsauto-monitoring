@@ -13,6 +13,7 @@ import {
 import { lookupCountry } from "@/lib/country-lookup";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useLocation, useSearch } from "wouter";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -172,6 +173,13 @@ function formatDuration(seconds: number): string {
 
 // ─── Switch Panel (per-switch live call view) ─────────────────────────────────
 
+const VALID_VIEWS = ['summary', 'details', 'quality', 'history'] as const;
+type ViewTab = typeof VALID_VIEWS[number];
+function parseViewParam(search: string): ViewTab {
+  const v = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get('view') ?? '';
+  return (VALID_VIEWS as readonly string[]).includes(v) ? (v as ViewTab) : 'summary';
+}
+
 function SwitchPanel({
   switchId,
   switchType,
@@ -181,11 +189,27 @@ function SwitchPanel({
   switchType: string;
   switchName: string;
 }) {
-  const [callViewTab, setCallViewTab] = useState<'summary' | 'details' | 'quality' | 'history'>('summary');
+  const [, navigate] = useLocation();
+  const urlQuery = useSearch();     // e.g. "view=details" — updates on every URL change
+
+  const [callViewTab, setCallViewTab] = useState<ViewTab>(() => parseViewParam(urlQuery));
   const [historyHours, setHistoryHours] = useState(24);
   const [routeAnalysisMode, setRouteAnalysisMode] = useState(false);
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
   const viewDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Sync tab whenever the ?view= query string changes (sidebar subitem clicks)
+  useEffect(() => {
+    const next = parseViewParam(urlQuery);
+    if (next !== callViewTab) setCallViewTab(next);
+  }, [urlQuery]);
+
+  function selectView(v: ViewTab) {
+    setCallViewTab(v);
+    setViewDropdownOpen(false);
+    navigate(`/calls?view=${v}`);
+  }
+
   useEffect(() => {
     function handleOutsideClick(e: MouseEvent) {
       if (viewDropdownRef.current && !viewDropdownRef.current.contains(e.target as Node)) {
@@ -355,7 +379,7 @@ function SwitchPanel({
               ] as const).map(opt => (
                 <button
                   key={opt.key}
-                  onClick={() => { setCallViewTab(opt.key); setViewDropdownOpen(false); }}
+                  onClick={() => selectView(opt.key)}
                   className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors text-left ${
                     callViewTab === opt.key
                       ? 'bg-violet-500/10 text-violet-300'
