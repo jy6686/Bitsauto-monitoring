@@ -405,14 +405,10 @@ export async function registerRoutes(
       // Always attempt — fall back to built-in defaults if settings not yet configured
       const url      = sippyPortalUrl(s);
       const { username, password } = sippyXmlCreds(s);
-      // Connect as ssp-root (portalUsername) first — it has full admin XML-RPC scope.
-      // Fall back to apiAdminUsername (RTST1) if portalUsername is empty or fails.
-      const primaryUser = s?.portalUsername || username;
-      const primaryPass = s?.portalPassword || password;
-      const fbUser = (s?.portalUsername && s.portalUsername !== username) ? username : '';
-      const fbPass = (s?.portalUsername && s.portalUsername !== username) ? password : '';
+      // apiAdminUsername (RTST1) is the XML-RPC capable credential — connect with it first.
+      // portalUsername (ssp-root) is portal-only (no XML-RPC) — used as fallback for portal mode.
       console.log('[startup] Sippy credentials found — attempting auto-connect...');
-      const result = await smartSippyConnect(url, primaryUser, primaryPass, fbUser || undefined, fbPass || undefined);
+      const result = await smartSippyConnect(url, username, password, s?.portalUsername, s?.portalPassword);
       if (result.success) {
         console.log('[startup] Sippy auto-connected:', result.message);
       } else {
