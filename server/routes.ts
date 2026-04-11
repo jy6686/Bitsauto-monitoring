@@ -23,9 +23,9 @@ async function refreshAccountCache(): Promise<void> {
   try {
     const settings = await storage.getSippySettings();
     if (!settings) return;
-    const { username, password } = sippyXmlCreds(settings);
     const portalUrl = sippyPortalUrl(settings);
-    const { accounts } = await sippy.listSippyAccounts(username, password, {}, portalUrl);
+    const { accounts } = await withSippyCreds(settings, (u, p) =>
+      sippy.listSippyAccounts(u, p, {}, portalUrl));
     if (!accounts?.length) return;
     const newIds: number[] = [];
     for (const acct of accounts) {
@@ -50,9 +50,16 @@ async function refreshConnectionVendorCache(): Promise<void> {
   try {
     const settings = await storage.getSippySettings();
     if (!settings) return;
-    const { username, password } = sippyXmlCreds(settings);
     const portalUrl = sippyPortalUrl(settings);
-    const { vendors } = await sippy.listSippyVendors(username, password, {}, portalUrl);
+    // Determine the first working credential pair for this refresh cycle
+    const credPairs = sippyXmlCredsPairs(settings);
+    let workingUser = credPairs[0].username;
+    let workingPass = credPairs[0].password;
+    const { vendors } = await withSippyCreds(settings, async (u, p) => {
+      const r = await sippy.listSippyVendors(u, p, {}, portalUrl);
+      if (!r.error?.includes('401') && !r.error?.includes('403')) { workingUser = u; workingPass = p; }
+      return r;
+    });
     if (!vendors?.length) return;
     connectionVendorCache.clear();
     await Promise.all(vendors.map(async (v: any) => {
@@ -63,7 +70,7 @@ async function refreshConnectionVendorCache(): Promise<void> {
       // Map vendor name string → name (identity; handles portal returning name directly)
       if (v.name) connectionVendorCache.set(v.name, vendorName);
       try {
-        const { connections } = await sippy.listVendorConnections(username, password, v.iVendor, portalUrl);
+        const { connections } = await sippy.listVendorConnections(workingUser, workingPass, v.iVendor, portalUrl);
         for (const conn of connections ?? []) {
           if (conn.iConnection) connectionVendorCache.set(String(conn.iConnection), vendorName);
           if (conn.name)        connectionVendorCache.set(conn.name, vendorName);
@@ -106,6 +113,23 @@ function sippyXmlCreds(s: SippyCreds, sw?: { portalUsername?: string | null; por
 }
 function sippyPortalUrl(s: { portalUrl?: string | null }): string {
   return s.portalUrl || DEFAULT_SIPPY_URL;
+}
+
+// ── Credential-pair retry helper ───────────────────────────────────────────
+// Tries each credential pair in order; returns on first non-401/403 result.
+// Prevents "HTTP 401" errors when apiAdminUsername/portalUsername are swapped.
+async function withSippyCreds<T extends { error?: string; success?: boolean; message?: string }>(
+  settings: SippyCreds,
+  fn: (username: string, password: string) => Promise<T>,
+): Promise<T> {
+  const pairs = sippyXmlCredsPairs(settings);
+  let last!: T;
+  for (const { username, password } of pairs) {
+    last = await fn(username, password);
+    const errStr = last.error ?? last.message ?? '';
+    if (!errStr.includes('401') && !errStr.includes('403') && !errStr.includes('HTTP 401')) return last;
+  }
+  return last;
 }
 
 // Simulation Constants
@@ -3420,15 +3444,17 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
       const portalUrl = sippyPortalUrl(settings);
-      const { accounts, error } = await sippy.listSippyAccounts(username, password, {}, portalUrl);
+      // Use credential-pair retry so swapped apiAdmin/portal fields don't cause 401
+      const { accounts, error } = await withSippyCreds(settings, (u, p) =>
+        sippy.listSippyAccounts(u, p, {}, portalUrl));
       if (error && !accounts?.length) return res.status(502).json({ success: false, error });
       const rows = await Promise.all((accounts ?? []).map(async (a) => {
         let threshold: number | null = null;
         let notifyByEmail: boolean | undefined;
         try {
-          const lb = await sippy.getSippyLowBalance(username, password, { iAccount: a.iAccount }, portalUrl);
+          const lb = await withSippyCreds(settings, (u, p) =>
+            sippy.getSippyLowBalance(u, p, { iAccount: a.iAccount }, portalUrl));
           threshold    = lb.threshold   ?? null;
           notifyByEmail = lb.notifyByEmail;
         } catch { /* ignore per-account low-balance errors */ }
@@ -5675,9 +5701,9 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
       const { did, incomingDid, delegatedTo, iAccount, iIvrApplication, notAssigned, offset, limit } = req.query as any;
-      const result = await sippy.getDIDsList(username, password, {
+      const opts = {
         did,
         incomingDid,
         delegatedTo:     delegatedTo    ? parseInt(delegatedTo, 10)    : undefined,
@@ -5686,8 +5712,9 @@ export async function registerRoutes(
         notAssigned:     notAssigned === 'true' ? true : (notAssigned === 'false' ? false : undefined),
         offset:          offset         ? parseInt(offset, 10)         : undefined,
         limit:           limit          ? parseInt(limit, 10)          : undefined,
-        portalUrl:       sippyPortalUrl(settings),
-      });
+        portalUrl,
+      };
+      const result = await withSippyCreds(settings, (u, p) => sippy.getDIDsList(u, p, opts));
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5700,8 +5727,8 @@ export async function registerRoutes(
       if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid i_dids_charging_group.' });
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.getDIDChargingGroupInfo(username, password, id, { portalUrl: sippyPortalUrl(settings) });
+      const portalUrl = sippyPortalUrl(settings);
+      const result = await withSippyCreds(settings, (u, p) => sippy.getDIDChargingGroupInfo(u, p, id, { portalUrl }));
       if (!result.success) return res.status(404).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5714,14 +5741,15 @@ export async function registerRoutes(
       if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid i_did_delegation.' });
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
       const { iDidsChargingGroup, delegatedTo, description } = req.body ?? {};
-      const result = await sippy.updateDIDDelegation(username, password, id, {
+      const delegationOpts = {
         iDidsChargingGroup: iDidsChargingGroup !== undefined ? parseInt(iDidsChargingGroup, 10) : undefined,
         delegatedTo:        delegatedTo        !== undefined ? parseInt(delegatedTo, 10)        : undefined,
         description,
-        portalUrl: sippyPortalUrl(settings),
-      });
+        portalUrl,
+      };
+      const result = await withSippyCreds(settings, (u, p) => sippy.updateDIDDelegation(u, p, id, delegationOpts));
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5734,8 +5762,8 @@ export async function registerRoutes(
       if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid i_did_delegation.' });
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteDIDDelegation(username, password, id, { portalUrl: sippyPortalUrl(settings) });
+      const portalUrl = sippyPortalUrl(settings);
+      const result = await withSippyCreds(settings, (u, p) => sippy.deleteDIDDelegation(u, p, id, { portalUrl }));
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5746,13 +5774,13 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
       const rawId = req.params.id;
       const numId = parseInt(rawId, 10);
       const opts = isNaN(numId)
-        ? { did: rawId, didRangeEnd: req.query.didRangeEnd as string | undefined, portalUrl: sippyPortalUrl(settings) }
-        : { iDid: numId, portalUrl: sippyPortalUrl(settings) };
-      const result = await sippy.getDIDInfo(username, password, opts);
+        ? { did: rawId, didRangeEnd: req.query.didRangeEnd as string | undefined, portalUrl }
+        : { iDid: numId, portalUrl };
+      const result = await withSippyCreds(settings, (u, p) => sippy.getDIDInfo(u, p, opts));
       if (!result.success) return res.status(404).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5766,8 +5794,8 @@ export async function registerRoutes(
         return res.status(400).json({ success: false, error: 'dids must be a non-empty array.' });
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.bulkAddDIDs(username, password, dids, { portalUrl: sippyPortalUrl(settings) });
+      const portalUrl = sippyPortalUrl(settings);
+      const result = await withSippyCreds(settings, (u, p) => sippy.bulkAddDIDs(u, p, dids, { portalUrl }));
       res.status(result.success ? 200 : 207).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -5783,8 +5811,8 @@ export async function registerRoutes(
         return res.status(400).json({ success: false, error: 'No valid integer i_did values provided.' });
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.bulkDeleteDIDs(username, password, ids, { portalUrl: sippyPortalUrl(settings) });
+      const portalUrl = sippyPortalUrl(settings);
+      const result = await withSippyCreds(settings, (u, p) => sippy.bulkDeleteDIDs(u, p, ids, { portalUrl }));
       res.status(result.success ? 200 : 207).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -5796,8 +5824,8 @@ export async function registerRoutes(
       if (!did || !incomingDid) return res.status(400).json({ success: false, error: 'did and incomingDid are required.' });
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.addDID(username, password, did, incomingDid, { ...rest, portalUrl: sippyPortalUrl(settings) });
+      const portalUrl = sippyPortalUrl(settings);
+      const result = await withSippyCreds(settings, (u, p) => sippy.addDID(u, p, did, incomingDid, { ...rest, portalUrl }));
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5810,8 +5838,8 @@ export async function registerRoutes(
       if (isNaN(iDid)) return res.status(400).json({ success: false, error: 'Invalid i_did.' });
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateDID(username, password, { iDid, ...req.body, portalUrl: sippyPortalUrl(settings) });
+      const portalUrl = sippyPortalUrl(settings);
+      const result = await withSippyCreds(settings, (u, p) => sippy.updateDID(u, p, { iDid, ...req.body, portalUrl }));
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5824,8 +5852,8 @@ export async function registerRoutes(
       if (isNaN(iDid)) return res.status(400).json({ success: false, error: 'Invalid i_did.' });
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteDID(username, password, { iDid, portalUrl: sippyPortalUrl(settings) });
+      const portalUrl = sippyPortalUrl(settings);
+      const result = await withSippyCreds(settings, (u, p) => sippy.deleteDID(u, p, { iDid, portalUrl }));
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -5841,15 +5869,16 @@ export async function registerRoutes(
       if (parentIDidDelegation === undefined) return res.status(400).json({ success: false, error: 'parentIDidDelegation is required (null for first delegation).' });
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.addDIDDelegation(username, password, {
+      const portalUrl = sippyPortalUrl(settings);
+      const delegationOpts = {
         iDid,
         delegatedTo:          parseInt(delegatedTo, 10),
         parentIDidDelegation: parentIDidDelegation === null ? null : parseInt(parentIDidDelegation, 10),
         iDidsChargingGroup:   iDidsChargingGroup !== undefined ? parseInt(iDidsChargingGroup, 10) : undefined,
         description,
-        portalUrl: sippyPortalUrl(settings),
-      });
+        portalUrl,
+      };
+      const result = await withSippyCreds(settings, (u, p) => sippy.addDIDDelegation(u, p, delegationOpts));
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
@@ -6064,8 +6093,8 @@ export async function registerRoutes(
       if (!cld) return res.status(400).json({ success: false, error: 'cld is required.' });
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.testDialplan(username, password, cli, cld, {
+      const portalUrl = sippyPortalUrl(settings);
+      const dialplanOpts = {
         fallbackIAccount: fallbackIAccount !== undefined ? parseInt(fallbackIAccount, 10) : undefined,
         remoteUdpPort:    remoteUdpPort    !== undefined ? parseInt(remoteUdpPort, 10)    : undefined,
         remoteIp:         remoteIp         || undefined,
@@ -6077,8 +6106,9 @@ export async function registerRoutes(
         callStartTime:    callStartTime    || undefined,
         paiHdr:           paiHdr           || undefined,
         rpidHdr:          rpidHdr          || undefined,
-        portalUrl:        sippyPortalUrl(settings),
-      });
+        portalUrl,
+      };
+      const result = await withSippyCreds(settings, (u, p) => sippy.testDialplan(u, p, cli, cld, dialplanOpts));
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
