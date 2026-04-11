@@ -2496,16 +2496,35 @@ export async function registerRoutes(
   app.get('/api/sippy/billing-plans', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
-      let { username, password } = sippyXmlCreds(settings);
-      username = (req.query.inlineUser as string) || username;
-      password = (req.query.inlinePass as string) || password;
-      let portalUrl: string | undefined = (req.query.inlineUrl as string) || sippyPortalUrl(settings);
+      const portalUrl: string = (req.query.inlineUrl as string) || sippyPortalUrl(settings);
+
+      // Inline credentials (wizard's "test connection" flow)
+      if (req.query.inlineUser && req.query.inlinePass) {
+        const result = await sippy.listSippyBillingPlans(req.query.inlineUser as string, req.query.inlinePass as string, portalUrl);
+        return res.json(result);
+      }
+
+      // switchId override
       if (req.query.switchId) {
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
-        if (sw) { ({ username, password } = sippyXmlCreds(settings, sw)); portalUrl = sw.portalUrl ?? undefined; }
+        if (sw) {
+          const { username, password } = sippyXmlCreds(settings, sw);
+          const result = await sippy.listSippyBillingPlans(username, password, sw.portalUrl ?? portalUrl);
+          return res.json(result);
+        }
       }
-      const result = await sippy.listSippyBillingPlans(username, password, portalUrl);
-      res.json(result);
+
+      // Default: try ALL credential pairs until one returns actual plans.
+      // RTST1 may not have access to billing plan APIs (gets 401 on getServicePlanInfo);
+      // ssp-root (admin) will succeed.  Try every pair in order.
+      const credPairs = sippyXmlCredsPairs(settings);
+      let bpResult = { plans: [] as { id: number; name: string; currency?: string }[], error: 'No credentials.' };
+      for (const creds of credPairs) {
+        const r = await sippy.listSippyBillingPlans(creds.username, creds.password, portalUrl);
+        if (r.plans.length > 0) { bpResult = r; break; }
+        bpResult = r; // keep last result (best error message)
+      }
+      res.json(bpResult);
     } catch (err: any) {
       res.json({ plans: [], error: err.message });
     }

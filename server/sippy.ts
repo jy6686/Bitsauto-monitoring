@@ -4349,13 +4349,11 @@ export async function pushAccountToSippy(
   // ── Billing plan (i_billing_plan required since Sippy v1.8) ─────────────
   if (opts.servicePlan) {
     const sp = parseInt(opts.servicePlan, 10);
-    if (!isNaN(sp)) params.i_billing_plan = sp;
+    if (!isNaN(sp) && sp > 0) params.i_billing_plan = sp;
   }
-  // Default to plan 1 (confirmed valid on this Sippy instance) if not specified;
-  // will be overridden by auto-probe if plan 1 is rejected.
-  if (!params.i_billing_plan) {
-    params.i_billing_plan = 1;
-  }
+  // NOTE: Do NOT hardcode a default here.  If the user did not supply a plan and we
+  // guess wrong (e.g. ID 1), Sippy returns faultCode 401 "Wrong i_billing_plan" or
+  // faultCode 501 "Fatal error".  The auto-probe block below will discover the right ID.
 
   // ── Optional extras (all from official docs 107312) ──────────────────────
   // Session / traffic
@@ -4398,6 +4396,41 @@ export async function pushAccountToSippy(
   if (opts.startPage         !== undefined) params.start_page             = opts.startPage;
   // General
   if (opts.description                    ) params.description            = opts.description;
+
+  // ── Billing plan pre-discovery ───────────────────────────────────────────
+  // If the user did not specify a service plan, try to discover available plans
+  // using the current credentials (could be ssp-root on the retry path).
+  // This avoids the "Wrong i_billing_plan" / "Fatal error" faults on first attempt.
+  if (!params.i_billing_plan && !isVendor) {
+    const bpDiscover = await listSippyBillingPlans(credentials.username, credentials.password, baseUrl);
+    if (bpDiscover.plans.length > 0) {
+      params.i_billing_plan = bpDiscover.plans[0].id;
+      console.log(`[Sippy] Pre-discovered billing plan: ${params.i_billing_plan} "${bpDiscover.plans[0].name}"`);
+    } else {
+      // Probe getServicePlanInfo for IDs 1-20 using current credentials
+      console.log('[Sippy] Billing plan list unavailable — quick-probing IDs 1-20 via getServicePlanInfo');
+      let discovered = 0;
+      for (const probeId of [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]) {
+        try {
+          const pr = await sippyPost(apiUrl, xmlRpcCall('getServicePlanInfo', { i_billing_plan: probeId }), credentials.username, credentials.password);
+          if (pr.statusCode === 200 && !pr.body.includes('<fault>') && !pr.body.includes('faultCode')) {
+            const nameMatch = pr.body.match(/<name>name<\/name>\s*<value><string>([^<]+)<\/string>/i)?.[1];
+            if (nameMatch) {
+              params.i_billing_plan = probeId;
+              console.log(`[Sippy] Quick-probe found billing plan: ${probeId} "${nameMatch}"`);
+              discovered = probeId;
+              break;
+            }
+          }
+        } catch { /* skip */ }
+      }
+      if (!discovered) {
+        // Set tentative plan=1 so we get a fault from Sippy (enables the fault-based probe later)
+        params.i_billing_plan = 1;
+        console.log('[Sippy] No billing plans found via quick-probe — using tentative i_billing_plan=1 (fault-based probe will follow)');
+      }
+    }
+  }
 
   // ── Attempt list ─────────────────────────────────────────────────────────
   // createAccount() — official Sippy API (docs 107312). Creates an account under
@@ -4463,10 +4496,15 @@ export async function pushAccountToSippy(
         lastFault = faultStr.replace(/<[^>]+>/g, '').trim();
         console.warn(`[Sippy] ${method} fault: ${lastFault}`);
 
-        // Auto-fetch billing plan if "i_billing_plan is required" and we haven't tried yet
-        if (!billingPlanAutoFetched && lastFault.toLowerCase().includes('i_billing_plan') && !params.i_billing_plan) {
+        // Auto-fetch billing plan if Sippy rejects the plan ID (or reports Fatal error)
+        // Triggers on: "Wrong i_billing_plan", "Fatal error" (faultCode 501 = missing/bad required field)
+        const needsBillingPlanProbe = !billingPlanAutoFetched && (
+          lastFault.toLowerCase().includes('i_billing_plan') ||
+          lastFault.toLowerCase() === 'fatal error'
+        );
+        if (needsBillingPlanProbe) {
           billingPlanAutoFetched = true;
-          console.log('[Sippy] Auto-fetching billing plans to satisfy i_billing_plan requirement...');
+          console.log(`[Sippy] Billing plan fault ("${lastFault}") — auto-fetching plans...`);
           const bpResult = await listSippyBillingPlans(credentials.username, credentials.password, baseUrl);
           if (bpResult.plans.length > 0) {
             const firstPlan = bpResult.plans[0];
@@ -4499,10 +4537,10 @@ export async function pushAccountToSippy(
             const fs2 = extractTag(text2, 'faultString');
             if (fs2) lastFault = fs2.replace(/<[^>]+>/g, '').trim();
           } else {
-            // Billing plan list API not available on this Sippy version — probe IDs 1→5
-            console.log('[Sippy] Billing plan list API unavailable — probing plan IDs 1-5...');
+            // Billing plan list API not available — probe via createAccount with IDs 1-20
+            console.log('[Sippy] Billing plan list API unavailable — probing plan IDs 1-20 via createAccount...');
             let foundPlan: number | null = null;
-            for (const probeId of [1, 2, 3, 4, 5]) {
+            for (const probeId of [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]) {
               params.i_billing_plan = probeId;
               const probeBody = xmlRpcCall(method, params);
               const probeResp = await sippyPost(apiUrl, probeBody, credentials.username, credentials.password);
