@@ -1366,12 +1366,12 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const portalUrl = sippyPortalUrl(settings);
 
-      // Time window: 90 minutes ago → 30 minutes ago (settled, completed CDRs)
+      // Time window: 2 hours ago → now (broad window to capture all recent settled CDRs)
       const pad = (n: number) => String(n).padStart(2, '0');
       const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
       const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const winEnd   = new Date(Date.now() - 30  * 60_000); // 30 min ago
-      const winStart = new Date(Date.now() - 90  * 60_000); // 90 min ago
+      const winEnd   = new Date();                               // now
+      const winStart = new Date(Date.now() - 2 * 60 * 60_000); // 2 hours ago
       const sippyDate = `${pad(winStart.getUTCHours())}:${pad(winStart.getUTCMinutes())}:${pad(winStart.getUTCSeconds())}.000 GMT `
         + `${DAYS[winStart.getUTCDay()]} ${MONTHS[winStart.getUTCMonth()]} ${pad(winStart.getUTCDate())} ${winStart.getUTCFullYear()}`;
 

@@ -507,6 +507,71 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* ── ASR & ACD Trend ── moved here, after Revenue & Cost ──────────────── */}
+      <div className="grid gap-6">
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold flex items-center gap-2">
+                <Activity className="w-4 h-4 text-primary" />
+                ASR &amp; ACD Trend
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Answer-Seizure Ratio (%) + Avg Call Duration (s) — live from Sippy
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {chartData.length > 0 && (
+                <div className="hidden sm:flex items-center gap-3 text-xs mr-2">
+                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-emerald-500 rounded-full inline-block" /> ASR</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-violet-400 rounded-full inline-block" style={{borderTop: '2px dashed #a78bfa'}} /> ACD</span>
+                </div>
+              )}
+              <select
+                className="bg-background border border-border rounded-md text-xs px-2 py-1"
+                value={trendHours}
+                onChange={e => setTrendHours(Number(e.target.value))}
+                data-testid="select-trend-window"
+              >
+                <option value={1}>Last 1h</option>
+                <option value={6}>Last 6h</option>
+                <option value={24}>Last 24h</option>
+              </select>
+            </div>
+          </div>
+          <div className="h-[280px] w-full">
+            {chartData.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                <Activity className="w-8 h-8 opacity-30" />
+                <p className="text-sm">{notConnected ? 'Connect to your softswitch to see live trends.' : 'Loading trend data…'}</p>
+              </div>
+            ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chartData} margin={{ top: 4, right: 40, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorAsr2" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
+                <XAxis dataKey="time" stroke="#555" fontSize={10} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                <YAxis yAxisId="asr" orientation="left" stroke="#555" fontSize={10} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v) => `${v}%`} width={36} />
+                <YAxis yAxisId="acd" orientation="right" stroke="#555" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}s`} width={36} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0f0f0f', borderColor: '#2a2a2a', borderRadius: '8px', fontSize: '11px' }}
+                  itemStyle={{ color: '#ccc' }}
+                  formatter={(value: any, name: string) => name === 'asr' ? [`${value}%`, 'ASR'] : [`${value}s`, 'ACD']}
+                />
+                <Area yAxisId="asr" type="monotone" dataKey="asr" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorAsr2)" dot={false} />
+                <Line yAxisId="acd" type="monotone" dataKey="acd" stroke="#a78bfa" strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: '#a78bfa' }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Call Back Ratio — FAS Deduction Panel */}
       <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
         {/* Header */}
@@ -534,7 +599,7 @@ export default function DashboardPage() {
               {notConnected ? '—' : `${displayCkRatio.toFixed(1)}%`}
             </span>
             <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
-              {anyPortalActive && sippyStats?.ckBreakdown != null ? 'last 1 hr · sippy cdrs' : 'connection rate today'}
+              {anyPortalActive && sippyStats?.ckBreakdown != null ? 'last 2 hr · sippy cdrs' : 'connection rate today'}
             </span>
           </div>
         </div>
@@ -752,111 +817,6 @@ export default function DashboardPage() {
           </div>
         );
       })()}
-
-      <div className="grid gap-6">
-        {/* Main Chart Area — Dual ASR + ACD */}
-        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-semibold flex items-center gap-2">
-                <Activity className="w-4 h-4 text-primary" />
-                ASR &amp; ACD Trend
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Answer-Seizure Ratio (%) + Avg Call Duration (s) — live from Sippy
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {chartData.length > 0 && (
-                <div className="hidden sm:flex items-center gap-3 text-xs mr-2">
-                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-emerald-500 rounded-full inline-block" /> ASR</span>
-                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-violet-400 rounded-full inline-block" style={{borderTop: '2px dashed #a78bfa'}} /> ACD</span>
-                </div>
-              )}
-              <select
-                className="bg-background border border-border rounded-md text-xs px-2 py-1"
-                value={trendHours}
-                onChange={e => setTrendHours(Number(e.target.value))}
-                data-testid="select-trend-window"
-              >
-                <option value={1}>Last 1h</option>
-                <option value={6}>Last 6h</option>
-                <option value={24}>Last 24h</option>
-              </select>
-            </div>
-          </div>
-          <div className="h-[280px] w-full">
-            {chartData.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
-                <Activity className="w-8 h-8 opacity-30" />
-                <p className="text-sm">{notConnected ? 'Connect to your softswitch to see live trends.' : 'Loading trend data…'}</p>
-              </div>
-            ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 4, right: 40, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorAsr" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
-                <XAxis dataKey="time" stroke="#555" fontSize={10} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis
-                  yAxisId="asr"
-                  orientation="left"
-                  stroke="#555"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={false}
-                  domain={[0, 100]}
-                  tickFormatter={(v) => `${v}%`}
-                  width={36}
-                />
-                <YAxis
-                  yAxisId="acd"
-                  orientation="right"
-                  stroke="#555"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => `${v}s`}
-                  width={36}
-                />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0f0f0f', borderColor: '#2a2a2a', borderRadius: '8px', fontSize: '11px' }}
-                  itemStyle={{ color: '#ccc' }}
-                  formatter={(value: any, name: string) =>
-                    name === 'asr' ? [`${value}%`, 'ASR'] : [`${value}s`, 'ACD']
-                  }
-                />
-                <Area
-                  yAxisId="asr"
-                  type="monotone"
-                  dataKey="asr"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorAsr)"
-                  dot={false}
-                />
-                <Line
-                  yAxisId="acd"
-                  type="monotone"
-                  dataKey="acd"
-                  stroke="#a78bfa"
-                  strokeWidth={1.5}
-                  strokeDasharray="4 3"
-                  dot={false}
-                  activeDot={{ r: 3, fill: '#a78bfa' }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-      </div>
 
       {/* ── Recent CDR Records ─────────────────────────────────────────────── */}
       {anyPortalActive && (sippyCdr?.cdrs?.length ?? 0) > 0 && (
