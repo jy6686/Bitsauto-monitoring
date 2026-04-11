@@ -85,6 +85,8 @@ export default function DashboardPage() {
     cdrCount?: number;
     // MOS estimate from E-model
     estimatedMos?: number | null;
+    // CPS from cps_total monitoring graph
+    cps?: number;
   }>({
     queryKey: ['/api/sippy/dashboard-stats'],
     refetchInterval: 15000,
@@ -381,14 +383,54 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Alerts Today */}
-        <StatCard 
-          title="Alerts Today"
-          value={notConnected ? '—' : stats.alertsToday}
-          icon={AlertTriangle}
-          className={stats.alertsToday > 5 ? "border-rose-500/20" : "border-border/50"}
-          description="Threshold breaches detected"
-        />
+        {/* Live CPS */}
+        {(() => {
+          const cps = anyPortalActive ? (sippyStats?.cps ?? 0) : 0;
+          const cpsColor = cps === 0
+            ? 'text-muted-foreground/50'
+            : cps < 10 ? 'text-emerald-400'
+            : cps < 30 ? 'text-amber-400'
+            : 'text-rose-400';
+          const cpsBorder = cps === 0
+            ? 'border-border/50'
+            : cps < 10 ? 'border-emerald-500/20'
+            : cps < 30 ? 'border-amber-500/20'
+            : 'border-rose-500/30';
+          const cpsLabel = cps === 0 ? 'No data yet — 5-min avg'
+            : cps < 10 ? 'Normal load · 5-min avg'
+            : cps < 30 ? 'Moderate load · 5-min avg'
+            : 'High load — monitor closely';
+          return (
+            <div className={`bg-card border ${cpsBorder} rounded-xl p-5 shadow-lg shadow-black/5 hover:border-opacity-60 transition-all duration-300 relative overflow-hidden group`}>
+              <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
+                <Zap className="w-24 h-24" />
+              </div>
+              <div className="flex items-center justify-between mb-3 relative z-10">
+                <h3 className="text-sm font-medium text-muted-foreground">Live CPS</h3>
+                <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-amber-500/10 transition-colors">
+                  <Zap className={`w-4 h-4 ${cps > 0 ? cpsColor : 'text-foreground'} group-hover:text-amber-400`} />
+                </div>
+              </div>
+              <div className="relative z-10">
+                <div className="flex items-baseline gap-1.5">
+                  <span className={`text-3xl font-bold tracking-tight tabular-nums ${notConnected ? 'text-muted-foreground/40' : cpsColor}`}>
+                    {notConnected ? '—' : (sippyStatsLoading && !sippyStats) ? '…' : cps > 0 ? cps.toFixed(1) : '0.0'}
+                  </span>
+                  {!notConnected && <span className="text-sm text-muted-foreground">/s</span>}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">{notConnected ? 'Connect to see CPS' : cpsLabel}</p>
+              </div>
+              {!notConnected && cps > 0 && (
+                <div className="mt-3 h-1 rounded-full bg-muted/40 overflow-hidden relative z-10">
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ${cps < 10 ? 'bg-emerald-500' : cps < 30 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                    style={{ width: `${Math.min(100, (cps / 50) * 100)}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Telecom KPI Row ────────────────────────────────────────────────── */}

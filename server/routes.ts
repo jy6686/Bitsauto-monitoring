@@ -1379,8 +1379,8 @@ export async function registerRoutes(
       const cdrEndDate   = sippy.toSippyDate(winEnd);
       const credPairs    = sippyXmlCredsPairs(settings);
 
-      // Run monitoring graph + live calls in parallel; CDRs fetched separately below
-      const [monResult, liveCallsRaw] = await Promise.all([
+      // Run monitoring graph + live calls + CPS in parallel; CDRs fetched separately below
+      const [monResult, liveCallsRaw, cpsResult] = await Promise.all([
         sippy.getSippyMonitoringData(username, password, 'acd_asr', {
           startDate: sippyDate,
           interval:  3600,
@@ -1389,6 +1389,11 @@ export async function registerRoutes(
         }),
         sippy.getSippyActiveCalls(username, password, portalUrl, undefined,
           settings?.portalUsername ?? '', settings?.portalPassword ?? ''),
+        sippy.getSippyMonitoringData(username, password, 'cps_total', {
+          startDate: sippyDate,
+          interval:  300,
+          explicitPortalUrl: portalUrl,
+        }).catch(() => ({ ok: false, points: [] as any[] })),
       ]);
 
       // Fetch CDRs — try all credential pairs (RTST1 often 401 on CDR methods, ssp-root succeeds)
@@ -1428,6 +1433,8 @@ export async function registerRoutes(
       // ── ASR / ACD ────────────────────────────────────────────────────────────
       // Primary: compute directly from CDRs (most accurate — CDR result codes never lie)
       // Fallback: monitoring graph data (getMonitoringGraphData env=5)
+      const nowTs = Math.floor(Date.now() / 1000);
+      const nonZeroPts = monResult.points.filter((p: any) => (p.asr > 0 || p.acd > 0) && p.ts <= nowTs);
       let asr = 0; let acd = 0;
       if (recentCdrs.length > 0) {
         const cdrTotal    = recentCdrs.length;
@@ -1437,12 +1444,16 @@ export async function registerRoutes(
         acd = cdrAnswered.length > 0 ? Math.round(cdrDurSec / cdrAnswered.length) : 0;
       } else {
         // Fall back to monitoring graph (may be 0 if env=5 has no data in window)
-        const nowTs = Math.floor(Date.now() / 1000);
-        const nonZeroPts = monResult.points.filter((p: any) => (p.asr > 0 || p.acd > 0) && p.ts <= nowTs);
-        const latestPt   = nonZeroPts.length > 0 ? nonZeroPts[nonZeroPts.length - 1] : null;
+        const latestPt = nonZeroPts.length > 0 ? nonZeroPts[nonZeroPts.length - 1] : null;
         asr = latestPt ? parseFloat(latestPt.asr.toFixed(2)) : 0;
         acd = latestPt ? Math.round(latestPt.acd) : 0;
       }
+
+      // ── CPS (Calls Per Second) — from cps_total monitoring graph ─────────────
+      // Take the most recent non-zero data point (5-min interval avg from Sippy)
+      const cpsPts    = cpsResult.points.filter((p: any) => p.ts <= nowTs && (p.cps ?? p.col1 ?? 0) > 0);
+      const latestCpt = cpsPts.length > 0 ? cpsPts[cpsPts.length - 1] : null;
+      const cps       = latestCpt ? parseFloat((latestCpt.cps ?? latestCpt.col1 ?? 0).toFixed(2)) : 0;
 
       // PDD = average delay field across currently routing calls
       const routingCalls = liveCallsRaw.filter(c => c.delay && c.delay > 0);
@@ -1457,6 +1468,7 @@ export async function registerRoutes(
         asr,
         acd,
         pdd,
+        cps,
         connected:   true,
         liveCount:   liveCallsRaw.length,
         monOk:       monResult.ok,
