@@ -105,7 +105,11 @@ function IpInfoBadge({ ip, color = 'blue' }: { ip: string; color?: 'blue' | 'gre
   });
 
   if (isLoading) {
-    return <span className="text-[9px] text-muted-foreground/30 italic">resolving…</span>;
+    return (
+      <div className="flex items-center gap-1 text-[9px] text-muted-foreground/30 italic">
+        <Loader2 className="w-2.5 h-2.5 animate-spin" /> resolving…
+      </div>
+    );
   }
   if (!data || data.status !== 'success') return null;
 
@@ -114,16 +118,19 @@ function IpInfoBadge({ ip, color = 'blue' }: { ip: string; color?: 'blue' | 'gre
   const isp = rawIsp.replace(/,?\s+(LLC|Inc\.?|Ltd\.?|Corp\.?|Co\.)$/gi, '').trim();
   const asNum = (data.as || '').split(' ')[0];
   const location = [data.city, data.country].filter(Boolean).join(', ');
-  const textColor = color === 'green' ? 'text-emerald-400/70' : 'text-blue-400/70';
+  const countryColor = color === 'green' ? 'text-emerald-300/80' : 'text-cyan-300/80';
 
   return (
     <div className="space-y-0.5">
-      <div className={`text-[10px] font-medium ${textColor}`}>
-        {flag} {location}
+      <div className={`text-[11px] font-medium ${countryColor} flex items-center gap-1`}>
+        <span className="text-base leading-none">{flag}</span>
+        <span>{location}</span>
       </div>
       {isp && (
-        <div className="text-[9px] text-muted-foreground/50 truncate max-w-[140px]" title={`${data.isp}${asNum ? ' · ' + asNum : ''}`}>
-          {isp} {asNum && <span className="opacity-60">{asNum}</span>}
+        <div className="text-[9px] text-muted-foreground/50 flex items-center gap-1" title={`${data.isp}${asNum ? ' · ' + asNum : ''}`}>
+          <Globe className="w-2.5 h-2.5 flex-shrink-0 opacity-60" />
+          <span className="truncate max-w-[150px]">{isp}</span>
+          {asNum && <span className="text-muted-foreground/30 flex-shrink-0">· {asNum}</span>}
         </div>
       )}
     </div>
@@ -715,62 +722,81 @@ function SwitchPanel({
                                   </div>
                                 </div>
 
-                                {/* ── Panel 2: Network / Media Path ── */}
-                                <div className="rounded-lg border border-border/40 bg-background/40 p-3 space-y-2">
+                                {/* ── Panel 2: RTP Monitoring ── */}
+                                <div className="rounded-lg border border-border/40 bg-background/40 p-3 space-y-3">
                                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 flex items-center gap-1.5">
-                                    <Network className="w-3 h-3" /> Network / Media
+                                    <Wifi className="w-3 h-3 text-cyan-400" /> RTP Monitoring
                                   </p>
-                                  {(call.mediaIpCaller || call.mediaIpCallee) ? (
-                                    <div className="space-y-2">
-                                      <p className="text-[10px] text-muted-foreground/50 uppercase">RTP Media Path</p>
-                                      {/* Same proxy on both sides */}
-                                      {call.mediaIpCaller === call.mediaIpCallee ? (
-                                        <div className="space-y-1">
-                                          <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                                            <span className="text-blue-400">{call.mediaIpCaller}</span>
-                                            <ArrowRightLeft className="w-3 h-3 text-muted-foreground/40 flex-shrink-0" />
-                                            <span className="text-muted-foreground/40 text-[10px] italic">same proxy</span>
+
+                                  {/* RTP Media Path */}
+                                  <div className="space-y-1.5">
+                                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/40">RTP Media Path</p>
+                                    {(call.mediaIpCaller || call.mediaIpCallee) ? (
+                                      <div className="space-y-2">
+                                        {call.mediaIpCaller === call.mediaIpCallee ? (
+                                          /* Same proxy on both sides — one card */
+                                          <div className="rounded-md bg-cyan-500/5 border border-cyan-500/15 p-2 space-y-1.5">
+                                            <div className="flex items-center gap-1.5">
+                                              <Server className="w-3 h-3 text-cyan-400/60 flex-shrink-0" />
+                                              <span className="font-mono text-[11px] text-cyan-300">{call.mediaIpCaller}</span>
+                                              <span className="ml-auto text-[9px] text-muted-foreground/30 italic">caller ↔ callee</span>
+                                            </div>
+                                            <IpInfoBadge ip={call.mediaIpCaller!} color="blue" />
+                                            <p className="text-[9px] text-muted-foreground/30 italic pt-0.5">Media proxied through Sippy</p>
                                           </div>
-                                          <IpInfoBadge ip={call.mediaIpCaller!} color="blue" />
-                                        </div>
-                                      ) : (
-                                        /* Different caller ↔ callee IPs */
-                                        <div className="flex items-start gap-2">
-                                          <div className="min-w-0 flex-1 space-y-0.5">
-                                            <p className="text-[9px] text-muted-foreground/40 uppercase">Caller side</p>
-                                            <p className="font-mono text-[11px] text-blue-400">{call.mediaIpCaller || '?'}</p>
-                                            {call.mediaIpCaller && <IpInfoBadge ip={call.mediaIpCaller} color="blue" />}
+                                        ) : (
+                                          /* Different IPs — two cards */
+                                          <div className="space-y-1.5">
+                                            {call.mediaIpCaller && (
+                                              <div className="rounded-md bg-blue-500/5 border border-blue-500/15 p-2 space-y-1.5">
+                                                <div className="flex items-center gap-1.5">
+                                                  <Server className="w-3 h-3 text-blue-400/60 flex-shrink-0" />
+                                                  <span className="font-mono text-[11px] text-blue-300">{call.mediaIpCaller}</span>
+                                                  <span className="ml-auto text-[9px] text-muted-foreground/30">Caller</span>
+                                                </div>
+                                                <IpInfoBadge ip={call.mediaIpCaller} color="blue" />
+                                              </div>
+                                            )}
+                                            <div className="flex justify-center">
+                                              <ArrowRightLeft className="w-3 h-3 text-muted-foreground/20" />
+                                            </div>
+                                            {call.mediaIpCallee && (
+                                              <div className="rounded-md bg-emerald-500/5 border border-emerald-500/15 p-2 space-y-1.5">
+                                                <div className="flex items-center gap-1.5">
+                                                  <Server className="w-3 h-3 text-emerald-400/60 flex-shrink-0" />
+                                                  <span className="font-mono text-[11px] text-emerald-300">{call.mediaIpCallee}</span>
+                                                  <span className="ml-auto text-[9px] text-muted-foreground/30">Callee</span>
+                                                </div>
+                                                <IpInfoBadge ip={call.mediaIpCallee} color="green" />
+                                              </div>
+                                            )}
+                                            <p className="text-[9px] text-muted-foreground/30 italic">Media proxied through Sippy</p>
                                           </div>
-                                          <ArrowRightLeft className="w-3 h-3 text-muted-foreground/30 flex-shrink-0 mt-3" />
-                                          <div className="min-w-0 flex-1 space-y-0.5">
-                                            <p className="text-[9px] text-muted-foreground/40 uppercase">Callee side</p>
-                                            <p className="font-mono text-[11px] text-emerald-400">{call.mediaIpCallee || '?'}</p>
-                                            {call.mediaIpCallee && <IpInfoBadge ip={call.mediaIpCallee} color="green" />}
-                                          </div>
-                                        </div>
-                                      )}
-                                      <p className="text-[10px] text-muted-foreground/30 italic">Media proxied through Sippy</p>
-                                    </div>
-                                  ) : (
-                                    <p className="text-[11px] text-muted-foreground/40 italic">Media IPs not reported</p>
-                                  )}
-                                  {call.codec && call.codec !== '-' && (
-                                    <div className="space-y-0.5">
-                                      <p className="text-[10px] text-muted-foreground/50 uppercase">Codec</p>
-                                      <p className="text-[11px] text-foreground/70 font-mono">{call.codec}</p>
-                                    </div>
-                                  )}
-                                  <div className="flex gap-3 flex-wrap">
-                                    {call.vendor && (
-                                      <div className="space-y-0.5">
-                                        <p className="text-[10px] text-muted-foreground/50 uppercase">Vendor</p>
-                                        <p className="text-[11px] text-foreground/70">{call.vendor}</p>
+                                        )}
                                       </div>
+                                    ) : (
+                                      <p className="text-[11px] text-muted-foreground/30 italic">Media IPs not reported</p>
                                     )}
+                                  </div>
+
+                                  {/* Connection + Codec */}
+                                  <div className="flex gap-3 flex-wrap pt-0.5 border-t border-border/20">
                                     {call.connection && (
                                       <div className="space-y-0.5">
-                                        <p className="text-[10px] text-muted-foreground/50 uppercase">Connection</p>
+                                        <p className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">Connection</p>
                                         <p className="text-[11px] text-foreground/70 font-mono">#{call.connection}</p>
+                                      </div>
+                                    )}
+                                    {call.codec && call.codec !== '-' && (
+                                      <div className="space-y-0.5">
+                                        <p className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">Codec</p>
+                                        <p className="text-[11px] text-foreground/70 font-mono">{call.codec}</p>
+                                      </div>
+                                    )}
+                                    {call.vendor && (
+                                      <div className="space-y-0.5">
+                                        <p className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">Vendor</p>
+                                        <p className="text-[11px] text-foreground/70">{call.vendor}</p>
                                       </div>
                                     )}
                                   </div>
