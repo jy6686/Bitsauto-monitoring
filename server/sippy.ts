@@ -64,6 +64,13 @@ interface SippySession {
 
 let activeSession: SippySession | null = null;
 
+// ── Admin portal session cache for listActiveCalls scraping ──────────────────
+// Reused across calls to avoid a full portal login on every 5-second poll.
+// Expires every 5 minutes; re-login is triggered automatically.
+interface AdminPortalCache { cookies: CookieJar; base: string; user: string; expiresAt: number }
+let adminPortalCache: AdminPortalCache | null = null;
+export function clearAdminPortalCache() { adminPortalCache = null; }
+
 export function getSippySessionStatus() {
   if (!activeSession) return { active: false };
   return {
@@ -1174,23 +1181,36 @@ export async function getSippyActiveCalls(
   if (filter?.i_connection !== undefined) reqParams.i_connection = filter.i_connection;
   if (filter?.node_id      !== undefined) reqParams.node_id      = filter.node_id;
 
-  // ── Admin portal login helper — for fallback when XML-RPC is restricted ────
-  // ssp-root has XML-RPC restrictions on listActiveCalls/listAllCalls.
-  // Fall back to scraping /activecalls.php via admin portal session.
-  // Also handles the production DB swap where apiAdmin credentials are stored in portalUsername field.
+  // ── Admin portal scrape — shows ALL active calls (admin view) ────────────
+  // Used when XML-RPC is restricted or when the primary credential is scoped
+  // (e.g. RTST1 only sees calls within its own account, missing other clients).
+  // Uses a 5-minute cached session to avoid logging in on every 5-second poll.
   async function tryAdminPortalScrape(): Promise<SippyActiveCall[]> {
-    // Build ordered list of credential pairs to try for admin portal login.
-    // Primary: passed-in credentials. Fallback: the other settings credential pair.
+    // Use cached portal session if still valid
+    if (adminPortalCache && adminPortalCache.base === base && adminPortalCache.expiresAt > Date.now()) {
+      try {
+        const calls = await getPortalActiveCallsHtml(adminPortalCache.cookies, base);
+        console.log(`[Sippy] listActiveCalls: portal scrape (cached ${adminPortalCache.user}) → ${calls.length} calls`);
+        return calls;
+      } catch {
+        // Session expired — clear cache and fall through to re-login
+        adminPortalCache = null;
+      }
+    }
+
+    // Re-login: prefer fallback (ssp-root/admin), then primary
     const pairs: Array<[string, string]> = [];
-    if (username && password) pairs.push([username, password]);
-    if (fallbackUsername && fallbackPassword && fallbackUsername !== username)
-      pairs.push([fallbackUsername, fallbackPassword]);
+    if (fallbackUsername && fallbackPassword) pairs.push([fallbackUsername, fallbackPassword]);
+    if (username && password && username !== fallbackUsername) pairs.push([username, password]);
 
     for (const [u, p] of pairs) {
       const loginRes = await portalLogin(base, u, p, 'admin');
       if (loginRes.success) {
-        console.log(`[Sippy] listActiveCalls: XML-RPC restricted — scraping /activecalls.php as admin (${u})`);
-        return getPortalActiveCallsHtml(loginRes.cookies, base);
+        console.log(`[Sippy] listActiveCalls: portal login as ${u} — scraping /activecalls.php`);
+        adminPortalCache = { cookies: loginRes.cookies, base, user: u, expiresAt: Date.now() + 5 * 60_000 };
+        const calls = await getPortalActiveCallsHtml(loginRes.cookies, base);
+        console.log(`[Sippy] listActiveCalls: portal scrape → ${calls.length} calls`);
+        return calls;
       }
     }
     console.log('[Sippy] listActiveCalls: admin portal login failed, returning empty list');
@@ -1202,22 +1222,42 @@ export async function getSippyActiveCalls(
   for (const method of ['listActiveCalls', 'listAllCalls']) {
     try {
       let resp = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), username, password);
+
+      // ── Handle HTTP-level auth rejection ───────────────────────────────────
       if (resp.statusCode === 401 || resp.statusCode === 403) {
-        // Primary creds rejected — try fallback credentials (handles production DB credential-swap bug)
         if (fallbackUsername && fallbackPassword && fallbackUsername !== username) {
           const fb = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), fallbackUsername, fallbackPassword);
-          if (fb.statusCode === 200) {
-            resp = fb; // fallback worked — use its response body below
+          if (fb.statusCode === 200 && !fb.body.includes('<fault>')) {
+            resp = fb;
           } else {
-            // Both pairs rejected — scrape admin portal as last resort
             return tryAdminPortalScrape();
           }
         } else {
-          // No fallback — scrape admin portal
           return tryAdminPortalScrape();
         }
       }
+
       if (resp.statusCode !== 200) continue;
+
+      // ── Handle XML-RPC fault (HTTP 200 with <fault> body) ─────────────────
+      // Sippy returns HTTP 200 + fault struct when the account lacks permission
+      // (e.g. RTST1 restricted from listActiveCalls). The fault struct has no
+      // CLI/CLD/CC_STATE, so it silently produced an empty call list.
+      // Fix: detect fault and retry with the alternate credential pair.
+      if (resp.body.includes('<fault>')) {
+        console.log(`[Sippy] ${method} XML-RPC fault for ${username} — retrying with fallback creds`);
+        if (fallbackUsername && fallbackPassword && fallbackUsername !== username) {
+          const fb = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), fallbackUsername, fallbackPassword);
+          if (fb.statusCode === 200 && !fb.body.includes('<fault>')) {
+            resp = fb; // fallback worked — parse its body below
+          } else {
+            console.log(`[Sippy] ${method} fallback also faulted — trying admin portal scrape`);
+            return tryAdminPortalScrape();
+          }
+        } else {
+          return tryAdminPortalScrape();
+        }
+      }
 
       const structs = extractAllTags(resp.body, 'struct');
       const calls: SippyActiveCall[] = [];
@@ -1252,12 +1292,24 @@ export async function getSippyActiveCalls(
           nodeId:        m['NODE_ID'] || undefined,
         });
       }
+      console.log(`[Sippy] ${method} returned ${calls.length} active calls (XML-RPC, user=${username})`);
+      // If XML-RPC returned 0 calls, the credential may be account-scoped and miss other
+      // clients' calls (e.g. RTST1 can only see its own scope, not PUSHTOTALK calls).
+      // Always verify via admin portal scrape which shows ALL calls across all accounts.
+      if (calls.length === 0) {
+        const portalCalls = await tryAdminPortalScrape();
+        if (portalCalls.length > 0) {
+          console.log(`[Sippy] Portal scrape found ${portalCalls.length} calls that XML-RPC missed (scope issue)`);
+          return portalCalls;
+        }
+      }
       return calls;
     } catch {
       continue;
     }
   }
-  return [];
+  // Final fallback: portal scrape
+  return tryAdminPortalScrape();
 }
 
 // ── disconnectCall() — docs 107462 ────────────────────────────────────────────
