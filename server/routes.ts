@@ -1722,6 +1722,81 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // GET /api/sippy/cdr/graphs — pre-aggregated CDR data for charts
+  // Returns: hourly call counts (last 24h), top destinations, top clients
+  app.get('/api/sippy/cdr/graphs', async (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const settings = await storage.getSettings();
+      const credPairs = sippyXmlCredsPairs(settings);
+      const hours = Number(req.query.hours) || 24;
+
+      // Fetch a large batch of CDRs for the requested window
+      const now = new Date();
+      const startDate = new Date(now.getTime() - hours * 3600 * 1000);
+      const startStr = startDate.toISOString().slice(0, 19).replace('T', ' ');
+      const endStr   = now.toISOString().slice(0, 19).replace('T', ' ');
+
+      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      for (const { username, password } of credPairs) {
+        cdrs = await sippy.getSippyCDRs(username, password, 5000, { startDate: startStr, endDate: endStr });
+        if (cdrs.length > 0) break;
+      }
+      // Enrich client names
+      cdrs = cdrs.map(c => ({
+        ...c,
+        clientName: c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || (c.iAccount ? `Acct.${c.iAccount}` : 'Unknown'),
+      }));
+
+      // 1) Hourly call counts
+      const buckets: Record<string, { total: number; answered: number }> = {};
+      for (let h = hours - 1; h >= 0; h--) {
+        const t = new Date(now.getTime() - h * 3600 * 1000);
+        const label = `${String(t.getUTCHours()).padStart(2, '0')}:00`;
+        buckets[label] = { total: 0, answered: 0 };
+      }
+      for (const c of cdrs) {
+        const ts = c.connectTime ? new Date(c.connectTime) : null;
+        if (!ts) continue;
+        const hoursAgo = (now.getTime() - ts.getTime()) / 3600000;
+        if (hoursAgo > hours) continue;
+        const label = `${String(ts.getUTCHours()).padStart(2, '0')}:00`;
+        if (buckets[label]) {
+          buckets[label].total++;
+          if ((c.duration ?? 0) > 0) buckets[label].answered++;
+        }
+      }
+      const hourly = Object.entries(buckets).map(([hour, v]) => ({ hour, ...v }));
+
+      // 2) Top destinations (by country or CLD prefix)
+      const destMap: Record<string, number> = {};
+      for (const c of cdrs) {
+        const dest = c.country || (c.callee ? c.callee.slice(0, 3) : 'Unknown');
+        destMap[dest] = (destMap[dest] || 0) + 1;
+      }
+      const byDestination = Object.entries(destMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 15)
+        .map(([name, calls]) => ({ name, calls }));
+
+      // 3) Top clients
+      const clientMap: Record<string, number> = {};
+      for (const c of cdrs) {
+        const client = c.clientName || 'Unknown';
+        clientMap[client] = (clientMap[client] || 0) + 1;
+      }
+      const byClient = Object.entries(clientMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 15)
+        .map(([name, calls]) => ({ name, calls }));
+
+      res.json({ hourly, byDestination, byClient, total: cdrs.length, windowHours: hours });
+    } catch (err: any) {
+      console.error('[graphs]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // GET /api/sippy/cdr — CDR records from Sippy
   // Query params: limit, startDate (ISO/Sippy), endDate, iCustomer, iAccount, type,
   //               cli, cld, offset, iWholesaler, iCdrsCustomer

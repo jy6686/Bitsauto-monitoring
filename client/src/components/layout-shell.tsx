@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useEffect } from "react";
@@ -56,6 +56,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/balance",           label: "Balance Monitor",   icon: Wallet,          roles: ['admin','management']          },
     { href: "/dids",              label: "DID Management",    icon: PhoneIncoming,   roles: ['admin','management']          },
     { href: "/traffic-map",       label: "Traffic Map",       icon: Globe,           roles: ['admin','management']          },
+    { href: "/graphs",            label: "Graphs",            icon: LineChart,       roles: ['admin','management']          },
     { href: "/reports",           label: "Reports",           icon: BarChart2,       roles: ['admin','management']          },
     { href: "/cdrs",              label: "CDR Viewer",        icon: FileText,        roles: ['admin','management']          },
     { href: "/fraud",             label: "Fraud / FAS",       icon: ShieldAlert,     roles: ['admin','management']          },

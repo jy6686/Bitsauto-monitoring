@@ -517,33 +517,6 @@ export default function DashboardPage() {
         })()}
       </div>
 
-      {/* ── Telecom KPI Row ────────────────────────────────────────────────── */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <StatCard
-          title="ASR"
-          value={notConnected ? '—' : (sippyStatsLoading && !sippyStats) ? '…' : `${displayAsr.toFixed(1)}%`}
-          icon={BarChart2}
-          className={displayAsr >= 70 ? "border-emerald-500/20" : displayAsr >= 50 ? "border-amber-500/20" : (notConnected ? "border-border/50" : "border-rose-500/20")}
-          description="Answer-Seizure Ratio — calls answered vs attempted"
-        />
-        <StatCard
-          title="ACD"
-          value={notConnected ? '—' : (sippyStatsLoading && !sippyStats) ? '…' : (() => {
-            const acd = displayAcd;
-            return acd >= 60 ? `${Math.floor(acd / 60)}m ${acd % 60}s` : `${acd}s`;
-          })()}
-          icon={Clock}
-          className="border-violet-500/20"
-          description="Avg Call Duration — mean length of completed calls"
-        />
-        <StatCard
-          title="PDD"
-          value={notConnected ? '—' : (sippyStatsLoading && !sippyStats) ? '…' : (displayPdd > 0 ? `${displayPdd.toFixed(2)}s` : '—')}
-          icon={Timer}
-          className={displayPdd > 0 && displayPdd <= 1.5 ? "border-emerald-500/20" : displayPdd > 1.5 ? "border-amber-500/20" : "border-border/50"}
-          description="Post-Dial Delay — avg time from dial to first ringback"
-        />
-      </div>
 
       {/* ── Revenue / Cost / Margin Strip ──────────────────────────────────── */}
       {anyPortalActive && (
