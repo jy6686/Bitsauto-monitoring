@@ -1379,16 +1379,17 @@ export async function registerRoutes(
       const cdrEndDate   = sippy.toSippyDate(winEnd);
       const credPairs    = sippyXmlCredsPairs(settings);
 
-      // Run monitoring graph + live calls + CPS in parallel; CDRs fetched separately below
-      const [monResult, liveCallsRaw, cpsResult] = await Promise.all([
+      // Run monitoring graph + CPS in parallel — live calls intentionally NOT fetched here.
+      // Live call count + PDD come from /api/sippy/live-calls (separate 5-second poll).
+      // Merging getSippyActiveCalls into this endpoint caused concurrent XML-RPC requests
+      // that throttled Sippy and made the Live Calls page show stale/empty data.
+      const [monResult, cpsResult] = await Promise.all([
         sippy.getSippyMonitoringData(username, password, 'acd_asr', {
           startDate: sippyDate,
           interval:  300,
           iEnvironment: 5,
           explicitPortalUrl: portalUrl,
         }),
-        sippy.getSippyActiveCalls(username, password, portalUrl, undefined,
-          settings?.portalUsername ?? '', settings?.portalPassword ?? ''),
         sippy.getSippyMonitoringData(username, password, 'cps_total', {
           startDate: sippyDate,
           interval:  300,
@@ -1455,22 +1456,14 @@ export async function registerRoutes(
       const latestCpt = cpsPts.length > 0 ? cpsPts[cpsPts.length - 1] : null;
       const cps       = latestCpt ? parseFloat((latestCpt.cps ?? latestCpt.col1 ?? 0).toFixed(2)) : 0;
 
-      // PDD = average delay field across currently routing calls
-      const routingCalls = liveCallsRaw.filter(c => c.delay && c.delay > 0);
-      const pdd = routingCalls.length > 0
-        ? parseFloat((routingCalls.reduce((s, c) => s + c.delay, 0) / routingCalls.length).toFixed(2))
-        : 0;
-
-      const activeCalls = liveCallsRaw.length;
+      // activeCalls / pdd / liveCount: NOT computed here — sourced from /api/sippy/live-calls
+      // on the frontend (5-second poll, single XML-RPC source to avoid throttling Sippy).
 
       res.json({
-        activeCalls,
         asr,
         acd,
-        pdd,
         cps,
         connected:   true,
-        liveCount:   liveCallsRaw.length,
         monOk:       monResult.ok,
         dataPoints:  monResult.points.length,
         nonZeroPts:  nonZeroPts.length,
@@ -1482,7 +1475,7 @@ export async function registerRoutes(
         estimatedMos,
       });
     } catch (err: any) {
-      res.json({ activeCalls: 0, asr: 0, acd: 0, pdd: 0, connected: false, error: err.message });
+      res.json({ asr: 0, acd: 0, cps: 0, connected: false, error: err.message });
     }
   });
 

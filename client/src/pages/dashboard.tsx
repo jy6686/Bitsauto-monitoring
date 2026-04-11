@@ -76,9 +76,8 @@ export default function DashboardPage() {
   });
   // Sippy real-time dashboard stats — ASR, ACD, PDD, active calls direct from Sippy switch
   const { data: sippyStats, isLoading: sippyStatsLoading, dataUpdatedAt: statsUpdatedAt } = useQuery<{
-    activeCalls: number; totalCalls: number; answeredCalls: number;
-    asr: number; acd: number; pdd: number; totalMinutes: number;
-    connected: boolean; liveCount: number; rawFields: Record<string, string>;
+    asr: number; acd: number;
+    connected: boolean;
     // CK stats from CDRs
     ckRatio?: number;
     ckBreakdown?: { connected: number; wrongNumber: number; switchedOff: number; untraceable: number; total: number };
@@ -153,15 +152,20 @@ export default function DashboardPage() {
   const liveCalls = sippyLiveCalls?.calls ?? [];
 
   // When Sippy is connected, use Sippy switch data for all KPI cards.
-  // sippyStats.activeCalls comes from call_control.getCountersStats (real concurrent count).
-  // Fall back to liveCount (snapshot) or local DB when Sippy stats not yet loaded.
-  const displayActiveCalls = anyPortalActive
-    ? (sippyStats?.activeCalls ?? sippyStats?.liveCount ?? liveCalls.length)
-    : (stats?.activeCalls ?? 0);
+  // activeCalls + PDD come from /api/sippy/live-calls (5-second poll) — NOT dashboard-stats,
+  // to avoid concurrent XML-RPC requests that throttle Sippy and break the Live Calls page.
+  const displayActiveCalls = anyPortalActive ? liveCalls.length : (stats?.activeCalls ?? 0);
   const displayAsr = anyPortalActive ? (sippyStats?.asr ?? 0) : (stats?.asr ?? 0);
   // ACD: Sippy returns seconds; format for display separately
   const displayAcd = anyPortalActive ? (sippyStats?.acd ?? 0) : (stats?.acd ?? 0);
-  const displayPdd = anyPortalActive ? (sippyStats?.pdd ?? 0) : (stats?.pdd ?? 0);
+  const displayPdd = anyPortalActive
+    ? (() => {
+        const routing = liveCalls.filter((c: any) => c.delay && c.delay > 0);
+        return routing.length > 0
+          ? parseFloat((routing.reduce((s: number, c: any) => s + c.delay, 0) / routing.length).toFixed(2))
+          : 0;
+      })()
+    : (stats?.pdd ?? 0);
 
   // MOS: when Sippy is connected, use E-model estimate from probe latency; fall back to local DB
   const displayMos = anyPortalActive
