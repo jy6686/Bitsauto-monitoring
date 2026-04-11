@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useDashboardStats } from "@/hooks/use-dashboard";
 import { useCalls } from "@/hooks/use-calls";
 import { useAlerts } from "@/hooks/use-alerts";
@@ -69,6 +70,7 @@ export default function DashboardPage() {
   const { data: recentCalls } = useCalls(5);
   const { data: recentAlerts } = useAlerts();
   const { data: settings } = useSettings();
+  const [trendHours, setTrendHours] = useState(1);
 
 
   const { data: probe, isLoading: probeLoading } = useQuery<ProbeStatus>({
@@ -120,6 +122,31 @@ export default function DashboardPage() {
   });
   const recentFasEvents = (fasEventsData?.events ?? []).slice(0, 5);
 
+  const { data: qualityTrend } = useQuery<{ ok: boolean; points: { ts: number; asr: number; acd: number }[] }>({
+    queryKey: ['/api/sippy/monitoring/acd-asr', trendHours],
+    queryFn: async () => {
+      const res = await fetch(`/api/sippy/monitoring/acd-asr?hours=${trendHours}&interval=300`);
+      if (!res.ok) throw new Error('Failed to fetch quality trend');
+      return res.json();
+    },
+    refetchInterval: 60000,
+    enabled: isSippyReachable,
+  });
+
+  // Downsample monitoring points to ~30 for clean chart display
+  const chartData = (() => {
+    const pts = qualityTrend?.points ?? [];
+    if (!pts.length) return [];
+    const step = Math.max(1, Math.ceil(pts.length / 30));
+    return pts
+      .filter((_, i) => i % step === 0 || i === pts.length - 1)
+      .map(p => ({
+        time: formatUTC(new Date(p.ts * 1000), 'HH:mm'),
+        asr: parseFloat(p.asr.toFixed(1)),
+        acd: parseFloat(p.acd.toFixed(0)),
+      }));
+  })();
+
   const probeMutation = useMutation({
     mutationFn: () => apiRequest('POST', '/api/probe/run'),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/probe/status'] }),
@@ -130,14 +157,6 @@ export default function DashboardPage() {
   const anyPortalActive = isSippyReachable;
   const notConnected = simulationOff && !anyPortalActive;
 
-  // Build chart data from recent call metrics (real or simulated)
-  const chartData = (recentCalls ?? [])
-    .filter((c: any) => c.latestMetric)
-    .map((c: any) => ({
-      time: formatUTC(new Date(c.startTime), 'HH:mm'),
-      mos: parseFloat((c.latestMetric?.mos ?? 0).toFixed(2)),
-    }))
-    .reverse();
 
   const liveCalls = sippyLiveCalls?.calls ?? [];
 
@@ -503,45 +522,65 @@ export default function DashboardPage() {
         {/* Main Chart Area */}
         <div className="col-span-4 rounded-xl border border-border bg-card p-6 shadow-sm">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="font-semibold flex items-center gap-2">
-              <Activity className="w-4 h-4 text-primary" />
-              Network Quality Trend
-            </h3>
-            <select className="bg-background border border-border rounded-md text-xs px-2 py-1">
-              <option>Last Hour</option>
-              <option>Last 24 Hours</option>
+            <div>
+              <h3 className="font-semibold flex items-center gap-2">
+                <Activity className="w-4 h-4 text-primary" />
+                ASR Trend
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Answer-Seizure Ratio — live from Sippy switch</p>
+            </div>
+            <select
+              className="bg-background border border-border rounded-md text-xs px-2 py-1"
+              value={trendHours}
+              onChange={e => setTrendHours(Number(e.target.value))}
+              data-testid="select-trend-window"
+            >
+              <option value={1}>Last Hour</option>
+              <option value={6}>Last 6 Hours</option>
+              <option value={24}>Last 24 Hours</option>
             </select>
           </div>
           <div className="h-[300px] w-full">
             {chartData.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
                 <Activity className="w-8 h-8 opacity-30" />
-                <p className="text-sm">No quality trend data yet.</p>
-                <p className="text-xs opacity-60">{notConnected ? 'Connect to your softswitch to see live MOS trends.' : 'Data will appear as calls are processed.'}</p>
+                <p className="text-sm">{notConnected ? 'Connect to your softswitch to see live ASR trends.' : 'Loading ASR trend data…'}</p>
               </div>
             ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData}>
                 <defs>
-                  <linearGradient id="colorMos" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="colorAsr" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                <XAxis dataKey="time" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#666" fontSize={12} tickLine={false} axisLine={false} domain={[1, 5]} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#111', borderColor: '#333' }}
-                  itemStyle={{ color: '#fff' }}
+                <XAxis dataKey="time" stroke="#666" fontSize={11} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                <YAxis
+                  stroke="#666"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  domain={[0, 100]}
+                  tickFormatter={(v) => `${v}%`}
+                  width={38}
                 />
-                <Area 
-                  type="monotone" 
-                  dataKey="mos" 
-                  stroke="#10b981" 
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#111', borderColor: '#333', borderRadius: '6px' }}
+                  itemStyle={{ color: '#fff' }}
+                  formatter={(value: any, name: string) =>
+                    name === 'asr' ? [`${value}%`, 'ASR'] : [`${value}s`, 'ACD']
+                  }
+                />
+                <Area
+                  type="monotone"
+                  dataKey="asr"
+                  stroke="#10b981"
                   strokeWidth={2}
-                  fillOpacity={1} 
-                  fill="url(#colorMos)" 
+                  fillOpacity={1}
+                  fill="url(#colorAsr)"
+                  dot={false}
                 />
               </AreaChart>
             </ResponsiveContainer>
