@@ -1,7 +1,7 @@
 
 import { 
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
-  switches, fasEvents, callSnapshots,
+  switches, fasEvents, callSnapshots, monitoringAssignments,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -73,6 +73,10 @@ export interface IStorage {
   upsertCallSnapshot(snapshot: InsertCallSnapshot): Promise<void>;
   getCallHistory(hoursBack?: number): Promise<CallSnapshot[]>;
   cleanupOldSnapshots(): Promise<void>;
+
+  // Monitoring Assignments
+  getAllMonitoringAssignments(): Promise<Record<string, string[]>>;
+  setMonitoringAssignments(userId: string, items: string[], assignedBy?: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -487,6 +491,24 @@ export class DatabaseStorage implements IStorage {
   async cleanupOldSnapshots(): Promise<void> {
     const cutoff = new Date(Date.now() - 25 * 3600 * 1000); // 25h buffer
     await db.delete(callSnapshots).where(lt(callSnapshots.lastSeen, cutoff));
+  }
+
+  async getAllMonitoringAssignments(): Promise<Record<string, string[]>> {
+    const rows = await db.select().from(monitoringAssignments);
+    const result: Record<string, string[]> = {};
+    for (const row of rows) {
+      result[row.userId] = row.items ?? [];
+    }
+    return result;
+  }
+
+  async setMonitoringAssignments(userId: string, items: string[], assignedBy?: string): Promise<void> {
+    await db.insert(monitoringAssignments)
+      .values({ userId, items, assignedBy: assignedBy ?? null, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: monitoringAssignments.userId,
+        set: { items, assignedBy: assignedBy ?? null, updatedAt: new Date() },
+      });
   }
 }
 

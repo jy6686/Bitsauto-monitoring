@@ -678,6 +678,29 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/team/monitoring-assignments — all assignments (admin only)
+  app.get('/api/team/monitoring-assignments', (req: any, res, next) => requireRole(['admin'], req, res, next), async (_req, res) => {
+    try {
+      const assignments = await storage.getAllMonitoringAssignments();
+      res.json(assignments);
+    } catch {
+      res.status(500).json({ message: 'Failed to fetch monitoring assignments' });
+    }
+  });
+
+  // PUT /api/team/:userId/monitoring-assignments — set assignments for one user (admin only)
+  app.put('/api/team/:userId/monitoring-assignments', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    const { userId } = req.params;
+    const { items } = req.body as { items: string[] };
+    if (!Array.isArray(items)) return res.status(400).json({ message: 'items must be an array' });
+    try {
+      await storage.setMonitoringAssignments(userId, items, req.user.claims.sub);
+      res.json({ ok: true, userId, items });
+    } catch {
+      res.status(500).json({ message: 'Failed to save monitoring assignments' });
+    }
+  });
+
   // ── User Configuration API ────────────────────────────────────────────────
 
   // GET /api/user/config — returns the logged-in user's personal config

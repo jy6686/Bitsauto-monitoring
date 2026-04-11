@@ -4,11 +4,54 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   Shield, Users, Loader2, CheckCircle2, UserCog, Search,
   Crown, Eye, Briefcase, Calendar, ChevronDown, XCircle, UserCheck,
+  MonitorDot, ChevronRight, Activity, BarChart2, MapPin, Bell,
+  AlertTriangle, DollarSign, Phone, Route, Tv2, List,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import type { Role } from "@shared/schema";
+import { MONITORING_ITEMS, type MonitoringItemId } from "@shared/schema";
 
 type TeamMember = AuthUser;
+
+// ─── Monitoring item visual config ───────────────────────────────────────────
+
+const ITEM_ICON: Record<MonitoringItemId, React.ElementType> = {
+  live_summary:    Tv2,
+  live_details:    List,
+  live_quality:    Activity,
+  call_history:    Phone,
+  balance_monitor: DollarSign,
+  alerts:          Bell,
+  fraud_fas:       AlertTriangle,
+  traffic_map:     MapPin,
+  reports:         BarChart2,
+  route_quality:   Route,
+  did_management:  MonitorDot,
+};
+
+const ITEM_COLOR: Record<MonitoringItemId, string> = {
+  live_summary:    'text-violet-400',
+  live_details:    'text-violet-400',
+  live_quality:    'text-violet-400',
+  call_history:    'text-violet-400',
+  balance_monitor: 'text-emerald-400',
+  alerts:          'text-rose-400',
+  fraud_fas:       'text-orange-400',
+  traffic_map:     'text-cyan-400',
+  reports:         'text-blue-400',
+  route_quality:   'text-blue-400',
+  did_management:  'text-amber-400',
+};
+
+const GROUP_COLOR: Record<string, string> = {
+  'Live Calls':  'text-violet-400 border-violet-500/30 bg-violet-500/10',
+  'Finance':     'text-emerald-400 border-emerald-500/30 bg-emerald-500/10',
+  'Operations':  'text-cyan-400 border-cyan-500/30 bg-cyan-500/10',
+  'Security':    'text-orange-400 border-orange-500/30 bg-orange-500/10',
+  'Reports':     'text-blue-400 border-blue-500/30 bg-blue-500/10',
+};
+
+// ─── Role metadata ────────────────────────────────────────────────────────────
 
 const ROLE_META: Record<Role, {
   label: string; color: string; bg: string; border: string;
@@ -58,6 +101,8 @@ const PERMISSIONS = [
   { label: "Team Management",    admin: true,  mgmt: false, viewer: false },
 ];
 
+// ─── Small reusable pieces ────────────────────────────────────────────────────
+
 function RoleBadge({ role }: { role: Role }) {
   const m = ROLE_META[role] || ROLE_META.viewer;
   const Icon = m.icon;
@@ -69,10 +114,9 @@ function RoleBadge({ role }: { role: Role }) {
   );
 }
 
-function Avatar({ member }: { member: TeamMember }) {
+function MemberAvatar({ member }: { member: TeamMember }) {
   const initials = ((member.firstName?.[0] || '') + (member.lastName?.[0] || '')).toUpperCase()
     || member.email?.[0]?.toUpperCase() || '?';
-
   if (member.profileImageUrl) {
     return (
       <img
@@ -82,9 +126,27 @@ function Avatar({ member }: { member: TeamMember }) {
       />
     );
   }
-
   return (
     <div className="h-10 w-10 rounded-full bg-gradient-to-br from-violet-500/30 to-blue-500/30 ring-2 ring-border flex items-center justify-center text-sm font-bold text-violet-300 flex-shrink-0 select-none">
+      {initials}
+    </div>
+  );
+}
+
+function SmallAvatar({ member }: { member: TeamMember }) {
+  const initials = ((member.firstName?.[0] || '') + (member.lastName?.[0] || '')).toUpperCase()
+    || member.email?.[0]?.toUpperCase() || '?';
+  if (member.profileImageUrl) {
+    return (
+      <img
+        src={member.profileImageUrl}
+        alt={initials}
+        className="h-6 w-6 rounded-full object-cover ring-1 ring-border flex-shrink-0"
+      />
+    );
+  }
+  return (
+    <div className="h-6 w-6 rounded-full bg-gradient-to-br from-violet-500/30 to-blue-500/30 ring-1 ring-border flex items-center justify-center text-[10px] font-bold text-violet-300 flex-shrink-0 select-none">
       {initials}
     </div>
   );
@@ -138,6 +200,173 @@ function RoleSelector({ memberId, currentRole, selfId }: {
   );
 }
 
+// ─── Monitoring Assignment Panel (per-member) ─────────────────────────────────
+
+function MonitoringAssignmentPanel({
+  member,
+  assignedItems,
+  currentUserId,
+}: {
+  member: TeamMember;
+  assignedItems: string[];
+  currentUserId: string;
+}) {
+  const queryClient = useQueryClient();
+  const [expanded, setExpanded] = useState(false);
+  const [localItems, setLocalItems] = useState<Set<string>>(new Set(assignedItems));
+  const [dirty, setDirty] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  const displayName = [member.firstName, member.lastName].filter(Boolean).join(' ') || member.email || member.id;
+
+  const mutation = useMutation({
+    mutationFn: (items: string[]) =>
+      apiRequest('PUT', `/api/team/${member.id}/monitoring-assignments`, { items }),
+    onMutate: () => setSaveStatus('saving'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/team/monitoring-assignments'] });
+      setDirty(false);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2500);
+    },
+    onError: () => setSaveStatus('error'),
+  });
+
+  function toggle(id: string) {
+    setLocalItems(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+    setDirty(true);
+    setSaveStatus('idle');
+  }
+
+  function save() {
+    mutation.mutate([...localItems]);
+  }
+
+  // Group items
+  const groups = useMemo(() => {
+    const map: Record<string, typeof MONITORING_ITEMS[number][]> = {};
+    for (const item of MONITORING_ITEMS) {
+      if (!map[item.group]) map[item.group] = [];
+      map[item.group].push(item);
+    }
+    return Object.entries(map);
+  }, []);
+
+  const assignedCount = localItems.size;
+
+  return (
+    <div className="border border-border/40 rounded-xl overflow-hidden">
+      {/* Row header */}
+      <button
+        data-testid={`btn-expand-assign-${member.id}`}
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/20 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <SmallAvatar member={member} />
+          <div className="min-w-0">
+            <p className="text-sm font-medium leading-tight truncate">{displayName}</p>
+            <p className="text-xs text-muted-foreground">{member.email}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {assignedCount > 0 ? (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-300 font-medium">
+              {assignedCount} item{assignedCount !== 1 ? 's' : ''}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground/50 italic">unassigned</span>
+          )}
+          <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
+        </div>
+      </button>
+
+      {/* Expanded checkboxes */}
+      {expanded && (
+        <div className="border-t border-border/40 px-4 py-4 space-y-4 bg-muted/5">
+          {groups.map(([group, items]) => {
+            const gc = GROUP_COLOR[group] || 'text-muted-foreground border-border bg-muted/20';
+            return (
+              <div key={group}>
+                <p className={`text-xs font-semibold uppercase tracking-wider mb-2 px-2 py-0.5 rounded-md inline-flex items-center gap-1 border ${gc}`}>
+                  {group}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {items.map(item => {
+                    const Icon = ITEM_ICON[item.id as MonitoringItemId];
+                    const ic = ITEM_COLOR[item.id as MonitoringItemId];
+                    const checked = localItems.has(item.id);
+                    return (
+                      <label
+                        key={item.id}
+                        data-testid={`checkbox-assign-${member.id}-${item.id}`}
+                        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer transition-colors border ${
+                          checked
+                            ? 'bg-violet-500/10 border-violet-500/30'
+                            : 'border-transparent hover:bg-muted/30'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={checked}
+                          onChange={() => toggle(item.id)}
+                        />
+                        <div className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-colors ${
+                          checked ? 'bg-violet-600 border-violet-500' : 'border-border bg-background'
+                        }`}>
+                          {checked && (
+                            <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 10 8">
+                              <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </div>
+                        <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${ic}`} />
+                        <span className="text-sm leading-tight">{item.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="flex items-center justify-between pt-1 border-t border-border/30">
+            <div className="flex items-center gap-2">
+              {saveStatus === 'saved' && (
+                <span className="text-xs text-emerald-400 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Saved
+                </span>
+              )}
+              {saveStatus === 'error' && (
+                <span className="text-xs text-rose-400 flex items-center gap-1">
+                  <XCircle className="w-3.5 h-3.5" /> Save failed
+                </span>
+              )}
+            </div>
+            <button
+              data-testid={`btn-save-assign-${member.id}`}
+              onClick={save}
+              disabled={!dirty || saveStatus === 'saving'}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-medium hover:bg-violet-500 active:scale-95 transition-all disabled:opacity-40 whitespace-nowrap"
+            >
+              {saveStatus === 'saving'
+                ? <><Loader2 className="w-3 h-3 animate-spin" /> Saving…</>
+                : <><CheckCircle2 className="w-3 h-3" /> Save</>}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function TeamPage() {
   const { user, isAdmin } = useAuth();
   const queryClient = useQueryClient();
@@ -149,6 +378,11 @@ export default function TeamPage() {
 
   const { data: members = [], isLoading } = useQuery<TeamMember[]>({
     queryKey: ["/api/team"],
+    enabled: isAdmin,
+  });
+
+  const { data: allAssignments = {} } = useQuery<Record<string, string[]>>({
+    queryKey: ["/api/team/monitoring-assignments"],
     enabled: isAdmin,
   });
 
@@ -184,6 +418,19 @@ export default function TeamPage() {
     onError: (err: any) => setAssignResult({ ok: false, msg: err.message || 'Failed to assign role.' }),
   });
 
+  // Build assignment overview: item id → members assigned
+  const assignmentOverview = useMemo(() => {
+    const map: Record<string, TeamMember[]> = {};
+    for (const item of MONITORING_ITEMS) map[item.id] = [];
+    for (const member of members) {
+      const items = allAssignments[member.id] ?? [];
+      for (const itemId of items) {
+        if (map[itemId]) map[itemId].push(member);
+      }
+    }
+    return map;
+  }, [members, allAssignments]);
+
   if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[40vh] gap-4 text-center">
@@ -203,7 +450,7 @@ export default function TeamPage() {
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Team Management</h2>
         <p className="text-muted-foreground mt-1">
-          Control your team's access levels. Changes take effect immediately.
+          Control your team's access levels and monitoring responsibilities.
         </p>
       </div>
 
@@ -229,7 +476,6 @@ export default function TeamPage() {
 
       {/* Two-column: Assign Role + Role Legend */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-
         {/* Quick Assign Role */}
         <div className="lg:col-span-3 bg-card border border-violet-500/20 rounded-xl overflow-hidden">
           <div className="flex items-center gap-3 px-5 py-3.5 border-b border-border/50 bg-violet-500/5">
@@ -309,7 +555,6 @@ export default function TeamPage() {
 
       {/* Team Member List */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
-        {/* List Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-border/50 bg-muted/20">
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4 text-muted-foreground" />
@@ -321,7 +566,6 @@ export default function TeamPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {/* Search */}
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
               <input
@@ -333,7 +577,6 @@ export default function TeamPage() {
                 className="pl-8 pr-3 py-1.5 bg-background border border-border rounded-lg text-xs w-44 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition-all"
               />
             </div>
-            {/* Filter by role */}
             <div className="relative">
               <select
                 data-testid="select-filter-role"
@@ -351,7 +594,6 @@ export default function TeamPage() {
           </div>
         </div>
 
-        {/* List Body */}
         {isLoading ? (
           <div className="flex items-center justify-center py-14 gap-3 text-muted-foreground">
             <Loader2 className="w-5 h-5 animate-spin" />
@@ -390,7 +632,7 @@ export default function TeamPage() {
                   className="flex items-center justify-between px-5 py-4 hover:bg-muted/20 transition-colors gap-4"
                 >
                   <div className="flex items-center gap-3.5 min-w-0">
-                    <Avatar member={member} />
+                    <MemberAvatar member={member} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p data-testid={`text-member-name-${member.id}`} className="font-medium text-sm leading-tight">
@@ -414,17 +656,117 @@ export default function TeamPage() {
                     </div>
                   </div>
                   <div className="flex-shrink-0">
-                    <RoleSelector
-                      memberId={member.id}
-                      currentRole={member.role}
-                      selfId={user?.id ?? ''}
-                    />
+                    <RoleSelector memberId={member.id} currentRole={member.role} selfId={user?.id ?? ''} />
                   </div>
                 </div>
               );
             })}
           </div>
         )}
+      </div>
+
+      {/* ── Monitoring Assignments ─────────────────────────────────────────────── */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 bg-muted/20">
+          <MonitorDot className="w-4 h-4 text-violet-400" />
+          <div>
+            <h3 className="font-semibold text-sm">Monitoring Assignments</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Select which monitoring areas each team member is responsible for. Expand a member to configure.
+            </p>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12 gap-3 text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm">Loading…</span>
+          </div>
+        ) : !members.length ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <Users className="w-9 h-9 mx-auto mb-3 opacity-25" />
+            <p className="text-sm">No team members yet.</p>
+          </div>
+        ) : (
+          <div className="p-4 space-y-2">
+            {members.map(member => (
+              <MonitoringAssignmentPanel
+                key={member.id}
+                member={member}
+                assignedItems={allAssignments[member.id] ?? []}
+                currentUserId={user?.id ?? ''}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Assignment Overview (item → who's watching) ───────────────────────── */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 bg-muted/20">
+          <Activity className="w-4 h-4 text-cyan-400" />
+          <div>
+            <h3 className="font-semibold text-sm">Assignment Overview</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Which team members are watching each area</p>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border/50 bg-muted/10">
+                <th className="text-left px-5 py-3 text-xs text-muted-foreground font-medium uppercase tracking-wide">Monitoring Area</th>
+                <th className="text-left px-5 py-3 text-xs text-muted-foreground font-medium uppercase tracking-wide">Group</th>
+                <th className="text-left px-5 py-3 text-xs text-muted-foreground font-medium uppercase tracking-wide">Assigned To</th>
+              </tr>
+            </thead>
+            <tbody>
+              {MONITORING_ITEMS.map((item, i) => {
+                const Icon = ITEM_ICON[item.id as MonitoringItemId];
+                const ic = ITEM_COLOR[item.id as MonitoringItemId];
+                const gc = GROUP_COLOR[item.group] || 'text-muted-foreground border-border bg-muted/20';
+                const assigned = assignmentOverview[item.id] ?? [];
+                return (
+                  <tr
+                    key={item.id}
+                    data-testid={`row-overview-${item.id}`}
+                    className={`border-b border-border/20 last:border-0 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}
+                  >
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        <Icon className={`w-4 h-4 flex-shrink-0 ${ic}`} />
+                        <span className="font-medium">{item.label}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-md border font-medium ${gc}`}>{item.group}</span>
+                    </td>
+                    <td className="px-5 py-3">
+                      {assigned.length === 0 ? (
+                        <span className="text-xs text-muted-foreground/50 italic">— unassigned</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {assigned.map(m => {
+                            const name = [m.firstName, m.lastName].filter(Boolean).join(' ') || m.email || m.id;
+                            return (
+                              <div
+                                key={m.id}
+                                data-testid={`badge-assigned-${item.id}-${m.id}`}
+                                className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-300 text-xs font-medium"
+                              >
+                                <SmallAvatar member={m} />
+                                {name}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Permissions Matrix */}
@@ -439,28 +781,19 @@ export default function TeamPage() {
               <tr className="border-b border-border/50 bg-muted/10">
                 <th className="text-left px-5 py-3 text-muted-foreground font-medium text-xs uppercase tracking-wide">Page / Feature</th>
                 <th className="text-center px-4 py-3 text-xs uppercase tracking-wide">
-                  <span className="inline-flex items-center gap-1.5 text-rose-400 font-semibold">
-                    <Crown className="w-3.5 h-3.5" />Admin
-                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-rose-400 font-semibold"><Crown className="w-3.5 h-3.5" />Admin</span>
                 </th>
                 <th className="text-center px-4 py-3 text-xs uppercase tracking-wide">
-                  <span className="inline-flex items-center gap-1.5 text-amber-400 font-semibold">
-                    <Briefcase className="w-3.5 h-3.5" />Mgmt
-                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-amber-400 font-semibold"><Briefcase className="w-3.5 h-3.5" />Mgmt</span>
                 </th>
                 <th className="text-center px-4 py-3 text-xs uppercase tracking-wide">
-                  <span className="inline-flex items-center gap-1.5 text-blue-400 font-semibold">
-                    <Eye className="w-3.5 h-3.5" />Viewer
-                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-blue-400 font-semibold"><Eye className="w-3.5 h-3.5" />Viewer</span>
                 </th>
               </tr>
             </thead>
             <tbody>
               {PERMISSIONS.map(({ label, admin, mgmt, viewer }, i) => (
-                <tr
-                  key={label}
-                  className={`border-b border-border/20 last:border-0 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}
-                >
+                <tr key={label} className={`border-b border-border/20 last:border-0 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
                   <td className="px-5 py-2.5 font-medium text-sm">{label}</td>
                   {[admin, mgmt, viewer].map((has, j) => (
                     <td key={j} className="text-center px-4 py-2.5">
