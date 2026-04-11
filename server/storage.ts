@@ -1,7 +1,7 @@
 
 import { 
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
-  switches, fasEvents, callSnapshots, monitoringAssignments,
+  switches, fasEvents, callSnapshots, monitoringAssignments, outageLog, alertRules,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -11,6 +11,8 @@ import {
   type Switch, type InsertSwitch,
   type FasEvent, type InsertFasEvent,
   type CallSnapshot, type InsertCallSnapshot,
+  type OutageEntry, type InsertOutageEntry,
+  type AlertRule, type InsertAlertRule,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -509,6 +511,43 @@ export class DatabaseStorage implements IStorage {
         target: monitoringAssignments.userId,
         set: { items, assignedBy: assignedBy ?? null, updatedAt: new Date() },
       });
+  }
+
+  // ── Outage Log ───────────────────────────────────────────────────────────────
+  async getOutageLog(limit = 50): Promise<OutageEntry[]> {
+    return db.select().from(outageLog).orderBy(desc(outageLog.downAt)).limit(limit);
+  }
+
+  async getLatestOutageEntry(): Promise<OutageEntry | null> {
+    const rows = await db.select().from(outageLog).orderBy(desc(outageLog.downAt)).limit(1);
+    return rows[0] ?? null;
+  }
+
+  async createOutageEntry(entry: InsertOutageEntry): Promise<OutageEntry> {
+    const rows = await db.insert(outageLog).values(entry).returning();
+    return rows[0];
+  }
+
+  async updateOutageEntry(id: number, updates: Partial<OutageEntry>): Promise<void> {
+    await db.update(outageLog).set(updates).where(eq(outageLog.id, id));
+  }
+
+  // ── Alert Rules ──────────────────────────────────────────────────────────────
+  async getAlertRules(): Promise<AlertRule[]> {
+    return db.select().from(alertRules).orderBy(desc(alertRules.createdAt));
+  }
+
+  async createAlertRule(rule: InsertAlertRule): Promise<AlertRule> {
+    const rows = await db.insert(alertRules).values(rule).returning();
+    return rows[0];
+  }
+
+  async updateAlertRule(id: number, updates: Partial<AlertRule>): Promise<void> {
+    await db.update(alertRules).set(updates).where(eq(alertRules.id, id));
+  }
+
+  async deleteAlertRule(id: number): Promise<void> {
+    await db.delete(alertRules).where(eq(alertRules.id, id));
   }
 }
 

@@ -6619,6 +6619,270 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ══════════════════════════════════════════════════════════════════════════════
+  // SERVER MONITORING ROUTES
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  // ── In-memory reachability state ─────────────────────────────────────────────
+  let reachabilityState: { up: boolean; checkedAt: Date; cause?: string; openOutageId?: number } = {
+    up: true, checkedAt: new Date(),
+  };
+
+  // ── Reachability background poller (every 30 s) ───────────────────────────────
+  async function checkReachability(): Promise<void> {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings?.portalUrl) return;
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+
+      let nowUp = false;
+      let cause: string | undefined;
+      try {
+        const result = await Promise.race([
+          sippy.connectSippy(portalUrl, username, password),
+          new Promise<never>((_, reject) => setTimeout(() => { cause = 'timeout'; reject(new Error('timeout')); }, 8000)),
+        ]) as { ok?: boolean; success?: boolean; error?: string } | null;
+        if (result && (result.ok || result.success)) {
+          nowUp = true;
+        } else {
+          cause = (result as any)?.error ?? 'connect_failed';
+        }
+      } catch (e: any) {
+        cause = cause ?? (e.message?.includes('timeout') ? 'timeout' : 'connection_refused');
+        nowUp = false;
+      }
+
+      const wasUp = reachabilityState.up;
+      reachabilityState = { up: nowUp, checkedAt: new Date(), cause: nowUp ? undefined : cause };
+
+      if (wasUp && !nowUp) {
+        // Server just went DOWN — create outage entry
+        const entry = await storage.createOutageEntry({ downAt: new Date(), cause: cause ?? 'unknown' });
+        reachabilityState.openOutageId = entry.id;
+        console.warn(`[monitoring] Sippy server DOWN — cause: ${cause}`);
+        // Fire alert rules for 'server_down'
+        await fireAlertRules('server_down', 1, { cause: cause ?? 'unknown' });
+      } else if (!wasUp && nowUp) {
+        // Server just came BACK UP — close the outage entry
+        if (reachabilityState.openOutageId) {
+          const downRow = (await storage.getOutageLog(50)).find(r => r.id === reachabilityState.openOutageId);
+          const durationSec = downRow ? Math.round((Date.now() - new Date(downRow.downAt).getTime()) / 1000) : null;
+          await storage.updateOutageEntry(reachabilityState.openOutageId, {
+            recoveredAt: new Date(),
+            durationSec: durationSec ?? undefined,
+          });
+          reachabilityState.openOutageId = undefined;
+        }
+        console.log('[monitoring] Sippy server RECOVERED');
+      }
+    } catch (e: any) {
+      console.warn('[monitoring] checkReachability error:', e.message);
+    }
+  }
+
+  // ── Alert rule firing ────────────────────────────────────────────────────────
+  async function fireAlertRules(metric: string, value: number, context: Record<string, any> = {}): Promise<void> {
+    try {
+      const rules = await storage.getAlertRules();
+      const matched = rules.filter(r =>
+        r.enabled && r.metric === metric &&
+        (r.comparison === 'gt' ? value > r.threshold : value < r.threshold)
+      );
+      if (matched.length === 0) return;
+
+      const settings = await storage.getSettings();
+      for (const rule of matched) {
+        const subject = `[VoIP Monitor] Alert: ${rule.label ?? rule.metric}`;
+        const body = `Metric: ${rule.metric}\nValue: ${value}\nThreshold: ${rule.comparison} ${rule.threshold}\nContext: ${JSON.stringify(context)}\nTime: ${new Date().toISOString()}`;
+
+        // Email
+        if (rule.emailEnabled && settings.alertEnabled && settings.alertGmailUser && settings.alertGmailAppPass && settings.alertAdminEmail) {
+          try {
+            const nodemailer = await import('nodemailer');
+            const transporter = nodemailer.default.createTransport({
+              service: 'gmail',
+              auth: { user: settings.alertGmailUser, pass: settings.alertGmailAppPass },
+            });
+            await transporter.sendMail({ from: settings.alertGmailUser, to: settings.alertAdminEmail, subject, text: body });
+          } catch (e: any) { console.warn('[monitoring] Email alert failed:', e.message); }
+        }
+
+        // Webhook
+        if (rule.webhookEnabled && rule.webhookUrl) {
+          try {
+            await fetch(rule.webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ metric: rule.metric, value, threshold: rule.threshold, label: rule.label, context, ts: Date.now() }),
+            });
+          } catch (e: any) { console.warn('[monitoring] Webhook alert failed:', e.message); }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[monitoring] fireAlertRules error:', e.message);
+    }
+  }
+
+  // GET /api/monitoring/status — reachability + outage log
+  app.get('/api/monitoring/status', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const log = await storage.getOutageLog(30);
+      // Uptime % over last 7 days
+      const weekMs = 7 * 24 * 3600 * 1000;
+      const weekAgo = Date.now() - weekMs;
+      const downMs = log.reduce((acc, e) => {
+        const downTs = new Date(e.downAt).getTime();
+        if (downTs < weekAgo) return acc;
+        const recTs = e.recoveredAt ? new Date(e.recoveredAt).getTime() : Date.now();
+        return acc + (recTs - downTs);
+      }, 0);
+      const uptimePct = parseFloat((100 - (downMs / weekMs) * 100).toFixed(2));
+      res.json({ up: reachabilityState.up, checkedAt: reachabilityState.checkedAt, cause: reachabilityState.cause, uptimePct, outageLog: log });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/monitoring/bandwidth — RTP bandwidth from Sippy monitoring graph
+  app.get('/api/monitoring/bandwidth', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const settings = await storage.getSippySettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+      const now = new Date();
+      const start = new Date(now.getTime() - 12 * 3600_000);
+      const sippyDate = sippy.toSippyDate(start);
+      const [bwResult] = await Promise.all([
+        sippy.getSippyMonitoringData(username, password, 'bandwidth_total', { startDate: sippyDate, interval: 300, explicitPortalUrl: portalUrl })
+          .catch(() => ({ ok: false, points: [] as any[] })),
+      ]);
+      res.json({ ok: bwResult.ok, points: bwResult.points });
+    } catch (e: any) { res.json({ ok: false, points: [], error: e.message }); }
+  });
+
+  // GET /api/monitoring/disk-memory — disk/memory/cpu from Sippy monitoring graph
+  app.get('/api/monitoring/disk-memory', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const settings = await storage.getSippySettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+      const now = new Date();
+      const start = new Date(now.getTime() - 12 * 3600_000);
+      const sippyDate = sippy.toSippyDate(start);
+      const types = ['disk_usage', 'cpu_load', 'memory_usage'];
+      const results = await Promise.all(
+        types.map(t => sippy.getSippyMonitoringData(username, password, t, { startDate: sippyDate, interval: 300, explicitPortalUrl: portalUrl }).catch(() => ({ ok: false, points: [] as any[], type: t })).then(r => ({ ...r, type: t })))
+      );
+      res.json({ results });
+    } catch (e: any) { res.json({ results: [], error: e.message }); }
+  });
+
+  // GET /api/monitoring/carrier-asr — per-carrier ASR drop detection from CDRs
+  app.get('/api/monitoring/carrier-asr', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const settings = await storage.getSippySettings();
+      const credPairs = sippyXmlCredsPairs(settings);
+      const now = new Date();
+      const start = new Date(now.getTime() - 3 * 3600_000); // last 3 hours
+      const startDate = sippy.toSippyDate(start);
+      const endDate   = sippy.toSippyDate(now);
+      let cdrs: any[] = [];
+      for (const { username, password } of credPairs) {
+        try {
+          const rows = await sippy.getSippyCDRs(username, password, 1000, { startDate, endDate });
+          if (rows.length > 0) { cdrs = rows; break; }
+        } catch { continue; }
+      }
+      // Group by vendor/connection
+      const map = new Map<string, { total: number; answered: number; duration: number }>();
+      for (const c of cdrs) {
+        const key = c.vendor_name || c.termination_party || c.vendor || c.connection || 'Unknown';
+        const cur = map.get(key) ?? { total: 0, answered: 0, duration: 0 };
+        cur.total++;
+        if (String(c.result) === '0' && (Number(c.duration) || 0) > 0) {
+          cur.answered++;
+          cur.duration += Number(c.duration) || 0;
+        }
+        map.set(key, cur);
+      }
+      const carriers = Array.from(map.entries()).map(([carrier, s]) => ({
+        carrier,
+        total: s.total,
+        answered: s.answered,
+        asr: s.total > 0 ? parseFloat((s.answered / s.total * 100).toFixed(1)) : 0,
+        acd: s.answered > 0 ? Math.round(s.duration / s.answered) : 0,
+        alert: s.total >= 10 && (s.answered / s.total) < 0.2,  // alert if ASR < 20% with 10+ calls
+      })).sort((a, b) => b.total - a.total);
+      res.json({ carriers, period: 'last 3 hours', cdrs: cdrs.length });
+    } catch (e: any) { res.json({ carriers: [], error: e.message }); }
+  });
+
+  // GET /api/monitoring/registrations — SIP registration storm detection
+  app.get('/api/monitoring/registrations', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const settings = await storage.getSippySettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+      const now = new Date();
+      const start = new Date(now.getTime() - 6 * 3600_000);
+      const sippyDate = sippy.toSippyDate(start);
+      const result = await sippy.getSippyMonitoringData(username, password, 'sip_reg_total', {
+        startDate: sippyDate, interval: 300, explicitPortalUrl: portalUrl,
+      }).catch(() => ({ ok: false, points: [] as any[] }));
+      // Storm detection: if latest 5-min count > 2x the previous 5-min avg → storm
+      const pts = result.points;
+      let stormDetected = false;
+      let stormRatio = 0;
+      if (pts.length >= 2) {
+        const latest = pts[pts.length - 1];
+        const prev5 = pts.slice(-6, -1);
+        const avg = prev5.reduce((s, p) => s + (p.col1 ?? p.cps ?? 0), 0) / (prev5.length || 1);
+        const cur = latest.col1 ?? latest.cps ?? 0;
+        stormRatio = avg > 0 ? parseFloat((cur / avg).toFixed(2)) : 0;
+        stormDetected = stormRatio > 2 && cur > 10;
+      }
+      res.json({ ok: result.ok, points: result.points, stormDetected, stormRatio });
+    } catch (e: any) { res.json({ ok: false, points: [], stormDetected: false, error: e.message }); }
+  });
+
+  // GET /api/monitoring/alert-rules
+  app.get('/api/monitoring/alert-rules', async (_req, res) => {
+    try { res.json(await storage.getAlertRules()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/monitoring/alert-rules
+  app.post('/api/monitoring/alert-rules', async (req, res) => {
+    try {
+      const { insertAlertRuleSchema } = await import('@shared/schema');
+      const parsed = insertAlertRuleSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const rule = await storage.createAlertRule(parsed.data);
+      res.json(rule);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/monitoring/alert-rules/:id
+  app.patch('/api/monitoring/alert-rules/:id', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.updateAlertRule(id, req.body);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/monitoring/alert-rules/:id
+  app.delete('/api/monitoring/alert-rules/:id', async (req, res) => {
+    try {
+      await storage.deleteAlertRule(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Boot-time caches + 30-min refresh ────────────────────────────────────────
   // Stagger the two fetches slightly so they don't hit the switch simultaneously
   setTimeout(() => refreshAccountCache(),           3000);
@@ -6676,6 +6940,10 @@ export async function registerRoutes(
   }
   setTimeout(() => snapshotActiveCalls(), 8000);            // first run at startup
   setInterval(() => snapshotActiveCalls(), 30 * 1000);      // every 30 seconds
+
+  // ── Reachability poller (every 30 s) ─────────────────────────────────────────
+  setTimeout(() => checkReachability(), 15000);              // first run 15s after startup
+  setInterval(() => checkReachability(), 30 * 1000);
 
   // ── GEO ENDPOINTS ──────────────────────────────────────────────────────────
 

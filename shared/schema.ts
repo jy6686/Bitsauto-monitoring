@@ -172,6 +172,38 @@ export type FasEvent = typeof fasEvents.$inferSelect;
 export type InsertFasEvent = typeof fasEvents.$inferInsert;
 export const insertFasEventSchema = createInsertSchema(fasEvents).omit({ id: true, detectedAt: true });
 
+// Outage Log: records when the Sippy server goes down and recovers
+export const outageLog = pgTable("outage_log", {
+  id:           serial("id").primaryKey(),
+  downAt:       timestamp("down_at").notNull(),
+  recoveredAt:  timestamp("recovered_at"),
+  durationSec:  integer("duration_sec"),
+  cause:        varchar("cause", { length: 128 }),  // 'timeout' | 'auth_fail' | 'http_5xx' | 'connection_refused'
+  checkedAt:    timestamp("checked_at").defaultNow(),
+});
+
+export type OutageEntry    = typeof outageLog.$inferSelect;
+export type InsertOutageEntry = typeof outageLog.$inferInsert;
+
+// Alert Rules: configurable thresholds with email/webhook notification
+export const alertRules = pgTable("alert_rules", {
+  id:             serial("id").primaryKey(),
+  metric:         varchar("metric", { length: 64 }).notNull(),  // 'server_down' | 'asr_drop' | 'cps_spike' | 'disk_full' | 'reg_storm' | 'bandwidth'
+  label:          varchar("label", { length: 128 }),
+  threshold:      real("threshold").notNull(),
+  comparison:     varchar("comparison", { length: 10 }).notNull().default('lt'), // 'lt' | 'gt'
+  carrier:        varchar("carrier", { length: 128 }),           // optional: scope to a specific carrier
+  enabled:        boolean("enabled").default(true),
+  emailEnabled:   boolean("email_enabled").default(false),
+  webhookEnabled: boolean("webhook_enabled").default(false),
+  webhookUrl:     varchar("webhook_url", { length: 512 }),
+  createdAt:      timestamp("created_at").defaultNow(),
+});
+
+export type AlertRule       = typeof alertRules.$inferSelect;
+export type InsertAlertRule = typeof alertRules.$inferInsert;
+export const insertAlertRuleSchema = createInsertSchema(alertRules).omit({ id: true, createdAt: true });
+
 // Call Snapshots: live call state persisted every 30 seconds, retained for 24 hours.
 // One row per unique Sippy call ID (upserted on each poll).
 // firstSeen = when the call first appeared; lastSeen = most recent active poll.

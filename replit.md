@@ -22,6 +22,7 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 
 ## Sippy Integration (`server/sippy.ts`)
 - XML-RPC POST to `/xmlapi/xmlapi`, HTTP **Digest** Auth (RFC-2617, NOT Basic) — `sippyPost()` handles 2-step probe-then-digest
+- **Server Monitoring module**: `/server-monitoring` page with 6 tabs — Reachability/Outage Log (every 30s poller), RTP Bandwidth, Disk & Memory, Carrier ASR drop detection, Email/Webhook Alert Rules, SIP Reg Storm Detection. DB tables: `outage_log`, `alert_rules`. Routes: `GET /api/monitoring/status|bandwidth|disk-memory|carrier-asr|registrations` + CRUD `/api/monitoring/alert-rules`. Sidebar collapsible sub-menu with 6 entries.
 - Admin credentials: ssp-root (apiAdminUsername/apiAdminPassword). Portal credentials (RTST1) only support limited read-only methods
 - APIs implemented (see full coverage table below):
   - Accounts: listAccounts (107322), getRegistrationStatus (107366), listAuthRules / addAuthRule / updateAuthRule / deleteAuthRule (107336), getLowBalance / setLowBalance (107444), createAccount (107312+), listRoutingGroups
