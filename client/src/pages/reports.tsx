@@ -103,7 +103,7 @@ export default function ReportsPage() {
   const now = new Date();
   const qc = useQueryClient();
 
-  const [startTime, setStartTime] = useState(toInput(subHours(now, 3)));
+  const [startTime, setStartTime] = useState(toInput(subHoursUTC(now, 3)));
   const [endTime,   setEndTime]   = useState(toInput(now));
   const [activePreset, setActivePreset] = useState("Last 3 hr");
   const [cliFilter, setCliFilter]  = useState("");

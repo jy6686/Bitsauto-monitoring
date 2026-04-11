@@ -139,7 +139,7 @@ function StatusIcon({ cdr }: { cdr: any }) {
 const PAGE_SIZE = 50;
 
 export default function CDRsPage() {
-  const defaultStart = subHours(new Date(), 24);
+  const defaultStart = subHoursUTC(new Date(), 24);
   const defaultEnd   = new Date();
   const [start, setStart]       = useState(defaultStart);
   const [end,   setEnd]         = useState(defaultEnd);
