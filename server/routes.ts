@@ -405,8 +405,14 @@ export async function registerRoutes(
       // Always attempt — fall back to built-in defaults if settings not yet configured
       const url      = sippyPortalUrl(s);
       const { username, password } = sippyXmlCreds(s);
+      // Connect as ssp-root (portalUsername) first — it has full admin XML-RPC scope.
+      // Fall back to apiAdminUsername (RTST1) if portalUsername is empty or fails.
+      const primaryUser = s?.portalUsername || username;
+      const primaryPass = s?.portalPassword || password;
+      const fbUser = (s?.portalUsername && s.portalUsername !== username) ? username : '';
+      const fbPass = (s?.portalUsername && s.portalUsername !== username) ? password : '';
       console.log('[startup] Sippy credentials found — attempting auto-connect...');
-      const result = await smartSippyConnect(url, username, password, s.portalUsername, s.portalPassword);
+      const result = await smartSippyConnect(url, primaryUser, primaryPass, fbUser || undefined, fbPass || undefined);
       if (result.success) {
         console.log('[startup] Sippy auto-connected:', result.message);
       } else {
@@ -1142,15 +1148,29 @@ export async function registerRoutes(
       const settings = await storage.getSettings();
       const portalUrl = sippyPortalUrl(settings);
 
-      // listActiveCalls must use admin-scope credentials to see ALL clients' calls.
-      // portalUsername (ssp-root) has full admin XML-RPC scope.
-      // apiAdminUsername (e.g. RTST1) is account-scoped and only sees its own calls.
-      // Try portalUsername first; fall back to apiAdminUsername (handles credential-swap setups).
-      const primaryUser = settings?.portalUsername || settings?.apiAdminUsername || '';
-      const primaryPass = settings?.portalPassword || settings?.apiAdminPassword || '';
-      const fallbackUser = settings?.apiAdminUsername ?? '';
-      const fallbackPass = settings?.apiAdminPassword ?? '';
-      const raw = await sippy.getSippyActiveCalls(primaryUser, primaryPass, portalUrl, undefined, fallbackUser, fallbackPass);
+      // Run BOTH credential pairs in parallel so neither adds sequential latency.
+      // ssp-root (portalUsername) = admin XML-RPC scope (sees all accounts).
+      // RTST1 (apiAdminUsername) = account-scoped but faster / always available.
+      // Merge unique calls from both — whichever credential can see a call wins.
+      const adminUser  = settings?.portalUsername    || '';
+      const adminPass  = settings?.portalPassword    || '';
+      const scopedUser = settings?.apiAdminUsername  || '';
+      const scopedPass = settings?.apiAdminPassword  || '';
+
+      const fetchAdmin  = adminUser  ? sippy.getSippyActiveCalls(adminUser,  adminPass,  portalUrl) : Promise.resolve([] as any[]);
+      const fetchScoped = scopedUser ? sippy.getSippyActiveCalls(scopedUser, scopedPass, portalUrl) : Promise.resolve([] as any[]);
+      const [adminRes, scopedRes] = await Promise.allSettled([fetchAdmin, fetchScoped]);
+      const adminCalls  = adminRes.status  === 'fulfilled' ? adminRes.value  : [];
+      const scopedCalls = scopedRes.status === 'fulfilled' ? scopedRes.value : [];
+
+      // Merge: start with admin calls, append any scoped calls not already present
+      const seenIds = new Set(adminCalls.map((c: any) => c.callId).filter(Boolean));
+      const merged: any[] = [...adminCalls];
+      for (const c of scopedCalls) {
+        if (!c.callId || !seenIds.has(c.callId)) merged.push(c);
+      }
+      console.log(`[live-calls] admin(${adminUser})=${adminCalls.length} scoped(${scopedUser})=${scopedCalls.length} merged=${merged.length}`);
+      const raw = merged;
       // Map CC_STATE → callStatus; filter out terminated states
       const ccStateMap: Record<string, 'connected' | 'routing'> = {
         Connected:    'connected',
@@ -6895,9 +6915,21 @@ export async function registerRoutes(
       if (!settings) return;
       const { username, password } = sippyXmlCreds(settings);
       const portalUrl = sippyPortalUrl(settings);
-      const fallbackUser = settings.portalUsername ?? '';
-      const fallbackPass = settings.portalPassword ?? '';
-      const raw = await sippy.getSippyActiveCalls(username, password, portalUrl, undefined, fallbackUser, fallbackPass);
+      // Run both credential pairs in parallel and merge — same approach as live-calls endpoint
+      const adminUser  = settings.portalUsername   || '';
+      const adminPass  = settings.portalPassword   || '';
+      const scopedUser = settings.apiAdminUsername || username;
+      const scopedPass = settings.apiAdminPassword || password;
+      const fetchAdmin  = adminUser  ? sippy.getSippyActiveCalls(adminUser,  adminPass,  portalUrl) : Promise.resolve([] as any[]);
+      const fetchScoped = sippy.getSippyActiveCalls(scopedUser, scopedPass, portalUrl);
+      const [adminRes, scopedRes] = await Promise.allSettled([fetchAdmin, fetchScoped]);
+      const adminCalls  = adminRes.status  === 'fulfilled' ? adminRes.value  : [];
+      const scopedCalls = scopedRes.status === 'fulfilled' ? scopedRes.value : [];
+      const seenIds = new Set((adminCalls as any[]).map((c: any) => c.callId).filter(Boolean));
+      const raw: any[] = [...adminCalls];
+      for (const c of scopedCalls as any[]) {
+        if (!c.callId || !seenIds.has(c.callId)) raw.push(c);
+      }
       const now = new Date();
       for (const c of raw) {
         if (!c.callId) continue;
