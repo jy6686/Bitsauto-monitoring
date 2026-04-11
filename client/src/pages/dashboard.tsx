@@ -697,11 +697,9 @@ export default function DashboardPage() {
                 </div>
                 <div className="rounded-lg bg-muted/20 border border-emerald-500/20 px-3 py-2.5 text-center">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Revenue</p>
-                  <p className="text-lg font-bold text-emerald-400 tabular-nums" data-testid="fin-revenue">
+                  <p className={`text-lg font-bold tabular-nums ${(sippyFinancials?.origination.revenue ?? 0) > 0 ? 'text-emerald-400' : 'text-muted-foreground'}`} data-testid="fin-revenue">
                     {sippyFinancials?.origination.revenue != null
-                      ? sippyFinancials.origination.revenue > 0
-                        ? `$${sippyFinancials.origination.revenue.toFixed(2)}`
-                        : '—'
+                      ? `$${sippyFinancials.origination.revenue.toFixed(4)}`
                       : '—'}
                   </p>
                   <p className="text-[10px] text-muted-foreground mt-0.5">Customer billed</p>
@@ -717,11 +715,9 @@ export default function DashboardPage() {
                 </div>
                 <div className="rounded-lg bg-muted/20 border border-rose-500/20 px-3 py-2.5 text-center">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Cost</p>
-                  <p className="text-lg font-bold text-rose-400 tabular-nums" data-testid="fin-cost">
+                  <p className={`text-lg font-bold tabular-nums ${(sippyFinancials?.termination.cost ?? 0) > 0 ? 'text-rose-400' : 'text-muted-foreground'}`} data-testid="fin-cost">
                     {sippyFinancials?.termination.cost != null
-                      ? sippyFinancials.termination.cost > 0
-                        ? `$${sippyFinancials.termination.cost.toFixed(2)}`
-                        : '—'
+                      ? `$${sippyFinancials.termination.cost.toFixed(4)}`
                       : '—'}
                   </p>
                   <p className="text-[10px] text-muted-foreground mt-0.5">Vendor cost</p>
@@ -738,8 +734,8 @@ export default function DashboardPage() {
                     (sippyFinancials?.margin ?? 0) > 0 ? 'text-emerald-400' :
                     (sippyFinancials?.margin ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground'
                   }`} data-testid="fin-margin">
-                    {sippyFinancials?.margin != null && sippyFinancials.margin !== 0
-                      ? `${sippyFinancials.margin > 0 ? '+' : ''}$${sippyFinancials.margin.toFixed(2)}`
+                    {sippyFinancials?.margin != null
+                      ? `${sippyFinancials.margin > 0 ? '+' : ''}$${sippyFinancials.margin.toFixed(4)}`
                       : '—'}
                   </p>
                   <p className="text-[10px] text-muted-foreground mt-0.5">Revenue − Cost</p>

@@ -1241,24 +1241,88 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/sippy/asr-acd-stats — aggregate totals scraped from /asr_acd.php
-  // Returns: totalCalls, billableCalls, ASR, ACD, PDD, Revenue, Cost, Margin
+  // GET /api/sippy/asr-acd-stats — CDR-based aggregate totals for the last 90 min.
+  // Fetches live CDRs from Sippy XML-RPC (getCustomerCDRs) and computes:
+  //   origination: totalCalls, billableCalls, ASR, ACD, avgPDD, revenue (sum of CDR cost field)
+  //   termination: mirrors origination (revenue ≈ cost until vendor-side CDRs are added)
+  //   margin: revenue - cost (0 until vendor cost source is added)
+  // Falls back to portal scraping if CDR fetch fails.
   app.get('/api/sippy/asr-acd-stats', async (_req, res) => {
+    const EMPTY_STATS = {
+      ok: false, period: '90 min',
+      origination: { totalCalls: 0, billableCalls: 0, totalDurationSec: 0, acd: 0, asr: 0, avgPdd: 0, revenue: 0 },
+      termination: { totalCalls: 0, billableCalls: 0, totalDurationSec: 0, acd: 0, asr: 0, avgPdd: 0, cost: 0 },
+      margin: 0,
+    };
     try {
       const settings = await storage.getSettings();
-      const portalUser = settings?.portalUsername ?? '';
-      const portalPass = settings?.portalPassword ?? '';
-      const adminUser  = settings?.apiAdminUsername ?? '';
-      const adminPass  = settings?.apiAdminPassword ?? '';
-      const result = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 90, adminUser, adminPass);
-      res.json(result);
-    } catch (err: any) {
-      res.json({ ok: false, error: err.message,
+      const credPairs = sippyXmlCredsPairs(settings);
+
+      // Date window: last 90 minutes
+      const now   = new Date();
+      const start = new Date(now.getTime() - 90 * 60_000);
+      const startDate = sippy.toSippyDate(start);
+      const endDate   = sippy.toSippyDate(now);
+
+      let cdrs: any[] = [];
+      for (const { username, password } of credPairs) {
+        try {
+          const fetched = await sippy.getSippyCDRs(username, password, 1000, { startDate, endDate });
+          if (fetched && fetched.length > 0) { cdrs = fetched; break; }
+        } catch { continue; }
+      }
+
+      // If CDR fetch fails entirely, fall back to portal scraping
+      if (cdrs.length === 0 && credPairs.length > 0) {
+        const portalUser = settings?.portalUsername ?? '';
+        const portalPass = settings?.portalPassword ?? '';
+        const adminUser  = settings?.apiAdminUsername ?? '';
+        const adminPass  = settings?.apiAdminPassword ?? '';
+        try {
+          const result = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 90, adminUser, adminPass);
+          return res.json({ ...result, source: 'portal' });
+        } catch { /* fall through to zeros */ }
+        return res.json({ ...EMPTY_STATS, ok: true, source: 'empty' });
+      }
+
+      // Compute origination stats from CDRs
+      const totalCalls    = cdrs.length;
+      const completed     = cdrs.filter(c => String(c.result) === '0');
+      const billableCalls = completed.filter(c => (Number(c.duration) || 0) > 0).length;
+      const totalDurSec   = completed.reduce((s, c) => s + (Number(c.duration) || 0), 0);
+      const asr           = totalCalls > 0 ? parseFloat((billableCalls / totalCalls * 100).toFixed(2)) : 0;
+      const acd           = billableCalls > 0 ? parseFloat((totalDurSec / billableCalls).toFixed(1)) : 0;
+
+      // avgPdd — prefer pdd1xx (real ring delay), fall back to pdd
+      const pddCalls = completed.filter(c => (Number(c.pdd1xx ?? c.pdd) || 0) > 0);
+      const avgPdd   = pddCalls.length > 0
+        ? parseFloat((pddCalls.reduce((s, c) => s + (Number(c.pdd1xx ?? c.pdd) || 0), 0) / pddCalls.length).toFixed(2))
+        : 0;
+
+      // Revenue = sum of CDR cost field (amount billed to customer by Sippy)
+      const revenue = parseFloat(completed.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0).toFixed(4));
+
+      // Termination cost: attempt from portal (vendor side); use 0 if unavailable
+      let vendorCost = 0;
+      try {
+        const portalUser = settings?.portalUsername ?? '';
+        const portalPass = settings?.portalPassword ?? '';
+        const adminUser  = settings?.apiAdminUsername ?? '';
+        const adminPass  = settings?.apiAdminPassword ?? '';
+        const portal = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 90, adminUser, adminPass);
+        if (portal.ok && portal.termination.cost > 0) vendorCost = portal.termination.cost;
+      } catch { /* leave as 0 */ }
+
+      res.json({
+        ok: true,
         period: '90 min',
-        origination: { totalCalls: 0, billableCalls: 0, totalDurationSec: 0, acd: 0, asr: 0, avgPdd: 0, revenue: 0 },
-        termination: { totalCalls: 0, billableCalls: 0, totalDurationSec: 0, acd: 0, asr: 0, avgPdd: 0, cost: 0 },
-        margin: 0,
+        source: 'cdr',
+        origination: { totalCalls, billableCalls, totalDurationSec: totalDurSec, acd, asr, avgPdd, revenue },
+        termination: { totalCalls, billableCalls, totalDurationSec: totalDurSec, acd, asr, avgPdd, cost: vendorCost },
+        margin: parseFloat((revenue - vendorCost).toFixed(4)),
       });
+    } catch (err: any) {
+      res.json({ ...EMPTY_STATS, error: err.message });
     }
   });
 
