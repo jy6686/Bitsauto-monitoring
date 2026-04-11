@@ -6805,6 +6805,13 @@ export async function registerRoutes(
   app.get('/api/monitoring/status', async (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     try {
+      const settings = await storage.getSippySettings();
+      const portalUrl = sippyPortalUrl(settings);
+      // Extract host/IP from portal URL for display in outage log
+      let monitoredHost: string | undefined;
+      try {
+        monitoredHost = new URL(portalUrl).hostname;
+      } catch { monitoredHost = portalUrl; }
       const log = await storage.getOutageLog(30);
       // Uptime % over last 7 days
       const weekMs = 7 * 24 * 3600 * 1000;
@@ -6816,7 +6823,7 @@ export async function registerRoutes(
         return acc + (recTs - downTs);
       }, 0);
       const uptimePct = parseFloat((100 - (downMs / weekMs) * 100).toFixed(2));
-      res.json({ up: reachabilityState.up, checkedAt: reachabilityState.checkedAt, cause: reachabilityState.cause, uptimePct, outageLog: log });
+      res.json({ up: reachabilityState.up, checkedAt: reachabilityState.checkedAt, cause: reachabilityState.cause, uptimePct, outageLog: log, monitoredHost });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

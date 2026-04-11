@@ -92,6 +92,7 @@ function ReachabilityTab() {
   const [view, setView] = useState<"chart" | "table" | "both">("both");
   const { data, isLoading, refetch, isRefetching } = useQuery<{
     up: boolean; checkedAt: string; cause?: string; uptimePct: number;
+    monitoredHost?: string;
     outageLog: { id: number; downAt: string; recoveredAt?: string; durationSec?: number; cause?: string }[];
   }>({
     queryKey: ["/api/monitoring/status"],
@@ -250,6 +251,7 @@ function ReachabilityTab() {
             <thead className="bg-muted/20 text-muted-foreground text-xs">
               <tr>
                 <th className="text-left px-4 py-2">#</th>
+                <th className="text-left px-4 py-2">IP / Host</th>
                 <th className="text-left px-4 py-2">Down At</th>
                 <th className="text-left px-4 py-2">Recovered At</th>
                 <th className="text-left px-4 py-2">Duration</th>
@@ -259,11 +261,21 @@ function ReachabilityTab() {
             </thead>
             <tbody>
               {!data?.outageLog?.length ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground text-xs">No outages recorded — server has been continuously reachable</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground text-xs">No outages recorded — server has been continuously reachable</td></tr>
               ) : (
                 data.outageLog.map((e, i) => (
                   <tr key={e.id} className="border-t border-border/30 hover:bg-muted/20">
                     <td className="px-4 py-2.5 text-xs text-muted-foreground font-mono">{i + 1}</td>
+                    <td className="px-4 py-2.5">
+                      {data.monitoredHost ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block flex-shrink-0" />
+                          {data.monitoredHost}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/40">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 font-mono text-xs text-rose-400">{fmtTs(e.downAt)}</td>
                     <td className="px-4 py-2.5 font-mono text-xs text-emerald-400">{e.recoveredAt ? fmtTs(e.recoveredAt) : <span className="text-rose-400 font-semibold">Still down</span>}</td>
                     <td className="px-4 py-2.5 font-mono text-xs">{fmtDuration(e.durationSec)}</td>
