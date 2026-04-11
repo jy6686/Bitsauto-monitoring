@@ -3484,21 +3484,46 @@ export async function registerRoutes(
       const { accounts, error } = await withSippyCreds(settings, (u, p) =>
         sippy.listSippyAccounts(u, p, {}, portalUrl));
       if (error && !accounts?.length) return res.status(502).json({ success: false, error });
+      const adminCreds = sippyXmlCreds(settings);
       const rows = await Promise.all((accounts ?? []).map(async (a) => {
         let threshold: number | null = null;
         let notifyByEmail: boolean | undefined;
-        try {
-          const lb = await withSippyCreds(settings, (u, p) =>
-            sippy.getSippyLowBalance(u, p, { iAccount: a.iAccount }, portalUrl));
-          threshold    = lb.threshold   ?? null;
-          notifyByEmail = lb.notifyByEmail;
-        } catch { /* ignore per-account low-balance errors */ }
+        let maxSessions: number | null = null;
+        let prefix: string | null = null;
+        let allowedIps: string[] = [];
+
+        // Fetch low-balance config + account info + auth rules in parallel
+        const [lbResult, infoResult, authResult] = await Promise.allSettled([
+          withSippyCreds(settings, (u, p) => sippy.getSippyLowBalance(u, p, { iAccount: a.iAccount }, portalUrl)),
+          sippy.getAccountInfo(adminCreds.username, adminCreds.password, portalUrl, a.iAccount),
+          sippy.listSippyAuthRules(adminCreds.username, adminCreds.password, { iAccount: a.iAccount }, portalUrl),
+        ]);
+
+        if (lbResult.status === 'fulfilled') {
+          threshold     = lbResult.value?.threshold    ?? null;
+          notifyByEmail = lbResult.value?.notifyByEmail;
+        }
+        if (infoResult.status === 'fulfilled' && infoResult.value) {
+          const info = infoResult.value;
+          maxSessions = info.maxSessions !== undefined ? info.maxSessions : null;
+          prefix = (info.incomingCli as string | undefined) ?? null;
+        }
+        if (authResult.status === 'fulfilled' && (authResult.value as any)?.authRules) {
+          allowedIps = ((authResult.value as any).authRules as any[])
+            .map((r) => r.remoteIp)
+            .filter((ip): ip is string => Boolean(ip));
+        }
+
         const balance     = a.balance    ?? 0;
         const creditLimit = a.creditLimit ?? 0;
         const status =
-          threshold !== null && balance <= 0               ? 'critical' :
-          threshold !== null && balance <= threshold        ? 'warning'  : 'healthy';
-        return { iAccount: a.iAccount, username: a.username, balance, creditLimit, threshold, notifyByEmail, status, currency: a.currency };
+          threshold !== null && balance <= 0        ? 'critical' :
+          threshold !== null && balance <= threshold ? 'warning'  : 'healthy';
+        return {
+          iAccount: a.iAccount, username: a.username, balance, creditLimit,
+          threshold, notifyByEmail, status, currency: a.currency,
+          maxSessions, prefix, allowedIps,
+        };
       }));
       res.json({ success: true, accounts: rows });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }

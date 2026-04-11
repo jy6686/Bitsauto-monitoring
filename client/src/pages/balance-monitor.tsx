@@ -5,7 +5,8 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   Wallet, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
   TrendingUp, Plus, Settings2, Loader2, Bell, BellOff,
-  CreditCard, ShieldAlert,
+  CreditCard, ShieldAlert, Minus, Server, Hash, Shield,
+  Network,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,10 @@ interface BalanceAccount {
   notifyByEmail: boolean | undefined;
   status: "healthy" | "warning" | "critical";
   currency?: string;
+  // Extended details
+  maxSessions: number | null;
+  prefix: string | null;
+  allowedIps: string[];
 }
 
 interface BalanceMonitorResponse {
@@ -80,6 +85,8 @@ function BalanceBar({ balance, creditLimit, threshold }: { balance: number; cred
   );
 }
 
+// ─── Top-Up / Debit Modal ─────────────────────────────────────────────────────
+
 function TopUpModal({
   account,
   open,
@@ -89,23 +96,31 @@ function TopUpModal({
   open: boolean;
   onClose: () => void;
 }) {
+  const [mode, setMode] = useState<"credit" | "debit">("credit");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const creditMut = useMutation({
+  const actionMut = useMutation({
     mutationFn: (body: { amount: number; currency: string; paymentNotes?: string }) =>
-      apiRequest("POST", `/api/sippy/accounts/${account.iAccount}/credit`, body),
+      apiRequest("POST", `/api/sippy/accounts/${account.iAccount}/${mode === "credit" ? "credit" : "debit"}`, body),
     onSuccess: () => {
-      toast({ title: "Top-up applied", description: `$${amount} credited to ${account.username}.` });
+      toast({
+        title: mode === "credit" ? "Top-up applied" : "Debit applied",
+        description: `${account.currency ?? "USD"} ${amount} ${mode === "credit" ? "credited to" : "debited from"} ${account.username}.`,
+      });
       qc.invalidateQueries({ queryKey: ["/api/sippy/balance-monitor"] });
       setAmount("");
       setNote("");
       onClose();
     },
     onError: (e: any) => {
-      toast({ title: "Top-up failed", description: e.message ?? "Unknown error", variant: "destructive" });
+      toast({
+        title: `${mode === "credit" ? "Top-up" : "Debit"} failed`,
+        description: e.message ?? "Unknown error",
+        variant: "destructive",
+      });
     },
   });
 
@@ -115,29 +130,72 @@ function TopUpModal({
       toast({ title: "Invalid amount", description: "Enter a positive number.", variant: "destructive" });
       return;
     }
-    creditMut.mutate({ amount: amt, currency: account.currency ?? "USD", paymentNotes: note || undefined });
+    actionMut.mutate({ amount: amt, currency: account.currency ?? "USD", paymentNotes: note || undefined });
   };
 
+  const isCredit = mode === "credit";
+
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) { onClose(); setAmount(""); setNote(""); setMode("credit"); } }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Plus className="w-4 h-4 text-emerald-400" />
-            Top-Up — {account.username}
+            {isCredit
+              ? <Plus className="w-4 h-4 text-emerald-400" />
+              : <Minus className="w-4 h-4 text-rose-400" />}
+            {isCredit ? "Top-Up" : "Debit"} — {account.username}
           </DialogTitle>
         </DialogHeader>
+
         <div className="space-y-4 py-2">
+          {/* Mode toggle */}
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button
+              data-testid="toggle-credit-mode"
+              onClick={() => setMode("credit")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors",
+                isCredit
+                  ? "bg-emerald-600/20 text-emerald-300 border-r border-emerald-500/30"
+                  : "bg-muted/20 text-muted-foreground hover:bg-muted/40 border-r border-border"
+              )}
+            >
+              <Plus className="w-3.5 h-3.5" /> Top-Up (Credit)
+            </button>
+            <button
+              data-testid="toggle-debit-mode"
+              onClick={() => setMode("debit")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors",
+                !isCredit
+                  ? "bg-rose-600/20 text-rose-300"
+                  : "bg-muted/20 text-muted-foreground hover:bg-muted/40"
+              )}
+            >
+              <Minus className="w-3.5 h-3.5" /> Debit
+            </button>
+          </div>
+
+          {!isCredit && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-rose-500/8 border border-rose-500/20 text-rose-300 text-xs">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+              <span>Debit reduces the account balance. This action cannot be undone from this interface.</span>
+            </div>
+          )}
+
           <div className="flex items-center justify-between text-sm p-3 rounded-lg bg-muted/30 border border-border/50">
             <span className="text-muted-foreground">Current balance</span>
             <span className={cn("font-bold font-mono", account.balance <= 0 ? "text-rose-400" : "text-emerald-400")}>
               {account.currency ?? "USD"} {account.balance.toFixed(4)}
             </span>
           </div>
+
           <div className="space-y-1.5">
-            <Label htmlFor="topup-amount">Amount to add ({account.currency ?? "USD"})</Label>
+            <Label htmlFor="action-amount">
+              Amount to {isCredit ? "add" : "deduct"} ({account.currency ?? "USD"})
+            </Label>
             <Input
-              id="topup-amount"
+              id="action-amount"
               data-testid="input-topup-amount"
               type="number"
               min="0.01"
@@ -147,33 +205,45 @@ function TopUpModal({
               onChange={(e) => setAmount(e.target.value)}
             />
           </div>
+
           <div className="space-y-1.5">
-            <Label htmlFor="topup-note">Note (optional)</Label>
+            <Label htmlFor="action-note">Note (optional)</Label>
             <Input
-              id="topup-note"
+              id="action-note"
               data-testid="input-topup-note"
-              placeholder="e.g. Monthly top-up"
+              placeholder={isCredit ? "e.g. Monthly top-up" : "e.g. Correction"}
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
           </div>
         </div>
+
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={creditMut.isPending}>Cancel</Button>
+          <Button variant="outline" onClick={() => { onClose(); setAmount(""); setNote(""); setMode("credit"); }} disabled={actionMut.isPending}>
+            Cancel
+          </Button>
           <Button
             data-testid="button-confirm-topup"
             onClick={handleSubmit}
-            disabled={creditMut.isPending || !amount}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            disabled={actionMut.isPending || !amount}
+            className={isCredit
+              ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+              : "bg-rose-600 hover:bg-rose-700 text-white"}
           >
-            {creditMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
-            Apply Top-Up
+            {actionMut.isPending
+              ? <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              : isCredit
+                ? <Plus className="w-4 h-4 mr-2" />
+                : <Minus className="w-4 h-4 mr-2" />}
+            {isCredit ? "Apply Top-Up" : "Apply Debit"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
+
+// ─── Alert Config Modal ───────────────────────────────────────────────────────
 
 function ThresholdModal({
   account,
@@ -270,8 +340,10 @@ function ThresholdModal({
   );
 }
 
+// ─── Account Card ─────────────────────────────────────────────────────────────
+
 function AccountCard({ account }: { account: BalanceAccount }) {
-  const [showTopUp, setShowTopUp] = useState(false);
+  const [showTopUp, setShowTopUp]       = useState(false);
   const [showThreshold, setShowThreshold] = useState(false);
   const { role } = useAuth();
   const canEdit = role === "admin" || role === "management";
@@ -282,9 +354,16 @@ function AccountCard({ account }: { account: BalanceAccount }) {
     account.status === "warning"  ? "border-amber-500/30 bg-amber-500/5" :
     "border-border/50 bg-card";
 
+  const portLabel =
+    account.maxSessions === null  ? "—" :
+    account.maxSessions === 0     ? "Unlimited" :
+    account.maxSessions === -1    ? "Unlimited" :
+    String(account.maxSessions);
+
   return (
     <>
-      <div data-testid={`card-account-${account.iAccount}`} className={cn("rounded-xl border p-5 space-y-4 transition-all", cardBorder)}>
+      <div data-testid={`card-account-${account.iAccount}`} className={cn("rounded-xl border p-5 space-y-3.5 transition-all", cardBorder)}>
+
         {/* Header row */}
         <div className="flex items-start justify-between gap-2">
           <div>
@@ -309,6 +388,59 @@ function AccountCard({ account }: { account: BalanceAccount }) {
           </div>
           <BalanceBar balance={account.balance} creditLimit={account.creditLimit} threshold={account.threshold} />
         </div>
+
+        {/* Extra details grid */}
+        <div className="grid grid-cols-3 gap-2 pt-0.5">
+          {/* Allocated Ports */}
+          <div className="flex flex-col gap-0.5 p-2 rounded-lg bg-muted/20 border border-border/30">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+              <Server className="w-2.5 h-2.5" /> Ports
+            </div>
+            <span data-testid={`text-ports-${account.iAccount}`} className="text-xs font-semibold font-mono text-foreground">
+              {portLabel}
+            </span>
+          </div>
+
+          {/* Prefix */}
+          <div className="flex flex-col gap-0.5 p-2 rounded-lg bg-muted/20 border border-border/30">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+              <Hash className="w-2.5 h-2.5" /> Prefix
+            </div>
+            <span data-testid={`text-prefix-${account.iAccount}`} className="text-xs font-semibold font-mono text-foreground truncate" title={account.prefix ?? undefined}>
+              {account.prefix ?? "—"}
+            </span>
+          </div>
+
+          {/* Allowed IPs count */}
+          <div className="flex flex-col gap-0.5 p-2 rounded-lg bg-muted/20 border border-border/30">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+              <Shield className="w-2.5 h-2.5" /> IPs
+            </div>
+            <span data-testid={`text-ip-count-${account.iAccount}`} className="text-xs font-semibold font-mono text-foreground">
+              {account.allowedIps.length > 0 ? account.allowedIps.length : "—"}
+            </span>
+          </div>
+        </div>
+
+        {/* Allowed IPs list (if any) */}
+        {account.allowedIps.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-[10px] text-muted-foreground flex items-center gap-1 font-medium uppercase tracking-wide">
+              <Network className="w-2.5 h-2.5" /> Allowed IPs
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {account.allowedIps.map((ip, i) => (
+                <span
+                  key={i}
+                  data-testid={`badge-ip-${account.iAccount}-${i}`}
+                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono bg-blue-500/10 border border-blue-500/20 text-blue-300"
+                >
+                  {ip}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Threshold row */}
         <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -336,14 +468,14 @@ function AccountCard({ account }: { account: BalanceAccount }) {
 
         {/* Actions */}
         {canEdit && (
-          <div className="flex gap-2 pt-1">
+          <div className="flex gap-2 pt-0.5">
             <Button
               data-testid={`button-topup-${account.iAccount}`}
               size="sm"
               className="flex-1 bg-emerald-600/90 hover:bg-emerald-600 text-white text-xs h-8"
               onClick={() => setShowTopUp(true)}
             >
-              <Plus className="w-3 h-3 mr-1" /> Top-Up
+              <Plus className="w-3 h-3 mr-1" /> Top-Up / Debit
             </Button>
             <Button
               data-testid={`button-configure-${account.iAccount}`}
@@ -363,6 +495,8 @@ function AccountCard({ account }: { account: BalanceAccount }) {
     </>
   );
 }
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BalanceMonitorPage() {
   const qc = useQueryClient();
@@ -396,7 +530,6 @@ export default function BalanceMonitorPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Summary pills */}
           {!isLoading && accounts.length > 0 && (
             <div className="flex items-center gap-2 text-xs">
               {criticalCount > 0 && (
@@ -453,7 +586,7 @@ export default function BalanceMonitorPage() {
       {isLoading && (
         <div className="flex items-center justify-center py-16 gap-3 text-muted-foreground">
           <Loader2 className="w-5 h-5 animate-spin" />
-          <span>Fetching live balances from Sippy…</span>
+          <span>Fetching live account details from Sippy…</span>
         </div>
       )}
 
