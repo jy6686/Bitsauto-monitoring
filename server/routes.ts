@@ -1278,20 +1278,20 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const portalUrl = sippyPortalUrl(settings);
 
-      // Build a Sippy-format start_date for last 1 hour
+      // Time window: 90 minutes ago → 30 minutes ago (settled, completed CDRs)
       const pad = (n: number) => String(n).padStart(2, '0');
       const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
       const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const startDate = new Date(Date.now() - 3600 * 1000); // 1 hour ago
-      const sippyDate = `${pad(startDate.getUTCHours())}:${pad(startDate.getUTCMinutes())}:${pad(startDate.getUTCSeconds())}.000 GMT `
-        + `${DAYS[startDate.getUTCDay()]} ${MONTHS[startDate.getUTCMonth()]} ${pad(startDate.getUTCDate())} ${startDate.getUTCFullYear()}`;
+      const winEnd   = new Date(Date.now() - 30  * 60_000); // 30 min ago
+      const winStart = new Date(Date.now() - 90  * 60_000); // 90 min ago
+      const sippyDate = `${pad(winStart.getUTCHours())}:${pad(winStart.getUTCMinutes())}:${pad(winStart.getUTCSeconds())}.000 GMT `
+        + `${DAYS[winStart.getUTCDay()]} ${MONTHS[winStart.getUTCMonth()]} ${pad(winStart.getUTCDate())} ${winStart.getUTCFullYear()}`;
 
       // Run monitoring (acd_asr with env=5) + live calls in parallel
       // Also fetch recent CDRs (small batch per known account) for CK stats & MOS estimate
       const CDR_ACCOUNTS = [1, 4, 55]; // PUSHTOTALK, aircel, asif
-      const cdrStart = new Date(Date.now() - 3600 * 1000); // last 1 hour
-      const cdrStartDate = sippy.toSippyDate(cdrStart);
-      const cdrEndDate   = sippy.toSippyDate(new Date());
+      const cdrStartDate = sippy.toSippyDate(winStart);
+      const cdrEndDate   = sippy.toSippyDate(winEnd);
 
       const [monResult, liveCallsRaw, ...perAccountCdrs] = await Promise.all([
         sippy.getSippyMonitoringData(username, password, 'acd_asr', {
@@ -1379,8 +1379,9 @@ export async function registerRoutes(
   //   margin: revenue - cost (0 until vendor cost source is added)
   // Falls back to portal scraping if CDR fetch fails.
   app.get('/api/sippy/asr-acd-stats', async (_req, res) => {
+    const PERIOD_LABEL = '90→30 min ago';
     const EMPTY_STATS = {
-      ok: false, period: '90 min',
+      ok: false, period: PERIOD_LABEL,
       origination: { totalCalls: 0, billableCalls: 0, totalDurationSec: 0, acd: 0, asr: 0, avgPdd: 0, revenue: 0 },
       termination: { totalCalls: 0, billableCalls: 0, totalDurationSec: 0, acd: 0, asr: 0, avgPdd: 0, cost: 0 },
       margin: 0,
@@ -1389,11 +1390,12 @@ export async function registerRoutes(
       const settings = await storage.getSettings();
       const credPairs = sippyXmlCredsPairs(settings);
 
-      // Date window: last 90 minutes
+      // Date window: 90 minutes ago → 30 minutes ago (settled completed CDRs only)
       const now   = new Date();
       const start = new Date(now.getTime() - 90 * 60_000);
+      const end   = new Date(now.getTime() - 30 * 60_000);
       const startDate = sippy.toSippyDate(start);
-      const endDate   = sippy.toSippyDate(now);
+      const endDate   = sippy.toSippyDate(end);
 
       // Fetch CDRs per-account (small limit avoids Sippy timeout for un-filtered bulk queries)
       // Accounts under RTST1 (iCustomer=2): PUSHTOTALK=1, aircel=4, asif=55
@@ -1413,8 +1415,8 @@ export async function registerRoutes(
         const portalUser = settings?.portalUsername ?? '';
         const portalPass = settings?.portalPassword ?? '';
         try {
-          const result = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 90, adminUser, adminPass);
-          return res.json({ ...result, source: 'portal' });
+          const result = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 60, adminUser, adminPass);
+          return res.json({ ...result, period: PERIOD_LABEL, source: 'portal' });
         } catch { /* fall through to zeros */ }
         return res.json({ ...EMPTY_STATS, ok: true, source: 'empty' });
       }
@@ -1443,13 +1445,13 @@ export async function registerRoutes(
         const portalPass = settings?.portalPassword ?? '';
         const adminUser  = settings?.apiAdminUsername ?? '';
         const adminPass  = settings?.apiAdminPassword ?? '';
-        const portal = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 90, adminUser, adminPass);
+        const portal = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 60, adminUser, adminPass);
         if (portal.ok && portal.termination.cost > 0) vendorCost = portal.termination.cost;
       } catch { /* leave as 0 */ }
 
       res.json({
         ok: true,
-        period: '90 min',
+        period: PERIOD_LABEL,
         source: 'cdr',
         origination: { totalCalls, billableCalls, totalDurationSec: totalDurSec, acd, asr, avgPdd, revenue },
         termination: { totalCalls, billableCalls, totalDurationSec: totalDurSec, acd, asr, avgPdd, cost: vendorCost },

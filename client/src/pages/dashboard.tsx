@@ -445,7 +445,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between px-5 py-2.5 border-b border-border/40 bg-muted/10">
             <div className="flex items-center gap-2">
               <DollarSign className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue &amp; Cost — last 90 min (CDR data)</span>
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue &amp; Cost — 90→30 min ago (settled CDRs)</span>
             </div>
             {sippyFinancials?.origination.totalCalls === 0 && (
               <span className="text-[10px] text-muted-foreground/60 italic hidden sm:block">No completed calls yet — updates after calls end</span>
