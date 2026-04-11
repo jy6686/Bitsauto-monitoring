@@ -571,6 +571,182 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* ── Per-Account Traffic Panel ──────────────────────────────────────── */}
+      {anyPortalActive && (
+        <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border/50 bg-muted/10">
+            <div className="flex items-center gap-2">
+              <Users className="w-3.5 h-3.5 text-violet-400" />
+              <h3 className="font-semibold text-sm">Per-Account Traffic</h3>
+              <span className="text-[10px] text-muted-foreground">· from CDR snapshot (last 90 min)</span>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-muted/30 text-muted-foreground text-xs">
+                <tr>
+                  <th className="px-4 py-2.5">Account</th>
+                  <th className="px-4 py-2.5 text-center">Total CDRs</th>
+                  <th className="px-4 py-2.5 text-center">Answered</th>
+                  <th className="px-4 py-2.5 text-center">ASR</th>
+                  <th className="px-4 py-2.5 text-center">Avg Dur</th>
+                  <th className="px-4 py-2.5 text-right">Revenue</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/30">
+                {perAccountStats.map(acc => (
+                  <tr key={acc.id} className="hover:bg-muted/20 transition-colors" data-testid={`row-account-${acc.id}`}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400">{acc.short}</span>
+                        <span className="text-sm font-medium">{acc.name}</span>
+                        <span className="text-[10px] text-muted-foreground hidden sm:inline">id:{acc.id}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-center tabular-nums">{acc.total}</td>
+                    <td className="px-4 py-3 text-center tabular-nums text-emerald-400">{acc.answered}</td>
+                    <td className="px-4 py-3 text-center">
+                      {acc.total > 0 ? (
+                        <span className={`font-bold tabular-nums ${acc.asr >= 30 ? 'text-emerald-400' : acc.asr > 0 ? 'text-amber-400' : 'text-rose-400'}`}>
+                          {acc.asr}%
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center text-xs text-muted-foreground tabular-nums">
+                      {acc.avgDur > 0 ? `${Math.floor(acc.avgDur/60)}m ${acc.avgDur%60}s` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {acc.revenue > 0 ? (
+                        <span className="text-emerald-400 font-medium">${acc.revenue.toFixed(4)}</span>
+                      ) : (
+                        <span className="text-muted-foreground/50">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Active Calls Table — Sippy live when connected, local DB otherwise */}
+      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-border/50 flex items-center justify-between">
+          <h3 className="font-semibold flex items-center gap-2">
+            <PhoneCall className="w-4 h-4 text-blue-500" />
+            {anyPortalActive ? `Live Calls on Sippy (${liveCalls.length})` : 'Recent Active Calls'}
+          </h3>
+          <Link href="/calls" className="inline-flex items-center text-sm font-medium text-primary hover:text-primary/80 transition-colors">
+            View All Calls <ArrowRight className="ml-1 w-4 h-4" />
+          </Link>
+        </div>
+        <div className="overflow-x-auto">
+          {anyPortalActive ? (
+            liveCalls.length === 0 ? (
+              <div className="px-6 py-12 text-center text-sm text-muted-foreground">No active calls on Sippy right now.</div>
+            ) : (
+              <table className="w-full text-sm text-left">
+                <thead className="bg-muted/50 text-muted-foreground font-medium">
+                  <tr>
+                    <th className="px-6 py-3">Caller</th>
+                    <th className="px-6 py-3">Callee</th>
+                    <th className="px-6 py-3">Account</th>
+                    <th className="px-6 py-3">State</th>
+                    <th className="px-6 py-3">Duration</th>
+                    <th className="px-6 py-3">Answer Type</th>
+                    <th className="px-6 py-3">Setup Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {liveCalls.slice(0, 20).map((call: any, i: number) => {
+                    const isConnected = call.callStatus === 'connected';
+                    const dur = parseFloat(call.duration ?? 0);
+                    const durMins = Math.floor(dur / 60);
+                    const durSecs = Math.round(dur % 60);
+                    const durLabel = dur > 0 ? (durMins > 0 ? `${durMins}m ${durSecs}s` : `${durSecs}s`) : '0s';
+                    let answerType: { label: string; cls: string; title: string };
+                    if (!isConnected) {
+                      answerType = { label: 'Routing', cls: 'bg-amber-500/15 text-amber-400', title: 'Call is being routed — not yet answered' };
+                    } else if (dur < 3) {
+                      answerType = { label: 'FAS Risk', cls: 'bg-red-500/15 text-red-400', title: `Connected in ${durLabel} — possible False Answer Supervision (billing started before real answer)` };
+                    } else {
+                      answerType = { label: 'Real Answer', cls: 'bg-emerald-500/15 text-emerald-400', title: `Answered after ${durLabel} — genuine human answer` };
+                    }
+                    return (
+                      <tr key={i} className="hover:bg-muted/30 transition-colors" data-testid={`row-live-call-${i}`}>
+                        <td className="px-6 py-3 font-mono text-xs">{call.caller || '—'}</td>
+                        <td className="px-6 py-3 font-mono text-xs">{call.callee || '—'}</td>
+                        <td className="px-6 py-3 text-xs text-violet-400">{call.clientName || call.accountId || '—'}</td>
+                        <td className="px-6 py-3 text-xs">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                            isConnected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'
+                          }`}>{call.ccState || call.status || '—'}</span>
+                        </td>
+                        <td className={`px-6 py-3 text-xs font-mono ${isConnected && dur < 3 ? 'text-red-400 font-semibold' : 'text-muted-foreground'}`}>
+                          {durLabel}
+                        </td>
+                        <td className="px-6 py-3 text-xs">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${answerType.cls}`} title={answerType.title}>
+                            {answerType.label}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3 text-xs text-muted-foreground">
+                          {call.setupTime ? call.setupTime.replace('T', ' ').replace(/\.\d+$/, '') : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )
+          ) : (
+            <table className="w-full text-sm text-left">
+              <thead className="bg-muted/50 text-muted-foreground font-medium">
+                <tr>
+                  <th className="px-6 py-3">Caller</th>
+                  <th className="px-6 py-3">Callee</th>
+                  <th className="px-6 py-3">Started</th>
+                  <th className="px-6 py-3">MOS Score</th>
+                  <th className="px-6 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {recentCalls?.map((call) => {
+                  const calleeCountry = lookupCountry(call.callee);
+                  return (
+                    <tr key={call.id} className="hover:bg-muted/30 transition-colors group">
+                      <td className="px-6 py-4 font-mono text-xs">{call.caller}</td>
+                      <td className="px-6 py-4">
+                        <span className="font-mono text-xs">{call.callee}</span>
+                        {calleeCountry && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            {calleeCountry.flag} {calleeCountry.name}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-muted-foreground">
+                        {call.startTime ? formatUTC(new Date(call.startTime), 'HH:mm:ss') : '-'}
+                      </td>
+                      <td className="px-6 py-4">
+                        <MosBadge value={call.latestMetric?.mos || 0} />
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <Link href={`/calls/${call.id}`} className="text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
+                          Details
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
       {/* Call Back Ratio — FAS Deduction Panel */}
       <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
         {/* Header */}
@@ -817,186 +993,6 @@ export default function DashboardPage() {
         );
       })()}
 
-      {/* ── Per-Account Traffic Panel ──────────────────────────────────────── */}
-      {anyPortalActive && (
-        <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-border/50 bg-muted/10">
-            <div className="flex items-center gap-2">
-              <Users className="w-3.5 h-3.5 text-violet-400" />
-              <h3 className="font-semibold text-sm">Per-Account Traffic</h3>
-              <span className="text-[10px] text-muted-foreground">· from CDR snapshot (last 90 min)</span>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-muted/30 text-muted-foreground text-xs">
-                <tr>
-                  <th className="px-4 py-2.5">Account</th>
-                  <th className="px-4 py-2.5 text-center">Total CDRs</th>
-                  <th className="px-4 py-2.5 text-center">Answered</th>
-                  <th className="px-4 py-2.5 text-center">ASR</th>
-                  <th className="px-4 py-2.5 text-center">Avg Dur</th>
-                  <th className="px-4 py-2.5 text-right">Revenue</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/30">
-                {perAccountStats.map(acc => (
-                  <tr key={acc.id} className="hover:bg-muted/20 transition-colors" data-testid={`row-account-${acc.id}`}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400">{acc.short}</span>
-                        <span className="text-sm font-medium">{acc.name}</span>
-                        <span className="text-[10px] text-muted-foreground hidden sm:inline">id:{acc.id}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-center tabular-nums">{acc.total}</td>
-                    <td className="px-4 py-3 text-center tabular-nums text-emerald-400">{acc.answered}</td>
-                    <td className="px-4 py-3 text-center">
-                      {acc.total > 0 ? (
-                        <span className={`font-bold tabular-nums ${acc.asr >= 30 ? 'text-emerald-400' : acc.asr > 0 ? 'text-amber-400' : 'text-rose-400'}`}>
-                          {acc.asr}%
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center text-xs text-muted-foreground tabular-nums">
-                      {acc.avgDur > 0 ? `${Math.floor(acc.avgDur/60)}m ${acc.avgDur%60}s` : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {acc.revenue > 0 ? (
-                        <span className="text-emerald-400 font-medium">${acc.revenue.toFixed(4)}</span>
-                      ) : (
-                        <span className="text-muted-foreground/50">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Active Calls Table — Sippy live when connected, local DB otherwise */}
-      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-border/50 flex items-center justify-between">
-          <h3 className="font-semibold flex items-center gap-2">
-            <PhoneCall className="w-4 h-4 text-blue-500" />
-            {anyPortalActive ? `Live Calls on Sippy (${liveCalls.length})` : 'Recent Active Calls'}
-          </h3>
-          <Link href="/calls" className="inline-flex items-center text-sm font-medium text-primary hover:text-primary/80 transition-colors">
-            View All Calls <ArrowRight className="ml-1 w-4 h-4" />
-          </Link>
-        </div>
-        <div className="overflow-x-auto">
-          {anyPortalActive ? (
-            liveCalls.length === 0 ? (
-              <div className="px-6 py-12 text-center text-sm text-muted-foreground">No active calls on Sippy right now.</div>
-            ) : (
-              <table className="w-full text-sm text-left">
-                <thead className="bg-muted/50 text-muted-foreground font-medium">
-                  <tr>
-                    <th className="px-6 py-3">Caller</th>
-                    <th className="px-6 py-3">Callee</th>
-                    <th className="px-6 py-3">Account</th>
-                    <th className="px-6 py-3">State</th>
-                    <th className="px-6 py-3">Duration</th>
-                    <th className="px-6 py-3">Answer Type</th>
-                    <th className="px-6 py-3">Setup Time</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {liveCalls.slice(0, 20).map((call: any, i: number) => {
-                    const isConnected = call.callStatus === 'connected';
-                    const dur = parseFloat(call.duration ?? 0);
-                    const durMins = Math.floor(dur / 60);
-                    const durSecs = Math.round(dur % 60);
-                    const durLabel = dur > 0 ? (durMins > 0 ? `${durMins}m ${durSecs}s` : `${durSecs}s`) : '0s';
-
-                    // FAS detection: Connected call with duration < 3s = likely False Answer Supervision
-                    // Not-yet-answered (routing): ARComplete/WaitRoute etc.
-                    // Real answer: Connected with duration >= 3s
-                    let answerType: { label: string; cls: string; title: string };
-                    if (!isConnected) {
-                      answerType = { label: 'Routing', cls: 'bg-amber-500/15 text-amber-400', title: 'Call is being routed — not yet answered' };
-                    } else if (dur < 3) {
-                      answerType = { label: 'FAS Risk', cls: 'bg-red-500/15 text-red-400', title: `Connected in ${durLabel} — possible False Answer Supervision (billing started before real answer)` };
-                    } else {
-                      answerType = { label: 'Real Answer', cls: 'bg-emerald-500/15 text-emerald-400', title: `Answered after ${durLabel} — genuine human answer` };
-                    }
-
-                    return (
-                      <tr key={i} className="hover:bg-muted/30 transition-colors" data-testid={`row-live-call-${i}`}>
-                        <td className="px-6 py-3 font-mono text-xs">{call.caller || '—'}</td>
-                        <td className="px-6 py-3 font-mono text-xs">{call.callee || '—'}</td>
-                        <td className="px-6 py-3 text-xs text-violet-400">{call.clientName || call.accountId || '—'}</td>
-                        <td className="px-6 py-3 text-xs">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                            isConnected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'
-                          }`}>{call.ccState || call.status || '—'}</span>
-                        </td>
-                        <td className={`px-6 py-3 text-xs font-mono ${isConnected && dur < 3 ? 'text-red-400 font-semibold' : 'text-muted-foreground'}`}>
-                          {durLabel}
-                        </td>
-                        <td className="px-6 py-3 text-xs">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${answerType.cls}`} title={answerType.title}>
-                            {answerType.label}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3 text-xs text-muted-foreground">
-                          {call.setupTime ? call.setupTime.replace('T', ' ').replace(/\.\d+$/, '') : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )
-          ) : (
-            <table className="w-full text-sm text-left">
-              <thead className="bg-muted/50 text-muted-foreground font-medium">
-                <tr>
-                  <th className="px-6 py-3">Caller</th>
-                  <th className="px-6 py-3">Callee</th>
-                  <th className="px-6 py-3">Started</th>
-                  <th className="px-6 py-3">MOS Score</th>
-                  <th className="px-6 py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {recentCalls?.map((call) => {
-                  const calleeCountry = lookupCountry(call.callee);
-                  return (
-                    <tr key={call.id} className="hover:bg-muted/30 transition-colors group">
-                      <td className="px-6 py-4 font-mono text-xs">{call.caller}</td>
-                      <td className="px-6 py-4">
-                        <span className="font-mono text-xs">{call.callee}</span>
-                        {calleeCountry && (
-                          <p className="text-[10px] text-muted-foreground mt-0.5">
-                            {calleeCountry.flag} {calleeCountry.name}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-muted-foreground">
-                        {call.startTime ? formatUTC(new Date(call.startTime), 'HH:mm:ss') : '-'}
-                      </td>
-                      <td className="px-6 py-4">
-                        <MosBadge value={call.latestMetric?.mos || 0} />
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <Link href={`/calls/${call.id}`} className="text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
-                          Details
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
