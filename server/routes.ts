@@ -3484,7 +3484,29 @@ export async function registerRoutes(
       const { accounts, error } = await withSippyCreds(settings, (u, p) =>
         sippy.listSippyAccounts(u, p, {}, portalUrl));
       if (error && !accounts?.length) return res.status(502).json({ success: false, error });
-      const adminCreds = sippyXmlCreds(settings);
+      const credPairs = sippyXmlCredsPairs(settings);
+
+      // Helper: try each credential pair until we get a non-null result
+      async function tryAllCreds<T>(fn: (u: string, p: string) => Promise<T | null>): Promise<T | null> {
+        for (const { username, password } of credPairs) {
+          try {
+            const r = await fn(username, password);
+            if (r !== null && r !== undefined) return r;
+          } catch { /* ignore per-pair errors, try next */ }
+        }
+        return null;
+      }
+      // Same but for auth rules (returns object with authRules array)
+      async function tryAllCredsAuthRules(iAccount: number) {
+        for (const { username, password } of credPairs) {
+          try {
+            const r = await sippy.listSippyAuthRules(username, password, { iAccount }, portalUrl);
+            if (r?.authRules?.length) return r;
+          } catch { /* ignore */ }
+        }
+        return null;
+      }
+
       const rows = await Promise.all((accounts ?? []).map(async (a) => {
         let threshold: number | null = null;
         let notifyByEmail: boolean | undefined;
@@ -3495,8 +3517,8 @@ export async function registerRoutes(
         // Fetch low-balance config + account info + auth rules in parallel
         const [lbResult, infoResult, authResult] = await Promise.allSettled([
           withSippyCreds(settings, (u, p) => sippy.getSippyLowBalance(u, p, { iAccount: a.iAccount }, portalUrl)),
-          sippy.getAccountInfo(adminCreds.username, adminCreds.password, portalUrl, a.iAccount),
-          sippy.listSippyAuthRules(adminCreds.username, adminCreds.password, { iAccount: a.iAccount }, portalUrl),
+          tryAllCreds((u, p) => sippy.getAccountInfo(u, p, portalUrl, a.iAccount)),
+          tryAllCredsAuthRules(a.iAccount),
         ]);
 
         if (lbResult.status === 'fulfilled') {
@@ -3508,10 +3530,12 @@ export async function registerRoutes(
           maxSessions = info.maxSessions !== undefined ? info.maxSessions : null;
           prefix = (info.incomingCli as string | undefined) ?? null;
         }
-        if (authResult.status === 'fulfilled' && (authResult.value as any)?.authRules) {
-          allowedIps = ((authResult.value as any).authRules as any[])
-            .map((r) => r.remoteIp)
-            .filter((ip): ip is string => Boolean(ip));
+        if (authResult.status === 'fulfilled' && authResult.value?.authRules?.length) {
+          allowedIps = [...new Set(
+            authResult.value.authRules
+              .map((r: any) => r.remoteIp)
+              .filter((ip: any): ip is string => Boolean(ip))
+          )];
         }
 
         const balance     = a.balance    ?? 0;
