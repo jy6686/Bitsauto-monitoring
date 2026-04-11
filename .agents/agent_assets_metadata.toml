@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "Zeu9soD5hZx1Jn-TFE7OI"
+uri = "file://APP_DOCUMENTATION.md"
+type = "text"
+title = "VoIP Watcher — Complete Application Documentation"
