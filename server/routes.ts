@@ -1383,7 +1383,7 @@ export async function registerRoutes(
       const [monResult, liveCallsRaw, cpsResult] = await Promise.all([
         sippy.getSippyMonitoringData(username, password, 'acd_asr', {
           startDate: sippyDate,
-          interval:  3600,
+          interval:  300,
           iEnvironment: 5,
           explicitPortalUrl: portalUrl,
         }),
