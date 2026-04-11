@@ -220,23 +220,31 @@ export default function DashboardPage() {
     ? parseFloat((sippyStats.cdrCount / 60).toFixed(1))
     : 0;
 
-  // ── Per-account traffic from CDR snapshot ─────────────────────────────────
+  // ── Per-account traffic from CDR snapshot (fully dynamic — no hardcoded IDs) ─
   const perAccountStats = (() => {
-    const ACCTS = [
-      { id: 1, name: 'PUSHTOTALK', short: 'PTT' },
-      { id: 4, name: 'aircel',     short: 'AIR' },
-      { id: 55, name: 'asif',      short: 'ASF' },
-    ];
     const cdrs = sippyCdr?.cdrs ?? [];
-    return ACCTS.map(acc => {
-      const slice = cdrs.filter((c: any) => c.iAccount === acc.id);
-      const answered = slice.filter((c: any) => String(c.result) === '0' && Number(c.duration) > 0).length;
-      const revenue  = parseFloat(slice.reduce((s: number, c: any) => s + (parseFloat(c.cost) || 0), 0).toFixed(4));
-      const avgDur   = answered > 0
-        ? Math.round(slice.filter((c: any) => Number(c.duration) > 0).reduce((s: number, c: any) => s + Number(c.duration), 0) / answered)
-        : 0;
-      return { ...acc, total: slice.length, answered, asr: slice.length > 0 ? Math.round(answered / slice.length * 100) : 0, revenue, avgDur };
-    });
+    // Discover all unique accounts from CDR data
+    const seen = new Map<number, string>(); // iAccount → name
+    for (const c of cdrs) {
+      const id = c.iAccount as number | undefined;
+      if (id == null) continue;
+      if (!seen.has(id)) {
+        const name: string = (c.clientName as string) || (c.username as string) || `Acct.${id}`;
+        seen.set(id, name);
+      }
+    }
+    return Array.from(seen.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([id, name]) => {
+        const short = name.replace(/[^A-Z0-9]/gi, '').slice(0, 3).toUpperCase() || String(id).slice(0, 3);
+        const slice    = cdrs.filter((c: any) => c.iAccount === id);
+        const answered = slice.filter((c: any) => String(c.result) === '0' && Number(c.duration) > 0).length;
+        const revenue  = parseFloat(slice.reduce((s: number, c: any) => s + (parseFloat(c.cost) || 0), 0).toFixed(4));
+        const avgDur   = answered > 0
+          ? Math.round(slice.filter((c: any) => Number(c.duration) > 0).reduce((s: number, c: any) => s + Number(c.duration), 0) / answered)
+          : 0;
+        return { id, name, short, total: slice.length, answered, asr: slice.length > 0 ? Math.round(answered / slice.length * 100) : 0, revenue, avgDur };
+      });
   })();
 
   // ── Last refreshed countdown ──────────────────────────────────────────────

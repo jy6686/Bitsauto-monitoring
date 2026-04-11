@@ -11,13 +11,35 @@ import * as sippySnmp from "./snmp";
 import * as emailSvc from "./email";
 import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas, calcVendorFraudStats } from "./cdr-enrichment";
 
-// ── Account name cache — populated whenever /api/sippy/accounts is called ─────
-// Maps iAccount string → username (e.g. "1" → "PUSHTOTALK").
-const accountNameCache: Map<string, string> = new Map([
-  ['1',  'PUSHTOTALK'],
-  ['4',  'aircel'],
-  ['55', 'asif'],
-]);
+// ── Account name cache — populated dynamically from Sippy listAccounts() ──────
+// Maps iAccount string → username. No hardcoded IDs — always reflects the live switch.
+const accountNameCache: Map<string, string> = new Map();
+
+// Ordered list of all known iAccount IDs — used for CDR batch fetching.
+// Refreshed every 30 min alongside connectionVendorCache.
+let liveAccountIds: number[] = [];
+
+async function refreshAccountCache(): Promise<void> {
+  try {
+    const settings = await storage.getSippySettings();
+    if (!settings) return;
+    const { username, password } = sippyXmlCreds(settings);
+    const portalUrl = sippyPortalUrl(settings);
+    const { accounts } = await sippy.listSippyAccounts(username, password, {}, portalUrl);
+    if (!accounts?.length) return;
+    const newIds: number[] = [];
+    for (const acct of accounts) {
+      if (acct.iAccount && acct.username) {
+        accountNameCache.set(String(acct.iAccount), acct.username);
+        newIds.push(acct.iAccount);
+      }
+    }
+    if (newIds.length) liveAccountIds = newIds;
+    console.log(`[routes] accountCache refreshed: ${liveAccountIds.length} accounts`);
+  } catch (e: any) {
+    console.warn('[routes] accountCache refresh failed:', e.message);
+  }
+}
 
 // ── Connection → Vendor name cache ────────────────────────────────────────────
 // Maps I_CONNECTION string → vendor name (e.g. "2" → "Callntalk").
@@ -1296,7 +1318,8 @@ export async function registerRoutes(
 
       // Run monitoring (acd_asr with env=5) + live calls in parallel
       // Also fetch recent CDRs (small batch per known account) for CK stats & MOS estimate
-      const CDR_ACCOUNTS = [1, 4, 55]; // PUSHTOTALK, aircel, asif
+      // Use live account list — refreshed from Sippy every 30 min, no hardcoded IDs
+      const CDR_ACCOUNTS = liveAccountIds.length ? liveAccountIds : [];
       const cdrStartDate = sippy.toSippyDate(winStart);
       const cdrEndDate   = sippy.toSippyDate(winEnd);
 
@@ -1405,8 +1428,8 @@ export async function registerRoutes(
       const endDate   = sippy.toSippyDate(end);
 
       // Fetch CDRs per-account (small limit avoids Sippy timeout for un-filtered bulk queries)
-      // Accounts under RTST1 (iCustomer=2): PUSHTOTALK=1, aircel=4, asif=55
-      const ACCOUNTS = [1, 4, 55];
+      // Use live account list — no hardcoded IDs, works with any configured accounts
+      const ACCOUNTS = liveAccountIds.length ? liveAccountIds : [];
       let cdrs: any[] = [];
       const { username: adminUser, password: adminPass } = sippyXmlCreds(settings);
       const perAccountFetches = await Promise.all(
@@ -6349,8 +6372,11 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
-  // ── Boot-time connection→vendor cache + 30-min refresh ──────────────────────
-  setTimeout(() => refreshConnectionVendorCache(), 5000);
+  // ── Boot-time caches + 30-min refresh ────────────────────────────────────────
+  // Stagger the two fetches slightly so they don't hit the switch simultaneously
+  setTimeout(() => refreshAccountCache(),           3000);
+  setTimeout(() => refreshConnectionVendorCache(),  6000);
+  setInterval(() => refreshAccountCache(),          30 * 60 * 1000);
   setInterval(() => refreshConnectionVendorCache(), 30 * 60 * 1000);
 
   // ── Call snapshot background poller (every 30 s) ──────────────────────────
