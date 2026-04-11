@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {
   Server, Wifi, WifiOff, AlertTriangle, CheckCircle, Clock, RefreshCw,
   Activity, HardDrive, Cpu, MemoryStick, Radio, Bell, Trash2, Plus,
@@ -1071,10 +1071,10 @@ function RegistrationsTab() {
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function ServerMonitoringPage() {
-  const [location, setLocation] = useLocation();
-  const params = new URLSearchParams(location.split("?")[1] ?? "");
-  const activeTab = (params.get("tab") ?? "reachability") as TabId;
-  const setTab = (id: TabId) => setLocation(`/server-monitoring?tab=${id}`);
+  const [, navigate] = useLocation();
+  const search = useSearch();
+  const activeTab = ((new URLSearchParams(search)).get("tab") ?? "reachability") as TabId;
+  const setTab = (id: TabId) => navigate(`/server-monitoring?tab=${id}`);
 
   return (
     <div className="space-y-6">

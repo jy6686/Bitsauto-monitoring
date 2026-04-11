@@ -1,4 +1,4 @@
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -33,6 +33,7 @@ const MONITORING_SUBITEMS = [
 
 export function LayoutShell({ children }: LayoutShellProps) {
   const [location] = useLocation();
+  const search = useSearch();
   const { user, logout, role, isAdmin, isManagement } = useAuth();
 
   const isCallsActive      = location.startsWith('/calls');
@@ -70,7 +71,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const badge = ROLE_BADGE[role];
 
   const currentView = isCallsActive
-    ? (new URLSearchParams(location.split('?')[1] ?? '').get('view') ?? 'summary')
+    ? (new URLSearchParams(search).get('view') ?? 'summary')
     : null;
 
   return (
@@ -128,7 +129,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
             if (item.hasSubmenu === 'monitoring') {
               const currentMonTab = isMonitoringActive
-                ? (new URLSearchParams(location.split('?')[1] ?? '').get('tab') ?? 'reachability')
+                ? (new URLSearchParams(search).get('tab') ?? 'reachability')
                 : null;
               return (
                 <div key={item.href}>
