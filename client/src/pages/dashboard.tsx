@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useDashboardStats } from "@/hooks/use-dashboard";
 import { useCalls } from "@/hooks/use-calls";
-import { useAlerts } from "@/hooks/use-alerts";
 import { useSettings } from "@/hooks/use-settings";
 import { StatCard } from "@/components/stat-card";
 import { MosBadge } from "@/components/mos-badge";
@@ -80,7 +79,6 @@ export default function DashboardPage() {
   const { toast } = useToast();
   const { data: stats } = useDashboardStats();
   const { data: recentCalls } = useCalls(5);
-  const { data: recentAlerts } = useAlerts();
   const { data: settings } = useSettings();
   const [trendHours, setTrendHours] = useState(1);
 
@@ -755,9 +753,9 @@ export default function DashboardPage() {
         );
       })()}
 
-      <div className="grid gap-6 md:grid-cols-7">
+      <div className="grid gap-6">
         {/* Main Chart Area — Dual ASR + ACD */}
-        <div className="col-span-4 rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-semibold flex items-center gap-2">
@@ -858,38 +856,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Recent Alerts Feed */}
-        <div className="col-span-3 rounded-xl border border-border bg-card p-6 shadow-sm flex flex-col">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="font-semibold flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-500" />
-              Recent Alerts
-            </h3>
-            <Link href="/alerts" className="text-xs text-primary hover:underline">View All</Link>
-          </div>
-          <div className="space-y-4 flex-1 overflow-auto pr-2 custom-scrollbar">
-            {recentAlerts?.slice(0, 5).map((alert) => (
-              <div key={alert.id} className="flex gap-3 items-start p-3 rounded-lg bg-muted/30 border border-border/50 hover:bg-muted/50 transition-colors">
-                <div className={cn(
-                  "mt-1 w-2 h-2 rounded-full flex-shrink-0",
-                  alert.severity === 'critical' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]' : 'bg-amber-500'
-                )} />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium leading-none">{alert.type.replace('_', ' ').toUpperCase()}</p>
-                  <p className="text-xs text-muted-foreground line-clamp-2">{alert.message}</p>
-                  <p className="text-[10px] text-muted-foreground/60">
-                    {formatUTC(new Date(alert.createdAt!), 'MMM d, HH:mm:ss')}
-                  </p>
-                </div>
-              </div>
-            ))}
-            {(!recentAlerts || recentAlerts.length === 0) && (
-              <div className="text-center py-8 text-muted-foreground text-sm">
-                No active alerts. System healthy.
-              </div>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* ── Recent CDR Records ─────────────────────────────────────────────── */}
