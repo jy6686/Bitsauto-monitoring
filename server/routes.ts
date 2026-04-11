@@ -1140,13 +1140,17 @@ export async function registerRoutes(
   app.get('/api/sippy/live-calls', async (_req, res) => {
     try {
       const settings = await storage.getSettings();
-      const { username, password } = sippyXmlCreds(settings);
-      const portalUrl = sippyPortalUrl(settings); // explicit — no activeSession dependency
-      // Pass both credential pairs so admin portal fallback can handle DB-swap scenario:
-      // primary = apiAdminUsername/Password, fallback = portalUsername/Password (or vice-versa)
-      const fallbackUser = settings?.portalUsername ?? '';
-      const fallbackPass = settings?.portalPassword ?? '';
-      const raw = await sippy.getSippyActiveCalls(username, password, portalUrl, undefined, fallbackUser, fallbackPass);
+      const portalUrl = sippyPortalUrl(settings);
+
+      // listActiveCalls must use admin-scope credentials to see ALL clients' calls.
+      // portalUsername (ssp-root) has full admin XML-RPC scope.
+      // apiAdminUsername (e.g. RTST1) is account-scoped and only sees its own calls.
+      // Try portalUsername first; fall back to apiAdminUsername (handles credential-swap setups).
+      const primaryUser = settings?.portalUsername || settings?.apiAdminUsername || '';
+      const primaryPass = settings?.portalPassword || settings?.apiAdminPassword || '';
+      const fallbackUser = settings?.apiAdminUsername ?? '';
+      const fallbackPass = settings?.apiAdminPassword ?? '';
+      const raw = await sippy.getSippyActiveCalls(primaryUser, primaryPass, portalUrl, undefined, fallbackUser, fallbackPass);
       // Map CC_STATE → callStatus; filter out terminated states
       const ccStateMap: Record<string, 'connected' | 'routing'> = {
         Connected:    'connected',
