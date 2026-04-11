@@ -20,6 +20,7 @@ type FasEvent = {
   callId: string;
   caller: string | null;
   callee: string | null;
+  clientName: string | null;
   vendor: string | null;
   pddSecs: number | null;
   billSecs: number | null;
@@ -257,7 +258,7 @@ export default function FraudPage() {
                     <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
                     Analyzed <strong>{analyzeResult.analyzed}</strong> CDRs — found{" "}
                     <strong>{analyzeResult.fasEvents}</strong> new FAS events across{" "}
-                    <strong>{analyzeResult.vendorScores.length}</strong> vendors.
+                    <strong>{analyzeResult.vendorScores.length}</strong> clients.
                   </>
             }
           </div>
@@ -312,9 +313,9 @@ export default function FraudPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground">
-                    <th className="px-4 py-3 text-left">Time</th>
+                    <th className="px-4 py-3 text-left">Time (UTC)</th>
+                    <th className="px-4 py-3 text-left">Client</th>
                     <th className="px-4 py-3 text-left">Caller → Callee</th>
-                    <th className="px-4 py-3 text-left">Vendor</th>
                     <th className="px-4 py-3 text-right">PDD</th>
                     <th className="px-4 py-3 text-right">Billed</th>
                     <th className="px-4 py-3 text-right">Score</th>
@@ -327,7 +328,14 @@ export default function FraudPage() {
                       className="border-b border-border/50 hover:bg-muted/20 transition-colors"
                       data-testid={`row-fas-${event.id}`}>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(event.detectedAt).toLocaleString()}
+                        {formatUTC(new Date(event.detectedAt), 'dd MMM yyyy HH:mm:ss')}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-xs font-medium text-primary/90">
+                            {event.clientName || event.vendor || "—"}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-mono text-xs">
@@ -336,7 +344,6 @@ export default function FraudPage() {
                           <span>{event.callee ?? "—"}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-xs">{event.vendor ?? "—"}</td>
                       <td className="px-4 py-3 text-right">
                         {event.pddSecs != null ? (
                           <span className={`font-mono text-xs ${event.pddSecs > 10 ? "text-orange-400" : event.pddSecs < 2 ? "text-yellow-400" : ""}`}>
@@ -370,17 +377,17 @@ export default function FraudPage() {
 
         {/* Right panel */}
         <div className="space-y-4">
-          {/* Vendor Risk Summary */}
+          {/* Client Risk Summary */}
           <div className="bg-card rounded-xl border border-border overflow-hidden">
             <div className="p-4 border-b border-border flex items-center gap-2">
               <Server className="h-4 w-4 text-muted-foreground" />
-              <h2 className="font-semibold text-sm">Vendor Risk Summary</h2>
+              <h2 className="font-semibold text-sm">Client Risk Summary</h2>
             </div>
             <div className="p-4 space-y-2">
               {vendorScores.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">Run an analysis to see vendor scores</p>
+                <p className="text-xs text-muted-foreground text-center py-4">Run an analysis to see client scores</p>
               ) : vendorScores.slice(0, 8).map(v => (
-                <div key={v.vendor} data-testid={`vendor-risk-${v.vendor}`}>
+                <div key={v.vendor} data-testid={`client-risk-${v.vendor}`}>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-mono truncate max-w-[120px]">{v.vendor}</span>
                     <div className="flex items-center gap-2">
@@ -394,8 +401,8 @@ export default function FraudPage() {
             {(redVendors > 0 || yellowVendors > 0) && (
               <div className="px-4 pb-4">
                 <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">
-                  {redVendors > 0 && <p>{redVendors} high-risk vendor{redVendors > 1 ? "s" : ""} — review routing immediately.</p>}
-                  {yellowVendors > 0 && <p className="text-yellow-400">{yellowVendors} suspicious vendor{yellowVendors > 1 ? "s" : ""} — monitor closely.</p>}
+                  {redVendors > 0 && <p>{redVendors} high-risk client{redVendors > 1 ? "s" : ""} — review traffic immediately.</p>}
+                  {yellowVendors > 0 && <p className="text-yellow-400">{yellowVendors} suspicious client{yellowVendors > 1 ? "s" : ""} — monitor closely.</p>}
                 </div>
               </div>
             )}

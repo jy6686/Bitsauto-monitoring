@@ -4761,7 +4761,8 @@ export async function registerRoutes(
       // Enrich every CDR with FAS analysis
       // Sippy CDR result field: '0' = success (SIP 200 OK); other values are SIP response codes (486, 603, etc.)
       type EnrichedRow = {
-        callId?: string; caller?: string; callee?: string; vendor?: string;
+        callId?: string; caller?: string; callee?: string;
+        clientName?: string; vendor?: string;
         sipCode?: number | null; pddSecs?: number | null; billSecs?: number | null;
         isFas: boolean; fasReason: string; fraudScore: number; reason?: string;
       };
@@ -4784,13 +4785,18 @@ export async function registerRoutes(
           fasEarlyAnswerSecs,
           fasShortCallSecs,
         });
+        // Resolve client name: prefer clientName from CDR, fallback to accountNameCache by iAccount
+        const resolvedClient = cdr.clientName
+          || accountNameCache.get(String(cdr.iAccount ?? ''))
+          || (cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
         return {
           callId:     cdr.callId ?? '',
           caller:     cdr.caller ?? '',
           callee:     cdr.callee ?? '',
-          vendor:     cdr.clientName ?? '',
+          clientName: resolvedClient,
+          vendor:     '',               // Sippy CDR API does not return vendor info per call
           sipCode:    sipCodeVal,
-          pddSecs:    cdr.pdd    ?? null,
+          pddSecs:    ringDelay,
           billSecs:   billSecsVal,
           isFas:      fasResult.isFas,
           fasReason:  fasResult.reason,
@@ -4808,6 +4814,7 @@ export async function registerRoutes(
               callId:     String(r.callId),
               caller:     r.caller ?? '',
               callee:     r.callee ?? '',
+              clientName: r.clientName ?? '',
               vendor:     r.vendor ?? '',
               pddSecs:    r.pddSecs ?? null,
               billSecs:   r.billSecs ?? null,
@@ -4821,14 +4828,14 @@ export async function registerRoutes(
         }
       }
 
-      // Build vendor fraud scores
-      const byVendor: Record<string, typeof enriched> = {};
+      // Build risk scores grouped by CLIENT name (vendor not available in CDR API)
+      const byClient: Record<string, typeof enriched> = {};
       for (const r of enriched) {
-        const v = r.vendor || 'Unknown';
-        if (!byVendor[v]) byVendor[v] = [];
-        byVendor[v].push(r);
+        const v = r.clientName || 'Unknown';
+        if (!byClient[v]) byClient[v] = [];
+        byClient[v].push(r);
       }
-      const vendorScores = Object.entries(byVendor).map(([vendor, rows]) =>
+      const vendorScores = Object.entries(byClient).map(([vendor, rows]) =>
         calcVendorFraudStats(vendor, rows.map(r => ({
           sipCode: r.sipCode, pddSecs: r.pddSecs, billSecs: r.billSecs,
           reason: r.reason, isFas: r.isFas, fraudScore: r.fraudScore,
@@ -4839,17 +4846,17 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ analyzed: 0, fasEvents: 0, vendorScores: [], error: e.message }); }
   });
 
-  // GET /api/fas/vendor-scores — compute vendor fraud scores from stored FAS events in DB
+  // GET /api/fas/vendor-scores — compute client-level fraud scores from stored FAS events in DB
   app.get('/api/fas/vendor-scores', async (_req, res) => {
     try {
       const events = await storage.getFasEvents(500);
-      const byVendor: Record<string, typeof events> = {};
+      const byClient: Record<string, typeof events> = {};
       for (const e of events) {
-        const v = e.vendor || 'Unknown';
-        if (!byVendor[v]) byVendor[v] = [];
-        byVendor[v].push(e);
+        const v = e.clientName || e.vendor || 'Unknown';
+        if (!byClient[v]) byClient[v] = [];
+        byClient[v].push(e);
       }
-      const vendorScores = Object.entries(byVendor).map(([vendor, rows]) =>
+      const vendorScores = Object.entries(byClient).map(([vendor, rows]) =>
         calcVendorFraudStats(vendor, rows.map(r => ({
           sipCode: r.sipCode, pddSecs: r.pddSecs, billSecs: r.billSecs,
           reason: r.reason, isFas: true, fraudScore: r.fraudScore ?? 0,

@@ -27,6 +27,8 @@ import {
   DollarSign,
   PhoneIncoming,
   Settings,
+  ShieldAlert,
+  Eye,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -111,6 +113,12 @@ export default function DashboardPage() {
     refetchInterval: 120000,
     enabled: isSippyReachable,
   });
+
+  const { data: fasEventsData } = useQuery<{ events: any[] }>({
+    queryKey: ['/api/fas-events'],
+    refetchInterval: 120000,
+  });
+  const recentFasEvents = (fasEventsData?.events ?? []).slice(0, 5);
 
   const probeMutation = useMutation({
     mutationFn: () => apiRequest('POST', '/api/probe/run'),
@@ -360,6 +368,54 @@ export default function DashboardPage() {
         </>
         )}
       </div>
+
+      {/* FAS Recent Events Panel */}
+      {recentFasEvents.length > 0 && (
+        <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-rose-500/15">
+            <ShieldAlert className="w-4 h-4 text-rose-400" />
+            <h3 className="font-semibold text-sm text-rose-300">FAS Detections</h3>
+            <span className="ml-1 text-xs text-rose-400/70">— False Answer Supervision events from last analysis</span>
+            <Link href="/fraud" className="ml-auto text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1">
+              View all <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="divide-y divide-rose-500/10">
+            {recentFasEvents.map((ev: any) => {
+              const reasons: string[] = (ev.reason ?? '').split(',').map((r: string) => r.trim()).filter(Boolean);
+              return (
+                <div key={ev.id} className="flex items-center gap-4 px-5 py-2.5 text-xs hover:bg-rose-500/5">
+                  <div className="flex-shrink-0 text-muted-foreground/60 w-28">
+                    {formatUTC(new Date(ev.detectedAt), 'dd MMM HH:mm:ss')}
+                  </div>
+                  <div className="flex-shrink-0 min-w-[90px]">
+                    <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary/80 font-medium">
+                      {ev.clientName || ev.vendor || 'Unknown'}
+                    </span>
+                  </div>
+                  <div className="font-mono text-muted-foreground truncate">
+                    {ev.caller ?? '—'} <span className="text-muted-foreground/40">→</span> {ev.callee ?? '—'}
+                  </div>
+                  <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+                    {reasons.map(r => (
+                      <span key={r} className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${
+                        r === 'high_pdd'    ? 'bg-orange-500/15 text-orange-400' :
+                        r === 'zero_billed' ? 'bg-red-500/15 text-red-400' :
+                        r === 'short_billed'? 'bg-violet-500/15 text-violet-400' :
+                        r === 'early_answer'? 'bg-yellow-500/15 text-yellow-400' :
+                        'bg-muted/30 text-muted-foreground'
+                      }`}>
+                        {r.replace(/_/g, ' ')}
+                      </span>
+                    ))}
+                    <span className="ml-1 text-rose-400 font-bold">Score {ev.fraudScore ?? 0}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Network Probe Panel — shows all monitored IPs */}
       {(() => {
