@@ -2592,7 +2592,25 @@ export async function registerRoutes(
       if (body.cc)                                  opts.cc                     = String(body.cc);
       if (body.bcc)                                 opts.bcc                    = String(body.bcc);
 
-      const result = await sippy.pushAccountToSippy(opts, { username, password }, targetUrl);
+      // ── Try account creation with all credential pairs on auth failure ──────
+      // createAccount() requires admin-level credentials (ssp-root), but the
+      // sippyXmlCreds() helper returns apiAdminUsername (RTST1) first which may be
+      // read-only.  Retry transparently with every configured pair until one works.
+      let result = await sippy.pushAccountToSippy(opts, { username, password }, targetUrl);
+      if (!result.success && !req.body.inlineUser) {
+        const errDetail = (result.detail ?? result.message ?? '').toLowerCase();
+        const isAuthFail = errDetail.includes('authentication') || errDetail.includes('401')
+          || errDetail.includes('access denied') || errDetail.includes('check sippy');
+        if (isAuthFail) {
+          const allPairs = sippyXmlCredsPairs(settings);
+          for (const creds of allPairs) {
+            if (creds.username === username) continue;  // already tried this one
+            console.log(`[routes] createAccount: auth failed for "${username}", retrying with "${creds.username}"`);
+            result = await sippy.pushAccountToSippy(opts, creds, targetUrl);
+            if (result.success) break;
+          }
+        }
+      }
 
       // After successful creation — add extra IP auth rules and set low-balance alert
       if (result.success && result.i_account) {
