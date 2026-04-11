@@ -1453,11 +1453,16 @@ export async function registerRoutes(
         acd = latestPt ? Math.round(latestPt.acd) : 0;
       }
 
-      // ── CPS (Calls Per Second) — from cps_total monitoring graph ─────────────
-      // Take the most recent non-zero data point (5-min interval avg from Sippy)
+      // ── CPS (Calls Per Second) ───────────────────────────────────────────────
+      // Primary: most recent non-zero point from cps_total monitoring graph.
+      // Fallback: CDR-based estimate (cdrCount / 3600) when monitoring returns all zeros.
+      // Note: monitoring returns all-zero for iEnvironment=5 on this Sippy instance.
       const cpsPts    = cpsResult.points.filter((p: any) => p.ts <= nowTs && (p.cps ?? p.col1 ?? 0) > 0);
       const latestCpt = cpsPts.length > 0 ? cpsPts[cpsPts.length - 1] : null;
-      const cps       = latestCpt ? parseFloat((latestCpt.cps ?? latestCpt.col1 ?? 0).toFixed(2)) : 0;
+      const cpsMonitor = latestCpt ? parseFloat((latestCpt.cps ?? latestCpt.col1 ?? 0).toFixed(2)) : 0;
+      // CDR-based fallback: total CDRs in last hour ÷ 3600 s → calls/sec average
+      const cpsCdrFallback = ckTotal > 0 ? parseFloat((ckTotal / 3600).toFixed(2)) : 0;
+      const cps = cpsMonitor > 0 ? cpsMonitor : cpsCdrFallback;
 
       // activeCalls / pdd / liveCount: NOT computed here — sourced from /api/sippy/live-calls
       // on the frontend (5-second poll, single XML-RPC source to avoid throttling Sippy).
@@ -1474,6 +1479,7 @@ export async function registerRoutes(
         ckRatio,
         ckBreakdown: { connected: ckConnected, wrongNumber: ckWrongNumber, switchedOff: ckSwitchedOff, untraceable: ckUntraceable, total: ckTotal },
         cdrCount:    ckTotal,
+        cpsSource:   cpsMonitor > 0 ? 'monitoring' : 'cdr',
         // Estimated MOS (null = not computable)
         estimatedMos,
       });
