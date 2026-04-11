@@ -242,16 +242,16 @@ function SwitchPanel({
 
   const isPrimary = switchId === 'primary';
 
-  // Primary Sippy: use /api/sippy/session + /api/sippy/live-calls
+  // Primary Sippy: session used only for the "Live" badge — live calls fetch independently
   const { data: primarySippySession } = useQuery<{ active: boolean }>({
     queryKey: ['/api/sippy/session'],
     refetchInterval: 30000,
     enabled: isPrimary,
   });
-  const { data: primarySippyLiveCalls, isLoading: sippyLoading, refetch: refetchSippy } = useQuery<{ calls: LiveCall[] }>({
+  const { data: primarySippyLiveCalls, isLoading: sippyLoading, refetch: refetchSippy } = useQuery<{ calls: LiveCall[]; connected?: boolean }>({
     queryKey: ['/api/sippy/live-calls'],
     refetchInterval: 15000,
-    enabled: isPrimary && !!primarySippySession?.active,
+    enabled: isPrimary,
   });
 
   // Secondary switch: use per-switch endpoints
@@ -294,7 +294,11 @@ function SwitchPanel({
     refetchInterval: 60000,
   });
 
-  const isActive = isPrimary ? !!primarySippySession?.active : true;
+  // For primary: use the 'connected' field from the live calls response (most accurate);
+  // fall back to session.active while the first live-calls fetch is in flight
+  const isActive = isPrimary
+    ? (primarySippyLiveCalls !== undefined ? !!primarySippyLiveCalls.connected : !!primarySippySession?.active)
+    : true;
   const isLoading = isPrimary ? sippyLoading : switchLoading;
 
   const handleRefresh = () => isPrimary ? refetchSippy() : refetchSwitch();
