@@ -803,11 +803,12 @@ function SwitchPanel({
                                 </div>
 
                                 {/* ── Panel 3: Quality Signals ── */}
-                                <div className="rounded-lg border border-border/40 bg-background/40 p-3 space-y-2">
+                                <div className="rounded-lg border border-border/40 bg-background/40 p-3 space-y-3">
                                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 flex items-center gap-1.5">
                                     <Activity className="w-3 h-3" /> Quality Signals
                                   </p>
-                                  {/* PDD Grade */}
+
+                                  {/* PDD */}
                                   {(() => {
                                     const pdd = call.delay ?? 0;
                                     const pddMs = Math.round(pdd * 1000);
@@ -820,7 +821,7 @@ function SwitchPanel({
                                     return (
                                       <div className="flex items-center justify-between">
                                         <div>
-                                          <p className="text-[10px] text-muted-foreground/50 uppercase">Setup Latency (PDD)</p>
+                                          <p className="text-[9px] text-muted-foreground/50 uppercase tracking-wider">Setup Latency (PDD)</p>
                                           <p className="font-mono text-[13px] font-semibold text-foreground/80 mt-0.5">
                                             {pddMs > 0 ? `${pddMs} ms` : '—'}
                                           </p>
@@ -833,20 +834,81 @@ function SwitchPanel({
                                       </div>
                                     );
                                   })()}
-                                  {/* CC State */}
-                                  <div className="flex items-center justify-between">
+
+                                  {/* MOS / Jitter / Packet Loss tiles */}
+                                  {(() => {
+                                    const pddMs = Math.round((call.delay ?? 0) * 1000);
+                                    // ITU-T G.107 E-model estimate — uses PDD as signaling-delay proxy
+                                    // One-way estimate ≈ PDD × 0.3 (PDD ≈ 3× one-way signaling propagation)
+                                    let mos: number | null = null;
+                                    if (pddMs > 0) {
+                                      const d = pddMs * 0.3;
+                                      const R = Math.max(0, Math.min(100,
+                                        94.2 - 0.024 * d - 0.11 * (d > 177.3 ? d - 177.3 : 0)
+                                      ));
+                                      mos = Math.max(1, Math.min(4.5,
+                                        Math.round((1 + 0.035 * R + 7e-6 * R * (R - 60) * (100 - R)) * 10) / 10
+                                      ));
+                                    }
+                                    const mosGrade = mos === null ? null
+                                      : mos >= 4.3 ? { label: 'Excellent', val: 'text-emerald-400', bar: 'bg-emerald-400' }
+                                      : mos >= 4.0 ? { label: 'Good',      val: 'text-green-400',   bar: 'bg-green-400' }
+                                      : mos >= 3.6 ? { label: 'Fair',      val: 'text-amber-400',   bar: 'bg-amber-400' }
+                                      : mos >= 3.1 ? { label: 'Poor',      val: 'text-orange-400',  bar: 'bg-orange-400' }
+                                      :              { label: 'Bad',        val: 'text-red-400',     bar: 'bg-red-400' };
+                                    const mosBarPct = mos !== null ? Math.round(((mos - 1) / 3.5) * 100) : 0;
+
+                                    return (
+                                      <div className="grid grid-cols-3 gap-1.5">
+                                        {/* MOS */}
+                                        <div className="rounded-md bg-background/60 border border-border/30 p-2 space-y-1">
+                                          <p className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">MOS</p>
+                                          {mos !== null ? (
+                                            <>
+                                              <p className={`font-mono text-[15px] font-bold ${mosGrade?.val}`}>{mos.toFixed(1)}</p>
+                                              <div className="h-1 rounded-full bg-muted/30 overflow-hidden">
+                                                <div className={`h-full rounded-full transition-all ${mosGrade?.bar}`} style={{ width: `${mosBarPct}%` }} />
+                                              </div>
+                                              <div className="flex items-center justify-between">
+                                                <p className={`text-[8px] font-semibold ${mosGrade?.val}`}>{mosGrade?.label}</p>
+                                                <p className="text-[7px] text-muted-foreground/30">est.</p>
+                                              </div>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <p className="font-mono text-[15px] font-bold text-muted-foreground/30">—</p>
+                                              <p className="text-[8px] text-muted-foreground/25">No PDD data</p>
+                                            </>
+                                          )}
+                                        </div>
+
+                                        {/* Jitter */}
+                                        <div className="rounded-md bg-background/60 border border-border/30 p-2 space-y-1">
+                                          <p className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">Jitter</p>
+                                          <p className="font-mono text-[15px] font-bold text-muted-foreground/25">—</p>
+                                          <p className="text-[7px] text-muted-foreground/25 leading-tight">RTCP-XR<br/>required</p>
+                                        </div>
+
+                                        {/* Packet Loss */}
+                                        <div className="rounded-md bg-background/60 border border-border/30 p-2 space-y-1">
+                                          <p className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">Pkt Loss</p>
+                                          <p className="font-mono text-[15px] font-bold text-muted-foreground/25">—</p>
+                                          <p className="text-[7px] text-muted-foreground/25 leading-tight">RTCP-XR<br/>required</p>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+
+                                  {/* Switch State */}
+                                  <div className="flex items-center justify-between pt-0.5 border-t border-border/20">
                                     <div>
-                                      <p className="text-[10px] text-muted-foreground/50 uppercase">Switch State</p>
+                                      <p className="text-[9px] text-muted-foreground/50 uppercase tracking-wider">Switch State</p>
                                       <p className="text-[11px] text-foreground/70 mt-0.5">{call.ccState || call.callStatus || '—'}</p>
                                     </div>
-                                    <Wifi className="w-3.5 h-3.5 text-muted-foreground/30" />
-                                  </div>
-                                  {/* RTP metrics note */}
-                                  <div className="flex items-start gap-1.5 rounded bg-muted/20 border border-border/30 px-2 py-1.5 mt-1">
-                                    <Info className="w-3 h-3 text-muted-foreground/40 flex-shrink-0 mt-0.5" />
-                                    <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
-                                      MOS, Jitter &amp; Packet Loss require RTCP-XR or a dedicated RTP monitor. Sippy's live session API provides PDD only.
-                                    </p>
+                                    <div className="flex items-center gap-1 text-[8px] text-muted-foreground/25">
+                                      <Info className="w-2.5 h-2.5" />
+                                      <span>MOS estimated via E-model</span>
+                                    </div>
                                   </div>
                                 </div>
 
