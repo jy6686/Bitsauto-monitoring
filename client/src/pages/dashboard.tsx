@@ -75,7 +75,7 @@ export default function DashboardPage() {
     refetchInterval: 5000,
   });
   // Sippy real-time dashboard stats — ASR, ACD, PDD, active calls direct from Sippy switch
-  const { data: sippyStats, isLoading: sippyStatsLoading } = useQuery<{
+  const { data: sippyStats, isLoading: sippyStatsLoading, dataUpdatedAt: statsUpdatedAt } = useQuery<{
     activeCalls: number; totalCalls: number; answeredCalls: number;
     asr: number; acd: number; pdd: number; totalMinutes: number;
     connected: boolean; liveCount: number; rawFields: Record<string, string>;
@@ -89,7 +89,7 @@ export default function DashboardPage() {
     cps?: number;
   }>({
     queryKey: ['/api/sippy/dashboard-stats'],
-    refetchInterval: 15000,
+    refetchInterval: 20000,
   });
   // Sippy CDR records — poll once connected
   const isSippyReachable = sippyLiveCalls?.connected === true || !!sippySession?.active || sippyStats?.connected === true;
@@ -222,12 +222,14 @@ export default function DashboardPage() {
   })();
 
   // ── Last refreshed countdown ──────────────────────────────────────────────
+  // statsUpdatedAt changes on every successful fetch (even if data is identical),
+  // so the timer resets every 20 s — not just when Sippy returns different values.
   const [secsAgo, setSecsAgo] = useState(0);
   useEffect(() => {
     setSecsAgo(0);
     const t = setInterval(() => setSecsAgo(s => s + 1), 1000);
     return () => clearInterval(t);
-  }, [sippyStats]);
+  }, [statsUpdatedAt]);
 
   if (!stats) return <div className="p-8">Loading dashboard...</div>;
 
