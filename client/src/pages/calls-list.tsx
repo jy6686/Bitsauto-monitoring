@@ -3,8 +3,13 @@ import {
   ArrowRightLeft, Globe, Server, Loader2, AlertCircle,
   ChevronDown, ChevronRight, PhoneOff, ArrowUpRight, ArrowDownLeft, Network,
   Activity, Wifi, Info, HeartPulse, ShieldAlert, Timer, SignalHigh, History,
+  TrendingUp, BarChart2, ThumbsUp, ThumbsDown, Mic2,
 } from "lucide-react";
 import { useState, useRef, Fragment } from "react";
+import {
+  ResponsiveContainer, LineChart, Line, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, Legend,
+} from 'recharts';
 import { lookupCountry } from "@/lib/country-lookup";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -178,6 +183,7 @@ function SwitchPanel({
 }) {
   const [callViewTab, setCallViewTab] = useState<'summary' | 'details' | 'quality' | 'history'>('summary');
   const [historyHours, setHistoryHours] = useState(24);
+  const [routeAnalysisMode, setRouteAnalysisMode] = useState(false);
   const [search, setSearch] = useState('');
   const [filterCli, setFilterCli] = useState('');
   const [filterCld, setFilterCld] = useState('');
@@ -236,6 +242,21 @@ function SwitchPanel({
     queryKey: ['/api/call-history', historyHours],
     queryFn: () => fetch(`/api/call-history?hours=${historyHours}`).then(r => r.json()),
     refetchInterval: 30000,
+  });
+
+  interface RouteQuality {
+    vendor: string; callCount: number; avgPddMs: number; p95PddMs: number; maxPddMs: number;
+    goodCalls: number; badCalls: number; goodPct: number;
+    codecs: Record<string, number>; connections: string[]; clients: string[];
+    hourlyBuckets: { hour: string; callCount: number; avgPddMs: number; goodPct: number }[];
+  }
+  const { data: rqData, isLoading: rqLoading, refetch: refetchRQ } = useQuery<{
+    routes: RouteQuality[]; hoursBack: number; totalCalls: number;
+  }>({
+    queryKey: ['/api/call-history/route-quality', historyHours],
+    queryFn: () => fetch(`/api/call-history/route-quality?hours=${historyHours}`).then(r => r.json()),
+    enabled: routeAnalysisMode,
+    refetchInterval: 60000,
   });
 
   const isActive = isPrimary ? !!primarySippySession?.active : true;
@@ -1312,10 +1333,24 @@ function SwitchPanel({
           <div className="space-y-4">
             {/* Controls */}
             <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-violet-400" />
-                <span className="text-sm font-medium">Call History</span>
-                <span className="text-xs text-muted-foreground">— saved every 30 s, retained 24 h</span>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <History className="w-4 h-4 text-violet-400" />
+                  <span className="text-sm font-medium">Call History</span>
+                  <span className="text-xs text-muted-foreground">— saved every 30 s, retained 24 h</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-muted/30 rounded-lg p-1 border border-border/50">
+                  <button onClick={() => setRouteAnalysisMode(false)}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${!routeAnalysisMode ? 'bg-card border border-border shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                    data-testid="button-history-table-mode">
+                    <span className="flex items-center gap-1.5"><List className="w-3 h-3" /> Call Log</span>
+                  </button>
+                  <button onClick={() => { setRouteAnalysisMode(true); refetchRQ(); }}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${routeAnalysisMode ? 'bg-violet-500/20 border border-violet-500/30 text-violet-400 shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                    data-testid="button-route-analysis-mode">
+                    <span className="flex items-center gap-1.5"><TrendingUp className="w-3 h-3" /> Route Analysis</span>
+                  </button>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">Show last:</span>
@@ -1324,7 +1359,8 @@ function SwitchPanel({
                     className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all ${historyHours === h ? 'bg-violet-500/10 text-violet-400 border-violet-500/30' : 'text-muted-foreground border-border/50 hover:border-border'}`}
                     data-testid={`button-history-${h}h`}>{h}h</button>
                 ))}
-                <button onClick={() => refetchHist()} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-card border border-border hover:bg-muted/40 transition-colors" data-testid="button-refresh-history">
+                <button onClick={() => routeAnalysisMode ? refetchRQ() : refetchHist()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-card border border-border hover:bg-muted/40 transition-colors" data-testid="button-refresh-history">
                   <RefreshCw className="w-3 h-3" /> Refresh
                 </button>
               </div>
@@ -1359,7 +1395,267 @@ function SwitchPanel({
               </div>
             </div>
 
-            {/* Table */}
+            {/* ── ROUTE ANALYSIS MODE ───────────────────────────────────────── */}
+            {routeAnalysisMode && (() => {
+              function calcMOS2(pddMs: number): number | null {
+                if (pddMs <= 0) return null;
+                const d = pddMs * 0.3;
+                const R = Math.max(0, Math.min(100, 94.2 - 0.024 * d - 0.11 * (d > 177.3 ? d - 177.3 : 0)));
+                return Math.max(1, Math.min(4.5, Math.round((1 + 0.035 * R + 7e-6 * R * (R - 60) * (100 - R)) * 10) / 10));
+              }
+              function gradeColor(mos: number | null) {
+                if (!mos) return 'text-muted-foreground/30';
+                if (mos >= 4.3) return 'text-emerald-400'; if (mos >= 4.0) return 'text-green-400';
+                if (mos >= 3.6) return 'text-amber-400';   if (mos >= 3.1) return 'text-orange-400';
+                return 'text-red-400';
+              }
+              function gradeLabel(mos: number | null) {
+                if (!mos) return '—'; if (mos >= 4.3) return 'Excellent'; if (mos >= 4.0) return 'Good';
+                if (mos >= 3.6) return 'Fair'; if (mos >= 3.1) return 'Poor'; return 'Bad';
+              }
+              function gradeBorder(mos: number | null) {
+                if (!mos) return 'border-border'; if (mos >= 4.3) return 'border-emerald-500/40';
+                if (mos >= 4.0) return 'border-green-500/40'; if (mos >= 3.6) return 'border-amber-500/40';
+                if (mos >= 3.1) return 'border-orange-500/40'; return 'border-red-500/40';
+              }
+              function pddColor(pdd: number) {
+                if (pdd === 0) return 'text-muted-foreground/30';
+                if (pdd < 1000) return 'text-emerald-400'; if (pdd < 2000) return 'text-amber-400';
+                if (pdd < 3000) return 'text-orange-400'; return 'text-red-400';
+              }
+              function fmtHour(iso: string) {
+                try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }); }
+                catch { return iso.slice(11, 16); }
+              }
+
+              if (rqLoading) return (
+                <div className="bg-card border border-border rounded-xl p-16 text-center">
+                  <Loader2 className="w-7 h-7 animate-spin mx-auto mb-3 text-violet-400" />
+                  <p className="text-muted-foreground text-sm">Analyzing {historyHours}h of route data…</p>
+                </div>
+              );
+              const routes = rqData?.routes ?? [];
+              if (!routes.length) return (
+                <div className="bg-card border border-border rounded-xl p-16 text-center">
+                  <BarChart2 className="w-12 h-12 mx-auto mb-3 text-muted-foreground/20" />
+                  <p className="text-muted-foreground font-medium">No route data yet</p>
+                  <p className="text-muted-foreground/50 text-sm mt-1">Call history is recorded every 30 s. Check back once calls are active.</p>
+                </div>
+              );
+
+              // Build combined hourly chart data across all routes
+              const allHours = Array.from(new Set(routes.flatMap(r => r.hourlyBuckets.map(b => b.hour)))).sort();
+              const chartData = allHours.map(hour => {
+                const point: Record<string, string | number> = { hour: fmtHour(hour) };
+                for (const route of routes) {
+                  const bucket = route.hourlyBuckets.find(b => b.hour === hour);
+                  point[route.vendor + '_pdd']   = bucket?.avgPddMs  ?? 0;
+                  point[route.vendor + '_calls']  = bucket?.callCount ?? 0;
+                  point[route.vendor + '_good']   = bucket?.goodPct   ?? 0;
+                }
+                return point;
+              });
+
+              const ROUTE_COLORS = ['#a78bfa','#34d399','#fb923c','#60a5fa','#f472b6','#fbbf24'];
+
+              return (
+                <div className="space-y-4">
+                  {/* Route Quality Cards */}
+                  <div className={`grid gap-4 ${routes.length === 1 ? 'grid-cols-1' : routes.length === 2 ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'}`}>
+                    {routes.map((route, i) => {
+                      const mos = calcMOS2(route.avgPddMs);
+                      const topCodec = Object.entries(route.codecs).sort((a,b) => b[1]-a[1])[0];
+                      return (
+                        <div key={route.vendor} className={`bg-card border ${gradeBorder(mos)} rounded-xl p-5 space-y-4`} data-testid={`card-route-${i}`}>
+                          {/* Header */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full mt-0.5 flex-shrink-0" style={{ backgroundColor: ROUTE_COLORS[i % ROUTE_COLORS.length] }} />
+                                <p className="font-semibold text-sm">{route.vendor}</p>
+                              </div>
+                              {route.connections.length > 0 && (
+                                <p className="text-[10px] text-muted-foreground/40 mt-0.5 ml-4">Conn #{route.connections.join(', #')}</p>
+                              )}
+                            </div>
+                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
+                              !mos ? 'border-border text-muted-foreground' :
+                              mos >= 4.0 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
+                              mos >= 3.6 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
+                              mos >= 3.1 ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' :
+                              'bg-red-500/10 border-red-500/30 text-red-400'
+                            }`}>
+                              {gradeLabel(mos)}
+                            </span>
+                          </div>
+
+                          {/* Key Metrics */}
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="space-y-0.5">
+                              <p className="text-[9px] text-muted-foreground/40 uppercase tracking-wider flex items-center gap-1"><HeartPulse className="w-2.5 h-2.5" /> MOS (est.)</p>
+                              <p className={`text-xl font-bold ${gradeColor(mos)}`}>{mos?.toFixed(1) ?? '—'}</p>
+                            </div>
+                            <div className="space-y-0.5">
+                              <p className="text-[9px] text-muted-foreground/40 uppercase tracking-wider flex items-center gap-1"><Timer className="w-2.5 h-2.5" /> Avg PDD</p>
+                              <p className={`text-xl font-bold ${pddColor(route.avgPddMs)}`}>{route.avgPddMs > 0 ? `${route.avgPddMs}ms` : '—'}</p>
+                            </div>
+                            <div className="space-y-0.5">
+                              <p className="text-[9px] text-muted-foreground/40 uppercase tracking-wider flex items-center gap-1"><Phone className="w-2.5 h-2.5" /> Calls</p>
+                              <p className="text-xl font-bold">{route.callCount}</p>
+                            </div>
+                          </div>
+
+                          {/* Good/Bad bar */}
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between text-[10px] text-muted-foreground/50">
+                              <span className="flex items-center gap-1"><ThumbsUp className="w-2.5 h-2.5 text-emerald-400" />{route.goodCalls} good (&lt;2s PDD)</span>
+                              <span className="flex items-center gap-1">{route.badCalls} bad (&ge;3s) <ThumbsDown className="w-2.5 h-2.5 text-red-400" /></span>
+                            </div>
+                            <div className="h-2 bg-muted/40 rounded-full overflow-hidden">
+                              <div className="h-full bg-emerald-500/70 rounded-full transition-all" style={{ width: `${route.goodPct}%` }} />
+                            </div>
+                            <div className="flex justify-between text-[9px] text-muted-foreground/30">
+                              <span>P95: {route.p95PddMs > 0 ? `${route.p95PddMs}ms` : '—'}</span>
+                              <span>Max: {route.maxPddMs > 0 ? `${route.maxPddMs}ms` : '—'}</span>
+                            </div>
+                          </div>
+
+                          {/* Codec + Clients */}
+                          <div className="flex items-center justify-between text-[10px] text-muted-foreground/50">
+                            <span className="flex items-center gap-1"><Mic2 className="w-2.5 h-2.5" />
+                              {topCodec ? topCodec[0] : 'No codec data'}
+                            </span>
+                            {route.clients.length > 0 && (
+                              <span>{route.clients.slice(0,2).join(', ')}{route.clients.length > 2 ? ` +${route.clients.length-2}` : ''}</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Hourly PDD Trend Chart */}
+                  {chartData.length > 1 && (
+                    <div className="bg-card border border-border rounded-xl p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <TrendingUp className="w-4 h-4 text-violet-400" />
+                        <p className="text-sm font-medium">Hourly PDD Trend</p>
+                        <span className="text-xs text-muted-foreground">— average setup latency per route per hour</span>
+                      </div>
+                      <div className="h-52">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={chartData} margin={{ top: 4, right: 8, left: -8, bottom: 4 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                            <XAxis dataKey="hour" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.35)' }} />
+                            <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.35)' }} unit="ms" />
+                            <ReTooltip
+                              contentStyle={{ background: '#1a1b23', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', fontSize: 11 }}
+                              formatter={(val: number, name: string) => [`${val} ms`, name.replace('_pdd','')]}
+                            />
+                            <Legend wrapperStyle={{ fontSize: 10 }} formatter={n => n.replace('_pdd','')} />
+                            {routes.map((route, i) => (
+                              <Line key={route.vendor} type="monotone" dataKey={`${route.vendor}_pdd`}
+                                stroke={ROUTE_COLORS[i % ROUTE_COLORS.length]} strokeWidth={2}
+                                dot={false} activeDot={{ r: 3 }} name={route.vendor} />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Hourly Call Volume Chart */}
+                  {chartData.length > 1 && (
+                    <div className="bg-card border border-border rounded-xl p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <BarChart2 className="w-4 h-4 text-cyan-400" />
+                        <p className="text-sm font-medium">Hourly Call Volume</p>
+                        <span className="text-xs text-muted-foreground">— concurrent calls captured per hour per route</span>
+                      </div>
+                      <div className="h-44">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={chartData} margin={{ top: 4, right: 8, left: -8, bottom: 4 }} barGap={2}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                            <XAxis dataKey="hour" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.35)' }} />
+                            <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.35)' }} />
+                            <ReTooltip contentStyle={{ background: '#1a1b23', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', fontSize: 11 }} />
+                            <Legend wrapperStyle={{ fontSize: 10 }} formatter={n => n.replace('_calls','')} />
+                            {routes.map((route, i) => (
+                              <Bar key={route.vendor} dataKey={`${route.vendor}_calls`}
+                                fill={ROUTE_COLORS[i % ROUTE_COLORS.length]} fillOpacity={0.7}
+                                radius={[2,2,0,0]} name={route.vendor} />
+                            ))}
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Summary Comparison Table */}
+                  <div className="bg-card border border-border rounded-xl overflow-hidden">
+                    <div className="px-5 py-3 border-b border-border/50 flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-muted-foreground/50" />
+                      <p className="text-sm font-medium">Route Comparison</p>
+                      <span className="text-xs text-muted-foreground">· last {historyHours}h · {rqData?.totalCalls ?? 0} calls total</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead className="bg-muted/30 text-muted-foreground text-[10px] uppercase tracking-wider border-b border-border/50">
+                          <tr>
+                            <th className="px-4 py-2.5">Route / Vendor</th>
+                            <th className="px-4 py-2.5 text-right">Calls</th>
+                            <th className="px-4 py-2.5 text-right">MOS (est.)</th>
+                            <th className="px-4 py-2.5 text-right">Avg PDD</th>
+                            <th className="px-4 py-2.5 text-right">P95 PDD</th>
+                            <th className="px-4 py-2.5 text-right">Good %</th>
+                            <th className="px-4 py-2.5 text-right">Top Codec</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/30">
+                          {routes.map((route, i) => {
+                            const mos = calcMOS2(route.avgPddMs);
+                            const topCodec = Object.entries(route.codecs).sort((a,b) => b[1]-a[1])[0];
+                            return (
+                              <tr key={route.vendor} className="hover:bg-muted/20 transition-colors" data-testid={`row-route-${i}`}>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: ROUTE_COLORS[i % ROUTE_COLORS.length] }} />
+                                    <span className="font-medium">{route.vendor}</span>
+                                  </div>
+                                  {route.connections.length > 0 && <p className="text-[10px] text-muted-foreground/40 ml-4">#{route.connections.join(', #')}</p>}
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono text-[12px]">{route.callCount}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <span className={`font-bold text-[13px] ${gradeColor(mos)}`}>{mos?.toFixed(1) ?? '—'}</span>
+                                  <span className={`ml-1 text-[10px] ${gradeColor(mos)}`}>{gradeLabel(mos)}</span>
+                                </td>
+                                <td className={`px-4 py-3 text-right font-mono text-[12px] font-semibold ${pddColor(route.avgPddMs)}`}>
+                                  {route.avgPddMs > 0 ? `${route.avgPddMs} ms` : '—'}
+                                </td>
+                                <td className={`px-4 py-3 text-right font-mono text-[12px] ${pddColor(route.p95PddMs)}`}>
+                                  {route.p95PddMs > 0 ? `${route.p95PddMs} ms` : '—'}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <span className={`text-[12px] font-semibold ${route.goodPct >= 80 ? 'text-emerald-400' : route.goodPct >= 60 ? 'text-amber-400' : 'text-red-400'}`}>
+                                    {route.goodPct}%
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right text-[11px] text-muted-foreground/60 font-mono">
+                                  {topCodec?.[0] ?? '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── CALL LOG TABLE (normal mode) ──────────────────────────────── */}
+            {!routeAnalysisMode && (
             <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
               {histLoading ? (
                 <div className="p-12 text-center text-muted-foreground"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />Loading call history…</div>
@@ -1469,6 +1765,8 @@ function SwitchPanel({
                 <span>MOS estimated via ITU-T G.107 E-model</span>
               </div>
             </div>
+            )}
+
           </div>
         );
       })()}

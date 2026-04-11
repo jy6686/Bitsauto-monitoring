@@ -6663,5 +6663,71 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/call-history/route-quality?hours=24
+  // Aggregates 24h call snapshots by vendor/route and returns quality metrics
+  // for route analysis: avg/p95 PDD, codec distribution, hourly trend buckets.
+  app.get('/api/call-history/route-quality', async (req: any, res) => {
+    try {
+      const hours = Math.min(24, Math.max(1, Number(req.query.hours) || 24));
+      const rows = await storage.getCallHistory(hours);
+
+      // Group by vendor (fall back to connection id or "Unknown")
+      const groups: Record<string, typeof rows> = {};
+      for (const row of rows) {
+        const key = row.vendor || (row.connection ? `Conn#${row.connection}` : 'Unknown');
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(row);
+      }
+
+      const routes = Object.entries(groups).map(([vendor, calls]) => {
+        const pddValues = calls.map(c => c.pddMs ?? 0).filter(v => v > 0).sort((a, b) => a - b);
+        const avgPddMs  = pddValues.length ? Math.round(pddValues.reduce((s, v) => s + v, 0) / pddValues.length) : 0;
+        const p95PddMs  = pddValues.length ? (pddValues[Math.floor(pddValues.length * 0.95)] ?? pddValues[pddValues.length - 1] ?? 0) : 0;
+        const maxPddMs  = pddValues.length ? pddValues[pddValues.length - 1] : 0;
+
+        // Codec distribution
+        const codecs: Record<string, number> = {};
+        for (const c of calls) {
+          const codec = c.codec && c.codec !== '-' ? c.codec : null;
+          if (codec) codecs[codec] = (codecs[codec] ?? 0) + 1;
+        }
+
+        // Hourly buckets for trend chart — bucket by firstSeen truncated to the hour
+        const hourly: Record<string, { callCount: number; totalPdd: number; goodCalls: number }> = {};
+        for (const c of calls) {
+          const d = new Date(c.firstSeen);
+          const hour = `${d.toISOString().slice(0, 13)}:00`;
+          if (!hourly[hour]) hourly[hour] = { callCount: 0, totalPdd: 0, goodCalls: 0 };
+          hourly[hour].callCount++;
+          hourly[hour].totalPdd += c.pddMs ?? 0;
+          if ((c.pddMs ?? 0) < 2000) hourly[hour].goodCalls++;
+        }
+        const hourlyBuckets = Object.entries(hourly)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([hour, data]) => ({
+            hour,
+            callCount:  data.callCount,
+            avgPddMs:   data.callCount > 0 ? Math.round(data.totalPdd / data.callCount) : 0,
+            goodPct:    data.callCount > 0 ? Math.round((data.goodCalls / data.callCount) * 100) : 0,
+          }));
+
+        const connections = Array.from(new Set(calls.map(c => c.connection).filter(Boolean)));
+        const clients     = Array.from(new Set(calls.map(c => c.clientName).filter(Boolean)));
+        const goodCalls   = calls.filter(c => (c.pddMs ?? 0) > 0 && (c.pddMs ?? 0) < 2000).length;
+        const badCalls    = calls.filter(c => (c.pddMs ?? 0) >= 3000).length;
+
+        return {
+          vendor, callCount: calls.length, avgPddMs, p95PddMs, maxPddMs,
+          goodCalls, badCalls, goodPct: calls.length > 0 ? Math.round((goodCalls / calls.length) * 100) : 0,
+          codecs, hourlyBuckets, connections, clients,
+        };
+      }).sort((a, b) => b.callCount - a.callCount);
+
+      res.json({ routes, hoursBack: hours, totalCalls: rows.length });
+    } catch (e: any) {
+      res.status(500).json({ routes: [], error: e.message });
+    }
+  });
+
   return httpServer;
 }
