@@ -35,7 +35,6 @@ import {
   Users,
   Award,
   Radio,
-  PhoneForwarded,
   ArrowUpRight,
   Minus,
 } from "lucide-react";
@@ -817,74 +816,6 @@ export default function DashboardPage() {
           </div>
         );
       })()}
-
-      {/* ── Recent CDR Records ─────────────────────────────────────────────── */}
-      {anyPortalActive && (sippyCdr?.cdrs?.length ?? 0) > 0 && (
-        <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-border/50 bg-muted/10">
-            <div className="flex items-center gap-2">
-              <PhoneForwarded className="w-3.5 h-3.5 text-violet-400" />
-              <h3 className="font-semibold text-sm">Recent CDR Records</h3>
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
-                {sippyCdr!.cdrs.length} records
-              </span>
-            </div>
-            <Link href="/cdrs" className="text-xs text-primary hover:underline flex items-center gap-1">
-              Full CDR Viewer <ArrowRight className="w-3 h-3" />
-            </Link>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-muted/30 text-muted-foreground text-xs">
-                <tr>
-                  <th className="px-4 py-2.5">Start Time</th>
-                  <th className="px-4 py-2.5">Caller (CLI)</th>
-                  <th className="px-4 py-2.5">Callee (CLD)</th>
-                  <th className="px-4 py-2.5">Country</th>
-                  <th className="px-4 py-2.5">Duration</th>
-                  <th className="px-4 py-2.5">PDD</th>
-                  <th className="px-4 py-2.5">Cost</th>
-                  <th className="px-4 py-2.5">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/30">
-                {sippyCdr!.cdrs.slice(0, 10).map((rec: any, i: number) => {
-                  const isAnswered = (rec.duration > 0) || /^(200|ok|answered|success)/i.test(rec.result || '');
-                  const durSec = Number(rec.duration) || 0;
-                  return (
-                    <tr key={i} className="hover:bg-muted/20 transition-colors" data-testid={`row-cdr-${i}`}>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                        {rec.startTime || rec.connectTime || '—'}
-                      </td>
-                      <td className="px-4 py-2.5 font-mono text-xs">{rec.caller || '—'}</td>
-                      <td className="px-4 py-2.5 font-mono text-xs">{rec.callee || '—'}</td>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{rec.country || rec.areaName || '—'}</td>
-                      <td className="px-4 py-2.5 text-xs">
-                        {durSec > 0 ? `${Math.floor(durSec / 60)}m ${durSec % 60}s` : '0s'}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                        {rec.pdd != null ? `${Number(rec.pdd).toFixed(2)}s` : '—'}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs text-amber-400">
-                        {rec.cost != null && rec.cost > 0 ? `$${Number(rec.cost).toFixed(4)}` : '—'}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                          isAnswered
-                            ? 'bg-emerald-500/15 text-emerald-400'
-                            : 'bg-rose-500/15 text-rose-400'
-                        }`}>
-                          {isAnswered ? 'Answered' : (rec.result || '—')}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {/* ── Per-Account Traffic Panel ──────────────────────────────────────── */}
       {anyPortalActive && (
