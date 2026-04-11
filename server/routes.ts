@@ -6973,10 +6973,14 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSippySettings();
       if (!settings) return;
-      const { username, password } = sippyXmlCreds(settings);
+      const credPairs = sippyXmlCredsPairs(settings);
       const portalUrl = sippyPortalUrl(settings);
-      // Use XML-RPC capable credential only (portalUsername/ssp-root has no XML-RPC access)
-      const raw = await sippy.getSippyActiveCalls(username, password, portalUrl);
+      // Try each credential pair — RTST1 first (XML-RPC capable), ssp-root as fallback
+      let raw: Awaited<ReturnType<typeof sippy.getSippyActiveCalls>> = [];
+      for (const { username, password } of credPairs) {
+        raw = await sippy.getSippyActiveCalls(username, password, portalUrl);
+        if (raw.length > 0) break;
+      }
       const now = new Date();
       for (const c of raw) {
         if (!c.callId) continue;
@@ -7177,6 +7181,9 @@ export async function registerRoutes(
 
   // GET /api/call-history — last N hours of call snapshots (max 24h)
   app.get('/api/call-history', async (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     try {
       const hours = Math.min(24, Math.max(1, Number(req.query.hours) || 24));
       const rows = await storage.getCallHistory(hours);
@@ -7205,6 +7212,9 @@ export async function registerRoutes(
   // Aggregates 24h call snapshots by vendor/route and returns quality metrics
   // for route analysis: avg/p95 PDD, codec distribution, hourly trend buckets.
   app.get('/api/call-history/route-quality', async (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     try {
       const hours = Math.min(24, Math.max(1, Number(req.query.hours) || 24));
       const rows = await storage.getCallHistory(hours);
