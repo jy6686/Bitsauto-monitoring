@@ -145,8 +145,8 @@ export default function ReportsPage() {
       const params = new URLSearchParams();
       if (applied.cliFilter)  params.set('cli',       applied.cliFilter);
       if (applied.cldFilter)  params.set('cld',       applied.cldFilter);
-      if (applied.startTime)  params.set('startTime', new Date(applied.startTime).toISOString());
-      if (applied.endTime)    params.set('endTime',   new Date(applied.endTime).toISOString());
+      if (applied.startTime)  params.set('startTime', applied.startTime.length === 16 ? applied.startTime + ':00Z' : applied.startTime);
+      if (applied.endTime)    params.set('endTime',   applied.endTime.length   === 16 ? applied.endTime   + ':00Z' : applied.endTime);
       params.set('groupBy',   applied.groupBy);
       params.set('sortBy',    applied.sortBy);
       params.set('hideEmpty', String(applied.hideEmpty));
@@ -243,7 +243,8 @@ export default function ReportsPage() {
     };
   }, [displayRows, profiles]);
 
-  const rangeLabel = `${formatUTC(new Date(startTime), 'd MMM HH:mm')} → ${formatUTC(new Date(endTime), 'd MMM HH:mm')} UTC`;
+  const toUTCDate = (s: string) => new Date(s.length === 16 ? s + ':00Z' : s);
+  const rangeLabel = `${formatUTC(toUTCDate(applied.startTime || startTime), 'd MMM HH:mm')} → ${formatUTC(toUTCDate(applied.endTime || endTime), 'd MMM HH:mm')} UTC`;
 
   return (
     <div className="space-y-6">

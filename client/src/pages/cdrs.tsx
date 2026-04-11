@@ -188,8 +188,9 @@ export default function CDRsPage() {
   const hasMore = cdrs.length === PAGE_SIZE;
 
   function applyFilters() {
-    const s = new Date(startInput);
-    const e = new Date(endInput);
+    const parseUTC = (v: string) => new Date(v.length === 16 ? v + ':00Z' : v);
+    const s = parseUTC(startInput);
+    const e = parseUTC(endInput);
     if (isNaN(s.getTime()) || isNaN(e.getTime())) return;
     setStart(s); setEnd(e);
     setApplied({ start: s, end: e, callType, cli, cld });
