@@ -1375,14 +1375,12 @@ export async function registerRoutes(
       const sippyDate = `${pad(winStart.getUTCHours())}:${pad(winStart.getUTCMinutes())}:${pad(winStart.getUTCSeconds())}.000 GMT `
         + `${DAYS[winStart.getUTCDay()]} ${MONTHS[winStart.getUTCMonth()]} ${pad(winStart.getUTCDate())} ${winStart.getUTCFullYear()}`;
 
-      // Run monitoring (acd_asr with env=5) + live calls in parallel
-      // Also fetch recent CDRs (small batch per known account) for CK stats & MOS estimate
-      // Use live account list — refreshed from Sippy every 30 min, no hardcoded IDs
-      const CDR_ACCOUNTS = liveAccountIds.length ? liveAccountIds : [];
       const cdrStartDate = sippy.toSippyDate(winStart);
       const cdrEndDate   = sippy.toSippyDate(winEnd);
+      const credPairs    = sippyXmlCredsPairs(settings);
 
-      const [monResult, liveCallsRaw, ...perAccountCdrs] = await Promise.all([
+      // Run monitoring graph + live calls in parallel; CDRs fetched separately below
+      const [monResult, liveCallsRaw] = await Promise.all([
         sippy.getSippyMonitoringData(username, password, 'acd_asr', {
           startDate: sippyDate,
           interval:  3600,
@@ -1391,16 +1389,19 @@ export async function registerRoutes(
         }),
         sippy.getSippyActiveCalls(username, password, portalUrl, undefined,
           settings?.portalUsername ?? '', settings?.portalPassword ?? ''),
-        // Fetch CDRs per account — small limit avoids timeout
-        ...CDR_ACCOUNTS.map(iAccount =>
-          sippy.getSippyCDRs(username, password, 100, {
-            iAccount, startDate: cdrStartDate, endDate: cdrEndDate,
-          }).catch(() => [] as any[])
-        ),
       ]);
 
-      // Merge all account CDRs
-      const recentCdrs: any[] = (perAccountCdrs as any[][]).flat();
+      // Fetch CDRs — try all credential pairs (RTST1 often 401 on CDR methods, ssp-root succeeds)
+      // Use global (no i_account) CDR fetch so one call covers all accounts
+      let recentCdrs: any[] = [];
+      for (const creds of credPairs) {
+        try {
+          const rows = await sippy.getSippyCDRs(creds.username, creds.password, 500, {
+            startDate: cdrStartDate, endDate: cdrEndDate,
+          });
+          if (rows.length > 0) { recentCdrs = rows; break; }
+        } catch { continue; }
+      }
 
       // ── CK (Call-Back) Ratio from CDRs ─────────────────────────────────────
       // Sippy result codes: "0" = success; negative = failure
@@ -1424,12 +1425,24 @@ export async function registerRoutes(
         estimatedMos = R > 0 ? parseFloat((1 + 0.035 * R + 7e-6 * R * (R - 60) * (100 - R)).toFixed(2)) : null;
       }
 
-      // Take most recent non-zero data point for ASR/ACD
-      const nowTs = Math.floor(Date.now() / 1000);
-      const nonZeroPts = monResult.points.filter(p => (p.asr > 0 || p.acd > 0) && p.ts <= nowTs);
-      const latestPt   = nonZeroPts.length > 0 ? nonZeroPts[nonZeroPts.length - 1] : null;
-      const asr = latestPt ? parseFloat(latestPt.asr.toFixed(2)) : 0;
-      const acd = latestPt ? Math.round(latestPt.acd) : 0;
+      // ── ASR / ACD ────────────────────────────────────────────────────────────
+      // Primary: compute directly from CDRs (most accurate — CDR result codes never lie)
+      // Fallback: monitoring graph data (getMonitoringGraphData env=5)
+      let asr = 0; let acd = 0;
+      if (recentCdrs.length > 0) {
+        const cdrTotal    = recentCdrs.length;
+        const cdrAnswered = recentCdrs.filter(c => String(c.result) === '0' && (Number(c.duration) || 0) > 0);
+        const cdrDurSec   = cdrAnswered.reduce((s: number, c: any) => s + (Number(c.duration) || 0), 0);
+        asr = parseFloat((cdrAnswered.length / cdrTotal * 100).toFixed(2));
+        acd = cdrAnswered.length > 0 ? Math.round(cdrDurSec / cdrAnswered.length) : 0;
+      } else {
+        // Fall back to monitoring graph (may be 0 if env=5 has no data in window)
+        const nowTs = Math.floor(Date.now() / 1000);
+        const nonZeroPts = monResult.points.filter((p: any) => (p.asr > 0 || p.acd > 0) && p.ts <= nowTs);
+        const latestPt   = nonZeroPts.length > 0 ? nonZeroPts[nonZeroPts.length - 1] : null;
+        asr = latestPt ? parseFloat(latestPt.asr.toFixed(2)) : 0;
+        acd = latestPt ? Math.round(latestPt.acd) : 0;
+      }
 
       // PDD = average delay field across currently routing calls
       const routingCalls = liveCallsRaw.filter(c => c.delay && c.delay > 0);
@@ -1486,21 +1499,20 @@ export async function registerRoutes(
       const startDate = sippy.toSippyDate(start);
       const endDate   = sippy.toSippyDate(end);
 
-      // Fetch CDRs per-account (small limit avoids Sippy timeout for un-filtered bulk queries)
-      // Use live account list — no hardcoded IDs, works with any configured accounts
-      const ACCOUNTS = liveAccountIds.length ? liveAccountIds : [];
+      // Fetch CDRs — global (no i_account) so one call covers all accounts.
+      // Try credential pairs in order: RTST1 first, then ssp-root.
+      // RTST1 often gets 401 on getCustomerCDRs; ssp-root (admin) always has access.
       let cdrs: any[] = [];
-      const { username: adminUser, password: adminPass } = sippyXmlCreds(settings);
-      const perAccountFetches = await Promise.all(
-        ACCOUNTS.map(iAccount =>
-          sippy.getSippyCDRs(adminUser, adminPass, 200, { iAccount, startDate, endDate })
-            .catch(() => [] as any[])
-        )
-      );
-      cdrs = perAccountFetches.flat();
+      for (const { username, password } of credPairs) {
+        try {
+          const rows = await sippy.getSippyCDRs(username, password, 1000, { startDate, endDate });
+          if (rows.length > 0) { cdrs = rows; break; }
+        } catch { continue; }
+      }
 
       // If still empty, fall back to portal scraping
       if (cdrs.length === 0) {
+        const { username: adminUser, password: adminPass } = sippyXmlCreds(settings);
         const portalUser = settings?.portalUsername ?? '';
         const portalPass = settings?.portalPassword ?? '';
         try {
