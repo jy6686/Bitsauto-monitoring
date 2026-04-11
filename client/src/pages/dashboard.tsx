@@ -13,6 +13,7 @@ import {
   PhoneCall, 
   ArrowRight,
   BarChart2,
+  RefreshCw,
   Clock,
   Timer,
   PhoneMissed,
@@ -90,13 +91,14 @@ export default function DashboardPage() {
   });
   // Sippy CDR records — poll once connected
   const isSippyReachable = sippyLiveCalls?.connected === true || !!sippySession?.active || sippyStats?.connected === true;
-  const { data: sippyCdr } = useQuery<{ cdrs: any[]; error?: string }>({
+  const { data: sippyCdr, refetch: refetchCdr, isRefetching: cdrRefetching } = useQuery<{ cdrs: any[]; error?: string }>({
     queryKey: ['/api/sippy/cdr'],
     refetchInterval: 60000,
+    staleTime: 0,
     enabled: isSippyReachable,
   });
   // Sippy ASR/ACD report — CDR-based revenue & margin stats for last 90 min
-  const { data: sippyFinancials } = useQuery<{
+  const { data: sippyFinancials, refetch: refetchFinancials, isRefetching: financialsRefetching } = useQuery<{
     ok: boolean; period: string;
     origination: { totalCalls: number; billableCalls: number; totalDurationSec: number; acd: number; asr: number; avgPdd: number; revenue: number };
     termination: { totalCalls: number; billableCalls: number; totalDurationSec: number; acd: number; asr: number; avgPdd: number; cost: number };
@@ -104,6 +106,7 @@ export default function DashboardPage() {
   }>({
     queryKey: ['/api/sippy/asr-acd-stats'],
     refetchInterval: 120000,
+    staleTime: 0,
     enabled: isSippyReachable,
   });
 
@@ -424,9 +427,16 @@ export default function DashboardPage() {
               <DollarSign className="w-3.5 h-3.5 text-muted-foreground" />
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue &amp; Cost — 90→30 min ago (settled CDRs)</span>
             </div>
-            {sippyFinancials?.origination.totalCalls === 0 && (
-              <span className="text-[10px] text-muted-foreground/60 italic hidden sm:block">No completed calls yet — updates after calls end</span>
-            )}
+            <button
+              onClick={() => refetchFinancials()}
+              disabled={financialsRefetching}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground/70 hover:text-muted-foreground transition-colors px-2 py-1 rounded hover:bg-muted/30 disabled:opacity-50"
+              title="Refresh revenue & cost data"
+              data-testid="button-refresh-financials"
+            >
+              <RefreshCw className={`w-3 h-3 ${financialsRefetching ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{financialsRefetching ? 'Refreshing…' : 'Refresh'}</span>
+            </button>
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-6 divide-x divide-border/40">
             {/* Orig calls */}
@@ -487,6 +497,16 @@ export default function DashboardPage() {
               <h3 className="font-semibold text-sm">Per-Account Traffic</h3>
               <span className="text-[10px] text-muted-foreground">· from CDR snapshot (last 90 min)</span>
             </div>
+            <button
+              onClick={() => refetchCdr()}
+              disabled={cdrRefetching}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground/70 hover:text-muted-foreground transition-colors px-2 py-1 rounded hover:bg-muted/30 disabled:opacity-50"
+              title="Refresh CDR snapshot"
+              data-testid="button-refresh-cdr"
+            >
+              <RefreshCw className={`w-3 h-3 ${cdrRefetching ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{cdrRefetching ? 'Refreshing…' : 'Refresh'}</span>
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">

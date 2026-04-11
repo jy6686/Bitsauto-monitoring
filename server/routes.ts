@@ -1481,6 +1481,7 @@ export async function registerRoutes(
   //   margin: revenue - cost (0 until vendor cost source is added)
   // Falls back to portal scraping if CDR fetch fails.
   app.get('/api/sippy/asr-acd-stats', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const PERIOD_LABEL = '90→30 min ago';
     const EMPTY_STATS = {
       ok: false, period: PERIOD_LABEL,
@@ -1713,6 +1714,7 @@ export async function registerRoutes(
   // Trusted mode: getCustomerCDRs uses iWholesaler (default 1); getAccountCDRs uses iCustomer=1
   // iCdrsCustomer: fetch only the single CDR with this i_cdrs_customer value (docs 107429)
   app.get('/api/sippy/cdr', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     try {
       const settings = await storage.getSettings();
       const credPairs = sippyXmlCredsPairs(settings);
