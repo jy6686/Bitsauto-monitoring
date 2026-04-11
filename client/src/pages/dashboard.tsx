@@ -93,6 +93,12 @@ export default function DashboardPage() {
     activeCalls: number; totalCalls: number; answeredCalls: number;
     asr: number; acd: number; pdd: number; totalMinutes: number;
     connected: boolean; liveCount: number; rawFields: Record<string, string>;
+    // CK stats from CDRs
+    ckRatio?: number;
+    ckBreakdown?: { connected: number; wrongNumber: number; switchedOff: number; untraceable: number; total: number };
+    cdrCount?: number;
+    // MOS estimate from E-model
+    estimatedMos?: number | null;
   }>({
     queryKey: ['/api/sippy/dashboard-stats'],
     refetchInterval: 15000,
@@ -171,6 +177,20 @@ export default function DashboardPage() {
   const displayAcd = anyPortalActive ? (sippyStats?.acd ?? 0) : (stats?.acd ?? 0);
   const displayPdd = anyPortalActive ? (sippyStats?.pdd ?? 0) : (stats?.pdd ?? 0);
 
+  // MOS: when Sippy is connected, use E-model estimate from probe latency; fall back to local DB
+  const displayMos = anyPortalActive
+    ? (sippyStats?.estimatedMos ?? null)
+    : (stats?.avgMos ?? null);
+  const mosLabel = anyPortalActive && sippyStats?.estimatedMos != null ? 'est.' : '';
+
+  // CK ratio: when Sippy is connected, use CDR-derived stats; fall back to local DB
+  const displayCkRatio     = anyPortalActive && sippyStats?.ckBreakdown != null
+    ? (sippyStats.ckRatio ?? 0)
+    : (stats?.ckRatio ?? 0);
+  const displayCkBreakdown = anyPortalActive && sippyStats?.ckBreakdown != null
+    ? sippyStats.ckBreakdown
+    : stats?.ckBreakdown;
+
   if (!stats) return <div className="p-8">Loading dashboard...</div>;
 
   return (
@@ -226,10 +246,10 @@ export default function DashboardPage() {
         />
         <StatCard 
           title="Average MOS"
-          value={notConnected ? '—' : stats.avgMos.toFixed(2)}
+          value={notConnected ? '—' : displayMos != null ? `${displayMos.toFixed(2)}${mosLabel ? ` (${mosLabel})` : ''}` : '—'}
           icon={Activity}
-          className={stats.avgMos > 4 ? "border-emerald-500/20" : "border-amber-500/20"}
-          description="Mean Opinion Score (5.0 scale)"
+          className={displayMos != null && displayMos > 4 ? "border-emerald-500/20" : "border-amber-500/20"}
+          description={anyPortalActive && mosLabel ? "E-model est. from probe latency" : "Mean Opinion Score (5.0 scale)"}
         />
         <StatCard 
           title="System Health"
@@ -295,13 +315,15 @@ export default function DashboardPage() {
               data-testid="text-ck-ratio"
               className={`text-4xl font-bold font-mono tabular-nums ${
                 notConnected ? 'text-muted-foreground/40' :
-                (stats.ckRatio ?? 0) >= 80 ? 'text-emerald-400' :
-                (stats.ckRatio ?? 0) >= 60 ? 'text-amber-400' : 'text-rose-400'
+                displayCkRatio >= 80 ? 'text-emerald-400' :
+                displayCkRatio >= 60 ? 'text-amber-400' : 'text-rose-400'
               }`}
             >
-              {notConnected ? '—' : `${(stats.ckRatio ?? 0).toFixed(1)}%`}
+              {notConnected ? '—' : `${displayCkRatio.toFixed(1)}%`}
             </span>
-            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">connection rate today</span>
+            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+              {anyPortalActive && sippyStats?.ckBreakdown != null ? 'last 1 hr · sippy cdrs' : 'connection rate today'}
+            </span>
           </div>
         </div>
 
@@ -318,7 +340,7 @@ export default function DashboardPage() {
             <CheckCircle2 className="w-5 h-5 text-emerald-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Connected</span>
             <span data-testid="text-ck-connected" className="text-2xl font-bold text-emerald-400 tabular-nums">
-              {(stats.ckBreakdown?.connected ?? 0).toLocaleString()}
+              {(displayCkBreakdown?.connected ?? 0).toLocaleString()}
             </span>
             <span className="text-xs text-center text-muted-foreground">Answered by user</span>
           </div>
@@ -327,7 +349,7 @@ export default function DashboardPage() {
             <PhoneMissed className="w-5 h-5 text-rose-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Wrong Number</span>
             <span data-testid="text-ck-wrong" className="text-2xl font-bold text-rose-400 tabular-nums">
-              {(stats.ckBreakdown?.wrongNumber ?? 0).toLocaleString()}
+              {(displayCkBreakdown?.wrongNumber ?? 0).toLocaleString()}
             </span>
             <span className="text-xs text-center text-muted-foreground">Invalid / misrouted</span>
           </div>
@@ -336,7 +358,7 @@ export default function DashboardPage() {
             <PhoneOff className="w-5 h-5 text-orange-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Switched Off</span>
             <span data-testid="text-ck-off" className="text-2xl font-bold text-orange-400 tabular-nums">
-              {(stats.ckBreakdown?.switchedOff ?? 0).toLocaleString()}
+              {(displayCkBreakdown?.switchedOff ?? 0).toLocaleString()}
             </span>
             <span className="text-xs text-center text-muted-foreground">Device unreachable</span>
           </div>
@@ -345,40 +367,41 @@ export default function DashboardPage() {
             <Signal className="w-5 h-5 text-amber-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Untraceable</span>
             <span data-testid="text-ck-untraceable" className="text-2xl font-bold text-amber-400 tabular-nums">
-              {(stats.ckBreakdown?.untraceable ?? 0).toLocaleString()}
+              {(displayCkBreakdown?.untraceable ?? 0).toLocaleString()}
             </span>
             <span className="text-xs text-center text-muted-foreground">No network / signal</span>
           </div>
         </div>
 
         {/* Progress bar + legend */}
-        {(stats.ckBreakdown?.total ?? 0) > 0 && (
+        {(displayCkBreakdown?.total ?? 0) > 0 && (
           <div className="px-6 pb-5 pt-2 space-y-2">
             <div className="h-2.5 rounded-full overflow-hidden bg-muted/30 flex">
               <div
                 className="bg-emerald-500 h-full transition-all duration-500"
-                style={{ width: `${(stats.ckBreakdown?.connected ?? 0) / (stats.ckBreakdown?.total ?? 1) * 100}%` }}
+                style={{ width: `${(displayCkBreakdown?.connected ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }}
               />
               <div
                 className="bg-rose-500 h-full transition-all duration-500"
-                style={{ width: `${(stats.ckBreakdown?.wrongNumber ?? 0) / (stats.ckBreakdown?.total ?? 1) * 100}%` }}
+                style={{ width: `${(displayCkBreakdown?.wrongNumber ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }}
               />
               <div
                 className="bg-orange-500 h-full transition-all duration-500"
-                style={{ width: `${(stats.ckBreakdown?.switchedOff ?? 0) / (stats.ckBreakdown?.total ?? 1) * 100}%` }}
+                style={{ width: `${(displayCkBreakdown?.switchedOff ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }}
               />
               <div
                 className="bg-amber-500 h-full transition-all duration-500"
-                style={{ width: `${(stats.ckBreakdown?.untraceable ?? 0) / (stats.ckBreakdown?.total ?? 1) * 100}%` }}
+                style={{ width: `${(displayCkBreakdown?.untraceable ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }}
               />
             </div>
             <div className="flex items-center justify-between text-xs text-muted-foreground/60">
               <span>
-                <span className="text-muted-foreground font-medium">{(stats.ckBreakdown?.total ?? 0).toLocaleString()}</span> total attempts today
+                <span className="text-muted-foreground font-medium">{(displayCkBreakdown?.total ?? 0).toLocaleString()}</span>
+                {' '}{anyPortalActive && sippyStats?.ckBreakdown != null ? 'calls last hour (Sippy CDRs)' : 'total attempts today'}
               </span>
               <span>
-                FAS deductions: <span className="text-rose-400 font-medium">
-                  {((stats.ckBreakdown?.total ?? 0) - (stats.ckBreakdown?.connected ?? 0)).toLocaleString()}
+                Failed: <span className="text-rose-400 font-medium">
+                  {((displayCkBreakdown?.total ?? 0) - (displayCkBreakdown?.connected ?? 0)).toLocaleString()}
                 </span>
               </span>
             </div>

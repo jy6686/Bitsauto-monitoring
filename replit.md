@@ -61,8 +61,15 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 ## Important State
 - Simulation is **disabled** (`simulationEnabled = false` in DB)
 - Dashboard shows "Connect Softswitch" banner when simulation off and portal not connected
-- Dashboard stat cards use real portal data when VOS3000 is connected
+- Dashboard stat cards all use **live Sippy data** when connected:
+  - **Avg MOS**: E-model estimate (4.43 est.) from probe latency via RFC 3611 formula — NOT stale local DB
+  - **CK Ratio + Breakdown**: Computed from Sippy CDRs (last 1hr, per-account: 1/4/55) — NOT local DB zeros
+  - **Revenue/Cost**: CDR-based via per-account fetch (200 CDRs × 3 accounts, limit avoids timeout) — NOT portal zeros
+  - **ASR/ACD/PDD**: From Sippy monitoring (`acd_asr` endpoint, iEnvironment=5)
+  - **Active Calls**: From `getCountersStats` live call count
 - All stat cards show `—` when not connected to avoid misleading zeros
+- Dashboard-stats endpoint (`/api/sippy/dashboard-stats`) now returns: ckRatio, ckBreakdown, cdrCount, estimatedMos in addition to activeCalls/asr/acd/pdd
+- CK breakdown maps Sippy result codes: "0" = Connected; "-16"/"-1"/"-20" = Wrong Number; "-17"/"-18"/"-19" = Switched Off; "-23"/"-24"/"-21"/"-22" = Untraceable
 
 ## Pages
 - `/` — Dashboard with live stats, KPIs, IP probe, portal data
