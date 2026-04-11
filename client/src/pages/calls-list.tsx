@@ -72,6 +72,64 @@ interface SwitchRecord {
   enabled: boolean;
 }
 
+// ─── IP Geolocation Badge ─────────────────────────────────────────────────────
+
+interface IpLookupData {
+  status: string;
+  country?: string;
+  countryCode?: string;
+  regionName?: string;
+  city?: string;
+  isp?: string;
+  org?: string;
+  as?: string;
+  query?: string;
+}
+
+function countryFlag(code: string): string {
+  if (!code || code.length !== 2) return '';
+  const base = 0x1F1E6;
+  return String.fromCodePoint(base + code.toUpperCase().charCodeAt(0) - 65) +
+         String.fromCodePoint(base + code.toUpperCase().charCodeAt(1) - 65);
+}
+
+function IpInfoBadge({ ip, color = 'blue' }: { ip: string; color?: 'blue' | 'green' }) {
+  const { data, isLoading } = useQuery<IpLookupData>({
+    queryKey: ['/api/ip-lookup', ip],
+    queryFn: async () => {
+      const res = await fetch(`/api/ip-lookup?ip=${encodeURIComponent(ip)}`);
+      return res.json();
+    },
+    staleTime: 3600_000,
+    enabled: !!ip,
+  });
+
+  if (isLoading) {
+    return <span className="text-[9px] text-muted-foreground/30 italic">resolving…</span>;
+  }
+  if (!data || data.status !== 'success') return null;
+
+  const flag = countryFlag(data.countryCode || '');
+  const rawIsp = data.isp || data.org || '';
+  const isp = rawIsp.replace(/,?\s+(LLC|Inc\.?|Ltd\.?|Corp\.?|Co\.)$/gi, '').trim();
+  const asNum = (data.as || '').split(' ')[0];
+  const location = [data.city, data.country].filter(Boolean).join(', ');
+  const textColor = color === 'green' ? 'text-emerald-400/70' : 'text-blue-400/70';
+
+  return (
+    <div className="space-y-0.5">
+      <div className={`text-[10px] font-medium ${textColor}`}>
+        {flag} {location}
+      </div>
+      {isp && (
+        <div className="text-[9px] text-muted-foreground/50 truncate max-w-[140px]" title={`${data.isp}${asNum ? ' · ' + asNum : ''}`}>
+          {isp} {asNum && <span className="opacity-60">{asNum}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildSummary(calls: LiveCall[]): SummaryRow[] {
@@ -663,18 +721,35 @@ function SwitchPanel({
                                     <Network className="w-3 h-3" /> Network / Media
                                   </p>
                                   {(call.mediaIpCaller || call.mediaIpCallee) ? (
-                                    <div className="space-y-1">
+                                    <div className="space-y-2">
                                       <p className="text-[10px] text-muted-foreground/50 uppercase">RTP Media Path</p>
-                                      <div className="flex items-center gap-1 font-mono text-[11px]">
-                                        <span className="text-blue-400">{call.mediaIpCaller || '?'}</span>
-                                        <ArrowRightLeft className="w-3 h-3 text-muted-foreground/40 flex-shrink-0" />
-                                        <span className="text-emerald-400">{call.mediaIpCallee || '?'}</span>
-                                      </div>
-                                      <p className="text-[10px] text-muted-foreground/40">
-                                        {call.mediaIpCaller === call.mediaIpCallee
-                                          ? 'Same media proxy'
-                                          : 'Media proxied through Sippy'}
-                                      </p>
+                                      {/* Same proxy on both sides */}
+                                      {call.mediaIpCaller === call.mediaIpCallee ? (
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                                            <span className="text-blue-400">{call.mediaIpCaller}</span>
+                                            <ArrowRightLeft className="w-3 h-3 text-muted-foreground/40 flex-shrink-0" />
+                                            <span className="text-muted-foreground/40 text-[10px] italic">same proxy</span>
+                                          </div>
+                                          <IpInfoBadge ip={call.mediaIpCaller!} color="blue" />
+                                        </div>
+                                      ) : (
+                                        /* Different caller ↔ callee IPs */
+                                        <div className="flex items-start gap-2">
+                                          <div className="min-w-0 flex-1 space-y-0.5">
+                                            <p className="text-[9px] text-muted-foreground/40 uppercase">Caller side</p>
+                                            <p className="font-mono text-[11px] text-blue-400">{call.mediaIpCaller || '?'}</p>
+                                            {call.mediaIpCaller && <IpInfoBadge ip={call.mediaIpCaller} color="blue" />}
+                                          </div>
+                                          <ArrowRightLeft className="w-3 h-3 text-muted-foreground/30 flex-shrink-0 mt-3" />
+                                          <div className="min-w-0 flex-1 space-y-0.5">
+                                            <p className="text-[9px] text-muted-foreground/40 uppercase">Callee side</p>
+                                            <p className="font-mono text-[11px] text-emerald-400">{call.mediaIpCallee || '?'}</p>
+                                            {call.mediaIpCallee && <IpInfoBadge ip={call.mediaIpCallee} color="green" />}
+                                          </div>
+                                        </div>
+                                      )}
+                                      <p className="text-[10px] text-muted-foreground/30 italic">Media proxied through Sippy</p>
                                     </div>
                                   ) : (
                                     <p className="text-[11px] text-muted-foreground/40 italic">Media IPs not reported</p>

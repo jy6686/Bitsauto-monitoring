@@ -2616,6 +2616,33 @@ export async function registerRoutes(
     }
   });
 
+  // ── IP Geolocation / Carrier Lookup ──────────────────────────────────────
+  // GET /api/ip-lookup?ip=x.x.x.x  — country + ISP/carrier info via ip-api.com
+  // Results cached in memory for 1 hour to avoid repeated external calls.
+  const ipLookupCache = new Map<string, { data: Record<string, string>; expiresAt: number }>();
+
+  app.get('/api/ip-lookup', async (req, res) => {
+    const ip = (req.query.ip as string || '').trim();
+    if (!ip) return res.status(400).json({ error: 'ip parameter required' });
+
+    // Return cached result if still fresh
+    const cached = ipLookupCache.get(ip);
+    if (cached && Date.now() < cached.expiresAt) return res.json(cached.data);
+
+    try {
+      const response = await fetch(
+        `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,countryCode,regionName,city,isp,org,as,query`
+      );
+      if (!response.ok) throw new Error(`ip-api.com returned ${response.status}`);
+      const data = await response.json() as Record<string, string>;
+      // Cache for 1 hour regardless of success/failure status
+      ipLookupCache.set(ip, { data, expiresAt: Date.now() + 3600_000 });
+      res.json(data);
+    } catch (err) {
+      res.status(502).json({ status: 'fail', error: String(err), query: ip });
+    }
+  });
+
   // ── Trunk Management Routes (docs 3000116551) ─────────────────────────────
   // GET  /api/sippy/trunks?iAccount=xxx        — list trunks for an account
   // GET  /api/sippy/trunks/:id                 — get trunk detail
