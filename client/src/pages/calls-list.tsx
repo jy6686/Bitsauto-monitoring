@@ -5,7 +5,7 @@ import {
   Activity, Wifi, Info, HeartPulse, ShieldAlert, Timer, SignalHigh, History,
   TrendingUp, BarChart2, ThumbsUp, ThumbsDown, Mic2,
 } from "lucide-react";
-import { useState, useRef, Fragment } from "react";
+import { useState, useRef, useEffect, Fragment } from "react";
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, Legend,
@@ -184,6 +184,17 @@ function SwitchPanel({
   const [callViewTab, setCallViewTab] = useState<'summary' | 'details' | 'quality' | 'history'>('summary');
   const [historyHours, setHistoryHours] = useState(24);
   const [routeAnalysisMode, setRouteAnalysisMode] = useState(false);
+  const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
+  const viewDropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function handleOutsideClick(e: MouseEvent) {
+      if (viewDropdownRef.current && !viewDropdownRef.current.contains(e.target as Node)) {
+        setViewDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
   const [search, setSearch] = useState('');
   const [filterCli, setFilterCli] = useState('');
   const [filterCld, setFilterCld] = useState('');
@@ -316,62 +327,54 @@ function SwitchPanel({
         </div>
       )}
 
-      {/* Sub-tab bar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 p-1 bg-muted/40 rounded-xl border border-border/50 w-fit">
+      {/* View selector dropdown + controls */}
+      <div className="flex items-center justify-between gap-3">
+        {/* Dropdown */}
+        <div className="relative" ref={viewDropdownRef}>
           <button
-            onClick={() => setCallViewTab('summary')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              callViewTab === 'summary'
-                ? 'bg-background text-foreground shadow-sm border border-border/50'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            data-testid="tab-call-summary"
+            onClick={() => setViewDropdownOpen(o => !o)}
+            className="inline-flex items-center gap-2.5 px-4 py-2 rounded-xl bg-card border border-border hover:bg-muted/40 transition-colors text-sm font-medium min-w-[200px] justify-between"
+            data-testid="dropdown-view-selector"
           >
-            <BarChart3 className="w-4 h-4" />
-            Active Call Summary
+            <span className="flex items-center gap-2">
+              {callViewTab === 'summary'  && <><BarChart3   className="w-4 h-4 text-violet-400" />Active Call Summary</>}
+              {callViewTab === 'details'  && <><List         className="w-4 h-4 text-cyan-400"   />Active Call Details</>}
+              {callViewTab === 'quality'  && <><HeartPulse   className="w-4 h-4 text-rose-400"   />Quality Monitoring</>}
+              {callViewTab === 'history'  && <><History       className="w-4 h-4 text-amber-400"  />Call History</>}
+            </span>
+            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${viewDropdownOpen ? 'rotate-180' : ''}`} />
           </button>
-          <button
-            onClick={() => setCallViewTab('details')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              callViewTab === 'details'
-                ? 'bg-background text-foreground shadow-sm border border-border/50'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            data-testid="tab-call-details"
-          >
-            <List className="w-4 h-4" />
-            Active Call Details
-          </button>
-          <button
-            onClick={() => setCallViewTab('quality')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              callViewTab === 'quality'
-                ? 'bg-background text-foreground shadow-sm border border-border/50'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            data-testid="tab-quality-monitoring"
-          >
-            <HeartPulse className="w-4 h-4 text-rose-400" />
-            Quality Monitoring
-          </button>
-          <button
-            onClick={() => setCallViewTab('history')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              callViewTab === 'history'
-                ? 'bg-background text-foreground shadow-sm border border-border/50'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            data-testid="tab-call-history"
-          >
-            <History className="w-4 h-4 text-violet-400" />
-            Call History
-          </button>
+
+          {viewDropdownOpen && (
+            <div className="absolute left-0 top-full mt-1.5 w-[220px] bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden py-1">
+              {([
+                { key: 'summary',  label: 'Active Call Summary', icon: <BarChart3  className="w-4 h-4 text-violet-400" /> },
+                { key: 'details',  label: 'Active Call Details',  icon: <List       className="w-4 h-4 text-cyan-400"   /> },
+                { key: 'quality',  label: 'Quality Monitoring',   icon: <HeartPulse className="w-4 h-4 text-rose-400"   /> },
+                { key: 'history',  label: 'Call History',         icon: <History    className="w-4 h-4 text-amber-400"  /> },
+              ] as const).map(opt => (
+                <button
+                  key={opt.key}
+                  onClick={() => { setCallViewTab(opt.key); setViewDropdownOpen(false); }}
+                  className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors text-left ${
+                    callViewTab === opt.key
+                      ? 'bg-violet-500/10 text-violet-300'
+                      : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+                  }`}
+                  data-testid={`dropdown-option-${opt.key}`}
+                >
+                  {opt.icon}
+                  {opt.label}
+                  {callViewTab === opt.key && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-violet-400" />}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
           {callViewTab === 'details' && (
-            <div className="relative w-64">
+            <div className="relative w-56">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
