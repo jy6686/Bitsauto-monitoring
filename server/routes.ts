@@ -3528,14 +3528,20 @@ export async function registerRoutes(
         if (infoResult.status === 'fulfilled' && infoResult.value) {
           const info = infoResult.value;
           maxSessions = info.maxSessions !== undefined ? info.maxSessions : null;
-          prefix = (info.incomingCli as string | undefined) ?? null;
+          // incoming_cli on getAccountInfo may contain a translation rule string — not a prefix.
+          // We prefer the CLI prefix from auth rules (incomingCli) which is the actual number pattern.
+          // Falls back to incomingCld (CLD prefix) if no CLI prefix is set in auth rules.
         }
         if (authResult.status === 'fulfilled' && authResult.value?.authRules?.length) {
+          const rules: any[] = authResult.value.authRules;
           allowedIps = [...new Set(
-            authResult.value.authRules
-              .map((r: any) => r.remoteIp)
-              .filter((ip: any): ip is string => Boolean(ip))
+            rules.map((r) => r.remoteIp).filter((ip): ip is string => Boolean(ip))
           )];
+          // Pick the first auth rule that has an incomingCli (CLI prefix pattern)
+          // e.g. "2348" for Nigeria, "+1" for NANP, etc.
+          const cliRule = rules.find((r) => r.incomingCli && r.incomingCli.trim() !== '');
+          const cldRule = rules.find((r) => r.incomingCld && r.incomingCld.trim() !== '');
+          prefix = cliRule?.incomingCli ?? cldRule?.incomingCld ?? null;
         }
 
         const balance     = a.balance    ?? 0;
