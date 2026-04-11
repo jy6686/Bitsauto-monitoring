@@ -116,7 +116,7 @@ export default function DashboardPage() {
 
   const { data: fasEventsData } = useQuery<{ events: any[] }>({
     queryKey: ['/api/fas-events'],
-    refetchInterval: 120000,
+    refetchInterval: 30000,
   });
   const recentFasEvents = (fasEventsData?.events ?? []).slice(0, 5);
 

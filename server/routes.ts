@@ -219,6 +219,67 @@ export async function registerRoutes(
   runIpProbe();
   setInterval(runIpProbe, 10000);
 
+  // === BACKGROUND FAS AUTO-ANALYSIS — runs every 5 minutes ===
+  // Fetches recent CDRs and saves FAS events so the dashboard stays fresh automatically.
+  async function runBackgroundFasAnalysis() {
+    try {
+      const settings = await storage.getSettings();
+      if (!settings.portalUrl) return; // no Sippy configured yet
+      const credPairs = sippyXmlCredsPairs(settings);
+      if (!credPairs.length) return;
+
+      const fasMinPdd          = settings.fasMinPddSecs ?? 10;
+      const fasMaxBill         = settings.fasMaxBillSecs ?? 5;
+      const fasEarlyAnswerSecs = settings.fasEarlyAnswerSecs ?? 2;
+      const fasShortCallSecs   = settings.fasShortCallSecs ?? 10;
+
+      const startDate = sippy.toSippyDate(new Date(Date.now() - 30 * 60 * 1000)); // last 30 min
+      const endDate   = sippy.toSippyDate(new Date());
+
+      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      for (const { username, password } of credPairs) {
+        cdrs = await sippy.getSippyCDRs(username, password, 500, { startDate, endDate });
+        if (cdrs.length > 0) break;
+      }
+
+      let saved = 0;
+      for (const cdr of cdrs) {
+        const rawResult = parseInt(String(cdr.result ?? '').trim()) || 0;
+        const sipCodeVal: number | null = rawResult === 0 ? 200 : (rawResult >= 100 ? rawResult : null);
+        const billSecsVal = cdr.duration ?? 0;
+        const ringDelay = cdr.pdd1xx ?? cdr.pdd ?? null;
+        const fasResult = detectFas({
+          sipCode: sipCodeVal, pddSecs: ringDelay, billSecs: billSecsVal,
+          fasMinPddSecs: fasMinPdd, fasMaxBillSecs: fasMaxBill,
+          fasEarlyAnswerSecs, fasShortCallSecs,
+        });
+        if (!fasResult.isFas || !cdr.callId) continue;
+        const resolvedClient = cdr.clientName
+          || cdr.user
+          || accountNameCache.get(String(cdr.accountId ?? cdr.iAccount ?? ''))
+          || (cdr.accountId ? `Acct#${cdr.accountId}` : cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
+        try {
+          await storage.createFasEvent({
+            callId: String(cdr.callId), caller: cdr.caller ?? '', callee: cdr.callee ?? '',
+            clientName: resolvedClient, vendor: '',
+            pddSecs: ringDelay ?? null, billSecs: billSecsVal,
+            sipCode: sipCodeVal ?? null, reason: fasResult.reason,
+            fraudScore: fasResult.fraudScore, alertSent: false,
+          });
+          saved++;
+        } catch { /* duplicate — ignore */ }
+      }
+      if (saved > 0) console.log(`[fas-bg] Saved ${saved} new FAS events from ${cdrs.length} CDRs`);
+    } catch (err: any) {
+      console.error('[fas-bg] Background FAS analysis error:', err.message);
+    }
+  }
+  // Run once after 30s startup delay, then every 5 minutes
+  setTimeout(() => {
+    runBackgroundFasAnalysis();
+    setInterval(runBackgroundFasAnalysis, 5 * 60 * 1000);
+  }, 30000);
+
   // === STARTUP GUARD: disable simulation if a real portal is configured ===
   // This corrects any mis-matched state (e.g. settings migrated from a demo DB).
   // Also purges all active simulated calls so the dashboard starts clean.
@@ -4953,10 +5014,12 @@ export async function registerRoutes(
           fasEarlyAnswerSecs,
           fasShortCallSecs,
         });
-        // Resolve client name: prefer clientName from CDR, fallback to accountNameCache by iAccount
+        // Resolve client name: prefer clientName from CDR, then cdr.user (raw Sippy field),
+        // then accountNameCache by accountId/iAccount (raw Sippy field is accountId, not iAccount)
         const resolvedClient = cdr.clientName
-          || accountNameCache.get(String(cdr.iAccount ?? ''))
-          || (cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
+          || cdr.user
+          || accountNameCache.get(String(cdr.accountId ?? cdr.iAccount ?? ''))
+          || (cdr.accountId ? `Acct#${cdr.accountId}` : cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
         return {
           callId:     cdr.callId ?? '',
           caller:     cdr.caller ?? '',
