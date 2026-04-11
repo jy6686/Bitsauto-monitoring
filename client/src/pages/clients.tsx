@@ -2361,6 +2361,22 @@ const CODEC_OPTIONS = [
   { value: '15',  label: 'G.728' },
 ];
 
+// ── Credential / token generators ────────────────────────────────────────────
+const gen4Digit = () => String(Math.floor(1000 + Math.random() * 9000));
+
+const genPassword = () => {
+  const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lower = 'abcdefghijklmnopqrstuvwxyz';
+  const digits = '0123456789';
+  const special = '!@#$&*';
+  const all = upper + lower + digits + special;
+  // Guarantee at least one of each category
+  const pick = (src: string) => src[Math.floor(Math.random() * src.length)];
+  const rest = Array.from({ length: 8 }, () => pick(all)).join('');
+  return [pick(upper), pick(lower), pick(digits), pick(special), ...rest]
+    .sort(() => Math.random() - 0.5).join('');
+};
+
 // ── New Sippy Account Modal — Multi-Step Wizard ──────────────────────────────
 const WIZARD_STEPS = [
   { label: 'Basic Info',     icon: 'user'    },
@@ -2397,9 +2413,9 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [username, setUsername] = useState('');
   const [webPassword, setWebPassword] = useState('');
   const [authname, setAuthname] = useState('');
-  const [voipPassword, setVoipPassword] = useState('');
+  const [voipPassword, setVoipPassword] = useState(genPassword);   // auto-generated on mount
   const [showWebPass, setShowWebPass] = useState(false);
-  const [showVoipPass, setShowVoipPass] = useState(false);
+  const [showVoipPass, setShowVoipPass] = useState(true);           // visible by default (auto-generated)
 
   // Step 2: Network & Routing
   const [ipTags, setIpTags] = useState<string[]>([]);
@@ -2417,7 +2433,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [regAllowed, setRegAllowed] = useState(true);
   const [trustCli, setTrustCli] = useState(false);
   const [passPAssertedId, setPassPAssertedId] = useState(false);
-  const [pAssrtIdTranslationRule, setPAssrtIdTranslationRule] = useState('');
+  const [pAssrtIdTranslationRule, setPAssrtIdTranslationRule] = useState(gen4Digit); // auto-generated 4-digit on mount
   const [disallowLoops, setDisallowLoops] = useState(false);
   const [timezone, setTimezone] = useState('');
   const [currency, setCurrency] = useState('');
@@ -2832,12 +2848,20 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                 <div className="relative">
                   <input data-testid="input-sippy-voippass" value={voipPassword} onChange={e => setVoipPassword(e.target.value)}
                     type={showVoipPass ? 'text' : 'password'} placeholder="Auto-generated"
-                    className={`${fieldCls} pr-8`} autoComplete="new-password" />
-                  <button type="button" onClick={() => setShowVoipPass(p => !p)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                    {showVoipPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
+                    className={`${fieldCls} pr-16`} autoComplete="new-password" />
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                    <button type="button" title="Regenerate password"
+                      onClick={() => setVoipPassword(genPassword())}
+                      className="p-1 text-muted-foreground hover:text-violet-400 transition-colors">
+                      <RefreshCw className="w-3 h-3" />
+                    </button>
+                    <button type="button" onClick={() => setShowVoipPass(p => !p)}
+                      className="p-1 text-muted-foreground hover:text-foreground transition-colors">
+                      {showVoipPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
+                <p className="text-[10px] text-muted-foreground/70 mt-1">Auto-generated. Click <RefreshCw className="inline w-2.5 h-2.5" /> to regenerate.</p>
               </div>
             </div>
           </>)}
@@ -2972,10 +2996,17 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
             </div>
 
             <div>
-              <label className={labelCls}>P-Asserted-ID Translation Rule</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className={labelCls + ' mb-0'}>P-Asserted-ID Translation Rule</label>
+                <button type="button" data-testid="button-gen-pai"
+                  onClick={() => setPAssrtIdTranslationRule(gen4Digit())}
+                  className="flex items-center gap-1 text-[10px] text-violet-400 hover:text-violet-300 transition-colors font-medium">
+                  <RefreshCw className="w-2.5 h-2.5" /> Regenerate 4-digit
+                </button>
+              </div>
               <input data-testid="input-sippy-pai-rule" value={pAssrtIdTranslationRule} onChange={e => setPAssrtIdTranslationRule(e.target.value)}
-                placeholder="e.g. s/^/+/" className={fieldCls} />
-              <p className="text-xs text-muted-foreground mt-1">Only used when Pass P-Asserted-Identity is enabled.</p>
+                placeholder="e.g. 1234" className={fieldCls} />
+              <p className="text-[10px] text-muted-foreground/70 mt-1">Auto-generated 4-digit code. Only applied when Pass P-Asserted-Identity is enabled.</p>
             </div>
 
             {sectionTitle('Localisation')}
