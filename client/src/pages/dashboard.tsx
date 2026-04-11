@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDashboardStats } from "@/hooks/use-dashboard";
 import { useCalls } from "@/hooks/use-calls";
 import { useAlerts } from "@/hooks/use-alerts";
@@ -30,16 +30,28 @@ import {
   Settings,
   ShieldAlert,
   Eye,
+  TrendingUp,
+  TrendingDown,
+  Zap,
+  Users,
+  Award,
+  Radio,
+  PhoneForwarded,
+  ArrowUpRight,
+  Minus,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { 
+  ComposedChart,
   AreaChart, 
   Area, 
+  Line,
   XAxis, 
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer 
+  ResponsiveContainer,
+  Legend,
 } from "recharts";
 import { formatUTC } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
@@ -191,16 +203,101 @@ export default function DashboardPage() {
     ? sippyStats.ckBreakdown
     : stats?.ckBreakdown;
 
+  // ── Traffic Quality Score (0–100 composite) ───────────────────────────────
+  // Weighted: ASR 45% + MOS 30% + CK ratio 15% + PDD penalty 10%
+  const trafficScore = anyPortalActive ? Math.min(100, Math.max(0, Math.round(
+    displayAsr * 0.45 +
+    (displayMos != null ? (displayMos / 5) * 30 : 25) +
+    displayCkRatio * 0.15 +
+    (displayPdd > 0 ? Math.max(0, (4 - Math.min(displayPdd, 4)) / 4 * 10) : 10)
+  ))) : 0;
+  const scoreLabel = trafficScore >= 80 ? 'Excellent' : trafficScore >= 60 ? 'Good' : trafficScore >= 40 ? 'Fair' : 'Poor';
+  const scoreBorder = trafficScore >= 80 ? 'border-emerald-500/20' : trafficScore >= 60 ? 'border-blue-500/20' : trafficScore >= 40 ? 'border-amber-500/20' : (notConnected ? 'border-border/50' : 'border-rose-500/20');
+  const scoreTextCls = trafficScore >= 80 ? 'text-emerald-400' : trafficScore >= 60 ? 'text-blue-400' : trafficScore >= 40 ? 'text-amber-400' : 'text-rose-400';
+
+  // ── Call rate (calls / min) from CDR count over last 1 hr ─────────────────
+  const callRatePerMin = sippyStats?.cdrCount && sippyStats.cdrCount > 0
+    ? parseFloat((sippyStats.cdrCount / 60).toFixed(1))
+    : 0;
+
+  // ── Per-account traffic from CDR snapshot ─────────────────────────────────
+  const perAccountStats = (() => {
+    const ACCTS = [
+      { id: 1, name: 'PUSHTOTALK', short: 'PTT' },
+      { id: 4, name: 'aircel',     short: 'AIR' },
+      { id: 55, name: 'asif',      short: 'ASF' },
+    ];
+    const cdrs = sippyCdr?.cdrs ?? [];
+    return ACCTS.map(acc => {
+      const slice = cdrs.filter((c: any) => c.iAccount === acc.id);
+      const answered = slice.filter((c: any) => String(c.result) === '0' && Number(c.duration) > 0).length;
+      const revenue  = parseFloat(slice.reduce((s: number, c: any) => s + (parseFloat(c.cost) || 0), 0).toFixed(4));
+      const avgDur   = answered > 0
+        ? Math.round(slice.filter((c: any) => Number(c.duration) > 0).reduce((s: number, c: any) => s + Number(c.duration), 0) / answered)
+        : 0;
+      return { ...acc, total: slice.length, answered, asr: slice.length > 0 ? Math.round(answered / slice.length * 100) : 0, revenue, avgDur };
+    });
+  })();
+
+  // ── Last refreshed countdown ──────────────────────────────────────────────
+  const [secsAgo, setSecsAgo] = useState(0);
+  useEffect(() => {
+    setSecsAgo(0);
+    const t = setInterval(() => setSecsAgo(s => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [sippyStats]);
+
   if (!stats) return <div className="p-8">Loading dashboard...</div>;
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">System Overview</h2>
-        <p className="text-muted-foreground mt-2">Real-time monitoring of VoIP infrastructure via Sippy Softswitch.</p>
+    <div className="space-y-6">
+      {/* ── Page Header ───────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold tracking-tight">Network Operations Center</h2>
+            {anyPortalActive && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                LIVE
+              </span>
+            )}
+          </div>
+          <p className="text-muted-foreground text-sm mt-1">
+            Sippy Softswitch · iEnvironment=5 · <span className="font-mono text-xs">{sippySession?.username ?? 'not connected'}</span>
+            {anyPortalActive && secsAgo < 60 && (
+              <span className="ml-2 text-muted-foreground/60">· refreshed {secsAgo}s ago</span>
+            )}
+          </p>
+        </div>
+        {/* Inline key metrics strip */}
+        {anyPortalActive && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/50">
+              <Radio className="w-3 h-3 text-blue-400" />
+              <span className="text-muted-foreground">Active:</span>
+              <span className="font-bold text-blue-400">{displayActiveCalls}</span>
+            </div>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/50">
+              <Zap className="w-3 h-3 text-violet-400" />
+              <span className="text-muted-foreground">Rate:</span>
+              <span className="font-bold text-violet-400">{callRatePerMin}/min</span>
+            </div>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/50">
+              <BarChart2 className="w-3 h-3 text-emerald-400" />
+              <span className="text-muted-foreground">ASR:</span>
+              <span className={`font-bold ${displayAsr >= 10 ? 'text-emerald-400' : displayAsr > 0 ? 'text-amber-400' : 'text-rose-400'}`}>{displayAsr.toFixed(1)}%</span>
+            </div>
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/50`}>
+              <Award className="w-3 h-3 text-amber-400" />
+              <span className="text-muted-foreground">Score:</span>
+              <span className={`font-bold ${scoreTextCls}`}>{trafficScore}/100</span>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Connection required banner — shown when simulation is off and portal not connected */}
+      {/* Connection required banner */}
       {notConnected && (
         <div className="rounded-xl border-2 border-dashed border-violet-500/40 bg-violet-500/5 p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-start gap-4">
@@ -222,42 +319,89 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Connected source badge — shown when Sippy session is active */}
-      {anyPortalActive && (
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-5 py-3 flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <p className="text-sm text-emerald-400 font-medium">
-              Live data — connected to <span className="font-semibold">Sippy</span> as{' '}
-              <span className="font-mono">{sippySession?.username}</span>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Active Calls + call rate badge */}
+        <div className={cn(
+          "bg-card border border-blue-500/20 rounded-xl p-5 shadow-lg shadow-black/5 hover:border-blue-500/40 transition-all duration-300 relative overflow-hidden group"
+        )}>
+          <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
+            <PhoneCall className="w-24 h-24" />
+          </div>
+          <div className="flex items-center justify-between mb-3 relative z-10">
+            <h3 className="text-sm font-medium text-muted-foreground">Active Calls</h3>
+            <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-blue-500/10 transition-colors">
+              <PhoneCall className="w-4 h-4 text-foreground group-hover:text-blue-400" />
+            </div>
+          </div>
+          <div className="relative z-10">
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold tracking-tight tabular-nums">
+                {notConnected ? '—' : displayActiveCalls}
+              </span>
+              {anyPortalActive && callRatePerMin > 0 && (
+                <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-violet-400/10 text-violet-400">
+                  {callRatePerMin}/min
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {anyPortalActive ? "Live concurrent calls on Sippy" : "Currently connected sessions"}
             </p>
           </div>
-          <span className="text-xs text-muted-foreground ml-auto">All stats below reflect your real switch traffic</span>
         </div>
-      )}
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        {/* Average MOS */}
         <StatCard 
-          title="Active Calls" 
-          value={notConnected ? '—' : displayActiveCalls} 
-          icon={PhoneCall}
-          className="border-blue-500/20"
-          description={anyPortalActive ? "Live calls on Sippy" : "Currently connected sessions"}
-        />
-        <StatCard 
-          title="Average MOS"
-          value={notConnected ? '—' : displayMos != null ? `${displayMos.toFixed(2)}${mosLabel ? ` (${mosLabel})` : ''}` : '—'}
+          title="Avg MOS"
+          value={notConnected ? '—' : displayMos != null ? `${displayMos.toFixed(2)}` : '—'}
           icon={Activity}
           className={displayMos != null && displayMos > 4 ? "border-emerald-500/20" : "border-amber-500/20"}
-          description={anyPortalActive && mosLabel ? "E-model est. from probe latency" : "Mean Opinion Score (5.0 scale)"}
+          description={anyPortalActive && mosLabel ? "E-model est. · probe latency" : "Mean Opinion Score (5.0 scale)"}
+          trend={anyPortalActive && displayMos != null ? {
+            value: Math.round((displayMos / 5 - 0.8) * 100),
+            isPositive: displayMos >= 4
+          } : undefined}
         />
-        <StatCard 
-          title="System Health"
-          value={notConnected ? '—' : stats.systemHealth}
-          icon={Server}
-          className={stats.systemHealth === 'Healthy' ? "border-emerald-500/20" : "border-rose-500/20"}
-          description="Infrastructure status"
-        />
+
+        {/* Traffic Quality Score */}
+        <div className={cn(
+          "bg-card border rounded-xl p-5 shadow-lg shadow-black/5 hover:border-opacity-60 transition-all duration-300 relative overflow-hidden group",
+          scoreBorder
+        )}>
+          <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
+            <Award className="w-24 h-24" />
+          </div>
+          <div className="flex items-center justify-between mb-3 relative z-10">
+            <h3 className="text-sm font-medium text-muted-foreground">Traffic Score</h3>
+            <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-amber-500/10 transition-colors">
+              <Award className="w-4 h-4 text-foreground group-hover:text-amber-400" />
+            </div>
+          </div>
+          <div className="relative z-10">
+            <div className="flex items-baseline gap-2">
+              <span className={cn("text-3xl font-bold tracking-tight tabular-nums", notConnected ? 'text-muted-foreground/40' : scoreTextCls)}>
+                {notConnected ? '—' : trafficScore}
+              </span>
+              {!notConnected && <span className="text-sm text-muted-foreground">/100</span>}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {notConnected ? 'Connect to see quality score' : `${scoreLabel} · ASR+MOS+CK composite`}
+            </p>
+          </div>
+          {/* Score bar */}
+          {!notConnected && (
+            <div className="mt-3 h-1 rounded-full bg-muted/40 overflow-hidden relative z-10">
+              <div
+                className={cn("h-full rounded-full transition-all duration-700",
+                  trafficScore >= 80 ? 'bg-emerald-500' : trafficScore >= 60 ? 'bg-blue-500' : trafficScore >= 40 ? 'bg-amber-500' : 'bg-rose-500'
+                )}
+                style={{ width: `${trafficScore}%` }}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Alerts Today */}
         <StatCard 
           title="Alerts Today"
           value={notConnected ? '—' : stats.alertsToday}
@@ -267,8 +411,8 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Telecom KPI Row */}
-      <div className="grid gap-6 md:grid-cols-3">
+      {/* ── Telecom KPI Row ────────────────────────────────────────────────── */}
+      <div className="grid gap-4 md:grid-cols-3">
         <StatCard
           title="ASR"
           value={notConnected ? '—' : (sippyStatsLoading && !sippyStats) ? '…' : `${displayAsr.toFixed(1)}%`}
@@ -294,6 +438,68 @@ export default function DashboardPage() {
           description="Post-Dial Delay — avg time from dial to first ringback"
         />
       </div>
+
+      {/* ── Revenue / Cost / Margin Strip ──────────────────────────────────── */}
+      {anyPortalActive && (
+        <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-2.5 border-b border-border/40 bg-muted/10">
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue &amp; Cost — last 90 min (CDR data)</span>
+            </div>
+            {sippyFinancials?.origination.totalCalls === 0 && (
+              <span className="text-[10px] text-muted-foreground/60 italic hidden sm:block">No completed calls yet — updates after calls end</span>
+            )}
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-6 divide-x divide-border/40">
+            {/* Orig calls */}
+            <div className="px-4 py-3 text-center">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Total Calls</p>
+              <p className="text-xl font-bold tabular-nums">{sippyFinancials?.origination.totalCalls ?? '—'}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{sippyFinancials ? `${sippyFinancials.origination.billableCalls} billable` : '…'}</p>
+            </div>
+            {/* ASR orig */}
+            <div className="px-4 py-3 text-center">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">ASR</p>
+              <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.origination.asr ?? 0) >= 30 ? 'text-emerald-400' : (sippyFinancials?.origination.asr ?? 0) > 0 ? 'text-amber-400' : 'text-muted-foreground'}`}>
+                {sippyFinancials?.origination.totalCalls ? `${sippyFinancials.origination.asr}%` : '—'}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">ACD: {sippyFinancials?.origination.acd ? `${sippyFinancials.origination.acd}s` : '—'}</p>
+            </div>
+            {/* Revenue */}
+            <div className="px-4 py-3 text-center bg-emerald-500/5">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Revenue</p>
+              <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.origination.revenue ?? 0) > 0 ? 'text-emerald-400' : 'text-muted-foreground'}`} data-testid="fin-revenue">
+                {sippyFinancials?.origination.revenue != null ? `$${sippyFinancials.origination.revenue.toFixed(4)}` : '—'}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Customer billed</p>
+            </div>
+            {/* Term calls */}
+            <div className="px-4 py-3 text-center">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Term Calls</p>
+              <p className="text-xl font-bold tabular-nums">{sippyFinancials?.termination.totalCalls ?? '—'}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{sippyFinancials ? `${sippyFinancials.termination.billableCalls} billable` : '…'}</p>
+            </div>
+            {/* Cost */}
+            <div className="px-4 py-3 text-center bg-rose-500/5">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Cost</p>
+              <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.termination.cost ?? 0) > 0 ? 'text-rose-400' : 'text-muted-foreground'}`} data-testid="fin-cost">
+                {sippyFinancials?.termination.cost != null ? `$${sippyFinancials.termination.cost.toFixed(4)}` : '—'}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Vendor cost</p>
+            </div>
+            {/* Margin */}
+            <div className={`px-4 py-3 text-center ${(sippyFinancials?.margin ?? 0) > 0 ? 'bg-emerald-500/10' : (sippyFinancials?.margin ?? 0) < 0 ? 'bg-rose-500/10' : ''}`}>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Margin</p>
+              <p className={`text-xl font-bold tabular-nums flex items-center justify-center gap-1 ${(sippyFinancials?.margin ?? 0) > 0 ? 'text-emerald-400' : (sippyFinancials?.margin ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground'}`} data-testid="fin-margin">
+                {(sippyFinancials?.margin ?? 0) > 0 ? <TrendingUp className="w-4 h-4" /> : (sippyFinancials?.margin ?? 0) < 0 ? <TrendingDown className="w-4 h-4" /> : <Minus className="w-4 h-4" />}
+                {sippyFinancials?.margin != null ? `$${Math.abs(sippyFinancials.margin).toFixed(4)}` : '—'}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Revenue − Cost</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Call Back Ratio — FAS Deduction Panel */}
       <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
@@ -542,61 +748,84 @@ export default function DashboardPage() {
       })()}
 
       <div className="grid gap-6 md:grid-cols-7">
-        {/* Main Chart Area */}
+        {/* Main Chart Area — Dual ASR + ACD */}
         <div className="col-span-4 rounded-xl border border-border bg-card p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-semibold flex items-center gap-2">
                 <Activity className="w-4 h-4 text-primary" />
-                ASR Trend
+                ASR &amp; ACD Trend
               </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Answer-Seizure Ratio — live from Sippy switch</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Answer-Seizure Ratio (%) + Avg Call Duration (s) — live from Sippy
+              </p>
             </div>
-            <select
-              className="bg-background border border-border rounded-md text-xs px-2 py-1"
-              value={trendHours}
-              onChange={e => setTrendHours(Number(e.target.value))}
-              data-testid="select-trend-window"
-            >
-              <option value={1}>Last Hour</option>
-              <option value={6}>Last 6 Hours</option>
-              <option value={24}>Last 24 Hours</option>
-            </select>
+            <div className="flex items-center gap-2">
+              {chartData.length > 0 && (
+                <div className="hidden sm:flex items-center gap-3 text-xs mr-2">
+                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-emerald-500 rounded-full inline-block" /> ASR</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-violet-400 rounded-full inline-block" style={{borderTop: '2px dashed #a78bfa'}} /> ACD</span>
+                </div>
+              )}
+              <select
+                className="bg-background border border-border rounded-md text-xs px-2 py-1"
+                value={trendHours}
+                onChange={e => setTrendHours(Number(e.target.value))}
+                data-testid="select-trend-window"
+              >
+                <option value={1}>Last 1h</option>
+                <option value={6}>Last 6h</option>
+                <option value={24}>Last 24h</option>
+              </select>
+            </div>
           </div>
-          <div className="h-[300px] w-full">
+          <div className="h-[280px] w-full">
             {chartData.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
                 <Activity className="w-8 h-8 opacity-30" />
-                <p className="text-sm">{notConnected ? 'Connect to your softswitch to see live ASR trends.' : 'Loading ASR trend data…'}</p>
+                <p className="text-sm">{notConnected ? 'Connect to your softswitch to see live trends.' : 'Loading trend data…'}</p>
               </div>
             ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
+              <ComposedChart data={chartData} margin={{ top: 4, right: 40, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorAsr" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/>
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                <XAxis dataKey="time" stroke="#666" fontSize={11} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
+                <XAxis dataKey="time" stroke="#555" fontSize={10} tickLine={false} axisLine={false} interval="preserveStartEnd" />
                 <YAxis
-                  stroke="#666"
-                  fontSize={11}
+                  yAxisId="asr"
+                  orientation="left"
+                  stroke="#555"
+                  fontSize={10}
                   tickLine={false}
                   axisLine={false}
                   domain={[0, 100]}
                   tickFormatter={(v) => `${v}%`}
-                  width={38}
+                  width={36}
+                />
+                <YAxis
+                  yAxisId="acd"
+                  orientation="right"
+                  stroke="#555"
+                  fontSize={10}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `${v}s`}
+                  width={36}
                 />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#111', borderColor: '#333', borderRadius: '6px' }}
-                  itemStyle={{ color: '#fff' }}
+                  contentStyle={{ backgroundColor: '#0f0f0f', borderColor: '#2a2a2a', borderRadius: '8px', fontSize: '11px' }}
+                  itemStyle={{ color: '#ccc' }}
                   formatter={(value: any, name: string) =>
                     name === 'asr' ? [`${value}%`, 'ASR'] : [`${value}s`, 'ACD']
                   }
                 />
                 <Area
+                  yAxisId="asr"
                   type="monotone"
                   dataKey="asr"
                   stroke="#10b981"
@@ -605,7 +834,17 @@ export default function DashboardPage() {
                   fill="url(#colorAsr)"
                   dot={false}
                 />
-              </AreaChart>
+                <Line
+                  yAxisId="acd"
+                  type="monotone"
+                  dataKey="acd"
+                  stroke="#a78bfa"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  dot={false}
+                  activeDot={{ r: 3, fill: '#a78bfa' }}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
             )}
           </div>
@@ -645,233 +884,134 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Sippy Live Data */}
-      <div className="rounded-xl border overflow-hidden bg-card shadow-sm" style={{ borderColor: sippySession?.active ? 'rgb(139 92 246 / 0.3)' : undefined }}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-muted/20">
-          <div className="flex items-center gap-3">
-            <Globe className={`w-4 h-4 ${sippySession?.active ? 'text-violet-400' : 'text-muted-foreground'}`} />
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-sm">Sippy Live Data</h3>
-                {sippySession?.active ? (
-                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">Live</span>
-                ) : (
-                  <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">Not Connected</span>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {sippySession?.active
-                  ? `Live calls & CDR from Sippy — logged in as ${sippySession.username}`
-                  : 'Connect via Settings → Switch Configuration to see real call data here'}
-              </p>
+      {/* ── Recent CDR Records ─────────────────────────────────────────────── */}
+      {anyPortalActive && (sippyCdr?.cdrs?.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border/50 bg-muted/10">
+            <div className="flex items-center gap-2">
+              <PhoneForwarded className="w-3.5 h-3.5 text-violet-400" />
+              <h3 className="font-semibold text-sm">Recent CDR Records</h3>
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                {sippyCdr!.cdrs.length} records
+              </span>
             </div>
-          </div>
-          {!sippySession?.active && (
-            <Link href="/settings"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
-              <Settings className="w-3 h-3" />
-              Connect
+            <Link href="/cdrs" className="text-xs text-primary hover:underline flex items-center gap-1">
+              Full CDR Viewer <ArrowRight className="w-3 h-3" />
             </Link>
-          )}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-muted/30 text-muted-foreground text-xs">
+                <tr>
+                  <th className="px-4 py-2.5">Start Time</th>
+                  <th className="px-4 py-2.5">Caller (CLI)</th>
+                  <th className="px-4 py-2.5">Callee (CLD)</th>
+                  <th className="px-4 py-2.5">Country</th>
+                  <th className="px-4 py-2.5">Duration</th>
+                  <th className="px-4 py-2.5">PDD</th>
+                  <th className="px-4 py-2.5">Cost</th>
+                  <th className="px-4 py-2.5">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/30">
+                {sippyCdr!.cdrs.slice(0, 10).map((rec: any, i: number) => {
+                  const isAnswered = (rec.duration > 0) || /^(200|ok|answered|success)/i.test(rec.result || '');
+                  const durSec = Number(rec.duration) || 0;
+                  return (
+                    <tr key={i} className="hover:bg-muted/20 transition-colors" data-testid={`row-cdr-${i}`}>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                        {rec.startTime || rec.connectTime || '—'}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-xs">{rec.caller || '—'}</td>
+                      <td className="px-4 py-2.5 font-mono text-xs">{rec.callee || '—'}</td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{rec.country || rec.areaName || '—'}</td>
+                      <td className="px-4 py-2.5 text-xs">
+                        {durSec > 0 ? `${Math.floor(durSec / 60)}m ${durSec % 60}s` : '0s'}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                        {rec.pdd != null ? `${Number(rec.pdd).toFixed(2)}s` : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-amber-400">
+                        {rec.cost != null && rec.cost > 0 ? `$${Number(rec.cost).toFixed(4)}` : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          isAnswered
+                            ? 'bg-emerald-500/15 text-emerald-400'
+                            : 'bg-rose-500/15 text-rose-400'
+                        }`}>
+                          {isAnswered ? 'Answered' : (rec.result || '—')}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
+      )}
 
-        {anyPortalActive ? (
-          <div className="p-6 space-y-6">
-            {/* Real-time Sippy switch KPIs */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Active Calls</p>
-                {sippyStatsLoading && !sippyStats ? (
-                  <div className="h-8 w-12 mx-auto bg-muted/60 rounded animate-pulse" />
-                ) : (
-                  <p className="text-2xl font-bold text-foreground tabular-nums">{displayActiveCalls}</p>
-                )}
-                <p className="text-[10px] text-violet-400 mt-0.5">Live snapshot</p>
-              </div>
-              <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">ASR</p>
-                {sippyStatsLoading && !sippyStats ? (
-                  <div className="h-8 w-20 mx-auto bg-muted/60 rounded animate-pulse" />
-                ) : (
-                  <p className={`text-2xl font-bold tabular-nums ${displayAsr >= 10 ? 'text-emerald-400' : displayAsr > 0 ? 'text-amber-400' : 'text-rose-400'}`}>
-                    {displayAsr.toFixed(2)}%
-                  </p>
-                )}
-                <p className="text-[10px] text-muted-foreground mt-0.5">Last hour</p>
-              </div>
-              <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">ACD</p>
-                {sippyStatsLoading && !sippyStats ? (
-                  <div className="h-8 w-16 mx-auto bg-muted/60 rounded animate-pulse" />
-                ) : (
-                  <p className="text-2xl font-bold text-foreground tabular-nums">
-                    {sippyStats ? (displayAcd >= 60 ? `${Math.floor(displayAcd/60)}m ${displayAcd%60}s` : `${displayAcd}s`) : '—'}
-                  </p>
-                )}
-                <p className="text-[10px] text-muted-foreground mt-0.5">Avg call duration</p>
-              </div>
-              <div className="rounded-lg bg-muted/30 border border-border/40 px-4 py-3 text-center">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">PDD</p>
-                {sippyStatsLoading && !sippyStats ? (
-                  <div className="h-8 w-16 mx-auto bg-muted/60 rounded animate-pulse" />
-                ) : (
-                  <p className={`text-2xl font-bold tabular-nums ${displayPdd > 0 && displayPdd <= 2 ? 'text-emerald-400' : displayPdd > 2 ? 'text-amber-400' : 'text-muted-foreground'}`}>
-                    {displayPdd > 0 ? `${displayPdd.toFixed(2)}s` : '—'}
-                  </p>
-                )}
-                <p className="text-[10px] text-muted-foreground mt-0.5">Post-dial delay</p>
-              </div>
+      {/* ── Per-Account Traffic Panel ──────────────────────────────────────── */}
+      {anyPortalActive && (
+        <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border/50 bg-muted/10">
+            <div className="flex items-center gap-2">
+              <Users className="w-3.5 h-3.5 text-violet-400" />
+              <h3 className="font-semibold text-sm">Per-Account Traffic</h3>
+              <span className="text-[10px] text-muted-foreground">· from CDR snapshot (last 90 min)</span>
             </div>
-
-            {/* Revenue / Cost / Margin panel — from CDR API (90 min window) */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <DollarSign className="w-3.5 h-3.5" />
-                  Revenue &amp; Cost (last 90 min — CDR data)
-                </h4>
-                {sippyFinancials && sippyFinancials.origination.totalCalls === 0 && (
-                  <span className="text-[10px] text-muted-foreground/60 italic">No completed calls in the last 90 min — active calls appear here after they end</span>
-                )}
-              </div>
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                {/* Origination: calls, billable, ASR */}
-                <div className="rounded-lg bg-muted/30 border border-border/40 px-3 py-2.5 text-center">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Calls (Orig)</p>
-                  <p className="text-lg font-bold text-foreground tabular-nums" data-testid="fin-orig-calls">
-                    {sippyFinancials?.origination.totalCalls ?? '—'}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {sippyFinancials ? `${sippyFinancials.origination.billableCalls} billable` : 'Loading...'}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-muted/30 border border-border/40 px-3 py-2.5 text-center">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">ASR (Orig)</p>
-                  <p className={`text-lg font-bold tabular-nums ${
-                    (sippyFinancials?.origination.asr ?? 0) >= 30 ? 'text-emerald-400' :
-                    (sippyFinancials?.origination.asr ?? 0) > 0 ? 'text-amber-400' : 'text-muted-foreground'
-                  }`} data-testid="fin-orig-asr">
-                    {sippyFinancials?.origination.totalCalls ? `${sippyFinancials.origination.asr}%` : '—'}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    ACD: {sippyFinancials?.origination.acd ? `${sippyFinancials.origination.acd}s` : '—'}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-muted/20 border border-emerald-500/20 px-3 py-2.5 text-center">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Revenue</p>
-                  <p className={`text-lg font-bold tabular-nums ${(sippyFinancials?.origination.revenue ?? 0) > 0 ? 'text-emerald-400' : 'text-muted-foreground'}`} data-testid="fin-revenue">
-                    {sippyFinancials?.origination.revenue != null
-                      ? `$${sippyFinancials.origination.revenue.toFixed(4)}`
-                      : '—'}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Customer billed</p>
-                </div>
-                <div className="rounded-lg bg-muted/30 border border-border/40 px-3 py-2.5 text-center">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Calls (Term)</p>
-                  <p className="text-lg font-bold text-foreground tabular-nums" data-testid="fin-term-calls">
-                    {sippyFinancials?.termination.totalCalls ?? '—'}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {sippyFinancials ? `${sippyFinancials.termination.billableCalls} billable` : 'Loading...'}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-muted/20 border border-rose-500/20 px-3 py-2.5 text-center">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Cost</p>
-                  <p className={`text-lg font-bold tabular-nums ${(sippyFinancials?.termination.cost ?? 0) > 0 ? 'text-rose-400' : 'text-muted-foreground'}`} data-testid="fin-cost">
-                    {sippyFinancials?.termination.cost != null
-                      ? `$${sippyFinancials.termination.cost.toFixed(4)}`
-                      : '—'}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Vendor cost</p>
-                </div>
-                <div className={`rounded-lg border px-3 py-2.5 text-center ${
-                  (sippyFinancials?.margin ?? 0) > 0
-                    ? 'bg-emerald-500/10 border-emerald-500/30'
-                    : (sippyFinancials?.margin ?? 0) < 0
-                    ? 'bg-rose-500/10 border-rose-500/30'
-                    : 'bg-muted/20 border-border/40'
-                }`}>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Margin</p>
-                  <p className={`text-lg font-bold tabular-nums ${
-                    (sippyFinancials?.margin ?? 0) > 0 ? 'text-emerald-400' :
-                    (sippyFinancials?.margin ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground'
-                  }`} data-testid="fin-margin">
-                    {sippyFinancials?.margin != null
-                      ? `${sippyFinancials.margin > 0 ? '+' : ''}$${sippyFinancials.margin.toFixed(4)}`
-                      : '—'}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Revenue − Cost</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Recent CDRs */}
-            {(sippyCdr?.cdrs?.length ?? 0) > 0 && (
-              <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Recent CDR Records ({sippyCdr!.cdrs.length})
-                </h4>
-                <div className="overflow-x-auto rounded-lg border border-border/50">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-muted/30 text-muted-foreground text-xs">
-                      <tr>
-                        <th className="px-4 py-2">Start Time</th>
-                        <th className="px-4 py-2">Caller (CLI)</th>
-                        <th className="px-4 py-2">Callee (CLD)</th>
-                        <th className="px-4 py-2">Country</th>
-                        <th className="px-4 py-2">Duration</th>
-                        <th className="px-4 py-2">PDD</th>
-                        <th className="px-4 py-2">Cost</th>
-                        <th className="px-4 py-2">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/30">
-                      {sippyCdr!.cdrs.slice(0, 10).map((rec: any, i: number) => {
-                        const isAnswered = (rec.duration > 0) || /^(200|ok|answered|success)/i.test(rec.result || '');
-                        const durSec = Number(rec.duration) || 0;
-                        return (
-                          <tr key={i} className="hover:bg-muted/20 transition-colors">
-                            <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                              {rec.startTime || rec.connectTime || '—'}
-                            </td>
-                            <td className="px-4 py-2 font-mono text-xs">{rec.caller || '—'}</td>
-                            <td className="px-4 py-2 font-mono text-xs">{rec.callee || '—'}</td>
-                            <td className="px-4 py-2 text-xs text-muted-foreground">{rec.country || rec.areaName || '—'}</td>
-                            <td className="px-4 py-2 text-xs">
-                              {durSec > 0 ? `${Math.floor(durSec / 60)}m ${durSec % 60}s` : '0s'}
-                            </td>
-                            <td className="px-4 py-2 text-xs text-muted-foreground">
-                              {rec.pdd != null ? `${Number(rec.pdd).toFixed(2)}s` : '—'}
-                            </td>
-                            <td className="px-4 py-2 text-xs text-amber-400">
-                              {rec.cost != null && rec.cost > 0 ? `$${Number(rec.cost).toFixed(4)}` : '—'}
-                            </td>
-                            <td className="px-4 py-2 text-xs">
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                isAnswered
-                                  ? 'bg-emerald-500/15 text-emerald-400'
-                                  : 'bg-rose-500/15 text-rose-400'
-                              }`}>
-                                {isAnswered ? 'Answered' : (rec.result || '—')}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
           </div>
-        ) : (
-          <div className="p-6 text-center text-sm text-muted-foreground py-8">
-            <Globe className="w-8 h-8 mx-auto mb-3 opacity-20" />
-            <p>Sippy not connected.</p>
-            <p className="text-xs mt-1">Go to <Link href="/settings" className="text-primary hover:underline">Settings → Switch Configuration</Link> and enter your Sippy credentials.</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-muted/30 text-muted-foreground text-xs">
+                <tr>
+                  <th className="px-4 py-2.5">Account</th>
+                  <th className="px-4 py-2.5 text-center">Total CDRs</th>
+                  <th className="px-4 py-2.5 text-center">Answered</th>
+                  <th className="px-4 py-2.5 text-center">ASR</th>
+                  <th className="px-4 py-2.5 text-center">Avg Dur</th>
+                  <th className="px-4 py-2.5 text-right">Revenue</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/30">
+                {perAccountStats.map(acc => (
+                  <tr key={acc.id} className="hover:bg-muted/20 transition-colors" data-testid={`row-account-${acc.id}`}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400">{acc.short}</span>
+                        <span className="text-sm font-medium">{acc.name}</span>
+                        <span className="text-[10px] text-muted-foreground hidden sm:inline">id:{acc.id}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-center tabular-nums">{acc.total}</td>
+                    <td className="px-4 py-3 text-center tabular-nums text-emerald-400">{acc.answered}</td>
+                    <td className="px-4 py-3 text-center">
+                      {acc.total > 0 ? (
+                        <span className={`font-bold tabular-nums ${acc.asr >= 30 ? 'text-emerald-400' : acc.asr > 0 ? 'text-amber-400' : 'text-rose-400'}`}>
+                          {acc.asr}%
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center text-xs text-muted-foreground tabular-nums">
+                      {acc.avgDur > 0 ? `${Math.floor(acc.avgDur/60)}m ${acc.avgDur%60}s` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {acc.revenue > 0 ? (
+                        <span className="text-emerald-400 font-medium">${acc.revenue.toFixed(4)}</span>
+                      ) : (
+                        <span className="text-muted-foreground/50">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Active Calls Table — Sippy live when connected, local DB otherwise */}
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
