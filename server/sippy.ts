@@ -2184,9 +2184,14 @@ export async function getSippyCDRs(
       // getAccountCDRs: do NOT default i_customer — omitting it returns ALL accounts' CDRs
 
       const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password);
-      if (resp.statusCode !== 200) continue;
+      if (resp.statusCode !== 200) { console.log(`[getSippyCDRs] ${method} HTTP ${resp.statusCode}`); continue; }
       const text = resp.body.toString?.() ?? resp.body;
-      if (text.includes('faultCode')) continue;
+      if (text.includes('faultCode')) {
+        const fc = text.match(/<name>faultCode<\/name>[\s\S]*?<value><int>(\d+)<\/int>/)?.[1] ?? '?';
+        const fs = text.match(/<name>faultString<\/name>[\s\S]*?<value><string>([^<]*)<\/string>/)?.[1] ?? text.substring(0, 120);
+        console.log(`[getSippyCDRs] ${method} faultCode=${fc}: ${fs}`);
+        continue;
+      }
 
       const structs = extractAllTags(text, 'struct');
       const cdrs: SippyCDR[] = [];
@@ -2254,7 +2259,10 @@ export async function getSippyCDRs(
         });
       }
       if (cdrs.length > 0) return cdrs;
-    } catch { continue; }
+    } catch (err: any) {
+      console.log(`[getSippyCDRs] ${method} error: ${err?.message ?? err}`);
+      continue;
+    }
   }
 
   return [];

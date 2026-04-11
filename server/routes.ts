@@ -6403,20 +6403,40 @@ export async function registerRoutes(
       const credPairs = sippyXmlCredsPairs(settings);
       const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
 
-      // Build date range
-      const endDate   = new Date();
-      const startDate = new Date(endDate.getTime() - hours * 3600 * 1000);
-      const fmtSippy  = (d: Date) =>
-        d.toISOString().replace('T', ' ').substring(0, 16) + ':00';
+      // Paginate CDRs in 2-hour chunks (6 parallel) to avoid the 12 s HTTP
+      // timeout that fires for large single-request ranges (24h, 5000 rows).
+      const CHUNK_HRS   = 2;
+      const CHUNK_LIMIT = 1000;
+      const numChunks   = Math.ceil(hours / CHUNK_HRS);
+      const now         = Date.now();
 
-      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
-      for (const { username, password } of credPairs) {
-        cdrs = await sippy.getSippyCDRs(username, password, 5000, {
-          startDate: fmtSippy(startDate),
-          endDate:   fmtSippy(endDate),
-        });
-        if (cdrs.length > 0) break;
+      const chunkTasks = Array.from({ length: numChunks }, (_, i) => ({
+        startDate: sippy.toSippyDate(new Date(now - (i + 1) * CHUNK_HRS * 3_600_000)),
+        endDate:   sippy.toSippyDate(new Date(now - i       * CHUNK_HRS * 3_600_000)),
+      }));
+
+      // Batch into groups of 6 parallel calls
+      const PARALLEL = 6;
+      let allCdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      for (let b = 0; b < chunkTasks.length; b += PARALLEL) {
+        const batch = chunkTasks.slice(b, b + PARALLEL);
+        const results = await Promise.all(batch.map(async ({ startDate: sd, endDate: ed }) => {
+          for (const { username, password } of credPairs) {
+            try {
+              const rows = await sippy.getSippyCDRs(username, password, CHUNK_LIMIT, { startDate: sd, endDate: ed });
+              if (rows.length > 0) return rows;
+            } catch { /* ignore per-chunk timeout */ }
+          }
+          return [] as Awaited<ReturnType<typeof sippy.getSippyCDRs>>;
+        }));
+        for (const r of results) allCdrs = allCdrs.concat(r);
       }
+      const cdrs = allCdrs;
+
+      // Debug: log how many CDRs fetched and sample country data
+      console.log(`[traffic-map] Fetched ${cdrs.length} CDRs for last ${hours}h (${numChunks} chunks).`,
+        cdrs.slice(0, 2).map(c => ({ country: c.country, area: c.areaName }))
+      );
 
       // Aggregate by country
       type CountryStats = { calls: number; answered: number; totalSecs: number; };

@@ -221,6 +221,23 @@ function SwitchPanel({
     queryFn: () => fetch(`/api/switches/${switchId}/live-calls`).then(r => r.json()),
   });
 
+  // Call History — always at top level (Rules of Hooks)
+  const { data: histData, isLoading: histLoading, refetch: refetchHist } = useQuery<{
+    calls: Array<{
+      id: number; sippyCallId: string; caller: string | null; callee: string | null;
+      clientName: string | null; vendor: string | null; accountId: string | null;
+      direction: string | null; codec: string | null; ccState: string | null;
+      maxDurationSecs: number | null; pddMs: number | null;
+      mediaIpCaller: string | null; mediaIpCallee: string | null;
+      connection: string | null; firstSeen: string; lastSeen: string;
+    }>;
+    hoursBack: number;
+  }>({
+    queryKey: ['/api/call-history', historyHours],
+    queryFn: () => fetch(`/api/call-history?hours=${historyHours}`).then(r => r.json()),
+    refetchInterval: 30000,
+  });
+
   const isActive = isPrimary ? !!primarySippySession?.active : true;
   const isLoading = isPrimary ? sippyLoading : switchLoading;
 
@@ -1254,22 +1271,6 @@ function SwitchPanel({
 
       {/* ── CALL HISTORY TAB ─────────────────────────────────────────────── */}
       {callViewTab === 'history' && (() => {
-        const { data: histData, isLoading: histLoading, refetch: refetchHist } = useQuery<{
-          calls: Array<{
-            id: number; sippyCallId: string; caller: string | null; callee: string | null;
-            clientName: string | null; vendor: string | null; accountId: string | null;
-            direction: string | null; codec: string | null; ccState: string | null;
-            maxDurationSecs: number | null; pddMs: number | null;
-            mediaIpCaller: string | null; mediaIpCallee: string | null;
-            connection: string | null; firstSeen: string; lastSeen: string;
-          }>;
-          hoursBack: number;
-        }>({
-          queryKey: ['/api/call-history', historyHours],
-          queryFn: () => fetch(`/api/call-history?hours=${historyHours}`).then(r => r.json()),
-          refetchInterval: 30000,
-        });
-
         const rows = histData?.calls ?? [];
 
         function calcMOS(pddMs: number): number | null {
