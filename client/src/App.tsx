@@ -24,6 +24,7 @@ import AccountPage from "@/pages/account";
 import LoginPage from "@/pages/login";
 import TrafficMapPage from "@/pages/traffic-map";
 import BalanceMonitorPage from "@/pages/balance-monitor";
+import DIDsPage from "@/pages/dids";
 import NotFound from "@/pages/not-found";
 
 // Pages accessible to each role
@@ -125,6 +126,9 @@ function Router() {
       </Route>
       <Route path="/balance">
         {() => <ProtectedRoute component={BalanceMonitorPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/dids">
+        {() => <ProtectedRoute component={DIDsPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/account">
         {() => <ProtectedRoute component={AccountPage} requiredRoles={['admin','management','viewer']} />}

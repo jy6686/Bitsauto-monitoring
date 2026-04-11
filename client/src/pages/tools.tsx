@@ -5,7 +5,8 @@ import {
   Wrench, Calculator, Wifi, Zap, Star, TrendingUp, TrendingDown,
   Minus, CheckCircle2, XCircle, MinusCircle, RefreshCw, Play,
   Phone, PhoneMissed, PhoneOff, Activity, Server, Calendar,
-  BarChart3, ArrowRight, Info,
+  BarChart3, ArrowRight, Info, Route, AlertTriangle, ChevronRight,
+  Loader2, DollarSign, Network, ShieldCheck, ShieldAlert, ArrowDownUp,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,13 +84,14 @@ const INDUSTRIES = [
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
 
-type Tab = "carrier" | "capacity" | "bandwidth" | "burst";
+type Tab = "carrier" | "capacity" | "bandwidth" | "burst" | "route";
 
 const TABS: { id: Tab; label: string; icon: typeof Wrench }[] = [
   { id: "carrier",   label: "Carrier Quality",    icon: Star },
   { id: "capacity",  label: "SIP Capacity",       icon: Calculator },
   { id: "bandwidth", label: "Bandwidth Planner",  icon: Wifi },
   { id: "burst",     label: "Burst Simulator",    icon: Zap },
+  { id: "route",     label: "Route Tester",       icon: Route },
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -738,6 +740,311 @@ function BurstSimulatorTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// TAB 5 — Dialplan / Route Tester
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface DialplanRoute {
+  iRoute: number | null;
+  iVendor: number | null;
+  vendorName: string | null;
+  iConnection: number | null;
+  connectionName: string | null;
+  prefix: string | null;
+  capacity: number | null;
+  numSessions: number | null;
+  preference: number | null;
+  estimatedCost: string | null;
+  price1: string | null;
+  priceN: string | null;
+  connectFee: string | null;
+  connectionQuality: string | null;
+  qualityMonitorEnabled: boolean | null;
+  forbidden: boolean | null;
+  huntstop: boolean | null;
+  areaName: string | null;
+  error: string | null;
+}
+
+interface DialplanResult {
+  result: string | null;
+  cause: string | null;
+  iAccount: number | null;
+  iCustomer: number | null;
+  tariffName: string | null;
+  prefix: string | null;
+  cli: string | null;
+  cld: string | null;
+  username: string | null;
+  price1: string | null;
+  priceN: string | null;
+  connectFee: string | null;
+  estimatedCostOrig: string | null;
+  routingGroupName: string | null;
+  lrnCld: string | null;
+  lrnCli: string | null;
+  areaName: string | null;
+  routes: DialplanRoute[] | null;
+}
+
+function QualityDot({ q }: { q: string | null }) {
+  const color =
+    q === "good"    ? "bg-emerald-500" :
+    q === "average" ? "bg-amber-500"   :
+    q === "bad"     ? "bg-rose-500"    : "bg-muted";
+  return <span className={`inline-block w-2 h-2 rounded-full ${color}`} title={q ?? "unknown"} />;
+}
+
+function RouteTestTab() {
+  const [cli, setCli]                     = useState("");
+  const [cld, setCld]                     = useState("");
+  const [remoteIp, setRemoteIp]           = useState("");
+  const [toDomain, setToDomain]           = useState("");
+  const [fallbackAccount, setFallbackAccount] = useState("");
+
+  const { data: acctData } = useQuery<{ success: boolean; accounts: Array<{ iAccount: number; username: string }> }>({
+    queryKey: ["/api/sippy/accounts"],
+  });
+  const accounts = acctData?.accounts ?? [];
+
+  const testMut = useMutation<{ success: boolean; data?: DialplanResult; error?: string }, Error, void>({
+    mutationFn: () =>
+      apiRequest("POST", "/api/sippy/test-dialplan", {
+        cli:               cli.trim(),
+        cld:               cld.trim(),
+        remoteIp:          remoteIp.trim() || undefined,
+        toDomain:          toDomain.trim() || undefined,
+        fallbackIAccount:  fallbackAccount || undefined,
+      }),
+  });
+
+  const result = testMut.data?.data;
+
+  const resultColor =
+    !testMut.isSuccess           ? "text-muted-foreground" :
+    result?.result === "allowed" ? "text-emerald-400"       :
+    result?.result === "blocked" ? "text-rose-400"           : "text-amber-400";
+
+  return (
+    <div className="space-y-6">
+      {/* Input form */}
+      <div className="rounded-xl border border-border/50 bg-card p-5 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Route className="w-4 h-4 text-blue-400" />
+          <h3 className="font-semibold text-sm">Test a Call Route</h3>
+          <span className="text-xs text-muted-foreground">— simulates how Sippy will route a call</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="rt-cli">CLI (Caller ID) *</Label>
+            <Input
+              id="rt-cli"
+              data-testid="input-route-cli"
+              placeholder="e.g. 14155551234"
+              value={cli}
+              onChange={e => setCli(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="rt-cld">CLD (Destination Number) *</Label>
+            <Input
+              id="rt-cld"
+              data-testid="input-route-cld"
+              placeholder="e.g. 12125551234"
+              value={cld}
+              onChange={e => setCld(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="rt-ip">Remote IP (caller source IP) *</Label>
+            <Input
+              id="rt-ip"
+              data-testid="input-route-ip"
+              placeholder="e.g. 192.168.1.1"
+              value={remoteIp}
+              onChange={e => setRemoteIp(e.target.value)}
+            />
+            <p className="text-[11px] text-muted-foreground">Required by Sippy for auth rule matching</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="rt-domain">To Domain (optional)</Label>
+            <Input
+              id="rt-domain"
+              data-testid="input-route-domain"
+              placeholder="e.g. sip.example.com"
+              value={toDomain}
+              onChange={e => setToDomain(e.target.value)}
+            />
+          </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label>Fallback Account (if CLI not auto-authenticated)</Label>
+            <Select value={fallbackAccount} onValueChange={setFallbackAccount}>
+              <SelectTrigger data-testid="select-fallback-account">
+                <SelectValue placeholder="— Auto-detect from auth rules —" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">— Auto-detect from auth rules —</SelectItem>
+                {accounts.map(a => (
+                  <SelectItem key={a.iAccount} value={String(a.iAccount)}>{a.username} (#{a.iAccount})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">Select an account if Sippy can't match the CLI to an auth rule</p>
+          </div>
+        </div>
+
+        <Button
+          data-testid="button-test-route"
+          onClick={() => testMut.mutate()}
+          disabled={testMut.isPending || !cli.trim() || !cld.trim() || !remoteIp.trim()}
+          className="w-full sm:w-auto"
+        >
+          {testMut.isPending
+            ? <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Testing…</>
+            : <><Play className="w-4 h-4 mr-2" /> Run Route Test</>}
+        </Button>
+      </div>
+
+      {/* Error from API */}
+      {testMut.isError && (
+        <div className="flex items-center gap-3 p-4 rounded-xl border border-rose-500/25 bg-rose-500/8 text-rose-300 text-sm">
+          <XCircle className="w-4 h-4 flex-shrink-0" />
+          {testMut.error?.message ?? "Request failed"}
+        </div>
+      )}
+
+      {/* Result */}
+      {testMut.isSuccess && result && (
+        <div className="space-y-4">
+          {/* Auth / origination summary */}
+          <div className="rounded-xl border border-border/50 bg-card p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-sm flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-blue-400" />
+                Authorization &amp; Origination
+              </h3>
+              <span className={`text-sm font-bold uppercase tracking-wide ${resultColor}`}>
+                {result.result ?? "—"}
+              </span>
+            </div>
+            {result.cause && (
+              <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {result.cause}
+              </div>
+            )}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+              {[
+                { label: "Account",       value: result.username ?? (result.iAccount ? `#${result.iAccount}` : null) },
+                { label: "Tariff",        value: result.tariffName },
+                { label: "Routing Group", value: result.routingGroupName },
+                { label: "Area",          value: result.areaName },
+                { label: "CLI (out)",     value: result.cli },
+                { label: "CLD (out)",     value: result.cld },
+                { label: "LRN CLD",       value: result.lrnCld },
+                { label: "Connect Fee",   value: result.connectFee ? `$${result.connectFee}` : null },
+                { label: "Rate /min",     value: result.price1 ? `$${result.price1}` : null },
+                { label: "Est. Cost",     value: result.estimatedCostOrig ? `$${result.estimatedCostOrig}` : null },
+              ].filter(r => r.value).map(r => (
+                <div key={r.label} className="bg-muted/30 rounded-lg px-3 py-2">
+                  <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{r.label}</p>
+                  <p className="font-mono font-semibold text-foreground mt-0.5 truncate">{r.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Routes list */}
+          {result.routes && result.routes.length > 0 && (
+            <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+              <div className="px-5 py-3 border-b border-border/50 flex items-center justify-between">
+                <h3 className="font-semibold text-sm flex items-center gap-2">
+                  <Network className="w-4 h-4 text-violet-400" />
+                  Routing Order
+                </h3>
+                <span className="text-xs text-muted-foreground">{result.routes.length} route{result.routes.length !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border/30 bg-muted/20">
+                      <th className="text-left px-4 py-2.5 text-muted-foreground font-medium">#</th>
+                      <th className="text-left px-4 py-2.5 text-muted-foreground font-medium">Vendor / Connection</th>
+                      <th className="text-left px-4 py-2.5 text-muted-foreground font-medium">Prefix</th>
+                      <th className="text-left px-4 py-2.5 text-muted-foreground font-medium">Area</th>
+                      <th className="text-right px-4 py-2.5 text-muted-foreground font-medium">Rate</th>
+                      <th className="text-right px-4 py-2.5 text-muted-foreground font-medium">Est. Cost</th>
+                      <th className="text-right px-4 py-2.5 text-muted-foreground font-medium">Capacity</th>
+                      <th className="text-center px-4 py-2.5 text-muted-foreground font-medium">Quality</th>
+                      <th className="text-center px-4 py-2.5 text-muted-foreground font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.routes.map((r, i) => (
+                      <tr
+                        key={i}
+                        data-testid={`route-row-${i}`}
+                        className={`border-b border-border/20 ${r.forbidden ? "opacity-40" : ""} ${i % 2 === 0 ? "" : "bg-muted/5"}`}
+                      >
+                        <td className="px-4 py-2.5">
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-muted/40 text-muted-foreground font-mono text-[10px]">{i + 1}</span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="font-semibold text-foreground">{r.vendorName ?? `Vendor#${r.iVendor}`}</div>
+                          {r.connectionName && <div className="text-muted-foreground text-[10px]">{r.connectionName}</div>}
+                        </td>
+                        <td className="px-4 py-2.5 font-mono text-blue-400">{r.prefix ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{r.areaName ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-right font-mono">
+                          {r.price1 ? <span className="text-emerald-400">${r.price1}</span> : "—"}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-mono">
+                          {r.estimatedCost ? <span className="text-amber-400">${r.estimatedCost}</span> : "—"}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {r.capacity != null && r.numSessions != null
+                            ? <span className={r.numSessions >= r.capacity ? "text-rose-400" : "text-muted-foreground"}>{r.numSessions}/{r.capacity}</span>
+                            : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <QualityDot q={r.connectionQuality} />
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          {r.forbidden ? (
+                            <span className="text-rose-400 font-semibold">Blocked</span>
+                          ) : r.huntstop ? (
+                            <span className="text-amber-400">Huntstop</span>
+                          ) : r.error ? (
+                            <span className="text-rose-400 text-[10px]" title={r.error}>Error</span>
+                          ) : (
+                            <span className="text-emerald-400">OK</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {result.routes.length === 0 && (
+                <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+                  No routes returned — call would fail to route.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* No routes */}
+          {(!result.routes || result.routes.length === 0) && testMut.isSuccess && (
+            <div className="flex items-center gap-3 p-4 rounded-xl border border-amber-500/25 bg-amber-500/8 text-amber-300 text-sm">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              No routing entries returned. Call would fail. Check the CLI/CLD or account setup.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Main Page
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -780,6 +1087,7 @@ export default function ToolsPage() {
       {activeTab === "capacity"  && <CapacityCalculatorTab />}
       {activeTab === "bandwidth" && <BandwidthPlannerTab />}
       {activeTab === "burst"     && <BurstSimulatorTab />}
+      {activeTab === "route"     && <RouteTestTab />}
     </div>
   );
 }
