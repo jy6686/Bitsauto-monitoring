@@ -2,7 +2,7 @@ import {
   Phone, Clock, Search, BarChart3, List, RefreshCw, CheckCircle2,
   ArrowRightLeft, Globe, Server, Loader2, AlertCircle,
   ChevronDown, ChevronRight, PhoneOff, ArrowUpRight, ArrowDownLeft, Network,
-  Activity, Wifi, Info,
+  Activity, Wifi, Info, HeartPulse, ShieldAlert, Timer, SignalHigh,
 } from "lucide-react";
 import { useState, useRef, Fragment } from "react";
 import { lookupCountry } from "@/lib/country-lookup";
@@ -176,7 +176,7 @@ function SwitchPanel({
   switchType: string;
   switchName: string;
 }) {
-  const [callViewTab, setCallViewTab] = useState<'summary' | 'details'>('summary');
+  const [callViewTab, setCallViewTab] = useState<'summary' | 'details' | 'quality'>('summary');
   const [search, setSearch] = useState('');
   const [filterCli, setFilterCli] = useState('');
   const [filterCld, setFilterCld] = useState('');
@@ -303,6 +303,18 @@ function SwitchPanel({
           >
             <List className="w-4 h-4" />
             Active Call Details
+          </button>
+          <button
+            onClick={() => setCallViewTab('quality')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              callViewTab === 'quality'
+                ? 'bg-background text-foreground shadow-sm border border-border/50'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            data-testid="tab-quality-monitoring"
+          >
+            <HeartPulse className="w-4 h-4 text-rose-400" />
+            Quality Monitoring
           </button>
         </div>
 
@@ -934,6 +946,298 @@ function SwitchPanel({
           })()}
         </div>
       )}
+
+      {/* ── QUALITY MONITORING TAB ───────────────────────────────────────── */}
+      {callViewTab === 'quality' && (() => {
+        const activeCalls = liveCalls;
+
+        // MOS estimate via ITU-T G.107 E-model (PDD as one-way delay proxy)
+        function calcMOS(pddMs: number): number | null {
+          if (pddMs <= 0) return null;
+          const d = pddMs * 0.3;
+          const R = Math.max(0, Math.min(100,
+            94.2 - 0.024 * d - 0.11 * (d > 177.3 ? d - 177.3 : 0)
+          ));
+          return Math.max(1, Math.min(4.5,
+            Math.round((1 + 0.035 * R + 7e-6 * R * (R - 60) * (100 - R)) * 10) / 10
+          ));
+        }
+
+        function mosGrade(mos: number | null) {
+          if (mos === null) return null;
+          if (mos >= 4.3) return { label: 'Excellent', val: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', bar: 'bg-emerald-400' };
+          if (mos >= 4.0) return { label: 'Good',      val: 'text-green-400',   bg: 'bg-green-500/10 border-green-500/20',   bar: 'bg-green-400' };
+          if (mos >= 3.6) return { label: 'Fair',      val: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/20',   bar: 'bg-amber-400' };
+          if (mos >= 3.1) return { label: 'Poor',      val: 'text-orange-400',  bg: 'bg-orange-500/10 border-orange-500/20', bar: 'bg-orange-400' };
+          return              { label: 'Bad',       val: 'text-red-400',     bg: 'bg-red-500/10 border-red-500/20',       bar: 'bg-red-400' };
+        }
+
+        function pddGrade(ms: number) {
+          if (ms <= 0)    return null;
+          if (ms < 500)   return { label: 'Excellent', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' };
+          if (ms < 1000)  return { label: 'Good',      color: 'text-green-400',   bg: 'bg-green-500/10 border-green-500/20' };
+          if (ms < 2000)  return { label: 'Fair',      color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/20' };
+          if (ms < 3000)  return { label: 'Poor',      color: 'text-orange-400',  bg: 'bg-orange-500/10 border-orange-500/20' };
+          return              { label: 'Critical',  color: 'text-red-400',     bg: 'bg-red-500/10 border-red-500/20' };
+        }
+
+        // Aggregate stats
+        const mosList = activeCalls
+          .map(c => calcMOS(Math.round((c.delay ?? 0) * 1000)))
+          .filter((v): v is number => v !== null);
+        const avgMOS = mosList.length > 0
+          ? Math.round((mosList.reduce((a, b) => a + b, 0) / mosList.length) * 10) / 10
+          : null;
+        const criticalPDD = activeCalls.filter(c => Math.round((c.delay ?? 0) * 1000) >= 3000).length;
+        const poorMOS     = activeCalls.filter(c => { const m = calcMOS(Math.round((c.delay ?? 0) * 1000)); return m !== null && m < 3.6; }).length;
+        const connected   = activeCalls.filter(c => c.ccState === 'Connected').length;
+        const routing     = activeCalls.length - connected;
+
+        return (
+          <div className="space-y-4">
+            {/* ── Summary cards ── */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {/* Total Calls */}
+              <div className="bg-card border border-border rounded-xl p-4 space-y-1">
+                <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider flex items-center gap-1.5">
+                  <Phone className="w-3 h-3" /> Total Calls
+                </p>
+                <p className="text-2xl font-bold text-foreground">{activeCalls.length}</p>
+                <p className="text-[10px] text-muted-foreground/40">{connected} connected · {routing} routing</p>
+              </div>
+              {/* Avg MOS */}
+              <div className="bg-card border border-border rounded-xl p-4 space-y-1">
+                <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider flex items-center gap-1.5">
+                  <HeartPulse className="w-3 h-3 text-rose-400" /> Avg MOS
+                </p>
+                {avgMOS !== null ? (
+                  <>
+                    <p className={`text-2xl font-bold ${mosGrade(avgMOS)?.val ?? 'text-foreground'}`}>{avgMOS.toFixed(1)}</p>
+                    <p className={`text-[10px] font-medium ${mosGrade(avgMOS)?.val ?? ''}`}>{mosGrade(avgMOS)?.label} <span className="text-muted-foreground/30 font-normal">est.</span></p>
+                  </>
+                ) : (
+                  <p className="text-2xl font-bold text-muted-foreground/30">—</p>
+                )}
+              </div>
+              {/* Critical PDD */}
+              <div className="bg-card border border-border rounded-xl p-4 space-y-1">
+                <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider flex items-center gap-1.5">
+                  <Timer className="w-3 h-3 text-orange-400" /> Critical PDD
+                </p>
+                <p className={`text-2xl font-bold ${criticalPDD > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{criticalPDD}</p>
+                <p className="text-[10px] text-muted-foreground/40">calls ≥ 3000 ms</p>
+              </div>
+              {/* Poor MOS */}
+              <div className="bg-card border border-border rounded-xl p-4 space-y-1">
+                <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider flex items-center gap-1.5">
+                  <ShieldAlert className="w-3 h-3 text-amber-400" /> Poor MOS
+                </p>
+                <p className={`text-2xl font-bold ${poorMOS > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{poorMOS}</p>
+                <p className="text-[10px] text-muted-foreground/40">calls MOS &lt; 3.6</p>
+              </div>
+              {/* RTCP-XR note */}
+              <div className="bg-card border border-border rounded-xl p-4 space-y-1">
+                <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider flex items-center gap-1.5">
+                  <SignalHigh className="w-3 h-3 text-cyan-400" /> Jitter / Loss
+                </p>
+                <p className="text-2xl font-bold text-muted-foreground/25">—</p>
+                <p className="text-[10px] text-muted-foreground/30 leading-tight">Requires RTCP-XR feed</p>
+              </div>
+            </div>
+
+            {/* ── Per-call quality table ── */}
+            <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+              {isLoading ? (
+                <div className="p-12 text-center text-muted-foreground">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+                  Loading quality data…
+                </div>
+              ) : activeCalls.length === 0 ? (
+                <div className="p-12 text-center">
+                  <div className="w-14 h-14 rounded-full bg-muted/40 flex items-center justify-center mx-auto mb-3">
+                    <HeartPulse className="w-7 h-7 text-muted-foreground/40" />
+                  </div>
+                  <p className="text-muted-foreground">No active calls to monitor.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-muted/40 text-muted-foreground border-b border-border/50">
+                      <tr>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">#</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Caller / Callee</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Client / Vendor</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Duration</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">SIP CC State</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">PDD</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider min-w-[120px]">MOS (est.)</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Jitter</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Pkt Loss</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Vendor RTP IP</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Issues</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {activeCalls.map((call, i) => {
+                        const pddMs  = Math.round((call.delay ?? 0) * 1000);
+                        const mos    = calcMOS(pddMs);
+                        const mg     = mosGrade(mos);
+                        const pg     = pddGrade(pddMs);
+                        const mosPct = mos !== null ? Math.round(((mos - 1) / 3.5) * 100) : 0;
+                        const ccStyle = CC_STATE_STYLE[call.ccState ?? ''] ?? CC_STATE_STYLE['ARComplete'];
+
+                        // Detect issues
+                        const issues: string[] = [];
+                        if (pddMs >= 3000) issues.push('Critical PDD');
+                        else if (pddMs >= 2000) issues.push('High PDD');
+                        if (mos !== null && mos < 3.1) issues.push('Bad MOS');
+                        else if (mos !== null && mos < 3.6) issues.push('Poor MOS');
+                        if (call.ccState === 'WaitRoute') issues.push('Routing Delay');
+                        if (call.ccState === 'WaitAuth')  issues.push('Auth Delay');
+
+                        const rtpIp = call.mediaIpCallee || call.mediaIpCaller;
+
+                        return (
+                          <tr key={call.id ?? i} className="hover:bg-muted/20 transition-colors">
+                            {/* # */}
+                            <td className="px-3 py-3 text-muted-foreground/40 text-[11px] font-mono">{i + 1}</td>
+
+                            {/* Caller / Callee */}
+                            <td className="px-3 py-3">
+                              <div className="space-y-0.5">
+                                <p className="font-mono text-[11px] text-foreground/80">{call.caller}</p>
+                                <p className="font-mono text-[11px] text-muted-foreground/50">→ {call.callee}</p>
+                              </div>
+                            </td>
+
+                            {/* Client / Vendor */}
+                            <td className="px-3 py-3">
+                              <div className="space-y-0.5">
+                                <p className="text-[11px] text-foreground/80 font-medium">{call.clientName || '—'}</p>
+                                <p className="text-[11px] text-muted-foreground/50">{call.vendor || '—'}</p>
+                              </div>
+                            </td>
+
+                            {/* Duration */}
+                            <td className="px-3 py-3 font-mono text-[12px] text-foreground/70">
+                              {formatDuration(Math.floor(call.duration))}
+                            </td>
+
+                            {/* SIP CC State */}
+                            <td className="px-3 py-3">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${ccStyle.badge}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${ccStyle.dot}`} />
+                                {ccStyle.label}
+                              </span>
+                              {call.direction && (
+                                <p className="text-[9px] text-muted-foreground/30 mt-0.5 capitalize">{call.direction.replace(/_/g, ' ')}</p>
+                              )}
+                            </td>
+
+                            {/* PDD */}
+                            <td className="px-3 py-3">
+                              {pddMs > 0 ? (
+                                <div className="space-y-0.5">
+                                  <p className={`font-mono text-[12px] font-semibold ${pg?.color ?? 'text-foreground/70'}`}>
+                                    {pddMs} ms
+                                  </p>
+                                  {pg && (
+                                    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded border ${pg.color} ${pg.bg}`}>
+                                      {pg.label}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground/30 text-[11px]">—</span>
+                              )}
+                            </td>
+
+                            {/* MOS */}
+                            <td className="px-3 py-3 min-w-[120px]">
+                              {mos !== null ? (
+                                <div className="space-y-1">
+                                  <div className="flex items-baseline gap-1.5">
+                                    <p className={`font-mono text-[13px] font-bold ${mg?.val}`}>{mos.toFixed(1)}</p>
+                                    <span className={`text-[9px] font-semibold ${mg?.val}`}>{mg?.label}</span>
+                                  </div>
+                                  <div className="h-1.5 rounded-full bg-muted/30 w-20 overflow-hidden">
+                                    <div className={`h-full rounded-full ${mg?.bar}`} style={{ width: `${mosPct}%` }} />
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground/30 text-[11px]">—</span>
+                              )}
+                            </td>
+
+                            {/* Jitter */}
+                            <td className="px-3 py-3">
+                              <div className="space-y-0.5">
+                                <p className="font-mono text-[13px] text-muted-foreground/25">—</p>
+                                <p className="text-[8px] text-muted-foreground/20">RTCP-XR</p>
+                              </div>
+                            </td>
+
+                            {/* Packet Loss */}
+                            <td className="px-3 py-3">
+                              <div className="space-y-0.5">
+                                <p className="font-mono text-[13px] text-muted-foreground/25">—</p>
+                                <p className="text-[8px] text-muted-foreground/20">RTCP-XR</p>
+                              </div>
+                            </td>
+
+                            {/* Vendor RTP IP */}
+                            <td className="px-3 py-3">
+                              {rtpIp ? (
+                                <div className="space-y-1">
+                                  <p className="font-mono text-[10px] text-cyan-400/80">{rtpIp}</p>
+                                  <IpInfoBadge ip={rtpIp} color="blue" />
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground/30 text-[11px]">—</span>
+                              )}
+                            </td>
+
+                            {/* Issues */}
+                            <td className="px-3 py-3">
+                              {issues.length > 0 ? (
+                                <div className="space-y-0.5">
+                                  {issues.map((iss, j) => (
+                                    <div key={j} className="flex items-center gap-1 text-[9px] text-amber-400 font-semibold">
+                                      <AlertCircle className="w-2.5 h-2.5 flex-shrink-0" />
+                                      {iss}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1 text-[9px] text-emerald-400">
+                                  <CheckCircle2 className="w-2.5 h-2.5" />
+                                  Clean
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Footer legend */}
+              <div className="px-4 py-3 border-t border-border/30 bg-muted/10 flex flex-wrap items-center gap-4 text-[10px] text-muted-foreground/40">
+                <div className="flex items-center gap-1.5">
+                  <HeartPulse className="w-3 h-3 text-rose-400/50" />
+                  <span>MOS estimated via ITU-T G.107 E-model (PDD-based). Scores may differ from RTCP-XR measurements.</span>
+                </div>
+                <div className="flex items-center gap-1.5 ml-auto">
+                  <Info className="w-3 h-3" />
+                  <span>Jitter &amp; Packet Loss require RTCP-XR or dedicated RTP monitor.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );
