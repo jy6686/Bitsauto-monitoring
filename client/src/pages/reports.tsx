@@ -20,6 +20,52 @@ import { Link } from "wouter";
 import type { AsrAcdReportRow, ClientProfile } from "@shared/schema";
 import { cn } from "@/lib/utils";
 
+// Extended row type — backend includes clientName + country from CDR data
+type ReportRow = AsrAcdReportRow & { clientName?: string; country?: string };
+
+// Country name → ISO 3166-1 alpha-2 code (covers major telecom destinations)
+const COUNTRY_TO_ISO: Record<string, string> = {
+  "Afghanistan":"AF","Albania":"AL","Algeria":"DZ","Angola":"AO","Argentina":"AR",
+  "Australia":"AU","Austria":"AT","Azerbaijan":"AZ","Bahrain":"BH","Bangladesh":"BD",
+  "Belarus":"BY","Belgium":"BE","Bolivia":"BO","Bosnia":"BA","Brazil":"BR",
+  "Bulgaria":"BG","Cambodia":"KH","Cameroon":"CM","Canada":"CA","Chile":"CL",
+  "China":"CN","Colombia":"CO","Congo":"CG","Costa Rica":"CR","Croatia":"HR",
+  "Cuba":"CU","Czech Republic":"CZ","Denmark":"DK","Dominican Republic":"DO",
+  "Ecuador":"EC","Egypt":"EG","El Salvador":"SV","Ethiopia":"ET","Finland":"FI",
+  "France":"FR","Georgia":"GE","Germany":"DE","Ghana":"GH","Greece":"GR",
+  "Guatemala":"GT","Haiti":"HT","Honduras":"HN","Hong Kong":"HK","Hungary":"HU",
+  "India":"IN","Indonesia":"ID","Iran":"IR","Iraq":"IQ","Ireland":"IE",
+  "Israel":"IL","Italy":"IT","Ivory Coast":"CI","Jamaica":"JM","Japan":"JP",
+  "Jordan":"JO","Kazakhstan":"KZ","Kenya":"KE","Kosovo":"XK","Kuwait":"KW",
+  "Kyrgyzstan":"KG","Laos":"LA","Latvia":"LV","Lebanon":"LB","Libya":"LY",
+  "Lithuania":"LT","Luxembourg":"LU","Macedonia":"MK","Madagascar":"MG",
+  "Malaysia":"MY","Mali":"ML","Mexico":"MX","Moldova":"MD","Mongolia":"MN",
+  "Morocco":"MA","Mozambique":"MZ","Myanmar":"MM","Nepal":"NP","Netherlands":"NL",
+  "New Zealand":"NZ","Nicaragua":"NI","Niger":"NE","Nigeria":"NG","Norway":"NO",
+  "Oman":"OM","Pakistan":"PK","Palestine":"PS","Panama":"PA","Paraguay":"PY",
+  "Peru":"PE","Philippines":"PH","Poland":"PL","Portugal":"PT","Qatar":"QA",
+  "Romania":"RO","Russia":"RU","Rwanda":"RW","Saudi Arabia":"SA","Senegal":"SN",
+  "Serbia":"RS","Sierra Leone":"SL","Slovakia":"SK","Slovenia":"SI","Somalia":"SO",
+  "South Africa":"ZA","South Korea":"KR","South Sudan":"SS","Spain":"ES",
+  "Sri Lanka":"LK","Sudan":"SD","Sweden":"SE","Switzerland":"CH","Syria":"SY",
+  "Taiwan":"TW","Tajikistan":"TJ","Tanzania":"TZ","Thailand":"TH","Togo":"TG",
+  "Tunisia":"TN","Turkey":"TR","Turkmenistan":"TM","Uganda":"UG","Ukraine":"UA",
+  "United Arab Emirates":"AE","United Kingdom":"GB","United States":"US",
+  "Uruguay":"UY","Uzbekistan":"UZ","Venezuela":"VE","Vietnam":"VN","Yemen":"YE",
+  "Zambia":"ZM","Zimbabwe":"ZW",
+};
+
+function countryFlag(countryName?: string): string {
+  if (!countryName) return '';
+  const iso = COUNTRY_TO_ISO[countryName] ?? Object.entries(COUNTRY_TO_ISO)
+    .find(([k]) => countryName.toLowerCase().includes(k.toLowerCase()))?.[1];
+  if (!iso || iso.length !== 2) return '';
+  return String.fromCodePoint(
+    iso.charCodeAt(0) - 65 + 0x1F1E6,
+    iso.charCodeAt(1) - 65 + 0x1F1E6,
+  );
+}
+
 function fmtDuration(seconds: number): string {
   const s = Math.round(seconds);
   if (s <= 0) return "00:00";
@@ -139,7 +185,7 @@ export default function ReportsPage() {
     enabled: sippySession?.active === true,
   });
 
-  const { data: rows = [], isLoading, dataUpdatedAt } = useQuery<AsrAcdReportRow[]>({
+  const { data: rows = [], isLoading, dataUpdatedAt } = useQuery<ReportRow[]>({
     queryKey: ['/api/reports/asr-acd', applied],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -671,6 +717,9 @@ export default function ReportsPage() {
                 {displayRows.map((row, i) => {
                   const isLowAsr = row.asr < highlightBelow;
                   const matched = matchProfile(row.caller, profiles, groupBy === 'caller' ? 'client' : 'vendor', row.caller);
+                  // Client name: prefer CDR-derived name, fall back to profile match
+                  const displayName = row.clientName || matched?.name;
+                  const flag = countryFlag(row.country);
                   return (
                     <tr
                       key={row.caller}
@@ -681,15 +730,22 @@ export default function ReportsPage() {
                       )}
                     >
                       <td className="px-4 py-2.5">
-                        <div className="flex flex-col">
-                          {matched && (
-                            <span className={cn("text-xs font-semibold", matched.type === 'client' ? 'text-emerald-400' : 'text-violet-400')}>
-                              {matched.name}
+                        <div className="flex flex-col gap-0.5">
+                          {displayName && (
+                            <span className={cn("text-xs font-semibold leading-tight",
+                              matched?.type === 'vendor' ? 'text-violet-400' : 'text-emerald-400')}>
+                              {displayName}
                             </span>
                           )}
-                          <span className={cn("font-mono text-xs", isLowAsr ? "text-rose-400" : "text-blue-400")}>
+                          <span className={cn("font-mono text-xs leading-tight", isLowAsr ? "text-rose-400" : "text-blue-400")}>
                             {row.caller}
                           </span>
+                          {row.country && (
+                            <span className="text-[10px] text-muted-foreground/70 flex items-center gap-1 leading-tight">
+                              {flag && <span className="text-sm leading-none">{flag}</span>}
+                              {row.country}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">{row.totalCalls.toLocaleString()}</td>

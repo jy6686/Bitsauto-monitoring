@@ -2780,12 +2780,21 @@ export async function registerRoutes(
       }
 
       // Aggregate by groupBy dimension
-      type G = { totalCalls: number; answeredCalls: number; billedSecs: number; pddSum: number; pddCount: number; totalCost: number };
+      type G = {
+        totalCalls: number; answeredCalls: number; billedSecs: number;
+        pddSum: number; pddCount: number; totalCost: number;
+        clientNames: Map<string, number>; // name → frequency
+        countries: Map<string, number>;   // country → frequency
+      };
       const grouped = new Map<string, G>();
 
       for (const cdr of cdrs) {
         const key = groupBy === 'callee' ? (cdr.callee || '-') : (cdr.caller || '-');
-        if (!grouped.has(key)) grouped.set(key, { totalCalls: 0, answeredCalls: 0, billedSecs: 0, pddSum: 0, pddCount: 0, totalCost: 0 });
+        if (!grouped.has(key)) grouped.set(key, {
+          totalCalls: 0, answeredCalls: 0, billedSecs: 0,
+          pddSum: 0, pddCount: 0, totalCost: 0,
+          clientNames: new Map(), countries: new Map(),
+        });
         const g = grouped.get(key)!;
         g.totalCalls++;
         // Answered = billed duration > 0 (Sippy result=0 means success)
@@ -2797,7 +2806,18 @@ export async function registerRoutes(
         }
         if (cdr.pdd != null && cdr.pdd >= 0) { g.pddSum += cdr.pdd; g.pddCount++; }
         g.totalCost += cdr.cost ?? 0;
+        // Track client name: prefer accountNameCache lookup, fall back to CDR clientName
+        const acctName = cdr.iAccount ? accountNameCache.get(String(cdr.iAccount)) : undefined;
+        const cname = acctName || cdr.clientName;
+        if (cname) g.clientNames.set(cname, (g.clientNames.get(cname) ?? 0) + 1);
+        // Track origination country (Sippy CDR country field)
+        const ctry = cdr.country;
+        if (ctry) g.countries.set(ctry, (g.countries.get(ctry) ?? 0) + 1);
       }
+
+      // Pick most frequent name/country from each group's frequency map
+      const topOf = (m: Map<string, number>) =>
+        m.size > 0 ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : undefined;
 
       const shouldHideEmpty = hideEmpty !== 'false';
       let rows = Array.from(grouped.entries())
@@ -2811,6 +2831,8 @@ export async function registerRoutes(
           asr:                   g.totalCalls   > 0 ? (g.answeredCalls / g.totalCalls) * 100 : 0,
           avgPdd:                g.pddCount     > 0 ? g.pddSum / g.pddCount : 0,
           revenueUsd:            0,
+          clientName:            topOf(g.clientNames),
+          country:               topOf(g.countries),
         }));
 
       // Sort
