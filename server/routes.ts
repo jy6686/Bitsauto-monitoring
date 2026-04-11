@@ -32,14 +32,21 @@ async function refreshConnectionVendorCache(): Promise<void> {
     const portalUrl = sippyPortalUrl(settings);
     const { vendors } = await sippy.listSippyVendors(username, password, {}, portalUrl);
     if (!vendors?.length) return;
+    connectionVendorCache.clear();
     await Promise.all(vendors.map(async (v: any) => {
       if (!v.iVendor) return;
-      const { connections } = await sippy.listVendorConnections(username, password, v.iVendor, portalUrl);
-      for (const conn of connections ?? []) {
-        if (conn.iConnection) {
-          connectionVendorCache.set(String(conn.iConnection), v.name ?? `Vendor#${v.iVendor}`);
+      const vendorName = v.name ?? `Vendor#${v.iVendor}`;
+      // Map iVendor ID → name (activecalls.php often shows iVendor as "Connection" column)
+      connectionVendorCache.set(String(v.iVendor), vendorName);
+      // Map vendor name string → name (identity; handles portal returning name directly)
+      if (v.name) connectionVendorCache.set(v.name, vendorName);
+      try {
+        const { connections } = await sippy.listVendorConnections(username, password, v.iVendor, portalUrl);
+        for (const conn of connections ?? []) {
+          if (conn.iConnection) connectionVendorCache.set(String(conn.iConnection), vendorName);
+          if (conn.name)        connectionVendorCache.set(conn.name, vendorName);
         }
-      }
+      } catch { /* skip per-vendor connection fetch failures */ }
     }));
     console.log(`[routes] connectionVendorCache refreshed: ${connectionVendorCache.size} entries`);
   } catch (e: any) {
