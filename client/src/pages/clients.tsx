@@ -2917,24 +2917,31 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                     {tariffAutoMatched && tariffId && (
                       <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-medium">
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                        Auto-matched plan <span className="font-semibold">"{tariffAutoMatched}"</span> from client name
+                        Auto-matched <span className="font-semibold">"{tariffAutoMatched}"</span>
                         <button type="button" onClick={() => { setTariffId(''); setTariffAutoMatched(null); }}
                           className="ml-1 text-muted-foreground hover:text-foreground underline text-[10px]">clear</button>
                       </div>
                     )}
-                    {billingPlans.length > 0 && (
+                    {billingPlans.length > 0 ? (
+                      /* Plans discovered — show name-only dropdown */
                       <select data-testid="select-sippy-tariff" value={tariffId}
                         onChange={e => { setTariffId(e.target.value); setTariffAutoMatched(null); }} className={fieldCls}>
-                        <option value="">— Select a discovered plan —</option>
-                        {billingPlans.map(p => <option key={p.id} value={String(p.id)}>{p.name}{p.currency ? ` (${p.currency})` : ''} — #{p.id}</option>)}
+                        <option value="">— Select service plan —</option>
+                        {billingPlans.map(p => (
+                          <option key={p.id} value={String(p.id)}>
+                            {p.name}{p.currency ? ` · ${p.currency}` : ''}
+                          </option>
+                        ))}
                       </select>
+                    ) : (
+                      /* No plans loaded — accept plan name; backend auto-discovers ID */
+                      <input data-testid="input-sippy-plan" value={tariffId}
+                        onChange={e => { setTariffId(e.target.value); setTariffAutoMatched(null); }}
+                        placeholder="Type plan name (e.g. Standard, Business)"
+                        className={fieldCls} />
                     )}
-                    <input data-testid="input-sippy-plan" value={tariffId}
-                      onChange={e => { setTariffId(e.target.value); setTariffAutoMatched(null); }}
-                      placeholder={billingPlans.length > 0 ? 'Or enter plan ID directly (e.g. 3)' : 'Enter billing plan ID (e.g. 1)'}
-                      type="number" min="1" className={fieldCls} />
                     <p className="text-[10px] text-muted-foreground/70">
-                      Find IDs in Sippy portal → <em>Customers → Tariffs &amp; Currencies → Service Plans</em>. Each client can have its own plan.
+                      Service plans are configured in Sippy portal → <em>Customers → Tariffs &amp; Currencies → Service Plans</em>.
                     </p>
                   </div>
                 )}
