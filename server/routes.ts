@@ -5171,7 +5171,16 @@ export async function registerRoutes(
     try {
       const limit = req.query.limit ? Math.min(500, Number(req.query.limit)) : 100;
       const events = await storage.getFasEvents(limit);
-      res.json({ events });
+      // Re-resolve stale "Acct#N" names from the live account name cache
+      const resolved = events.map(e => {
+        if (!e.clientName || e.clientName.match(/^Acct[#.]?\d+$/i)) {
+          const m = e.clientName?.match(/\d+/);
+          const resolved = m ? accountNameCache.get(m[0]) : undefined;
+          return { ...e, clientName: resolved ?? e.clientName ?? 'Unknown' };
+        }
+        return e;
+      });
+      res.json({ events: resolved });
     } catch (e: any) { res.status(500).json({ events: [], error: e.message }); }
   });
 
@@ -5299,9 +5308,14 @@ export async function registerRoutes(
       const events = await storage.getFasEvents(500);
       const byClient: Record<string, typeof events> = {};
       for (const e of events) {
-        const v = e.clientName || e.vendor || 'Unknown';
-        if (!byClient[v]) byClient[v] = [];
-        byClient[v].push(e);
+        let name = e.clientName || e.vendor || 'Unknown';
+        // Re-resolve stale "Acct#N" names from the live account name cache
+        if (name.match(/^Acct[#.]?\d+$/i)) {
+          const m = name.match(/\d+/);
+          name = (m ? accountNameCache.get(m[0]) : undefined) ?? name;
+        }
+        if (!byClient[name]) byClient[name] = [];
+        byClient[name].push(e);
       }
       const vendorScores = Object.entries(byClient).map(([vendor, rows]) =>
         calcVendorFraudStats(vendor, rows.map(r => ({
