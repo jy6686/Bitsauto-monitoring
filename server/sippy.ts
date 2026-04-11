@@ -64,12 +64,6 @@ interface SippySession {
 
 let activeSession: SippySession | null = null;
 
-// ── Admin portal session cache for listActiveCalls scraping ──────────────────
-// Reused across calls to avoid a full portal login on every 5-second poll.
-// Expires every 5 minutes; re-login is triggered automatically.
-interface AdminPortalCache { cookies: CookieJar; base: string; user: string; expiresAt: number }
-let adminPortalCache: AdminPortalCache | null = null;
-export function clearAdminPortalCache() { adminPortalCache = null; }
 
 export function getSippySessionStatus() {
   if (!activeSession) return { active: false };
@@ -1181,44 +1175,20 @@ export async function getSippyActiveCalls(
   if (filter?.i_connection !== undefined) reqParams.i_connection = filter.i_connection;
   if (filter?.node_id      !== undefined) reqParams.node_id      = filter.node_id;
 
-  // ── Admin portal scrape — shows ALL active calls (admin view) ────────────
-  // Used when XML-RPC is restricted or when the primary credential is scoped
-  // (e.g. RTST1 only sees calls within its own account, missing other clients).
-  // Uses a 5-minute cached session to avoid logging in on every 5-second poll.
+  // ── Admin portal scrape — fallback when XML-RPC is auth-rejected ────────────
   async function tryAdminPortalScrape(): Promise<SippyActiveCall[]> {
-    // Use cached portal session if still valid
-    if (adminPortalCache && adminPortalCache.base === base && adminPortalCache.expiresAt > Date.now()) {
-      try {
-        const calls = await getPortalActiveCallsHtml(adminPortalCache.cookies, base);
-        console.log(`[Sippy] listActiveCalls: portal scrape (cached ${adminPortalCache.user}) → ${calls.length} calls`);
-        return calls;
-      } catch {
-        // Session expired — clear cache and fall through to re-login
-        adminPortalCache = null;
-      }
-    }
-
-    // Re-login: try all credential pairs with all portal login types (admin/reseller/customer)
     const pairs: Array<[string, string]> = [];
-    if (fallbackUsername && fallbackPassword) pairs.push([fallbackUsername, fallbackPassword]);
-    if (username && password && username !== fallbackUsername) pairs.push([username, password]);
-    const loginTypes = ['admin', 'reseller', 'customer'] as const;
-
+    if (username && password) pairs.push([username, password]);
+    if (fallbackUsername && fallbackPassword && fallbackUsername !== username)
+      pairs.push([fallbackUsername, fallbackPassword]);
     for (const [u, p] of pairs) {
-      for (const loginType of loginTypes) {
-        try {
-          const loginRes = await portalLogin(base, u, p, loginType);
-          if (loginRes.success) {
-            console.log(`[Sippy] listActiveCalls: portal login as ${u} (${loginType}) — scraping /activecalls.php`);
-            adminPortalCache = { cookies: loginRes.cookies, base, user: u, expiresAt: Date.now() + 5 * 60_000 };
-            const calls = await getPortalActiveCallsHtml(loginRes.cookies, base);
-            console.log(`[Sippy] listActiveCalls: portal scrape → ${calls.length} calls`);
-            return calls;
-          }
-        } catch { continue; }
+      const loginRes = await portalLogin(base, u, p, 'admin');
+      if (loginRes.success) {
+        console.log(`[Sippy] listActiveCalls: XML-RPC restricted — scraping /activecalls.php as admin (${u})`);
+        return getPortalActiveCallsHtml(loginRes.cookies, base);
       }
     }
-    console.log('[Sippy] listActiveCalls: all portal login attempts failed, returning empty list');
+    console.log('[Sippy] listActiveCalls: admin portal login failed, returning empty list');
     return [];
   }
 
@@ -1228,11 +1198,11 @@ export async function getSippyActiveCalls(
     try {
       let resp = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), username, password);
 
-      // ── Handle HTTP-level auth rejection ───────────────────────────────────
+      // HTTP auth rejection — try fallback credentials then portal scrape
       if (resp.statusCode === 401 || resp.statusCode === 403) {
         if (fallbackUsername && fallbackPassword && fallbackUsername !== username) {
           const fb = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), fallbackUsername, fallbackPassword);
-          if (fb.statusCode === 200 && !fb.body.includes('<fault>')) {
+          if (fb.statusCode === 200) {
             resp = fb;
           } else {
             return tryAdminPortalScrape();
@@ -1244,36 +1214,15 @@ export async function getSippyActiveCalls(
 
       if (resp.statusCode !== 200) continue;
 
-      // ── Handle XML-RPC fault (HTTP 200 with <fault> body) ─────────────────
-      // Sippy returns HTTP 200 + fault struct when the account lacks permission
-      // (e.g. RTST1 restricted from listActiveCalls). The fault struct has no
-      // CLI/CLD/CC_STATE, so it silently produced an empty call list.
-      // Fix: detect fault and retry with the alternate credential pair.
-      if (resp.body.includes('<fault>')) {
-        console.log(`[Sippy] ${method} XML-RPC fault for ${username} — retrying with fallback creds`);
-        if (fallbackUsername && fallbackPassword && fallbackUsername !== username) {
-          const fb = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), fallbackUsername, fallbackPassword);
-          if (fb.statusCode === 200 && !fb.body.includes('<fault>')) {
-            resp = fb; // fallback worked — parse its body below
-          } else {
-            console.log(`[Sippy] ${method} fallback also faulted — trying admin portal scrape`);
-            return tryAdminPortalScrape();
-          }
-        } else {
-          return tryAdminPortalScrape();
-        }
-      }
-
       const structs = extractAllTags(resp.body, 'struct');
       const calls: SippyActiveCall[] = [];
 
       for (const s of structs) {
         const m = extractStructMembers(s);
-        // Official response uses uppercase keys per docs
-        const id       = m['ID']        || undefined;                    // for disconnectCall()
-        const callId   = m['CALL_ID']   || m['call_id']   || m['CallID'] || '-';
-        const cli      = m['CLI']       || m['cli']       || m['from']   || m['caller'];
-        const cld      = m['CLD']       || m['cld']       || m['to']     || m['callee'];
+        const id     = m['ID']        || undefined;
+        const callId = m['CALL_ID']   || m['call_id']   || m['CallID'] || '-';
+        const cli    = m['CLI']       || m['cli']       || m['from']   || m['caller'];
+        const cld    = m['CLD']       || m['cld']       || m['to']     || m['callee'];
         if (!callId && !cli) continue;
         calls.push({
           id,
@@ -1298,60 +1247,12 @@ export async function getSippyActiveCalls(
         });
       }
       console.log(`[Sippy] ${method} returned ${calls.length} active calls (XML-RPC, user=${username})`);
-      // If primary returned 0 calls, the credential may be account-scoped (e.g. RTST1 only
-      // sees its own account's calls, missing PUSHTOTALK and other clients).
-      // Strategy: try fallback XML-RPC first (faster), then portal scrape as last resort.
-      if (calls.length === 0 && fallbackUsername && fallbackPassword && fallbackUsername !== username) {
-        try {
-          const fbResp = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), fallbackUsername, fallbackPassword);
-          if (fbResp.statusCode === 200 && !fbResp.body.includes('<fault>')) {
-            const fbStructs = extractAllTags(fbResp.body, 'struct');
-            const fbCalls: SippyActiveCall[] = [];
-            for (const s of fbStructs) {
-              const m = extractStructMembers(s);
-              const callId = m['CALL_ID'] || m['call_id'] || m['CallID'] || '-';
-              const cli    = m['CLI'] || m['cli'] || m['from'] || m['caller'];
-              if (!callId && !cli) continue;
-              fbCalls.push({
-                id: m['ID'] || undefined, callId, caller: cli || '-',
-                callee: m['CLD'] || m['cld'] || m['to'] || m['callee'] || '-',
-                duration: parseFloat(m['DURATION'] || '0') || 0,
-                codec: m['codec'] || m['media_type'] || '-',
-                status: m['CC_STATE'] || m['status'] || 'active',
-                accountId: m['I_ACCOUNT'] || m['i_account'] || undefined,
-                iCustomer: m['I_CUSTOMER'] || undefined,
-                user: m['username'] || m['account_name'] || undefined,
-                vendor: m['vendor_name'] || undefined,
-                connection: m['I_CONNECTION'] ? String(m['I_CONNECTION']) : undefined,
-                direction: m['DIRECTION'] || undefined,
-                mediaIpCaller: m['CALLER_MEDIA_IP'] || undefined,
-                mediaIpCallee: m['CALLEE_MEDIA_IP'] || undefined,
-                delay: parseFloat(m['DELAY'] || '0') || 0,
-                setupTime: m['SETUP_TIME'] || undefined,
-                iEnvironment: m['I_ENVIRONMENT'] ? String(m['I_ENVIRONMENT']) : undefined,
-                nodeId: m['NODE_ID'] || undefined,
-              });
-            }
-            if (fbCalls.length > 0) {
-              console.log(`[Sippy] ${method} fallback (${fallbackUsername}) found ${fbCalls.length} calls missed by ${username}`);
-              return fbCalls;
-            }
-          }
-        } catch { /* fall through to portal scrape */ }
-        // Both credential pairs returned 0 via XML-RPC — try portal scrape as final check
-        const portalCalls = await tryAdminPortalScrape();
-        if (portalCalls.length > 0) {
-          console.log(`[Sippy] Portal scrape found ${portalCalls.length} calls missed by XML-RPC`);
-          return portalCalls;
-        }
-      }
       return calls;
     } catch {
       continue;
     }
   }
-  // Final fallback: portal scrape
-  return tryAdminPortalScrape();
+  return [];
 }
 
 // ── disconnectCall() — docs 107462 ────────────────────────────────────────────

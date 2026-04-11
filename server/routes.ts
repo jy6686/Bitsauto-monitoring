@@ -1144,11 +1144,12 @@ export async function registerRoutes(
       const settings = await storage.getSettings();
       const portalUrl = sippyPortalUrl(settings);
 
-      // Use the XML-RPC capable credential (apiAdminUsername = RTST1) exclusively.
-      // portalUsername (ssp-root) is portal-session-only with no XML-RPC access —
-      // attempting to call listActiveCalls with it always returns a fault/0.
-      const { username: xmlUser, password: xmlPass } = sippyXmlCreds(settings);
-      const raw = await sippy.getSippyActiveCalls(xmlUser, xmlPass, portalUrl);
+      // Use XML-RPC capable credential (apiAdminUsername = RTST1) as primary.
+      // Pass portalUsername/portalPassword as fallback for portal-scrape when XML-RPC returns 0.
+      const { username, password } = sippyXmlCreds(settings);
+      const fallbackUser = settings?.portalUsername ?? '';
+      const fallbackPass = settings?.portalPassword ?? '';
+      const raw = await sippy.getSippyActiveCalls(username, password, portalUrl, undefined, fallbackUser, fallbackPass);
       // Map CC_STATE → callStatus; filter out terminated states
       const ccStateMap: Record<string, 'connected' | 'routing'> = {
         Connected:    'connected',
