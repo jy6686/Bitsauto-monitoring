@@ -3486,23 +3486,24 @@ export async function registerRoutes(
       if (error && !accounts?.length) return res.status(502).json({ success: false, error });
       const credPairs = sippyXmlCredsPairs(settings);
 
-      // Helper: try each credential pair until we get a non-null result
-      async function tryAllCreds<T>(fn: (u: string, p: string) => Promise<T | null>): Promise<T | null> {
-        for (const { username, password } of credPairs) {
-          try {
-            const r = await fn(username, password);
-            if (r !== null && r !== undefined) return r;
-          } catch { /* ignore per-pair errors, try next */ }
-        }
-        return null;
-      }
-      // Same but for auth rules (returns object with authRules array)
+      // Helper: try each credential pair for auth rules (returns object with authRules array)
       async function tryAllCredsAuthRules(iAccount: number) {
         for (const { username, password } of credPairs) {
           try {
             const r = await sippy.listSippyAuthRules(username, password, { iAccount }, portalUrl);
             if (r?.authRules?.length) return r;
-          } catch { /* ignore */ }
+          } catch { /* ignore per-pair errors, try next */ }
+        }
+        return null;
+      }
+
+      // Helper: try each credential pair for getAccountInfo (internally tries both XML-RPC methods)
+      async function tryAllCredsAccountInfo(iAccount: number) {
+        for (const { username, password } of credPairs) {
+          try {
+            const r = await sippy.getAccountInfo(username, password, portalUrl, iAccount);
+            if (r !== null && r !== undefined) return r;
+          } catch { /* ignore per-pair errors, try next */ }
         }
         return null;
       }
@@ -3510,14 +3511,13 @@ export async function registerRoutes(
       const rows = await Promise.all((accounts ?? []).map(async (a) => {
         let threshold: number | null = null;
         let notifyByEmail: boolean | undefined;
-        let maxSessions: number | null = null;
         let prefix: string | null = null;
         let allowedIps: string[] = [];
 
         // Fetch low-balance config + account info + auth rules in parallel
         const [lbResult, infoResult, authResult] = await Promise.allSettled([
           withSippyCreds(settings, (u, p) => sippy.getSippyLowBalance(u, p, { iAccount: a.iAccount }, portalUrl)),
-          tryAllCreds((u, p) => sippy.getAccountInfo(u, p, portalUrl, a.iAccount)),
+          tryAllCredsAccountInfo(a.iAccount),
           tryAllCredsAuthRules(a.iAccount),
         ]);
 
@@ -3525,20 +3525,19 @@ export async function registerRoutes(
           threshold     = lbResult.value?.threshold    ?? null;
           notifyByEmail = lbResult.value?.notifyByEmail;
         }
-        if (infoResult.status === 'fulfilled' && infoResult.value) {
-          const info = infoResult.value;
-          maxSessions = info.maxSessions !== undefined ? info.maxSessions : null;
-          // incoming_cli on getAccountInfo may contain a translation rule string — not a prefix.
-          // We prefer the CLI prefix from auth rules (incomingCli) which is the actual number pattern.
-          // Falls back to incomingCld (CLD prefix) if no CLI prefix is set in auth rules.
-        }
+
+        // maxSessions: prefer getAccountInfo result, fall back to list value (may be null if not in list response)
+        const infoMaxSessions = (infoResult.status === 'fulfilled' && infoResult.value?.maxSessions != null && infoResult.value.maxSessions !== 0)
+          ? infoResult.value.maxSessions : null;
+        const listMaxSessions = (a.maxSessions != null && a.maxSessions !== 0) ? a.maxSessions : null;
+        const maxSessions = infoMaxSessions ?? listMaxSessions;
+
         if (authResult.status === 'fulfilled' && authResult.value?.authRules?.length) {
           const rules: any[] = authResult.value.authRules;
           allowedIps = [...new Set(
             rules.map((r) => r.remoteIp).filter((ip): ip is string => Boolean(ip))
           )];
-          // Pick the first auth rule that has an incomingCli (CLI prefix pattern)
-          // e.g. "2348" for Nigeria, "+1" for NANP, etc.
+          // Pick the first auth rule with a CLI prefix (actual number pattern, e.g. "2348")
           const cliRule = rules.find((r) => r.incomingCli && r.incomingCli.trim() !== '');
           const cldRule = rules.find((r) => r.incomingCld && r.incomingCld.trim() !== '');
           prefix = cliRule?.incomingCli ?? cldRule?.incomingCld ?? null;

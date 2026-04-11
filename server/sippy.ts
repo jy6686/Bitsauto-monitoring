@@ -6098,14 +6098,25 @@ export async function getAccountInfo(
   if (accountUsername)  params.username   = accountUsername;
   if (iCustomer !== undefined) params.i_customer = iCustomer;
 
-  try {
-    const resp = await sippyPost(apiUrl, xmlRpcCall('getAccountInfo', params), username, password);
-    const text = resp.body;
+  // Try multiple XML-RPC method names. Sippy older releases use plain 'getAccountInfo';
+  // newer / admin-mode builds require 'customer.getAccountInfo' for cross-account lookups.
+  const methods = ['getAccountInfo', 'customer.getAccountInfo'];
+  let text = '';
+  for (const method of methods) {
+    try {
+      const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password);
+      if (!resp.body.includes('<fault>')) { text = resp.body; break; }
+      const fault = resp.body.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
+        ?? extractTag(resp.body, 'faultString') ?? `${method} failed.`;
+      console.warn(`[Sippy] ${method} fault (will try next): ${fault}`);
+    } catch (e: any) {
+      console.warn(`[Sippy] ${method} error (will try next): ${e.message}`);
+    }
+  }
 
-    if (text.includes('<fault>')) {
-      const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'getAccountInfo failed.';
-      console.warn(`[Sippy] getAccountInfo fault: ${fault}`);
+  try {
+    if (!text) {
+      console.warn('[Sippy] getAccountInfo: all methods failed, returning null');
       return null;
     }
 
@@ -6236,6 +6247,8 @@ export interface SippyAccount {
   creditLimit: number;
   baseCurrency: string;
   registration: SippyAccountRegistration | null;  // null if not registered
+  maxSessions: number | null;   // null / 0 = unlimited; populated when listAccounts returns max_sessions
+  currency?: string;
 }
 
 /**
@@ -6318,6 +6331,7 @@ export async function listSippyAccounts(
       const iAccount = parseInt(f['i_account'] || '0', 10);
       if (!iAccount) continue;   // skip the outer wrapper struct if any
 
+      const rawMaxSessions = f['max_sessions'];
       accounts.push({
         iAccount,
         username:     f['username']      || '',
@@ -6327,7 +6341,13 @@ export async function listSippyAccounts(
         balance:      parseFloat(f['balance']      || '0') || 0,   // NOT inverted
         creditLimit:  parseFloat(f['credit_limit'] || '0') || 0,
         baseCurrency: f['base_currency'] || 'USD',
+        currency:     f['base_currency'] || f['payment_currency'] || undefined,
         registration,
+        // max_sessions: Sippy returns "0" for unlimited and the actual limit otherwise.
+        // We map 0 → null to signal "unlimited" consistently throughout the app.
+        maxSessions:  rawMaxSessions !== undefined && rawMaxSessions !== ''
+                        ? (parseInt(rawMaxSessions, 10) || null)
+                        : null,
       });
     }
 
