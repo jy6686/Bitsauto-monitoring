@@ -22,6 +22,7 @@ import CDRsPage from "@/pages/cdrs";
 import ToolsPage from "@/pages/tools";
 import AccountPage from "@/pages/account";
 import LoginPage from "@/pages/login";
+import TrafficMapPage from "@/pages/traffic-map";
 import NotFound from "@/pages/not-found";
 
 // Pages accessible to each role
@@ -117,6 +118,9 @@ function Router() {
       </Route>
       <Route path="/team">
         {() => <ProtectedRoute component={TeamPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/traffic-map">
+        {() => <ProtectedRoute component={TrafficMapPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/account">
         {() => <ProtectedRoute component={AccountPage} requiredRoles={['admin','management','viewer']} />}

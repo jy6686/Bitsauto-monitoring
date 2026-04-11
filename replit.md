@@ -18,6 +18,7 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 - Role-based access control (admin > management > viewer)
 - Alert engine with threshold-based triggers
 - Team page with Quick Assign Role form (email + role dropdown + submit)
+- **Traffic Map** (`/traffic-map`): Interactive Leaflet world choropleth map showing destination traffic % by country. Uses CDR `country` field, TopoJSON (world-atlas via `/api/geo/world`), topojson-client, and `/api/traffic-map` endpoint. Dark CartoDB tiles, violet colour scale, hover tooltips, top-destinations sidebar, time range selector (3/6/12/24/48/72h).
 
 ## Sippy Integration (`server/sippy.ts`)
 - XML-RPC POST to `/xmlapi/xmlapi`, HTTP **Digest** Auth (RFC-2617, NOT Basic) — `sippyPost()` handles 2-step probe-then-digest

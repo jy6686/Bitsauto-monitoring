@@ -6317,6 +6317,140 @@ export async function registerRoutes(
   setTimeout(() => snapshotActiveCalls(), 8000);            // first run at startup
   setInterval(() => snapshotActiveCalls(), 30 * 1000);      // every 30 seconds
 
+  // ── GEO ENDPOINTS ──────────────────────────────────────────────────────────
+
+  // Cached world GeoJSON (fetched once from CDN, never expires in process lifetime)
+  let worldGeoJsonCache: any = null;
+  app.get('/api/geo/world', async (_req, res) => {
+    try {
+      if (!worldGeoJsonCache) {
+        const r = await fetch(
+          'https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json'
+        );
+        const topo = await r.json();
+        // Convert TopoJSON → GeoJSON using the embedded topology
+        // We'll return it raw and let the client use topojson-client
+        worldGeoJsonCache = topo;
+      }
+      res.json(worldGeoJsonCache);
+    } catch (e: any) {
+      res.status(502).json({ error: 'Could not fetch world GeoJSON', detail: e.message });
+    }
+  });
+
+  // Country name → ISO-3166-1 numeric map (matches world-atlas country IDs)
+  const COUNTRY_NAME_TO_NUMERIC: Record<string, string> = {
+    'Afghanistan': '4', 'Albania': '8', 'Algeria': '12', 'Angola': '24',
+    'Argentina': '32', 'Armenia': '51', 'Australia': '36', 'Austria': '40',
+    'Azerbaijan': '31', 'Bahrain': '48', 'Bangladesh': '50', 'Belarus': '112',
+    'Belgium': '56', 'Bolivia': '68', 'Bosnia and Herzegovina': '70',
+    'Brazil': '76', 'Bulgaria': '100', 'Cambodia': '116', 'Cameroon': '120',
+    'Canada': '124', 'Chile': '152', 'China': '156', 'Colombia': '170',
+    'Congo': '178', 'Costa Rica': '188', 'Croatia': '191', 'Cuba': '192',
+    'Czech Republic': '203', 'Denmark': '208', 'Dominican Republic': '214',
+    'Ecuador': '218', 'Egypt': '818', 'El Salvador': '222', 'Estonia': '233',
+    'Ethiopia': '231', 'Finland': '246', 'France': '250', 'Georgia': '268',
+    'Germany': '276', 'Ghana': '288', 'Greece': '300', 'Guatemala': '320',
+    'Guinea': '324', 'Haiti': '332', 'Honduras': '340', 'Hungary': '348',
+    'India': '356', 'Indonesia': '360', 'Iran': '364', 'Iraq': '368',
+    'Ireland': '372', 'Israel': '376', 'Italy': '380', 'Jamaica': '388',
+    'Japan': '392', 'Jordan': '400', 'Kazakhstan': '398', 'Kenya': '404',
+    'South Korea': '410', 'Korea': '410', 'Kosovo': '383', 'Kuwait': '414',
+    'Kyrgyzstan': '417', 'Laos': '418', 'Latvia': '428', 'Lebanon': '422',
+    'Libya': '434', 'Lithuania': '440', 'Luxembourg': '442', 'Malaysia': '458',
+    'Mexico': '484', 'Moldova': '498', 'Morocco': '504', 'Mozambique': '508',
+    'Myanmar': '104', 'Nepal': '524', 'Netherlands': '528', 'New Zealand': '554',
+    'Nicaragua': '558', 'Nigeria': '566', 'North Korea': '408', 'Norway': '578',
+    'Oman': '512', 'Pakistan': '586', 'Palestine': '275', 'Panama': '591',
+    'Paraguay': '600', 'Peru': '604', 'Philippines': '608', 'Poland': '616',
+    'Portugal': '620', 'Qatar': '634', 'Romania': '642', 'Russia': '643',
+    'Rwanda': '646', 'Saudi Arabia': '682', 'Senegal': '686', 'Serbia': '688',
+    'Sierra Leone': '694', 'Singapore': '702', 'Slovakia': '703',
+    'Somalia': '706', 'South Africa': '710', 'South Sudan': '728',
+    'Spain': '724', 'Sri Lanka': '144', 'Sudan': '729', 'Sweden': '752',
+    'Switzerland': '756', 'Syria': '760', 'Taiwan': '158', 'Tajikistan': '762',
+    'Tanzania': '834', 'Thailand': '764', 'Tunisia': '788', 'Turkey': '792',
+    'Turkmenistan': '795', 'Uganda': '800', 'Ukraine': '804',
+    'United Arab Emirates': '784', 'UAE': '784', 'United Kingdom': '826',
+    'UK': '826', 'United States': '840', 'USA': '840', 'Uruguay': '858',
+    'Uzbekistan': '860', 'Venezuela': '862', 'Vietnam': '704', 'Yemen': '887',
+    'Zambia': '894', 'Zimbabwe': '716',
+    // African countries
+    'Burkina Faso': '854', 'Burundi': '108', 'Cape Verde': '132',
+    'Central African Republic': '140', 'Chad': '148', 'Comoros': '174',
+    'Djibouti': '262', 'Equatorial Guinea': '226', 'Eritrea': '232',
+    'Gabon': '266', "Cote d'Ivoire": '384', 'Ivory Coast': '384',
+    'Lesotho': '426', 'Liberia': '430', 'Madagascar': '450', 'Malawi': '454',
+    'Mali': '466', 'Mauritania': '478', 'Mauritius': '480', 'Namibia': '516',
+    'Niger': '562', 'Republic of Congo': '178', 'Sao Tome and Principe': '678',
+    'Seychelles': '690', 'Swaziland': '748', 'Eswatini': '748',
+    'Togo': '768', 'Benin': '204', 'Botswana': '72',
+    // Middle East/Asia extras
+    'Bahamas': '44', 'Barbados': '52', 'Belize': '84',
+    'Trinidad and Tobago': '780', 'Trinidad & Tobago': '780',
+    'Guyana': '328', 'Suriname': '740', 'Papua New Guinea': '598',
+    'Fiji': '242', 'Solomon Islands': '90', 'Vanuatu': '548',
+    'Mongolia': '496', 'Bhutan': '64', 'Maldives': '462',
+    'Timor-Leste': '626', 'East Timor': '626',
+    'Brunei': '96', 'Brunei Darussalam': '96',
+    'Macau': '446', 'Hong Kong': '344',
+  };
+
+  // GET /api/traffic-map — CDR traffic aggregated by destination country
+  app.get('/api/traffic-map', async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const credPairs = sippyXmlCredsPairs(settings);
+      const hours = Math.min(168, Math.max(1, Number(req.query.hours) || 24));
+
+      // Build date range
+      const endDate   = new Date();
+      const startDate = new Date(endDate.getTime() - hours * 3600 * 1000);
+      const fmtSippy  = (d: Date) =>
+        d.toISOString().replace('T', ' ').substring(0, 16) + ':00';
+
+      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      for (const { username, password } of credPairs) {
+        cdrs = await sippy.getSippyCDRs(username, password, 5000, {
+          startDate: fmtSippy(startDate),
+          endDate:   fmtSippy(endDate),
+        });
+        if (cdrs.length > 0) break;
+      }
+
+      // Aggregate by country
+      type CountryStats = { calls: number; answered: number; totalSecs: number; };
+      const byCountry = new Map<string, CountryStats>();
+
+      for (const cdr of cdrs) {
+        const name = cdr.country || cdr.areaName || 'Unknown';
+        if (!byCountry.has(name)) byCountry.set(name, { calls: 0, answered: 0, totalSecs: 0 });
+        const g = byCountry.get(name)!;
+        g.calls++;
+        const answered = cdr.duration > 0 || /^(200|ok|answered|success)/i.test(cdr.result || '');
+        if (answered) { g.answered++; g.totalSecs += cdr.duration; }
+      }
+
+      const totalCalls = cdrs.length;
+      const rows = Array.from(byCountry.entries())
+        .map(([name, g]) => ({
+          name,
+          numericId: COUNTRY_NAME_TO_NUMERIC[name] ?? null,
+          calls:     g.calls,
+          answered:  g.answered,
+          pct:       totalCalls > 0 ? Math.round((g.calls / totalCalls) * 1000) / 10 : 0,
+          asr:       g.calls > 0    ? Math.round((g.answered / g.calls) * 100) : 0,
+          avgDurSecs: g.answered > 0 ? Math.round(g.totalSecs / g.answered) : 0,
+          totalMins: Math.round(g.totalSecs / 60),
+        }))
+        .sort((a, b) => b.calls - a.calls);
+
+      res.json({ countries: rows, total: totalCalls, hours });
+    } catch (e: any) {
+      res.status(500).json({ countries: [], total: 0, error: e.message });
+    }
+  });
+
   // GET /api/call-history — last N hours of call snapshots (max 24h)
   app.get('/api/call-history', async (req: any, res) => {
     try {
