@@ -6467,7 +6467,12 @@ export async function registerRoutes(
       for (const c of raw) {
         if (!c.callId) continue;
         const vendorName = c.vendor || (c.connection ? connectionVendorCache.get(c.connection) : undefined);
-        const clientName = c.user || accountNameCache.get(c.accountId ?? '') || c.accountId || undefined;
+        // Resolve client name: prefer display name from Sippy (c.user), then look up
+        // the account ID in the name cache (handles cases where cache was warm on first run).
+        // Never store a bare numeric ID — keep undefined so it can be re-resolved on read.
+        const rawId     = String(c.accountId ?? c.iCustomer ?? '').trim();
+        const cachedName = rawId ? accountNameCache.get(rawId) : undefined;
+        const clientName = c.user || cachedName || (rawId && !/^\d+$/.test(rawId) ? rawId : undefined);
         await storage.upsertCallSnapshot({
           sippyCallId:     c.callId,
           caller:          c.caller,
@@ -6657,7 +6662,22 @@ export async function registerRoutes(
     try {
       const hours = Math.min(24, Math.max(1, Number(req.query.hours) || 24));
       const rows = await storage.getCallHistory(hours);
-      res.json({ calls: rows, hoursBack: hours });
+      // Post-process: if clientName is missing or is a bare numeric account ID, resolve
+      // it from the live accountNameCache (handles rows written before cache was warm).
+      const resolvedRows = rows.map(row => {
+        let clientName = row.clientName ?? undefined;
+        if (!clientName || /^\d+$/.test(clientName)) {
+          const id = clientName || (row.accountId ? String(row.accountId) : '');
+          if (id) clientName = accountNameCache.get(id) || clientName || undefined;
+        }
+        // Similarly resolve vendor if missing but connection is known
+        let vendor = row.vendor ?? undefined;
+        if (!vendor && row.connection) {
+          vendor = connectionVendorCache.get(row.connection) || undefined;
+        }
+        return { ...row, clientName: clientName ?? null, vendor: vendor ?? null };
+      });
+      res.json({ calls: resolvedRows, hoursBack: hours });
     } catch (e: any) {
       res.status(500).json({ calls: [], error: e.message });
     }
