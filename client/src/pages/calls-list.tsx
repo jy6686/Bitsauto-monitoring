@@ -2,7 +2,7 @@ import {
   Phone, Clock, Search, BarChart3, List, RefreshCw, CheckCircle2,
   ArrowRightLeft, Globe, Server, Loader2, AlertCircle,
   ChevronDown, ChevronRight, PhoneOff, ArrowUpRight, ArrowDownLeft, Network,
-  Activity, Wifi, Info, HeartPulse, ShieldAlert, Timer, SignalHigh,
+  Activity, Wifi, Info, HeartPulse, ShieldAlert, Timer, SignalHigh, History,
 } from "lucide-react";
 import { useState, useRef, Fragment } from "react";
 import { lookupCountry } from "@/lib/country-lookup";
@@ -176,7 +176,8 @@ function SwitchPanel({
   switchType: string;
   switchName: string;
 }) {
-  const [callViewTab, setCallViewTab] = useState<'summary' | 'details' | 'quality'>('summary');
+  const [callViewTab, setCallViewTab] = useState<'summary' | 'details' | 'quality' | 'history'>('summary');
+  const [historyHours, setHistoryHours] = useState(24);
   const [search, setSearch] = useState('');
   const [filterCli, setFilterCli] = useState('');
   const [filterCld, setFilterCld] = useState('');
@@ -315,6 +316,18 @@ function SwitchPanel({
           >
             <HeartPulse className="w-4 h-4 text-rose-400" />
             Quality Monitoring
+          </button>
+          <button
+            onClick={() => setCallViewTab('history')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              callViewTab === 'history'
+                ? 'bg-background text-foreground shadow-sm border border-border/50'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            data-testid="tab-call-history"
+          >
+            <History className="w-4 h-4 text-violet-400" />
+            Call History
           </button>
         </div>
 
@@ -1233,6 +1246,226 @@ function SwitchPanel({
                   <Info className="w-3 h-3" />
                   <span>Jitter &amp; Packet Loss require RTCP-XR or dedicated RTP monitor.</span>
                 </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── CALL HISTORY TAB ─────────────────────────────────────────────── */}
+      {callViewTab === 'history' && (() => {
+        const { data: histData, isLoading: histLoading, refetch: refetchHist } = useQuery<{
+          calls: Array<{
+            id: number; sippyCallId: string; caller: string | null; callee: string | null;
+            clientName: string | null; vendor: string | null; accountId: string | null;
+            direction: string | null; codec: string | null; ccState: string | null;
+            maxDurationSecs: number | null; pddMs: number | null;
+            mediaIpCaller: string | null; mediaIpCallee: string | null;
+            connection: string | null; firstSeen: string; lastSeen: string;
+          }>;
+          hoursBack: number;
+        }>({
+          queryKey: ['/api/call-history', historyHours],
+          queryFn: () => fetch(`/api/call-history?hours=${historyHours}`).then(r => r.json()),
+          refetchInterval: 30000,
+        });
+
+        const rows = histData?.calls ?? [];
+
+        function calcMOS(pddMs: number): number | null {
+          if (pddMs <= 0) return null;
+          const d = pddMs * 0.3;
+          const R = Math.max(0, Math.min(100, 94.2 - 0.024 * d - 0.11 * (d > 177.3 ? d - 177.3 : 0)));
+          return Math.max(1, Math.min(4.5, Math.round((1 + 0.035 * R + 7e-6 * R * (R - 60) * (100 - R)) * 10) / 10));
+        }
+        function mosColor(mos: number | null) {
+          if (mos === null) return 'text-muted-foreground/30';
+          if (mos >= 4.3) return 'text-emerald-400';
+          if (mos >= 4.0) return 'text-green-400';
+          if (mos >= 3.6) return 'text-amber-400';
+          if (mos >= 3.1) return 'text-orange-400';
+          return 'text-red-400';
+        }
+        function mosLabel(mos: number | null) {
+          if (mos === null) return '—';
+          if (mos >= 4.3) return 'Excellent';
+          if (mos >= 4.0) return 'Good';
+          if (mos >= 3.6) return 'Fair';
+          if (mos >= 3.1) return 'Poor';
+          return 'Bad';
+        }
+        function fmtTime(iso: string) {
+          return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        }
+        function fmtDate(iso: string) {
+          return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+        }
+
+        const mosList  = rows.map(r => calcMOS(r.pddMs ?? 0)).filter((v): v is number => v !== null);
+        const avgMOS   = mosList.length > 0 ? Math.round((mosList.reduce((a,b) => a+b,0) / mosList.length) * 10) / 10 : null;
+        const avgPDD   = rows.length > 0 ? Math.round(rows.reduce((s,r) => s + (r.pddMs ?? 0), 0) / rows.length) : 0;
+        const uClients = new Set(rows.map(r => r.clientName).filter(Boolean)).size;
+        const uVendors = new Set(rows.map(r => r.vendor).filter(Boolean)).size;
+
+        return (
+          <div className="space-y-4">
+            {/* Controls */}
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-2">
+                <History className="w-4 h-4 text-violet-400" />
+                <span className="text-sm font-medium">Call History</span>
+                <span className="text-xs text-muted-foreground">— saved every 30 s, retained 24 h</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Show last:</span>
+                {[1, 3, 6, 12, 24].map(h => (
+                  <button key={h} onClick={() => setHistoryHours(h)}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all ${historyHours === h ? 'bg-violet-500/10 text-violet-400 border-violet-500/30' : 'text-muted-foreground border-border/50 hover:border-border'}`}
+                    data-testid={`button-history-${h}h`}>{h}h</button>
+                ))}
+                <button onClick={() => refetchHist()} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-card border border-border hover:bg-muted/40 transition-colors" data-testid="button-refresh-history">
+                  <RefreshCw className="w-3 h-3" /> Refresh
+                </button>
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="bg-card border border-border rounded-xl p-4 space-y-1">
+                <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider flex items-center gap-1.5"><Phone className="w-3 h-3" /> Total Calls</p>
+                <p className="text-2xl font-bold">{rows.length}</p>
+                <p className="text-[10px] text-muted-foreground/40">in last {historyHours}h</p>
+              </div>
+              <div className="bg-card border border-border rounded-xl p-4 space-y-1">
+                <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-emerald-400" /> Clients</p>
+                <p className="text-2xl font-bold">{uClients}</p>
+                <p className="text-[10px] text-muted-foreground/40">unique accounts</p>
+              </div>
+              <div className="bg-card border border-border rounded-xl p-4 space-y-1">
+                <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider flex items-center gap-1.5"><Network className="w-3 h-3 text-orange-400" /> Vendors</p>
+                <p className="text-2xl font-bold">{uVendors}</p>
+                <p className="text-[10px] text-muted-foreground/40">carriers seen</p>
+              </div>
+              <div className="bg-card border border-border rounded-xl p-4 space-y-1">
+                <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider flex items-center gap-1.5"><HeartPulse className="w-3 h-3 text-rose-400" /> Avg MOS</p>
+                <p className={`text-2xl font-bold ${mosColor(avgMOS)}`}>{avgMOS?.toFixed(1) ?? '—'}</p>
+                <p className={`text-[10px] font-medium ${mosColor(avgMOS)}`}>{mosLabel(avgMOS)} <span className="text-muted-foreground/30 font-normal">est.</span></p>
+              </div>
+              <div className="bg-card border border-border rounded-xl p-4 space-y-1">
+                <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider flex items-center gap-1.5"><Timer className="w-3 h-3 text-cyan-400" /> Avg PDD</p>
+                <p className={`text-2xl font-bold ${avgPDD >= 3000 ? 'text-red-400' : avgPDD >= 2000 ? 'text-orange-400' : avgPDD >= 1000 ? 'text-amber-400' : 'text-emerald-400'}`}>{avgPDD > 0 ? `${avgPDD} ms` : '—'}</p>
+                <p className="text-[10px] text-muted-foreground/40">setup latency</p>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+              {histLoading ? (
+                <div className="p-12 text-center text-muted-foreground"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />Loading call history…</div>
+              ) : rows.length === 0 ? (
+                <div className="p-12 text-center">
+                  <div className="w-14 h-14 rounded-full bg-muted/40 flex items-center justify-center mx-auto mb-3"><History className="w-7 h-7 text-muted-foreground/40" /></div>
+                  <p className="text-muted-foreground font-medium">No call history yet</p>
+                  <p className="text-sm text-muted-foreground/50 mt-1">Calls are captured every 30 s once active calls are detected.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-muted/40 text-muted-foreground border-b border-border/50">
+                      <tr>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">#</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">First Seen</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Last Seen</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Caller / Callee</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Client / Vendor</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Max Duration</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">SIP State</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">PDD</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">MOS (est.)</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">RTP IP</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">Codec</th>
+                        <th className="px-3 py-3 font-medium text-[11px] uppercase tracking-wider">SIP Call-ID</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {rows.map((row, i) => {
+                        const mos    = calcMOS(row.pddMs ?? 0);
+                        const mosPct = mos !== null ? Math.round(((mos - 1) / 3.5) * 100) : 0;
+                        const pddMs  = row.pddMs ?? 0;
+                        const ccStyle = CC_STATE_STYLE[row.ccState ?? ''] ?? CC_STATE_STYLE['ARComplete'];
+                        const rtpIp  = row.mediaIpCallee || row.mediaIpCaller;
+                        return (
+                          <tr key={row.id} className="hover:bg-muted/20 transition-colors">
+                            <td className="px-3 py-2.5 text-muted-foreground/40 text-[11px] font-mono">{i + 1}</td>
+                            <td className="px-3 py-2.5">
+                              <p className="text-[11px] font-mono text-foreground/70">{fmtTime(row.firstSeen)}</p>
+                              <p className="text-[9px] text-muted-foreground/40">{fmtDate(row.firstSeen)}</p>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <p className="text-[11px] font-mono text-foreground/70">{fmtTime(row.lastSeen)}</p>
+                              <p className="text-[9px] text-muted-foreground/40">{fmtDate(row.lastSeen)}</p>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <p className="font-mono text-[11px] text-foreground/80">{row.caller || '—'}</p>
+                              <p className="font-mono text-[11px] text-muted-foreground/50">→ {row.callee || '—'}</p>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <p className="text-[11px] font-medium text-foreground/80">{row.clientName || '—'}</p>
+                              <p className="text-[11px] text-muted-foreground/50">{row.vendor || '—'}</p>
+                            </td>
+                            <td className="px-3 py-2.5 font-mono text-[12px] text-foreground/70">
+                              {formatDuration(Math.floor(row.maxDurationSecs ?? 0))}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${ccStyle.badge}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${ccStyle.dot.replace(' animate-pulse','')}`} />
+                                {ccStyle.label}
+                              </span>
+                              {row.direction && <p className="text-[9px] text-muted-foreground/30 mt-0.5 capitalize">{row.direction.replace(/_/g,' ')}</p>}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <p className={`font-mono text-[12px] font-semibold ${pddMs >= 3000 ? 'text-red-400' : pddMs >= 2000 ? 'text-orange-400' : pddMs >= 1000 ? 'text-amber-400' : pddMs > 0 ? 'text-emerald-400' : 'text-muted-foreground/30'}`}>
+                                {pddMs > 0 ? `${pddMs} ms` : '—'}
+                              </p>
+                            </td>
+                            <td className="px-3 py-2.5 min-w-[110px]">
+                              {mos !== null ? (
+                                <div className="space-y-1">
+                                  <div className="flex items-baseline gap-1.5">
+                                    <p className={`font-mono text-[13px] font-bold ${mosColor(mos)}`}>{mos.toFixed(1)}</p>
+                                    <span className={`text-[9px] font-semibold ${mosColor(mos)}`}>{mosLabel(mos)}</span>
+                                  </div>
+                                  <div className="h-1.5 rounded-full bg-muted/30 w-16 overflow-hidden">
+                                    <div className={`h-full rounded-full ${mos >= 4.0 ? 'bg-emerald-400' : mos >= 3.6 ? 'bg-amber-400' : mos >= 3.1 ? 'bg-orange-400' : 'bg-red-400'}`} style={{ width: `${mosPct}%` }} />
+                                  </div>
+                                </div>
+                              ) : <span className="text-muted-foreground/30 text-[11px]">—</span>}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              {rtpIp ? (
+                                <div className="space-y-0.5">
+                                  <p className="font-mono text-[10px] text-cyan-400/80">{rtpIp}</p>
+                                  <IpInfoBadge ip={rtpIp} color="blue" />
+                                </div>
+                              ) : <span className="text-muted-foreground/30 text-[11px]">—</span>}
+                            </td>
+                            <td className="px-3 py-2.5 font-mono text-[11px] text-foreground/60">{row.codec || '—'}</td>
+                            <td className="px-3 py-2.5">
+                              <p className="font-mono text-[9px] text-muted-foreground/40 max-w-[160px] truncate" title={row.sippyCallId}>{row.sippyCallId}</p>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="px-4 py-3 border-t border-border/30 bg-muted/10 flex items-center justify-between text-[10px] text-muted-foreground/40">
+                <div className="flex items-center gap-1.5">
+                  <History className="w-3 h-3 text-violet-400/50" />
+                  <span>{rows.length} call{rows.length !== 1 ? 's' : ''} in the last {historyHours}h · polled every 30 s · auto-expires after 24 h</span>
+                </div>
+                <span>MOS estimated via ITU-T G.107 E-model</span>
               </div>
             </div>
           </div>

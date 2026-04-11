@@ -172,6 +172,34 @@ export type FasEvent = typeof fasEvents.$inferSelect;
 export type InsertFasEvent = typeof fasEvents.$inferInsert;
 export const insertFasEventSchema = createInsertSchema(fasEvents).omit({ id: true, detectedAt: true });
 
+// Call Snapshots: live call state persisted every 30 seconds, retained for 24 hours.
+// One row per unique Sippy call ID (upserted on each poll).
+// firstSeen = when the call first appeared; lastSeen = most recent active poll.
+export const callSnapshots = pgTable("call_snapshots", {
+  id:              serial("id").primaryKey(),
+  sippyCallId:     varchar("sippy_call_id",    { length: 255 }).notNull().unique(),
+  caller:          varchar("caller",            { length: 64 }),
+  callee:          varchar("callee",            { length: 64 }),
+  clientName:      varchar("client_name",       { length: 128 }),
+  vendor:          varchar("vendor",            { length: 128 }),
+  accountId:       varchar("account_id",        { length: 32 }),
+  iCustomer:       varchar("i_customer",        { length: 32 }),
+  iEnvironment:    varchar("i_environment",     { length: 32 }),
+  direction:       varchar("direction",         { length: 32 }),
+  codec:           varchar("codec",             { length: 32 }),
+  ccState:         varchar("cc_state",          { length: 32 }),
+  maxDurationSecs: real("max_duration_secs").default(0),
+  pddMs:           integer("pdd_ms").default(0),
+  mediaIpCaller:   varchar("media_ip_caller",   { length: 64 }),
+  mediaIpCallee:   varchar("media_ip_callee",   { length: 64 }),
+  connection:      varchar("connection",        { length: 32 }),
+  firstSeen:       timestamp("first_seen").defaultNow(),
+  lastSeen:        timestamp("last_seen").defaultNow(),
+});
+
+export type CallSnapshot = typeof callSnapshots.$inferSelect;
+export type InsertCallSnapshot = typeof callSnapshots.$inferInsert;
+
 // User Configuration: per-user personal settings beyond what Replit Auth provides
 export const userConfig = pgTable("user_config", {
   userId: varchar("user_id").primaryKey(),

@@ -1,7 +1,7 @@
 
 import { 
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
-  switches, fasEvents,
+  switches, fasEvents, callSnapshots,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -10,10 +10,11 @@ import {
   type UserConfig, type InsertUserConfig,
   type Switch, type InsertSwitch,
   type FasEvent, type InsertFasEvent,
+  type CallSnapshot, type InsertCallSnapshot,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, gte, lt } from "drizzle-orm";
 
 export interface IStorage {
   // Calls
@@ -67,6 +68,11 @@ export interface IStorage {
   getFasEvents(limit?: number): Promise<FasEvent[]>;
   createFasEvent(event: InsertFasEvent): Promise<FasEvent>;
   markFasAlertSent(id: number): Promise<void>;
+
+  // Call Snapshots (24-hour live call history)
+  upsertCallSnapshot(snapshot: InsertCallSnapshot): Promise<void>;
+  getCallHistory(hoursBack?: number): Promise<CallSnapshot[]>;
+  cleanupOldSnapshots(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -449,6 +455,38 @@ export class DatabaseStorage implements IStorage {
 
   async markFasAlertSent(id: number): Promise<void> {
     await db.update(fasEvents).set({ alertSent: true }).where(eq(fasEvents.id, id));
+  }
+
+  // ── Call Snapshots ─────────────────────────────────────────────────────────
+
+  async upsertCallSnapshot(snapshot: InsertCallSnapshot): Promise<void> {
+    await db.insert(callSnapshots)
+      .values(snapshot)
+      .onConflictDoUpdate({
+        target: callSnapshots.sippyCallId,
+        set: {
+          ccState:         snapshot.ccState,
+          maxDurationSecs: sql`GREATEST(call_snapshots.max_duration_secs, EXCLUDED.max_duration_secs)`,
+          lastSeen:        snapshot.lastSeen ?? new Date(),
+          mediaIpCaller:   snapshot.mediaIpCaller,
+          mediaIpCallee:   snapshot.mediaIpCallee,
+          codec:           snapshot.codec,
+          vendor:          snapshot.vendor,
+          clientName:      snapshot.clientName,
+        },
+      });
+  }
+
+  async getCallHistory(hoursBack: number = 24): Promise<CallSnapshot[]> {
+    const since = new Date(Date.now() - hoursBack * 3600 * 1000);
+    return db.select().from(callSnapshots)
+      .where(gte(callSnapshots.firstSeen, since))
+      .orderBy(desc(callSnapshots.lastSeen));
+  }
+
+  async cleanupOldSnapshots(): Promise<void> {
+    const cutoff = new Date(Date.now() - 25 * 3600 * 1000); // 25h buffer
+    await db.delete(callSnapshots).where(lt(callSnapshots.lastSeen, cutoff));
   }
 }
 

@@ -6271,5 +6271,62 @@ export async function registerRoutes(
   setTimeout(() => refreshConnectionVendorCache(), 5000);
   setInterval(() => refreshConnectionVendorCache(), 30 * 60 * 1000);
 
+  // ── Call snapshot background poller (every 30 s) ──────────────────────────
+  // Polls live Sippy calls and upserts each into call_snapshots for 24h history.
+  async function snapshotActiveCalls(): Promise<void> {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return;
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+      const fallbackUser = settings.portalUsername ?? '';
+      const fallbackPass = settings.portalPassword ?? '';
+      const raw = await sippy.getSippyActiveCalls(username, password, portalUrl, undefined, fallbackUser, fallbackPass);
+      const now = new Date();
+      for (const c of raw) {
+        if (!c.callId) continue;
+        const vendorName = c.vendor || (c.connection ? connectionVendorCache.get(c.connection) : undefined);
+        const clientName = c.user || accountNameCache.get(c.accountId ?? '') || c.accountId || undefined;
+        await storage.upsertCallSnapshot({
+          sippyCallId:     c.callId,
+          caller:          c.caller,
+          callee:          c.callee,
+          clientName:      clientName,
+          vendor:          vendorName,
+          accountId:       c.accountId,
+          iCustomer:       c.iCustomer,
+          iEnvironment:    c.iEnvironment,
+          direction:       c.direction,
+          codec:           c.codec && c.codec !== '-' ? c.codec : undefined,
+          ccState:         c.status,
+          maxDurationSecs: c.duration ?? 0,
+          pddMs:           Math.round((c.delay ?? 0) * 1000),
+          mediaIpCaller:   c.mediaIpCaller,
+          mediaIpCallee:   c.mediaIpCallee,
+          connection:      c.connection,
+          firstSeen:       now,
+          lastSeen:        now,
+        });
+      }
+      await storage.cleanupOldSnapshots();
+    } catch (e: any) {
+      // Non-fatal — just log and continue
+      console.warn('[snapshot-bg] error:', e.message);
+    }
+  }
+  setTimeout(() => snapshotActiveCalls(), 8000);            // first run at startup
+  setInterval(() => snapshotActiveCalls(), 30 * 1000);      // every 30 seconds
+
+  // GET /api/call-history — last N hours of call snapshots (max 24h)
+  app.get('/api/call-history', async (req: any, res) => {
+    try {
+      const hours = Math.min(24, Math.max(1, Number(req.query.hours) || 24));
+      const rows = await storage.getCallHistory(hours);
+      res.json({ calls: rows, hoursBack: hours });
+    } catch (e: any) {
+      res.status(500).json({ calls: [], error: e.message });
+    }
+  });
+
   return httpServer;
 }
