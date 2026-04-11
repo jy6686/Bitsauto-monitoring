@@ -19,6 +19,34 @@ const accountNameCache: Map<string, string> = new Map([
   ['55', 'asif'],
 ]);
 
+// ── Connection → Vendor name cache ────────────────────────────────────────────
+// Maps I_CONNECTION string → vendor name (e.g. "2" → "Callntalk").
+// Populated at startup and refreshed every 30 minutes.
+const connectionVendorCache: Map<string, string> = new Map();
+
+async function refreshConnectionVendorCache(): Promise<void> {
+  try {
+    const settings = await storage.getSippySettings();
+    if (!settings) return;
+    const { username, password } = sippyXmlCreds(settings);
+    const portalUrl = sippyPortalUrl(settings);
+    const { vendors } = await sippy.listSippyVendors(username, password, {}, portalUrl);
+    if (!vendors?.length) return;
+    await Promise.all(vendors.map(async (v: any) => {
+      if (!v.iVendor) return;
+      const { connections } = await sippy.listVendorConnections(username, password, v.iVendor, portalUrl);
+      for (const conn of connections ?? []) {
+        if (conn.iConnection) {
+          connectionVendorCache.set(String(conn.iConnection), v.name ?? `Vendor#${v.iVendor}`);
+        }
+      }
+    }));
+    console.log(`[routes] connectionVendorCache refreshed: ${connectionVendorCache.size} entries`);
+  } catch (e: any) {
+    console.warn('[routes] connectionVendorCache refresh failed:', e.message);
+  }
+}
+
 // ── Sippy credential helper ────────────────────────────────────────────────────
 // Per Sippy docs (106909): XML-RPC API authenticates with Web Login + API Password.
 // Admin credentials (apiAdminUsername/apiAdminPassword) provide root-level API access
@@ -697,7 +725,7 @@ export async function registerRoutes(
           callStatus: (c.status === 'connected' || c.duration > 0) ? 'connected' : 'routing',
           clientName: c.user || accountNameCache.get(c.accountId ?? '') || c.accountId || undefined,
           accountId: c.accountId || undefined,
-          vendor: c.vendor,
+          vendor: c.vendor || (c.connection ? connectionVendorCache.get(c.connection) : undefined),
           connection: c.connection,
           direction: c.direction,
           mediaIpCaller: c.mediaIpCaller,
@@ -1045,6 +1073,7 @@ export async function registerRoutes(
         .map(c => ({
           ...c,
           clientName:  c.user || accountNameCache.get(c.accountId ?? '') || c.accountId || undefined,
+          vendor:      c.vendor || (c.connection ? connectionVendorCache.get(c.connection) : undefined),
           ccState:     c.status,
           callStatus:  ccStateMap[c.status ?? ''] ?? (c.status?.toLowerCase().includes('connect') ? 'connected' : 'routing'),
         }));
@@ -6237,6 +6266,10 @@ export async function registerRoutes(
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
+
+  // ── Boot-time connection→vendor cache + 30-min refresh ──────────────────────
+  setTimeout(() => refreshConnectionVendorCache(), 5000);
+  setInterval(() => refreshConnectionVendorCache(), 30 * 60 * 1000);
 
   return httpServer;
 }
