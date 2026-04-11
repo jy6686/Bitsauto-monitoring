@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import type { Role } from "@shared/schema";
@@ -22,6 +22,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/",          label: "Dashboard",      icon: LayoutDashboard, roles: ['admin','management','viewer'] },
     { href: "/calls",     label: "Live Calls",     icon: Phone,           roles: ['admin','management','viewer'] },
     { href: "/clients",   label: "Client / Vendor",icon: Building2,       roles: ['admin','management']          },
+    { href: "/balance",   label: "Balance Monitor",icon: Wallet,          roles: ['admin','management']          },
     { href: "/traffic-map", label: "Traffic Map",  icon: Globe,           roles: ['admin','management']          },
     { href: "/reports",   label: "Reports",        icon: BarChart2,       roles: ['admin','management']          },
     { href: "/cdrs",      label: "CDR Viewer",     icon: FileText,        roles: ['admin','management']          },

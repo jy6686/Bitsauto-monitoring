@@ -3414,6 +3414,35 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // GET /api/sippy/balance-monitor — all accounts with live balance + low-balance threshold
+  // Fetches listAccounts() + getLowBalance() per account in parallel for a unified monitor view.
+  app.get('/api/sippy/balance-monitor', async (req: any, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+      const { accounts, error } = await sippy.listSippyAccounts(username, password, {}, portalUrl);
+      if (error && !accounts?.length) return res.status(502).json({ success: false, error });
+      const rows = await Promise.all((accounts ?? []).map(async (a) => {
+        let threshold: number | null = null;
+        let notifyByEmail: boolean | undefined;
+        try {
+          const lb = await sippy.getSippyLowBalance(username, password, { iAccount: a.iAccount }, portalUrl);
+          threshold    = lb.threshold   ?? null;
+          notifyByEmail = lb.notifyByEmail;
+        } catch { /* ignore per-account low-balance errors */ }
+        const balance     = a.balance    ?? 0;
+        const creditLimit = a.creditLimit ?? 0;
+        const status =
+          threshold !== null && balance <= 0               ? 'critical' :
+          threshold !== null && balance <= threshold        ? 'warning'  : 'healthy';
+        return { iAccount: a.iAccount, username: a.username, balance, creditLimit, threshold, notifyByEmail, status, currency: a.currency };
+      }));
+      res.json({ success: true, accounts: rows });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // PATCH /api/sippy/accounts/:id/settings — update core account settings (max_sessions, max_calls_per_second, etc.)
   // Body: { maxSessions?, maxCallsPerSecond?, maxSessionTime?, blocked?, iCustomer? }
   // Uses Sippy XML-RPC updateAccount() — docs 107312+. Admin credentials required.
