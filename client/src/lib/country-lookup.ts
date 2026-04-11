@@ -249,14 +249,29 @@ export type CountryInfo = { name: string; flag: string };
  * Resolve a phone number string to a country name and flag.
  * Tries prefixes from longest (4 digits) to shortest (1 digit).
  * Returns null for local/unknown numbers.
+ *
+ * Special-case: if the number starts with "1" but is longer than 11 digits
+ * (US/Canada NANP = 1 + 10 digits = 11 total), the "1" is a routing prefix,
+ * not a country code — strip it and re-match so e.g. "1923XXXXXXXX" resolves
+ * to Pakistan (+92) instead of USA/Canada (+1).
  */
 export function lookupCountry(number: string): CountryInfo | null {
   if (!number) return null;
   const digits = normalizeDigits(number);
-  // Try 4 → 3 → 2 → 1 digit prefixes
-  for (const len of [4, 3, 2, 1]) {
-    const prefix = digits.slice(0, len);
-    if (PREFIX_MAP[prefix]) return PREFIX_MAP[prefix];
+
+  // If starts with "1" and longer than 11 digits, it's a routing prefix — try
+  // matching the remainder first (covers 1+92, 1+44, 1+971, etc.)
+  const candidates: string[] = [];
+  if (digits.startsWith("1") && digits.length > 11) {
+    candidates.push(digits.slice(1));
+  }
+  candidates.push(digits);
+
+  for (const d of candidates) {
+    for (const len of [4, 3, 2, 1]) {
+      const prefix = d.slice(0, len);
+      if (PREFIX_MAP[prefix]) return PREFIX_MAP[prefix];
+    }
   }
   return null;
 }
