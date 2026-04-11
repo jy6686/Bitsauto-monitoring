@@ -124,10 +124,22 @@ async function withSippyCreds<T extends { error?: string; success?: boolean; mes
 ): Promise<T> {
   const pairs = sippyXmlCredsPairs(settings);
   let last!: T;
-  for (const { username, password } of pairs) {
+  for (let i = 0; i < pairs.length; i++) {
+    const { username, password } = pairs[i];
     last = await fn(username, password);
-    const errStr = last.error ?? last.message ?? '';
-    if (!errStr.includes('401') && !errStr.includes('403') && !errStr.includes('HTTP 401')) return last;
+    // Stop immediately on success
+    if (last.success === true) return last;
+    // If not the last pair, check whether to retry
+    if (i < pairs.length - 1) {
+      const errStr = (last.error ?? last.message ?? '').toLowerCase();
+      const isAuthError = errStr.includes('401') || errStr.includes('403')
+        || errStr.includes('unauthorized') || errStr.includes('not authorized')
+        || errStr.includes('access denied') || errStr.includes('failed.')
+        || errStr.includes('not connected');
+      if (isAuthError) continue; // try next credential pair
+    }
+    // Either last pair, or a non-auth error — return what we have
+    return last;
   }
   return last;
 }

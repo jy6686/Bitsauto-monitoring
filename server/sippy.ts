@@ -12520,6 +12520,10 @@ export async function getDIDsList(
       const dids = parseArrayOfStructs(text).map(parseDIDStruct);
       return { success: true, dids, message: 'OK' };
     }
+    // Include HTTP status in the message so withSippyCreds can detect auth failures (401/403)
+    if (resp.statusCode === 401 || resp.statusCode === 403) {
+      return { success: false, dids: [], message: `HTTP ${resp.statusCode}: getDIDsList unauthorized` };
+    }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
       ?? extractTag(text, 'faultString') ?? 'getDIDsList failed.';
     return { success: false, dids: [], message: fault };
