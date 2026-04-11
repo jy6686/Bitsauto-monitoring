@@ -1155,8 +1155,12 @@ export async function getSippyActiveCalls(
   if (!base) return [];
 
   // ── Portal session mode (web scraping fallback) ───────────────────────────
+  // Only used when no explicit credentials are provided. If the caller passed
+  // username/password, always attempt XML-RPC directly — the portal-mode flag
+  // only means the *connection-test* method (i_version.listAvailableMethods) was
+  // blocked; listActiveCalls may still work for the same credential pair.
   const session = activeSession;
-  if (session?.mode === 'portal' && session.cookies) {
+  if (session?.mode === 'portal' && session.cookies && !username) {
     return getPortalActiveCallsHtml(session.cookies, base);
   }
 
