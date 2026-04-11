@@ -6827,6 +6827,139 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Multi-Host Monitoring CRUD ───────────────────────────────────────────────
+
+  // In-memory map: hostId → { up, latency, port, cause, checkedAt, openOutageId }
+  const hostState = new Map<number, {
+    up: boolean; latency?: number; port?: number; cause?: string;
+    checkedAt: Date; openOutageId?: number;
+  }>();
+
+  // GET /api/monitoring/hosts — list all monitored hosts with live status
+  app.get('/api/monitoring/hosts', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const hosts = await storage.getMonitoredHosts();
+      const withStatus = hosts.map(h => ({
+        ...h,
+        status: hostState.get(h.id) ?? { up: null, checkedAt: null },
+      }));
+      res.json({ hosts: withStatus });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/monitoring/hosts — create a new monitored host
+  app.post('/api/monitoring/hosts', async (req: any, res) => {
+    try {
+      const { label, ip, type, ports, notifyEmail, enabled } = req.body;
+      if (!label || !ip) return res.status(400).json({ error: 'label and ip are required' });
+      const host = await storage.createMonitoredHost({
+        label, ip, type: type ?? 'vendor',
+        ports: ports ?? null, notifyEmail: notifyEmail ?? null,
+        enabled: enabled !== false,
+      });
+      res.json({ host });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PUT /api/monitoring/hosts/:id — update a monitored host
+  app.put('/api/monitoring/hosts/:id', async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { label, ip, type, ports, notifyEmail, enabled } = req.body;
+      const host = await storage.updateMonitoredHost(id, {
+        ...(label       !== undefined && { label }),
+        ...(ip          !== undefined && { ip }),
+        ...(type        !== undefined && { type }),
+        ...(ports       !== undefined && { ports }),
+        ...(notifyEmail !== undefined && { notifyEmail }),
+        ...(enabled     !== undefined && { enabled }),
+      });
+      res.json({ host });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/monitoring/hosts/:id — remove a monitored host + its outage log
+  app.delete('/api/monitoring/hosts/:id', async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      await storage.deleteMonitoredHost(id);
+      hostState.delete(id);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/monitoring/hosts/:id/outages — outage log for one host
+  app.get('/api/monitoring/hosts/:id/outages', async (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const id = Number(req.params.id);
+      const log = await storage.getHostOutageLog(id, 50);
+      res.json({ outageLog: log });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/monitoring/hosts/outages/all — combined outage log across all hosts
+  app.get('/api/monitoring/hosts/outages/all', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const log = await storage.getHostOutageLog(undefined, 100);
+      res.json({ outageLog: log });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Per-host background poller (every 60 s) ───────────────────────────────────
+  async function probeAllHosts(): Promise<void> {
+    try {
+      const hosts = await storage.getMonitoredHosts();
+      const enabled = hosts.filter(h => h.enabled);
+      for (const host of enabled) {
+        try {
+          const priorityPorts = host.ports
+            ? host.ports.split(',').map(p => parseInt(p.trim(), 10)).filter(p => !isNaN(p))
+            : [];
+          const result = await probeIp(host.ip, priorityPorts);
+          const prev = hostState.get(host.id);
+          const nowUp = result.reachable;
+          const cause = nowUp ? undefined : 'timeout';
+          hostState.set(host.id, { up: nowUp, latency: result.latency, port: result.port, cause, checkedAt: new Date(), openOutageId: prev?.openOutageId });
+
+          if (prev !== undefined && prev.up && !nowUp) {
+            // Just went DOWN
+            const entry = await storage.createHostOutageEntry({
+              hostId: host.id, hostLabel: host.label, hostIp: host.ip,
+              downAt: new Date(), cause: 'timeout',
+            });
+            hostState.set(host.id, { ...hostState.get(host.id)!, openOutageId: entry.id });
+            console.warn(`[host-probe] ${host.label} (${host.ip}) DOWN`);
+            // Email alert if configured
+            if (host.notifyEmail) {
+              await fireAlertRules('server_down', 1, { cause: `${host.label} (${host.ip}) is unreachable` });
+            }
+          } else if (prev !== undefined && !prev.up && nowUp) {
+            // Just came back UP
+            if (prev.openOutageId) {
+              const downRow = (await storage.getHostOutageLog(host.id, 50)).find(r => r.id === prev.openOutageId);
+              const durationSec = downRow ? Math.round((Date.now() - new Date(downRow.downAt).getTime()) / 1000) : null;
+              await storage.updateHostOutageEntry(prev.openOutageId, {
+                recoveredAt: new Date(),
+                durationSec: durationSec ?? undefined,
+              });
+            }
+            hostState.set(host.id, { ...hostState.get(host.id)!, openOutageId: undefined });
+            console.log(`[host-probe] ${host.label} (${host.ip}) RECOVERED`);
+          }
+        } catch (err: any) {
+          console.warn(`[host-probe] error probing ${host.ip}:`, err.message);
+        }
+      }
+    } catch (e: any) {
+      console.warn('[host-probe] probeAllHosts error:', e.message);
+    }
+  }
+  setTimeout(() => probeAllHosts(), 12000);           // first run 12s after startup
+  setInterval(() => probeAllHosts(), 60 * 1000);      // every 60 seconds
+
   // GET /api/monitoring/bandwidth — RTP bandwidth from Sippy monitoring graph
   app.get('/api/monitoring/bandwidth', async (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');

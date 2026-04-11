@@ -5,7 +5,7 @@ import {
   Server, Wifi, WifiOff, AlertTriangle, CheckCircle, Clock, RefreshCw,
   Activity, HardDrive, Cpu, MemoryStick, Radio, Bell, Trash2, Plus,
   TrendingDown, Shield, ShieldAlert, Database, ArrowUp, ArrowDown, Minus,
-  BarChart2 as BarChartIcon, Table2
+  BarChart2 as BarChartIcon, Table2, PlusCircle, Pencil, Mail
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
@@ -87,9 +87,23 @@ function StatRow({ items }: { items: { label: string; value: string | number; co
   );
 }
 
+// ── Host type badge colours ────────────────────────────────────────────────────
+const HOST_TYPE_COLOR: Record<string, string> = {
+  vendor:  "bg-violet-500/15 text-violet-400",
+  carrier: "bg-blue-500/15 text-blue-400",
+  server:  "bg-amber-500/15 text-amber-400",
+};
+
 // ── Reachability Tab ───────────────────────────────────────────────────────────
 function ReachabilityTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [view, setView] = useState<"chart" | "table" | "both">("both");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editHost, setEditHost] = useState<null | { id: number; label: string; ip: string; type: string; ports: string; notifyEmail: string }>(null);
+  const [form, setForm] = useState({ label: "", ip: "", type: "vendor", ports: "", notifyEmail: "" });
+  const [selectedHostId, setSelectedHostId] = useState<number | null>(null);
+
   const { data, isLoading, refetch, isRefetching } = useQuery<{
     up: boolean; checkedAt: string; cause?: string; uptimePct: number;
     monitoredHost?: string;
@@ -98,6 +112,51 @@ function ReachabilityTab() {
     queryKey: ["/api/monitoring/status"],
     refetchInterval: 15000,
     staleTime: 0,
+  });
+
+  // Monitored hosts list with live probe status
+  const { data: hostsData, refetch: refetchHosts } = useQuery<{
+    hosts: Array<{
+      id: number; label: string; ip: string; type: string; ports: string | null;
+      notifyEmail: string | null; enabled: boolean; createdAt: string;
+      status: { up: boolean | null; latency?: number; port?: number; cause?: string; checkedAt: Date | null };
+    }>
+  }>({
+    queryKey: ["/api/monitoring/hosts"],
+    refetchInterval: 30000,
+    staleTime: 0,
+  });
+
+  // Per-host outage log
+  const { data: hostOutagesData } = useQuery<{
+    outageLog: { id: number; hostId: number; hostLabel: string; hostIp: string; downAt: string; recoveredAt?: string; durationSec?: number; cause?: string }[];
+  }>({
+    queryKey: ["/api/monitoring/hosts/outages/all"],
+    refetchInterval: 30000,
+    staleTime: 0,
+  });
+
+  const createHost = useMutation({
+    mutationFn: (body: typeof form) => apiRequest("POST", "/api/monitoring/hosts", body),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/monitoring/hosts"] }); setShowAddForm(false); setForm({ label: "", ip: "", type: "vendor", ports: "", notifyEmail: "" }); toast({ title: "Host added", description: "Monitoring will begin within 60 seconds." }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const updateHost = useMutation({
+    mutationFn: ({ id, ...body }: { id: number } & Partial<typeof form>) => apiRequest("PUT", `/api/monitoring/hosts/${id}`, body),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/monitoring/hosts"] }); setEditHost(null); toast({ title: "Host updated" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteHost = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/monitoring/hosts/${id}`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/monitoring/hosts"] }); queryClient.invalidateQueries({ queryKey: ["/api/monitoring/hosts/outages/all"] }); toast({ title: "Host removed" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const toggleHost = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) => apiRequest("PUT", `/api/monitoring/hosts/${id}`, { enabled }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/monitoring/hosts"] }),
   });
 
   // Build daily uptime chart from outage log (last 7 days)
@@ -239,11 +298,11 @@ function ReachabilityTab() {
         )}
       </div>
 
-      {/* Outage log */}
+      {/* Sippy Outage log */}
       <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
         <div className="flex items-center gap-2 px-5 py-3 border-b border-border/40 bg-muted/10">
           <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">Outage Event Log</h3>
+          <h3 className="text-sm font-semibold">Sippy Server — Outage Event Log</h3>
           <span className="text-xs text-muted-foreground ml-auto">last 30 events</span>
         </div>
         <div className="overflow-x-auto">
@@ -272,9 +331,7 @@ function ReachabilityTab() {
                           <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block flex-shrink-0" />
                           {data.monitoredHost}
                         </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground/40">—</span>
-                      )}
+                      ) : <span className="text-xs text-muted-foreground/40">—</span>}
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs text-rose-400">{fmtTs(e.downAt)}</td>
                     <td className="px-4 py-2.5 font-mono text-xs text-emerald-400">{e.recoveredAt ? fmtTs(e.recoveredAt) : <span className="text-rose-400 font-semibold">Still down</span>}</td>
@@ -292,6 +349,258 @@ function ReachabilityTab() {
           </table>
         </div>
       </div>
+
+      {/* ── Vendor / Carrier Multi-IP Monitoring ─────────────────────────────── */}
+      <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-border/40 bg-muted/10">
+          <Wifi className="w-3.5 h-3.5 text-blue-400" />
+          <h3 className="text-sm font-semibold">Vendor / Carrier IP Monitoring</h3>
+          <span className="text-xs text-muted-foreground">· probed every 60 s</span>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => refetchHosts()} className="text-xs px-2 py-1 rounded border border-border/50 hover:bg-muted/30 transition-colors flex items-center gap-1">
+              <RefreshCw className="w-3 h-3" /> Refresh
+            </button>
+            <button
+              onClick={() => { setShowAddForm(v => !v); setEditHost(null); }}
+              data-testid="button-add-host"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-500/30 transition-colors font-medium"
+            >
+              <PlusCircle className="w-3.5 h-3.5" /> Add Host
+            </button>
+          </div>
+        </div>
+
+        {/* Add / Edit form */}
+        {(showAddForm || editHost) && (
+          <div className="px-5 py-4 border-b border-border/40 bg-muted/5 space-y-3">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              {editHost ? "Edit Host" : "Add New Host"}
+            </h4>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Label *</label>
+                <input
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/50"
+                  placeholder="e.g. Callntalk Gateway"
+                  value={editHost ? editHost.label : form.label}
+                  onChange={e => editHost ? setEditHost({...editHost, label: e.target.value}) : setForm({...form, label: e.target.value})}
+                  data-testid="input-host-label"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">IP / Hostname *</label>
+                <input
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500/50"
+                  placeholder="e.g. 104.245.246.110"
+                  value={editHost ? editHost.ip : form.ip}
+                  onChange={e => editHost ? setEditHost({...editHost, ip: e.target.value}) : setForm({...form, ip: e.target.value})}
+                  data-testid="input-host-ip"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Type</label>
+                <select
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/50"
+                  value={editHost ? editHost.type : form.type}
+                  onChange={e => editHost ? setEditHost({...editHost, type: e.target.value}) : setForm({...form, type: e.target.value})}
+                  data-testid="select-host-type"
+                >
+                  <option value="vendor">Vendor</option>
+                  <option value="carrier">Carrier</option>
+                  <option value="server">Server</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Custom Ports <span className="opacity-50">(comma-separated)</span></label>
+                <input
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500/50"
+                  placeholder="5060,443,80 (optional)"
+                  value={editHost ? editHost.ports : form.ports}
+                  onChange={e => editHost ? setEditHost({...editHost, ports: e.target.value}) : setForm({...form, ports: e.target.value})}
+                  data-testid="input-host-ports"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-xs text-muted-foreground mb-1 block">Notify Email <span className="opacity-50">(alert on down/up)</span></label>
+                <input
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/50"
+                  placeholder="vendor@example.com (optional)"
+                  value={editHost ? editHost.notifyEmail : form.notifyEmail}
+                  onChange={e => editHost ? setEditHost({...editHost, notifyEmail: e.target.value}) : setForm({...form, notifyEmail: e.target.value})}
+                  data-testid="input-host-email"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => editHost
+                  ? updateHost.mutate({ id: editHost.id, label: editHost.label, ip: editHost.ip, type: editHost.type, ports: editHost.ports, notifyEmail: editHost.notifyEmail })
+                  : createHost.mutate(form)
+                }
+                disabled={createHost.isPending || updateHost.isPending}
+                data-testid="button-save-host"
+                className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium"
+              >
+                {(createHost.isPending || updateHost.isPending) ? <RefreshCw className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                {editHost ? "Save Changes" : "Add Host"}
+              </button>
+              <button
+                onClick={() => { setShowAddForm(false); setEditHost(null); }}
+                className="text-xs px-4 py-2 rounded-lg border border-border/50 hover:bg-muted/30 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Host status cards */}
+        <div className="p-4">
+          {!hostsData?.hosts?.length ? (
+            <div className="py-10 text-center text-muted-foreground">
+              <Wifi className="w-8 h-8 mx-auto mb-2 opacity-20" />
+              <p className="text-sm">No hosts added yet.</p>
+              <p className="text-xs mt-1 opacity-60">Click <strong>Add Host</strong> to start monitoring vendor or carrier IPs.</p>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {hostsData.hosts.map(host => {
+                const st = host.status;
+                const isUp   = st.up === true;
+                const isDown = st.up === false;
+                const isPending = st.up === null;
+                return (
+                  <div
+                    key={host.id}
+                    className={cn(
+                      "rounded-xl border p-4 transition-all cursor-pointer",
+                      !host.enabled ? "opacity-50 border-border/30 bg-card/50"
+                      : isDown ? "border-rose-500/40 bg-rose-500/5"
+                      : isUp   ? "border-emerald-500/25 bg-emerald-500/3"
+                      : "border-border/50 bg-card",
+                      selectedHostId === host.id && "ring-2 ring-blue-500/30"
+                    )}
+                    onClick={() => setSelectedHostId(selectedHostId === host.id ? null : host.id)}
+                    data-testid={`card-host-${host.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide", HOST_TYPE_COLOR[host.type] ?? "bg-muted/30 text-muted-foreground")}>
+                            {host.type}
+                          </span>
+                          <span className="font-semibold text-sm truncate">{host.label}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className="font-mono text-xs text-muted-foreground">{host.ip}</span>
+                          {host.status.port && <span className="text-[10px] text-muted-foreground/50">:{host.status.port}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {/* Toggle enabled */}
+                        <button
+                          onClick={ev => { ev.stopPropagation(); toggleHost.mutate({ id: host.id, enabled: !host.enabled }); }}
+                          title={host.enabled ? "Disable monitoring" : "Enable monitoring"}
+                          className={cn("w-7 h-4 rounded-full transition-colors relative", host.enabled ? "bg-emerald-500/60" : "bg-muted/40")}
+                          data-testid={`toggle-host-${host.id}`}
+                        >
+                          <span className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all", host.enabled ? "left-3.5" : "left-0.5")} />
+                        </button>
+                        {/* Edit */}
+                        <button onClick={ev => { ev.stopPropagation(); setEditHost({ id: host.id, label: host.label, ip: host.ip, type: host.type, ports: host.ports ?? "", notifyEmail: host.notifyEmail ?? "" }); setShowAddForm(false); }} className="p-1.5 rounded hover:bg-muted/40 text-muted-foreground hover:text-foreground transition-colors" data-testid={`btn-edit-host-${host.id}`}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        {/* Delete */}
+                        <button onClick={ev => { ev.stopPropagation(); if (confirm(`Remove "${host.label}"?`)) deleteHost.mutate(host.id); }} className="p-1.5 rounded hover:bg-rose-500/10 text-muted-foreground hover:text-rose-400 transition-colors" data-testid={`btn-delete-host-${host.id}`}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Status row */}
+                    <div className="flex items-center gap-3 mt-3 flex-wrap">
+                      {isPending && <span className="text-xs text-muted-foreground/50">Pending first probe…</span>}
+                      {!isPending && (
+                        <>
+                          <span className={cn("inline-flex items-center gap-1.5 text-xs font-semibold",
+                            isDown ? "text-rose-400" : "text-emerald-400")}>
+                            <span className={cn("w-2 h-2 rounded-full", isDown ? "bg-rose-400 animate-pulse" : "bg-emerald-400")} />
+                            {isDown ? "DOWN" : "UP"}
+                          </span>
+                          {isUp && st.latency !== undefined && (
+                            <span className={cn("text-xs", st.latency < 50 ? "text-emerald-400" : st.latency < 150 ? "text-amber-400" : "text-rose-400")}>
+                              {st.latency} ms
+                            </span>
+                          )}
+                          {isDown && st.cause && (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-muted/40 font-mono text-rose-300">{st.cause}</span>
+                          )}
+                          {st.checkedAt && (
+                            <span className="text-[10px] text-muted-foreground/40 ml-auto">{fmtTs(st.checkedAt.toString())}</span>
+                          )}
+                        </>
+                      )}
+                      {host.notifyEmail && (
+                        <span className="text-[10px] text-muted-foreground/40 flex items-center gap-1 ml-auto">
+                          <Mail className="w-2.5 h-2.5" />{host.notifyEmail}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Per-host Outage Log ───────────────────────────────────────────────── */}
+      {(hostOutagesData?.outageLog?.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-border/40 bg-muted/10">
+            <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+            <h3 className="text-sm font-semibold">Vendor / Carrier — Outage History</h3>
+            <span className="text-xs text-muted-foreground ml-auto">last 100 events</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/20 text-muted-foreground text-xs">
+                <tr>
+                  <th className="text-left px-4 py-2">#</th>
+                  <th className="text-left px-4 py-2">Host</th>
+                  <th className="text-left px-4 py-2">IP</th>
+                  <th className="text-left px-4 py-2">Down At</th>
+                  <th className="text-left px-4 py-2">Recovered At</th>
+                  <th className="text-left px-4 py-2">Duration</th>
+                  <th className="text-right px-4 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {hostOutagesData!.outageLog.map((e, i) => (
+                  <tr key={e.id} className="border-t border-border/30 hover:bg-muted/20">
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground font-mono">{i + 1}</td>
+                    <td className="px-4 py-2.5 text-xs font-medium">{e.hostLabel ?? "—"}</td>
+                    <td className="px-4 py-2.5">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block" />
+                        {e.hostIp ?? "—"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-xs text-rose-400">{fmtTs(e.downAt)}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs text-emerald-400">{e.recoveredAt ? fmtTs(e.recoveredAt) : <span className="text-rose-400 font-semibold">Still down</span>}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs">{fmtDuration(e.durationSec)}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      {e.recoveredAt
+                        ? <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400">Resolved</span>
+                        : <span className="text-xs px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 animate-pulse">Active</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@
 import { 
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
   switches, fasEvents, callSnapshots, monitoringAssignments, outageLog, alertRules,
+  monitoredHosts, hostOutageLog,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -13,6 +14,8 @@ import {
   type CallSnapshot, type InsertCallSnapshot,
   type OutageEntry, type InsertOutageEntry,
   type AlertRule, type InsertAlertRule,
+  type MonitoredHost, type InsertMonitoredHost,
+  type HostOutageEntry, type InsertHostOutageEntry,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -79,6 +82,17 @@ export interface IStorage {
   // Monitoring Assignments
   getAllMonitoringAssignments(): Promise<Record<string, string[]>>;
   setMonitoringAssignments(userId: string, items: string[], assignedBy?: string): Promise<void>;
+
+  // Monitored Hosts (multi-IP monitoring)
+  getMonitoredHosts(): Promise<MonitoredHost[]>;
+  createMonitoredHost(host: InsertMonitoredHost): Promise<MonitoredHost>;
+  updateMonitoredHost(id: number, updates: Partial<InsertMonitoredHost>): Promise<MonitoredHost>;
+  deleteMonitoredHost(id: number): Promise<void>;
+
+  // Host Outage Log
+  getHostOutageLog(hostId?: number, limit?: number): Promise<HostOutageEntry[]>;
+  createHostOutageEntry(entry: InsertHostOutageEntry): Promise<HostOutageEntry>;
+  updateHostOutageEntry(id: number, updates: Partial<HostOutageEntry>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -548,6 +562,46 @@ export class DatabaseStorage implements IStorage {
 
   async deleteAlertRule(id: number): Promise<void> {
     await db.delete(alertRules).where(eq(alertRules.id, id));
+  }
+
+  // ── Monitored Hosts ──────────────────────────────────────────────────────────
+  async getMonitoredHosts(): Promise<MonitoredHost[]> {
+    return db.select().from(monitoredHosts).orderBy(monitoredHosts.createdAt);
+  }
+
+  async createMonitoredHost(host: InsertMonitoredHost): Promise<MonitoredHost> {
+    const [row] = await db.insert(monitoredHosts).values(host).returning();
+    return row;
+  }
+
+  async updateMonitoredHost(id: number, updates: Partial<InsertMonitoredHost>): Promise<MonitoredHost> {
+    const [row] = await db.update(monitoredHosts).set(updates).where(eq(monitoredHosts.id, id)).returning();
+    return row;
+  }
+
+  async deleteMonitoredHost(id: number): Promise<void> {
+    await db.delete(monitoredHosts).where(eq(monitoredHosts.id, id));
+    await db.delete(hostOutageLog).where(eq(hostOutageLog.hostId, id));
+  }
+
+  // ── Host Outage Log ──────────────────────────────────────────────────────────
+  async getHostOutageLog(hostId?: number, limit = 50): Promise<HostOutageEntry[]> {
+    if (hostId !== undefined) {
+      return db.select().from(hostOutageLog)
+        .where(eq(hostOutageLog.hostId, hostId))
+        .orderBy(desc(hostOutageLog.downAt))
+        .limit(limit);
+    }
+    return db.select().from(hostOutageLog).orderBy(desc(hostOutageLog.downAt)).limit(limit);
+  }
+
+  async createHostOutageEntry(entry: InsertHostOutageEntry): Promise<HostOutageEntry> {
+    const [row] = await db.insert(hostOutageLog).values(entry).returning();
+    return row;
+  }
+
+  async updateHostOutageEntry(id: number, updates: Partial<HostOutageEntry>): Promise<void> {
+    await db.update(hostOutageLog).set(updates).where(eq(hostOutageLog.id, id));
   }
 }
 

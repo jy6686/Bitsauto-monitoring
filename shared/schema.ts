@@ -185,6 +185,35 @@ export const outageLog = pgTable("outage_log", {
 export type OutageEntry    = typeof outageLog.$inferSelect;
 export type InsertOutageEntry = typeof outageLog.$inferInsert;
 
+// Monitored Hosts: vendor IPs / carrier servers to ping-check
+export const monitoredHosts = pgTable("monitored_hosts", {
+  id:           serial("id").primaryKey(),
+  label:        varchar("label", { length: 128 }).notNull(),         // Display name, e.g. "Callntalk Gateway"
+  ip:           varchar("ip", { length: 128 }).notNull(),            // IP or hostname
+  type:         varchar("type", { length: 32 }).notNull().default("vendor"), // 'vendor'|'carrier'|'server'
+  ports:        text("ports"),                                        // comma-separated probe ports, null = defaults
+  notifyEmail:  varchar("notify_email", { length: 256 }),            // Email to alert when down
+  enabled:      boolean("enabled").notNull().default(true),
+  createdAt:    timestamp("created_at").defaultNow(),
+});
+export type MonitoredHost       = typeof monitoredHosts.$inferSelect;
+export type InsertMonitoredHost = typeof monitoredHosts.$inferInsert;
+
+// Per-host outage log (linked to monitored_hosts)
+export const hostOutageLog = pgTable("host_outage_log", {
+  id:           serial("id").primaryKey(),
+  hostId:       integer("host_id").notNull(),
+  hostLabel:    varchar("host_label", { length: 128 }),              // denormalized for easy display
+  hostIp:       varchar("host_ip", { length: 128 }),
+  downAt:       timestamp("down_at").notNull(),
+  recoveredAt:  timestamp("recovered_at"),
+  durationSec:  integer("duration_sec"),
+  cause:        varchar("cause", { length: 128 }),
+  checkedAt:    timestamp("checked_at").defaultNow(),
+});
+export type HostOutageEntry       = typeof hostOutageLog.$inferSelect;
+export type InsertHostOutageEntry = typeof hostOutageLog.$inferInsert;
+
 // Alert Rules: configurable thresholds with email/webhook notification
 export const alertRules = pgTable("alert_rules", {
   id:             serial("id").primaryKey(),
