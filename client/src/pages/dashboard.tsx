@@ -348,36 +348,6 @@ export default function DashboardPage() {
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Active Calls + call rate badge */}
-        <div className={cn(
-          "bg-card border border-blue-500/20 rounded-xl p-5 shadow-lg shadow-black/5 hover:border-blue-500/40 transition-all duration-300 relative overflow-hidden group"
-        )}>
-          <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
-            <PhoneCall className="w-24 h-24" />
-          </div>
-          <div className="flex items-center justify-between mb-3 relative z-10">
-            <h3 className="text-sm font-medium text-muted-foreground">Active Calls</h3>
-            <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-blue-500/10 transition-colors">
-              <PhoneCall className="w-4 h-4 text-foreground group-hover:text-blue-400" />
-            </div>
-          </div>
-          <div className="relative z-10">
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-bold tracking-tight tabular-nums">
-                {notConnected ? '—' : displayActiveCalls}
-              </span>
-              {anyPortalActive && callRatePerMin > 0 && (
-                <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-violet-400/10 text-violet-400 cursor-help" title={`Call rate: ${callRatePerMin} calls per minute — 1-hour CDR average`}>
-                  {callRatePerMin}/min
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {anyPortalActive ? "Live concurrent calls on Sippy" : "Currently connected sessions"}
-            </p>
-          </div>
-        </div>
-
         {/* Average MOS */}
         <StatCard 
           title="Avg MOS"
@@ -482,6 +452,36 @@ export default function DashboardPage() {
             </div>
           );
         })()}
+
+        {/* Active Calls + call rate badge — last card */}
+        <div className={cn(
+          "bg-card border border-blue-500/20 rounded-xl p-5 shadow-lg shadow-black/5 hover:border-blue-500/40 transition-all duration-300 relative overflow-hidden group"
+        )}>
+          <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
+            <PhoneCall className="w-24 h-24" />
+          </div>
+          <div className="flex items-center justify-between mb-3 relative z-10">
+            <h3 className="text-sm font-medium text-muted-foreground">Active Calls</h3>
+            <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-blue-500/10 transition-colors">
+              <PhoneCall className="w-4 h-4 text-foreground group-hover:text-blue-400" />
+            </div>
+          </div>
+          <div className="relative z-10">
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold tracking-tight tabular-nums">
+                {notConnected ? '—' : displayActiveCalls}
+              </span>
+              {anyPortalActive && callRatePerMin > 0 && (
+                <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-violet-400/10 text-violet-400 cursor-help" title={`Call rate: ${callRatePerMin} calls per minute — 1-hour CDR average`}>
+                  {callRatePerMin}/min
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {anyPortalActive ? "Live concurrent calls on Sippy" : "Currently connected sessions"}
+            </p>
+          </div>
+        </div>
       </div>
 
 
