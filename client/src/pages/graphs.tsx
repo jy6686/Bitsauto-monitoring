@@ -5,19 +5,22 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, Legend,
 } from "recharts";
-import { TrendingUp, Users, Network, Radio, ArrowLeftRight, RefreshCw, Activity } from "lucide-react";
+import { TrendingUp, Users, Network, Radio, ArrowLeftRight, RefreshCw, Activity, Globe } from "lucide-react";
 
 interface LiveGraphsData {
-  trend:       { time: string; avg: number; peak: number }[];
-  byClient:    { name: string; calls: number }[];
-  byVendor:    { name: string; calls: number }[];
-  byCodec:     { name: string; calls: number }[];
-  byDirection: { name: string; calls: number }[];
-  liveCount:    number;
-  peakCount:    number;
-  windowHours:  number;
-  pointsCollected: number;
-  oldestPoint:  number | null;
+  trend:            { time: string; avg: number; peak: number }[];
+  byClient:         { name: string; calls: number }[];
+  byVendor:         { name: string; calls: number }[];
+  byCodec:          { name: string; calls: number }[];
+  byDirection:      { name: string; calls: number }[];
+  byDestination:    { name: string; calls: number }[];
+  cdrByDestination: { name: string; calls: number }[];
+  cdrTotal:         number;
+  liveCount:        number;
+  peakCount:        number;
+  windowHours:      number;
+  pointsCollected:  number;
+  oldestPoint:      number | null;
 }
 
 const COLORS = [
@@ -344,11 +347,106 @@ export default function GraphsPage() {
 
       </div>
 
+      {/* ── Destinations section ────────────────────────────────────── */}
+      <div className="grid gap-4 md:grid-cols-2">
+
+        {/* CDR-based destination (accurate country names from completed calls) */}
+        <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">
+          <div className="flex items-center gap-2 mb-1">
+            <Globe className="w-4 h-4 text-blue-400" />
+            <h2 className="text-sm font-semibold">Top Destinations — CDR History</h2>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">
+            Based on {data?.cdrTotal ? data.cdrTotal.toLocaleString() + ' completed calls' : 'CDR cache'} in last {hours}h
+          </p>
+          {isLoading ? (
+            <div className="h-64 flex items-center justify-center text-muted-foreground/50 text-sm">Loading…</div>
+          ) : !(data?.cdrByDestination?.length) ? (
+            <div className="h-64 flex flex-col items-center justify-center gap-2 text-muted-foreground/50 text-sm">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>CDR cache warming up…</span>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(180, data!.cdrByDestination.length * 38)}>
+              <BarChart data={data!.cdrByDestination} layout="vertical" margin={{ top: 0, right: 48, left: 8, bottom: 0 }} barCategoryGap="22%">
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
+                <Tooltip
+                  content={({ active, payload, label }) =>
+                    active && payload?.length ? (
+                      <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-xl text-xs">
+                        <p className="font-semibold">{label}</p>
+                        <p style={{ color: payload[0]?.fill }}>
+                          Calls: <b>{payload[0]?.value?.toLocaleString()}</b>
+                          {data?.cdrTotal ? <span className="text-muted-foreground ml-1">({((Number(payload[0]?.value) / data.cdrTotal) * 100).toFixed(1)}%)</span> : ''}
+                        </p>
+                      </div>
+                    ) : null
+                  }
+                  cursor={{ fill: 'hsl(var(--muted))', opacity: 0.25 }}
+                />
+                <Bar dataKey="calls" radius={[0, 4, 4, 0]}>
+                  {data!.cdrByDestination.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Live call destinations (from active call callee prefix matching) */}
+        <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">
+          <div className="flex items-center gap-2 mb-1">
+            <Globe className="w-4 h-4 text-emerald-400" />
+            <h2 className="text-sm font-semibold">Live Destinations — Active Calls</h2>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">
+            Derived from callee number prefix · max over last 5 polls
+          </p>
+          {isLoading ? (
+            <div className="h-64 flex items-center justify-center text-muted-foreground/50 text-sm">Loading…</div>
+          ) : !(data?.byDestination?.length) ? (
+            <div className="h-64 flex flex-col items-center justify-center gap-2 text-muted-foreground/50 text-sm">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>Waiting for active call data…</span>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(180, data!.byDestination.length * 38)}>
+              <BarChart data={data!.byDestination} layout="vertical" margin={{ top: 0, right: 48, left: 8, bottom: 0 }} barCategoryGap="22%">
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
+                <Tooltip
+                  content={({ active, payload, label }) =>
+                    active && payload?.length ? (
+                      <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-xl text-xs">
+                        <p className="font-semibold">{label}</p>
+                        <p style={{ color: payload[0]?.fill }}>Concurrent: <b>{payload[0]?.value}</b></p>
+                      </div>
+                    ) : null
+                  }
+                  cursor={{ fill: 'hsl(var(--muted))', opacity: 0.25 }}
+                />
+                <Bar dataKey="calls" radius={[0, 4, 4, 0]}>
+                  {data!.byDestination.map((_, i) => (
+                    <Cell key={i} fill={["#10b981","#06b6d4","#3b82f6","#8b5cf6","#f59e0b","#ef4444"][i % 6]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+      </div>
+
       {/* Summary footer */}
       <div className="flex flex-wrap gap-4 p-4 bg-card/40 border border-border/40 rounded-xl text-xs text-muted-foreground">
         <span>Window: <strong className="text-foreground">{hours}h</strong></span>
         <span>Current live calls: <strong className="text-foreground">{data?.liveCount ?? 0}</strong></span>
         <span>Peak in window: <strong className="text-foreground">{data?.peakCount ?? 0}</strong></span>
+        <span>CDR records: <strong className="text-foreground">{(data?.cdrTotal ?? 0).toLocaleString()}</strong></span>
         <span>Snapshots collected: <strong className="text-foreground">{data?.pointsCollected ?? 0}</strong></span>
         <span className="ml-auto text-muted-foreground/50">Polled every 30 s · auto-refreshes every 30 s</span>
       </div>

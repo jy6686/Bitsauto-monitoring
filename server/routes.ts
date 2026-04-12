@@ -7273,22 +7273,90 @@ export async function registerRoutes(
   interface ConcurrentPoint {
     ts: number;
     count: number;
-    byClient:    Record<string, number>;
-    byVendor:    Record<string, number>;
-    byCodec:     Record<string, number>;
-    byDirection: Record<string, number>;
+    byClient:      Record<string, number>;
+    byVendor:      Record<string, number>;
+    byCodec:       Record<string, number>;
+    byDirection:   Record<string, number>;
+    byDestination: Record<string, number>;
   }
   const concurrentHistory: ConcurrentPoint[] = [];
+
+  // E.164 country-prefix lookup (longest-match wins).
+  // Numbers that start with '1' and have >11 digits are NOT NANP — strip the leading 1.
+  const COUNTRY_PREFIXES: Record<string, string> = {
+    '1':'USA/Canada','7':'Russia','20':'Egypt','27':'South Africa',
+    '30':'Greece','31':'Netherlands','32':'Belgium','33':'France','34':'Spain',
+    '36':'Hungary','39':'Italy','40':'Romania','41':'Switzerland','43':'Austria',
+    '44':'UK','45':'Denmark','46':'Sweden','47':'Norway','48':'Poland','49':'Germany',
+    '51':'Peru','52':'Mexico','54':'Argentina','55':'Brazil','56':'Chile',
+    '57':'Colombia','58':'Venezuela','60':'Malaysia','61':'Australia',
+    '62':'Indonesia','63':'Philippines','64':'New Zealand','65':'Singapore',
+    '66':'Thailand','81':'Japan','82':'South Korea','84':'Vietnam','86':'China',
+    '90':'Turkey','91':'India','92':'Pakistan','93':'Afghanistan','94':'Sri Lanka',
+    '95':'Myanmar','98':'Iran',
+    '212':'Morocco','213':'Algeria','216':'Tunisia','218':'Libya',
+    '220':'Gambia','221':'Senegal','222':'Mauritania','223':'Mali','224':'Guinea',
+    '225':'Ivory Coast','226':'Burkina Faso','227':'Niger','228':'Togo','229':'Benin',
+    '230':'Mauritius','231':'Liberia','232':'Sierra Leone','233':'Ghana',
+    '234':'Nigeria','235':'Chad','236':'CAR','237':'Cameroon','238':'Cape Verde',
+    '239':'Sao Tome','240':'Eq. Guinea','241':'Gabon','242':'Congo','243':'DR Congo',
+    '244':'Angola','245':'Guinea-Bissau','249':'Sudan','250':'Rwanda',
+    '251':'Ethiopia','252':'Somalia','253':'Djibouti','254':'Kenya',
+    '255':'Tanzania','256':'Uganda','257':'Burundi','258':'Mozambique',
+    '260':'Zambia','261':'Madagascar','263':'Zimbabwe','264':'Namibia',
+    '265':'Malawi','266':'Lesotho','267':'Botswana','268':'Eswatini',
+    '269':'Comoros','291':'Eritrea',
+    '297':'Aruba','298':'Faroe Islands','299':'Greenland',
+    '350':'Gibraltar','351':'Portugal','352':'Luxembourg','353':'Ireland',
+    '354':'Iceland','355':'Albania','356':'Malta','357':'Cyprus','358':'Finland',
+    '359':'Bulgaria','370':'Lithuania','371':'Latvia','372':'Estonia',
+    '373':'Moldova','374':'Armenia','375':'Belarus','376':'Andorra',
+    '377':'Monaco','380':'Ukraine','381':'Serbia','382':'Montenegro',
+    '385':'Croatia','386':'Slovenia','387':'Bosnia','389':'North Macedonia',
+    '420':'Czech Republic','421':'Slovakia','423':'Liechtenstein',
+    '500':'Falkland Islands','501':'Belize','502':'Guatemala','503':'El Salvador',
+    '504':'Honduras','505':'Nicaragua','506':'Costa Rica','507':'Panama',
+    '509':'Haiti','590':'Guadeloupe','591':'Bolivia','592':'Guyana',
+    '593':'Ecuador','594':'French Guiana','595':'Paraguay','596':'Martinique',
+    '597':'Suriname','598':'Uruguay','599':'Netherlands Antilles',
+    '670':'East Timor','673':'Brunei','674':'Nauru','675':'Papua New Guinea',
+    '676':'Tonga','677':'Solomon Islands','678':'Vanuatu','679':'Fiji',
+    '680':'Palau','682':'Cook Islands','685':'Samoa','686':'Kiribati',
+    '687':'New Caledonia','688':'Tuvalu','689':'French Polynesia','690':'Tokelau',
+    '691':'Micronesia','692':'Marshall Islands',
+    '850':'North Korea','852':'Hong Kong','853':'Macau','855':'Cambodia',
+    '856':'Laos','880':'Bangladesh','886':'Taiwan',
+    '960':'Maldives','961':'Lebanon','962':'Jordan','963':'Syria',
+    '964':'Iraq','965':'Kuwait','966':'Saudi Arabia','967':'Yemen',
+    '968':'Oman','970':'Palestine','971':'UAE','972':'Israel',
+    '973':'Bahrain','974':'Qatar','975':'Bhutan','976':'Mongolia',
+    '977':'Nepal','992':'Tajikistan','993':'Turkmenistan','994':'Azerbaijan',
+    '995':'Georgia','996':'Kyrgyzstan','998':'Uzbekistan',
+  };
+
+  function calleeToCountry(callee: string): string {
+    if (!callee) return 'Unknown';
+    let n = callee.replace(/^\+/, '').replace(/\D/g, '');
+    // If starts with '1' and longer than 11 digits → NOT NANP, strip the routing '1'
+    if (n.startsWith('1') && n.length > 11) n = n.slice(1);
+    // Longest-match: try 4-digit, 3-digit, 2-digit, 1-digit prefix
+    for (let len = 4; len >= 1; len--) {
+      const p = n.slice(0, len);
+      if (COUNTRY_PREFIXES[p]) return COUNTRY_PREFIXES[p];
+    }
+    return 'Unknown';
+  }
 
   function pushConcurrentPoint(calls: Awaited<ReturnType<typeof sippy.getSippyActiveCalls>>) {
     const cutoff = Date.now() - CONCURRENT_HISTORY_HOURS * 3600 * 1000;
     // Evict old points
     while (concurrentHistory.length > 0 && concurrentHistory[0].ts < cutoff) concurrentHistory.shift();
 
-    const byClient: Record<string, number>    = {};
-    const byVendor: Record<string, number>    = {};
-    const byCodec: Record<string, number>     = {};
-    const byDirection: Record<string, number> = {};
+    const byClient:      Record<string, number> = {};
+    const byVendor:      Record<string, number> = {};
+    const byCodec:       Record<string, number> = {};
+    const byDirection:   Record<string, number> = {};
+    const byDestination: Record<string, number> = {};
 
     for (const c of calls) {
       const rawId    = String(c.accountId ?? c.iCustomer ?? '').trim();
@@ -7296,13 +7364,15 @@ export async function registerRoutes(
       const vendor   = c.vendor || (c.connection ? connectionVendorCache.get(c.connection) : undefined) || 'Unknown';
       const codec    = (c.codec && c.codec !== '-') ? c.codec : 'Unknown';
       const dir      = c.direction || 'unknown';
-      byClient[client]    = (byClient[client]    || 0) + 1;
-      byVendor[vendor]    = (byVendor[vendor]    || 0) + 1;
-      byCodec[codec]      = (byCodec[codec]      || 0) + 1;
-      byDirection[dir]    = (byDirection[dir]    || 0) + 1;
+      const dest     = calleeToCountry(c.callee ?? '');
+      byClient[client]           = (byClient[client]           || 0) + 1;
+      byVendor[vendor]           = (byVendor[vendor]           || 0) + 1;
+      byCodec[codec]             = (byCodec[codec]             || 0) + 1;
+      byDirection[dir]           = (byDirection[dir]           || 0) + 1;
+      byDestination[dest]        = (byDestination[dest]        || 0) + 1;
     }
 
-    concurrentHistory.push({ ts: Date.now(), count: calls.length, byClient, byVendor, byCodec, byDirection });
+    concurrentHistory.push({ ts: Date.now(), count: calls.length, byClient, byVendor, byCodec, byDirection, byDestination });
   }
 
   async function snapshotActiveCalls(): Promise<void> {
@@ -7387,32 +7457,47 @@ export async function registerRoutes(
 
     // Aggregate latest breakdown (last 5 data points to smooth noise)
     const recent = window.slice(-5);
-    const aggClient: Record<string, number>    = {};
-    const aggVendor: Record<string, number>    = {};
-    const aggCodec: Record<string, number>     = {};
-    const aggDir:   Record<string, number>     = {};
+    const aggClient:      Record<string, number> = {};
+    const aggVendor:      Record<string, number> = {};
+    const aggCodec:       Record<string, number> = {};
+    const aggDir:         Record<string, number> = {};
+    const aggDestination: Record<string, number> = {};
     for (const p of recent) {
-      for (const [k, v] of Object.entries(p.byClient))    aggClient[k]  = Math.max(aggClient[k]  || 0, v);
-      for (const [k, v] of Object.entries(p.byVendor))    aggVendor[k]  = Math.max(aggVendor[k]  || 0, v);
-      for (const [k, v] of Object.entries(p.byCodec))     aggCodec[k]   = Math.max(aggCodec[k]   || 0, v);
-      for (const [k, v] of Object.entries(p.byDirection)) aggDir[k]     = Math.max(aggDir[k]     || 0, v);
+      for (const [k, v] of Object.entries(p.byClient))      aggClient[k]      = Math.max(aggClient[k]      || 0, v);
+      for (const [k, v] of Object.entries(p.byVendor))      aggVendor[k]      = Math.max(aggVendor[k]      || 0, v);
+      for (const [k, v] of Object.entries(p.byCodec))       aggCodec[k]       = Math.max(aggCodec[k]       || 0, v);
+      for (const [k, v] of Object.entries(p.byDirection))   aggDir[k]         = Math.max(aggDir[k]         || 0, v);
+      for (const [k, v] of Object.entries(p.byDestination ?? {})) aggDestination[k] = Math.max(aggDestination[k] || 0, v);
     }
 
-    const toArr = (m: Record<string, number>, top = 10) =>
+    // CDR-based destination stats (accumulated from rolling CDR cache — accurate country names)
+    const cdrDestMap: Record<string, number> = {};
+    const cdrCutoffMs = Date.now() - hours * 3600 * 1000;
+    for (const c of cdrCache.values()) {
+      const ts = c.startTime ? new Date(c.startTime).getTime() : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+      if (ts < cdrCutoffMs) continue;
+      const dest = (c as any).country || calleeToCountry((c as any).callee ?? '');
+      if (dest) cdrDestMap[dest] = (cdrDestMap[dest] || 0) + 1;
+    }
+
+    const toArr = (m: Record<string, number>, top = 15) =>
       Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, top).map(([name, calls]) => ({ name, calls }));
 
     const last = concurrentHistory[concurrentHistory.length - 1];
     res.json({
       trend,
-      byClient:    toArr(aggClient),
-      byVendor:    toArr(aggVendor),
-      byCodec:     toArr(aggCodec),
-      byDirection: toArr(aggDir),
-      liveCount:   last?.count ?? 0,
-      peakCount:   window.length ? Math.max(...window.map(p => p.count)) : 0,
-      windowHours: hours,
-      pointsCollected: concurrentHistory.length,
-      oldestPoint: concurrentHistory[0]?.ts ?? null,
+      byClient:         toArr(aggClient),
+      byVendor:         toArr(aggVendor),
+      byCodec:          toArr(aggCodec),
+      byDirection:      toArr(aggDir),
+      byDestination:    toArr(aggDestination),
+      cdrByDestination: toArr(cdrDestMap),
+      cdrTotal:         Object.values(cdrDestMap).reduce((s, v) => s + v, 0),
+      liveCount:        last?.count ?? 0,
+      peakCount:        window.length ? Math.max(...window.map(p => p.count)) : 0,
+      windowHours:      hours,
+      pointsCollected:  concurrentHistory.length,
+      oldestPoint:      concurrentHistory[0]?.ts ?? null,
     });
   });
 
