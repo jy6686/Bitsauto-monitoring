@@ -7267,6 +7267,44 @@ export async function registerRoutes(
 
   // ── Call snapshot background poller (every 30 s) ──────────────────────────
   // Polls live Sippy calls and upserts each into call_snapshots for 24h history.
+  // ── Concurrent-call history buffer (for live graphs) ─────────────────────────
+  // Stores {ts, count, calls[]} every 30s — max 48h of data (5760 points).
+  const CONCURRENT_HISTORY_HOURS = 48;
+  interface ConcurrentPoint {
+    ts: number;
+    count: number;
+    byClient:    Record<string, number>;
+    byVendor:    Record<string, number>;
+    byCodec:     Record<string, number>;
+    byDirection: Record<string, number>;
+  }
+  const concurrentHistory: ConcurrentPoint[] = [];
+
+  function pushConcurrentPoint(calls: Awaited<ReturnType<typeof sippy.getSippyActiveCalls>>) {
+    const cutoff = Date.now() - CONCURRENT_HISTORY_HOURS * 3600 * 1000;
+    // Evict old points
+    while (concurrentHistory.length > 0 && concurrentHistory[0].ts < cutoff) concurrentHistory.shift();
+
+    const byClient: Record<string, number>    = {};
+    const byVendor: Record<string, number>    = {};
+    const byCodec: Record<string, number>     = {};
+    const byDirection: Record<string, number> = {};
+
+    for (const c of calls) {
+      const rawId    = String(c.accountId ?? c.iCustomer ?? '').trim();
+      const client   = c.user || accountNameCache.get(rawId) || (rawId && !/^\d+$/.test(rawId) ? rawId : 'Unknown');
+      const vendor   = c.vendor || (c.connection ? connectionVendorCache.get(c.connection) : undefined) || 'Unknown';
+      const codec    = (c.codec && c.codec !== '-') ? c.codec : 'Unknown';
+      const dir      = c.direction || 'unknown';
+      byClient[client]    = (byClient[client]    || 0) + 1;
+      byVendor[vendor]    = (byVendor[vendor]    || 0) + 1;
+      byCodec[codec]      = (byCodec[codec]      || 0) + 1;
+      byDirection[dir]    = (byDirection[dir]    || 0) + 1;
+    }
+
+    concurrentHistory.push({ ts: Date.now(), count: calls.length, byClient, byVendor, byCodec, byDirection });
+  }
+
   async function snapshotActiveCalls(): Promise<void> {
     try {
       const settings = await storage.getSippySettings();
@@ -7279,6 +7317,10 @@ export async function registerRoutes(
         raw = await sippy.getSippyActiveCalls(username, password, portalUrl);
         if (raw.length > 0) break;
       }
+
+      // Push to concurrent history (even if 0, to track dips)
+      pushConcurrentPoint(raw);
+
       const now = new Date();
       for (const c of raw) {
         if (!c.callId) continue;
@@ -7318,6 +7360,61 @@ export async function registerRoutes(
   }
   setTimeout(() => snapshotActiveCalls(), 8000);            // first run at startup
   setInterval(() => snapshotActiveCalls(), 30 * 1000);      // every 30 seconds
+
+  // GET /api/sippy/live-graphs — live concurrent call history + breakdowns
+  app.get('/api/sippy/live-graphs', (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const hours   = Math.min(Number(req.query.hours) || 3, CONCURRENT_HISTORY_HOURS);
+    const cutoffMs = Date.now() - hours * 3600 * 1000;
+
+    const window = concurrentHistory.filter(p => p.ts >= cutoffMs);
+
+    // Build time-series (minute buckets for ≤6h, 5-min for ≤24h, 15-min for >24h)
+    const bucketMs = hours <= 6 ? 60_000 : hours <= 24 ? 5 * 60_000 : 15 * 60_000;
+    const bucketMap = new Map<number, number[]>();
+    for (const p of window) {
+      const b = Math.floor(p.ts / bucketMs) * bucketMs;
+      if (!bucketMap.has(b)) bucketMap.set(b, []);
+      bucketMap.get(b)!.push(p.count);
+    }
+    const trend = Array.from(bucketMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([ts, counts]) => ({
+        time: new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        avg:  Math.round(counts.reduce((s, v) => s + v, 0) / counts.length),
+        peak: Math.max(...counts),
+      }));
+
+    // Aggregate latest breakdown (last 5 data points to smooth noise)
+    const recent = window.slice(-5);
+    const aggClient: Record<string, number>    = {};
+    const aggVendor: Record<string, number>    = {};
+    const aggCodec: Record<string, number>     = {};
+    const aggDir:   Record<string, number>     = {};
+    for (const p of recent) {
+      for (const [k, v] of Object.entries(p.byClient))    aggClient[k]  = Math.max(aggClient[k]  || 0, v);
+      for (const [k, v] of Object.entries(p.byVendor))    aggVendor[k]  = Math.max(aggVendor[k]  || 0, v);
+      for (const [k, v] of Object.entries(p.byCodec))     aggCodec[k]   = Math.max(aggCodec[k]   || 0, v);
+      for (const [k, v] of Object.entries(p.byDirection)) aggDir[k]     = Math.max(aggDir[k]     || 0, v);
+    }
+
+    const toArr = (m: Record<string, number>, top = 10) =>
+      Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, top).map(([name, calls]) => ({ name, calls }));
+
+    const last = concurrentHistory[concurrentHistory.length - 1];
+    res.json({
+      trend,
+      byClient:    toArr(aggClient),
+      byVendor:    toArr(aggVendor),
+      byCodec:     toArr(aggCodec),
+      byDirection: toArr(aggDir),
+      liveCount:   last?.count ?? 0,
+      peakCount:   window.length ? Math.max(...window.map(p => p.count)) : 0,
+      windowHours: hours,
+      pointsCollected: concurrentHistory.length,
+      oldestPoint: concurrentHistory[0]?.ts ?? null,
+    });
+  });
 
   // ── Reachability poller (every 30 s) ─────────────────────────────────────────
   // Init state from DB first (restores open outage + closes phantom duplicates)
