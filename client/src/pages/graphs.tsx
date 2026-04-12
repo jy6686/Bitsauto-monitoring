@@ -12,6 +12,8 @@ interface GraphsData {
   byClient: { name: string; calls: number }[];
   total: number;
   windowHours: number;
+  cacheSize?: number;
+  cacheUpdatedAt?: string | null;
 }
 
 const DEST_COLORS = [
@@ -103,13 +105,29 @@ export default function GraphsPage() {
         </div>
       </div>
 
-      {/* Updated at */}
-      {updatedAt && (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground/60">
+      {/* Cache status bar */}
+      <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground/70">
+        <span className="flex items-center gap-1.5">
           <Clock className="w-3 h-3" />
-          Last updated {updatedAt}
-        </div>
-      )}
+          {updatedAt ? `Data as of ${updatedAt}` : 'Loading…'}
+        </span>
+        {data?.cacheSize !== undefined && (
+          <span className="px-2 py-0.5 rounded bg-muted/30 border border-border/40 font-mono">
+            {data.cacheSize.toLocaleString()} CDRs cached
+          </span>
+        )}
+        {data?.cacheUpdatedAt && (
+          <span className="text-muted-foreground/50">
+            cache refreshed {new Date(data.cacheUpdatedAt).toLocaleTimeString()} · updates every 5 min
+          </span>
+        )}
+        {data?.total === 0 && data?.cacheSize === 0 && !isLoading && (
+          <span className="text-amber-400/80 flex items-center gap-1">
+            <RefreshCw className="w-3 h-3 animate-spin" />
+            CDR cache warming up — data will appear within 60 s
+          </span>
+        )}
+      </div>
 
       {/* ── Chart 1: Total Calls over Time ─────────────────────────────────── */}
       <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">

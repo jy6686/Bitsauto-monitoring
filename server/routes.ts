@@ -1722,33 +1722,79 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
-  // GET /api/sippy/cdr/graphs — pre-aggregated CDR data for charts
-  // Returns: hourly call counts (last 24h), top destinations, top clients
-  app.get('/api/sippy/cdr/graphs', async (req: any, res) => {
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  // ── Rolling CDR Cache (for /api/sippy/cdr/graphs) ───────────────────────────
+  // Fetches latest 500 CDRs without date filter (fast, no timeout) every 5 minutes,
+  // deduplicates by callId, and keeps a rolling 72-hour window.
+  const CDR_CACHE_MAX_HOURS = 72;
+  const cdrCache = new Map<string, Awaited<ReturnType<typeof sippy.getSippyCDRs>>[0]>();
+  let cdrCacheUpdatedAt: Date | null = null;
+
+  async function refreshCdrCache(): Promise<void> {
     try {
       const settings = await storage.getSettings();
       const credPairs = sippyXmlCredsPairs(settings);
-      const hours = Number(req.query.hours) || 24;
+      let batch: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
 
-      // Fetch a large batch of CDRs for the requested window
-      const now = new Date();
-      const startDate = new Date(now.getTime() - hours * 3600 * 1000);
-      const startStr = startDate.toISOString().slice(0, 19).replace('T', ' ');
-      const endStr   = now.toISOString().slice(0, 19).replace('T', ' ');
-
-      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
       for (const { username, password } of credPairs) {
-        cdrs = await sippy.getSippyCDRs(username, password, 5000, { startDate: startStr, endDate: endStr });
-        if (cdrs.length > 0) break;
+        batch = await sippy.getSippyCDRs(username, password, 500, {});
+        if (batch.length > 0) break;
       }
-      // Enrich client names
-      cdrs = cdrs.map(c => ({
+
+      // Fallback: portal scrape
+      if (batch.length === 0 && settings) {
+        const portalUrl = sippyPortalUrl(settings);
+        const adminUser = settings.apiAdminUsername ?? '';
+        const adminPass = settings.apiAdminPassword ?? '';
+        if (adminUser && adminPass) {
+          try {
+            const scraped = await sippy.scrapeAdminPortalCDRs(adminUser, adminPass, portalUrl, { limit: 500 });
+            if (scraped.length > 0) batch = scraped;
+          } catch { /* ignore */ }
+        }
+      }
+
+      const cutoff = Date.now() - CDR_CACHE_MAX_HOURS * 3600 * 1000;
+      let added = 0;
+      for (const c of batch) {
+        const key = c.callId || c.iCdr || `${c.startTime}:${c.caller}:${c.callee}`;
+        if (!key) continue;
+        if (!cdrCache.has(key)) { cdrCache.set(key, c); added++; }
+      }
+      // Evict entries older than 72h
+      for (const [k, c] of cdrCache) {
+        const ts = c.startTime ? new Date(c.startTime).getTime() : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+        if (ts && ts < cutoff) cdrCache.delete(k);
+      }
+      cdrCacheUpdatedAt = new Date();
+      if (added > 0) console.log(`[cdr-cache] +${added} new records, total=${cdrCache.size}`);
+    } catch (e: any) {
+      console.warn('[cdr-cache] refresh error:', e.message);
+    }
+  }
+
+  // Seed cache immediately on startup, then every 5 minutes
+  setTimeout(() => refreshCdrCache(), 5000);
+  setInterval(() => refreshCdrCache(), 5 * 60 * 1000);
+
+  // GET /api/sippy/cdr/graphs — pre-aggregated CDR data for charts
+  // Returns: hourly call counts (last Nh), top destinations, top clients
+  app.get('/api/sippy/cdr/graphs', async (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const hours = Number(req.query.hours) || 24;
+      const now = new Date();
+      const cutoffMs = now.getTime() - hours * 3600 * 1000;
+
+      // Read from rolling CDR cache (populated by background refreshCdrCache every 5 min)
+      const cdrs = Array.from(cdrCache.values()).filter(c => {
+        const ts = c.startTime ? new Date(c.startTime).getTime() : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+        return ts >= cutoffMs;
+      }).map(c => ({
         ...c,
         clientName: c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || (c.iAccount ? `Acct.${c.iAccount}` : 'Unknown'),
       }));
 
-      // 1) Hourly call counts
+      // 1) Hourly call counts (bucketed by UTC hour label)
       const buckets: Record<string, { total: number; answered: number }> = {};
       for (let h = hours - 1; h >= 0; h--) {
         const t = new Date(now.getTime() - h * 3600 * 1000);
@@ -1756,10 +1802,8 @@ export async function registerRoutes(
         buckets[label] = { total: 0, answered: 0 };
       }
       for (const c of cdrs) {
-        const ts = c.connectTime ? new Date(c.connectTime) : null;
+        const ts = c.startTime ? new Date(c.startTime) : c.connectTime ? new Date(c.connectTime) : null;
         if (!ts) continue;
-        const hoursAgo = (now.getTime() - ts.getTime()) / 3600000;
-        if (hoursAgo > hours) continue;
         const label = `${String(ts.getUTCHours()).padStart(2, '0')}:00`;
         if (buckets[label]) {
           buckets[label].total++;
@@ -1790,7 +1834,12 @@ export async function registerRoutes(
         .slice(0, 15)
         .map(([name, calls]) => ({ name, calls }));
 
-      res.json({ hourly, byDestination, byClient, total: cdrs.length, windowHours: hours });
+      res.json({
+        hourly, byDestination, byClient,
+        total: cdrs.length, windowHours: hours,
+        cacheSize: cdrCache.size,
+        cacheUpdatedAt: cdrCacheUpdatedAt?.toISOString() ?? null,
+      });
     } catch (err: any) {
       console.error('[graphs]', err.message);
       res.status(500).json({ error: err.message });
