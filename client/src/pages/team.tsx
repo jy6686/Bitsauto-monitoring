@@ -6,6 +6,8 @@ import {
   Crown, Eye, Briefcase, Calendar, ChevronDown, XCircle, UserCheck,
   MonitorDot, ChevronRight, Activity, BarChart2, MapPin, Bell,
   AlertTriangle, DollarSign, Phone, Route, Tv2, List,
+  Mail, Plus, Trash2, Edit2, X, TrendingUp, TrendingDown,
+  UserPlus, PhoneCall, LinkIcon, Unlink, ShieldAlert,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import type { Role } from "@shared/schema";
