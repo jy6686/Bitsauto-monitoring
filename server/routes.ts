@@ -2,6 +2,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import * as net from "net";
+import * as https from "https";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
@@ -6994,17 +6995,32 @@ export async function registerRoutes(
         });
       }
 
-      // ── Check 2: HTTP portal reachability ─────────────────────────────────────
+      // ── Check 2: HTTP portal reachability (accepts self-signed TLS certs) ────────
       let httpOk = false; let httpDetail = '';
       try {
-        const r = await Promise.race([
-          fetch(portalUrl, { method: 'HEAD', signal: AbortSignal.timeout(6000) }),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000)),
-        ]) as Response;
-        httpOk = r.status < 500;
-        httpDetail = `HTTP ${r.status} ${r.statusText}`;
+        const parsed = new URL(portalUrl);
+        const isHttps = parsed.protocol === 'https:';
+        const port = parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80);
+        const statusCode = await new Promise<number>((resolve, reject) => {
+          const options = {
+            hostname: parsed.hostname,
+            port,
+            path: parsed.pathname || '/',
+            method: 'HEAD',
+            rejectUnauthorized: false,  // accept self-signed / internal TLS certs
+          };
+          // Use the https module for HTTPS URLs, require http for plain HTTP
+          const reqLib = isHttps ? https : require('http');
+          const req = reqLib.request(options, (res: any) => resolve(res.statusCode));
+          req.on('error', reject);
+          req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+          req.setTimeout(6000);
+          req.end();
+        });
+        httpOk = statusCode < 500;
+        httpDetail = `HTTP ${statusCode} — portal responded`;
       } catch (e: any) {
-        httpDetail = e.message?.includes('timeout') ? 'HTTP request timed out (>6s)' : `HTTP error: ${e.message}`;
+        httpDetail = e.message?.includes('timeout') ? 'HTTP request timed out (>6s)' : `HTTP connection failed: ${e.message}`;
       }
       checks.push({ name: 'HTTP portal', ok: httpOk, detail: httpDetail });
 
@@ -7029,11 +7045,11 @@ export async function registerRoutes(
       // ── Diagnosis summary ─────────────────────────────────────────────────────
       const anyTcpOpen = checks.filter(c => c.name.startsWith('TCP')).some(c => c.ok);
       let summary = '';
-      if (xmlOk && httpOk) summary = 'All systems reachable — transient outage likely resolved';
-      else if (xmlOk && !httpOk) summary = 'XML-RPC API is responding but HTTP portal is not — portal process may be down';
-      else if (anyTcpOpen && !xmlOk) summary = 'Network path OK (TCP open) but application layer unresponsive — softswitch process may be crashed or overloaded';
-      else if (!anyTcpOpen) summary = 'No TCP ports are reachable — firewall block, network outage, or server is completely offline';
-      else summary = 'Partial reachability — some services responding, others not';
+      if (xmlOk && httpOk) summary = 'All systems fully reachable — Sippy API and web portal are both responding normally.';
+      else if (xmlOk && !httpOk) summary = 'XML-RPC API is fully operational — all monitoring functions are working normally. The web portal UI is not reachable from this network (this is expected if the portal uses a self-signed certificate, a private IP, or has IP-based access restrictions). No action required.';
+      else if (anyTcpOpen && !xmlOk) summary = 'Network path is open (TCP handshake OK) but the Sippy API is not responding — the softswitch process may be crashed, overloaded, or restarting. Check the server process and logs.';
+      else if (!anyTcpOpen) summary = 'No TCP ports are reachable — this indicates a firewall block, full network outage, or the server is completely offline.';
+      else summary = 'Partial reachability — some services responding, others not. Review individual check results above.';
 
       res.json({ host, checks, summary, ts: new Date().toISOString() });
     } catch (e: any) { res.status(500).json({ error: e.message }); }

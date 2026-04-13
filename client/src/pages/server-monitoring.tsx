@@ -264,11 +264,29 @@ function ReachabilityTab() {
             </div>
           ) : diagData ? (
             <div className="p-5 space-y-4">
-              {/* Summary */}
-              <div className="px-4 py-3 rounded-lg bg-muted/20 border border-border/40">
-                <p className="text-sm font-medium text-foreground">{diagData.summary}</p>
-                <p className="text-xs text-muted-foreground mt-1">Probed at {new Date(diagData.ts).toLocaleTimeString()}</p>
-              </div>
+              {/* Summary — color-coded by severity */}
+              {(() => {
+                const xmlOk = diagData.checks?.find((c: any) => c.name === 'XML-RPC API')?.ok;
+                const httpOk = diagData.checks?.find((c: any) => c.name === 'HTTP portal')?.ok;
+                const isOperational = xmlOk;
+                const isCritical = !xmlOk;
+                return (
+                  <div className={cn(
+                    "px-4 py-3 rounded-lg border",
+                    isCritical ? "bg-rose-500/10 border-rose-500/30" :
+                    isOperational && !httpOk ? "bg-amber-500/10 border-amber-500/30" :
+                    "bg-emerald-500/10 border-emerald-500/30"
+                  )}>
+                    <p className={cn(
+                      "text-sm font-medium",
+                      isCritical ? "text-rose-300" :
+                      isOperational && !httpOk ? "text-amber-300" :
+                      "text-emerald-300"
+                    )}>{diagData.summary}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Probed at {new Date(diagData.ts).toLocaleTimeString()}</p>
+                  </div>
+                );
+              })()}
 
               {/* Per-check results */}
               <div className="space-y-2">
