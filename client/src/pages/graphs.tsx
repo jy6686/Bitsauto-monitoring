@@ -12,7 +12,7 @@ import {
   TrendingUp, Users, Network, Radio, ArrowLeftRight, RefreshCw, Activity,
   Globe, AlertTriangle, UserCheck, Phone, Mail, Plus, Trash2, Edit2,
   ChevronDown, ChevronRight, X, Check, Loader2, TrendingDown, Minus,
-  Bell, BellOff, ShieldAlert, Map, Eye, ExternalLink,
+  Bell, BellOff, ShieldAlert, Map as MapIcon, Eye, ExternalLink,
 } from "lucide-react";
 
 interface LiveGraphsData {
@@ -575,7 +575,7 @@ function DestBreakoutSection() {
         className="w-full flex items-center gap-3 px-5 py-4 hover:bg-muted/10 transition-colors"
         data-testid="btn-toggle-dest-breakout"
       >
-        <Map className="w-4 h-4 text-emerald-400" />
+        <MapIcon className="w-4 h-4 text-emerald-400" />
         <h2 className="text-sm font-semibold">Destination Breakout Graphs</h2>
         <span className="text-xs text-muted-foreground/60">auto-created from CDR data · per destination time-series</span>
         {isFetching && <RefreshCw className="w-3 h-3 text-muted-foreground/40 animate-spin ml-1" />}
