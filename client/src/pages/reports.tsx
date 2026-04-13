@@ -589,13 +589,6 @@ export default function ReportsPage() {
             </div>
           ) : (
             <>
-              {/* Source badge — shown when falling back to CDR-computed data */}
-              {monitorData?.graphType === 'cdr_computed' && (
-                <div className="flex items-center gap-1.5 mb-3 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 w-fit text-xs text-amber-400">
-                  <Activity className="w-3 h-3" />
-                  CDR-computed (Sippy monitoring API unavailable for this account)
-                </div>
-              )}
               {/* Chart */}
               <ResponsiveContainer width="100%" height={280}>
                 <ComposedChart data={monitorData.points.map(p => ({
