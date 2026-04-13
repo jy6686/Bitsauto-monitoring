@@ -7606,7 +7606,7 @@ export async function registerRoutes(
   });
 
   // GET /api/bitseye/per-entity — per-entity CDR time-series for BitsEye page
-  app.get('/api/bitseye/per-entity', (req: any, res) => {
+  app.get('/api/bitseye/per-entity', async (req: any, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const category  = (req.query.category as string) || 'clients';
     const aliveOnly = req.query.aliveOnly !== 'false';
@@ -7615,10 +7615,30 @@ export async function registerRoutes(
     const now      = Date.now();
     const DAY_MS   = 24 * 3600 * 1000;
     const WEEK_MS  = 7  * DAY_MS;
+    const HALF_MS  = 12 * 3600 * 1000;
 
-    type Bucket = { total: number; connected: number };
+    type Bucket = { total: number; connected: number; durSecs: number };
 
-    // Build 24 hourly bucket labels (UTC)
+    // ── KAM mapping (only needed for KAM category) ────────────────────────────
+    // clientName → KAM display name + set of client names per KAM
+    const clientToKam: Record<string, string> = {};
+    const kamClients:  Record<string, Set<string>> = {};
+    if (category === 'kam') {
+      try {
+        const kams = await storage.getKams();
+        for (const k of kams) {
+          const kamLabel = k.name;
+          for (const acc of k.accounts ?? []) {
+            const cName = acc.clientName || `Acct.${acc.accountId}`;
+            clientToKam[cName] = kamLabel;
+            if (!kamClients[kamLabel]) kamClients[kamLabel] = new Set();
+            kamClients[kamLabel].add(cName);
+          }
+        }
+      } catch (_) { /* storage unavailable — skip KAM grouping */ }
+    }
+
+    // ── Time-series bucket labels ─────────────────────────────────────────────
     const hourlyLabels: string[] = [];
     for (let h = 23; h >= 0; h--) {
       const t = new Date(now - h * 3600 * 1000);
@@ -7626,8 +7646,6 @@ export async function registerRoutes(
         t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', hour12: true, timeZone: 'UTC' })
       );
     }
-
-    // Build 7 daily bucket labels (UTC)
     const weeklyLabels: string[] = [];
     for (let d = 6; d >= 0; d--) {
       const t = new Date(now - d * DAY_MS);
@@ -7636,14 +7654,17 @@ export async function registerRoutes(
       );
     }
 
+    // ── Accumulate CDR data ───────────────────────────────────────────────────
     const dailyData:  Record<string, Record<string, Bucket>> = {};
     const weeklyData: Record<string, Record<string, Bucket>> = {};
+    // For ASR/ACD across all cached CDRs per entity
+    const entityTotals: Record<string, { total: number; connected: number; durSecs: number }> = {};
 
-    const getEntityKey = (c: any): string | null => {
-      if (category === 'vendors') {
-        return (c as any).vendor || null;
-      }
-      return c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || null;
+    const resolveKey = (c: any): string | null => {
+      const raw = c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || null;
+      if (category === 'vendors')  return (c as any).vendor || null;
+      if (category === 'kam')      return raw ? (clientToKam[raw] ?? 'Unassigned') : null;
+      return raw;
     };
 
     for (const c of cdrCache.values()) {
@@ -7651,36 +7672,56 @@ export async function registerRoutes(
         ? new Date(c.startTime).getTime()
         : c.connectTime ? new Date(c.connectTime).getTime() : 0;
       if (!ts) continue;
-      const entity = getEntityKey(c);
+      const entity = resolveKey(c);
       if (!entity || entity === 'Unknown') continue;
-      const isConnected = (c.duration ?? 0) > 0;
+      const isConn = (c.duration ?? 0) > 0;
+      const dur    = Number(c.duration ?? 0);
 
+      // Running totals (full cache, for ASR/ACD)
+      if (!entityTotals[entity]) entityTotals[entity] = { total: 0, connected: 0, durSecs: 0 };
+      entityTotals[entity].total++;
+      if (isConn) { entityTotals[entity].connected++; entityTotals[entity].durSecs += dur; }
+
+      // Daily buckets (last 24h)
       if (ts >= now - DAY_MS) {
         const t = new Date(ts);
         const label = t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', hour12: true, timeZone: 'UTC' });
         if (!dailyData[entity]) dailyData[entity] = {};
-        if (!dailyData[entity][label]) dailyData[entity][label] = { total: 0, connected: 0 };
+        if (!dailyData[entity][label]) dailyData[entity][label] = { total: 0, connected: 0, durSecs: 0 };
         dailyData[entity][label].total++;
-        if (isConnected) dailyData[entity][label].connected++;
+        if (isConn) { dailyData[entity][label].connected++; dailyData[entity][label].durSecs += dur; }
       }
-
+      // Weekly buckets
       if (ts >= now - WEEK_MS) {
         const t = new Date(ts);
         const label = t.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
         if (!weeklyData[entity]) weeklyData[entity] = {};
-        if (!weeklyData[entity][label]) weeklyData[entity][label] = { total: 0, connected: 0 };
+        if (!weeklyData[entity][label]) weeklyData[entity][label] = { total: 0, connected: 0, durSecs: 0 };
         weeklyData[entity][label].total++;
-        if (isConnected) weeklyData[entity][label].connected++;
+        if (isConn) { weeklyData[entity][label].connected++; weeklyData[entity][label].durSecs += dur; }
       }
     }
 
-    const latestSnap    = concurrentHistory[concurrentHistory.length - 1];
-    const latestByKey   = category === 'vendors' ? (latestSnap?.byVendor ?? {}) : (latestSnap?.byClient ?? {});
+    // ── Concurrent snapshot ───────────────────────────────────────────────────
+    const latestSnap  = concurrentHistory[concurrentHistory.length - 1];
+    const latestByKey = category === 'vendors'
+      ? (latestSnap?.byVendor ?? {})
+      : (latestSnap?.byClient ?? {});
 
+    // ── Build entity set ──────────────────────────────────────────────────────
     const allEntities = new Set<string>();
     for (const k of Object.keys(dailyData))  allEntities.add(k);
     for (const k of Object.keys(weeklyData)) allEntities.add(k);
-    for (const k of Object.keys(latestByKey)) if (k !== 'Unknown') allEntities.add(k);
+    if (category !== 'kam') {
+      for (const k of Object.keys(latestByKey)) if (k !== 'Unknown') allEntities.add(k);
+    } else {
+      for (const k of Object.keys(kamClients)) allEntities.add(k);
+      allEntities.add('Unassigned');
+    }
+
+    const safeMin = (arr: number[]) => arr.length === 0 ? 0 : Math.min(...arr);
+    const safeMax = (arr: number[]) => arr.length === 0 ? 0 : Math.max(...arr);
+    const safeAvg = (arr: number[]) => arr.length === 0 ? 0 : Math.round(arr.reduce((s, v) => s + v, 0) / arr.length);
 
     const entities: any[] = [];
 
@@ -7698,19 +7739,47 @@ export async function registerRoutes(
 
       const allTotals = daily.map(d => d.total_calls);
       const allConns  = daily.map(d => d.connected_calls);
-      const curConcurrent = latestByKey[name] ?? 0;
-      const totalInWindow = allTotals.reduce((s, v) => s + v, 0);
-      if (aliveOnly && curConcurrent === 0 && totalInWindow === 0) continue;
+      const todayCalls = allTotals.reduce((s, v) => s + v, 0);
 
-      const safeMin = (arr: number[]) => Math.min(...arr, Infinity) === Infinity ? 0 : Math.min(...arr);
-      const safeMax = (arr: number[]) => arr.length ? Math.max(...arr) : 0;
-      const safeAvg = (arr: number[]) => arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
+      // Concurrent (live) count — for KAM: sum across all managed clients
+      let curConcurrent = 0;
+      if (category === 'kam') {
+        for (const cName of kamClients[name] ?? []) {
+          curConcurrent += latestByKey[cName] ?? 0;
+        }
+      } else {
+        curConcurrent = latestByKey[name] ?? 0;
+      }
+
+      if (aliveOnly && curConcurrent === 0 && todayCalls === 0) continue;
+      if (name === 'Unassigned' && todayCalls === 0 && curConcurrent === 0) continue;
+
+      // ── Trend: last 12h vs prior 12h ─────────────────────────────────────
+      const last12  = allTotals.slice(12).reduce((s, v) => s + v, 0);
+      const prior12 = allTotals.slice(0, 12).reduce((s, v) => s + v, 0);
+      const trendPct = prior12 > 0 ? Math.round(((last12 - prior12) / prior12) * 100) : (last12 > 0 ? 100 : 0);
+
+      // ── ASR & ACD ─────────────────────────────────────────────────────────
+      const tot  = entityTotals[name] ?? { total: 0, connected: 0, durSecs: 0 };
+      const asr  = tot.total > 0 ? Math.round((tot.connected / tot.total) * 100) : 0;
+      const acd  = tot.connected > 0 ? Math.round(tot.durSecs / tot.connected) : 0; // seconds
+
+      // ── Weekly ASR (for weekly chart label) ────────────────────────────────
+      const weeklyTotalCalls = weekly.reduce((s, p) => s + p.total_calls,     0);
+      const weeklyConnCalls  = weekly.reduce((s, p) => s + p.connected_calls, 0);
+      const weeklyAsr = weeklyTotalCalls > 0 ? Math.round((weeklyConnCalls / weeklyTotalCalls) * 100) : 0;
+
       const lastUpdate = latestSnap ? new Date(latestSnap.ts) : new Date();
 
+      // KAM: list of managed client names for tooltip
+      const clients = category === 'kam'
+        ? Array.from(kamClients[name] ?? []).sort()
+        : undefined;
+
       entities.push({
-        name,
-        daily, weekly,
-        curConcurrent,
+        name, daily, weekly, curConcurrent, todayCalls,
+        trendPct, asr, acdSecs: acd, weeklyAsr,
+        clients,
         stats: {
           total:     { cur: allTotals[allTotals.length - 1] ?? 0, min: safeMin(allTotals), max: safeMax(allTotals), avg: safeAvg(allTotals) },
           connected: { cur: allConns[allConns.length - 1]   ?? 0, min: safeMin(allConns),  max: safeMax(allConns),  avg: safeAvg(allConns)  },
@@ -7723,10 +7792,25 @@ export async function registerRoutes(
     if (orderBy === 'name') {
       entities.sort((a, b) => a.name.localeCompare(b.name));
     } else {
-      entities.sort((a, b) => (b.stats.total.max - a.stats.total.max) || a.name.localeCompare(b.name));
+      entities.sort((a, b) => (b.todayCalls - a.todayCalls) || a.name.localeCompare(b.name));
     }
 
-    res.json({ entities, totalEntities: entities.length, updatedAt: new Date().toISOString() });
+    // ── Summary across all entities ───────────────────────────────────────────
+    const totalConcurrent = entities.reduce((s, e) => s + e.curConcurrent, 0);
+    const totalToday      = entities.reduce((s, e) => s + e.todayCalls, 0);
+    const allCdrTot       = Object.values(entityTotals).reduce((s, v) => s + v.total, 0);
+    const allCdrConn      = Object.values(entityTotals).reduce((s, v) => s + v.connected, 0);
+    const overallAsr      = allCdrTot > 0 ? Math.round((allCdrConn / allCdrTot) * 100) : 0;
+    const overallAcd      = allCdrConn > 0
+      ? Math.round(Object.values(entityTotals).reduce((s, v) => s + v.durSecs, 0) / allCdrConn)
+      : 0;
+
+    res.json({
+      entities,
+      totalEntities: entities.length,
+      updatedAt:     new Date().toISOString(),
+      summary: { totalConcurrent, totalToday, overallAsr, overallAcdSecs: overallAcd },
+    });
   });
 
   // ── Reachability poller (every 30 s) ─────────────────────────────────────────
