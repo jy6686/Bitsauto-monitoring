@@ -120,12 +120,12 @@ function DIDFormModal({
           </div>
           <div className="col-span-2 space-y-1.5">
             <Label>Assign to Account</Label>
-            <Select value={form.iAccount} onValueChange={v => setForm(p => ({ ...p, iAccount: v }))}>
+            <Select value={form.iAccount || "__unassigned__"} onValueChange={v => setForm(p => ({ ...p, iAccount: v === "__unassigned__" ? "" : v }))}>
               <SelectTrigger data-testid="select-account">
                 <SelectValue placeholder="— Unassigned —" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">— Unassigned —</SelectItem>
+                <SelectItem value="__unassigned__">— Unassigned —</SelectItem>
                 {accounts.map(a => (
                   <SelectItem key={a.iAccount} value={String(a.iAccount)}>{a.username} (#{a.iAccount})</SelectItem>
                 ))}
@@ -281,13 +281,13 @@ export default function DIDsPage() {
             onChange={e => setSearch(e.target.value)}
           />
         </div>
-        <Select value={filterAcct} onValueChange={setFilterAcct}>
+        <Select value={filterAcct || "__all__"} onValueChange={v => setFilterAcct(v === "__all__" ? "" : v)}>
           <SelectTrigger data-testid="select-filter-account" className="w-52">
             <Filter className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
             <SelectValue placeholder="All accounts" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All accounts</SelectItem>
+            <SelectItem value="__all__">All accounts</SelectItem>
             <SelectItem value="null">Unassigned</SelectItem>
             {accounts.map(a => (
               <SelectItem key={a.iAccount} value={String(a.iAccount)}>{a.username}</SelectItem>

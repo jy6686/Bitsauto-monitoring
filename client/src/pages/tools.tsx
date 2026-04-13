@@ -878,12 +878,12 @@ function RouteTestTab() {
           </div>
           <div className="col-span-2 space-y-1.5">
             <Label>Fallback Account (if CLI not auto-authenticated)</Label>
-            <Select value={fallbackAccount} onValueChange={setFallbackAccount}>
+            <Select value={fallbackAccount || "__auto__"} onValueChange={v => setFallbackAccount(v === "__auto__" ? "" : v)}>
               <SelectTrigger data-testid="select-fallback-account">
                 <SelectValue placeholder="— Auto-detect from auth rules —" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">— Auto-detect from auth rules —</SelectItem>
+                <SelectItem value="__auto__">— Auto-detect from auth rules —</SelectItem>
                 {accounts.map(a => (
                   <SelectItem key={a.iAccount} value={String(a.iAccount)}>{a.username} (#{a.iAccount})</SelectItem>
                 ))}
