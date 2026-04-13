@@ -65,7 +65,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/settings",          label: "Settings",          icon: Settings,        roles: ['admin']                       },
     { href: "/alerts",            label: "Alerts",            icon: Bell,            roles: ['admin','management']          },
     { href: "/account",           label: "My Account",        icon: UserCog,         roles: ['admin','management','viewer'] },
-    { href: "/team",              label: "Team",              icon: Users,           roles: ['admin']                       },
+    { href: "/team",              label: "Team & KAM",        icon: Users,           roles: ['admin']                       },
   ];
 
   const navItems = allNavItems.filter(item => item.roles.includes(role));
