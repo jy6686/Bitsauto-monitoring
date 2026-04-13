@@ -142,6 +142,11 @@ export default function DashboardPage() {
     queryKey: ['/api/user/monitoring-assignments'],
   });
 
+  // Viewer's assigned Sippy accounts (via KAM email match)
+  const { data: myAccountsData } = useQuery<{ kamId: number | null; kamName: string | null; accountIds: string[]; clientNames: string[] }>({
+    queryKey: ['/api/user/assigned-accounts'],
+  });
+
 
 
   // Sippy session
@@ -284,6 +289,386 @@ export default function DashboardPage() {
   }, [statsUpdatedAt]);
 
   if (!stats) return <div className="p-8">Loading dashboard...</div>;
+
+  // ── Viewer Dashboard ─────────────────────────────────────────────────────────
+  // Viewers see only their admin-assigned monitoring items, filtered to their accounts
+  if (role === 'viewer') {
+    const myItems = new Set(myAssignmentsData?.items ?? []);
+    const has = (id: string) => myItems.has(id);
+    const assignedLabels = MONITORING_ITEMS.filter(m => myItems.has(m.id));
+    const myAccountIds = new Set(myAccountsData?.accountIds ?? []);
+    const myClientNames = new Set((myAccountsData?.clientNames ?? []).map((n: string) => n.toLowerCase()));
+
+    // Filter live calls to viewer's assigned accounts (if accounts are configured)
+    const viewerLiveCalls = myAccountIds.size > 0
+      ? liveCalls.filter((c: any) => myAccountIds.has(String(c.accountId)))
+      : liveCalls;
+
+    const groupColors: Record<string, string> = {
+      'Live Calls': 'bg-blue-500/15 text-blue-400 border-blue-500/25',
+      'Finance':    'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
+      'Security':   'bg-red-500/15 text-red-400 border-red-500/25',
+      'Operations': 'bg-amber-500/15 text-amber-400 border-amber-500/25',
+      'Analytics':  'bg-violet-500/15 text-violet-400 border-violet-500/25',
+      'Reports':    'bg-cyan-500/15 text-cyan-400 border-cyan-500/25',
+    };
+
+    return (
+      <div className="space-y-6">
+        {/* ── Viewer Header ──────────────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-bold tracking-tight">My Dashboard</h2>
+              {anyPortalActive && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  LIVE
+                </span>
+              )}
+            </div>
+            <p className="text-muted-foreground text-sm mt-1">
+              {user?.email ?? user?.firstName}
+              {myAccountsData?.kamName && <span className="ml-2 text-xs text-violet-400">· KAM: {myAccountsData.kamName}</span>}
+              {anyPortalActive && secsAgo < 60 && <span className="ml-2 text-muted-foreground/60">· refreshed {secsAgo}s ago</span>}
+            </p>
+            {/* Assignment badges */}
+            {assignedLabels.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 mt-3">
+                <span className="text-xs text-muted-foreground font-medium">Monitoring:</span>
+                {assignedLabels.map(item => (
+                  <span key={item.id} className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${groupColors[item.group] ?? 'bg-muted/30 text-muted-foreground border-border/50'}`}>
+                    {item.label}
+                  </span>
+                ))}
+                {myAccountIds.size > 0 && (
+                  <span className="text-xs text-muted-foreground/60 ml-1">· {myAccountIds.size} account{myAccountIds.size !== 1 ? 's' : ''} assigned</span>
+                )}
+              </div>
+            )}
+          </div>
+          {anyPortalActive && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/50">
+                <Radio className="w-3 h-3 text-blue-400" />
+                <span className="text-muted-foreground">Active:</span>
+                <span className="font-bold text-blue-400">{viewerLiveCalls.length}</span>
+              </div>
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/50">
+                <BarChart2 className="w-3 h-3 text-emerald-400" />
+                <span className="text-muted-foreground">ASR:</span>
+                <span className={`font-bold ${displayAsr >= 10 ? 'text-emerald-400' : displayAsr > 0 ? 'text-amber-400' : 'text-rose-400'}`}>{displayAsr.toFixed(1)}%</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* No assignments */}
+        {myItems.size === 0 && (
+          <div className="rounded-xl border-2 border-dashed border-muted/40 bg-muted/5 p-10 text-center">
+            <Users className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-muted-foreground text-sm">No monitoring items assigned yet.</p>
+            <p className="text-muted-foreground/60 text-xs mt-1">Contact your administrator to get access to monitoring features.</p>
+          </div>
+        )}
+
+        {/* ── live_summary — KPI Cards ──────────────────────────────────────── */}
+        {has('live_summary') && (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Active Calls */}
+            <div className="bg-card border border-blue-500/20 rounded-xl p-5 shadow-lg relative overflow-hidden group hover:border-blue-500/40 transition-all duration-300">
+              <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
+                <PhoneCall className="w-24 h-24" />
+              </div>
+              <div className="flex items-center justify-between mb-3 relative z-10">
+                <h3 className="text-sm font-medium text-muted-foreground">Active Calls</h3>
+                <div className="p-2 bg-secondary/50 rounded-lg"><PhoneCall className="w-4 h-4 text-blue-400" /></div>
+              </div>
+              <div className="relative z-10">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-bold tracking-tight tabular-nums" data-testid="viewer-active-calls">
+                    {notConnected ? '—' : viewerLiveCalls.length}
+                  </span>
+                  {anyPortalActive && callRatePerMin > 0 && (
+                    <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-violet-400/10 text-violet-400">{callRatePerMin}/min</span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">{anyPortalActive ? `Live calls${myAccountIds.size > 0 ? ' · your accounts' : ''}` : '—'}</p>
+              </div>
+            </div>
+            {/* ASR */}
+            <StatCard
+              title="ASR"
+              value={notConnected ? '—' : `${displayAsr.toFixed(1)}%`}
+              icon={BarChart2}
+              className={displayAsr >= 30 ? 'border-emerald-500/20' : displayAsr > 0 ? 'border-amber-500/20' : 'border-rose-500/20'}
+              description="Answer-Seizure Ratio"
+            />
+            {/* Traffic Score */}
+            <div className={cn("bg-card border rounded-xl p-5 shadow-lg relative overflow-hidden group hover:border-opacity-60 transition-all duration-300", scoreBorder)}>
+              <div className="flex items-center justify-between mb-3 relative z-10">
+                <h3 className="text-sm font-medium text-muted-foreground">Traffic Score</h3>
+                <div className="p-2 bg-secondary/50 rounded-lg"><Award className="w-4 h-4 text-amber-400" /></div>
+              </div>
+              <div className="relative z-10">
+                <div className="flex items-baseline gap-2">
+                  <span className={cn("text-3xl font-bold tracking-tight tabular-nums", notConnected ? 'text-muted-foreground/40' : scoreTextCls)}>{notConnected ? '—' : trafficScore}</span>
+                  {!notConnected && <span className="text-sm text-muted-foreground">/100</span>}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">{notConnected ? '—' : `${scoreLabel} · composite`}</p>
+              </div>
+              {!notConnected && (
+                <div className="mt-3 h-1 rounded-full bg-muted/40 overflow-hidden relative z-10">
+                  <div className={cn("h-full rounded-full transition-all duration-700", trafficScore >= 80 ? 'bg-emerald-500' : trafficScore >= 60 ? 'bg-blue-500' : trafficScore >= 40 ? 'bg-amber-500' : 'bg-rose-500')} style={{ width: `${trafficScore}%` }} />
+                </div>
+              )}
+            </div>
+            {/* MOS */}
+            <StatCard
+              title="Avg MOS"
+              value={notConnected ? '—' : displayMos != null ? displayMos.toFixed(2) : '—'}
+              icon={Activity}
+              className={displayMos != null && displayMos > 4 ? "border-emerald-500/20" : "border-amber-500/20"}
+              description={anyPortalActive ? "E-model estimate" : "Mean Opinion Score"}
+            />
+          </div>
+        )}
+
+        {/* ── live_details — Live Calls Table ──────────────────────────────── */}
+        {has('live_details') && (
+          <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-border/50 flex items-center justify-between">
+              <h3 className="font-semibold flex items-center gap-2">
+                <PhoneCall className="w-4 h-4 text-blue-500" />
+                {anyPortalActive
+                  ? `Live Calls (${viewerLiveCalls.length}${myAccountIds.size > 0 && liveCalls.length !== viewerLiveCalls.length ? ` of ${liveCalls.length} total` : ''})`
+                  : 'Live Calls'}
+                {myAccountIds.size > 0 && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                    Your Accounts
+                  </span>
+                )}
+              </h3>
+              <Link href="/calls" className="inline-flex items-center text-sm font-medium text-primary hover:text-primary/80 transition-colors">
+                Full View <ArrowRight className="ml-1 w-4 h-4" />
+              </Link>
+            </div>
+            <div className="overflow-x-auto">
+              {anyPortalActive ? (
+                viewerLiveCalls.length === 0 ? (
+                  <div className="px-6 py-12 text-center text-sm text-muted-foreground">
+                    {myAccountIds.size > 0 ? 'No active calls for your assigned accounts right now.' : 'No active calls right now.'}
+                  </div>
+                ) : (
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-muted/50 text-muted-foreground font-medium">
+                      <tr>
+                        <th className="px-6 py-3">Caller</th>
+                        <th className="px-6 py-3">Callee</th>
+                        <th className="px-6 py-3">Account</th>
+                        <th className="px-6 py-3">State</th>
+                        <th className="px-6 py-3">Duration</th>
+                        <th className="px-6 py-3">Answer Type</th>
+                        <th className="px-6 py-3">Setup Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {viewerLiveCalls.slice(0, 30).map((call: any, i: number) => (
+                        <LiveCallRow key={call.callId || i} call={call} index={i} />
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              ) : (
+                <div className="px-6 py-12 text-center text-sm text-muted-foreground">Connect to softswitch to see live calls.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── balance_monitor — Revenue / Cost strip ─────────────────────── */}
+        {has('balance_monitor') && anyPortalActive && (
+          <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-2.5 border-b border-border/40 bg-muted/10">
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue &amp; Cost — 90→30 min ago (settled CDRs)</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 sm:grid-cols-6 divide-x divide-border/40">
+              <div className="px-4 py-3 text-center">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Total Calls</p>
+                <p className="text-xl font-bold tabular-nums">{sippyFinancials?.origination.totalCalls ?? '—'}</p>
+              </div>
+              <div className="px-4 py-3 text-center">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">ASR</p>
+                <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.origination.asr ?? 0) >= 30 ? 'text-emerald-400' : 'text-amber-400'}`}>{sippyFinancials?.origination.totalCalls ? `${sippyFinancials.origination.asr}%` : '—'}</p>
+              </div>
+              <div className="px-4 py-3 text-center bg-emerald-500/5">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Revenue</p>
+                <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.origination.revenue ?? 0) > 0 ? 'text-emerald-400' : 'text-muted-foreground'}`}>{sippyFinancials?.origination.revenue != null ? `$${sippyFinancials.origination.revenue.toFixed(4)}` : '—'}</p>
+              </div>
+              <div className="px-4 py-3 text-center">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Term Calls</p>
+                <p className="text-xl font-bold tabular-nums">{sippyFinancials?.termination.totalCalls ?? '—'}</p>
+              </div>
+              <div className="px-4 py-3 text-center bg-rose-500/5">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Cost</p>
+                <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.termination.cost ?? 0) > 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>{sippyFinancials?.termination.cost != null ? `$${sippyFinancials.termination.cost.toFixed(4)}` : '—'}</p>
+              </div>
+              <div className={`px-4 py-3 text-center ${(sippyFinancials?.margin ?? 0) > 0 ? 'bg-emerald-500/10' : (sippyFinancials?.margin ?? 0) < 0 ? 'bg-rose-500/10' : ''}`}>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Margin</p>
+                <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.margin ?? 0) > 0 ? 'text-emerald-400' : (sippyFinancials?.margin ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>{sippyFinancials?.margin != null ? `$${Math.abs(sippyFinancials.margin).toFixed(4)}` : '—'}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── graphs — ASR/ACD Trend + Call Back Ratio ─────────────────────── */}
+        {has('graphs') && (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* ASR / ACD Trend */}
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-primary" />
+                    ASR &amp; ACD Trend
+                    {myClientNames.size > 0 && (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">Your Accounts</span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Answer-Seizure Ratio (%) + Avg Call Duration (s)</p>
+                </div>
+                <select
+                  className="bg-background border border-border rounded-md text-xs px-2 py-1"
+                  value={trendHours}
+                  onChange={e => setTrendHours(Number(e.target.value))}
+                  data-testid="viewer-select-trend-window"
+                >
+                  <option value={1}>Last 1h</option>
+                  <option value={6}>Last 6h</option>
+                  <option value={24}>Last 24h</option>
+                </select>
+              </div>
+              <div className="h-[260px] w-full">
+                {chartData.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                    <Activity className="w-8 h-8 opacity-30" />
+                    <p className="text-sm">{notConnected ? 'Connect to softswitch to see live trends.' : 'Loading trend data…'}</p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={chartData} margin={{ top: 4, right: 40, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorAsrGV" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
+                      <XAxis dataKey="time" stroke="#555" fontSize={10} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                      <YAxis yAxisId="asr" orientation="left" stroke="#555" fontSize={10} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v) => `${v}%`} width={36} />
+                      <YAxis yAxisId="acd" orientation="right" stroke="#555" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}s`} width={36} />
+                      <Tooltip contentStyle={{ backgroundColor: '#0f0f0f', borderColor: '#2a2a2a', borderRadius: '8px', fontSize: '11px' }} itemStyle={{ color: '#ccc' }} formatter={(value: any, name: string) => name === 'asr' ? [`${value}%`, 'ASR'] : [`${value}s`, 'ACD']} />
+                      <Area yAxisId="asr" type="monotone" dataKey="asr" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorAsrGV)" dot={false} />
+                      <Line yAxisId="acd" type="monotone" dataKey="acd" stroke="#a78bfa" strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: '#a78bfa' }} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            {/* Call Back Ratio */}
+            <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
+              <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-4 border-b border-border/50">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-sm tracking-wide uppercase text-muted-foreground">Call Back Ratio</h3>
+                    <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">FAS Deduction</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground/70">Calls answered by user ÷ total attempts · deducting failed calls</p>
+                </div>
+                <span className={`text-4xl font-bold font-mono tabular-nums ${notConnected ? 'text-muted-foreground/40' : displayCkRatio >= 80 ? 'text-emerald-400' : displayCkRatio >= 60 ? 'text-amber-400' : 'text-rose-400'}`}>{notConnected ? '—' : `${displayCkRatio.toFixed(1)}%`}</span>
+              </div>
+              {!notConnected && displayCkBreakdown && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/50">
+                  <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                    <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Connected</span>
+                    <span className="text-2xl font-bold text-emerald-400 tabular-nums">{(displayCkBreakdown?.connected ?? 0).toLocaleString()}</span>
+                    <span className="text-xs text-center text-muted-foreground">Answered by user</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+                    <PhoneMissed className="w-5 h-5 text-rose-400" />
+                    <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Wrong No.</span>
+                    <span className="text-2xl font-bold text-rose-400 tabular-nums">{(displayCkBreakdown?.wrongNumber ?? 0).toLocaleString()}</span>
+                    <span className="text-xs text-center text-muted-foreground">Invalid / misrouted</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+                    <PhoneOff className="w-5 h-5 text-orange-400" />
+                    <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Switched Off</span>
+                    <span className="text-2xl font-bold text-orange-400 tabular-nums">{(displayCkBreakdown?.switchedOff ?? 0).toLocaleString()}</span>
+                    <span className="text-xs text-center text-muted-foreground">Device unreachable</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+                    <Signal className="w-5 h-5 text-amber-400" />
+                    <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Untraceable</span>
+                    <span className="text-2xl font-bold text-amber-400 tabular-nums">{(displayCkBreakdown?.untraceable ?? 0).toLocaleString()}</span>
+                    <span className="text-xs text-center text-muted-foreground">No network / signal</span>
+                  </div>
+                </div>
+              )}
+              {!notConnected && (displayCkBreakdown?.total ?? 0) > 0 && (
+                <div className="px-6 pb-5 pt-2 space-y-2">
+                  <div className="h-2.5 rounded-full overflow-hidden bg-muted/30 flex">
+                    <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${(displayCkBreakdown?.connected ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }} />
+                    <div className="bg-rose-500 h-full transition-all duration-500" style={{ width: `${(displayCkBreakdown?.wrongNumber ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }} />
+                    <div className="bg-orange-500 h-full transition-all duration-500" style={{ width: `${(displayCkBreakdown?.switchedOff ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }} />
+                    <div className="bg-amber-500 h-full transition-all duration-500" style={{ width: `${(displayCkBreakdown?.untraceable ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }} />
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground/60">
+                    <span><span className="text-muted-foreground font-medium">{(displayCkBreakdown?.total ?? 0).toLocaleString()}</span> {anyPortalActive && sippyStats?.ckBreakdown != null ? 'calls last hour (Sippy CDRs)' : 'total attempts today'}</span>
+                    <span>Failed: <span className="text-rose-400 font-medium">{((displayCkBreakdown?.total ?? 0) - (displayCkBreakdown?.connected ?? 0)).toLocaleString()}</span></span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── fraud_fas — FAS Events ─────────────────────────────────────────── */}
+        {has('fraud_fas') && recentFasEvents.length > 0 && (
+          <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-rose-500/15">
+              <ShieldAlert className="w-4 h-4 text-rose-400" />
+              <h3 className="font-semibold text-sm text-rose-300">FAS Detections</h3>
+              <span className="ml-1 text-xs text-rose-400/70">— False Answer Supervision</span>
+            </div>
+            <div className="divide-y divide-rose-500/10">
+              {recentFasEvents.map((ev: any) => {
+                const reasons: string[] = (ev.reason ?? '').split(',').map((r: string) => r.trim()).filter(Boolean);
+                return (
+                  <div key={ev.id} className="flex items-center gap-4 px-5 py-2.5 text-xs hover:bg-rose-500/5">
+                    <div className="text-muted-foreground/60 w-28">{formatUTC(new Date(ev.detectedAt), 'dd MMM HH:mm:ss')}</div>
+                    <div className="min-w-[90px]"><span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary/80">{ev.clientName || 'Unknown'}</span></div>
+                    <div className="font-mono text-muted-foreground truncate">{ev.caller ?? '—'} <span className="text-muted-foreground/40">→</span> {ev.callee ?? '—'}</div>
+                    <div className="ml-auto flex items-center gap-1.5">
+                      {reasons.map(r => (
+                        <span key={r} className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${r === 'high_pdd' ? 'bg-orange-500/15 text-orange-400' : r === 'zero_billed' ? 'bg-red-500/15 text-red-400' : r === 'short_billed' ? 'bg-violet-500/15 text-violet-400' : r === 'early_answer' ? 'bg-yellow-500/15 text-yellow-400' : 'bg-muted/30 text-muted-foreground'}`}>{r.replace(/_/g, ' ')}</span>
+                      ))}
+                      <span className="ml-1 text-rose-400 font-bold">Score {ev.fraudScore ?? 0}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

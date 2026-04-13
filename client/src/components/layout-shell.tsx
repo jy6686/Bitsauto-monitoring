@@ -3,6 +3,7 @@ import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Bui
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { Role } from "@shared/schema";
 
 interface LayoutShellProps {
@@ -16,10 +17,10 @@ const ROLE_BADGE: Record<Role, { label: string; color: string }> = {
 };
 
 const CALLS_SUBITEMS = [
-  { view: 'summary', label: 'Active Call Summary', icon: BarChart3,  iconColor: 'text-violet-400' },
-  { view: 'details', label: 'Active Call Details',  icon: List,       iconColor: 'text-cyan-400'   },
-  { view: 'quality', label: 'Quality Monitoring',   icon: HeartPulse, iconColor: 'text-rose-400'   },
-  { view: 'history', label: 'Call History',         icon: History,    iconColor: 'text-amber-400'  },
+  { view: 'summary', label: 'Active Call Summary', icon: BarChart3,  iconColor: 'text-violet-400', itemId: 'live_summary'  },
+  { view: 'details', label: 'Active Call Details',  icon: List,       iconColor: 'text-cyan-400',   itemId: 'live_details'  },
+  { view: 'quality', label: 'Quality Monitoring',   icon: HeartPulse, iconColor: 'text-rose-400',   itemId: 'live_quality'  },
+  { view: 'history', label: 'Call History',         icon: History,    iconColor: 'text-amber-400',  itemId: 'call_history'  },
 ] as const;
 
 const MONITORING_SUBITEMS = [
@@ -30,6 +31,24 @@ const MONITORING_SUBITEMS = [
   { tab: 'alert-rules',   label: 'Email / Webhook Alerts',icon: Bell,        iconColor: 'text-blue-400'    },
   { tab: 'registrations', label: 'Reg Storm Detection',   icon: Radio,       iconColor: 'text-rose-400'    },
 ] as const;
+
+// Maps monitoring item IDs → nav hrefs (for viewer sidebar filtering)
+const ITEM_NAV_MAP: Record<string, string> = {
+  live_summary:      '/calls',
+  live_details:      '/calls',
+  live_quality:      '/calls',
+  call_history:      '/calls',
+  balance_monitor:   '/balance',
+  alerts:            '/alerts',
+  fraud_fas:         '/fraud',
+  traffic_map:       '/traffic-map',
+  graphs:            '/graphs',
+  server_monitoring: '/server-monitoring',
+  cdr_viewer:        '/cdrs',
+  reports:           '/reports',
+  route_quality:     '/reports',
+  did_management:    '/dids',
+};
 
 export function LayoutShell({ children }: LayoutShellProps) {
   const [location] = useLocation();
@@ -49,26 +68,52 @@ export function LayoutShell({ children }: LayoutShellProps) {
     if (isMonitoringActive) setMonitoringExpanded(true);
   }, [isMonitoringActive]);
 
+  // Fetch viewer's monitoring assignments (only active for viewer role)
+  const { data: viewerAssignmentsData } = useQuery<{ items: string[] }>({
+    queryKey: ['/api/user/monitoring-assignments'],
+    enabled: role === 'viewer',
+    staleTime: 60_000,
+  });
+  const assignedItemSet = new Set(viewerAssignmentsData?.items ?? []);
+
   const allNavItems = [
-    { href: "/",                  label: "Dashboard",        icon: LayoutDashboard, roles: ['admin','management','viewer'] },
-    { href: "/calls",             label: "Live Calls",        icon: Phone,           roles: ['admin','management','viewer'], hasSubmenu: 'calls' as const },
-    { href: "/clients",           label: "Client / Vendor",   icon: Building2,       roles: ['admin','management']          },
-    { href: "/balance",           label: "Balance Monitor",   icon: Wallet,          roles: ['admin','management']          },
-    { href: "/dids",              label: "DID Management",    icon: PhoneIncoming,   roles: ['admin','management']          },
-    { href: "/traffic-map",       label: "Traffic Map",       icon: Globe,           roles: ['admin','management']          },
-    { href: "/graphs",            label: "Graphs",            icon: LineChart,       roles: ['admin','management']          },
-    { href: "/reports",           label: "Reports",           icon: BarChart2,       roles: ['admin','management']          },
-    { href: "/cdrs",              label: "CDR Viewer",        icon: FileText,        roles: ['admin','management']          },
-    { href: "/fraud",             label: "Fraud / FAS",       icon: ShieldAlert,     roles: ['admin','management']          },
-    { href: "/server-monitoring", label: "Server Monitoring", icon: Server,          roles: ['admin','management'], hasSubmenu: 'monitoring' as const },
-    { href: "/tools",             label: "Tools",             icon: Wrench,          roles: ['admin','management']          },
-    { href: "/settings",          label: "Settings",          icon: Settings,        roles: ['admin']                       },
-    { href: "/alerts",            label: "Alerts",            icon: Bell,            roles: ['admin','management']          },
-    { href: "/account",           label: "My Account",        icon: UserCog,         roles: ['admin','management','viewer'] },
-    { href: "/team",              label: "Team & KAM",        icon: Users,           roles: ['admin']                       },
+    { href: "/",                  label: "Dashboard",        icon: LayoutDashboard, roles: ['admin','management','viewer'] as Role[] },
+    { href: "/calls",             label: "Live Calls",        icon: Phone,           roles: ['admin','management','viewer'] as Role[], hasSubmenu: 'calls' as const },
+    { href: "/clients",           label: "Client / Vendor",   icon: Building2,       roles: ['admin','management']          as Role[] },
+    { href: "/balance",           label: "Balance Monitor",   icon: Wallet,          roles: ['admin','management']          as Role[] },
+    { href: "/dids",              label: "DID Management",    icon: PhoneIncoming,   roles: ['admin','management']          as Role[] },
+    { href: "/traffic-map",       label: "Traffic Map",       icon: Globe,           roles: ['admin','management']          as Role[] },
+    { href: "/graphs",            label: "Graphs",            icon: LineChart,       roles: ['admin','management']          as Role[] },
+    { href: "/reports",           label: "Reports",           icon: BarChart2,       roles: ['admin','management']          as Role[] },
+    { href: "/cdrs",              label: "CDR Viewer",        icon: FileText,        roles: ['admin','management']          as Role[] },
+    { href: "/fraud",             label: "Fraud / FAS",       icon: ShieldAlert,     roles: ['admin','management']          as Role[] },
+    { href: "/server-monitoring", label: "Server Monitoring", icon: Server,          roles: ['admin','management']          as Role[], hasSubmenu: 'monitoring' as const },
+    { href: "/tools",             label: "Tools",             icon: Wrench,          roles: ['admin','management']          as Role[] },
+    { href: "/settings",          label: "Settings",          icon: Settings,        roles: ['admin']                       as Role[] },
+    { href: "/alerts",            label: "Alerts",            icon: Bell,            roles: ['admin','management']          as Role[] },
+    { href: "/account",           label: "My Account",        icon: UserCog,         roles: ['admin','management','viewer'] as Role[] },
+    { href: "/team",              label: "Team & KAM",        icon: Users,           roles: ['admin']                       as Role[] },
   ];
 
-  const navItems = allNavItems.filter(item => item.roles.includes(role));
+  // For viewers: only show nav items whose hrefs are unlocked by their assigned monitoring items
+  // Dashboard and My Account are always visible
+  const VIEWER_ALWAYS_SHOW = new Set(['/', '/account']);
+  const navItems = (() => {
+    const roleFiltered = allNavItems.filter(item => item.roles.includes(role));
+    if (role !== 'viewer') return roleFiltered;
+    // Viewer mode: filter by assigned items
+    const unlockedHrefs = new Set([
+      ...VIEWER_ALWAYS_SHOW,
+      ...[...assignedItemSet].map(id => ITEM_NAV_MAP[id]).filter(Boolean),
+    ]);
+    return roleFiltered.filter(item => unlockedHrefs.has(item.href));
+  })();
+
+  // For viewers: only show calls sub-items that match their assignments
+  const visibleCallsSubitems = role === 'viewer'
+    ? CALLS_SUBITEMS.filter(sub => assignedItemSet.has(sub.itemId))
+    : CALLS_SUBITEMS;
+
   const badge = ROLE_BADGE[role];
 
   const currentView = isCallsActive
@@ -98,6 +143,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
               : location.startsWith(item.href);
 
             if (item.hasSubmenu === 'calls') {
+              // For viewer with no visible sub-items, skip the calls menu entirely
+              if (role === 'viewer' && visibleCallsSubitems.length === 0) return null;
               return (
                 <div key={item.href}>
                   <button
@@ -113,7 +160,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
                   </button>
                   {callsExpanded && (
                     <div className="mt-1 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-                      {CALLS_SUBITEMS.map(sub => {
+                      {visibleCallsSubitems.map(sub => {
                         const subActive = isActive && currentView === sub.view;
                         return (
                           <Link key={sub.view} href={`/calls?view=${sub.view}`} className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150", subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
@@ -191,6 +238,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
                   <span className={cn("text-xs font-medium px-1.5 py-0.5 rounded-full", badge.color)}>
                     {badge.label}
                   </span>
+                  {role === 'viewer' && assignedItemSet.size > 0 && (
+                    <span className="text-xs text-muted-foreground/60">{assignedItemSet.size} items</span>
+                  )}
                 </div>
                 <button
                   onClick={() => logout()}

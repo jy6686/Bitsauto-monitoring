@@ -732,6 +732,27 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/user/assigned-accounts — returns Sippy account IDs assigned to this viewer via KAM email match
+  app.get('/api/user/assigned-accounts', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const allUsers = await storage.getAllUsersWithRoles();
+      const currentUser = allUsers.find((u: any) => u.id === userId);
+      const userEmail = currentUser?.email;
+      if (!userEmail) return res.json({ kamId: null, kamName: null, accountIds: [], clientNames: [] });
+      const allKams = await storage.getKams();
+      const matchedKam = allKams.find((k: any) => k.email?.toLowerCase() === userEmail.toLowerCase());
+      if (!matchedKam) return res.json({ kamId: null, kamName: null, accountIds: [], clientNames: [] });
+      const kamAccts = await storage.getKamAccounts(matchedKam.id);
+      const accountIds = kamAccts.map((a: any) => String(a.accountId));
+      const clientNames = kamAccts.map((a: any) => a.clientName).filter(Boolean);
+      res.json({ kamId: matchedKam.id, kamName: matchedKam.name, accountIds, clientNames });
+    } catch {
+      res.status(500).json({ message: 'Failed to fetch assigned accounts' });
+    }
+  });
+
   // GET /api/user/config — returns the logged-in user's personal config
   app.get('/api/user/config', async (req: any, res) => {
     const userId = req.user?.claims?.sub;

@@ -14,6 +14,7 @@ import { lookupCountry } from "@/lib/country-lookup";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation, useSearch } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -347,8 +348,19 @@ function SwitchPanel({
 
   const liveCallData = isPrimary ? primarySippyLiveCalls : switchLiveCalls;
 
-  // Build live calls list
-  const liveCalls: LiveCall[] = liveCallData?.calls ?? [];
+  // Viewer account filtering — show only calls for assigned accounts
+  const { role } = useAuth();
+  const { data: viewerAccounts } = useQuery<{ accountIds: string[]; clientNames: string[]; kamName: string | null }>({
+    queryKey: ['/api/user/assigned-accounts'],
+    enabled: role === 'viewer',
+  });
+  const viewerAccountIds = new Set(viewerAccounts?.accountIds ?? []);
+
+  // Build live calls list (filtered by assigned accounts for viewer role)
+  const allLiveCalls: LiveCall[] = liveCallData?.calls ?? [];
+  const liveCalls: LiveCall[] = (role === 'viewer' && viewerAccountIds.size > 0)
+    ? allLiveCalls.filter(c => viewerAccountIds.has(String(c.accountId)))
+    : allLiveCalls;
 
   const summaryRows = buildSummary(liveCalls);
   const totalConnected = summaryRows.reduce((s, r) => s + r.connected, 0);

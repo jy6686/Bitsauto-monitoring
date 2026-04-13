@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -563,13 +564,24 @@ export default function GraphsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/kam'] }),
   });
 
+  // Viewer account filtering
+  const { role } = useAuth();
+  const { data: viewerAccounts } = useQuery<{ accountIds: string[]; clientNames: string[]; kamName: string | null }>({
+    queryKey: ['/api/user/assigned-accounts'],
+    enabled: role === 'viewer',
+  });
+  const viewerClientNames = new Set((viewerAccounts?.clientNames ?? []).map((n: string) => n.toLowerCase()));
+
   const updatedAt = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : null;
   const hasHistory = (data?.trend?.length ?? 0) > 0;
   const coverageMins = data?.oldestPoint
     ? Math.round((Date.now() - data.oldestPoint) / 60_000)
     : 0;
 
-  const liveClients = data?.byClient ?? [];
+  const allLiveClients = data?.byClient ?? [];
+  const liveClients = (role === 'viewer' && viewerClientNames.size > 0)
+    ? allLiveClients.filter(c => viewerClientNames.has(c.name.toLowerCase()))
+    : allLiveClients;
   const liveMap = new Map(liveClients.map(c => [c.name, c.calls]));
 
   // Compute peak per client in the last 48h (use peakCount as proxy for now)
