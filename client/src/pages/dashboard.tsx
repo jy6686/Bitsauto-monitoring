@@ -179,7 +179,7 @@ export default function DashboardPage() {
   const isSippyReachable = sippyLiveCalls?.connected === true || !!sippySession?.active || sippyStats?.connected === true;
   // Sippy ASR/ACD report — CDR-based revenue & margin stats for last 90 min
   const { data: sippyFinancials, refetch: refetchFinancials, isRefetching: financialsRefetching } = useQuery<{
-    ok: boolean; period: string;
+    ok: boolean; period: string; costSource?: string;
     origination: { totalCalls: number; billableCalls: number; totalDurationSec: number; acd: number; asr: number; avgPdd: number; revenue: number };
     termination: { totalCalls: number; billableCalls: number; totalDurationSec: number; acd: number; asr: number; avgPdd: number; cost: number };
     margin: number;
@@ -514,11 +514,17 @@ export default function DashboardPage() {
               </div>
               <div className="px-4 py-3 text-center bg-rose-500/5">
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Cost</p>
-                <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.termination.cost ?? 0) > 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>{sippyFinancials?.termination.cost != null ? `$${sippyFinancials.termination.cost.toFixed(4)}` : '—'}</p>
+                {sippyFinancials?.costSource === 'pending'
+                  ? <p className="text-xl font-bold tabular-nums text-muted-foreground" title="Vendor cost tracking accumulates over 90 min — check back shortly">Tracking…</p>
+                  : <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.termination.cost ?? 0) > 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>{sippyFinancials?.termination.cost != null ? `$${sippyFinancials.termination.cost.toFixed(4)}` : '—'}</p>
+                }
               </div>
-              <div className={`px-4 py-3 text-center ${(sippyFinancials?.margin ?? 0) > 0 ? 'bg-emerald-500/10' : (sippyFinancials?.margin ?? 0) < 0 ? 'bg-rose-500/10' : ''}`}>
+              <div className={`px-4 py-3 text-center ${sippyFinancials?.costSource !== 'pending' && (sippyFinancials?.margin ?? 0) > 0 ? 'bg-emerald-500/10' : sippyFinancials?.costSource !== 'pending' && (sippyFinancials?.margin ?? 0) < 0 ? 'bg-rose-500/10' : ''}`}>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Margin</p>
-                <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.margin ?? 0) > 0 ? 'text-emerald-400' : (sippyFinancials?.margin ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>{sippyFinancials?.margin != null ? `$${Math.abs(sippyFinancials.margin).toFixed(4)}` : '—'}</p>
+                {sippyFinancials?.costSource === 'pending'
+                  ? <p className="text-xl font-bold tabular-nums text-muted-foreground">—</p>
+                  : <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.margin ?? 0) > 0 ? 'text-emerald-400' : (sippyFinancials?.margin ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>{sippyFinancials?.margin != null ? `$${Math.abs(sippyFinancials.margin).toFixed(4)}` : '—'}</p>
+                }
               </div>
             </div>
           </div>
@@ -930,19 +936,35 @@ export default function DashboardPage() {
             {/* Cost */}
             <div className="px-4 py-3 text-center bg-rose-500/5">
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Cost</p>
-              <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.termination.cost ?? 0) > 0 ? 'text-rose-400' : 'text-muted-foreground'}`} data-testid="fin-cost">
-                {sippyFinancials?.termination.cost != null ? `$${sippyFinancials.termination.cost.toFixed(4)}` : '—'}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Vendor cost</p>
+              {sippyFinancials?.costSource === 'pending'
+                ? <>
+                    <p className="text-xl font-bold tabular-nums text-muted-foreground" data-testid="fin-cost" title="Vendor cost tracking accumulates over 90 min — check back shortly">Tracking…</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Balance tracking…</p>
+                  </>
+                : <>
+                    <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.termination.cost ?? 0) > 0 ? 'text-rose-400' : 'text-muted-foreground'}`} data-testid="fin-cost">
+                      {sippyFinancials?.termination.cost != null ? `$${sippyFinancials.termination.cost.toFixed(4)}` : '—'}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Vendor cost</p>
+                  </>
+              }
             </div>
             {/* Margin */}
-            <div className={`px-4 py-3 text-center ${(sippyFinancials?.margin ?? 0) > 0 ? 'bg-emerald-500/10' : (sippyFinancials?.margin ?? 0) < 0 ? 'bg-rose-500/10' : ''}`}>
+            <div className={`px-4 py-3 text-center ${sippyFinancials?.costSource !== 'pending' && (sippyFinancials?.margin ?? 0) > 0 ? 'bg-emerald-500/10' : sippyFinancials?.costSource !== 'pending' && (sippyFinancials?.margin ?? 0) < 0 ? 'bg-rose-500/10' : ''}`}>
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Margin</p>
-              <p className={`text-xl font-bold tabular-nums flex items-center justify-center gap-1 ${(sippyFinancials?.margin ?? 0) > 0 ? 'text-emerald-400' : (sippyFinancials?.margin ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground'}`} data-testid="fin-margin">
-                {(sippyFinancials?.margin ?? 0) > 0 ? <TrendingUp className="w-4 h-4" /> : (sippyFinancials?.margin ?? 0) < 0 ? <TrendingDown className="w-4 h-4" /> : <Minus className="w-4 h-4" />}
-                {sippyFinancials?.margin != null ? `$${Math.abs(sippyFinancials.margin).toFixed(4)}` : '—'}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Revenue − Cost</p>
+              {sippyFinancials?.costSource === 'pending'
+                ? <>
+                    <p className="text-xl font-bold tabular-nums text-muted-foreground flex items-center justify-center gap-1" data-testid="fin-margin"><Minus className="w-4 h-4" />—</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Revenue − Cost</p>
+                  </>
+                : <>
+                    <p className={`text-xl font-bold tabular-nums flex items-center justify-center gap-1 ${(sippyFinancials?.margin ?? 0) > 0 ? 'text-emerald-400' : (sippyFinancials?.margin ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground'}`} data-testid="fin-margin">
+                      {(sippyFinancials?.margin ?? 0) > 0 ? <TrendingUp className="w-4 h-4" /> : (sippyFinancials?.margin ?? 0) < 0 ? <TrendingDown className="w-4 h-4" /> : <Minus className="w-4 h-4" />}
+                      {sippyFinancials?.margin != null ? `$${Math.abs(sippyFinancials.margin).toFixed(4)}` : '—'}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Revenue − Cost</p>
+                  </>
+              }
             </div>
           </div>
         </div>

@@ -64,6 +64,65 @@ interface SippySession {
 
 let activeSession: SippySession | null = null;
 
+// ── Portal session caches ─────────────────────────────────────────────────────
+// Two separate caches:
+//   anyPortalCache  — used by listActiveCalls; accepts any session (admin/reseller/customer)
+//   adminPortalCache — used by getSippyPerAccountStats; accepts only admin/reseller (for vendor data)
+// TTL = 5 minutes each, to avoid rate-limiting the Sippy portal.
+const PORTAL_SESSION_TTL_MS = 5 * 60_000;
+let anyPortalCache:   { cookies: CookieJar; expiresAt: number } | null = null;
+let adminPortalCache: { cookies: CookieJar; expiresAt: number } | null = null;
+
+// Get any valid portal session (used by listActiveCalls portal scraping fallback)
+async function getAnyPortalSession(
+  base: string,
+  ...pairs: Array<[string, string]>
+): Promise<CookieJar | null> {
+  const now = Date.now();
+  if (anyPortalCache && anyPortalCache.expiresAt > now) return anyPortalCache.cookies;
+  for (const [u, p] of pairs) {
+    for (const acctType of ['admin', 'reseller', 'customer'] as const) {
+      const res = await portalLogin(base, u, p, acctType);
+      if (res.success) {
+        anyPortalCache = { cookies: res.cookies, expiresAt: now + PORTAL_SESSION_TTL_MS };
+        console.log(`[Sippy] portal session cached (any) as ${u}/${acctType}`);
+        return res.cookies;
+      }
+    }
+  }
+  anyPortalCache = null;
+  return null;
+}
+
+// Get an admin-level portal session (used by getSippyPerAccountStats for vendor cost data)
+// Only accepts admin or reseller login — customer login shows wrong vendor data.
+// Tries ssp-root (apiAdminUsername) first, then portalUsername.
+async function getAdminPortalSession(
+  base: string,
+  adminUser: string, adminPass: string,
+  portalUser: string, portalPass: string,
+): Promise<CookieJar | null> {
+  const now = Date.now();
+  if (adminPortalCache && adminPortalCache.expiresAt > now) return adminPortalCache.cookies;
+  // Try admin+reseller types only — customer login gives wrong vendor amounts
+  const pairs = [[adminUser, adminPass], [portalUser, portalPass]] as [string, string][];
+  const failures: string[] = [];
+  for (const [u, p] of pairs) {
+    if (!u || !p) continue;
+    for (const acctType of ['admin', 'reseller'] as const) {
+      const res = await portalLogin(base, u, p, acctType);
+      if (res.success) {
+        adminPortalCache = { cookies: res.cookies, expiresAt: now + PORTAL_SESSION_TTL_MS };
+        console.log(`[Sippy] admin portal session cached as ${u}/${acctType}`);
+        return res.cookies;
+      }
+      failures.push(`${u}/${acctType}: ${res.message}`);
+    }
+  }
+  console.log('[Sippy] getAdminPortalSession: no admin/reseller login worked:', failures.slice(0,4).join(' | '));
+  adminPortalCache = null;
+  return null;
+}
 
 export function getSippySessionStatus() {
   if (!activeSession) return { active: false };
@@ -369,8 +428,12 @@ async function portalLogin(
     }
     // Check if we ended up on the login page again (failed login = ShowErrorDialog with message)
     const isLoginPage = resp.body.includes('ShowErrorDialog(') && !resp.body.includes('ShowErrorDialog(\'\')') && !resp.body.includes('ShowErrorDialog("")');
-    // Also check if we have a logout link (success) or just a login form
-    const hasLogout = resp.body.includes('logout') || resp.body.includes('Logout') || resp.body.includes('My Preferences') || resp.body.includes('my_calls') || resp.body.includes('cdrs_customer');
+    // Success indicators: customer portal uses my_calls/cdrs_customer; admin portal uses vendors.php/accounts.php/activecalls.php
+    const hasLogout = resp.body.includes('logout') || resp.body.includes('Logout') || resp.body.includes('Log Out')
+      || resp.body.includes('My Preferences') || resp.body.includes('my_calls') || resp.body.includes('cdrs_customer')
+      || resp.body.includes('vendors.php') || resp.body.includes('accounts.php') || resp.body.includes('activecalls.php')
+      || resp.body.includes('billing.php') || resp.body.includes('asr_acd.php') || resp.body.includes('i_customer=')
+      || resp.body.includes('reports.php') || resp.body.includes('subcustomers.php');
     if (!hasLogout || isLoginPage) {
       return { success: false, cookies: new Map(), message: `Login rejected — wrong username, password, or account type (${accountType}).` };
     }
@@ -709,17 +772,15 @@ export async function getSippyPerAccountStats(
   }
 
   try {
-    // ── Step 1: Login as portal customer — auto-retry with swapped credentials ──
-    // Production DB may have apiAdminUsername and portalUsername fields swapped;
-    // try both pairs so login works regardless of which slot holds the customer creds.
-    let loginRes = await portalLogin(base, portalUsername, portalPassword, 'customer');
-    if (!loginRes.success && fallbackUsername && fallbackPassword && fallbackUsername !== portalUsername) {
-      console.log('[Sippy] getSippyPerAccountStats: primary portal login failed, trying fallback credentials');
-      loginRes = await portalLogin(base, fallbackUsername, fallbackPassword, 'customer');
-    }
-    if (!loginRes.success) return FAIL(`Portal login failed: ${loginRes.message}`);
-
-    const cookies = loginRes.cookies;
+    // ── Step 1: Get admin portal session (cached — re-logins at most every 5 min) ──
+    // Try fallback (ssp-root = apiAdminUsername) first as admin, then portalUsername (RTST1).
+    // Admin login is required to see actual vendor termination costs on /asr_acd.php.
+    const cookies = await getAdminPortalSession(
+      base,
+      fallbackUsername ?? '', fallbackPassword ?? '',  // ssp-root / apiAdminUsername first
+      portalUsername, portalPassword,                   // RTST1 / portalUsername second
+    );
+    if (!cookies) return FAIL('Portal login failed: no admin/reseller session available. Vendor cost unavailable.');
 
     // ── Step 2: POST /asr_acd.php with correct form parameters ─────────────
     // orig_disp=1 → group by Caller (account)
@@ -1180,20 +1241,19 @@ export async function getSippyActiveCalls(
   if (filter?.node_id      !== undefined) reqParams.node_id      = filter.node_id;
 
   // ── Admin portal scrape — fallback when XML-RPC is auth-rejected ────────────
+  // Uses a cached portal session (5-min TTL) to avoid rate-limiting the portal.
   async function tryAdminPortalScrape(): Promise<SippyActiveCall[]> {
     const pairs: Array<[string, string]> = [];
     if (username && password) pairs.push([username, password]);
     if (fallbackUsername && fallbackPassword && fallbackUsername !== username)
       pairs.push([fallbackUsername, fallbackPassword]);
-    for (const [u, p] of pairs) {
-      const loginRes = await portalLogin(base, u, p, 'admin');
-      if (loginRes.success) {
-        console.log(`[Sippy] listActiveCalls: XML-RPC restricted — scraping /activecalls.php as admin (${u})`);
-        return getPortalActiveCallsHtml(loginRes.cookies, base);
-      }
+    const cookies = await getAnyPortalSession(base, ...pairs);
+    if (!cookies) {
+      console.log('[Sippy] listActiveCalls: admin portal login failed, returning empty list');
+      return [];
     }
-    console.log('[Sippy] listActiveCalls: admin portal login failed, returning empty list');
-    return [];
+    console.log(`[Sippy] listActiveCalls: XML-RPC restricted — scraping /activecalls.php (cached session)`);
+    return getPortalActiveCallsHtml(cookies, base);
   }
 
   // Official methods: listActiveCalls (Connected/ARComplete/WaitRoute only) | listAllCalls (all states fallback)

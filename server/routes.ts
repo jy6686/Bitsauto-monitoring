@@ -20,6 +20,69 @@ const accountNameCache: Map<string, string> = new Map();
 // Refreshed every 30 min alongside connectionVendorCache.
 let liveAccountIds: number[] = [];
 
+// ── Vendor balance tracker ────────────────────────────────────────────────────
+// Polls listSippyVendors every 60 s and stores timestamped balance snapshots.
+// The asr-acd-stats endpoint uses balance delta (T-90min → T-30min) to compute
+// actual vendor cost — the only method that works without admin portal access.
+interface VendorBalanceSnapshot {
+  timestamp: number;  // Date.now()
+  vendors: Array<{ iVendor: number; name: string; balance: number }>;
+}
+const vendorBalanceHistory: VendorBalanceSnapshot[] = [];
+const VENDOR_BALANCE_HISTORY_MS = 2 * 60 * 60_000; // keep 2 hours
+
+async function refreshVendorBalances(): Promise<void> {
+  try {
+    const settings = await storage.getSippySettings();
+    if (!settings) return;
+    const { username, password } = sippyXmlCreds(settings);
+    const { vendors } = await sippy.listSippyVendors(username, password);
+    if (!vendors?.length) return;
+    const snap: VendorBalanceSnapshot = {
+      timestamp: Date.now(),
+      vendors: vendors.map(v => ({ iVendor: v.iVendor, name: v.name, balance: v.balance ?? 0 })),
+    };
+    vendorBalanceHistory.push(snap);
+    const balStr = vendors.map(v => `${v.name}=$${(v.balance ?? 0).toFixed(4)}`).join(', ');
+    console.log(`[vendor-balance] snapshot #${vendorBalanceHistory.length}: ${balStr}`);
+    // Prune old snapshots
+    const cutoff = Date.now() - VENDOR_BALANCE_HISTORY_MS;
+    let i = 0;
+    while (i < vendorBalanceHistory.length && vendorBalanceHistory[i].timestamp < cutoff) i++;
+    if (i > 0) vendorBalanceHistory.splice(0, i);
+  } catch { /* ignore transient errors */ }
+}
+
+/**
+ * Compute vendor cost from balance delta between two time points.
+ * Looks for the closest snapshots at or before `tStartMs` and `tEndMs`.
+ * Returns null if no valid history data is available yet.
+ */
+function vendorCostFromHistory(tStartMs: number, tEndMs: number): number | null {
+  if (vendorBalanceHistory.length < 2) return null;
+  // Find latest snapshot at or before tStartMs
+  let snapStart: VendorBalanceSnapshot | null = null;
+  for (let i = vendorBalanceHistory.length - 1; i >= 0; i--) {
+    if (vendorBalanceHistory[i].timestamp <= tStartMs) { snapStart = vendorBalanceHistory[i]; break; }
+  }
+  // Find latest snapshot at or before tEndMs
+  let snapEnd: VendorBalanceSnapshot | null = null;
+  for (let i = vendorBalanceHistory.length - 1; i >= 0; i--) {
+    if (vendorBalanceHistory[i].timestamp <= tEndMs) { snapEnd = vendorBalanceHistory[i]; break; }
+  }
+  if (!snapStart || !snapEnd || snapStart.timestamp === snapEnd.timestamp) return null;
+  // Sum balance decreases per vendor (positive decrease = cost incurred)
+  let totalCost = 0;
+  for (const ve of snapEnd.vendors) {
+    const vs = snapStart.vendors.find(v => v.iVendor === ve.iVendor);
+    if (vs) {
+      const decrease = vs.balance - ve.balance;
+      if (decrease > 0) totalCost += decrease;
+    }
+  }
+  return parseFloat(totalCost.toFixed(4));
+}
+
 async function refreshAccountCache(): Promise<void> {
   try {
     const settings = await storage.getSippySettings();
@@ -1613,21 +1676,18 @@ export async function registerRoutes(
       // Revenue = sum of CDR cost field (amount billed to customer by Sippy)
       const revenue = parseFloat(completed.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0).toFixed(4));
 
-      // Termination cost: attempt from portal (vendor side); use 0 if unavailable
-      let vendorCost = 0;
-      try {
-        const portalUser = settings?.portalUsername ?? '';
-        const portalPass = settings?.portalPassword ?? '';
-        const adminUser  = settings?.apiAdminUsername ?? '';
-        const adminPass  = settings?.apiAdminPassword ?? '';
-        const portal = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 60, adminUser, adminPass);
-        if (portal.ok && portal.termination.cost > 0) vendorCost = portal.termination.cost;
-      } catch { /* leave as 0 */ }
+      // Vendor cost: computed from vendor balance delta (T-90min → T-30min).
+      // vendorCostFromHistory() returns null when <2 snapshots are available (app just started).
+      // After the tracker has accumulated ≥90 min of history it returns the real delta.
+      const balanceDelta = vendorCostFromHistory(start.getTime(), end.getTime());
+      const vendorCost   = balanceDelta !== null ? balanceDelta : 0;
+      const costSource   = balanceDelta !== null ? 'balance-delta' : 'pending';
 
       res.json({
         ok: true,
         period: PERIOD_LABEL,
         source: 'cdr',
+        costSource,
         origination: { totalCalls, billableCalls, totalDurationSec: totalDurSec, acd, asr, avgPdd, revenue },
         termination: { totalCalls, billableCalls, totalDurationSec: totalDurSec, acd, asr, avgPdd, cost: vendorCost },
         margin: parseFloat((revenue - vendorCost).toFixed(4)),
@@ -7436,6 +7496,11 @@ export async function registerRoutes(
   setTimeout(() => refreshConnectionVendorCache(),  6000);
   setInterval(() => refreshAccountCache(),          30 * 60 * 1000);
   setInterval(() => refreshConnectionVendorCache(), 30 * 60 * 1000);
+
+  // ── Vendor balance tracker (every 60 s) ─────────────────────────────────────
+  // Stores timestamped vendor balance snapshots for balance-delta vendor cost computation.
+  setTimeout(() => refreshVendorBalances(), 9000);   // first snapshot ~9 s after boot
+  setInterval(() => refreshVendorBalances(), 60_000); // then every 60 s
 
   // ── Call snapshot background poller (every 30 s) ──────────────────────────
   // Polls live Sippy calls and upserts each into call_snapshots for 24h history.
