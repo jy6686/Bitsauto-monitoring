@@ -814,7 +814,7 @@ function RouteTestTab() {
         remoteIp:          remoteIp.trim() || undefined,
         toDomain:          toDomain.trim() || undefined,
         fallbackIAccount:  fallbackAccount || undefined,
-      }),
+      }).then(r => r.json()),
   });
 
   const result = testMut.data?.data;
@@ -1032,7 +1032,7 @@ function RouteTestTab() {
           )}
 
           {/* No routes */}
-          {(!result.routes || result.routes.length === 0) && testMut.isSuccess && (
+          {(!result?.routes || result.routes.length === 0) && testMut.isSuccess && (
             <div className="flex items-center gap-3 p-4 rounded-xl border border-amber-500/25 bg-amber-500/8 text-amber-300 text-sm">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" />
               No routing entries returned. Call would fail. Check the CLI/CLD or account setup.
