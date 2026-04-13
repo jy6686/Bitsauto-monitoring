@@ -99,14 +99,14 @@ export function LayoutShell({ children }: LayoutShellProps) {
   // Dashboard and My Account are always visible
   const VIEWER_ALWAYS_SHOW = new Set(['/', '/account']);
   const navItems = (() => {
-    const roleFiltered = allNavItems.filter(item => item.roles.includes(role));
-    if (role !== 'viewer') return roleFiltered;
-    // Viewer mode: filter by assigned items
+    if (role !== 'viewer') return allNavItems.filter(item => item.roles.includes(role));
+    // Viewer mode: bypass role-based filter — use only assignment-unlocked hrefs.
+    // This allows items like /graphs (admin-only by default) to appear when assigned.
     const unlockedHrefs = new Set([
       ...VIEWER_ALWAYS_SHOW,
       ...[...assignedItemSet].map(id => ITEM_NAV_MAP[id]).filter(Boolean),
     ]);
-    return roleFiltered.filter(item => unlockedHrefs.has(item.href));
+    return allNavItems.filter(item => unlockedHrefs.has(item.href));
   })();
 
   // For viewers: only show calls sub-items that match their assignments
