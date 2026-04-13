@@ -1,12 +1,12 @@
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { MapContainer, TileLayer, GeoJSON, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import * as topojson from 'topojson-client';
 import type { Topology, GeometryCollection } from 'topojson-client';
 import { useQuery } from '@tanstack/react-query';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
-  Globe, RefreshCw, Loader2, BarChart2, Clock, Phone, TrendingUp, AlertCircle,
+  Globe, RefreshCw, Loader2, BarChart2, Clock, Phone, TrendingUp, AlertCircle, MapPin,
 } from 'lucide-react';
 
 // Fix Leaflet default icon paths broken by bundlers
@@ -39,13 +39,13 @@ interface TrafficData {
 // ─── Color scale ──────────────────────────────────────────────────────────────
 
 function trafficColor(pct: number): string {
-  if (pct >= 30) return '#7c3aed';   // deep violet – dominant traffic
-  if (pct >= 20) return '#8b5cf6';   // violet
-  if (pct >= 10) return '#6366f1';   // indigo
-  if (pct >=  5) return '#3b82f6';   // blue
-  if (pct >=  2) return '#06b6d4';   // cyan
-  if (pct >=  0.5) return '#10b981'; // emerald
-  return '#1e293b';                   // near-invisible for unmapped
+  if (pct >= 30) return '#7c3aed';
+  if (pct >= 20) return '#8b5cf6';
+  if (pct >= 10) return '#6366f1';
+  if (pct >=  5) return '#3b82f6';
+  if (pct >=  2) return '#06b6d4';
+  if (pct >=  0.5) return '#10b981';
+  return '#1e293b';
 }
 
 function trafficOpacity(pct: number): number {
@@ -57,7 +57,7 @@ function trafficOpacity(pct: number): number {
   return 0.18;
 }
 
-// ─── Legend component ─────────────────────────────────────────────────────────
+// ─── Legend ───────────────────────────────────────────────────────────────────
 
 const LEGEND_ITEMS = [
   { label: '≥ 30%',  color: '#7c3aed' },
@@ -87,61 +87,110 @@ function MapLegend() {
   return null;
 }
 
-// ─── GeoJSON layer that re-renders when traffic data changes ──────────────────
+// ─── Country Layer (raw Leaflet, reliable style updates + fly-to) ─────────────
 
-function CountryLayer({
-  geoJson,
-  trafficMap,
-  onHover,
-}: {
+interface CountryLayerProps {
   geoJson: GeoJSON.FeatureCollection;
   trafficMap: Map<string, CountryRow>;
   onHover: (row: CountryRow | null) => void;
-}) {
-  const ref = useRef<L.GeoJSON | null>(null);
-
-  const style = useCallback((feature?: GeoJSON.Feature): L.PathOptions => {
-    const id = String(feature?.id ?? '');
-    const row = trafficMap.get(id);
-    const pct = row?.pct ?? 0;
-    return {
-      fillColor:   trafficColor(pct),
-      fillOpacity: row ? trafficOpacity(pct) : 0.08,
-      color:       '#334155',
-      weight:      0.6,
-      opacity:     0.5,
-    };
-  }, [trafficMap]);
-
-  const onEachFeature = useCallback((feature: GeoJSON.Feature, layer: L.Layer) => {
-    const id = String(feature.id ?? '');
-    const row = trafficMap.get(id);
-    (layer as L.Path).on({
-      mouseover: (e) => {
-        const l = e.target as L.Path;
-        l.setStyle({ weight: 2, color: '#fff', fillOpacity: Math.min(1, (row ? trafficOpacity(row.pct) : 0.08) + 0.12) });
-        l.bringToFront();
-        onHover(row ?? null);
-      },
-      mouseout: (e) => {
-        ref.current?.resetStyle(e.target);
-        onHover(null);
-      },
-    });
-  }, [trafficMap, onHover]);
-
-  return (
-    <GeoJSON
-      key={trafficMap.size}
-      ref={ref}
-      data={geoJson}
-      style={style}
-      onEachFeature={onEachFeature}
-    />
-  );
+  flyToTarget: string | null;          // country name to fly to
+  onFlyComplete: () => void;
 }
 
-// ─── Tooltip overlay ──────────────────────────────────────────────────────────
+function CountryLayer({ geoJson, trafficMap, onHover, flyToTarget, onFlyComplete }: CountryLayerProps) {
+  const map = useMap();
+  const layerRef = useRef<L.GeoJSON | null>(null);
+  // name → bounds, also numericId → bounds
+  const boundsMapRef = useRef<Map<string, L.LatLngBounds>>(new Map());
+
+  // Build / rebuild the GeoJSON layer whenever geoJson or trafficMap changes
+  useEffect(() => {
+    if (!map) return;
+
+    // Remove existing layer
+    if (layerRef.current) {
+      map.removeLayer(layerRef.current);
+      layerRef.current = null;
+    }
+    boundsMapRef.current.clear();
+
+    const layer = L.geoJSON(geoJson, {
+      style: (feature?: GeoJSON.Feature): L.PathOptions => {
+        const id = String(feature?.id ?? '');
+        const row = trafficMap.get(id);
+        const pct = row?.pct ?? 0;
+        return {
+          fillColor:   trafficColor(pct),
+          fillOpacity: row ? trafficOpacity(pct) : 0.08,
+          color:       '#334155',
+          weight:      0.6,
+          opacity:     0.5,
+        };
+      },
+      onEachFeature: (feature: GeoJSON.Feature, l: L.Layer) => {
+        const id = String(feature.id ?? '');
+        const row = trafficMap.get(id);
+
+        // Store bounds for fly-to (by numeric ID and by name)
+        try {
+          const bounds = (l as L.Polygon).getBounds();
+          if (bounds && bounds.isValid()) {
+            boundsMapRef.current.set(id, bounds);
+            if (row?.name) boundsMapRef.current.set(row.name.toLowerCase(), bounds);
+          }
+        } catch { /* not a polygon */ }
+
+        (l as L.Path).on({
+          mouseover: (e) => {
+            const target = e.target as L.Path;
+            const curOpacity = row ? trafficOpacity(row.pct) : 0.08;
+            target.setStyle({ weight: 2.5, color: '#fff', fillOpacity: Math.min(1, curOpacity + 0.15) });
+            target.bringToFront();
+            onHover(row ?? null);
+          },
+          mouseout: (e) => {
+            layer.resetStyle(e.target);
+            onHover(null);
+          },
+          click: () => {
+            if (row) onHover(row);
+          },
+        });
+
+        // Tooltip on hover
+        if (row) {
+          l.bindTooltip(
+            `<div style="font-weight:700;font-size:13px;margin-bottom:4px;">${row.name}</div>` +
+            `<div style="font-size:11px;opacity:0.8;">${row.pct.toFixed(1)}% · ${row.calls.toLocaleString()} calls · ${row.asr}% ASR</div>`,
+            { sticky: true, className: 'leaflet-traffic-tooltip' }
+          );
+        }
+      },
+    });
+
+    layer.addTo(map);
+    layerRef.current = layer;
+
+    return () => {
+      if (map && layer) map.removeLayer(layer);
+    };
+  }, [geoJson, trafficMap]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fly to country when flyToTarget changes
+  useEffect(() => {
+    if (!flyToTarget || !map) return;
+    const key = flyToTarget.toLowerCase();
+    const bounds = boundsMapRef.current.get(key);
+    if (bounds && bounds.isValid()) {
+      map.flyToBounds(bounds.pad(0.25), { duration: 1.2, maxZoom: 6 });
+    }
+    onFlyComplete();
+  }, [flyToTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return null;
+}
+
+// ─── Hover tooltip overlay ────────────────────────────────────────────────────
 
 function HoverTooltip({ row }: { row: CountryRow | null }) {
   if (!row) return null;
@@ -184,8 +233,9 @@ function HoverTooltip({ row }: { row: CountryRow | null }) {
 export default function TrafficMapPage() {
   const [hours, setHours] = useState(24);
   const [hovered, setHovered] = useState<CountryRow | null>(null);
+  const [flyToTarget, setFlyToTarget] = useState<string | null>(null);
+  const [activeDestination, setActiveDestination] = useState<string | null>(null);
 
-  // Fetch traffic data
   const { data: traffic, isLoading: trafficLoading, refetch, dataUpdatedAt } = useQuery<TrafficData>({
     queryKey: ['/api/traffic-map', hours],
     queryFn: () => fetch(`/api/traffic-map?hours=${hours}`).then(r => r.json()),
@@ -193,7 +243,6 @@ export default function TrafficMapPage() {
     staleTime: 30000,
   });
 
-  // Fetch world TopoJSON (cached by browser)
   const { data: topoJson, isLoading: topoLoading } = useQuery({
     queryKey: ['/api/geo/world'],
     queryFn: () => fetch('/api/geo/world').then(r => r.json()),
@@ -201,19 +250,16 @@ export default function TrafficMapPage() {
     gcTime: Infinity,
   });
 
-  // Convert TopoJSON → GeoJSON once
   const geoJson = useMemo<GeoJSON.FeatureCollection | null>(() => {
     if (!topoJson) return null;
     try {
       const topo = topoJson as Topology;
-      const geo = topojson.feature(topo, topo.objects.countries as GeometryCollection) as GeoJSON.FeatureCollection;
-      return geo;
+      return topojson.feature(topo, topo.objects.countries as GeometryCollection) as GeoJSON.FeatureCollection;
     } catch {
       return null;
     }
   }, [topoJson]);
 
-  // Build a map from numeric country ID → row for fast lookup
   const trafficMap = useMemo<Map<string, CountryRow>>(() => {
     const m = new Map<string, CountryRow>();
     for (const row of traffic?.countries ?? []) {
@@ -222,15 +268,24 @@ export default function TrafficMapPage() {
     return m;
   }, [traffic]);
 
-  const countries   = traffic?.countries ?? [];
-  const totalCalls  = traffic?.total ?? 0;
-  const top10       = countries.slice(0, 10);
-  const isLoading   = trafficLoading || topoLoading;
+  const countries  = traffic?.countries ?? [];
+  const totalCalls = traffic?.total ?? 0;
+  const isLoading  = trafficLoading || topoLoading;
 
-  const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—';
+  const lastUpdated = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+    : '—';
+
+  function handleDestinationClick(row: CountryRow) {
+    setActiveDestination(row.name);
+    setFlyToTarget(row.name);
+  }
 
   return (
     <div className="space-y-4">
+      {/* Tooltip CSS injected inline */}
+      <style>{`.leaflet-traffic-tooltip { background: rgba(15,23,42,0.95) !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 8px !important; color: #fff !important; font-size: 11px !important; padding: 8px 12px !important; box-shadow: 0 4px 24px rgba(0,0,0,0.5) !important; } .leaflet-traffic-tooltip::before { display:none; }`}</style>
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -319,7 +374,7 @@ export default function TrafficMapPage() {
             </div>
           )}
 
-          {/* Hover tooltip */}
+          {/* Hover tooltip overlay */}
           <div className="absolute inset-0 pointer-events-none z-[999]">
             <HoverTooltip row={hovered} />
           </div>
@@ -329,7 +384,7 @@ export default function TrafficMapPage() {
               center={[20, 10]}
               zoom={2}
               minZoom={2}
-              maxZoom={6}
+              maxZoom={7}
               style={{ height: '100%', width: '100%', background: '#0f172a' }}
               worldCopyJump
               attributionControl={false}
@@ -344,12 +399,13 @@ export default function TrafficMapPage() {
                 geoJson={geoJson}
                 trafficMap={trafficMap}
                 onHover={setHovered}
+                flyToTarget={flyToTarget}
+                onFlyComplete={() => setFlyToTarget(null)}
               />
               <MapLegend />
             </MapContainer>
           )}
 
-          {/* Attribution */}
           <div className="absolute bottom-1 left-2 text-[9px] text-white/20 z-[400] pointer-events-none">
             © CartoDB · Natural Earth
           </div>
@@ -360,6 +416,9 @@ export default function TrafficMapPage() {
           <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2">
             <BarChart2 className="w-4 h-4 text-violet-400" />
             <span className="font-semibold text-sm">Top Destinations</span>
+            <span className="ml-auto text-[10px] text-muted-foreground/40 flex items-center gap-1">
+              <MapPin className="w-3 h-3" /> click to locate
+            </span>
           </div>
 
           <div className="flex-1 overflow-y-auto divide-y divide-border/30">
@@ -371,31 +430,46 @@ export default function TrafficMapPage() {
             )}
             {countries.map((row, i) => {
               const barW = Math.max(3, Math.min(100, row.pct * 3));
-              const isHovered = hovered?.name === row.name;
+              const isActive = activeDestination === row.name;
+              const isHov    = hovered?.name === row.name;
               return (
-                <div
+                <button
                   key={row.name}
-                  className={`px-4 py-3 transition-colors ${isHovered ? 'bg-violet-500/5' : 'hover:bg-muted/20'}`}
+                  type="button"
+                  data-testid={`destination-row-${i}`}
+                  onClick={() => handleDestinationClick(row)}
+                  className={`w-full text-left px-4 py-3 transition-all group ${
+                    isActive
+                      ? 'bg-violet-500/10 border-l-2 border-violet-500'
+                      : isHov
+                        ? 'bg-violet-500/5'
+                        : 'hover:bg-muted/20 border-l-2 border-transparent'
+                  }`}
                 >
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className="text-[10px] font-mono text-muted-foreground/30 w-5 text-right flex-shrink-0">
                       {i + 1}
                     </span>
-                    <span className="text-sm font-medium text-foreground/90 flex-1 truncate">{row.name}</span>
-                    <span className="text-xs font-bold text-violet-400 flex-shrink-0">{row.pct.toFixed(1)}%</span>
+                    <span className={`text-sm font-medium flex-1 truncate transition-colors ${isActive ? 'text-violet-300' : 'text-foreground/90 group-hover:text-foreground'}`}>
+                      {row.name}
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {isActive && <MapPin className="w-3 h-3 text-violet-400 animate-bounce" />}
+                      <span className="text-xs font-bold text-violet-400">{row.pct.toFixed(1)}%</span>
+                    </div>
                   </div>
                   {/* Traffic bar */}
                   <div className="ml-7 h-1.5 rounded-full bg-muted/30 overflow-hidden mb-2">
                     <div
-                      className="h-full rounded-full"
+                      className="h-full rounded-full transition-all duration-300"
                       style={{
                         width: `${barW}%`,
                         background: trafficColor(row.pct),
-                        opacity: 0.8,
+                        opacity: isActive ? 1 : 0.8,
                       }}
                     />
                   </div>
-                  {/* Stats row */}
+                  {/* Stats */}
                   <div className="ml-7 flex items-center gap-3 text-[10px] text-muted-foreground/50">
                     <span>{row.calls.toLocaleString()} calls</span>
                     <span className="text-muted-foreground/20">·</span>
@@ -405,7 +479,7 @@ export default function TrafficMapPage() {
                     <span className="text-muted-foreground/20">·</span>
                     <span>{row.totalMins} min</span>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
