@@ -719,6 +719,19 @@ export async function registerRoutes(
 
   // ── User Configuration API ────────────────────────────────────────────────
 
+  // GET /api/user/monitoring-assignments — returns current user's own assigned monitoring items
+  app.get('/api/user/monitoring-assignments', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const allAssignments = await storage.getAllMonitoringAssignments();
+      const items = allAssignments[userId] ?? [];
+      res.json({ userId, items });
+    } catch {
+      res.status(500).json({ message: 'Failed to fetch monitoring assignments' });
+    }
+  });
+
   // GET /api/user/config — returns the logged-in user's personal config
   app.get('/api/user/config', async (req: any, res) => {
     const userId = req.user?.claims?.sub;

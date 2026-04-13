@@ -2,10 +2,12 @@ import { useState, useEffect } from "react";
 import { useDashboardStats } from "@/hooks/use-dashboard";
 import { useCalls } from "@/hooks/use-calls";
 import { useSettings } from "@/hooks/use-settings";
+import { useAuth } from "@/hooks/use-auth";
 import { StatCard } from "@/components/stat-card";
 import { MosBadge } from "@/components/mos-badge";
 import { Link } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { MONITORING_ITEMS } from "@shared/schema";
 import { 
   Activity, 
   Server, 
@@ -129,10 +131,16 @@ function LiveCallRow({ call, index }: { call: any; index: number }) {
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user, role } = useAuth();
   const { data: stats } = useDashboardStats();
   const { data: recentCalls } = useCalls(5);
   const { data: settings } = useSettings();
   const [trendHours, setTrendHours] = useState(1);
+
+  // Viewer's own monitoring assignments — fetched for all, used only for viewer role
+  const { data: myAssignmentsData } = useQuery<{ userId: string; items: string[] }>({
+    queryKey: ['/api/user/monitoring-assignments'],
+  });
 
 
 
