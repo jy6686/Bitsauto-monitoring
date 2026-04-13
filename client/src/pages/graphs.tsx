@@ -521,6 +521,11 @@ function AlertTypeBadge({ type }: { type: string }) {
       <TrendingDown className="w-3 h-3" /> DROPPED
     </span>
   );
+  if (type === 'traffic_decreasing') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-500/15 border border-violet-500/30 text-violet-400">
+      <TrendingDown className="w-3 h-3" /> DECLINING
+    </span>
+  );
   if (type === 'traffic_restored') return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
       <TrendingUp className="w-3 h-3" /> RESTORED
@@ -987,11 +992,16 @@ export default function GraphsPage() {
           data-testid="btn-toggle-alert-section"
         >
           <AlertTriangle className="w-4 h-4 text-amber-400" />
-          <h2 className="text-sm font-semibold">Traffic Drop Alerts</h2>
+          <h2 className="text-sm font-semibold">Traffic Trend Alerts</h2>
           {openAlerts.length > 0 && (
             <span className="ml-1 w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
           )}
-          <span className="ml-auto flex items-center gap-2">
+          <span className="ml-auto flex items-center gap-4">
+            <span className="hidden sm:flex items-center gap-3 text-[10px] text-muted-foreground/50">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500/70" />Gone (immediate)</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500/70" />Dropped (&gt;50%)</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500/70" />Declining trend (1h)</span>
+            </span>
             <span className="text-xs text-muted-foreground">{recentAlerts.length} recent</span>
             <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${alertSectionOpen ? 'rotate-180' : ''}`} />
           </span>
@@ -1002,8 +1012,8 @@ export default function GraphsPage() {
             {recentAlerts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 gap-3 text-muted-foreground/50">
                 <BellOff className="w-10 h-10 opacity-30" />
-                <p className="text-sm">No traffic drop alerts yet</p>
-                <p className="text-xs">Alerts appear here when client traffic drops by more than 50% or goes to zero</p>
+                <p className="text-sm">No traffic alerts yet</p>
+                <p className="text-xs text-center max-w-xs">Alerts fire when traffic goes to zero (immediately), drops &gt;50% suddenly, or shows a sustained declining trend over 1 hour</p>
               </div>
             ) : (
               <div className="divide-y divide-border/30">
@@ -1012,22 +1022,38 @@ export default function GraphsPage() {
                     ? Math.round(((alert.prevCalls - (alert.currCalls ?? 0)) / alert.prevCalls) * 100)
                     : 100;
                   const isOpen = !alert.resolvedAt && alert.alertType !== 'traffic_restored';
+                  const isDecline = alert.alertType === 'traffic_decreasing';
+                  const rowBg = alert.alertType === 'traffic_gone'
+                    ? 'bg-rose-500/5'
+                    : isDecline
+                      ? 'bg-violet-500/5'
+                      : isOpen
+                        ? 'bg-amber-500/5'
+                        : '';
                   return (
                     <div
                       key={alert.id}
                       data-testid={`alert-row-${alert.id}`}
-                      className={`flex items-center gap-4 px-5 py-3 ${isOpen ? 'bg-amber-500/5' : ''}`}
+                      className={`flex items-center gap-4 px-5 py-3 ${rowBg}`}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <AlertTypeBadge type={alert.alertType} />
                           <span className="text-sm font-semibold">{alert.clientName}</span>
                           {isOpen && (
-                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400">OPEN</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full border ${isDecline ? 'bg-violet-500/15 border-violet-500/30 text-violet-400' : 'bg-amber-500/15 border-amber-500/30 text-amber-400'}`}>
+                              {isDecline ? 'TRENDING DOWN' : 'OPEN'}
+                            </span>
                           )}
                         </div>
                         <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
-                          <span>{alert.prevCalls ?? 0} → {alert.currCalls ?? 0} calls {alert.alertType !== 'traffic_restored' ? `(−${pct}%)` : ''}</span>
+                          {isDecline ? (
+                            <span className="text-violet-400/80">
+                              60-min peak: {alert.prevCalls ?? 0} → now: {alert.currCalls ?? 0} (−{pct}%)
+                            </span>
+                          ) : (
+                            <span>{alert.prevCalls ?? 0} → {alert.currCalls ?? 0} calls {alert.alertType !== 'traffic_restored' ? `(−${pct}%)` : '↑ recovered'}</span>
+                          )}
                           {alert.triggeredAt && (
                             <span>{new Date(alert.triggeredAt).toLocaleString()}</span>
                           )}
