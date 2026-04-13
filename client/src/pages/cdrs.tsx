@@ -542,10 +542,12 @@ export default function CDRsPage() {
                       <StatusIcon cdr={cdr} />
                     </td>
                     <td className="px-3 py-2 max-w-[140px] truncate"
-                      title={isVendor ? (cdr.vendorName || cdr.remoteIp || '') : (cdr.clientName || cdr.caller || '')}>
+                      title={isVendor
+                        ? (cdr.vendorName || cdr.remoteIp || '')
+                        : (cdr.clientName || cdr.caller || '')}>
                       <span className={cn("font-medium", isVendor ? "text-cyan-400/90" : "text-foreground/80")}>
                         {isVendor
-                          ? (cdr.vendorName || cdr.remoteIp || `Conn.${cdr.iConnection || '-'}`)
+                          ? (cdr.vendorName || cdr.remoteIp || '-')
                           : (cdr.clientName || `Acct.${cdr.iAccount || '-'}`)}
                       </span>
                     </td>

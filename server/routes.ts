@@ -47,6 +47,11 @@ async function refreshAccountCache(): Promise<void> {
 // Populated at startup and refreshed every 30 minutes.
 const connectionVendorCache: Map<string, string> = new Map();
 
+// ── Connection IP → Vendor name cache ─────────────────────────────────────────
+// Maps termination IP (host without port) → vendor name.
+// Used to enrich client CDRs with vendor name from CDR.remoteIp.
+const connectionIpCache: Map<string, string> = new Map();
+
 async function refreshConnectionVendorCache(): Promise<void> {
   try {
     const settings = await storage.getSippySettings();
@@ -63,6 +68,7 @@ async function refreshConnectionVendorCache(): Promise<void> {
     });
     if (!vendors?.length) return;
     connectionVendorCache.clear();
+    connectionIpCache.clear();
     await Promise.all(vendors.map(async (v: any) => {
       if (!v.iVendor) return;
       const vendorName = v.name ?? `Vendor#${v.iVendor}`;
@@ -75,10 +81,15 @@ async function refreshConnectionVendorCache(): Promise<void> {
         for (const conn of connections ?? []) {
           if (conn.iConnection) connectionVendorCache.set(String(conn.iConnection), vendorName);
           if (conn.name)        connectionVendorCache.set(conn.name, vendorName);
+          // Extract host IP from destination (format: "host:port" or "host")
+          if (conn.destination) {
+            const destHost = conn.destination.split(':')[0].trim();
+            if (destHost) connectionIpCache.set(destHost, vendorName);
+          }
         }
       } catch { /* skip per-vendor connection fetch failures */ }
     }));
-    console.log(`[routes] connectionVendorCache refreshed: ${connectionVendorCache.size} entries`);
+    console.log(`[routes] connectionVendorCache refreshed: ${connectionVendorCache.size} entries, ipCache: ${connectionIpCache.size} IPs`);
   } catch (e: any) {
     console.warn('[routes] connectionVendorCache refresh failed:', e.message);
   }
@@ -1973,67 +1984,59 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ cdrs: [], error: e.message }); }
   });
 
-  // GET /api/sippy/cdr/vendor — vendor CDRs normalized to standard CDR format
-  // Uses exportVendorsCDRs_Mera internally; falls back to standard CDRs with vendor enrichment
+  // GET /api/sippy/cdr/vendor — vendor CDRs (client CDRs enriched with vendor name via remoteIp)
+  // Uses standard getSippyCDRs and enriches each CDR with a vendorName resolved from
+  // connectionIpCache (IP → vendor name) populated at startup from vendor connection destinations.
   app.get('/api/sippy/cdr/vendor', async (req: any, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     try {
-      const settings = await storage.getSettings();
-      if (!settings) return res.json({ cdrs: [] });
-
+      const settings  = await storage.getSettings();
+      const credPairs = sippyXmlCredsPairs(settings);
       const startDate = req.query.startDate as string | undefined;
       const endDate   = req.query.endDate   as string | undefined;
-      const limit     = Number(req.query.limit) || 50;
+      const cli       = req.query.cli       as string | undefined;
+      const cld       = req.query.cld       as string | undefined;
+      const limit     = Number(req.query.limit)  || 50;
       const offset    = Number(req.query.offset) || 0;
+      const type      = (req.query.type as string | undefined) || 'all';
 
-      // Convert ISO dates to Sippy format for Mera API
-      const toSippyFmt = (d?: string) => {
-        if (!d) return undefined;
-        if (d.includes('GMT')) return d;
-        try {
-          const dt = new Date(d);
-          const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-          const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          const hh = String(dt.getUTCHours()).padStart(2,'0');
-          const mm = String(dt.getUTCMinutes()).padStart(2,'0');
-          const ss = String(dt.getUTCSeconds()).padStart(2,'0');
-          return `${hh}:${mm}:${ss}.000 GMT ${days[dt.getUTCDay()]} ${months[dt.getUTCMonth()]} ${dt.getUTCDate()} ${dt.getUTCFullYear()}`;
-        } catch { return d; }
-      };
+      // Use the same standard CDR fetch as the client CDR endpoint
+      let rawCdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      for (const { username, password } of credPairs) {
+        rawCdrs = await sippy.getSippyCDRs(username, password, limit + offset, {
+          startDate, endDate, cli, cld, type,
+        });
+        if (rawCdrs.length > 0) break;
+      }
 
-      const meraResult = await withSippyCreds(settings, (u, p) =>
-        sippy.exportVendorsCDRsMera(u, p, {
-          startDate: toSippyFmt(startDate),
-          endDate:   toSippyFmt(endDate),
-          trustedMode: true,
-        })
-      );
+      // Determine a single-vendor fallback: if all vendor connections share one vendor name, use it
+      // This handles the common case where all traffic routes through one carrier
+      const uniqueVendorNames = new Set(connectionIpCache.values());
+      // Also collect unique names from connectionVendorCache (only actual vendor names, not IDs or IPs)
+      const vcNames = Array.from(connectionVendorCache.entries())
+        .filter(([k]) => isNaN(Number(k)))  // exclude numeric ID keys
+        .map(([, v]) => v);
+      const uniqueVcNames = new Set(vcNames);
+      const singleVendorFallback = uniqueVcNames.size === 1
+        ? Array.from(uniqueVcNames)[0]
+        : uniqueVcNames.size === 0 && uniqueVendorNames.size === 1
+          ? Array.from(uniqueVendorNames)[0]
+          : undefined;
 
-      // Normalise Mera CDRs to the standard CDR shape used by the frontend
-      const normalised = meraResult.success
-        ? meraResult.cdrs.map(m => ({
-            callId:         m.confId || m.callId || '-',
-            caller:         m.srcNumberBill || m.srcNumberOut || m.srcNumberIn || '-',
-            callee:         m.dstNumberBill || m.dstNumberOut || m.dstNumberIn || '-',
-            callerIn:       m.srcNumberIn,
-            calleeIn:       m.dstNumberIn,
-            startTime:      m.setupTime || m.connectTime || '',
-            connectTime:    m.connectTime,
-            disconnectTime: m.disconnectTime,
-            duration:       m.elapsedTime ? parseFloat(m.elapsedTime) : 0,
-            totalDuration:  m.elapsedTime ? parseFloat(m.elapsedTime) : 0,
-            cost:           m.cost ? parseFloat(m.cost) : 0,
-            result:         m.disconnectCodeQ931 || '0',
-            remoteIp:       m.dstIp || m.srcIp,
-            vendorName:     m.dstName || undefined,
-            clientName:     m.srcName || undefined,
-            country:        undefined,
-            description:    m.dstName || undefined,
-          }))
-        : [];
+      // Enrich with vendor name from connectionIpCache (remoteIp host → vendor name)
+      const cdrs = rawCdrs.slice(offset, offset + limit).map(c => {
+        const remoteHost = (c.remoteIp || '').split(':')[0].trim();
+        const vendorName = connectionIpCache.get(remoteHost)
+          || connectionVendorCache.get(String((c as any).iConnection ?? ''))
+          || singleVendorFallback
+          || undefined;
+        const clientName = accountNameCache.get(String(c.iAccount ?? ''))
+          || (c as any).clientName
+          || (c.iAccount ? `Acct.${c.iAccount}` : undefined);
+        return { ...c, vendorName, clientName };
+      });
 
-      const paged = normalised.slice(offset, offset + limit);
-      res.json({ cdrs: paged });
+      res.json({ cdrs });
     } catch (e: any) { res.status(500).json({ cdrs: [], error: e.message }); }
   });
 
