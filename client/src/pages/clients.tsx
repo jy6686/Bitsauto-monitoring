@@ -2868,29 +2868,6 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
 
           {/* ══ STEP 2: Network & Routing ══ */}
           {step === 2 && (<>
-            {sectionTitle('Client IP Addresses')}
-            <div>
-              <label className={labelCls}>Allowed IPs <span className="text-muted-foreground">(press Enter or comma to add)</span></label>
-              <div className={`${fieldCls} flex flex-wrap gap-1.5 min-h-[40px] cursor-text`}
-                onClick={() => document.getElementById('ip-tag-input')?.focus()}>
-                {ipTags.map(ip => (
-                  <span key={ip} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/15 text-primary text-xs font-mono">
-                    {ip}
-                    <button type="button" onClick={() => removeIpTag(ip)} className="hover:text-rose-400 transition-colors">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-                <input id="ip-tag-input" data-testid="input-sippy-ip-tags"
-                  value={ipInput} onChange={e => setIpInput(e.target.value)}
-                  onKeyDown={handleIpKeyDown}
-                  onBlur={() => ipInput.trim() && addIpTag(ipInput)}
-                  placeholder={ipTags.length === 0 ? 'e.g. 192.168.1.1' : ''}
-                  className="flex-1 min-w-[120px] bg-transparent outline-none text-sm placeholder:text-muted-foreground" />
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">Each IP becomes an auth rule (IP-based authentication). Add all SBC/trunk IPs.</p>
-            </div>
-
             {sectionTitle('Routing & Service Plan')}
             <div className="grid grid-cols-2 gap-3">
               <div>
