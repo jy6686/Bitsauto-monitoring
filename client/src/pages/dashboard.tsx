@@ -887,8 +887,17 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex-shrink-0 min-w-[90px]">
                       <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary/80 font-medium">
-                        {ev.clientName || ev.vendor || 'Unknown'}
+                        {ev.clientName || 'Unknown'}
                       </span>
+                    </div>
+                    <div className="flex-shrink-0">
+                      {ev.vendor ? (
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-medium">
+                          <Server className="h-2.5 w-2.5" />{ev.vendor}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/40">—</span>
+                      )}
                     </div>
                     <div className="font-mono text-muted-foreground truncate">
                       {ev.caller ?? '—'} <span className="text-muted-foreground/40">→</span> {ev.callee ?? '—'}
