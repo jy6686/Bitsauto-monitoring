@@ -1924,10 +1924,11 @@ export async function registerRoutes(
         cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
         if (cdrs.length > 0) break;
       }
-      // Enrich with clientName from account cache
+      // Enrich with clientName from account cache and vendorName from connection cache
       cdrs = cdrs.map(c => ({
         ...c,
         clientName: c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || (c.iAccount ? `Acct.${c.iAccount}` : undefined),
+        vendorName: (c as any).vendorName || (c as any).vendor || connectionVendorCache.get(String((c as any).iConnection ?? '')) || undefined,
       }));
       // Fallback 1: XML-RPC returned 0 → scrape customer portal with RTST1 credentials
       if (cdrs.length === 0 && settings) {
@@ -1969,6 +1970,70 @@ export async function registerRoutes(
         }
       }
       res.json({ cdrs });
+    } catch (e: any) { res.status(500).json({ cdrs: [], error: e.message }); }
+  });
+
+  // GET /api/sippy/cdr/vendor — vendor CDRs normalized to standard CDR format
+  // Uses exportVendorsCDRs_Mera internally; falls back to standard CDRs with vendor enrichment
+  app.get('/api/sippy/cdr/vendor', async (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const settings = await storage.getSettings();
+      if (!settings) return res.json({ cdrs: [] });
+
+      const startDate = req.query.startDate as string | undefined;
+      const endDate   = req.query.endDate   as string | undefined;
+      const limit     = Number(req.query.limit) || 50;
+      const offset    = Number(req.query.offset) || 0;
+
+      // Convert ISO dates to Sippy format for Mera API
+      const toSippyFmt = (d?: string) => {
+        if (!d) return undefined;
+        if (d.includes('GMT')) return d;
+        try {
+          const dt = new Date(d);
+          const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+          const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const hh = String(dt.getUTCHours()).padStart(2,'0');
+          const mm = String(dt.getUTCMinutes()).padStart(2,'0');
+          const ss = String(dt.getUTCSeconds()).padStart(2,'0');
+          return `${hh}:${mm}:${ss}.000 GMT ${days[dt.getUTCDay()]} ${months[dt.getUTCMonth()]} ${dt.getUTCDate()} ${dt.getUTCFullYear()}`;
+        } catch { return d; }
+      };
+
+      const meraResult = await withSippyCreds(settings, (u, p) =>
+        sippy.exportVendorsCDRsMera(u, p, {
+          startDate: toSippyFmt(startDate),
+          endDate:   toSippyFmt(endDate),
+          trustedMode: true,
+        })
+      );
+
+      // Normalise Mera CDRs to the standard CDR shape used by the frontend
+      const normalised = meraResult.success
+        ? meraResult.cdrs.map(m => ({
+            callId:         m.confId || m.callId || '-',
+            caller:         m.srcNumberBill || m.srcNumberOut || m.srcNumberIn || '-',
+            callee:         m.dstNumberBill || m.dstNumberOut || m.dstNumberIn || '-',
+            callerIn:       m.srcNumberIn,
+            calleeIn:       m.dstNumberIn,
+            startTime:      m.setupTime || m.connectTime || '',
+            connectTime:    m.connectTime,
+            disconnectTime: m.disconnectTime,
+            duration:       m.elapsedTime ? parseFloat(m.elapsedTime) : 0,
+            totalDuration:  m.elapsedTime ? parseFloat(m.elapsedTime) : 0,
+            cost:           m.cost ? parseFloat(m.cost) : 0,
+            result:         m.disconnectCodeQ931 || '0',
+            remoteIp:       m.dstIp || m.srcIp,
+            vendorName:     m.dstName || undefined,
+            clientName:     m.srcName || undefined,
+            country:        undefined,
+            description:    m.dstName || undefined,
+          }))
+        : [];
+
+      const paged = normalised.slice(offset, offset + limit);
+      res.json({ cdrs: paged });
     } catch (e: any) { res.status(500).json({ cdrs: [], error: e.message }); }
   });
 

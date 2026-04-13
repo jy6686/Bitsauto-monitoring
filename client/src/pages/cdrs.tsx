@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearch } from "wouter";
+import * as XLSX from "xlsx";
 import {
   formatUTC, toUTCDateInput,
   subMinutesUTC, subHoursUTC, subDaysUTC, subWeeksUTC, subMonthsUTC,
@@ -8,12 +10,11 @@ import {
 } from "@/lib/date-utils";
 import {
   RefreshCw, Download, Phone, PhoneOff, PhoneMissed,
-  ChevronLeft, ChevronRight, Filter, Search, X, Clock,
-  DollarSign, Globe, Activity,
+  ChevronLeft, ChevronRight, Filter, X, Clock,
+  DollarSign, Globe, Activity, FileSpreadsheet, Users, Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -139,6 +140,10 @@ function StatusIcon({ cdr }: { cdr: any }) {
 const PAGE_SIZE = 50;
 
 export default function CDRsPage() {
+  const search = useSearch();
+  const view = (new URLSearchParams(search).get('view') ?? 'client') as 'client' | 'vendor';
+  const isVendor = view === 'vendor';
+
   const defaultStart = subHoursUTC(new Date(), 24);
   const defaultEnd   = new Date();
   const [start, setStart]       = useState(defaultStart);
@@ -156,7 +161,7 @@ export default function CDRsPage() {
   const offset = page * PAGE_SIZE;
 
   const queryKey = [
-    '/api/sippy/cdr',
+    isVendor ? '/api/sippy/cdr/vendor' : '/api/sippy/cdr',
     applied.start.toISOString(),
     applied.end.toISOString(),
     applied.callType,
@@ -166,6 +171,15 @@ export default function CDRsPage() {
   ];
 
   const buildUrl = (a: typeof applied, off: number) => {
+    if (isVendor) {
+      const params = new URLSearchParams({
+        startDate: a.start.toISOString(),
+        endDate:   a.end.toISOString(),
+        limit:     String(PAGE_SIZE),
+        offset:    String(off),
+      });
+      return `/api/sippy/cdr/vendor?${params.toString()}`;
+    }
     const params = new URLSearchParams({
       startDate: a.start.toISOString(),
       endDate:   a.end.toISOString(),
@@ -226,10 +240,14 @@ export default function CDRsPage() {
     return { totalCalls, answered, totalDur, billedDur, charged };
   }, [cdrs]);
 
-  function downloadCSV() {
-    const headers = ['Caller','CLI','CLD','Country','Description','Setup Time','Duration','Billed Duration','Charged (USD)','Result'];
+  const exportFilename = (ext: string) =>
+    `${isVendor ? 'vendor' : 'client'}_cdrs_${formatUTC(applied.start, 'yyyyMMdd_HHmm')}_${formatUTC(applied.end, 'yyyyMMdd_HHmm')}.${ext}`;
+
+  const buildRows = () => {
+    const firstColHeader = isVendor ? 'Vendor' : 'Client';
+    const headers = [firstColHeader, 'CLI', 'CLD', 'Country', 'Description', 'Setup Time', 'Duration', 'Billed Duration', 'Charged (USD)', 'Result'];
     const rows = cdrs.map(c => [
-      c.clientName || c.caller || '',
+      (isVendor ? (c.vendorName || c.remoteIp || '-') : (c.clientName || c.caller || '-')),
       c.caller || '',
       c.callee || '',
       c.country || '',
@@ -240,24 +258,51 @@ export default function CDRsPage() {
       fmtCurrency(c.cost || 0),
       c.result || '',
     ]);
+    return { headers, rows };
+  };
+
+  function downloadCSV() {
+    const { headers, rows } = buildRows();
     const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `cdrs_${formatUTC(applied.start, 'yyyyMMdd_HHmm')}_${formatUTC(applied.end, 'yyyyMMdd_HHmm')}.csv`;
-    a.click();
+    a.href = url; a.download = exportFilename('csv'); a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function downloadExcel() {
+    const { headers, rows } = buildRows();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    // Auto-width columns
+    const colWidths = headers.map((h, i) => ({
+      wch: Math.max(h.length, ...rows.map(r => String(r[i] ?? '').length), 10),
+    }));
+    ws['!cols'] = colWidths;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, isVendor ? 'Vendor CDRs' : 'Client CDRs');
+    XLSX.writeFile(wb, exportFilename('xlsx'));
   }
 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">CDR Viewer</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight">CDR Viewer</h1>
+            <span className={cn(
+              "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border",
+              isVendor
+                ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400"
+                : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+            )}>
+              {isVendor ? <Building2 className="h-3 w-3" /> : <Users className="h-3 w-3" />}
+              {isVendor ? 'Vendor CDRs' : 'Client CDRs'}
+            </span>
+          </div>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Customer Call Detail Records — charging &amp; billing history
+            {isVendor ? 'Vendor / carrier termination records' : 'Customer Call Detail Records — charging & billing history'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -274,10 +319,20 @@ export default function CDRsPage() {
             variant="outline" size="sm"
             onClick={downloadCSV}
             disabled={cdrs.length === 0}
-            data-testid="button-download-cdrs"
+            data-testid="button-download-csv"
           >
             <Download className="h-3.5 w-3.5 mr-1.5" />
             CSV
+          </Button>
+          <Button
+            variant="outline" size="sm"
+            onClick={downloadExcel}
+            disabled={cdrs.length === 0}
+            data-testid="button-download-excel"
+            className="text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-300"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />
+            Excel
           </Button>
         </div>
       </div>
@@ -435,7 +490,7 @@ export default function CDRsPage() {
             <thead>
               <tr className="border-b border-border/50 bg-muted/30">
                 <th className="w-8 px-2 py-2.5 text-center text-muted-foreground font-medium">&nbsp;</th>
-                <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">Caller</th>
+                <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">{isVendor ? 'Vendor' : 'Client'}</th>
                 <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">CLI</th>
                 <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">CLD</th>
                 <th className="px-3 py-2.5 text-center text-muted-foreground font-medium">Country</th>
@@ -486,8 +541,13 @@ export default function CDRsPage() {
                     <td className="px-2 py-2 text-center">
                       <StatusIcon cdr={cdr} />
                     </td>
-                    <td className="px-3 py-2 max-w-[120px] truncate" title={cdr.clientName || cdr.caller || ''}>
-                      <span className="text-foreground/80">{cdr.clientName || `Acct.${cdr.iAccount || '-'}`}</span>
+                    <td className="px-3 py-2 max-w-[140px] truncate"
+                      title={isVendor ? (cdr.vendorName || cdr.remoteIp || '') : (cdr.clientName || cdr.caller || '')}>
+                      <span className={cn("font-medium", isVendor ? "text-cyan-400/90" : "text-foreground/80")}>
+                        {isVendor
+                          ? (cdr.vendorName || cdr.remoteIp || `Conn.${cdr.iConnection || '-'}`)
+                          : (cdr.clientName || `Acct.${cdr.iAccount || '-'}`)}
+                      </span>
                     </td>
                     <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cli-${i}`}>{cdr.caller || '-'}</td>
                     <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cld-${i}`}>{cdr.callee || '-'}</td>

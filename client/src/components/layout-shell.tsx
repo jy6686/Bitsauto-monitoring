@@ -31,6 +31,11 @@ const CALLS_SUBITEMS = [
   { view: 'history', label: 'Call History',         icon: History,    iconColor: 'text-amber-400',  itemId: 'call_history'  },
 ] as const;
 
+const CDR_SUBITEMS = [
+  { view: 'client', label: 'Client CDRs',  iconColor: 'text-amber-400' },
+  { view: 'vendor', label: 'Vendor CDRs',  iconColor: 'text-cyan-400'  },
+] as const;
+
 const MONITORING_SUBITEMS = [
   { tab: 'reachability',  label: 'Reachability / Outage', icon: Wifi,        iconColor: 'text-emerald-400' },
   { tab: 'bandwidth',     label: 'Bandwidth (RTP)',        icon: Activity,    iconColor: 'text-cyan-400'    },
@@ -66,13 +71,16 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const isCallsActive      = location.startsWith('/calls');
   const isMonitoringActive = location.startsWith('/server-monitoring');
   const isBitseyeActive    = location.startsWith('/bitseye');
+  const isCdrActive        = location.startsWith('/cdrs');
   const [callsExpanded,      setCallsExpanded]      = useState(isCallsActive);
   const [monitoringExpanded, setMonitoringExpanded] = useState(isMonitoringActive);
   const [bitseyeExpanded,    setBitseyeExpanded]    = useState(isBitseyeActive);
+  const [cdrExpanded,        setCdrExpanded]        = useState(isCdrActive);
 
   useEffect(() => { if (isCallsActive)      setCallsExpanded(true);      }, [isCallsActive]);
   useEffect(() => { if (isMonitoringActive) setMonitoringExpanded(true);  }, [isMonitoringActive]);
   useEffect(() => { if (isBitseyeActive)    setBitseyeExpanded(true);     }, [isBitseyeActive]);
+  useEffect(() => { if (isCdrActive)        setCdrExpanded(true);         }, [isCdrActive]);
 
   // Fetch KAM list for BitsEye submenu (returns plain array)
   const { data: kamList = [] } = useQuery<Kam[]>({
@@ -99,7 +107,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/graphs",            label: "Graphs",            icon: LineChart,       roles: ['admin','management']          as Role[] },
     { href: "/bitseye",           label: "BitsEye",           icon: Eye,             roles: ['admin','management']          as Role[], hasSubmenu: 'bitseye' as const },
     { href: "/reports",           label: "Reports",           icon: BarChart2,       roles: ['admin','management']          as Role[] },
-    { href: "/cdrs",              label: "CDR Viewer",        icon: FileText,        roles: ['admin','management']          as Role[] },
+    { href: "/cdrs",              label: "CDR Viewer",        icon: FileText,        roles: ['admin','management']          as Role[], hasSubmenu: 'cdr' as const },
     { href: "/fraud",             label: "Fraud / FAS",       icon: ShieldAlert,     roles: ['admin','management']          as Role[] },
     { href: "/server-monitoring", label: "Server Monitoring", icon: Server,          roles: ['admin','management']          as Role[], hasSubmenu: 'monitoring' as const },
     { href: "/tools",             label: "Tools",             icon: Wrench,          roles: ['admin','management']          as Role[] },
@@ -251,6 +259,40 @@ export function LayoutShell({ children }: LayoutShellProps) {
                               kamActive ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
                             <ChevronRight className="h-2.5 w-2.5 flex-shrink-0 text-muted-foreground/30" />
                             <span className="flex-1 truncate">{kam.name}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            if (item.hasSubmenu === 'cdr') {
+              const cdrView = isCdrActive ? (new URLSearchParams(search).get('view') ?? 'client') : null;
+              return (
+                <div key={item.href}>
+                  <button
+                    onClick={() => setCdrExpanded(o => !o)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 group",
+                      isCdrActive ? "bg-primary text-primary-foreground shadow-md shadow-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    )}
+                  >
+                    <item.icon className={cn("h-4 w-4 transition-colors flex-shrink-0", isCdrActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground")} />
+                    <span className="flex-1 text-left">{item.label}</span>
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0", cdrExpanded ? "rotate-180" : "", isCdrActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+                  </button>
+                  {cdrExpanded && (
+                    <div className="mt-1 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+                      {CDR_SUBITEMS.map(sub => {
+                        const subActive = isCdrActive && cdrView === sub.view;
+                        return (
+                          <Link key={sub.view} href={`/cdrs?view=${sub.view}`}
+                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
+                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
+                            <FileText className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
+                            {sub.label}
                           </Link>
                         );
                       })}
