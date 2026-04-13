@@ -7611,31 +7611,33 @@ export async function registerRoutes(
     const category  = (req.query.category as string) || 'clients';
     const aliveOnly = req.query.aliveOnly !== 'false';
     const orderBy   = (req.query.orderBy as string) || 'traffic';
+    const kamIdFilter = req.query.kamId ? Number(req.query.kamId) : null;
 
     const now      = Date.now();
     const DAY_MS   = 24 * 3600 * 1000;
     const WEEK_MS  = 7  * DAY_MS;
-    const HALF_MS  = 12 * 3600 * 1000;
 
     type Bucket = { total: number; connected: number; durSecs: number };
 
-    // ── KAM mapping (only needed for KAM category) ────────────────────────────
-    // clientName → KAM display name + set of client names per KAM
-    const clientToKam: Record<string, string> = {};
-    const kamClients:  Record<string, Set<string>> = {};
+    // ── KAM mapping ──────────────────────────────────────────────────────────
+    const clientToKam:  Record<string, string> = {};
+    const clientToKamId: Record<string, number> = {};
+    const kamClients:   Record<string, Set<string>> = {};
+    const kamIdToName:  Record<number, string> = {};
     if (category === 'kam') {
       try {
         const kams = await storage.getKams();
         for (const k of kams) {
-          const kamLabel = k.name;
+          kamIdToName[k.id] = k.name;
           for (const acc of k.accounts ?? []) {
             const cName = acc.clientName || `Acct.${acc.accountId}`;
-            clientToKam[cName] = kamLabel;
-            if (!kamClients[kamLabel]) kamClients[kamLabel] = new Set();
-            kamClients[kamLabel].add(cName);
+            clientToKam[cName]   = k.name;
+            clientToKamId[cName] = k.id;
+            if (!kamClients[k.name]) kamClients[k.name] = new Set();
+            kamClients[k.name].add(cName);
           }
         }
-      } catch (_) { /* storage unavailable — skip KAM grouping */ }
+      } catch (_) { /* storage unavailable */ }
     }
 
     // ── Time-series bucket labels ─────────────────────────────────────────────
@@ -7702,22 +7704,40 @@ export async function registerRoutes(
       }
     }
 
-    // ── Concurrent snapshot ───────────────────────────────────────────────────
+    // ── Concurrent snapshot + 24h history per entity ─────────────────────────
     const latestSnap  = concurrentHistory[concurrentHistory.length - 1];
     const latestByKey = category === 'vendors'
       ? (latestSnap?.byVendor ?? {})
       : (latestSnap?.byClient ?? {});
 
+    // Build per-entity hourly concurrent peaks from history (last 24h)
+    const concurrentPeaks: Record<string, Record<string, number>> = {};
+    for (const pt of concurrentHistory) {
+      if (pt.ts < now - DAY_MS) continue;
+      const t = new Date(pt.ts);
+      const label = t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', hour12: true, timeZone: 'UTC' });
+      const byKey = category === 'vendors' ? pt.byVendor : pt.byClient;
+      for (const [rawKey, cnt] of Object.entries(byKey)) {
+        if (rawKey === 'Unknown') continue;
+        const entityKey = category === 'kam' ? (clientToKam[rawKey] ?? 'Unassigned') : rawKey;
+        if (!concurrentPeaks[entityKey]) concurrentPeaks[entityKey] = {};
+        concurrentPeaks[entityKey][label] = Math.max(concurrentPeaks[entityKey][label] ?? 0, cnt);
+      }
+    }
+
     // ── Build entity set ──────────────────────────────────────────────────────
     const allEntities = new Set<string>();
-    for (const k of Object.keys(dailyData))  allEntities.add(k);
-    for (const k of Object.keys(weeklyData)) allEntities.add(k);
+    for (const k of Object.keys(dailyData))        allEntities.add(k);
+    for (const k of Object.keys(weeklyData))       allEntities.add(k);
+    for (const k of Object.keys(concurrentPeaks))  allEntities.add(k);
     if (category !== 'kam') {
       for (const k of Object.keys(latestByKey)) if (k !== 'Unknown') allEntities.add(k);
     } else {
       for (const k of Object.keys(kamClients)) allEntities.add(k);
-      allEntities.add('Unassigned');
     }
+
+    // If filtering to a specific KAM, keep only that KAM name
+    const filterToKamName = (kamIdFilter && kamIdToName[kamIdFilter]) ? kamIdToName[kamIdFilter] : null;
 
     const safeMin = (arr: number[]) => arr.length === 0 ? 0 : Math.min(...arr);
     const safeMax = (arr: number[]) => arr.length === 0 ? 0 : Math.max(...arr);
@@ -7726,10 +7746,14 @@ export async function registerRoutes(
     const entities: any[] = [];
 
     for (const name of allEntities) {
+      // kamId filter: when a specific KAM is requested, skip all others
+      if (filterToKamName && name !== filterToKamName) continue;
+
       const daily = hourlyLabels.map(label => ({
         label,
-        total_calls:     dailyData[name]?.[label]?.total     ?? 0,
-        connected_calls: dailyData[name]?.[label]?.connected ?? 0,
+        total_calls:      dailyData[name]?.[label]?.total     ?? 0,
+        connected_calls:  dailyData[name]?.[label]?.connected ?? 0,
+        concurrent_calls: concurrentPeaks[name]?.[label]      ?? 0,
       }));
       const weekly = weeklyLabels.map(label => ({
         label,

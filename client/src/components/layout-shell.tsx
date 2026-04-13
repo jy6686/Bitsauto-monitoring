@@ -1,10 +1,17 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Role } from "@shared/schema";
+
+interface Kam { id: number; name: string; active: boolean; }
+
+const BITSEYE_FIXED = [
+  { view: 'clients', label: 'Clients', iconColor: 'text-amber-400' },
+  { view: 'vendors', label: 'Vendors', iconColor: 'text-cyan-400'  },
+] as const;
 
 interface LayoutShellProps {
   children: React.ReactNode;
@@ -57,16 +64,21 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   const isCallsActive      = location.startsWith('/calls');
   const isMonitoringActive = location.startsWith('/server-monitoring');
+  const isBitseyeActive    = location.startsWith('/bitseye');
   const [callsExpanded,      setCallsExpanded]      = useState(isCallsActive);
   const [monitoringExpanded, setMonitoringExpanded] = useState(isMonitoringActive);
+  const [bitseyeExpanded,    setBitseyeExpanded]    = useState(isBitseyeActive);
 
-  useEffect(() => {
-    if (isCallsActive) setCallsExpanded(true);
-  }, [isCallsActive]);
+  useEffect(() => { if (isCallsActive)      setCallsExpanded(true);      }, [isCallsActive]);
+  useEffect(() => { if (isMonitoringActive) setMonitoringExpanded(true);  }, [isMonitoringActive]);
+  useEffect(() => { if (isBitseyeActive)    setBitseyeExpanded(true);     }, [isBitseyeActive]);
 
-  useEffect(() => {
-    if (isMonitoringActive) setMonitoringExpanded(true);
-  }, [isMonitoringActive]);
+  // Fetch KAM list for BitsEye submenu (returns plain array)
+  const { data: kamList = [] } = useQuery<Kam[]>({
+    queryKey: ['/api/kam'],
+    enabled: (role === 'admin' || role === 'management') && bitseyeExpanded,
+    staleTime: 120_000,
+  });
 
   // Fetch viewer's monitoring assignments (only active for viewer role)
   const { data: viewerAssignmentsData } = useQuery<{ items: string[] }>({
@@ -84,7 +96,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/dids",              label: "DID Management",    icon: PhoneIncoming,   roles: ['admin','management']          as Role[] },
     { href: "/traffic-map",       label: "Traffic Map",       icon: Globe,           roles: ['admin','management']          as Role[] },
     { href: "/graphs",            label: "Graphs",            icon: LineChart,       roles: ['admin','management']          as Role[] },
-    { href: "/bitseye",           label: "BitsEye",           icon: Eye,             roles: ['admin','management']          as Role[] },
+    { href: "/bitseye",           label: "BitsEye",           icon: Eye,             roles: ['admin','management']          as Role[], hasSubmenu: 'bitseye' as const },
     { href: "/reports",           label: "Reports",           icon: BarChart2,       roles: ['admin','management']          as Role[] },
     { href: "/cdrs",              label: "CDR Viewer",        icon: FileText,        roles: ['admin','management']          as Role[] },
     { href: "/fraud",             label: "Fraud / FAS",       icon: ShieldAlert,     roles: ['admin','management']          as Role[] },
@@ -167,6 +179,77 @@ export function LayoutShell({ children }: LayoutShellProps) {
                           <Link key={sub.view} href={`/calls?view=${sub.view}`} className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150", subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
                             <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
                             {sub.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            if (item.hasSubmenu === 'bitseye') {
+              const bsParams    = new URLSearchParams(search);
+              const bsView      = isBitseyeActive ? (bsParams.get('view') ?? 'clients') : null;
+              const bsKamId     = isBitseyeActive ? bsParams.get('kamId') : null;
+
+              return (
+                <div key={item.href}>
+                  <button
+                    onClick={() => setBitseyeExpanded(o => !o)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 group",
+                      isBitseyeActive ? "bg-primary text-primary-foreground shadow-md shadow-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    )}
+                  >
+                    <item.icon className={cn("h-4 w-4 transition-colors flex-shrink-0", isBitseyeActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground")} />
+                    <span className="flex-1 text-left">{item.label}</span>
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0", bitseyeExpanded ? "rotate-180" : "", isBitseyeActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+                  </button>
+
+                  {bitseyeExpanded && (
+                    <div className="mt-1 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+                      {/* Fixed: Clients + Vendors */}
+                      {BITSEYE_FIXED.map(sub => {
+                        const subActive = isBitseyeActive && bsView === sub.view && !bsKamId;
+                        return (
+                          <Link key={sub.view} href={`/bitseye?view=${sub.view}`}
+                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
+                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
+                            <BarChart3 className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
+                            {sub.label}
+                          </Link>
+                        );
+                      })}
+
+                      {/* KAM section divider */}
+                      <div className="flex items-center gap-2 pt-1 pb-0.5 px-2">
+                        <ContactRound className="h-3 w-3 text-violet-400/60 flex-shrink-0" />
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/35">KAM</span>
+                      </div>
+
+                      {/* All KAMs */}
+                      {(() => {
+                        const allKamActive = isBitseyeActive && bsView === 'kam' && !bsKamId;
+                        return (
+                          <Link href="/bitseye?view=kam"
+                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
+                              allKamActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
+                            <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", allKamActive ? "text-primary" : "text-violet-400/70")} />
+                            All KAMs
+                          </Link>
+                        );
+                      })()}
+
+                      {/* Individual KAMs */}
+                      {kamList.map(kam => {
+                        const kamActive = isBitseyeActive && bsView === 'kam' && bsKamId === String(kam.id);
+                        return (
+                          <Link key={kam.id} href={`/bitseye?view=kam&kamId=${kam.id}`}
+                            className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
+                              kamActive ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
+                            <ChevronRight className="h-2.5 w-2.5 flex-shrink-0 text-muted-foreground/30" />
+                            <span className="flex-1 truncate">{kam.name}</span>
                           </Link>
                         );
                       })}
