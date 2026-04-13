@@ -7,7 +7,7 @@ import {
   MonitorDot, ChevronRight, Activity, BarChart2, MapPin, Bell,
   AlertTriangle, DollarSign, Phone, Route, Tv2, List,
   Mail, Plus, Trash2, Edit2, X, TrendingUp, TrendingDown,
-  UserPlus, PhoneCall, LinkIcon, Unlink, ShieldAlert,
+  UserPlus, PhoneCall, LinkIcon, Unlink, ShieldAlert, Check,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import type { Role } from "@shared/schema";
@@ -64,18 +64,65 @@ function KamFormDialog({ onClose, editKam }: {
   editKam?: Kam;
 }) {
   const qc = useQueryClient();
-  const [name, setName] = useState(editKam?.name ?? '');
+  const [name, setName]   = useState(editKam?.name  ?? '');
   const [email, setEmail] = useState(editKam?.email ?? '');
   const [phone, setPhone] = useState(editKam?.phone ?? '');
   const [title, setTitle] = useState(editKam?.title ?? '');
-  const [err, setErr] = useState('');
+  const [err, setErr]     = useState('');
+
+  // Pre-populate selected account IDs from existing assignments (edit mode)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    new Set((editKam?.accounts ?? []).map(a => String(a.accountId)))
+  );
+
+  // Fetch Sippy accounts for the client picker
+  const { data: sippyData, isLoading: sippyLoading } = useQuery<{ accounts: SippyAccount[] }>({
+    queryKey: ['/api/sippy/accounts'],
+    staleTime: 60_000,
+  });
+  const sippyAccounts = sippyData?.accounts ?? [];
+
+  function toggleAccount(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   const mutation = useMutation({
-    mutationFn: () => editKam
-      ? apiRequest('PATCH', `/api/kam/${editKam.id}`, { name, email, phone: phone || null, title: title || null })
-      : apiRequest('POST', '/api/kam', { name, email, phone: phone || null, title: title || null }),
+    mutationFn: async () => {
+      // 1. Create or update KAM
+      const res = editKam
+        ? await apiRequest('PATCH', `/api/kam/${editKam.id}`, { name, email, phone: phone || null, title: title || null })
+        : await apiRequest('POST',  '/api/kam',               { name, email, phone: phone || null, title: title || null });
+      const kamData = await res.json();
+      const kamId   = editKam?.id ?? kamData.id;
+
+      // 2. Edit mode: remove assignments for deselected accounts
+      if (editKam) {
+        for (const acc of editKam.accounts) {
+          if (!selectedIds.has(String(acc.accountId))) {
+            await apiRequest('DELETE', `/api/kam/accounts/${acc.id}`, {});
+          }
+        }
+      }
+
+      // 3. Add newly selected accounts (skip already-assigned ones)
+      const existingIds = new Set((editKam?.accounts ?? []).map(a => String(a.accountId)));
+      for (const acctId of selectedIds) {
+        if (!existingIds.has(acctId)) {
+          const acct = sippyAccounts.find(a => String(a.iAccount) === acctId);
+          await apiRequest('POST', `/api/kam/${kamId}/accounts`, {
+            accountId:     acctId,
+            clientName:    acct?.username ?? acctId,
+            dropThreshold: 0,
+          });
+        }
+      }
+    },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['/api/kam'] }); onClose(); },
-    onError: (e: any) => setErr(e.message || 'Failed to save'),
+    onError:   (e: any) => setErr(e.message || 'Failed to save'),
   });
 
   function submit(e: React.FormEvent) {
@@ -86,8 +133,12 @@ function KamFormDialog({ onClose, editKam }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl mx-4" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="bg-card border border-border rounded-2xl p-6 w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
             <UserCheck className="w-5 h-5 text-violet-400" />
@@ -97,7 +148,9 @@ function KamFormDialog({ onClose, editKam }: {
             <X className="w-4 h-4" />
           </button>
         </div>
-        <form onSubmit={submit} className="space-y-3">
+
+        <form onSubmit={submit} className="flex flex-col gap-3 overflow-y-auto min-h-0">
+          {/* Name */}
           <div>
             <label className="text-xs text-muted-foreground mb-1 block font-medium">Full Name *</label>
             <input
@@ -107,6 +160,8 @@ function KamFormDialog({ onClose, editKam }: {
               className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50"
             />
           </div>
+
+          {/* Email */}
           <div>
             <label className="text-xs text-muted-foreground mb-1 block font-medium">Email Address *</label>
             <div className="relative">
@@ -120,6 +175,8 @@ function KamFormDialog({ onClose, editKam }: {
               />
             </div>
           </div>
+
+          {/* Phone + Title */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-muted-foreground mb-1 block font-medium">Phone</label>
@@ -143,8 +200,82 @@ function KamFormDialog({ onClose, editKam }: {
               />
             </div>
           </div>
-          {err && <p className="text-xs text-rose-400 flex items-center gap-1"><XCircle className="w-3.5 h-3.5" />{err}</p>}
-          <div className="flex gap-2 pt-2">
+
+          {/* ── Assign Clients ───────────────────────────────────────────────── */}
+          <div>
+            <label className="text-xs text-muted-foreground mb-2 flex items-center gap-1.5 font-medium">
+              <LinkIcon className="w-3.5 h-3.5" />
+              Assign Clients (Sippy Accounts)
+              {selectedIds.size > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 bg-violet-500/20 text-violet-300 rounded-full text-[10px] font-semibold border border-violet-500/30">
+                  {selectedIds.size} selected
+                </span>
+              )}
+            </label>
+
+            {sippyLoading ? (
+              <div className="flex items-center gap-2 py-4 text-muted-foreground text-xs">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Loading accounts from Sippy…
+              </div>
+            ) : sippyAccounts.length === 0 ? (
+              <div className="text-xs text-muted-foreground/50 py-3 text-center border border-dashed border-border rounded-lg">
+                No Sippy accounts found
+              </div>
+            ) : (
+              <div className="border border-border rounded-xl overflow-hidden divide-y divide-border/40 max-h-48 overflow-y-auto">
+                {sippyAccounts.map(acct => {
+                  const id      = String(acct.iAccount);
+                  const checked = selectedIds.has(id);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      data-testid={`checkbox-kam-acct-${id}`}
+                      onClick={() => toggleAccount(id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+                        checked ? 'bg-violet-500/10 hover:bg-violet-500/15' : 'hover:bg-muted/30'
+                      }`}
+                    >
+                      {/* Custom checkbox */}
+                      <div className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-all ${
+                        checked ? 'bg-violet-500 border-violet-500' : 'border-border bg-background'
+                      }`}>
+                        {checked && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                      </div>
+
+                      {/* Account info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold truncate">{acct.username}</div>
+                        {acct.description && (
+                          <div className="text-xs text-muted-foreground truncate">{acct.description}</div>
+                        )}
+                      </div>
+
+                      {/* Status + balance */}
+                      <div className="flex-shrink-0 flex items-center gap-1.5">
+                        {acct.blocked ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/20 font-medium">BLOCKED</span>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-medium">ACTIVE</span>
+                        )}
+                        <span className="text-xs text-muted-foreground font-mono">${acct.balance.toFixed(0)}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {err && (
+            <p className="text-xs text-rose-400 flex items-center gap-1">
+              <XCircle className="w-3.5 h-3.5" />{err}
+            </p>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose}
               className="flex-1 py-2.5 rounded-lg border border-border text-sm hover:bg-muted/40 transition-colors">
               Cancel
@@ -155,7 +286,9 @@ function KamFormDialog({ onClose, editKam }: {
               disabled={mutation.isPending}
               className="flex-1 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              {mutation.isPending
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <CheckCircle2 className="w-3.5 h-3.5" />}
               {editKam ? 'Save Changes' : 'Add KAM'}
             </button>
           </div>
