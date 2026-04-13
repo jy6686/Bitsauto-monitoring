@@ -7,7 +7,7 @@ import {
   MonitorDot, ChevronRight, Activity, BarChart2, MapPin, Bell,
   AlertTriangle, DollarSign, Phone, Route, Tv2, List,
   Mail, Plus, Trash2, Edit2, X, TrendingUp, TrendingDown,
-  UserPlus, PhoneCall, LinkIcon, Unlink, ShieldAlert, Check,
+  UserPlus, PhoneCall, LinkIcon, Unlink, ShieldAlert, Check, Server, FileText,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import type { Role } from "@shared/schema";
@@ -557,31 +557,37 @@ function KamRow({ kam, sippyAccounts, liveMap, onEdit, onDelete }: {
 // ─── Monitoring item visual config ───────────────────────────────────────────
 
 const ITEM_ICON: Record<MonitoringItemId, React.ElementType> = {
-  live_summary:    Tv2,
-  live_details:    List,
-  live_quality:    Activity,
-  call_history:    Phone,
-  balance_monitor: DollarSign,
-  alerts:          Bell,
-  fraud_fas:       AlertTriangle,
-  traffic_map:     MapPin,
-  reports:         BarChart2,
-  route_quality:   Route,
-  did_management:  MonitorDot,
+  live_summary:      Tv2,
+  live_details:      List,
+  live_quality:      Activity,
+  call_history:      Phone,
+  balance_monitor:   DollarSign,
+  alerts:            Bell,
+  fraud_fas:         AlertTriangle,
+  traffic_map:       MapPin,
+  graphs:            TrendingUp,
+  server_monitoring: Server,
+  cdr_viewer:        FileText,
+  reports:           BarChart2,
+  route_quality:     Route,
+  did_management:    MonitorDot,
 };
 
 const ITEM_COLOR: Record<MonitoringItemId, string> = {
-  live_summary:    'text-violet-400',
-  live_details:    'text-violet-400',
-  live_quality:    'text-violet-400',
-  call_history:    'text-violet-400',
-  balance_monitor: 'text-emerald-400',
-  alerts:          'text-rose-400',
-  fraud_fas:       'text-orange-400',
-  traffic_map:     'text-cyan-400',
-  reports:         'text-blue-400',
-  route_quality:   'text-blue-400',
-  did_management:  'text-amber-400',
+  live_summary:      'text-violet-400',
+  live_details:      'text-violet-400',
+  live_quality:      'text-violet-400',
+  call_history:      'text-violet-400',
+  balance_monitor:   'text-emerald-400',
+  alerts:            'text-rose-400',
+  fraud_fas:         'text-orange-400',
+  traffic_map:       'text-cyan-400',
+  graphs:            'text-indigo-400',
+  server_monitoring: 'text-slate-400',
+  cdr_viewer:        'text-teal-400',
+  reports:           'text-blue-400',
+  route_quality:     'text-blue-400',
+  did_management:    'text-amber-400',
 };
 
 const GROUP_COLOR: Record<string, string> = {
@@ -589,6 +595,7 @@ const GROUP_COLOR: Record<string, string> = {
   'Finance':     'text-emerald-400 border-emerald-500/30 bg-emerald-500/10',
   'Operations':  'text-cyan-400 border-cyan-500/30 bg-cyan-500/10',
   'Security':    'text-orange-400 border-orange-500/30 bg-orange-500/10',
+  'Analytics':   'text-indigo-400 border-indigo-500/30 bg-indigo-500/10',
   'Reports':     'text-blue-400 border-blue-500/30 bg-blue-500/10',
 };
 

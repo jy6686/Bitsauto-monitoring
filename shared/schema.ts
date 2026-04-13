@@ -328,17 +328,20 @@ export const insertTrafficAlertSchema = createInsertSchema(trafficAlerts).omit({
 
 // Monitoring Items — canonical list shared between frontend and backend
 export const MONITORING_ITEMS = [
-  { id: 'live_summary',    label: 'Live Calls – Summary',     group: 'Live Calls'  },
-  { id: 'live_details',    label: 'Live Calls – Details',     group: 'Live Calls'  },
-  { id: 'live_quality',    label: 'Live Calls – Quality',     group: 'Live Calls'  },
-  { id: 'call_history',    label: 'Call History',             group: 'Live Calls'  },
-  { id: 'balance_monitor', label: 'Balance Monitor',          group: 'Finance'     },
-  { id: 'alerts',          label: 'Alerts',                   group: 'Operations'  },
-  { id: 'fraud_fas',       label: 'FAS / Fraud Detection',    group: 'Security'    },
-  { id: 'traffic_map',     label: 'Traffic Map',              group: 'Operations'  },
-  { id: 'reports',         label: 'ASR / ACD Reports',        group: 'Reports'     },
-  { id: 'route_quality',   label: 'Route Quality Analysis',   group: 'Reports'     },
-  { id: 'did_management',  label: 'DID Management',           group: 'Operations'  },
+  { id: 'live_summary',      label: 'Live Calls – Summary',     group: 'Live Calls'  },
+  { id: 'live_details',      label: 'Live Calls – Details',     group: 'Live Calls'  },
+  { id: 'live_quality',      label: 'Live Calls – Quality',     group: 'Live Calls'  },
+  { id: 'call_history',      label: 'Call History',             group: 'Live Calls'  },
+  { id: 'balance_monitor',   label: 'Balance Monitor',          group: 'Finance'     },
+  { id: 'alerts',            label: 'Alerts',                   group: 'Operations'  },
+  { id: 'fraud_fas',         label: 'FAS / Fraud Detection',    group: 'Security'    },
+  { id: 'traffic_map',       label: 'Traffic Map',              group: 'Operations'  },
+  { id: 'graphs',            label: 'Graphs',                   group: 'Analytics'   },
+  { id: 'server_monitoring', label: 'Server Monitoring',        group: 'Operations'  },
+  { id: 'cdr_viewer',        label: 'CDR Viewer',               group: 'Reports'     },
+  { id: 'reports',           label: 'ASR / ACD Reports',        group: 'Reports'     },
+  { id: 'route_quality',     label: 'Route Quality Analysis',   group: 'Reports'     },
+  { id: 'did_management',    label: 'DID Management',           group: 'Operations'  },
 ] as const;
 
 export type MonitoringItemId = typeof MONITORING_ITEMS[number]['id'];
