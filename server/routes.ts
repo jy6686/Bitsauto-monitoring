@@ -7605,6 +7605,130 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/bitseye/per-entity — per-entity CDR time-series for BitsEye page
+  app.get('/api/bitseye/per-entity', (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const category  = (req.query.category as string) || 'clients';
+    const aliveOnly = req.query.aliveOnly !== 'false';
+    const orderBy   = (req.query.orderBy as string) || 'traffic';
+
+    const now      = Date.now();
+    const DAY_MS   = 24 * 3600 * 1000;
+    const WEEK_MS  = 7  * DAY_MS;
+
+    type Bucket = { total: number; connected: number };
+
+    // Build 24 hourly bucket labels (UTC)
+    const hourlyLabels: string[] = [];
+    for (let h = 23; h >= 0; h--) {
+      const t = new Date(now - h * 3600 * 1000);
+      hourlyLabels.push(
+        t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', hour12: true, timeZone: 'UTC' })
+      );
+    }
+
+    // Build 7 daily bucket labels (UTC)
+    const weeklyLabels: string[] = [];
+    for (let d = 6; d >= 0; d--) {
+      const t = new Date(now - d * DAY_MS);
+      weeklyLabels.push(
+        t.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+      );
+    }
+
+    const dailyData:  Record<string, Record<string, Bucket>> = {};
+    const weeklyData: Record<string, Record<string, Bucket>> = {};
+
+    const getEntityKey = (c: any): string | null => {
+      if (category === 'vendors') {
+        return (c as any).vendor || null;
+      }
+      return c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || null;
+    };
+
+    for (const c of cdrCache.values()) {
+      const ts = c.startTime
+        ? new Date(c.startTime).getTime()
+        : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+      if (!ts) continue;
+      const entity = getEntityKey(c);
+      if (!entity || entity === 'Unknown') continue;
+      const isConnected = (c.duration ?? 0) > 0;
+
+      if (ts >= now - DAY_MS) {
+        const t = new Date(ts);
+        const label = t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', hour12: true, timeZone: 'UTC' });
+        if (!dailyData[entity]) dailyData[entity] = {};
+        if (!dailyData[entity][label]) dailyData[entity][label] = { total: 0, connected: 0 };
+        dailyData[entity][label].total++;
+        if (isConnected) dailyData[entity][label].connected++;
+      }
+
+      if (ts >= now - WEEK_MS) {
+        const t = new Date(ts);
+        const label = t.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+        if (!weeklyData[entity]) weeklyData[entity] = {};
+        if (!weeklyData[entity][label]) weeklyData[entity][label] = { total: 0, connected: 0 };
+        weeklyData[entity][label].total++;
+        if (isConnected) weeklyData[entity][label].connected++;
+      }
+    }
+
+    const latestSnap    = concurrentHistory[concurrentHistory.length - 1];
+    const latestByKey   = category === 'vendors' ? (latestSnap?.byVendor ?? {}) : (latestSnap?.byClient ?? {});
+
+    const allEntities = new Set<string>();
+    for (const k of Object.keys(dailyData))  allEntities.add(k);
+    for (const k of Object.keys(weeklyData)) allEntities.add(k);
+    for (const k of Object.keys(latestByKey)) if (k !== 'Unknown') allEntities.add(k);
+
+    const entities: any[] = [];
+
+    for (const name of allEntities) {
+      const daily = hourlyLabels.map(label => ({
+        label,
+        total_calls:     dailyData[name]?.[label]?.total     ?? 0,
+        connected_calls: dailyData[name]?.[label]?.connected ?? 0,
+      }));
+      const weekly = weeklyLabels.map(label => ({
+        label,
+        total_calls:     weeklyData[name]?.[label]?.total     ?? 0,
+        connected_calls: weeklyData[name]?.[label]?.connected ?? 0,
+      }));
+
+      const allTotals = daily.map(d => d.total_calls);
+      const allConns  = daily.map(d => d.connected_calls);
+      const curConcurrent = latestByKey[name] ?? 0;
+      const totalInWindow = allTotals.reduce((s, v) => s + v, 0);
+      if (aliveOnly && curConcurrent === 0 && totalInWindow === 0) continue;
+
+      const safeMin = (arr: number[]) => Math.min(...arr, Infinity) === Infinity ? 0 : Math.min(...arr);
+      const safeMax = (arr: number[]) => arr.length ? Math.max(...arr) : 0;
+      const safeAvg = (arr: number[]) => arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
+      const lastUpdate = latestSnap ? new Date(latestSnap.ts) : new Date();
+
+      entities.push({
+        name,
+        daily, weekly,
+        curConcurrent,
+        stats: {
+          total:     { cur: allTotals[allTotals.length - 1] ?? 0, min: safeMin(allTotals), max: safeMax(allTotals), avg: safeAvg(allTotals) },
+          connected: { cur: allConns[allConns.length - 1]   ?? 0, min: safeMin(allConns),  max: safeMax(allConns),  avg: safeAvg(allConns)  },
+        },
+        lastUpdatedAt:   lastUpdate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
+        lastUpdatedDate: lastUpdate.toLocaleDateString('en-CA'),
+      });
+    }
+
+    if (orderBy === 'name') {
+      entities.sort((a, b) => a.name.localeCompare(b.name));
+    } else {
+      entities.sort((a, b) => (b.stats.total.max - a.stats.total.max) || a.name.localeCompare(b.name));
+    }
+
+    res.json({ entities, totalEntities: entities.length, updatedAt: new Date().toISOString() });
+  });
+
   // ── Reachability poller (every 30 s) ─────────────────────────────────────────
   // Init state from DB first (restores open outage + closes phantom duplicates)
   setTimeout(async () => {

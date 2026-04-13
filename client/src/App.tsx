@@ -54,6 +54,7 @@ import BalanceMonitorPage from "@/pages/balance-monitor";
 import DIDsPage from "@/pages/dids";
 import ServerMonitoringPage from "@/pages/server-monitoring";
 import GraphsPage from "@/pages/graphs";
+import BitsEyePage from "@/pages/bitseye";
 import NotFound from "@/pages/not-found";
 
 // Pages accessible to each role
@@ -164,6 +165,9 @@ function Router() {
       </Route>
       <Route path="/graphs">
         {() => <ProtectedRoute component={GraphsPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/bitseye">
+        {() => <ProtectedRoute component={BitsEyePage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/account">
         {() => <ProtectedRoute component={AccountPage} requiredRoles={['admin','management','viewer']} />}

@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useEffect } from "react";
@@ -84,6 +84,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/dids",              label: "DID Management",    icon: PhoneIncoming,   roles: ['admin','management']          as Role[] },
     { href: "/traffic-map",       label: "Traffic Map",       icon: Globe,           roles: ['admin','management']          as Role[] },
     { href: "/graphs",            label: "Graphs",            icon: LineChart,       roles: ['admin','management']          as Role[] },
+    { href: "/bitseye",           label: "BitsEye",           icon: Eye,             roles: ['admin','management']          as Role[] },
     { href: "/reports",           label: "Reports",           icon: BarChart2,       roles: ['admin','management']          as Role[] },
     { href: "/cdrs",              label: "CDR Viewer",        icon: FileText,        roles: ['admin','management']          as Role[] },
     { href: "/fraud",             label: "Fraud / FAS",       icon: ShieldAlert,     roles: ['admin','management']          as Role[] },
