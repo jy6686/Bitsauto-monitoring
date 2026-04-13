@@ -76,6 +76,7 @@ export interface IStorage {
   getFasEvents(limit?: number): Promise<FasEvent[]>;
   createFasEvent(event: InsertFasEvent): Promise<FasEvent>;
   markFasAlertSent(id: number): Promise<void>;
+  backfillFasEventVendors(vendorName: string): Promise<number>;
 
   // Call Snapshots (24-hour live call history)
   upsertCallSnapshot(snapshot: InsertCallSnapshot): Promise<void>;
@@ -496,6 +497,14 @@ export class DatabaseStorage implements IStorage {
 
   async markFasAlertSent(id: number): Promise<void> {
     await db.update(fasEvents).set({ alertSent: true }).where(eq(fasEvents.id, id));
+  }
+
+  async backfillFasEventVendors(vendorName: string): Promise<number> {
+    const rows = await db.update(fasEvents)
+      .set({ vendor: vendorName })
+      .where(sql`(vendor IS NULL OR vendor = '')`)
+      .returning({ id: fasEvents.id });
+    return rows.length;
   }
 
   // ── Call Snapshots ─────────────────────────────────────────────────────────

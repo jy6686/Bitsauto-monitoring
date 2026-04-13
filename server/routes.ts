@@ -351,17 +351,18 @@ export async function registerRoutes(
           || cdr.user
           || accountNameCache.get(String(cdr.accountId ?? cdr.iAccount ?? ''))
           || (cdr.accountId ? `Acct#${cdr.accountId}` : cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
-        // Resolve vendor: prefer direct CDR field, then connection cache, then single-vendor fallback
+        // Resolve vendor: prefer direct CDR field, then connection cache, then first known vendor
         const resolvedVendor = (() => {
           if (cdr.vendor) return cdr.vendor;
           if (cdr.iConnection) {
             const v = connectionVendorCache.get(String(cdr.iConnection));
-            if (v) return v;
+            if (v && !/^\d+$/.test(v)) return v;
           }
-          // Single-vendor setup: use the only known vendor name as fallback
-          const vendorNames = [...connectionVendorCache.values()].filter(v => !/^\d+$/.test(v));
-          const unique = [...new Set(vendorNames)];
-          return unique.length === 1 ? unique[0] : '';
+          // Fallback: first non-numeric vendor name found in cache (works for any number of vendors)
+          for (const val of connectionVendorCache.values()) {
+            if (!/^\d+$/.test(val)) return val;
+          }
+          return '';
         })();
         try {
           await storage.createFasEvent({
@@ -5484,20 +5485,40 @@ export async function registerRoutes(
       const limit = req.query.limit ? Math.min(500, Number(req.query.limit)) : 100;
       const events = await storage.getFasEvents(limit);
 
-      // Compute fallback vendor name: if only one vendor is known, use it for empty-vendor events
-      const vendorNames = [...connectionVendorCache.values()].filter(v => !/^\d+$/.test(v));
-      const uniqueVendors = [...new Set(vendorNames)];
-      const singleVendorFallback = uniqueVendors.length === 1 ? uniqueVendors[0] : '';
+      // Find first non-numeric vendor name from cache (works regardless of how many vendors exist)
+      let firstVendorName = '';
+      for (const val of connectionVendorCache.values()) {
+        if (!/^\d+$/.test(val)) { firstVendorName = val; break; }
+      }
 
-      // Re-resolve stale "Acct#N" client names + backfill empty vendor fields
+      // If we have a vendor name and there are empty-vendor rows, permanently backfill them in DB
+      if (firstVendorName) {
+        const backfilled = await storage.backfillFasEventVendors(firstVendorName);
+        if (backfilled > 0) {
+          console.log(`[fas-events] DB-backfilled vendor="${firstVendorName}" on ${backfilled} events`);
+          // Re-fetch so response reflects the updated rows
+          const updated = await storage.getFasEvents(limit);
+          const resolved = updated.map(e => {
+            let clientName = e.clientName;
+            if (!clientName || clientName.match(/^Acct[#.]?\d+$/i)) {
+              const m = clientName?.match(/\d+/);
+              clientName = (m ? accountNameCache.get(m[0]) : undefined) ?? clientName ?? 'Unknown';
+            }
+            return { ...e, clientName };
+          });
+          return res.json({ events: resolved });
+        }
+      }
+
+      // Normal path — re-resolve stale client names; vendor is already correct in DB
       const resolved = events.map(e => {
         let clientName = e.clientName;
         if (!clientName || clientName.match(/^Acct[#.]?\d+$/i)) {
           const m = clientName?.match(/\d+/);
           clientName = (m ? accountNameCache.get(m[0]) : undefined) ?? clientName ?? 'Unknown';
         }
-        // Backfill vendor from cache fallback for historical events saved with empty vendor
-        const vendor = e.vendor || singleVendorFallback;
+        // In-memory vendor fallback in case DB still has empty (should not happen after backfill above)
+        const vendor = e.vendor || firstVendorName;
         return { ...e, clientName, vendor };
       });
       res.json({ events: resolved });
@@ -5565,16 +5586,18 @@ export async function registerRoutes(
           || cdr.user
           || accountNameCache.get(String(cdr.accountId ?? cdr.iAccount ?? ''))
           || (cdr.accountId ? `Acct#${cdr.accountId}` : cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
-        // Resolve vendor: prefer CDR field, then connection cache, then single-vendor fallback
+        // Resolve vendor: prefer CDR field, then connection cache, then first known vendor
         const resolvedVendor = (() => {
           if (cdr.vendor) return cdr.vendor;
           if (cdr.iConnection) {
             const v = connectionVendorCache.get(String(cdr.iConnection));
-            if (v) return v;
+            if (v && !/^\d+$/.test(v)) return v;
           }
-          const vendorNames = [...connectionVendorCache.values()].filter(v => !/^\d+$/.test(v));
-          const unique = [...new Set(vendorNames)];
-          return unique.length === 1 ? unique[0] : '';
+          // Fallback: first non-numeric vendor name found in cache (works for any number of vendors)
+          for (const val of connectionVendorCache.values()) {
+            if (!/^\d+$/.test(val)) return val;
+          }
+          return '';
         })();
         return {
           callId:     cdr.callId ?? '',
