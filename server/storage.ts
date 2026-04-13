@@ -2,7 +2,7 @@
 import { 
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
   switches, fasEvents, callSnapshots, monitoringAssignments, outageLog, alertRules,
-  monitoredHosts, hostOutageLog,
+  monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -16,6 +16,9 @@ import {
   type AlertRule, type InsertAlertRule,
   type MonitoredHost, type InsertMonitoredHost,
   type HostOutageEntry, type InsertHostOutageEntry,
+  type Kam, type InsertKam,
+  type KamAccount, type InsertKamAccount,
+  type TrafficAlert, type InsertTrafficAlert,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -93,6 +96,24 @@ export interface IStorage {
   getHostOutageLog(hostId?: number, limit?: number): Promise<HostOutageEntry[]>;
   createHostOutageEntry(entry: InsertHostOutageEntry): Promise<HostOutageEntry>;
   updateHostOutageEntry(id: number, updates: Partial<HostOutageEntry>): Promise<void>;
+
+  // KAM Management
+  getKams(): Promise<Kam[]>;
+  getKam(id: number): Promise<Kam | undefined>;
+  createKam(kam: InsertKam): Promise<Kam>;
+  updateKam(id: number, updates: Partial<InsertKam>): Promise<Kam>;
+  deleteKam(id: number): Promise<void>;
+
+  // KAM Account Assignments
+  getKamAccounts(kamId?: number): Promise<KamAccount[]>;
+  createKamAccount(ka: InsertKamAccount): Promise<KamAccount>;
+  deleteKamAccount(id: number): Promise<void>;
+
+  // Traffic Alerts
+  getTrafficAlerts(limit?: number): Promise<TrafficAlert[]>;
+  createTrafficAlert(alert: InsertTrafficAlert): Promise<TrafficAlert>;
+  updateTrafficAlert(id: number, updates: Partial<TrafficAlert>): Promise<void>;
+  getOpenTrafficAlert(clientName: string): Promise<TrafficAlert | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -602,6 +623,76 @@ export class DatabaseStorage implements IStorage {
 
   async updateHostOutageEntry(id: number, updates: Partial<HostOutageEntry>): Promise<void> {
     await db.update(hostOutageLog).set(updates).where(eq(hostOutageLog.id, id));
+  }
+
+  // ── KAM Management ───────────────────────────────────────────────────────────
+  async getKams(): Promise<Kam[]> {
+    return db.select().from(kams).orderBy(kams.name);
+  }
+
+  async getKam(id: number): Promise<Kam | undefined> {
+    const [row] = await db.select().from(kams).where(eq(kams.id, id));
+    return row;
+  }
+
+  async createKam(kam: InsertKam): Promise<Kam> {
+    const [row] = await db.insert(kams).values(kam).returning();
+    return row;
+  }
+
+  async updateKam(id: number, updates: Partial<InsertKam>): Promise<Kam> {
+    const [row] = await db.update(kams).set(updates).where(eq(kams.id, id)).returning();
+    return row;
+  }
+
+  async deleteKam(id: number): Promise<void> {
+    await db.delete(kamAccounts).where(eq(kamAccounts.kamId, id));
+    await db.delete(kams).where(eq(kams.id, id));
+  }
+
+  // ── KAM Account Assignments ───────────────────────────────────────────────────
+  async getKamAccounts(kamId?: number): Promise<KamAccount[]> {
+    if (kamId !== undefined) {
+      return db.select().from(kamAccounts).where(eq(kamAccounts.kamId, kamId));
+    }
+    return db.select().from(kamAccounts);
+  }
+
+  async createKamAccount(ka: InsertKamAccount): Promise<KamAccount> {
+    const [row] = await db.insert(kamAccounts).values(ka).returning();
+    return row;
+  }
+
+  async deleteKamAccount(id: number): Promise<void> {
+    await db.delete(kamAccounts).where(eq(kamAccounts.id, id));
+  }
+
+  // ── Traffic Alerts ────────────────────────────────────────────────────────────
+  async getTrafficAlerts(limit = 50): Promise<TrafficAlert[]> {
+    return db.select().from(trafficAlerts)
+      .orderBy(desc(trafficAlerts.triggeredAt))
+      .limit(limit);
+  }
+
+  async createTrafficAlert(alert: InsertTrafficAlert): Promise<TrafficAlert> {
+    const [row] = await db.insert(trafficAlerts).values(alert).returning();
+    return row;
+  }
+
+  async updateTrafficAlert(id: number, updates: Partial<TrafficAlert>): Promise<void> {
+    await db.update(trafficAlerts).set(updates).where(eq(trafficAlerts.id, id));
+  }
+
+  async getOpenTrafficAlert(clientName: string): Promise<TrafficAlert | undefined> {
+    const [row] = await db.select().from(trafficAlerts)
+      .where(and(
+        eq(trafficAlerts.clientName, clientName),
+        sql`${trafficAlerts.resolvedAt} IS NULL`,
+        sql`${trafficAlerts.alertType} != 'traffic_restored'`
+      ))
+      .orderBy(desc(trafficAlerts.triggeredAt))
+      .limit(1);
+    return row;
   }
 }
 

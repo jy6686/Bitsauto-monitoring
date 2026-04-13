@@ -18,6 +18,10 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 - Role-based access control (admin > management > viewer)
 - Alert engine with threshold-based triggers
 - Team page with Quick Assign Role form (email + role dropdown + submit)
+- **KAM Management** (`/graphs` page — KAM Overview section): `kams` + `kam_accounts` DB tables, CRUD API at `/api/kam`, assign Sippy clients to KAMs, live call count overlay per KAM
+- **Traffic Drop Detector**: background job runs every 5 minutes, compares per-client concurrent calls vs 60-min peak, triggers email when traffic drops >50% or goes to 0. Stores history in `traffic_alerts` table. Email sent via Gmail SMTP (existing settings). Cooldown 30 min per client.
+- **Client Traffic Pulse**: per-client live call count cards on the Graphs page with trend indicator and percentage-of-peak bar
+- **Traffic Alerts Log** on the Graphs page: shows recent drop events, email sent status, open/resolved state
 - **Traffic Map** (`/traffic-map`): Interactive Leaflet world choropleth map showing destination traffic % by country. Uses CDR `country` field, TopoJSON (world-atlas via `/api/geo/world`), topojson-client, and `/api/traffic-map` endpoint. Dark CartoDB tiles, violet colour scale, hover tooltips, top-destinations sidebar, time range selector (3/6/12/24/48/72h).
 
 ## Sippy Integration (`server/sippy.ts`)

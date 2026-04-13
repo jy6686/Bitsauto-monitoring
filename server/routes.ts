@@ -7761,5 +7761,260 @@ export async function registerRoutes(
     }
   });
 
+  // ── KAM Management Routes ─────────────────────────────────────────────────────
+
+  // List all KAMs (with their assigned accounts)
+  app.get('/api/kam', async (_req, res) => {
+    try {
+      const kamList = await storage.getKams();
+      const assignments = await storage.getKamAccounts();
+      const withAccounts = kamList.map(k => ({
+        ...k,
+        accounts: assignments.filter(a => a.kamId === k.id),
+      }));
+      res.json(withAccounts);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Create KAM
+  app.post('/api/kam', async (req: any, res) => {
+    try {
+      const { name, email, phone, title } = req.body;
+      if (!name || !email) return res.status(400).json({ error: 'name and email required' });
+      const kam = await storage.createKam({ name, email, phone: phone || null, title: title || null, active: true });
+      res.json(kam);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Update KAM
+  app.patch('/api/kam/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const kam = await storage.updateKam(id, req.body);
+      res.json(kam);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Delete KAM (also deletes assignments)
+  app.delete('/api/kam/:id', async (req: any, res) => {
+    try {
+      await storage.deleteKam(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Assign an account to a KAM
+  app.post('/api/kam/:id/accounts', async (req: any, res) => {
+    try {
+      const kamId = parseInt(req.params.id);
+      const { accountId, clientName, dropThreshold } = req.body;
+      if (!accountId) return res.status(400).json({ error: 'accountId required' });
+      const assignment = await storage.createKamAccount({ kamId, accountId, clientName: clientName || null, dropThreshold: dropThreshold ?? 0 });
+      res.json(assignment);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Remove an account assignment
+  app.delete('/api/kam/accounts/:assignmentId', async (req: any, res) => {
+    try {
+      await storage.deleteKamAccount(parseInt(req.params.assignmentId));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Traffic Alerts history
+  app.get('/api/traffic-alerts', async (_req, res) => {
+    try {
+      const alerts = await storage.getTrafficAlerts(100);
+      res.json(alerts);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Traffic Drop Detector ─────────────────────────────────────────────────────
+  // Cooldown map: clientName → timestamp of last alert sent (to avoid spam)
+  const trafficAlertCooldown = new Map<string, number>();
+  const ALERT_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes between alerts per client
+
+  // Generate inline SVG chart of concurrent call history for a specific client
+  function buildClientTrendSvg(clientName: string, historyWindow: ConcurrentPoint[]): string {
+    const points = historyWindow.map(p => ({ ts: p.ts, v: p.byClient[clientName] ?? 0 }));
+    if (points.length < 2) return '';
+    const maxV = Math.max(...points.map(p => p.v), 1);
+    const W = 520, H = 80, PAD = 6;
+    const ux = (i: number) => PAD + (i / (points.length - 1)) * (W - PAD * 2);
+    const uy = (v: number) => PAD + (1 - v / maxV) * (H - PAD * 2);
+    const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${ux(i).toFixed(1)},${uy(p.v).toFixed(1)}`).join(' ');
+    const area = `${path} L${ux(points.length - 1).toFixed(1)},${(H - PAD).toFixed(1)} L${PAD},${(H - PAD).toFixed(1)} Z`;
+    const lastV = points[points.length - 1].v;
+    const color = lastV === 0 ? '#ef4444' : lastV < maxV * 0.5 ? '#f97316' : '#22c55e';
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#111827;border-radius:8px">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.4"/><stop offset="100%" stop-color="${color}" stop-opacity="0.05"/></linearGradient></defs>
+  <path d="${area}" fill="url(#g)"/>
+  <path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>`;
+  }
+
+  // Build an HTML email body for a traffic drop alert
+  function buildTrafficAlertEmail(opts: {
+    kamName: string; kamEmail: string; clientName: string;
+    alertType: string; prevCalls: number; currCalls: number;
+    svgChart: string; productionUrl: string;
+  }): { subject: string; html: string } {
+    const { kamName, clientName, alertType, prevCalls, currCalls, svgChart } = opts;
+    const isGone = alertType === 'traffic_gone';
+    const pct = prevCalls > 0 ? Math.round(((prevCalls - currCalls) / prevCalls) * 100) : 100;
+    const subject = isGone
+      ? `🔴 Traffic Alert: ${clientName} — calls dropped to ZERO`
+      : `🟠 Traffic Drop: ${clientName} — calls fell ${pct}% (${prevCalls} → ${currCalls})`;
+
+    const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#0f172a;font-family:sans-serif;color:#e2e8f0">
+<div style="max-width:600px;margin:32px auto;background:#1e293b;border-radius:12px;overflow:hidden;border:1px solid #334155">
+  <div style="background:${isGone ? '#7f1d1d' : '#7c2d12'};padding:20px 24px;border-bottom:1px solid #334155">
+    <h1 style="margin:0;font-size:20px;font-weight:700;color:#fff">${isGone ? '🔴 Traffic Gone — Zero Calls Detected' : '🟠 Traffic Drop Detected'}</h1>
+    <p style="margin:6px 0 0;font-size:13px;color:#fca5a5">VoIP Monitoring Alert · ${new Date().toUTCString()}</p>
+  </div>
+  <div style="padding:24px">
+    <p style="margin:0 0 16px;font-size:15px">Hi <strong>${kamName}</strong>,</p>
+    <p style="margin:0 0 20px;font-size:14px;color:#94a3b8">
+      ${isGone
+        ? `The client <strong style="color:#f87171">${clientName}</strong> has dropped to <strong style="color:#f87171">0 concurrent calls</strong> (was <strong>${prevCalls}</strong>). Immediate attention may be required.`
+        : `The client <strong style="color:#fb923c">${clientName}</strong> concurrent calls dropped by <strong style="color:#fb923c">${pct}%</strong> — from <strong>${prevCalls}</strong> to <strong>${currCalls}</strong>.`}
+    </p>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+      <tr>
+        <td style="padding:10px 14px;background:#0f172a;border-radius:8px 8px 0 0;border-bottom:1px solid #334155;font-size:13px;color:#94a3b8;font-weight:600">CLIENT</td>
+        <td style="padding:10px 14px;background:#0f172a;border-radius:8px 8px 0 0;border-bottom:1px solid #334155;font-size:13px;color:#e2e8f0">${clientName}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 14px;background:#0f172a;border-bottom:1px solid #334155;font-size:13px;color:#94a3b8;font-weight:600">PREVIOUS CALLS</td>
+        <td style="padding:10px 14px;background:#0f172a;border-bottom:1px solid #334155;font-size:13px;color:#22c55e">${prevCalls}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 14px;background:#0f172a;border-radius:0 0 8px 8px;font-size:13px;color:#94a3b8;font-weight:600">CURRENT CALLS</td>
+        <td style="padding:10px 14px;background:#0f172a;border-radius:0 0 8px 8px;font-size:13px;color:${isGone ? '#f87171' : '#fb923c'}">${currCalls}</td>
+      </tr>
+    </table>
+    ${svgChart ? `<div style="margin-bottom:20px"><p style="margin:0 0 8px;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">1-Hour Trend</p>${svgChart}</div>` : ''}
+    <a href="${opts.productionUrl}/graphs" style="display:inline-block;padding:10px 22px;background:#7c3aed;color:#fff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600">View Live Graphs →</a>
+  </div>
+  <div style="padding:14px 24px;border-top:1px solid #334155;font-size:11px;color:#475569">
+    This alert was sent because you are the assigned KAM for ${clientName}. VoIP Watcher — NOC Dashboard.
+  </div>
+</div>
+</body></html>`;
+    return { subject, html };
+  }
+
+  async function runTrafficDropDetector(): Promise<void> {
+    try {
+      if (concurrentHistory.length < 2) return;
+      const settings = await storage.getSippySettings();
+      if (!settings?.alertEnabled || !settings?.alertGmailUser || !settings?.alertGmailAppPass) return;
+
+      // Build per-client current and recent-peak values
+      const latest = concurrentHistory[concurrentHistory.length - 1];
+      // Recent peak = max concurrent calls in the last 60 minutes (excluding the very last point)
+      const since60 = Date.now() - 60 * 60 * 1000;
+      const recentPoints = concurrentHistory.filter(p => p.ts >= since60);
+      if (recentPoints.length < 2) return;
+
+      // Collect all client names that appeared in recent history
+      const allClients = new Set<string>();
+      for (const p of recentPoints) Object.keys(p.byClient).forEach(c => allClients.add(c));
+
+      // Load KAM account assignments and KAMs for email lookup
+      const kamAccountList = await storage.getKamAccounts();
+      const kamList = await storage.getKams();
+      const kamById = new Map(kamList.map(k => [k.id, k]));
+
+      const productionUrl = 'https://vo-ip-watcher--junaid70.replit.app';
+
+      for (const clientName of allClients) {
+        const now = Date.now();
+        const cooldownKey = clientName;
+        const lastAlert = trafficAlertCooldown.get(cooldownKey) ?? 0;
+        if (now - lastAlert < ALERT_COOLDOWN_MS) continue;
+
+        const currCalls = latest.byClient[clientName] ?? 0;
+        // Peak = max in the last 60 min (excluding current point)
+        const prevPoints = recentPoints.slice(0, -1);
+        const prevMax = Math.max(...prevPoints.map(p => p.byClient[clientName] ?? 0));
+        if (prevMax === 0) continue; // never had traffic in this window, skip
+
+        let alertType: string | null = null;
+        if (currCalls === 0 && prevMax > 0) alertType = 'traffic_gone';
+        else if (currCalls > 0 && prevMax > 0 && currCalls < prevMax * 0.5) alertType = 'traffic_dropped';
+
+        if (!alertType) {
+          // Check if we had an open alert that should now resolve
+          const open = await storage.getOpenTrafficAlert(clientName);
+          if (open && currCalls >= prevMax * 0.7) {
+            await storage.updateTrafficAlert(open.id, { resolvedAt: new Date(), alertType: 'traffic_restored' });
+          }
+          continue;
+        }
+
+        // Mark cooldown
+        trafficAlertCooldown.set(cooldownKey, now);
+
+        // Find the KAM(s) for this client
+        const assignment = kamAccountList.find(a => a.clientName === clientName);
+        const kam = assignment ? kamById.get(assignment.kamId) : null;
+
+        // Save to DB
+        const dbAlert = await storage.createTrafficAlert({
+          clientName,
+          accountId:  assignment?.accountId ?? null,
+          kamId:      kam?.id ?? null,
+          alertType,
+          prevCalls:  prevMax,
+          currCalls,
+          emailSent:  false,
+        });
+
+        // Build SVG chart for the email
+        const window1h = concurrentHistory.filter(p => p.ts >= Date.now() - 3600 * 1000);
+        const svgChart = buildClientTrendSvg(clientName, window1h);
+
+        // Determine recipients
+        const recipients: string[] = [];
+        if (kam?.email) recipients.push(kam.email);
+        if (settings.alertAdminEmail && !recipients.includes(settings.alertAdminEmail)) {
+          recipients.push(settings.alertAdminEmail);
+        }
+        if (recipients.length === 0) continue;
+
+        try {
+          const { subject, html } = buildTrafficAlertEmail({
+            kamName: kam?.name ?? 'NOC Team',
+            kamEmail: recipients[0],
+            clientName, alertType,
+            prevCalls: prevMax, currCalls, svgChart, productionUrl,
+          });
+          const nodemailer = await import('nodemailer');
+          const transporter = nodemailer.default.createTransport({
+            service: 'gmail',
+            auth: { user: settings.alertGmailUser, pass: settings.alertGmailAppPass },
+          });
+          await transporter.sendMail({
+            from: `"VoIP Watcher" <${settings.alertGmailUser}>`,
+            to: recipients.join(', '),
+            subject,
+            html,
+          });
+          await storage.updateTrafficAlert(dbAlert.id, { emailSent: true, emailSentAt: new Date() });
+          console.log(`[traffic-drop] Alert sent for ${clientName} (${alertType}) → ${recipients.join(', ')}`);
+        } catch (emailErr: any) {
+          console.warn('[traffic-drop] Email send failed:', emailErr.message);
+        }
+      }
+    } catch (err: any) {
+      console.warn('[traffic-drop] Detector error:', err.message);
+    }
+  }
+
+  // Run traffic drop detector every 5 minutes (aligned with CDR cache refresh)
+  setInterval(runTrafficDropDetector, 5 * 60 * 1000);
+
   return httpServer;
 }

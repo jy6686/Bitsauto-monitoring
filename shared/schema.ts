@@ -278,6 +278,54 @@ export type UserConfig = typeof userConfig.$inferSelect;
 export type InsertUserConfig = typeof userConfig.$inferInsert;
 export const insertUserConfigSchema = createInsertSchema(userConfig).omit({ userId: true, updatedAt: true });
 
+// ── KAM (Key Account Manager) Management ─────────────────────────────────────
+export const kams = pgTable("kams", {
+  id:        serial("id").primaryKey(),
+  name:      varchar("name",  { length: 128 }).notNull(),
+  email:     varchar("email", { length: 255 }).notNull(),
+  phone:     varchar("phone", { length: 32 }),
+  title:     varchar("title", { length: 128 }),
+  active:    boolean("active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type Kam = typeof kams.$inferSelect;
+export type InsertKam = typeof kams.$inferInsert;
+export const insertKamSchema = createInsertSchema(kams).omit({ id: true, createdAt: true });
+
+// KAM ↔ Sippy account assignments
+export const kamAccounts = pgTable("kam_accounts", {
+  id:            serial("id").primaryKey(),
+  kamId:         integer("kam_id").notNull(),
+  accountId:     varchar("account_id",  { length: 32 }).notNull(),  // Sippy iAccount
+  clientName:    varchar("client_name", { length: 128 }),           // display name
+  dropThreshold: integer("drop_threshold").default(0),              // alert when concurrent calls < this
+  createdAt:     timestamp("created_at").defaultNow(),
+});
+
+export type KamAccount = typeof kamAccounts.$inferSelect;
+export type InsertKamAccount = typeof kamAccounts.$inferInsert;
+export const insertKamAccountSchema = createInsertSchema(kamAccounts).omit({ id: true, createdAt: true });
+
+// Traffic alert history (one row per alert event)
+export const trafficAlerts = pgTable("traffic_alerts", {
+  id:          serial("id").primaryKey(),
+  clientName:  varchar("client_name", { length: 128 }).notNull(),
+  accountId:   varchar("account_id",  { length: 32 }),
+  kamId:       integer("kam_id"),
+  alertType:   varchar("alert_type",  { length: 32 }).notNull(), // traffic_gone | traffic_dropped | traffic_restored
+  prevCalls:   integer("prev_calls").default(0),
+  currCalls:   integer("curr_calls").default(0),
+  emailSent:   boolean("email_sent").default(false),
+  emailSentAt: timestamp("email_sent_at"),
+  resolvedAt:  timestamp("resolved_at"),
+  triggeredAt: timestamp("triggered_at").defaultNow(),
+});
+
+export type TrafficAlert = typeof trafficAlerts.$inferSelect;
+export type InsertTrafficAlert = typeof trafficAlerts.$inferInsert;
+export const insertTrafficAlertSchema = createInsertSchema(trafficAlerts).omit({ id: true, triggeredAt: true });
+
 // Monitoring Items — canonical list shared between frontend and backend
 export const MONITORING_ITEMS = [
   { id: 'live_summary',    label: 'Live Calls – Summary',     group: 'Live Calls'  },

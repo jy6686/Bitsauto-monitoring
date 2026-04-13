@@ -1,11 +1,17 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie,
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, Legend,
 } from "recharts";
-import { TrendingUp, Users, Network, Radio, ArrowLeftRight, RefreshCw, Activity, Globe } from "lucide-react";
+import {
+  TrendingUp, Users, Network, Radio, ArrowLeftRight, RefreshCw, Activity,
+  Globe, AlertTriangle, UserCheck, Phone, Mail, Plus, Trash2, Edit2,
+  ChevronDown, ChevronRight, X, Check, Loader2, TrendingDown, Minus,
+  Bell, BellOff, ShieldAlert,
+} from "lucide-react";
 
 interface LiveGraphsData {
   trend:            { time: string; avg: number; peak: number }[];
@@ -21,6 +27,38 @@ interface LiveGraphsData {
   windowHours:      number;
   pointsCollected:  number;
   oldestPoint:      number | null;
+}
+
+interface KamAccount {
+  id: number;
+  kamId: number;
+  accountId: string;
+  clientName: string | null;
+  dropThreshold: number | null;
+}
+
+interface Kam {
+  id: number;
+  name: string;
+  email: string;
+  phone: string | null;
+  title: string | null;
+  active: boolean;
+  accounts: KamAccount[];
+}
+
+interface TrafficAlert {
+  id: number;
+  clientName: string;
+  accountId: string | null;
+  kamId: number | null;
+  alertType: string;
+  prevCalls: number | null;
+  currCalls: number | null;
+  emailSent: boolean | null;
+  emailSentAt: string | null;
+  resolvedAt: string | null;
+  triggeredAt: string | null;
 }
 
 const COLORS = [
@@ -102,8 +140,406 @@ function HBar({ data, colors }: { data: { name: string; calls: number }[]; color
   );
 }
 
+// ── Traffic Pulse Card (per-client live status) ────────────────────────────────
+function ClientPulseCard({ client, calls, peakCalls }: {
+  client: string; calls: number; peakCalls: number;
+}) {
+  const pct = peakCalls > 0 ? calls / peakCalls : 0;
+  const isGone = calls === 0;
+  const isLow = !isGone && pct < 0.5;
+  const statusColor = isGone ? 'text-rose-400 border-rose-500/30 bg-rose-500/5'
+    : isLow ? 'text-amber-400 border-amber-500/30 bg-amber-500/5'
+    : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/5';
+  const dotColor = isGone ? 'bg-rose-500' : isLow ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500 animate-pulse';
+  const TrendIcon = isGone ? TrendingDown : isLow ? TrendingDown : TrendingUp;
+  const trendColor = isGone ? 'text-rose-400' : isLow ? 'text-amber-400' : 'text-emerald-400';
+
+  return (
+    <div data-testid={`pulse-card-${client}`} className={`rounded-xl border p-4 ${statusColor}`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold truncate max-w-[120px]">{client}</span>
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
+      </div>
+      <div className="flex items-end justify-between">
+        <span className="text-3xl font-bold tabular-nums">{calls}</span>
+        <div className="flex items-center gap-1">
+          <TrendIcon className={`w-3.5 h-3.5 ${trendColor}`} />
+          <span className="text-xs text-muted-foreground">
+            {isGone ? 'GONE' : `peak ${peakCalls}`}
+          </span>
+        </div>
+      </div>
+      <div className="mt-2 h-1 rounded-full bg-border/40 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${isGone ? 'bg-rose-500' : isLow ? 'bg-amber-500' : 'bg-emerald-500'}`}
+          style={{ width: `${Math.round(pct * 100)}%` }}
+        />
+      </div>
+      <div className="text-xs text-muted-foreground mt-1">{isGone ? '0%' : `${Math.round(pct * 100)}% of peak`}</div>
+    </div>
+  );
+}
+
+// ── KAM Dialog ────────────────────────────────────────────────────────────────
+function KamDialog({ onClose, editKam }: {
+  onClose: () => void;
+  editKam?: Kam;
+}) {
+  const qc = useQueryClient();
+  const [name, setName] = useState(editKam?.name ?? '');
+  const [email, setEmail] = useState(editKam?.email ?? '');
+  const [phone, setPhone] = useState(editKam?.phone ?? '');
+  const [title, setTitle] = useState(editKam?.title ?? '');
+  const [err, setErr] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: () => editKam
+      ? apiRequest('PATCH', `/api/kam/${editKam.id}`, { name, email, phone: phone || null, title: title || null })
+      : apiRequest('POST', '/api/kam', { name, email, phone: phone || null, title: title || null }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/kam'] });
+      onClose();
+    },
+    onError: (e: any) => setErr(e.message || 'Failed to save'),
+  });
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim() || !email.trim()) { setErr('Name and email are required'); return; }
+    setErr('');
+    mutation.mutate();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-semibold text-lg">{editKam ? 'Edit KAM' : 'Add New KAM'}</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Full Name *</label>
+            <input
+              data-testid="input-kam-name"
+              value={name} onChange={e => setName(e.target.value)}
+              placeholder="e.g. John Doe"
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Email Address *</label>
+            <input
+              data-testid="input-kam-email"
+              type="email"
+              value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="kam@company.com"
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Phone</label>
+              <input
+                data-testid="input-kam-phone"
+                value={phone} onChange={e => setPhone(e.target.value)}
+                placeholder="+1 555 000 0000"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Title / Role</label>
+              <input
+                data-testid="input-kam-title"
+                value={title} onChange={e => setTitle(e.target.value)}
+                placeholder="Account Manager"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+              />
+            </div>
+          </div>
+          {err && <p className="text-xs text-rose-400">{err}</p>}
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button" onClick={onClose}
+              className="flex-1 py-2 rounded-lg border border-border text-sm hover:bg-muted/40 transition-colors"
+            >Cancel</button>
+            <button
+              data-testid="button-save-kam"
+              type="submit"
+              disabled={mutation.isPending}
+              className="flex-1 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              {editKam ? 'Save Changes' : 'Add KAM'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Assign Account Dialog ─────────────────────────────────────────────────────
+function AssignAccountDialog({ kam, liveClients, onClose }: {
+  kam: Kam;
+  liveClients: { name: string; calls: number }[];
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [accountId, setAccountId] = useState('');
+  const [clientName, setClientName] = useState('');
+  const [err, setErr] = useState('');
+
+  // Pre-fill clientName when accountId is changed to a known live client
+  function handleClientSelect(name: string) {
+    setClientName(name);
+    setAccountId(name.toLowerCase().replace(/\s+/g, '_'));
+  }
+
+  const mutation = useMutation({
+    mutationFn: () => apiRequest('POST', `/api/kam/${kam.id}/accounts`, {
+      accountId: accountId.trim(),
+      clientName: clientName.trim() || accountId.trim(),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/kam'] });
+      onClose();
+    },
+    onError: (e: any) => setErr(e.message || 'Failed to assign'),
+  });
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!accountId.trim()) { setErr('Account ID is required'); return; }
+    setErr('');
+    mutation.mutate();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-semibold">Assign Account to {kam.name}</h3>
+          <button onClick={onClose}><X className="w-4 h-4 text-muted-foreground" /></button>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          {liveClients.length > 0 && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Quick select from live traffic</label>
+              <div className="flex flex-wrap gap-1.5">
+                {liveClients.map(c => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => handleClientSelect(c.name)}
+                    className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                      clientName === c.name
+                        ? 'bg-violet-600 border-violet-500 text-white'
+                        : 'border-border hover:bg-muted/40'
+                    }`}
+                  >
+                    {c.name} ({c.calls})
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Client Name (display)</label>
+            <input
+              data-testid="input-assign-client-name"
+              value={clientName} onChange={e => setClientName(e.target.value)}
+              placeholder="e.g. PUSHTOTALK"
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Account ID (Sippy iAccount)</label>
+            <input
+              data-testid="input-assign-account-id"
+              value={accountId} onChange={e => setAccountId(e.target.value)}
+              placeholder="e.g. 1 or PUSHTOTALK"
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+            />
+          </div>
+          {err && <p className="text-xs text-rose-400">{err}</p>}
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 py-2 rounded-lg border border-border text-sm hover:bg-muted/40">Cancel</button>
+            <button
+              data-testid="button-assign-account"
+              type="submit"
+              disabled={mutation.isPending}
+              className="flex-1 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              Assign
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── KAM Card ──────────────────────────────────────────────────────────────────
+function KamCard({ kam, liveClients, onEdit, onDelete }: {
+  kam: Kam;
+  liveClients: { name: string; calls: number }[];
+  onEdit: (k: Kam) => void;
+  onDelete: (id: number) => void;
+}) {
+  const qc = useQueryClient();
+  const [expanded, setExpanded] = useState(false);
+  const [showAssign, setShowAssign] = useState(false);
+
+  const removeAssignment = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/kam/accounts/${id}`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/kam'] }),
+  });
+
+  // Find live call count for each assigned client
+  const liveMap = new Map(liveClients.map(c => [c.name, c.calls]));
+  const totalLiveCalls = kam.accounts.reduce((sum, a) => sum + (liveMap.get(a.clientName ?? '') ?? 0), 0);
+  const hasActiveCalls = totalLiveCalls > 0;
+
+  return (
+    <>
+      {showAssign && (
+        <AssignAccountDialog
+          kam={kam}
+          liveClients={liveClients.filter(c => !kam.accounts.some(a => a.clientName === c.name))}
+          onClose={() => setShowAssign(false)}
+        />
+      )}
+      <div data-testid={`kam-card-${kam.id}`} className="bg-card border border-border/50 rounded-xl overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-sm">{kam.name}</span>
+              {kam.title && <span className="text-xs text-muted-foreground">{kam.title}</span>}
+              {hasActiveCalls && (
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-medium">
+                  {totalLiveCalls} live
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 mt-0.5">
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <Mail className="w-3 h-3" />{kam.email}
+              </span>
+              {kam.phone && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Phone className="w-3 h-3" />{kam.phone}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              data-testid={`btn-edit-kam-${kam.id}`}
+              onClick={() => onEdit(kam)}
+              className="p-1.5 rounded-lg hover:bg-muted/40 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              data-testid={`btn-delete-kam-${kam.id}`}
+              onClick={() => onDelete(kam.id)}
+              className="p-1.5 rounded-lg hover:bg-rose-500/10 text-muted-foreground hover:text-rose-400 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setExpanded(e => !e)}
+              className="p-1.5 rounded-lg hover:bg-muted/40 text-muted-foreground transition-colors"
+            >
+              <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        {expanded && (
+          <div className="border-t border-border/40 px-4 py-3 bg-muted/5 space-y-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Assigned Clients ({kam.accounts.length})</span>
+              <button
+                data-testid={`btn-assign-account-${kam.id}`}
+                onClick={() => setShowAssign(true)}
+                className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-violet-600/20 border border-violet-500/30 text-violet-300 hover:bg-violet-600/30 transition-colors"
+              >
+                <Plus className="w-3 h-3" /> Assign Client
+              </button>
+            </div>
+            {kam.accounts.length === 0 ? (
+              <p className="text-xs text-muted-foreground/50 italic py-2">No clients assigned yet</p>
+            ) : (
+              <div className="space-y-1.5">
+                {kam.accounts.map(a => {
+                  const live = liveMap.get(a.clientName ?? '') ?? 0;
+                  return (
+                    <div key={a.id} className="flex items-center justify-between bg-background/60 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${live > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/30'}`} />
+                        <span className="text-sm font-medium">{a.clientName ?? a.accountId}</span>
+                        <span className="text-xs text-muted-foreground">ID: {a.accountId}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-semibold ${live > 0 ? 'text-emerald-400' : 'text-muted-foreground/50'}`}>
+                          {live > 0 ? `${live} calls` : 'idle'}
+                        </span>
+                        <button
+                          data-testid={`btn-remove-assignment-${a.id}`}
+                          onClick={() => removeAssignment.mutate(a.id)}
+                          disabled={removeAssignment.isPending}
+                          className="p-1 rounded hover:bg-rose-500/10 text-muted-foreground hover:text-rose-400 transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ── Alert Type Badge ──────────────────────────────────────────────────────────
+function AlertTypeBadge({ type }: { type: string }) {
+  if (type === 'traffic_gone') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 border border-rose-500/30 text-rose-400">
+      <ShieldAlert className="w-3 h-3" /> GONE
+    </span>
+  );
+  if (type === 'traffic_dropped') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 border border-amber-500/30 text-amber-400">
+      <TrendingDown className="w-3 h-3" /> DROPPED
+    </span>
+  );
+  if (type === 'traffic_restored') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+      <TrendingUp className="w-3 h-3" /> RESTORED
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-muted border border-border text-muted-foreground">
+      <Minus className="w-3 h-3" /> {type}
+    </span>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function GraphsPage() {
   const [hours, setHours] = useState(3);
+  const [showKamDialog, setShowKamDialog] = useState(false);
+  const [editKam, setEditKam] = useState<Kam | undefined>();
+  const [kamSectionOpen, setKamSectionOpen] = useState(true);
+  const [alertSectionOpen, setAlertSectionOpen] = useState(true);
+  const qc = useQueryClient();
 
   const { data, isLoading, isFetching, refetch, dataUpdatedAt } = useQuery<LiveGraphsData>({
     queryKey: ['/api/sippy/live-graphs', hours],
@@ -112,14 +548,54 @@ export default function GraphsPage() {
     staleTime: 20_000,
   });
 
+  const { data: kams = [], isLoading: kamsLoading } = useQuery<Kam[]>({
+    queryKey: ['/api/kam'],
+    refetchInterval: 60_000,
+  });
+
+  const { data: trafficAlerts = [] } = useQuery<TrafficAlert[]>({
+    queryKey: ['/api/traffic-alerts'],
+    refetchInterval: 60_000,
+  });
+
+  const deleteKamMutation = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/kam/${id}`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/kam'] }),
+  });
+
   const updatedAt = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : null;
   const hasHistory = (data?.trend?.length ?? 0) > 0;
   const coverageMins = data?.oldestPoint
     ? Math.round((Date.now() - data.oldestPoint) / 60_000)
     : 0;
 
+  const liveClients = data?.byClient ?? [];
+  const liveMap = new Map(liveClients.map(c => [c.name, c.calls]));
+
+  // Compute peak per client in the last 48h (use peakCount as proxy for now)
+  const peakByClient: Record<string, number> = {};
+  for (const c of liveClients) peakByClient[c.name] = c.calls;
+
+  // All unique clients that have had traffic (from KAM assignments + live)
+  const allClientNames = Array.from(new Set([
+    ...liveClients.map(c => c.name),
+    ...kams.flatMap(k => k.accounts.map(a => a.clientName ?? a.accountId)),
+  ]));
+
+  // Open / recent alerts
+  const openAlerts = trafficAlerts.filter(a => !a.resolvedAt && a.alertType !== 'traffic_restored');
+  const recentAlerts = trafficAlerts.slice(0, 20);
+
   return (
     <div className="space-y-6 p-1">
+
+      {/* Dialogs */}
+      {(showKamDialog || editKam) && (
+        <KamDialog
+          editKam={editKam}
+          onClose={() => { setShowKamDialog(false); setEditKam(undefined); }}
+        />
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -171,6 +647,12 @@ export default function GraphsPage() {
           <span>{data.pointsCollected} snapshot{data.pointsCollected !== 1 ? 's' : ''} collected
             {coverageMins > 0 ? ` · ${coverageMins}m of history` : ''}</span>
         )}
+        {openAlerts.length > 0 && (
+          <span className="flex items-center gap-1 text-amber-400/80 font-medium">
+            <Bell className="w-3 h-3 animate-pulse" />
+            {openAlerts.length} open traffic alert{openAlerts.length !== 1 ? 's' : ''}
+          </span>
+        )}
         {!isLoading && (data?.pointsCollected ?? 0) < 3 && (
           <span className="text-amber-400/80 flex items-center gap-1">
             <RefreshCw className="w-3 h-3 animate-spin" />
@@ -207,6 +689,27 @@ export default function GraphsPage() {
         />
       </div>
 
+      {/* ── Client Traffic Pulse ───────────────────────────────────────── */}
+      {allClientNames.length > 0 && (
+        <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">
+          <div className="flex items-center gap-2 mb-4">
+            <Activity className="w-4 h-4 text-emerald-400" />
+            <h2 className="text-sm font-semibold">Client Traffic Pulse</h2>
+            <span className="text-xs text-muted-foreground ml-auto">real-time concurrent calls per client</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {allClientNames.map(name => (
+              <ClientPulseCard
+                key={name}
+                client={name}
+                calls={liveMap.get(name) ?? 0}
+                peakCalls={Math.max(liveMap.get(name) ?? 0, data?.peakCount ?? 0, 1)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Chart 1: Concurrent calls trend ──────────────────────────── */}
       <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">
         <div className="flex items-center gap-2 mb-4">
@@ -242,25 +745,8 @@ export default function GraphsPage() {
               />
               <Tooltip content={<ChartTooltip />} />
               <Legend wrapperStyle={{ fontSize: '11px', color: 'hsl(var(--muted-foreground))' }} />
-              <Line
-                type="monotone"
-                dataKey="avg"
-                name="Avg Concurrent"
-                stroke="#3b82f6"
-                strokeWidth={2.5}
-                dot={false}
-                activeDot={{ r: 4 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="peak"
-                name="Peak"
-                stroke="#8b5cf6"
-                strokeWidth={1.5}
-                strokeDasharray="4 2"
-                dot={false}
-                activeDot={{ r: 4 }}
-              />
+              <Line type="monotone" dataKey="avg" name="Avg Concurrent" stroke="#3b82f6" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
+              <Line type="monotone" dataKey="peak" name="Peak" stroke="#8b5cf6" strokeWidth={1.5} strokeDasharray="4 2" dot={false} activeDot={{ r: 4 }} />
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -268,7 +754,6 @@ export default function GraphsPage() {
 
       {/* ── Charts 2 & 3: By Client + By Vendor ─────────────────────── */}
       <div className="grid gap-4 md:grid-cols-2">
-
         <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">
           <div className="flex items-center gap-2 mb-4">
             <Users className="w-4 h-4 text-emerald-400" />
@@ -294,7 +779,6 @@ export default function GraphsPage() {
 
       {/* ── Charts 4 & 5: By Codec + By Direction ───────────────────── */}
       <div className="grid gap-4 md:grid-cols-2">
-
         <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">
           <div className="flex items-center gap-2 mb-4">
             <Radio className="w-4 h-4 text-violet-400" />
@@ -308,16 +792,7 @@ export default function GraphsPage() {
           ) : (
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
-                <Pie
-                  data={data!.byCodec}
-                  dataKey="calls"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  labelLine={false}
-                  label={<PieLabel />}
-                >
+                <Pie data={data!.byCodec} dataKey="calls" nameKey="name" cx="50%" cy="50%" outerRadius={80} labelLine={false} label={<PieLabel />}>
                   {data!.byCodec.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v: any, n: any) => [v, n]} />
@@ -338,19 +813,13 @@ export default function GraphsPage() {
           ) : !(data?.byDirection?.length) ? (
             <div className="h-48 flex items-center justify-center text-muted-foreground/50 text-sm">No direction data yet</div>
           ) : (
-            <HBar
-              data={data!.byDirection}
-              colors={data!.byDirection.map(d => DIR_COLORS[d.name] ?? COLORS[0])}
-            />
+            <HBar data={data!.byDirection} colors={data!.byDirection.map(d => DIR_COLORS[d.name] ?? COLORS[0])} />
           )}
         </div>
-
       </div>
 
       {/* ── Destinations section ────────────────────────────────────── */}
       <div className="grid gap-4 md:grid-cols-2">
-
-        {/* CDR-based destination (accurate country names from completed calls) */}
         <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">
           <div className="flex items-center gap-2 mb-1">
             <Globe className="w-4 h-4 text-blue-400" />
@@ -372,31 +841,25 @@ export default function GraphsPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} allowDecimals={false} />
                 <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
-                <Tooltip
-                  content={({ active, payload, label }) =>
-                    active && payload?.length ? (
-                      <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-xl text-xs">
-                        <p className="font-semibold">{label}</p>
-                        <p style={{ color: payload[0]?.fill }}>
-                          Calls: <b>{payload[0]?.value?.toLocaleString()}</b>
-                          {data?.cdrTotal ? <span className="text-muted-foreground ml-1">({((Number(payload[0]?.value) / data.cdrTotal) * 100).toFixed(1)}%)</span> : ''}
-                        </p>
-                      </div>
-                    ) : null
-                  }
-                  cursor={{ fill: 'hsl(var(--muted))', opacity: 0.25 }}
-                />
+                <Tooltip content={({ active, payload, label }) =>
+                  active && payload?.length ? (
+                    <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-xl text-xs">
+                      <p className="font-semibold">{label}</p>
+                      <p style={{ color: payload[0]?.fill }}>
+                        Calls: <b>{payload[0]?.value?.toLocaleString()}</b>
+                        {data?.cdrTotal ? <span className="text-muted-foreground ml-1">({((Number(payload[0]?.value) / data.cdrTotal) * 100).toFixed(1)}%)</span> : ''}
+                      </p>
+                    </div>
+                  ) : null
+                } cursor={{ fill: 'hsl(var(--muted))', opacity: 0.25 }} />
                 <Bar dataKey="calls" radius={[0, 4, 4, 0]}>
-                  {data!.cdrByDestination.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
+                  {data!.cdrByDestination.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
 
-        {/* Live call destinations (from active call callee prefix matching) */}
         <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">
           <div className="flex items-center gap-2 mb-1">
             <Globe className="w-4 h-4 text-emerald-400" />
@@ -418,17 +881,14 @@ export default function GraphsPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} allowDecimals={false} />
                 <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
-                <Tooltip
-                  content={({ active, payload, label }) =>
-                    active && payload?.length ? (
-                      <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-xl text-xs">
-                        <p className="font-semibold">{label}</p>
-                        <p style={{ color: payload[0]?.fill }}>Concurrent: <b>{payload[0]?.value}</b></p>
-                      </div>
-                    ) : null
-                  }
-                  cursor={{ fill: 'hsl(var(--muted))', opacity: 0.25 }}
-                />
+                <Tooltip content={({ active, payload, label }) =>
+                  active && payload?.length ? (
+                    <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-xl text-xs">
+                      <p className="font-semibold">{label}</p>
+                      <p style={{ color: payload[0]?.fill }}>Concurrent: <b>{payload[0]?.value}</b></p>
+                    </div>
+                  ) : null
+                } cursor={{ fill: 'hsl(var(--muted))', opacity: 0.25 }} />
                 <Bar dataKey="calls" radius={[0, 4, 4, 0]}>
                   {data!.byDestination.map((_, i) => (
                     <Cell key={i} fill={["#10b981","#06b6d4","#3b82f6","#8b5cf6","#f59e0b","#ef4444"][i % 6]} />
@@ -438,7 +898,144 @@ export default function GraphsPage() {
             </ResponsiveContainer>
           )}
         </div>
+      </div>
 
+      {/* ── KAM Management ────────────────────────────────────────────── */}
+      <div className="bg-card border border-violet-500/20 rounded-xl overflow-hidden shadow-lg shadow-black/5">
+        <button
+          onClick={() => setKamSectionOpen(o => !o)}
+          className="w-full flex items-center gap-3 px-5 py-4 hover:bg-muted/10 transition-colors"
+          data-testid="btn-toggle-kam-section"
+        >
+          <UserCheck className="w-4 h-4 text-violet-400" />
+          <h2 className="text-sm font-semibold">KAM Overview — Key Account Managers</h2>
+          {openAlerts.length > 0 && (
+            <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 font-medium">
+              {openAlerts.length} alert{openAlerts.length !== 1 ? 's' : ''}
+            </span>
+          )}
+          <span className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">{kams.length} KAM{kams.length !== 1 ? 's' : ''}</span>
+            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${kamSectionOpen ? 'rotate-180' : ''}`} />
+          </span>
+        </button>
+
+        {kamSectionOpen && (
+          <div className="border-t border-border/40 p-5 space-y-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-muted-foreground">
+                Assign KAMs to client accounts — they receive email alerts when traffic drops
+              </p>
+              <button
+                data-testid="btn-add-kam"
+                onClick={() => setShowKamDialog(true)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-500 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add KAM
+              </button>
+            </div>
+
+            {kamsLoading ? (
+              <div className="flex items-center justify-center py-8 text-muted-foreground/50 gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading KAMs…
+              </div>
+            ) : kams.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-3 text-muted-foreground/50">
+                <UserCheck className="w-10 h-10 opacity-30" />
+                <p className="text-sm">No KAMs configured yet</p>
+                <button
+                  onClick={() => setShowKamDialog(true)}
+                  className="text-xs px-4 py-2 rounded-lg bg-violet-600/20 border border-violet-500/30 text-violet-300 hover:bg-violet-600/30 transition-colors"
+                >
+                  Add your first KAM
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {kams.map(k => (
+                  <KamCard
+                    key={k.id}
+                    kam={k}
+                    liveClients={liveClients}
+                    onEdit={setEditKam}
+                    onDelete={id => deleteKamMutation.mutate(id)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Traffic Alerts Log ─────────────────────────────────────────── */}
+      <div className="bg-card border border-amber-500/20 rounded-xl overflow-hidden shadow-lg shadow-black/5">
+        <button
+          onClick={() => setAlertSectionOpen(o => !o)}
+          className="w-full flex items-center gap-3 px-5 py-4 hover:bg-muted/10 transition-colors"
+          data-testid="btn-toggle-alert-section"
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-400" />
+          <h2 className="text-sm font-semibold">Traffic Drop Alerts</h2>
+          {openAlerts.length > 0 && (
+            <span className="ml-1 w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+          )}
+          <span className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">{recentAlerts.length} recent</span>
+            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${alertSectionOpen ? 'rotate-180' : ''}`} />
+          </span>
+        </button>
+
+        {alertSectionOpen && (
+          <div className="border-t border-border/40">
+            {recentAlerts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-3 text-muted-foreground/50">
+                <BellOff className="w-10 h-10 opacity-30" />
+                <p className="text-sm">No traffic drop alerts yet</p>
+                <p className="text-xs">Alerts appear here when client traffic drops by more than 50% or goes to zero</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border/30">
+                {recentAlerts.map(alert => {
+                  const pct = alert.prevCalls && alert.prevCalls > 0
+                    ? Math.round(((alert.prevCalls - (alert.currCalls ?? 0)) / alert.prevCalls) * 100)
+                    : 100;
+                  const isOpen = !alert.resolvedAt && alert.alertType !== 'traffic_restored';
+                  return (
+                    <div
+                      key={alert.id}
+                      data-testid={`alert-row-${alert.id}`}
+                      className={`flex items-center gap-4 px-5 py-3 ${isOpen ? 'bg-amber-500/5' : ''}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <AlertTypeBadge type={alert.alertType} />
+                          <span className="text-sm font-semibold">{alert.clientName}</span>
+                          {isOpen && (
+                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400">OPEN</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
+                          <span>{alert.prevCalls ?? 0} → {alert.currCalls ?? 0} calls {alert.alertType !== 'traffic_restored' ? `(−${pct}%)` : ''}</span>
+                          {alert.triggeredAt && (
+                            <span>{new Date(alert.triggeredAt).toLocaleString()}</span>
+                          )}
+                          {alert.emailSent ? (
+                            <span className="flex items-center gap-1 text-emerald-400/80"><Mail className="w-3 h-3" /> Email sent</span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-muted-foreground/40"><Mail className="w-3 h-3" /> No email</span>
+                          )}
+                          {alert.resolvedAt && (
+                            <span className="text-emerald-400/70">Resolved {new Date(alert.resolvedAt).toLocaleTimeString()}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Summary footer */}
@@ -448,6 +1045,7 @@ export default function GraphsPage() {
         <span>Peak in window: <strong className="text-foreground">{data?.peakCount ?? 0}</strong></span>
         <span>CDR records: <strong className="text-foreground">{(data?.cdrTotal ?? 0).toLocaleString()}</strong></span>
         <span>Snapshots collected: <strong className="text-foreground">{data?.pointsCollected ?? 0}</strong></span>
+        <span>KAMs: <strong className="text-foreground">{kams.length}</strong></span>
         <span className="ml-auto text-muted-foreground/50">Polled every 30 s · auto-refreshes every 30 s</span>
       </div>
     </div>
