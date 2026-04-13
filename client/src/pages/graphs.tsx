@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { Link } from "wouter";
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -11,7 +12,7 @@ import {
   TrendingUp, Users, Network, Radio, ArrowLeftRight, RefreshCw, Activity,
   Globe, AlertTriangle, UserCheck, Phone, Mail, Plus, Trash2, Edit2,
   ChevronDown, ChevronRight, X, Check, Loader2, TrendingDown, Minus,
-  Bell, BellOff, ShieldAlert,
+  Bell, BellOff, ShieldAlert, Map, Eye, ExternalLink,
 } from "lucide-react";
 
 interface LiveGraphsData {
@@ -436,6 +437,14 @@ function KamCard({ kam, liveClients, onEdit, onDelete }: {
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            <Link
+              href={`/bitseye?view=kam&kamId=${kam.id}`}
+              data-testid={`link-bitseye-kam-graphs-${kam.id}`}
+              title="View in BitsEye"
+              className="p-1.5 rounded-lg hover:bg-violet-500/10 text-muted-foreground hover:text-violet-400 transition-colors"
+            >
+              <Eye className="w-3.5 h-3.5" />
+            </Link>
             <button
               data-testid={`btn-edit-kam-${kam.id}`}
               onClick={() => onEdit(kam)}
@@ -535,6 +544,156 @@ function AlertTypeBadge({ type }: { type: string }) {
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-muted border border-border text-muted-foreground">
       <Minus className="w-3 h-3" /> {type}
     </span>
+  );
+}
+
+// ── Destination Breakout Section ──────────────────────────────────────────────
+interface DestEntity {
+  name: string;
+  daily: { label: string; total_calls: number; connected_calls: number }[];
+  todayCalls: number;
+  asr: number;
+  trendPct: number;
+  clients?: string[];
+}
+
+function DestBreakoutSection() {
+  const [open, setOpen] = useState(true);
+  const { data, isLoading, isFetching } = useQuery<{ entities: DestEntity[] }>({
+    queryKey: ['/api/bitseye/per-entity', 'destinations'],
+    queryFn: () => fetch('/api/bitseye/per-entity?category=destinations&aliveOnly=false').then(r => r.json()),
+    refetchInterval: 60_000,
+    staleTime: 45_000,
+  });
+  const dests = data?.entities ?? [];
+
+  return (
+    <div className="bg-card border border-emerald-500/20 rounded-xl overflow-hidden shadow-lg shadow-black/5">
+      {/* Header */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 px-5 py-4 hover:bg-muted/10 transition-colors"
+        data-testid="btn-toggle-dest-breakout"
+      >
+        <Map className="w-4 h-4 text-emerald-400" />
+        <h2 className="text-sm font-semibold">Destination Breakout Graphs</h2>
+        <span className="text-xs text-muted-foreground/60">auto-created from CDR data · per destination time-series</span>
+        {isFetching && <RefreshCw className="w-3 h-3 text-muted-foreground/40 animate-spin ml-1" />}
+        <span className="ml-auto flex items-center gap-3">
+          {dests.length > 0 && (
+            <span className="text-xs text-muted-foreground">{dests.length} destination{dests.length !== 1 ? 's' : ''}</span>
+          )}
+          <Link
+            href="/bitseye?view=destinations"
+            onClick={e => e.stopPropagation()}
+            className="flex items-center gap-1 text-xs text-emerald-400/70 hover:text-emerald-400 transition-colors"
+            data-testid="link-bitseye-destinations"
+          >
+            <Eye className="w-3 h-3" /> BitsEye
+          </Link>
+          <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-border/30">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground/50 text-sm">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading destination data…
+            </div>
+          ) : dests.length === 0 ? (
+            <div className="flex flex-col items-center py-10 gap-2 text-muted-foreground/50 text-sm">
+              <Globe className="w-7 h-7 opacity-20" />
+              <span>No destination data yet — appears automatically when CDR data arrives</span>
+            </div>
+          ) : (
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {dests.map((dest, idx) => {
+                const hasData = dest.daily.some(d => d.total_calls > 0);
+                const color = COLORS[idx % COLORS.length];
+                const trend = dest.trendPct;
+                return (
+                  <div key={dest.name} className="border border-border/40 rounded-xl overflow-hidden bg-background/40">
+                    {/* Dest card header */}
+                    <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/20 bg-muted/10">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+                      <span className="font-semibold text-xs flex-1 truncate" title={dest.name}>{dest.name}</span>
+                      {/* trend badge */}
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border flex-shrink-0 ${
+                        trend > 10  ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+                        trend < -10 ? 'text-rose-400    bg-rose-500/10    border-rose-500/20'    :
+                                      'text-amber-400   bg-amber-500/10   border-amber-500/20'
+                      }`}>
+                        {trend > 0 ? '+' : ''}{trend}%
+                      </span>
+                      <Link
+                        href="/bitseye?view=destinations"
+                        className="p-1 text-muted-foreground/30 hover:text-emerald-400 transition-colors flex-shrink-0"
+                        title="View in BitsEye"
+                      >
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </Link>
+                    </div>
+                    {/* KPIs */}
+                    <div className="grid grid-cols-3 border-b border-border/15 divide-x divide-border/10">
+                      <div className="flex flex-col items-center py-1.5">
+                        <span className="text-[8px] text-muted-foreground/40 uppercase">Today</span>
+                        <span className="text-xs font-bold tabular-nums">{dest.todayCalls || '-'}</span>
+                      </div>
+                      <div className="flex flex-col items-center py-1.5">
+                        <span className="text-[8px] text-muted-foreground/40 uppercase">ASR</span>
+                        <span className={`text-xs font-bold tabular-nums ${
+                          dest.asr >= 60 ? 'text-emerald-400' : dest.asr >= 40 ? 'text-amber-400' : dest.asr > 0 ? 'text-rose-400' : 'text-muted-foreground/25'
+                        }`}>{dest.asr > 0 ? `${dest.asr}%` : '-'}</span>
+                      </div>
+                      <div className="flex flex-col items-center py-1.5">
+                        <span className="text-[8px] text-muted-foreground/40 uppercase">Clients</span>
+                        <span className="text-xs font-bold tabular-nums">{dest.clients?.length ?? '-'}</span>
+                      </div>
+                    </div>
+                    {/* Mini chart */}
+                    {hasData ? (
+                      <ResponsiveContainer width="100%" height={80}>
+                        <LineChart data={dest.daily} margin={{ top: 4, right: 8, left: -30, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border)/0.2)" />
+                          <XAxis dataKey="label" hide />
+                          <YAxis tick={{ fontSize: 6, fill: 'hsl(var(--muted-foreground)/0.5)' }} tickLine={false} axisLine={false} allowDecimals={false} width={28} />
+                          <Tooltip
+                            content={({ active, payload, label: lbl }) =>
+                              active && payload?.length ? (
+                                <div className="bg-card border border-border rounded px-2 py-1 text-[10px] shadow-lg">
+                                  <p className="text-muted-foreground truncate max-w-[120px]">{lbl}</p>
+                                  <p style={{ color }}>Calls: <b>{payload[0]?.value}</b></p>
+                                </div>
+                              ) : null
+                            }
+                          />
+                          <Line type="monotone" dataKey="total_calls" stroke={color} strokeWidth={1.5} dot={false} />
+                          <Line type="monotone" dataKey="connected_calls" stroke={color} strokeWidth={1} strokeDasharray="3 2" dot={false} opacity={0.5} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-20 flex items-center justify-center text-[10px] text-muted-foreground/25">No chart data yet</div>
+                    )}
+                    {/* Client pills */}
+                    {dest.clients && dest.clients.length > 0 && (
+                      <div className="px-2.5 py-1.5 border-t border-border/15 flex flex-wrap gap-1">
+                        {dest.clients.slice(0, 4).map(c => (
+                          <span key={c} className="text-[8px] px-1.5 py-0.5 rounded bg-muted/30 border border-border/25 text-muted-foreground/50">{c}</span>
+                        ))}
+                        {dest.clients.length > 4 && (
+                          <span className="text-[8px] px-1.5 py-0.5 rounded bg-muted/20 text-muted-foreground/30">+{dest.clients.length - 4}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -916,6 +1075,9 @@ export default function GraphsPage() {
           )}
         </div>
       </div>
+
+      {/* ── Destination Breakout Graphs ──────────────────────────────── */}
+      <DestBreakoutSection />
 
       {/* ── KAM Management ────────────────────────────────────────────── */}
       <div className="bg-card border border-violet-500/20 rounded-xl overflow-hidden shadow-lg shadow-black/5">

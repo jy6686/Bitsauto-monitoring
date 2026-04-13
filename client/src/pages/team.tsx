@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth, type AuthUser } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
+import { Link } from "wouter";
 import {
   Shield, Users, Loader2, CheckCircle2, UserCog, Search,
   Crown, Eye, Briefcase, Calendar, ChevronDown, XCircle, UserCheck,
@@ -453,6 +454,14 @@ function KamRow({ kam, sippyAccounts, liveMap, onEdit, onDelete }: {
           </div>
           {/* Actions */}
           <div className="flex items-center gap-1 flex-shrink-0">
+            <Link
+              href={`/bitseye?view=kam&kamId=${kam.id}`}
+              data-testid={`link-bitseye-kam-${kam.id}`}
+              title="View in BitsEye"
+              className="p-1.5 rounded-lg hover:bg-violet-500/10 text-muted-foreground hover:text-violet-400 transition-colors"
+            >
+              <Eye className="w-3.5 h-3.5" />
+            </Link>
             <button
               data-testid={`btn-edit-kam-${kam.id}`}
               onClick={() => onEdit(kam)}

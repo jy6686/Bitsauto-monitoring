@@ -7662,10 +7662,14 @@ export async function registerRoutes(
     // For ASR/ACD across all cached CDRs per entity
     const entityTotals: Record<string, { total: number; connected: number; durSecs: number }> = {};
 
+    // For destinations: track which clients send to each destination
+    const destClients: Record<string, Set<string>> = {};
+
     const resolveKey = (c: any): string | null => {
       const raw = c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || null;
-      if (category === 'vendors')  return (c as any).vendor || null;
-      if (category === 'kam')      return raw ? (clientToKam[raw] ?? 'Unassigned') : null;
+      if (category === 'vendors')      return (c as any).vendor || null;
+      if (category === 'kam')          return raw ? (clientToKam[raw] ?? 'Unassigned') : null;
+      if (category === 'destinations') return (c as any).areaName || (c as any).country || null;
       return raw;
     };
 
@@ -7683,6 +7687,13 @@ export async function registerRoutes(
       if (!entityTotals[entity]) entityTotals[entity] = { total: 0, connected: 0, durSecs: 0 };
       entityTotals[entity].total++;
       if (isConn) { entityTotals[entity].connected++; entityTotals[entity].durSecs += dur; }
+
+      // Track which clients send to each destination
+      if (category === 'destinations') {
+        const cName = (c as any).clientName || accountNameCache.get(String((c as any).iAccount ?? '')) || 'Unknown';
+        if (!destClients[entity]) destClients[entity] = new Set();
+        destClients[entity].add(cName);
+      }
 
       // Daily buckets (last 24h)
       if (ts >= now - DAY_MS) {
@@ -7716,7 +7727,8 @@ export async function registerRoutes(
       if (pt.ts < now - DAY_MS) continue;
       const t = new Date(pt.ts);
       const label = t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', hour12: true, timeZone: 'UTC' });
-      const byKey = category === 'vendors' ? pt.byVendor : pt.byClient;
+      // Destinations have no concurrent-by-destination data — skip
+      const byKey = category === 'vendors' ? pt.byVendor : category === 'destinations' ? {} : pt.byClient;
       for (const [rawKey, cnt] of Object.entries(byKey)) {
         if (rawKey === 'Unknown') continue;
         const entityKey = category === 'kam' ? (clientToKam[rawKey] ?? 'Unassigned') : rawKey;
@@ -7730,10 +7742,11 @@ export async function registerRoutes(
     for (const k of Object.keys(dailyData))        allEntities.add(k);
     for (const k of Object.keys(weeklyData))       allEntities.add(k);
     for (const k of Object.keys(concurrentPeaks))  allEntities.add(k);
-    if (category !== 'kam') {
-      for (const k of Object.keys(latestByKey)) if (k !== 'Unknown') allEntities.add(k);
-    } else {
+    if (category === 'kam') {
       for (const k of Object.keys(kamClients)) allEntities.add(k);
+    } else if (category !== 'destinations') {
+      // For clients/vendors: supplement with live snapshot keys (not for destinations — those use CDR-only keys)
+      for (const k of Object.keys(latestByKey)) if (k !== 'Unknown') allEntities.add(k);
     }
 
     // If filtering to a specific KAM, keep only that KAM name
@@ -7795,10 +7808,12 @@ export async function registerRoutes(
 
       const lastUpdate = latestSnap ? new Date(latestSnap.ts) : new Date();
 
-      // KAM: list of managed client names for tooltip
+      // KAM: list of managed client names; Destinations: list of clients sending to this dest
       const clients = category === 'kam'
         ? Array.from(kamClients[name] ?? []).sort()
-        : undefined;
+        : category === 'destinations'
+          ? Array.from(destClients[name] ?? []).filter(c => c !== 'Unknown').sort()
+          : undefined;
 
       entities.push({
         name, daily, weekly, curConcurrent, todayCalls,
