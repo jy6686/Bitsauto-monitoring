@@ -351,10 +351,22 @@ export async function registerRoutes(
           || cdr.user
           || accountNameCache.get(String(cdr.accountId ?? cdr.iAccount ?? ''))
           || (cdr.accountId ? `Acct#${cdr.accountId}` : cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
+        // Resolve vendor: prefer direct CDR field, then connection cache, then single-vendor fallback
+        const resolvedVendor = (() => {
+          if (cdr.vendor) return cdr.vendor;
+          if (cdr.iConnection) {
+            const v = connectionVendorCache.get(String(cdr.iConnection));
+            if (v) return v;
+          }
+          // Single-vendor setup: use the only known vendor name as fallback
+          const vendorNames = [...connectionVendorCache.values()].filter(v => !/^\d+$/.test(v));
+          const unique = [...new Set(vendorNames)];
+          return unique.length === 1 ? unique[0] : '';
+        })();
         try {
           await storage.createFasEvent({
             callId: String(cdr.callId), caller: cdr.caller ?? '', callee: cdr.callee ?? '',
-            clientName: resolvedClient, vendor: '',
+            clientName: resolvedClient, vendor: resolvedVendor,
             pddSecs: ringDelay ?? null, billSecs: billSecsVal,
             sipCode: sipCodeVal ?? null, reason: fasResult.reason,
             fraudScore: fasResult.fraudScore, alertSent: false,
@@ -5471,14 +5483,22 @@ export async function registerRoutes(
     try {
       const limit = req.query.limit ? Math.min(500, Number(req.query.limit)) : 100;
       const events = await storage.getFasEvents(limit);
-      // Re-resolve stale "Acct#N" names from the live account name cache
+
+      // Compute fallback vendor name: if only one vendor is known, use it for empty-vendor events
+      const vendorNames = [...connectionVendorCache.values()].filter(v => !/^\d+$/.test(v));
+      const uniqueVendors = [...new Set(vendorNames)];
+      const singleVendorFallback = uniqueVendors.length === 1 ? uniqueVendors[0] : '';
+
+      // Re-resolve stale "Acct#N" client names + backfill empty vendor fields
       const resolved = events.map(e => {
-        if (!e.clientName || e.clientName.match(/^Acct[#.]?\d+$/i)) {
-          const m = e.clientName?.match(/\d+/);
-          const resolved = m ? accountNameCache.get(m[0]) : undefined;
-          return { ...e, clientName: resolved ?? e.clientName ?? 'Unknown' };
+        let clientName = e.clientName;
+        if (!clientName || clientName.match(/^Acct[#.]?\d+$/i)) {
+          const m = clientName?.match(/\d+/);
+          clientName = (m ? accountNameCache.get(m[0]) : undefined) ?? clientName ?? 'Unknown';
         }
-        return e;
+        // Backfill vendor from cache fallback for historical events saved with empty vendor
+        const vendor = e.vendor || singleVendorFallback;
+        return { ...e, clientName, vendor };
       });
       res.json({ events: resolved });
     } catch (e: any) { res.status(500).json({ events: [], error: e.message }); }
@@ -5545,12 +5565,23 @@ export async function registerRoutes(
           || cdr.user
           || accountNameCache.get(String(cdr.accountId ?? cdr.iAccount ?? ''))
           || (cdr.accountId ? `Acct#${cdr.accountId}` : cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
+        // Resolve vendor: prefer CDR field, then connection cache, then single-vendor fallback
+        const resolvedVendor = (() => {
+          if (cdr.vendor) return cdr.vendor;
+          if (cdr.iConnection) {
+            const v = connectionVendorCache.get(String(cdr.iConnection));
+            if (v) return v;
+          }
+          const vendorNames = [...connectionVendorCache.values()].filter(v => !/^\d+$/.test(v));
+          const unique = [...new Set(vendorNames)];
+          return unique.length === 1 ? unique[0] : '';
+        })();
         return {
           callId:     cdr.callId ?? '',
           caller:     cdr.caller ?? '',
           callee:     cdr.callee ?? '',
           clientName: resolvedClient,
-          vendor:     '',               // Sippy CDR API does not return vendor info per call
+          vendor:     resolvedVendor,
           sipCode:    sipCodeVal,
           pddSecs:    ringDelay,
           billSecs:   billSecsVal,

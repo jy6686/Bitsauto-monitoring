@@ -315,6 +315,7 @@ export default function FraudPage() {
                   <tr className="border-b border-border text-xs text-muted-foreground">
                     <th className="px-4 py-3 text-left">Time (UTC)</th>
                     <th className="px-4 py-3 text-left">Client</th>
+                    <th className="px-4 py-3 text-left">Vendor</th>
                     <th className="px-4 py-3 text-left">Caller → Callee</th>
                     <th className="px-4 py-3 text-right">PDD</th>
                     <th className="px-4 py-3 text-right">Billed</th>
@@ -331,11 +332,19 @@ export default function FraudPage() {
                         {formatUTC(new Date(event.detectedAt), 'dd MMM yyyy HH:mm:ss')}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-xs font-medium text-primary/90">
-                            {event.clientName || event.vendor || "—"}
+                        <span className="text-xs font-medium text-primary/90">
+                          {event.clientName || "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {event.vendor ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5">
+                            <Server className="h-2.5 w-2.5" />
+                            {event.vendor}
                           </span>
-                        </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/40">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-mono text-xs">

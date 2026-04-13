@@ -1626,6 +1626,9 @@ export interface SippyCDR {
   // ── Portal-scraped extras ─────────────────────────────────────────────────
   clientName?: string;      // account/caller display name from portal
   billedDuration?: number;  // billed duration in seconds (from portal CDR page)
+  // ── Vendor / termination info ────────────────────────────────────────────
+  iConnection?: string;     // i_connection — termination connection ID (when returned by Sippy)
+  vendor?: string;          // vendor name (resolved from connection or returned directly)
 }
 
 /**
@@ -2255,6 +2258,9 @@ export async function getSippyCDRs(
           userAgent:                ns('user_agent'),
           releaseSource:            ns('release_source'),
           parentLocalICall:         ns('parent_local_i_call'),
+          // Vendor / connection — returned by some Sippy versions in getAccountCDRs
+          iConnection:              ns('i_connection'),
+          vendor:                   ns('vendor_name') || ns('vendor') || undefined,
         });
       }
       if (cdrs.length > 0) return cdrs;
