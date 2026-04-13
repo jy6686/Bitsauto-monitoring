@@ -1,5 +1,6 @@
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, Component } from "react";
+import type { ReactNode } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Wrench, Calculator, Wifi, Zap, Star, TrendingUp, TrendingDown,
@@ -1045,10 +1046,50 @@ function RouteTestTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Error Boundary — catches any render crash and shows a helpful message
+// instead of a blank page
+// ═══════════════════════════════════════════════════════════════════════════
+class ToolsErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="space-y-4 p-6">
+          <div className="flex items-center gap-2 text-rose-400">
+            <XCircle className="h-5 w-5" />
+            <h2 className="font-semibold">Tools page crashed</h2>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            A JavaScript error occurred while rendering this page. Details below:
+          </p>
+          <pre className="bg-muted/30 rounded-lg p-4 text-xs font-mono text-rose-300 whitespace-pre-wrap break-all overflow-auto max-h-64">
+            {this.state.error.toString()}
+            {"\n\n"}
+            {this.state.error.stack}
+          </pre>
+          <button
+            className="text-sm text-primary underline"
+            onClick={() => this.setState({ error: null })}>
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Main Page
 // ═══════════════════════════════════════════════════════════════════════════
 
-export default function ToolsPage() {
+function ToolsPageInner() {
   const [activeTab, setActiveTab] = useState<Tab>("carrier");
 
   return (
@@ -1089,5 +1130,13 @@ export default function ToolsPage() {
       {activeTab === "burst"     && <BurstSimulatorTab />}
       {activeTab === "route"     && <RouteTestTab />}
     </div>
+  );
+}
+
+export default function ToolsPage() {
+  return (
+    <ToolsErrorBoundary>
+      <ToolsPageInner />
+    </ToolsErrorBoundary>
   );
 }

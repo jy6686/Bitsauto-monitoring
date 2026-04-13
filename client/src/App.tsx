@@ -5,9 +5,36 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LayoutShell } from "@/components/layout-shell";
 import { useAuth } from "@/hooks/use-auth";
-import { useEffect } from "react";
+import { useEffect, Component } from "react";
+import type { ReactNode } from "react";
 import { Loader2, ShieldOff } from "lucide-react";
 import type { Role } from "@shared/schema";
+
+class GlobalErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: "2rem", fontFamily: "monospace", color: "#f87171", background: "#0a0a0a", minHeight: "100vh" }}>
+          <h2 style={{ fontSize: "1.2rem", marginBottom: "1rem" }}>⚠ Application Error</h2>
+          <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: "0.75rem", background: "#111", padding: "1rem", borderRadius: "0.5rem" }}>
+            {this.state.error.toString()}{"\n\n"}{this.state.error.stack}
+          </pre>
+          <button
+            style={{ marginTop: "1rem", color: "#60a5fa", textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }}
+            onClick={() => { this.setState({ error: null }); window.location.reload(); }}>
+            Reload page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 import DashboardPage from "@/pages/dashboard";
 import CallsListPage from "@/pages/calls-list";
@@ -149,12 +176,14 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <GlobalErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <Router />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </GlobalErrorBoundary>
   );
 }
 
