@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useEffect } from "react";
@@ -45,7 +45,6 @@ const MONITORING_SUBITEMS = [
   { tab: 'registrations', label: 'Reg Storm Detection',   icon: Radio,       iconColor: 'text-rose-400'    },
 ] as const;
 
-// Maps monitoring item IDs → nav hrefs (for viewer sidebar filtering)
 const ITEM_NAV_MAP: Record<string, string> = {
   live_summary:      '/calls',
   live_details:      '/calls',
@@ -63,10 +62,20 @@ const ITEM_NAV_MAP: Record<string, string> = {
   did_management:    '/dids',
 };
 
+const SIDEBAR_KEY = 'voip-sidebar-collapsed';
+
 export function LayoutShell({ children }: LayoutShellProps) {
   const [location] = useLocation();
   const search = useSearch();
   const { user, logout, role, isAdmin, isManagement } = useAuth();
+
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem(SIDEBAR_KEY) === 'true'; } catch { return false; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(SIDEBAR_KEY, String(collapsed)); } catch { /* ignore */ }
+  }, [collapsed]);
 
   const isCallsActive      = location.startsWith('/calls');
   const isMonitoringActive = location.startsWith('/server-monitoring');
@@ -82,14 +91,12 @@ export function LayoutShell({ children }: LayoutShellProps) {
   useEffect(() => { if (isBitseyeActive)    setBitseyeExpanded(true);     }, [isBitseyeActive]);
   useEffect(() => { if (isCdrActive)        setCdrExpanded(true);         }, [isCdrActive]);
 
-  // Fetch KAM list for BitsEye submenu (returns plain array)
   const { data: kamList = [] } = useQuery<Kam[]>({
     queryKey: ['/api/kam'],
     enabled: (role === 'admin' || role === 'management') && bitseyeExpanded,
     staleTime: 120_000,
   });
 
-  // Fetch viewer's monitoring assignments (only active for viewer role)
   const { data: viewerAssignmentsData } = useQuery<{ items: string[] }>({
     queryKey: ['/api/user/monitoring-assignments'],
     enabled: role === 'viewer',
@@ -117,13 +124,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/team",              label: "Team & KAM",        icon: Users,           roles: ['admin']                       as Role[] },
   ];
 
-  // For viewers: only show nav items whose hrefs are unlocked by their assigned monitoring items
-  // Dashboard and My Account are always visible
   const VIEWER_ALWAYS_SHOW = new Set(['/', '/account']);
   const navItems = (() => {
     if (role !== 'viewer') return allNavItems.filter(item => item.roles.includes(role));
-    // Viewer mode: bypass role-based filter — use only assignment-unlocked hrefs.
-    // This allows items like /graphs (admin-only by default) to appear when assigned.
     const unlockedHrefs = new Set([
       ...VIEWER_ALWAYS_SHOW,
       ...[...assignedItemSet].map(id => ITEM_NAV_MAP[id]).filter(Boolean),
@@ -131,7 +134,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
     return allNavItems.filter(item => unlockedHrefs.has(item.href));
   })();
 
-  // For viewers: only show calls sub-items that match their assignments
   const visibleCallsSubitems = role === 'viewer'
     ? CALLS_SUBITEMS.filter(sub => assignedItemSet.has(sub.itemId))
     : CALLS_SUBITEMS;
@@ -142,50 +144,102 @@ export function LayoutShell({ children }: LayoutShellProps) {
     ? (new URLSearchParams(search).get('view') ?? 'summary')
     : null;
 
+  const navItemClass = (isActive: boolean) => cn(
+    "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group",
+    collapsed && "justify-center px-0",
+    isActive
+      ? "bg-primary text-primary-foreground shadow-md shadow-primary/10"
+      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+  );
+
+  const navIconClass = (isActive: boolean) => cn(
+    "h-4 w-4 transition-colors flex-shrink-0",
+    isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground"
+  );
+
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
-      {/* Sidebar Navigation */}
-      <aside className="w-full md:w-64 border-r border-border bg-card/50 backdrop-blur-xl flex-shrink-0 z-50">
-        <div className="p-6 border-b border-border/50">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600/20 p-2 rounded-lg">
-              <Activity className="h-6 w-6 text-blue-500" />
+
+      {/* ── Sidebar ──────────────────────────────────────────────────────────── */}
+      <aside
+        className={cn(
+          "hidden md:flex flex-col border-r border-border bg-card/50 backdrop-blur-xl flex-shrink-0 z-50 transition-all duration-300 overflow-hidden",
+          collapsed ? "w-[68px]" : "w-64"
+        )}
+      >
+        {/* Header */}
+        <div className={cn(
+          "border-b border-border/50 flex items-center flex-shrink-0 transition-all duration-300",
+          collapsed ? "p-3 justify-center" : "p-4"
+        )}>
+          {collapsed ? (
+            <button
+              onClick={() => setCollapsed(false)}
+              title="Expand sidebar"
+              data-testid="sidebar-expand-btn"
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            >
+              <PanelLeftOpen className="h-5 w-5" />
+            </button>
+          ) : (
+            <div className="flex items-center gap-3 w-full">
+              <div className="bg-blue-600/20 p-2 rounded-lg flex-shrink-0">
+                <Activity className="h-5 w-5 text-blue-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h1 className="font-bold text-base tracking-tight leading-tight">VoIP Monitor</h1>
+                <p className="text-[10px] text-muted-foreground font-mono">v2.5.0-stable</p>
+              </div>
+              <button
+                onClick={() => setCollapsed(true)}
+                title="Collapse sidebar"
+                data-testid="sidebar-collapse-btn"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex-shrink-0"
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </button>
             </div>
-            <div>
-              <h1 className="font-bold text-lg tracking-tight">VoIP Monitor</h1>
-              <p className="text-xs text-muted-foreground font-mono">v2.5.0-stable</p>
-            </div>
-          </div>
+          )}
         </div>
 
-        <nav className="p-4 space-y-1">
+        {/* Nav */}
+        <nav className={cn("flex-1 overflow-y-auto space-y-0.5 py-3", collapsed ? "px-2" : "px-3")}>
           {navItems.map((item) => {
             const isActive = item.href === '/'
               ? location === '/'
               : location.startsWith(item.href);
 
+            /* ── Calls submenu ── */
             if (item.hasSubmenu === 'calls') {
-              // For viewer with no visible sub-items, skip the calls menu entirely
               if (role === 'viewer' && visibleCallsSubitems.length === 0) return null;
+              if (collapsed) {
+                return (
+                  <Link key={item.href} href={item.href} title={item.label}
+                    className={navItemClass(isActive)}>
+                    <item.icon className={navIconClass(isActive)} />
+                  </Link>
+                );
+              }
               return (
                 <div key={item.href}>
                   <button
                     onClick={() => setCallsExpanded(o => !o)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 group",
-                      isActive ? "bg-primary text-primary-foreground shadow-md shadow-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                    )}
+                    className={navItemClass(isActive)}
                   >
-                    <item.icon className={cn("h-4 w-4 transition-colors flex-shrink-0", isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground")} />
+                    <item.icon className={navIconClass(isActive)} />
                     <span className="flex-1 text-left">{item.label}</span>
-                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0", callsExpanded ? "rotate-180" : "", isActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+                      callsExpanded ? "rotate-180" : "",
+                      isActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
                   </button>
                   {callsExpanded && (
-                    <div className="mt-1 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
                       {visibleCallsSubitems.map(sub => {
                         const subActive = isActive && currentView === sub.view;
                         return (
-                          <Link key={sub.view} href={`/calls?view=${sub.view}`} className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150", subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
+                          <Link key={sub.view} href={`/calls?view=${sub.view}`}
+                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
+                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
                             <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
                             {sub.label}
                           </Link>
@@ -197,28 +251,34 @@ export function LayoutShell({ children }: LayoutShellProps) {
               );
             }
 
+            /* ── BitsEye submenu ── */
             if (item.hasSubmenu === 'bitseye') {
-              const bsParams    = new URLSearchParams(search);
-              const bsView      = isBitseyeActive ? (bsParams.get('view') ?? 'clients') : null;
-              const bsKamId     = isBitseyeActive ? bsParams.get('kamId') : null;
+              const bsParams = new URLSearchParams(search);
+              const bsView   = isBitseyeActive ? (bsParams.get('view') ?? 'clients') : null;
+              const bsKamId  = isBitseyeActive ? bsParams.get('kamId') : null;
 
+              if (collapsed) {
+                return (
+                  <Link key={item.href} href={item.href} title={item.label}
+                    className={navItemClass(isBitseyeActive)}>
+                    <item.icon className={navIconClass(isBitseyeActive)} />
+                  </Link>
+                );
+              }
               return (
                 <div key={item.href}>
                   <button
                     onClick={() => setBitseyeExpanded(o => !o)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 group",
-                      isBitseyeActive ? "bg-primary text-primary-foreground shadow-md shadow-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                    )}
+                    className={navItemClass(isBitseyeActive)}
                   >
-                    <item.icon className={cn("h-4 w-4 transition-colors flex-shrink-0", isBitseyeActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground")} />
+                    <item.icon className={navIconClass(isBitseyeActive)} />
                     <span className="flex-1 text-left">{item.label}</span>
-                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0", bitseyeExpanded ? "rotate-180" : "", isBitseyeActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+                      bitseyeExpanded ? "rotate-180" : "",
+                      isBitseyeActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
                   </button>
-
                   {bitseyeExpanded && (
-                    <div className="mt-1 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-                      {/* Fixed: Clients + Vendors */}
+                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
                       {BITSEYE_FIXED.map(sub => {
                         const subActive = isBitseyeActive && bsView === sub.view && !bsKamId;
                         return (
@@ -230,14 +290,10 @@ export function LayoutShell({ children }: LayoutShellProps) {
                           </Link>
                         );
                       })}
-
-                      {/* KAM section divider */}
                       <div className="flex items-center gap-2 pt-1 pb-0.5 px-2">
                         <ContactRound className="h-3 w-3 text-violet-400/60 flex-shrink-0" />
                         <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/35">KAM</span>
                       </div>
-
-                      {/* All KAMs */}
                       {(() => {
                         const allKamActive = isBitseyeActive && bsView === 'kam' && !bsKamId;
                         return (
@@ -249,8 +305,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
                           </Link>
                         );
                       })()}
-
-                      {/* Individual KAMs */}
                       {kamList.map(kam => {
                         const kamActive = isBitseyeActive && bsView === 'kam' && bsKamId === String(kam.id);
                         return (
@@ -268,23 +322,31 @@ export function LayoutShell({ children }: LayoutShellProps) {
               );
             }
 
+            /* ── CDR submenu ── */
             if (item.hasSubmenu === 'cdr') {
               const cdrView = isCdrActive ? (new URLSearchParams(search).get('view') ?? 'client') : null;
+              if (collapsed) {
+                return (
+                  <Link key={item.href} href={item.href} title={item.label}
+                    className={navItemClass(isCdrActive)}>
+                    <item.icon className={navIconClass(isCdrActive)} />
+                  </Link>
+                );
+              }
               return (
                 <div key={item.href}>
                   <button
                     onClick={() => setCdrExpanded(o => !o)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 group",
-                      isCdrActive ? "bg-primary text-primary-foreground shadow-md shadow-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                    )}
+                    className={navItemClass(isCdrActive)}
                   >
-                    <item.icon className={cn("h-4 w-4 transition-colors flex-shrink-0", isCdrActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground")} />
+                    <item.icon className={navIconClass(isCdrActive)} />
                     <span className="flex-1 text-left">{item.label}</span>
-                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0", cdrExpanded ? "rotate-180" : "", isCdrActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+                      cdrExpanded ? "rotate-180" : "",
+                      isCdrActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
                   </button>
                   {cdrExpanded && (
-                    <div className="mt-1 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
                       {CDR_SUBITEMS.map(sub => {
                         const subActive = isCdrActive && cdrView === sub.view;
                         return (
@@ -302,29 +364,39 @@ export function LayoutShell({ children }: LayoutShellProps) {
               );
             }
 
+            /* ── Server Monitoring submenu ── */
             if (item.hasSubmenu === 'monitoring') {
               const currentMonTab = isMonitoringActive
                 ? (new URLSearchParams(search).get('tab') ?? 'reachability')
                 : null;
+              if (collapsed) {
+                return (
+                  <Link key={item.href} href={item.href} title={item.label}
+                    className={navItemClass(isActive)}>
+                    <item.icon className={navIconClass(isActive)} />
+                  </Link>
+                );
+              }
               return (
                 <div key={item.href}>
                   <button
                     onClick={() => setMonitoringExpanded(o => !o)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 group",
-                      isActive ? "bg-primary text-primary-foreground shadow-md shadow-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                    )}
+                    className={navItemClass(isActive)}
                   >
-                    <item.icon className={cn("h-4 w-4 transition-colors flex-shrink-0", isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground")} />
+                    <item.icon className={navIconClass(isActive)} />
                     <span className="flex-1 text-left">{item.label}</span>
-                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0", monitoringExpanded ? "rotate-180" : "", isActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+                      monitoringExpanded ? "rotate-180" : "",
+                      isActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
                   </button>
                   {monitoringExpanded && (
-                    <div className="mt-1 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
                       {MONITORING_SUBITEMS.map(sub => {
                         const subActive = isMonitoringActive && currentMonTab === sub.tab;
                         return (
-                          <Link key={sub.tab} href={`/server-monitoring?tab=${sub.tab}`} className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150", subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
+                          <Link key={sub.tab} href={`/server-monitoring?tab=${sub.tab}`}
+                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
+                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
                             <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
                             {sub.label}
                           </Link>
@@ -336,64 +408,86 @@ export function LayoutShell({ children }: LayoutShellProps) {
               );
             }
 
+            /* ── Plain nav item ── */
             return (
-              <Link key={item.href} href={item.href} className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 group",
-                isActive
-                  ? "bg-primary text-primary-foreground shadow-md shadow-primary/10"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-              )}>
-                <item.icon className={cn(
-                  "h-4 w-4 transition-colors",
-                  isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground"
-                )} />
-                {item.label}
+              <Link key={item.href} href={item.href} title={collapsed ? item.label : undefined}
+                className={navItemClass(isActive)}>
+                <item.icon className={navIconClass(isActive)} />
+                {!collapsed && <span>{item.label}</span>}
               </Link>
             );
           })}
         </nav>
 
-        <div className="p-4 mt-auto border-t border-border/50">
+        {/* User footer */}
+        <div className={cn("border-t border-border/50 flex-shrink-0", collapsed ? "p-2" : "p-3")}>
           {user && (
-            <div className="flex items-center gap-3 px-4 py-3">
-              <div className="h-8 w-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500 font-bold text-xs flex-shrink-0">
-                {user.firstName?.[0] || user.email?.[0]?.toUpperCase() || "U"}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{user.firstName || user.email}</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className={cn("text-xs font-medium px-1.5 py-0.5 rounded-full", badge.color)}>
-                    {badge.label}
-                  </span>
-                  {role === 'viewer' && assignedItemSet.size > 0 && (
-                    <span className="text-xs text-muted-foreground/60">{assignedItemSet.size} items</span>
-                  )}
+            collapsed ? (
+              <div className="flex flex-col items-center gap-2">
+                <div
+                  title={`${user.firstName || user.email} — ${badge.label}`}
+                  className="h-8 w-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500 font-bold text-xs flex-shrink-0 cursor-default"
+                >
+                  {user.firstName?.[0] || user.email?.[0]?.toUpperCase() || "U"}
                 </div>
                 <button
                   onClick={() => logout()}
-                  className="text-xs text-muted-foreground hover:text-red-400 transition-colors mt-0.5"
+                  title="Sign Out"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
                 >
-                  Sign Out
+                  <LogOut className="h-3.5 w-3.5" />
                 </button>
               </div>
-            </div>
+            ) : (
+              <div className="flex items-center gap-3 px-2 py-2">
+                <div className="h-8 w-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500 font-bold text-xs flex-shrink-0">
+                  {user.firstName?.[0] || user.email?.[0]?.toUpperCase() || "U"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{user.firstName || user.email}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={cn("text-xs font-medium px-1.5 py-0.5 rounded-full", badge.color)}>
+                      {badge.label}
+                    </span>
+                    {role === 'viewer' && assignedItemSet.size > 0 && (
+                      <span className="text-xs text-muted-foreground/60">{assignedItemSet.size} items</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => logout()}
+                    className="text-xs text-muted-foreground hover:text-red-400 transition-colors mt-0.5"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            )
           )}
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <header className="h-14 border-b border-border/50 flex items-center px-6 bg-background/50 backdrop-blur-sm sticky top-0 z-40 md:hidden">
+      {/* ── Mobile top bar (unchanged) ── */}
+      <div className="md:hidden flex flex-col flex-1 min-h-0">
+        <header className="h-14 border-b border-border/50 flex items-center px-6 bg-background/50 backdrop-blur-sm sticky top-0 z-40">
           <Activity className="h-5 w-5 text-primary mr-2" />
           <span className="font-bold">VoIP Monitor</span>
         </header>
+        <main className="flex-1 overflow-y-auto p-4 relative scroll-smooth">
+          <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {children}
+          </div>
+        </main>
+      </div>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 relative scroll-smooth">
+      {/* ── Desktop main content ── */}
+      <main className="hidden md:flex flex-1 flex-col min-h-0 overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-6 md:p-8 relative scroll-smooth">
           <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {children}
           </div>
         </div>
       </main>
+
     </div>
   );
 }

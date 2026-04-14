@@ -71,13 +71,17 @@ function vendorCostFromHistory(tStartMs: number, tEndMs: number): number | null 
     if (vendorBalanceHistory[i].timestamp <= tEndMs) { snapEnd = vendorBalanceHistory[i]; break; }
   }
   if (!snapStart || !snapEnd || snapStart.timestamp === snapEnd.timestamp) return null;
-  // Sum balance decreases per vendor (positive decrease = cost incurred)
+  // Compute cost from balance delta per vendor.
+  // Callntalk is postpaid: balance INCREASES as calls go through (balance = running payable to vendor).
+  // So cost = end_balance − start_balance when positive.
+  // For prepaid vendors (balance decreases): cost = start_balance − end_balance when positive.
+  // We take the absolute delta since direction depends on vendor contract type.
   let totalCost = 0;
   for (const ve of snapEnd.vendors) {
     const vs = snapStart.vendors.find(v => v.iVendor === ve.iVendor);
     if (vs) {
-      const decrease = vs.balance - ve.balance;
-      if (decrease > 0) totalCost += decrease;
+      const delta = Math.abs(ve.balance - vs.balance);  // works for both prepaid and postpaid
+      if (delta > 0) totalCost += delta;
     }
   }
   return parseFloat(totalCost.toFixed(4));
