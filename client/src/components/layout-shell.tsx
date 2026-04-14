@@ -55,6 +55,7 @@ const ITEM_NAV_MAP: Record<string, string> = {
   fraud_fas:         '/fraud',
   traffic_map:       '/traffic-map',
   graphs:            '/graphs',
+  bitseye:           '/bitseye',
   server_monitoring: '/server-monitoring',
   cdr_viewer:        '/cdrs',
   reports:           '/reports',

@@ -188,7 +188,7 @@ function Router() {
         {() => <ProtectedRoute component={GraphsPage} requiredRoles={['admin','management']} viewerAssignment="graphs" />}
       </Route>
       <Route path="/bitseye">
-        {() => <ProtectedRoute component={BitsEyePage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={BitsEyePage} requiredRoles={['admin','management']} viewerAssignment="bitseye" />}
       </Route>
       <Route path="/account">
         {() => <ProtectedRoute component={AccountPage} requiredRoles={['admin','management','viewer']} />}

@@ -337,6 +337,7 @@ export const MONITORING_ITEMS = [
   { id: 'fraud_fas',         label: 'FAS / Fraud Detection',    group: 'Security'    },
   { id: 'traffic_map',       label: 'Traffic Map',              group: 'Operations'  },
   { id: 'graphs',            label: 'Graphs',                   group: 'Analytics'   },
+  { id: 'bitseye',           label: 'BitsEye Live Graphs',      group: 'Analytics'   },
   { id: 'server_monitoring', label: 'Server Monitoring',        group: 'Operations'  },
   { id: 'cdr_viewer',        label: 'CDR Viewer',               group: 'Reports'     },
   { id: 'reports',           label: 'ASR / ACD Reports',        group: 'Reports'     },
