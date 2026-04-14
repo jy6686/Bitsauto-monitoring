@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { LayoutShell } from "@/components/layout-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffect, Component } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Loader2, ShieldOff } from "lucide-react";
 import type { Role } from "@shared/schema";
@@ -67,12 +68,22 @@ const ROLE_PATHS: Record<Role, string[]> = {
 function ProtectedRoute({
   component: Component,
   requiredRoles,
+  viewerAssignment,
 }: {
   component: React.ComponentType<any>;
   requiredRoles?: Role[];
+  viewerAssignment?: string;
 }) {
   const { user, role, isLoading } = useAuth();
   const [, setLocation] = useLocation();
+
+  // For viewers: check if they have the required assignment to access this page
+  const needsAssignmentCheck = !isLoading && !!user && role === 'viewer' && !!viewerAssignment && !!requiredRoles && !requiredRoles.includes('viewer');
+  const { data: assignmentsData, isLoading: assignmentsLoading } = useQuery<{ items: string[] }>({
+    queryKey: ['/api/user/monitoring-assignments'],
+    enabled: needsAssignmentCheck,
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -80,7 +91,7 @@ function ProtectedRoute({
     }
   }, [user, isLoading, setLocation]);
 
-  if (isLoading) {
+  if (isLoading || (needsAssignmentCheck && assignmentsLoading)) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -92,6 +103,16 @@ function ProtectedRoute({
 
   // Role-based access check
   if (requiredRoles && !requiredRoles.includes(role)) {
+    // Viewers with a matching assignment are granted access
+    if (role === 'viewer' && viewerAssignment && assignmentsData?.items?.includes(viewerAssignment)) {
+      return (
+        <LayoutShell>
+          <Component />
+        </LayoutShell>
+      );
+    }
+
+    // Access denied
     return (
       <LayoutShell>
         <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center">
@@ -128,10 +149,10 @@ function Router() {
         {() => <ProtectedRoute component={CallDetailPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
       <Route path="/alerts">
-        {() => <ProtectedRoute component={AlertsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={AlertsPage} requiredRoles={['admin','management']} viewerAssignment="alerts" />}
       </Route>
       <Route path="/reports">
-        {() => <ProtectedRoute component={ReportsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={ReportsPage} requiredRoles={['admin','management']} viewerAssignment="reports" />}
       </Route>
       <Route path="/settings">
         {() => <ProtectedRoute component={SettingsPage} requiredRoles={['admin']} />}
@@ -140,10 +161,10 @@ function Router() {
         {() => <ProtectedRoute component={ClientsPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/fraud">
-        {() => <ProtectedRoute component={FraudPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={FraudPage} requiredRoles={['admin','management']} viewerAssignment="fraud_fas" />}
       </Route>
       <Route path="/cdrs">
-        {() => <ProtectedRoute component={CDRsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={CDRsPage} requiredRoles={['admin','management']} viewerAssignment="cdr_viewer" />}
       </Route>
       <Route path="/tools">
         {() => <ProtectedRoute component={ToolsPage} requiredRoles={['admin','management']} />}
@@ -152,19 +173,19 @@ function Router() {
         {() => <ProtectedRoute component={TeamPage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/traffic-map">
-        {() => <ProtectedRoute component={TrafficMapPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={TrafficMapPage} requiredRoles={['admin','management']} viewerAssignment="traffic_map" />}
       </Route>
       <Route path="/balance">
-        {() => <ProtectedRoute component={BalanceMonitorPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={BalanceMonitorPage} requiredRoles={['admin','management']} viewerAssignment="balance_monitor" />}
       </Route>
       <Route path="/dids">
-        {() => <ProtectedRoute component={DIDsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={DIDsPage} requiredRoles={['admin','management']} viewerAssignment="did_management" />}
       </Route>
       <Route path="/server-monitoring">
-        {() => <ProtectedRoute component={ServerMonitoringPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={ServerMonitoringPage} requiredRoles={['admin','management']} viewerAssignment="server_monitoring" />}
       </Route>
       <Route path="/graphs">
-        {() => <ProtectedRoute component={GraphsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={GraphsPage} requiredRoles={['admin','management']} viewerAssignment="graphs" />}
       </Route>
       <Route path="/bitseye">
         {() => <ProtectedRoute component={BitsEyePage} requiredRoles={['admin','management']} />}

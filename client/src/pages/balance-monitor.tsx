@@ -500,13 +500,29 @@ function AccountCard({ account }: { account: BalanceAccount }) {
 
 export default function BalanceMonitorPage() {
   const qc = useQueryClient();
+  const { role } = useAuth();
+  const isViewer = role === 'viewer';
 
   const { data, isLoading, error, dataUpdatedAt } = useQuery<BalanceMonitorResponse>({
     queryKey: ["/api/sippy/balance-monitor"],
     refetchInterval: 2 * 60 * 1000,
   });
 
-  const accounts = data?.accounts ?? [];
+  // For viewers: fetch their assigned accounts (via KAM email match) to filter the list
+  const { data: assignedAccountsData } = useQuery<{ kamId: number | null; kamName: string | null; accountIds: string[]; clientNames: string[] }>({
+    queryKey: ["/api/user/assigned-accounts"],
+    enabled: isViewer,
+    staleTime: 60_000,
+  });
+
+  const allAccounts = data?.accounts ?? [];
+  // Viewers with specific KAM account assignments see only their accounts;
+  // if no KAM mapping exists, they see all accounts (balance_monitor was still granted by admin)
+  const assignedIds = assignedAccountsData?.accountIds ?? [];
+  const accounts = isViewer && assignedIds.length > 0
+    ? allAccounts.filter(a => assignedIds.includes(String(a.iAccount)))
+    : allAccounts;
+
   const criticalCount = accounts.filter((a) => a.status === "critical").length;
   const warningCount  = accounts.filter((a) => a.status === "warning").length;
   const healthyCount  = accounts.filter((a) => a.status === "healthy").length;
@@ -528,6 +544,12 @@ export default function BalanceMonitorPage() {
             Live balances · auto-refresh every 2 min
             {lastUpdated && <span className="ml-2 text-muted-foreground/60">· updated {lastUpdated}</span>}
           </p>
+          {isViewer && assignedIds.length > 0 && assignedAccountsData?.kamName && (
+            <p className="text-xs text-blue-400/80 mt-1 flex items-center gap-1">
+              <Shield className="w-3 h-3" />
+              Showing accounts assigned to {assignedAccountsData.kamName}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {!isLoading && accounts.length > 0 && (
