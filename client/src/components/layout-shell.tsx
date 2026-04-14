@@ -98,6 +98,13 @@ export function LayoutShell({ children }: LayoutShellProps) {
     staleTime: 120_000,
   });
 
+  // For viewers: fetch their own KAM to show only their entry in BitsEye submenu
+  const { data: viewerKamData } = useQuery<{ kamId: number | null; kamName: string | null; accountIds: string[]; clientNames: string[] }>({
+    queryKey: ['/api/user/assigned-accounts'],
+    enabled: role === 'viewer' && bitseyeExpanded,
+    staleTime: 60_000,
+  });
+
   const { data: viewerAssignmentsData } = useQuery<{ items: string[] }>({
     queryKey: ['/api/user/monitoring-assignments'],
     enabled: role === 'viewer',
@@ -291,32 +298,53 @@ export function LayoutShell({ children }: LayoutShellProps) {
                           </Link>
                         );
                       })}
+                      {/* KAM section — admin/management see all; viewer sees only their own */}
                       <div className="flex items-center gap-2 pt-1 pb-0.5 px-2">
                         <ContactRound className="h-3 w-3 text-violet-400/60 flex-shrink-0" />
                         <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/35">KAM</span>
                       </div>
-                      {(() => {
-                        const allKamActive = isBitseyeActive && bsView === 'kam' && !bsKamId;
-                        return (
-                          <Link href="/bitseye?view=kam"
-                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
-                              allKamActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
-                            <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", allKamActive ? "text-primary" : "text-violet-400/70")} />
-                            All KAMs
-                          </Link>
-                        );
-                      })()}
-                      {kamList.map(kam => {
-                        const kamActive = isBitseyeActive && bsView === 'kam' && bsKamId === String(kam.id);
-                        return (
-                          <Link key={kam.id} href={`/bitseye?view=kam&kamId=${kam.id}`}
-                            className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
-                              kamActive ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
-                            <ChevronRight className="h-2.5 w-2.5 flex-shrink-0 text-muted-foreground/30" />
-                            <span className="flex-1 truncate">{kam.name}</span>
-                          </Link>
-                        );
-                      })}
+                      {role === 'viewer' ? (
+                        /* Viewer: show only their own KAM entry */
+                        viewerKamData?.kamId ? (() => {
+                          const myKamActive = isBitseyeActive && bsView === 'kam' && bsKamId === String(viewerKamData.kamId);
+                          return (
+                            <Link href={`/bitseye?view=kam&kamId=${viewerKamData.kamId}`}
+                              className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
+                                myKamActive ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
+                              <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", myKamActive ? "text-violet-300" : "text-violet-400/70")} />
+                              <span className="flex-1 truncate">{viewerKamData.kamName ?? 'My Portfolio'}</span>
+                            </Link>
+                          );
+                        })() : (
+                          <p className="text-[10px] text-muted-foreground/30 px-3 py-1">No KAM assigned</p>
+                        )
+                      ) : (
+                        /* Admin / Management: show All KAMs + individual list */
+                        <>
+                          {(() => {
+                            const allKamActive = isBitseyeActive && bsView === 'kam' && !bsKamId;
+                            return (
+                              <Link href="/bitseye?view=kam"
+                                className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
+                                  allKamActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
+                                <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", allKamActive ? "text-primary" : "text-violet-400/70")} />
+                                All KAMs
+                              </Link>
+                            );
+                          })()}
+                          {kamList.map(kam => {
+                            const kamActive = isBitseyeActive && bsView === 'kam' && bsKamId === String(kam.id);
+                            return (
+                              <Link key={kam.id} href={`/bitseye?view=kam&kamId=${kam.id}`}
+                                className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
+                                  kamActive ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
+                                <ChevronRight className="h-2.5 w-2.5 flex-shrink-0 text-muted-foreground/30" />
+                                <span className="flex-1 truncate">{kam.name}</span>
+                              </Link>
+                            );
+                          })}
+                        </>
+                      )}
                     </div>
                   )}
                 </div>

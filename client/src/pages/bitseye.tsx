@@ -1,5 +1,5 @@
-import { useRef, useCallback } from "react";
-import { useSearch } from "wouter";
+import { useRef, useCallback, useEffect } from "react";
+import { useSearch, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -7,9 +7,10 @@ import {
 } from "recharts";
 import {
   RefreshCw, ChevronRight, Wifi, WifiOff, BarChart3,
-  TrendingUp, TrendingDown, Minus, AlertCircle,
+  TrendingUp, TrendingDown, Minus, AlertCircle, Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface EntityStats { cur: number; min: number; max: number; avg: number; }
@@ -313,6 +314,7 @@ function SummaryStrip({ summary, count, label }: { summary: Summary; count: numb
 export default function BitsEyePage() {
   // Read params from URL (set by sidebar links)
   const search   = useSearch();
+  const [, setLocation] = useLocation();
   const params   = new URLSearchParams(search);
   const view     = (params.get('view') || 'clients') as 'clients' | 'vendors' | 'kam';
   const kamIdStr = params.get('kamId');
@@ -321,14 +323,32 @@ export default function BitsEyePage() {
   // Map view → API category
   const category = view === 'kam' ? 'kam' : view;
 
-  // aliveOnly & orderBy are local UI state (not URL-driven)
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Viewer filtering: only show their assigned clients/KAM
+  const { role } = useAuth();
+  const isViewer = role === 'viewer';
+  const { data: viewerAccounts } = useQuery<{ kamId: number | null; kamName: string | null; accountIds: string[]; clientNames: string[] }>({
+    queryKey: ['/api/user/assigned-accounts'],
+    enabled: isViewer,
+    staleTime: 60_000,
+  });
+
+  // For viewers: auto-redirect to their KAM view when navigating to /bitseye without a kamId
+  const viewerKamId = viewerAccounts?.kamId;
+  useEffect(() => {
+    if (isViewer && viewerKamId && !kamIdStr && view !== 'kam') {
+      setLocation(`/bitseye?view=kam&kamId=${viewerKamId}`);
+    }
+  }, [isViewer, viewerKamId, kamIdStr, view, setLocation]);
 
   const { data, isLoading, isFetching, dataUpdatedAt, refetch } = useQuery<PerEntityResponse>({
     queryKey: ['/api/bitseye/per-entity', category, kamId],
     queryFn: async () => {
       const p = new URLSearchParams({ category, aliveOnly: 'false' });
+      // Viewers always query their own KAM id if on the clients view without a kamId
       if (kamId) p.set('kamId', String(kamId));
+      else if (isViewer && viewerKamId && category === 'clients') p.set('kamId', String(viewerKamId));
       const r = await fetch(`/api/bitseye/per-entity?${p}`);
       if (!r.ok) throw new Error(await r.text());
       return r.json();
@@ -337,7 +357,13 @@ export default function BitsEyePage() {
     staleTime: 20_000,
   });
 
-  const entities = data?.entities ?? [];
+  const allEntities = data?.entities ?? [];
+  // Additional client-side filter: if viewer has assigned client names, restrict to those
+  const viewerClientNames = new Set((viewerAccounts?.clientNames ?? []).map(n => n.toLowerCase()));
+  const entities = isViewer && viewerClientNames.size > 0 && (view === 'clients' || view === 'kam')
+    ? allEntities.filter(e => viewerClientNames.has(e.name.toLowerCase()))
+    : allEntities;
+
   const summary  = data?.summary ?? { totalConcurrent: 0, totalToday: 0, overallAsr: 0, overallAcdSecs: 0 };
 
   const scrollToEntity = useCallback((name: string) => {
@@ -366,6 +392,12 @@ export default function BitsEyePage() {
             </div>
           </div>
           <div className="flex-1" />
+          {isViewer && viewerAccounts?.kamName && (
+            <span className="hidden md:flex items-center gap-1 text-[10px] text-blue-400/70 bg-blue-500/10 border border-blue-500/20 px-2 py-1 rounded-lg">
+              <Shield className="w-3 h-3" />
+              {viewerAccounts.kamName}
+            </span>
+          )}
           {dataUpdatedAt > 0 && (
             <span className="hidden md:block text-[10px] text-muted-foreground/40 tabular-nums">
               {new Date(dataUpdatedAt).toLocaleTimeString()}
