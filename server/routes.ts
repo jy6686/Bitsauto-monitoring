@@ -7764,13 +7764,16 @@ export async function registerRoutes(
     if (category === 'kam') {
       try {
         const kams = await storage.getKams();
+        // getKams() does NOT join kamAccounts — fetch accounts separately (same as /api/kam)
+        const allAccounts = await storage.getKamAccounts();
         for (const k of kams) {
           kamIdToName[k.id] = k.name;
-          for (const acc of k.accounts ?? []) {
+          kamClients[k.name] = kamClients[k.name] ?? new Set();
+          const accs = allAccounts.filter(a => a.kamId === k.id);
+          for (const acc of accs) {
             const cName = acc.clientName || `Acct.${acc.accountId}`;
             clientToKam[cName]   = k.name;
             clientToKamId[cName] = k.id;
-            if (!kamClients[k.name]) kamClients[k.name] = new Set();
             kamClients[k.name].add(cName);
           }
         }
