@@ -395,6 +395,20 @@ export const sippySnapshots = pgTable("sippy_snapshots", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Watcher alert recipients — team members / emails that receive Sippy change alerts
+export const watcherRecipients = pgTable("watcher_recipients", {
+  id:          serial("id").primaryKey(),
+  email:       varchar("email",        { length: 255 }).notNull(),
+  displayName: varchar("display_name", { length: 255 }),
+  userId:      varchar("user_id",      { length: 255 }),  // optional link to a system user
+  active:      boolean("active").default(true).notNull(),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertWatcherRecipientSchema = createInsertSchema(watcherRecipients).omit({ id: true, createdAt: true });
+export type InsertWatcherRecipient = z.infer<typeof insertWatcherRecipientSchema>;
+export type WatcherRecipient = typeof watcherRecipients.$inferSelect;
+
 // API Request Types
 export type UpdateSettingsRequest = Partial<InsertSettings>;
 

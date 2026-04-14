@@ -8685,6 +8685,31 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // ── Watcher Recipients CRUD ────────────────────────────────────────────────
+  app.get('/api/watcher-recipients', (req, res, next) => requireRole(['admin','management'], req, res, next), async (_req, res) => {
+    const list = await storage.getWatcherRecipients();
+    res.json(list);
+  });
+
+  app.post('/api/watcher-recipients', (req, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    const { email, displayName, userId, active } = req.body;
+    if (!email || typeof email !== 'string') return res.status(400).json({ message: 'email required' });
+    const row = await storage.addWatcherRecipient({ email: email.trim(), displayName: displayName || null, userId: userId || null, active: active !== false });
+    res.json(row);
+  });
+
+  app.patch('/api/watcher-recipients/:id', (req, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    const id = Number(req.params.id);
+    const row = await storage.updateWatcherRecipient(id, req.body);
+    if (!row) return res.status(404).json({ message: 'Not found' });
+    res.json(row);
+  });
+
+  app.delete('/api/watcher-recipients/:id', (req, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    await storage.deleteWatcherRecipient(Number(req.params.id));
+    res.json({ ok: true });
+  });
+
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();
 

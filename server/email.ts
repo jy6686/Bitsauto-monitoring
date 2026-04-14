@@ -6,6 +6,7 @@ export type AlertEmailPayload = {
   subject: string;
   bodyHtml: string;
   clientEmail?: string | null; // optional per-client recipient
+  includeWatcherRecipients?: boolean; // also CC all active watcher_recipients
 };
 
 let _transporter: nodemailer.Transporter | null = null;
@@ -40,6 +41,15 @@ export async function sendAlertEmail(payload: AlertEmailPayload): Promise<boolea
     const recipients = new Set<string>();
     if (settings.alertAdminEmail) recipients.add(settings.alertAdminEmail);
     if (payload.clientEmail) recipients.add(payload.clientEmail);
+
+    // Optionally include all active watcher recipients
+    if (payload.includeWatcherRecipients) {
+      const watcherList = await storage.getWatcherRecipients();
+      for (const r of watcherList) {
+        if (r.active && r.email) recipients.add(r.email);
+      }
+    }
+
     if (recipients.size === 0) return false;
 
     await conn.transporter.sendMail({

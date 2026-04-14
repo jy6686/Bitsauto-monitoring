@@ -103,6 +103,7 @@ export async function sendTestWatcherAlert(): Promise<{ ok: boolean; error?: str
         { icon: '📅', label: 'Snapshot Taken', value: snap ? snap.capturedAt : 'No snapshot yet' },
         { icon: '🕵️', label: 'Test Sent At', value: new Date().toUTCString() },
       ], 'green', 'This is a test email. If you received it, your Sippy change-detection watcher is working correctly and will alert you on any real changes.'),
+      includeWatcherRecipients: true,
     });
     return { ok: true };
   } catch (e: any) {
@@ -124,6 +125,7 @@ async function fireNewTrafficAlert(clientName: string): Promise<void> {
   console.log(`[sippy-watcher] 🆕 New client traffic detected: ${clientName}`);
   await sendAlertEmail({
     subject: `🆕 New Client Traffic — ${clientName}`,
+    includeWatcherRecipients: true,
     bodyHtml: buildSippyChangeEmail('New Client Traffic Detected', [
       { icon: '🆕', label: 'Client', value: clientName },
       { icon: '📞', label: 'Status', value: 'First calls observed on this account' },
@@ -517,7 +519,7 @@ async function runWatcherCycle(): Promise<void> {
     console.log(`[sippy-watcher] Detected ${changes.length} change(s) — sending alerts.`);
     for (const ch of changes) {
       console.log(`[sippy-watcher]  • ${ch.subject}`);
-      await sendAlertEmail({ subject: ch.subject, bodyHtml: ch.bodyHtml });
+      await sendAlertEmail({ subject: ch.subject, bodyHtml: ch.bodyHtml, includeWatcherRecipients: true });
     }
   } else {
     console.log('[sippy-watcher] No Sippy changes detected.');

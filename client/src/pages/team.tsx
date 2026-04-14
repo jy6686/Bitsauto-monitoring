@@ -924,6 +924,155 @@ function MonitoringAssignmentPanel({
   );
 }
 
+// ─── Watcher Recipients Section ───────────────────────────────────────────────
+
+interface WatcherRecipient {
+  id: number;
+  email: string;
+  displayName: string | null;
+  userId: string | null;
+  active: boolean;
+  createdAt: string;
+}
+
+function WatcherRecipientsSection() {
+  const qc = useQueryClient();
+  const [addEmail, setAddEmail] = useState('');
+  const [addName, setAddName] = useState('');
+
+  const { data: recipients = [], isLoading } = useQuery<WatcherRecipient[]>({
+    queryKey: ['/api/watcher-recipients'],
+  });
+
+  const addMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/watcher-recipients', { email: addEmail.trim(), displayName: addName.trim() || null });
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/watcher-recipients'] });
+      setAddEmail(''); setAddName('');
+    },
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: async ({ id, active }: { id: number; active: boolean }) => {
+      const res = await apiRequest('PATCH', `/api/watcher-recipients/${id}`, { active });
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/watcher-recipients'] }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest('DELETE', `/api/watcher-recipients/${id}`, {});
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/watcher-recipients'] }),
+  });
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-border/50 bg-muted/20 flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-sm flex items-center gap-2">
+            <Bell className="h-4 w-4 text-cyan-400" />
+            Sippy Watcher Alert Recipients
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            These email addresses receive all Sippy change-detection alerts
+          </p>
+        </div>
+        <span className="text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2.5 py-1 rounded-full font-medium">
+          {recipients.filter(r => r.active).length} active
+        </span>
+      </div>
+      <div className="p-5 space-y-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading recipients…
+          </div>
+        ) : recipients.length === 0 ? (
+          <div className="text-sm text-muted-foreground/60 italic py-2 text-center">
+            No alert recipients configured yet. Add one below.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {recipients.map(r => (
+              <div key={r.id}
+                data-testid={`row-team-recipient-${r.id}`}
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg border transition-all ${r.active ? 'border-cyan-500/20 bg-cyan-500/5' : 'border-border bg-muted/10 opacity-60'}`}>
+                <div className="h-8 w-8 rounded-full flex items-center justify-center bg-cyan-500/10 flex-shrink-0">
+                  <Mail className="h-4 w-4 text-cyan-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{r.displayName || r.email}</p>
+                  {r.displayName && <p className="text-xs text-muted-foreground font-mono truncate">{r.email}</p>}
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full border font-medium flex-shrink-0 ${r.active ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-muted border-border text-muted-foreground'}`}>
+                  {r.active ? 'Active' : 'Paused'}
+                </span>
+                <button
+                  type="button"
+                  data-testid={`btn-team-toggle-${r.id}`}
+                  onClick={() => toggleMut.mutate({ id: r.id, active: !r.active })}
+                  disabled={toggleMut.isPending}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                >
+                  {r.active ? 'Pause' : 'Enable'}
+                </button>
+                <button
+                  type="button"
+                  data-testid={`btn-team-delete-${r.id}`}
+                  onClick={() => deleteMut.mutate(r.id)}
+                  disabled={deleteMut.isPending}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Add recipient form */}
+        <div className="flex gap-2 pt-1">
+          <input
+            type="text"
+            data-testid="input-team-recipient-name"
+            placeholder="Display name"
+            value={addName}
+            onChange={e => setAddName(e.target.value)}
+            className="w-40 px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+          />
+          <input
+            type="email"
+            data-testid="input-team-recipient-email"
+            placeholder="Email address"
+            value={addEmail}
+            onChange={e => setAddEmail(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && addEmail.trim()) addMut.mutate(); }}
+            className="flex-1 px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+          />
+          <button
+            type="button"
+            data-testid="btn-team-add-recipient"
+            onClick={() => addMut.mutate()}
+            disabled={addMut.isPending || !addEmail.trim()}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25 disabled:opacity-50 transition-colors"
+          >
+            {addMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+            Add Recipient
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          You can also manage these recipients in <Link href="/settings?section=watcher" className="text-cyan-400 hover:underline">Settings → Sippy Watcher</Link>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TeamPage() {
@@ -1534,6 +1683,9 @@ export default function TeamPage() {
           </div>
         )}
       </div>
+
+      {/* Watcher Alert Members */}
+      <WatcherRecipientsSection />
 
       {/* Permissions Matrix */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">

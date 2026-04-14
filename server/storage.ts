@@ -3,6 +3,7 @@ import {
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
   switches, fasEvents, callSnapshots, monitoringAssignments, outageLog, alertRules,
   monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts, sippySnapshots,
+  watcherRecipients,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -19,6 +20,7 @@ import {
   type Kam, type InsertKam,
   type KamAccount, type InsertKamAccount,
   type TrafficAlert, type InsertTrafficAlert,
+  type WatcherRecipient, type InsertWatcherRecipient,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -119,6 +121,12 @@ export interface IStorage {
   // Sippy Snapshots (key-value store for change detection)
   getSippySnapshot(key: string): Promise<any | null>;
   setSippySnapshot(key: string, data: any): Promise<void>;
+
+  // Watcher Recipients
+  getWatcherRecipients(): Promise<WatcherRecipient[]>;
+  addWatcherRecipient(data: InsertWatcherRecipient): Promise<WatcherRecipient>;
+  updateWatcherRecipient(id: number, data: Partial<InsertWatcherRecipient>): Promise<WatcherRecipient | undefined>;
+  deleteWatcherRecipient(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -717,6 +725,25 @@ export class DatabaseStorage implements IStorage {
   async setSippySnapshot(key: string, data: any): Promise<void> {
     await db.insert(sippySnapshots).values({ key, data, updatedAt: new Date() })
       .onConflictDoUpdate({ target: sippySnapshots.key, set: { data, updatedAt: new Date() } });
+  }
+
+  // ── Watcher Recipients ────────────────────────────────────────────────────────
+  async getWatcherRecipients(): Promise<WatcherRecipient[]> {
+    return db.select().from(watcherRecipients).orderBy(watcherRecipients.createdAt);
+  }
+
+  async addWatcherRecipient(data: InsertWatcherRecipient): Promise<WatcherRecipient> {
+    const [row] = await db.insert(watcherRecipients).values(data).returning();
+    return row;
+  }
+
+  async updateWatcherRecipient(id: number, data: Partial<InsertWatcherRecipient>): Promise<WatcherRecipient | undefined> {
+    const [row] = await db.update(watcherRecipients).set(data).where(eq(watcherRecipients.id, id)).returning();
+    return row;
+  }
+
+  async deleteWatcherRecipient(id: number): Promise<void> {
+    await db.delete(watcherRecipients).where(eq(watcherRecipients.id, id));
   }
 }
 

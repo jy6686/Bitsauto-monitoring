@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useEffect } from "react";
@@ -82,15 +82,18 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const isMonitoringActive = location.startsWith('/server-monitoring');
   const isBitseyeActive    = location.startsWith('/bitseye');
   const isCdrActive        = location.startsWith('/cdrs');
+  const isSettingsActive   = location.startsWith('/settings');
   const [callsExpanded,      setCallsExpanded]      = useState(isCallsActive);
   const [monitoringExpanded, setMonitoringExpanded] = useState(isMonitoringActive);
   const [bitseyeExpanded,    setBitseyeExpanded]    = useState(isBitseyeActive);
   const [cdrExpanded,        setCdrExpanded]        = useState(isCdrActive);
+  const [settingsExpanded,   setSettingsExpanded]   = useState(isSettingsActive);
 
   useEffect(() => { if (isCallsActive)      setCallsExpanded(true);      }, [isCallsActive]);
   useEffect(() => { if (isMonitoringActive) setMonitoringExpanded(true);  }, [isMonitoringActive]);
   useEffect(() => { if (isBitseyeActive)    setBitseyeExpanded(true);     }, [isBitseyeActive]);
   useEffect(() => { if (isCdrActive)        setCdrExpanded(true);         }, [isCdrActive]);
+  useEffect(() => { if (isSettingsActive)   setSettingsExpanded(true);    }, [isSettingsActive]);
 
   const { data: kamList = [] } = useQuery<Kam[]>({
     queryKey: ['/api/kam'],
@@ -126,7 +129,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/fraud",             label: "Fraud / FAS",       icon: ShieldAlert,     roles: ['admin','management']          as Role[] },
     { href: "/server-monitoring", label: "Server Monitoring", icon: Server,          roles: ['admin','management']          as Role[], hasSubmenu: 'monitoring' as const },
     { href: "/tools",             label: "Tools",             icon: Wrench,          roles: ['admin','management']          as Role[] },
-    { href: "/settings",          label: "Settings",          icon: Settings,        roles: ['admin']                       as Role[] },
+    { href: "/settings",          label: "Settings",          icon: Settings,        roles: ['admin']                       as Role[], hasSubmenu: 'settings' as const },
     { href: "/alerts",            label: "Alerts",            icon: Bell,            roles: ['admin','management']          as Role[] },
     { href: "/account",           label: "My Account",        icon: UserCog,         roles: ['admin','management','viewer'] as Role[] },
     { href: "/team",              label: "Team & KAM",        icon: Users,           roles: ['admin']                       as Role[] },
@@ -427,6 +430,51 @@ export function LayoutShell({ children }: LayoutShellProps) {
                             className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
                               subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
                             <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
+                            {sub.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            /* ── Settings submenu ── */
+            if (item.hasSubmenu === 'settings') {
+              const settingsSearch = isSettingsActive ? new URLSearchParams(search).get('section') : null;
+              if (collapsed) {
+                return (
+                  <Link key={item.href} href={item.href} title={item.label}
+                    className={navItemClass(isSettingsActive)}>
+                    <item.icon className={navIconClass(isSettingsActive)} />
+                  </Link>
+                );
+              }
+              return (
+                <div key={item.href}>
+                  <button
+                    onClick={() => setSettingsExpanded(o => !o)}
+                    className={navItemClass(isSettingsActive)}
+                  >
+                    <item.icon className={navIconClass(isSettingsActive)} />
+                    <span className="flex-1 text-left">{item.label}</span>
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+                      settingsExpanded ? "rotate-180" : "",
+                      isSettingsActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+                  </button>
+                  {settingsExpanded && (
+                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+                      {[
+                        { href: '/settings', label: 'General Settings', icon: Settings, color: 'text-blue-400', section: null },
+                        { href: '/settings?section=watcher', label: 'Sippy Watcher', icon: ScanSearch, color: 'text-cyan-400', section: 'watcher' },
+                      ].map(sub => {
+                        const subActive = isSettingsActive && settingsSearch === sub.section;
+                        return (
+                          <Link key={sub.href} href={sub.href}
+                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
+                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
+                            <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.color)} />
                             {sub.label}
                           </Link>
                         );
