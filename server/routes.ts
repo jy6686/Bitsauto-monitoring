@@ -14,14 +14,16 @@ import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detect
 import { initSippyWatcher, notifyNewClientTraffic, getWatcherStatus, sendTestWatcherAlert } from "./sippy-watcher";
 import { lookupDialCode } from "./dial-lookup";
 import { readFileSync } from "fs";
-import { join as _pathJoin, dirname as _pathDirname } from "path";
-import { fileURLToPath as _fileURLToPath } from "url";
+import { join as _pathJoin } from "path";
 
 // ── /api/dial-codes handler — serves raw prefix JSON for client-side lookup ───
-const _dialCodesPath = _pathJoin(_pathDirname(_fileURLToPath(import.meta.url)), 'dial-codes.json');
+// Uses process.cwd() so it works in both ESM dev (tsx) and CJS production build.
 let _dialCodesJson: string | null = null;
 function dialCodesHandler(_req: any, res: any) {
-  if (!_dialCodesJson) _dialCodesJson = readFileSync(_dialCodesPath, 'utf-8');
+  if (!_dialCodesJson) {
+    const p = _pathJoin(process.cwd(), 'server', 'dial-codes.json');
+    _dialCodesJson = readFileSync(p, 'utf-8');
+  }
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Cache-Control', 'public, max-age=3600');
   res.send(_dialCodesJson);
