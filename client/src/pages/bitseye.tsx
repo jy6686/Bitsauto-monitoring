@@ -120,7 +120,7 @@ function MiniChart({
     : pts.map((d: any) => d.label);
 
   return (
-    <div className="flex flex-col gap-1 min-w-0">
+    <div className="flex flex-col gap-1 w-full overflow-hidden">
       <div className="flex items-center justify-between px-0.5">
         <p className="text-[9px] font-bold tracking-widest uppercase text-muted-foreground/60">{span}</p>
         {asr > 0 && (
@@ -133,33 +133,38 @@ function MiniChart({
           No data
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={96}>
-          <LineChart data={pts} margin={{ top: 4, right: 8, left: -28, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border)/0.2)" />
-            <XAxis
-              dataKey="label"
-              ticks={ticks}
-              tick={{ fontSize: 7, fill: 'hsl(var(--muted-foreground)/0.6)' }}
-              tickLine={false} axisLine={false}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              tick={{ fontSize: 7, fill: 'hsl(var(--muted-foreground)/0.6)' }}
-              tickLine={false} axisLine={false}
-              allowDecimals={false} width={26}
-            />
-            <Tooltip content={<ChartTooltip />} />
-            {peakTotal > 0 && (
-              <ReferenceLine y={peakTotal} stroke="hsl(var(--muted-foreground)/0.15)" strokeDasharray="4 3"
-                label={{ value: `pk ${peakTotal}`, position: 'insideTopRight', fontSize: 6, fill: 'hsl(var(--muted-foreground)/0.4)' }} />
-            )}
-            <Line type="monotone" dataKey="total_calls"     stroke="#f59e0b" strokeWidth={1.5} dot={false} activeDot={{ r: 3 }} />
-            <Line type="monotone" dataKey="connected_calls" stroke="#14b8a6" strokeWidth={1.5} dot={false} activeDot={{ r: 3 }} />
-            {showConcurrent && peakConc > 0 && (
-              <Line type="monotone" dataKey="concurrent_calls" stroke="#818cf8" strokeWidth={1} strokeDasharray="4 3" dot={false} activeDot={{ r: 2 }} />
-            )}
-          </LineChart>
-        </ResponsiveContainer>
+        /* Use position:relative + absolute inner div so browser calculates width before Recharts mounts */
+        <div style={{ position: 'relative', width: '100%', height: 96 }}>
+          <div style={{ position: 'absolute', inset: 0 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={pts} margin={{ top: 4, right: 8, left: -28, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border)/0.2)" />
+                <XAxis
+                  dataKey="label"
+                  ticks={ticks}
+                  tick={{ fontSize: 7, fill: 'hsl(var(--muted-foreground)/0.6)' }}
+                  tickLine={false} axisLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fontSize: 7, fill: 'hsl(var(--muted-foreground)/0.6)' }}
+                  tickLine={false} axisLine={false}
+                  allowDecimals={false} width={26}
+                />
+                <Tooltip content={<ChartTooltip />} />
+                {peakTotal > 0 && (
+                  <ReferenceLine y={peakTotal} stroke="hsl(var(--muted-foreground)/0.15)" strokeDasharray="4 3"
+                    label={{ value: `pk ${peakTotal}`, position: 'insideTopRight', fontSize: 6, fill: 'hsl(var(--muted-foreground)/0.4)' }} />
+                )}
+                <Line type="monotone" dataKey="total_calls"     stroke="#f59e0b" strokeWidth={1.5} dot={false} activeDot={{ r: 3 }} />
+                <Line type="monotone" dataKey="connected_calls" stroke="#14b8a6" strokeWidth={1.5} dot={false} activeDot={{ r: 3 }} />
+                {showConcurrent && peakConc > 0 && (
+                  <Line type="monotone" dataKey="concurrent_calls" stroke="#818cf8" strokeWidth={1} strokeDasharray="4 3" dot={false} activeDot={{ r: 2 }} />
+                )}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       )}
 
       <div className="flex items-center gap-3 px-0.5">
@@ -276,9 +281,13 @@ function EntityCard({ entity, cardRef }: { entity: EntityData; cardRef?: (el: HT
       </div>
 
       {/* Charts */}
-      <div className="p-3 grid grid-cols-2 gap-3">
-        <MiniChart data={entity.daily}  span="Daily"  asr={entity.asr}      showConcurrent={hasConcurrent} />
-        <MiniChart data={entity.weekly} span="Weekly" asr={entity.weeklyAsr} showConcurrent={false} />
+      <div className="p-3 grid grid-cols-2 gap-3 min-w-0">
+        <div className="min-w-0 overflow-hidden">
+          <MiniChart data={entity.daily}  span="Daily"  asr={entity.asr}      showConcurrent={hasConcurrent} />
+        </div>
+        <div className="min-w-0 overflow-hidden">
+          <MiniChart data={entity.weekly} span="Weekly" asr={entity.weeklyAsr} showConcurrent={false} />
+        </div>
       </div>
 
       {/* Stats */}
