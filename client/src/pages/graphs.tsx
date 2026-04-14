@@ -853,7 +853,7 @@ export default function GraphsPage() {
         />
         <StatCard
           label="Active Clients"
-          value={isLoading ? '…' : data?.byClient?.length ?? 0}
+          value={isLoading ? '…' : liveClients.length}
           sub="with live traffic"
           color="text-emerald-400"
         />
@@ -934,11 +934,17 @@ export default function GraphsPage() {
           <div className="flex items-center gap-2 mb-4">
             <Users className="w-4 h-4 text-emerald-400" />
             <h2 className="text-sm font-semibold">Live Calls by Client</h2>
-            <span className="text-xs text-muted-foreground ml-auto">max over last 5 polls</span>
+            <span className="text-xs text-muted-foreground ml-auto">
+              {role === 'viewer' && viewerClientNames.size > 0
+                ? `${liveClients.length} assigned account${liveClients.length !== 1 ? 's' : ''}`
+                : 'max over last 5 polls'}
+            </span>
           </div>
           {isLoading
             ? <div className="h-48 flex items-center justify-center text-muted-foreground/50 text-sm">Loading…</div>
-            : <HBar data={data?.byClient ?? []} />}
+            : liveClients.length === 0
+              ? <div className="h-48 flex items-center justify-center text-muted-foreground/50 text-sm">No active client traffic</div>
+              : <HBar data={liveClients} />}
         </div>
 
         <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">
@@ -1080,7 +1086,7 @@ export default function GraphsPage() {
       <DestBreakoutSection />
 
       {/* ── KAM Management ────────────────────────────────────────────── */}
-      <div className="bg-card border border-violet-500/20 rounded-xl overflow-hidden shadow-lg shadow-black/5">
+      {role !== 'viewer' && <div className="bg-card border border-violet-500/20 rounded-xl overflow-hidden shadow-lg shadow-black/5">
         <button
           onClick={() => setKamSectionOpen(o => !o)}
           className="w-full flex items-center gap-3 px-5 py-4 hover:bg-muted/10 transition-colors"
@@ -1144,10 +1150,10 @@ export default function GraphsPage() {
             )}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* ── Traffic Alerts Log ─────────────────────────────────────────── */}
-      <div className="bg-card border border-amber-500/20 rounded-xl overflow-hidden shadow-lg shadow-black/5">
+      {role !== 'viewer' && <div className="bg-card border border-amber-500/20 rounded-xl overflow-hidden shadow-lg shadow-black/5">
         <button
           onClick={() => setAlertSectionOpen(o => !o)}
           className="w-full flex items-center gap-3 px-5 py-4 hover:bg-muted/10 transition-colors"
@@ -1236,7 +1242,7 @@ export default function GraphsPage() {
             )}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Summary footer */}
       <div className="flex flex-wrap gap-4 p-4 bg-card/40 border border-border/40 rounded-xl text-xs text-muted-foreground">
