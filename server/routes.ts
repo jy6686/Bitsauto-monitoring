@@ -2081,17 +2081,51 @@ export async function registerRoutes(
         .filter(([k]) => isNaN(Number(k)))  // exclude numeric ID keys
         .map(([, v]) => v);
       const uniqueVcNames = new Set(vcNames);
+
+      // Slice once for this page
+      const pageCdrs = rawCdrs.slice(offset, offset + limit);
+
+      // Page-level iConnection deduction: if all CDRs share one non-empty connection ID, resolve it
+      const pageConnIds = new Set(pageCdrs.map(c => String((c as any).iConnection ?? '')).filter(Boolean));
+      const pageConnFallback = pageConnIds.size === 1
+        ? connectionVendorCache.get(Array.from(pageConnIds)[0])
+        : undefined;
+
+      // Page-level remoteIp deduction: if all CDRs share one IP, and we have a name for it, use it
+      const pageRemoteHosts = new Set(pageCdrs.map(c => (c.remoteIp || '').split(':')[0].trim()).filter(Boolean));
+      const pageIpFallback = pageRemoteHosts.size === 1
+        ? connectionIpCache.get(Array.from(pageRemoteHosts)[0])
+        : undefined;
+
       const singleVendorFallback = uniqueVcNames.size === 1
         ? Array.from(uniqueVcNames)[0]
         : uniqueVcNames.size === 0 && uniqueVendorNames.size === 1
           ? Array.from(uniqueVendorNames)[0]
-          : undefined;
+          : pageConnFallback ?? pageIpFallback ?? undefined;
+
+      // Build a page-level IP→vendor map from any CDRs that already have vendor info
+      // (c.vendor comes from Sippy's vendor_name field; iConnection from i_connection)
+      const pageIpVendor: Map<string, string> = new Map();
+      for (const c of pageCdrs) {
+        const remoteHost = (c.remoteIp || '').split(':')[0].trim();
+        if (!remoteHost) continue;
+        const resolved = connectionIpCache.get(remoteHost)
+          || connectionVendorCache.get(String((c as any).iConnection ?? ''))
+          || (c as any).vendor;
+        if (resolved && !pageIpVendor.has(remoteHost)) pageIpVendor.set(remoteHost, resolved);
+      }
+      // Opportunistically populate connectionIpCache from page discoveries
+      for (const [ip, name] of pageIpVendor) {
+        if (!connectionIpCache.has(ip)) connectionIpCache.set(ip, name);
+      }
 
       // Enrich with vendor name from connectionIpCache (remoteIp host → vendor name)
-      const cdrs = rawCdrs.slice(offset, offset + limit).map(c => {
+      const cdrs = pageCdrs.map(c => {
         const remoteHost = (c.remoteIp || '').split(':')[0].trim();
         const vendorName = connectionIpCache.get(remoteHost)
+          || pageIpVendor.get(remoteHost)
           || connectionVendorCache.get(String((c as any).iConnection ?? ''))
+          || (c as any).vendor
           || singleVendorFallback
           || undefined;
         const clientName = accountNameCache.get(String(c.iAccount ?? ''))

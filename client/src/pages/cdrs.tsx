@@ -247,7 +247,9 @@ export default function CDRsPage() {
     const firstColHeader = isVendor ? 'Vendor' : 'Client';
     const headers = [firstColHeader, 'CLI', 'CLD', 'Country', 'Description', 'Setup Time', 'Duration', 'Billed Duration', 'Charged (USD)', 'Result'];
     const rows = cdrs.map(c => [
-      (isVendor ? (c.vendorName || c.remoteIp || '-') : (c.clientName || c.caller || '-')),
+      (isVendor
+        ? [c.vendorName, c.remoteIp].filter(Boolean).join(' | ') || '-'
+        : (c.clientName || c.caller || '-')),
       c.caller || '',
       c.callee || '',
       c.country || '',
@@ -541,15 +543,25 @@ export default function CDRsPage() {
                     <td className="px-2 py-2 text-center">
                       <StatusIcon cdr={cdr} />
                     </td>
-                    <td className="px-3 py-2 max-w-[140px] truncate"
+                    <td className="px-3 py-2 max-w-[160px]"
                       title={isVendor
-                        ? (cdr.vendorName || cdr.remoteIp || '')
+                        ? [cdr.vendorName, cdr.remoteIp].filter(Boolean).join(' | ')
                         : (cdr.clientName || cdr.caller || '')}>
-                      <span className={cn("font-medium", isVendor ? "text-cyan-400/90" : "text-foreground/80")}>
-                        {isVendor
-                          ? (cdr.vendorName || cdr.remoteIp || '-')
-                          : (cdr.clientName || `Acct.${cdr.iAccount || '-'}`)}
-                      </span>
+                      {isVendor ? (
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          {cdr.vendorName && (
+                            <span className="font-medium text-cyan-400/90 truncate">{cdr.vendorName}</span>
+                          )}
+                          {cdr.remoteIp && (
+                            <span className="font-mono text-xs text-muted-foreground truncate">{cdr.remoteIp}</span>
+                          )}
+                          {!cdr.vendorName && !cdr.remoteIp && <span className="text-muted-foreground/40">-</span>}
+                        </div>
+                      ) : (
+                        <span className="font-medium text-foreground/80 truncate block">
+                          {cdr.clientName || `Acct.${cdr.iAccount || '-'}`}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cli-${i}`}>{cdr.caller || '-'}</td>
                     <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cld-${i}`}>{cdr.callee || '-'}</td>
