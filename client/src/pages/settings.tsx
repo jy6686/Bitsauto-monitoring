@@ -1186,6 +1186,7 @@ function SwitchesPanel() {
   const { data: switches = [], isLoading } = useQuery<SwitchRow[]>({ queryKey: ['/api/switches'] });
 
   const [expanded, setExpanded] = useState(true);
+  const [formVisible, setFormVisible] = useState(false);
   const [editing, setEditing] = useState<SwitchRow | null>(null);
   const [form, setForm] = useState<Omit<SwitchRow, 'id' | 'lastSyncAt' | 'lastSyncStatus'>>({ ...EMPTY_SWITCH });
   const [saving, setSaving] = useState(false);
@@ -1196,13 +1197,15 @@ function SwitchesPanel() {
     setEditing(null);
     setForm({ ...EMPTY_SWITCH });
     setError(null);
+    setFormVisible(true);
   }
   function openEdit(sw: SwitchRow) {
     setEditing(sw);
     setForm({ name: sw.name, type: sw.type, portalUrl: sw.portalUrl || '', portalUsername: sw.portalUsername || '', portalPassword: sw.portalPassword || '', enabled: sw.enabled, notes: sw.notes || '' });
     setError(null);
+    setFormVisible(true);
   }
-  function closeForm() { setEditing(null); setForm({ ...EMPTY_SWITCH }); setError(null); }
+  function closeForm() { setEditing(null); setForm({ ...EMPTY_SWITCH }); setError(null); setFormVisible(false); }
 
   async function save() {
     if (!form.name.trim()) { setError('Name is required'); return; }
@@ -1229,7 +1232,7 @@ function SwitchesPanel() {
     } catch { } finally { setDeleting(null); }
   }
 
-  const isFormOpen = editing !== null || (form.name !== '' || form.portalUrl !== '');
+  const isFormOpen = formVisible;
 
   return (
     <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
