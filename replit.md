@@ -22,6 +22,8 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 - **Traffic Drop Detector**: background job runs every 5 minutes, compares per-client concurrent calls vs 60-min peak, triggers email when traffic drops >50% or goes to 0. Stores history in `traffic_alerts` table. Email sent via Gmail SMTP (existing settings). Cooldown 30 min per client.
 - **Client Traffic Pulse**: per-client live call count cards on the Graphs page with trend indicator and percentage-of-peak bar
 - **Traffic Alerts Log** on the Graphs page: shows recent drop events, email sent status, open/resolved state
+- **Sippy Change Watcher** (`server/sippy-watcher.ts`): polls every 5 minutes, detects IP auth rule add/remove/change, new/removed client accounts, new/removed vendor connections, new client starts traffic — emails admin on each change. State persisted in `sippy_snapshots` DB table (no false-positives on restart). `notifyNewClientTraffic(name)` hook called from `pushConcurrentPoint` in routes.ts.
+- **Security Hardening** (`server/index.ts`): `helmet` HTTP security headers (CSP, XSS protection, clickjacking), `express-rate-limit` (300 req/15min general, 20 req/15min auth), 1MB body limit, `trust proxy` for Replit reverse-proxy, suspicious activity tracker (logs IPs with 15+ 401/403s in 5 min).
 - **Traffic Map** (`/traffic-map`): Interactive Leaflet world choropleth map showing destination traffic % by country. Uses CDR `country` field, TopoJSON (world-atlas via `/api/geo/world`), topojson-client, and `/api/traffic-map` endpoint. Dark CartoDB tiles, violet colour scale, hover tooltips, top-destinations sidebar, time range selector (3/6/12/24/48/72h).
 
 ## Sippy Integration (`server/sippy.ts`)

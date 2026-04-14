@@ -2,7 +2,7 @@
 import { 
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
   switches, fasEvents, callSnapshots, monitoringAssignments, outageLog, alertRules,
-  monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts,
+  monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts, sippySnapshots,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -115,6 +115,10 @@ export interface IStorage {
   createTrafficAlert(alert: InsertTrafficAlert): Promise<TrafficAlert>;
   updateTrafficAlert(id: number, updates: Partial<TrafficAlert>): Promise<void>;
   getOpenTrafficAlert(clientName: string): Promise<TrafficAlert | undefined>;
+
+  // Sippy Snapshots (key-value store for change detection)
+  getSippySnapshot(key: string): Promise<any | null>;
+  setSippySnapshot(key: string, data: any): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -702,6 +706,17 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(trafficAlerts.triggeredAt))
       .limit(1);
     return row;
+  }
+
+  // ── Sippy Snapshots ──────────────────────────────────────────────────────────
+  async getSippySnapshot(key: string): Promise<any | null> {
+    const [row] = await db.select().from(sippySnapshots).where(eq(sippySnapshots.key, key));
+    return row?.data ?? null;
+  }
+
+  async setSippySnapshot(key: string, data: any): Promise<void> {
+    await db.insert(sippySnapshots).values({ key, data, updatedAt: new Date() })
+      .onConflictDoUpdate({ target: sippySnapshots.key, set: { data, updatedAt: new Date() } });
   }
 }
 

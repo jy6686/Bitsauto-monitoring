@@ -388,6 +388,13 @@ export type InsertMetric = z.infer<typeof insertMetricSchema>;
 export type InsertAlert = z.infer<typeof insertAlertSchema>;
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;
 
+// Sippy state snapshots — persists across restarts for change detection
+export const sippySnapshots = pgTable("sippy_snapshots", {
+  key:       text("key").primaryKey(),
+  data:      json("data").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // API Request Types
 export type UpdateSettingsRequest = Partial<InsertSettings>;
 
