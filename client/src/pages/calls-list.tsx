@@ -52,6 +52,10 @@ interface LiveCall {
   setupTime?: string;    // SETUP_TIME timestamp
   codec?: string;
   state?: string;
+  // Destination enrichment from dial-codes.json
+  destCountry?:  string | null;
+  destBreakout?: string | null;
+  destFull?:     string | null;
 }
 
 // Direction display config
@@ -703,6 +707,7 @@ function SwitchPanel({
                         <th className="px-4 py-3 font-medium">CLD</th>
                         <th className="px-4 py-3 font-medium">Orig Country</th>
                         <th className="px-4 py-3 font-medium">Dest Country</th>
+                        <th className="px-4 py-3 font-medium">Breakout</th>
                         <th className="px-4 py-3 font-medium">Trunk</th>
                         <th className="px-4 py-3 font-medium">Direction</th>
                         <th className="px-4 py-3 font-medium">State</th>
@@ -717,6 +722,7 @@ function SwitchPanel({
                       {displayed.map((call, i) => {
                         const origCountry = call.caller ? lookupCountry(call.caller) : null;
                         const destCountry = call.callee ? lookupCountry(call.callee) : null;
+                        const serverDest = call.destFull || call.destCountry || null;
                         const acctFirst = String(call.accountId || '').charAt(0);
                         const trunkClass = acctFirst === '1' ? { label: 'First',    color: 'text-blue-400 bg-blue-500/10' }
                           : acctFirst === '2' ? { label: 'Business', color: 'text-violet-400 bg-violet-500/10' }
@@ -729,7 +735,7 @@ function SwitchPanel({
                         const pddDisplay = pddSec > 0
                           ? pddSec >= 1 ? `${pddSec.toFixed(1)}s` : `${Math.round(pddSec * 1000)}ms`
                           : null;
-                        const totalCols = isPrimary ? 15 : 14;
+                        const totalCols = isPrimary ? 16 : 15;
                         return (
                         <Fragment key={rowKey}>
                         <tr
@@ -761,11 +767,18 @@ function SwitchPanel({
                             ) : <span className="text-muted-foreground/30">—</span>}
                           </td>
                           <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-dest-country-${i}`}>
-                            {destCountry ? (
+                            {serverDest ? (
+                              <span className="text-cyan-300/80 font-medium text-[11px]">{call.destCountry || destCountry?.name || serverDest}</span>
+                            ) : destCountry ? (
                               <span className="flex items-center gap-1">
                                 <span>{destCountry.flag}</span>
                                 {destCountry.name}
                               </span>
+                            ) : <span className="text-muted-foreground/30">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-breakout-${i}`}>
+                            {call.destBreakout ? (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20 whitespace-nowrap">{call.destBreakout}</span>
                             ) : <span className="text-muted-foreground/30">—</span>}
                           </td>
                           <td className="px-4 py-3" data-testid={`cell-trunk-${i}`}>

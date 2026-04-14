@@ -22,7 +22,11 @@ interface LiveGraphsData {
   byCodec:          { name: string; calls: number }[];
   byDirection:      { name: string; calls: number }[];
   byDestination:    { name: string; calls: number }[];
+  byBreakout:       { name: string; calls: number }[];
+  byCountry:        { name: string; calls: number }[];
   cdrByDestination: { name: string; calls: number }[];
+  cdrByCountry:     { name: string; calls: number }[];
+  cdrByBreakout:    { name: string; calls: number }[];
   cdrTotal:         number;
   liveCount:        number;
   peakCount:        number;
@@ -1074,6 +1078,87 @@ export default function GraphsPage() {
                 <Bar dataKey="calls" radius={[0, 4, 4, 0]}>
                   {data!.byDestination.map((_, i) => (
                     <Cell key={i} fill={["#10b981","#06b6d4","#3b82f6","#8b5cf6","#f59e0b","#ef4444"][i % 6]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      {/* ── CDR Breakout & Country Charts ────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* By Breakout — CDR */}
+        <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">
+          <div className="flex items-center gap-2 mb-1">
+            <Globe className="w-4 h-4 text-violet-400" />
+            <h2 className="text-sm font-semibold">By Breakout Type — CDR</h2>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">
+            Call volume per breakout (FIXED / MOBILE / SPECIAL…) from CDR history
+          </p>
+          {isLoading ? (
+            <div className="h-56 flex items-center justify-center text-muted-foreground/50 text-sm">Loading…</div>
+          ) : !(data?.cdrByBreakout?.length) ? (
+            <div className="h-56 flex flex-col items-center justify-center gap-2 text-muted-foreground/50 text-sm">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>Waiting for CDR data…</span>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(180, data!.cdrByBreakout.length * 32)}>
+              <BarChart data={data!.cdrByBreakout} layout="vertical" margin={{ top: 0, right: 48, left: 8, bottom: 0 }} barCategoryGap="22%">
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
+                <Tooltip content={({ active, payload, label }) =>
+                  active && payload?.length ? (
+                    <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-xl text-xs">
+                      <p className="font-semibold">{label}</p>
+                      <p style={{ color: payload[0]?.fill }}>Calls: <b>{payload[0]?.value}</b></p>
+                    </div>
+                  ) : null
+                } cursor={{ fill: 'hsl(var(--muted))', opacity: 0.25 }} />
+                <Bar dataKey="calls" radius={[0, 4, 4, 0]}>
+                  {data!.cdrByBreakout.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* By Country — CDR */}
+        <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg shadow-black/5">
+          <div className="flex items-center gap-2 mb-1">
+            <Globe className="w-4 h-4 text-cyan-400" />
+            <h2 className="text-sm font-semibold">By Country — CDR</h2>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">
+            Top countries by call volume from CDR history
+          </p>
+          {isLoading ? (
+            <div className="h-56 flex items-center justify-center text-muted-foreground/50 text-sm">Loading…</div>
+          ) : !(data?.cdrByCountry?.length) ? (
+            <div className="h-56 flex flex-col items-center justify-center gap-2 text-muted-foreground/50 text-sm">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>Waiting for CDR data…</span>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(180, data!.cdrByCountry.length * 32)}>
+              <BarChart data={data!.cdrByCountry} layout="vertical" margin={{ top: 0, right: 48, left: 8, bottom: 0 }} barCategoryGap="22%">
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
+                <Tooltip content={({ active, payload, label }) =>
+                  active && payload?.length ? (
+                    <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-xl text-xs">
+                      <p className="font-semibold">{label}</p>
+                      <p style={{ color: payload[0]?.fill }}>Calls: <b>{payload[0]?.value}</b></p>
+                    </div>
+                  ) : null
+                } cursor={{ fill: 'hsl(var(--muted))', opacity: 0.25 }} />
+                <Bar dataKey="calls" radius={[0, 4, 4, 0]}>
+                  {data!.cdrByCountry.map((_, i) => (
+                    <Cell key={i} fill={["#06b6d4","#10b981","#8b5cf6","#f59e0b","#ef4444","#3b82f6"][i % 6]} />
                   ))}
                 </Bar>
               </BarChart>
