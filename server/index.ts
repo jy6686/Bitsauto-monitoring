@@ -24,10 +24,10 @@ app.use(helmet({
     directives: {
       defaultSrc:     ["'self'"],
       scriptSrc:      ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Vite HMR needs these
-      styleSrc:       ["'self'", "'unsafe-inline'"],
-      imgSrc:         ["'self'", "data:", "blob:"],
+      styleSrc:       ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      imgSrc:         ["'self'", "data:", "blob:", "https://lh3.googleusercontent.com"],
       connectSrc:     ["'self'", "ws:", "wss:"],  // WebSocket for Vite HMR
-      fontSrc:        ["'self'", "data:"],
+      fontSrc:        ["'self'", "data:", "https://fonts.gstatic.com"],
       objectSrc:      ["'none'"],
       frameSrc:       ["'none'"],
       frameAncestors: ["'self'"],

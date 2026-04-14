@@ -11,7 +11,7 @@ import * as sippy from "./sippy";
 import * as sippySnmp from "./snmp";
 import * as emailSvc from "./email";
 import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas, calcVendorFraudStats } from "./cdr-enrichment";
-import { initSippyWatcher, notifyNewClientTraffic } from "./sippy-watcher";
+import { initSippyWatcher, notifyNewClientTraffic, getWatcherStatus, sendTestWatcherAlert } from "./sippy-watcher";
 
 // ── Account name cache — populated dynamically from Sippy listAccounts() ──────
 // Maps iAccount string → username. No hardcoded IDs — always reflects the live switch.
@@ -8674,6 +8674,16 @@ export async function registerRoutes(
   setInterval(runHourlyTrendAnalyzer, 60 * 60 * 1000);
   // Also run trend analyzer once after 5 min (after initial history builds up)
   setTimeout(runHourlyTrendAnalyzer, 5 * 60 * 1000);
+
+  // ── Sippy Watcher status + test endpoints ─────────────────────────────────
+  app.get('/api/sippy-watcher/status', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), (req, res) => {
+    res.json(getWatcherStatus());
+  });
+
+  app.post('/api/sippy-watcher/test-alert', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    const result = await sendTestWatcherAlert();
+    res.json(result);
+  });
 
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();

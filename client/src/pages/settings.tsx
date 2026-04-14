@@ -490,6 +490,224 @@ function EmailAlertPanel() {
   );
 }
 
+// ── Sippy Change Watcher Panel ────────────────────────────────────────────────
+
+interface WatcherStatus {
+  initialized: boolean;
+  lastRunAt: string | null;
+  lastRunChanges: number | null;
+  lastRunError: string | null;
+  snapshot: {
+    capturedAt: string;
+    accounts: number;
+    vendors: number;
+    connections: number;
+    authRules: number;
+    seenClients: number;
+    accountNames: string[];
+    vendorNames: string[];
+  } | null;
+}
+
+function SippyWatcherPanel() {
+  const [expanded, setExpanded] = useState(true);
+  const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
+
+  const { data: status, isLoading, refetch } = useQuery<WatcherStatus>({
+    queryKey: ['/api/sippy-watcher/status'],
+    refetchInterval: 30_000,
+  });
+
+  const testMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/sippy-watcher/test-alert', {});
+      const json = await res.json();
+      setTestResult(json);
+      return json;
+    },
+  });
+
+  const snap = status?.snapshot;
+
+  return (
+    <div className="bg-card rounded-xl border border-border overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center gap-3 p-6 text-left hover:bg-muted/20 transition-colors"
+      >
+        <Activity className="h-5 w-5 text-cyan-400 flex-shrink-0" />
+        <div className="flex-1">
+          <h2 className="text-base font-semibold">Sippy Change Detection Watcher</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Auto-monitors accounts, vendor IPs &amp; connections every 5 min — emails on any change
+          </p>
+        </div>
+        <div className="flex items-center gap-2 mr-2">
+          {status?.initialized ? (
+            <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Active
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs text-amber-400 font-medium">
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              Starting…
+            </span>
+          )}
+        </div>
+        {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="px-6 pb-6 space-y-5 border-t border-border/50">
+          {isLoading ? (
+            <div className="flex items-center gap-2 py-4 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading watcher status…
+            </div>
+          ) : (
+            <>
+              {/* Alert destination banner */}
+              <div className="mt-4 p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-sm">
+                <p className="font-medium text-cyan-300 mb-1">📧 Alert Destination</p>
+                <p className="text-muted-foreground text-xs">
+                  Alerts are sent to the <span className="text-foreground font-medium">Admin Alert Email</span> configured in
+                  the <span className="text-cyan-400">Email Alert Configuration</span> panel above.
+                  Make sure you have entered an email address and enabled alerts there.
+                </p>
+              </div>
+
+              {/* Last run info */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-muted/30 rounded-lg p-3 space-y-1">
+                  <p className="text-xs text-muted-foreground">Last Run</p>
+                  <p className="text-sm font-medium font-mono">
+                    {status?.lastRunAt ? new Date(status.lastRunAt).toLocaleTimeString() : '—'}
+                  </p>
+                  {status?.lastRunAt && (
+                    <p className="text-xs text-muted-foreground">{new Date(status.lastRunAt).toLocaleDateString()}</p>
+                  )}
+                </div>
+                <div className="bg-muted/30 rounded-lg p-3 space-y-1">
+                  <p className="text-xs text-muted-foreground">Changes Detected</p>
+                  <p className={`text-sm font-bold ${status?.lastRunChanges ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {status?.lastRunChanges ?? 0}
+                  </p>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-3 space-y-1">
+                  <p className="text-xs text-muted-foreground">Poll Interval</p>
+                  <p className="text-sm font-medium">5 min</p>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-3 space-y-1">
+                  <p className="text-xs text-muted-foreground">Status</p>
+                  {status?.lastRunError ? (
+                    <p className="text-sm text-red-400 font-medium">Error</p>
+                  ) : status?.initialized ? (
+                    <p className="text-sm text-emerald-400 font-medium">Running</p>
+                  ) : (
+                    <p className="text-sm text-amber-400 font-medium">Starting</p>
+                  )}
+                </div>
+              </div>
+
+              {status?.lastRunError && (
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+                  <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>Last run error: {status.lastRunError}</span>
+                </div>
+              )}
+
+              {/* Snapshot summary */}
+              {snap && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Current Sippy Snapshot</p>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    {[
+                      { label: 'Client Accounts', value: snap.accounts, color: 'text-violet-400' },
+                      { label: 'Vendors', value: snap.vendors, color: 'text-cyan-400' },
+                      { label: 'Connections', value: snap.connections, color: 'text-blue-400' },
+                      { label: 'Auth IP Rules', value: snap.authRules, color: 'text-emerald-400' },
+                      { label: 'Traffic Clients', value: snap.seenClients, color: 'text-amber-400' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-muted/20 border border-border/50 rounded-lg p-3 text-center">
+                        <p className={`text-2xl font-bold ${color}`}>{value}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                    <div className="bg-muted/20 border border-border/50 rounded-lg p-3">
+                      <p className="text-xs font-medium text-muted-foreground mb-2">Client Account Names</p>
+                      <div className="flex flex-wrap gap-1">
+                        {snap.accountNames.map(n => (
+                          <span key={n} className="px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 text-xs font-mono">{n}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="bg-muted/20 border border-border/50 rounded-lg p-3">
+                      <p className="text-xs font-medium text-muted-foreground mb-2">Vendor Names</p>
+                      <div className="flex flex-wrap gap-1">
+                        {snap.vendorNames.map(n => (
+                          <span key={n} className="px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 text-xs font-mono">{n}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Snapshot taken: {new Date(snap.capturedAt).toUTCString()}</p>
+                </div>
+              )}
+
+              {/* What alerts look like */}
+              <div className="bg-muted/30 rounded-lg p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground/70">What triggers an alert email:</p>
+                <p>• 🔐 Auth IP added / removed / changed on any client account</p>
+                <p>• 🆕 New client account created in Sippy</p>
+                <p>• 🗑️ Client account removed from Sippy</p>
+                <p>• 🆕 New vendor or connection added</p>
+                <p>• 🗑️ Vendor or connection removed</p>
+                <p>• 📞 A client account sends traffic for the first time ever</p>
+                <p className="mt-1 text-amber-400/80">Each alert email includes a full snapshot of the before &amp; after state so you can see exactly what changed.</p>
+              </div>
+
+              {/* Test button */}
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  data-testid="button-test-watcher-alert"
+                  onClick={() => { setTestResult(null); testMut.mutate(); }}
+                  disabled={testMut.isPending}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25 disabled:opacity-50"
+                >
+                  {testMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  Send Test Alert Email
+                </button>
+                <button
+                  type="button"
+                  data-testid="button-refresh-watcher-status"
+                  onClick={() => refetch()}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground border border-border hover:bg-muted/50"
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  Refresh
+                </button>
+              </div>
+
+              {testResult && (
+                <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${testResult.ok ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
+                  {testResult.ok ? <MailCheck className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                  {testResult.ok
+                    ? 'Test alert sent! Check your Admin Alert Email inbox — it includes the current system snapshot.'
+                    : `Failed: ${testResult.error}`}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SippyUsersPanel() {
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState(true);
@@ -1622,6 +1840,9 @@ export default function SettingsPage() {
 
       {/* Email Alert Configuration */}
       <EmailAlertPanel />
+
+      {/* Sippy Change Watcher */}
+      <SippyWatcherPanel />
 
       {/* Sippy Users */}
       <SippyUsersPanel />

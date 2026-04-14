@@ -63,6 +63,52 @@ interface SippyState {
 
 const knownTrafficClients = new Set<string>();
 let watcherInitialized = false;
+let lastRunAt: Date | null = null;
+let lastRunChanges: number | null = null;
+let lastRunError: string | null = null;
+let currentSnapshot: SippyState | null = null;
+
+export function getWatcherStatus() {
+  return {
+    initialized: watcherInitialized,
+    lastRunAt: lastRunAt?.toISOString() ?? null,
+    lastRunChanges,
+    lastRunError,
+    snapshot: currentSnapshot ? {
+      capturedAt: currentSnapshot.capturedAt,
+      accounts: currentSnapshot.accounts.length,
+      vendors: currentSnapshot.vendors.length,
+      connections: currentSnapshot.connections.length,
+      authRules: currentSnapshot.authRules.length,
+      seenClients: currentSnapshot.seenClients.length,
+      accountNames: currentSnapshot.accounts.map(a => a.name || a.username),
+      vendorNames: currentSnapshot.vendors.map(v => v.name),
+    } : null,
+  };
+}
+
+export async function sendTestWatcherAlert(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const status = getWatcherStatus();
+    const snap = status.snapshot;
+    await sendAlertEmail({
+      subject: '🧪 Sippy Watcher Test Alert — System OK',
+      bodyHtml: buildSippyChangeEmail('Test Alert — Change Detection Active', [
+        { icon: '✅', label: 'Status', value: 'Watcher is running and configured correctly' },
+        { icon: '🕐', label: 'Last Run', value: status.lastRunAt ? new Date(status.lastRunAt).toUTCString() : 'Not yet run' },
+        { icon: '👤', label: 'Client Accounts', value: snap ? String(snap.accounts) : 'unknown' },
+        { icon: '🏢', label: 'Vendor Accounts', value: snap ? String(snap.vendors) : 'unknown' },
+        { icon: '🔌', label: 'Connections', value: snap ? String(snap.connections) : 'unknown' },
+        { icon: '🔐', label: 'Auth IP Rules', value: snap ? String(snap.authRules) : 'unknown' },
+        { icon: '📅', label: 'Snapshot Taken', value: snap ? snap.capturedAt : 'No snapshot yet' },
+        { icon: '🕵️', label: 'Test Sent At', value: new Date().toUTCString() },
+      ], 'green', 'This is a test email. If you received it, your Sippy change-detection watcher is working correctly and will alert you on any real changes.'),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e.message };
+  }
+}
 
 export function notifyNewClientTraffic(clientName: string): void {
   if (!watcherInitialized) return;
@@ -455,7 +501,10 @@ async function runWatcherCycle(): Promise<void> {
   if (!prev) {
     // First run — save baseline, no alerts (avoid false positives)
     console.log('[sippy-watcher] No previous snapshot — saving baseline.');
+    currentSnapshot = curr;
     await storage.setSippySnapshot(SNAPSHOT_KEY, curr);
+    lastRunAt = new Date();
+    lastRunChanges = 0;
     return;
   }
 
@@ -474,7 +523,10 @@ async function runWatcherCycle(): Promise<void> {
     console.log('[sippy-watcher] No Sippy changes detected.');
   }
 
-  // Save updated snapshot
+  // Save updated snapshot and track run stats
+  currentSnapshot = curr;
+  lastRunAt = new Date();
+  lastRunChanges = changes.length;
   await storage.setSippySnapshot(SNAPSHOT_KEY, curr);
 }
 
@@ -486,14 +538,22 @@ export function initSippyWatcher(): void {
   // First run after 30 seconds (let server finish startup)
   setTimeout(async () => {
     watcherInitialized = true;
-    try { await runWatcherCycle(); } catch (e: any) {
+    try {
+      lastRunError = null;
+      await runWatcherCycle();
+    } catch (e: any) {
+      lastRunError = e.message;
       console.warn('[sippy-watcher] first cycle error:', e.message);
     }
   }, 30_000);
 
   // Then every 5 minutes
   setInterval(async () => {
-    try { await runWatcherCycle(); } catch (e: any) {
+    try {
+      lastRunError = null;
+      await runWatcherCycle();
+    } catch (e: any) {
+      lastRunError = e.message;
       console.warn('[sippy-watcher] poll cycle error:', e.message);
     }
   }, POLL_INTERVAL_MS);
