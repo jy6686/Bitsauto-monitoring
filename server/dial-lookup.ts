@@ -20,15 +20,30 @@ function getEntries(): RawEntry[] {
   return _entries;
 }
 
+function searchEntries(digits: string, entries: RawEntry[]): DialMatch | null {
+  for (const e of entries) {
+    if (digits.startsWith(e.c)) {
+      return { code: e.c, country: e.k, breakout: e.b, destination: `${e.k} - ${e.b}` };
+    }
+  }
+  return null;
+}
+
 export function lookupDialCode(number: string | number | null | undefined): DialMatch | null {
   if (!number) return null;
   const digits = String(number).replace(/^\+/, '').replace(/\D/g, '');
   if (!digits) return null;
   const entries = getEntries();
-  for (const e of entries) {
-    if (digits.startsWith(e.c)) {
-      return { code: e.c, country: e.k, breakout: e.b, destination: `${e.k} - ${e.b}` };
-    }
+
+  const primary = searchEntries(digits, entries);
+  if (primary) return primary;
+
+  // No direct match — Sippy may have prepended a route-prefix "1" (NANP-style) to any
+  // non-NANP destination. Since this lookup DB contains no NANP entries, strip the
+  // leading "1" for any 11+ digit number starting with "1" and retry.
+  if (digits.startsWith('1') && digits.length >= 11) {
+    const alt = searchEntries(digits.slice(1), entries);
+    if (alt) return alt;
   }
   return null;
 }

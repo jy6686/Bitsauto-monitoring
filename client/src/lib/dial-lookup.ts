@@ -36,14 +36,28 @@ export async function preloadDialCodes(): Promise<void> {
   _syncCache = await loadEntries();
 }
 
+function searchEntries(digits: string, cache: RawEntry[]): DialMatch | null {
+  for (const e of cache) {
+    if (digits.startsWith(e.c)) {
+      return { code: e.c, country: e.k, breakout: e.b, destination: `${e.k} - ${e.b}` };
+    }
+  }
+  return null;
+}
+
 export function lookupDialCode(number: string | number | null | undefined): DialMatch | null {
   if (!number || !_syncCache) return null;
   const digits = String(number).replace(/^\+/, '').replace(/\D/g, '');
   if (!digits) return null;
-  for (const e of _syncCache) {
-    if (digits.startsWith(e.c)) {
-      return { code: e.c, country: e.k, breakout: e.b, destination: `${e.k} - ${e.b}` };
-    }
+
+  const primary = searchEntries(digits, _syncCache);
+  if (primary) return primary;
+
+  // No direct match — Sippy may prepend a route-prefix "1" to non-NANP numbers.
+  // Since this DB contains no NANP entries, strip "1" for any 11+ digit number and retry.
+  if (digits.startsWith('1') && digits.length >= 11) {
+    const alt = searchEntries(digits.slice(1), _syncCache);
+    if (alt) return alt;
   }
   return null;
 }

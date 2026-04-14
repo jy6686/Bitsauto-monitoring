@@ -7860,7 +7860,16 @@ export async function registerRoutes(
       const raw = c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || null;
       if (category === 'vendors')      return (c as any).vendor || null;
       if (category === 'kam')          return raw ? (clientToKam[raw] ?? 'Unassigned') : null;
-      if (category === 'destinations') return (c as any).areaName || (c as any).country || null;
+      if (category === 'destinations') {
+        // Use dial-code lookup to get "{Country} - {Breakout}" (e.g. "Pakistan - MOBILE JAZZ")
+        // Falls back to Sippy's own country/areaName fields when lookup fails.
+        const dialMatch = lookupDialCode((c as any).callee);
+        if (dialMatch) return dialMatch.destination; // "{country} - {breakout}"
+        const country = (c as any).country || null;
+        const area    = (c as any).areaName || null;
+        if (country && area) return `${country} - ${area}`;
+        return country || area || null;
+      }
       return raw;
     };
 
@@ -8006,10 +8015,23 @@ export async function registerRoutes(
           ? Array.from(destClients[name] ?? []).filter(c => c !== 'Unknown').sort()
           : undefined;
 
+      // For destinations: split "Country - Breakout" into separate filterable fields
+      let destCountry: string | undefined;
+      let destBreakout: string | undefined;
+      if (category === 'destinations') {
+        const sep = name.indexOf(' - ');
+        if (sep > 0) {
+          destCountry  = name.slice(0, sep);
+          destBreakout = name.slice(sep + 3);
+        } else {
+          destCountry = name;
+        }
+      }
+
       entities.push({
         name, daily, weekly, curConcurrent, todayCalls,
         trendPct, asr, acdSecs: acd, weeklyAsr,
-        clients,
+        clients, destCountry, destBreakout,
         stats: {
           total:     { cur: allTotals[allTotals.length - 1] ?? 0, min: safeMin(allTotals), max: safeMax(allTotals), avg: safeAvg(allTotals) },
           connected: { cur: allConns[allConns.length - 1]   ?? 0, min: safeMin(allConns),  max: safeMax(allConns),  avg: safeAvg(allConns)  },

@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback, useEffect, useState, useMemo } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -6,9 +6,12 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import {
-  RefreshCw, ChevronRight, Wifi, WifiOff, BarChart3,
-  TrendingUp, TrendingDown, Minus, AlertCircle, Shield,
+  RefreshCw, ChevronRight, ChevronDown, Wifi, WifiOff, BarChart3,
+  TrendingUp, TrendingDown, Minus, AlertCircle, Shield, Globe, X,
 } from "lucide-react";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -32,6 +35,8 @@ interface EntityData {
   acdSecs:       number;
   weeklyAsr:     number;
   clients?:      string[];
+  destCountry?:  string;
+  destBreakout?: string;
   stats: { total: EntityStats; connected: EntityStats };
   lastUpdatedAt:   string;
   lastUpdatedDate: string;
@@ -255,7 +260,16 @@ function EntityCard({ entity, cardRef }: { entity: EntityData; cardRef?: (el: HT
             : <WifiOff className="w-3.5 h-3.5 text-muted-foreground/20" />
           }
         </div>
-        <h3 className="text-sm font-semibold flex-1 truncate" title={entity.name}>{entity.name}</h3>
+        <div className="flex-1 min-w-0">
+          {entity.destCountry && entity.destBreakout ? (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[9px] font-semibold uppercase tracking-wider text-cyan-400/70">{entity.destCountry}</span>
+              <span className="text-sm font-semibold truncate leading-tight" title={entity.destBreakout}>{entity.destBreakout}</span>
+            </div>
+          ) : (
+            <h3 className="text-sm font-semibold truncate" title={entity.name}>{entity.name}</h3>
+          )}
+        </div>
         {hasData && (
           <span className={cn("flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border flex-shrink-0", trendBg(entity.trendPct))}>
             <TrendIcon pct={entity.trendPct} />
@@ -325,9 +339,13 @@ export default function BitsEyePage() {
   const search   = useSearch();
   const [, setLocation] = useLocation();
   const params   = new URLSearchParams(search);
-  const view     = (params.get('view') || 'clients') as 'clients' | 'vendors' | 'kam';
+  const view     = (params.get('view') || 'clients') as 'clients' | 'vendors' | 'kam' | 'destinations';
   const kamIdStr = params.get('kamId');
   const kamId    = kamIdStr ? Number(kamIdStr) : undefined;
+
+  // Destination drill-down filters
+  const [destCountryFilter,  setDestCountryFilter]  = useState<string>('');
+  const [destBreakoutFilter, setDestBreakoutFilter] = useState<string>('');
 
   // Map view → API category
   const category = view === 'kam' ? 'kam' : view;
@@ -369,9 +387,33 @@ export default function BitsEyePage() {
   const allEntities = data?.entities ?? [];
   // Additional client-side filter: if viewer has assigned client names, restrict to those
   const viewerClientNames = new Set((viewerAccounts?.clientNames ?? []).map(n => n.toLowerCase()));
-  const entities = isViewer && viewerClientNames.size > 0 && (view === 'clients' || view === 'kam')
+  const baseEntities = isViewer && viewerClientNames.size > 0 && (view === 'clients' || view === 'kam')
     ? allEntities.filter(e => viewerClientNames.has(e.name.toLowerCase()))
     : allEntities;
+
+  // ── Destination drill-down: available countries & breakouts ───────────────
+  const availableDestCountries = useMemo(() => {
+    if (view !== 'destinations') return [];
+    const seen = new Set<string>();
+    baseEntities.forEach(e => { if (e.destCountry) seen.add(e.destCountry); });
+    return Array.from(seen).sort();
+  }, [baseEntities, view]);
+
+  const availableDestBreakouts = useMemo(() => {
+    if (view !== 'destinations') return [];
+    const seen = new Set<string>();
+    baseEntities
+      .filter(e => !destCountryFilter || e.destCountry === destCountryFilter)
+      .forEach(e => { if (e.destBreakout) seen.add(e.destBreakout); });
+    return Array.from(seen).sort();
+  }, [baseEntities, view, destCountryFilter]);
+
+  // Apply destination filters
+  const entities = view === 'destinations'
+    ? baseEntities.filter(e =>
+        (!destCountryFilter  || e.destCountry  === destCountryFilter) &&
+        (!destBreakoutFilter || e.destBreakout === destBreakoutFilter))
+    : baseEntities;
 
   const summary  = data?.summary ?? { totalConcurrent: 0, totalToday: 0, overallAsr: 0, overallAcdSecs: 0 };
 
@@ -383,6 +425,7 @@ export default function BitsEyePage() {
   // Page title based on view
   const pageTitle = view === 'clients' ? 'Clients'
     : view === 'vendors' ? 'Vendors'
+    : view === 'destinations' ? 'Destinations'
     : kamId ? 'KAM — Filtered' : 'KAM Overview';
 
   return (
@@ -400,6 +443,65 @@ export default function BitsEyePage() {
               <span className="ml-2 text-xs text-muted-foreground/50 font-medium">{pageTitle}</span>
             </div>
           </div>
+          {/* ── Destinations cascade filter ─────────────────────── */}
+          {view === 'destinations' && (
+            <div className="flex items-center gap-2 ml-2">
+              <Globe className="w-3.5 h-3.5 text-muted-foreground/40 flex-shrink-0" />
+              <Select
+                value={destCountryFilter || '__all__'}
+                onValueChange={v => {
+                  setDestCountryFilter(v === '__all__' ? '' : v);
+                  setDestBreakoutFilter('');
+                }}
+              >
+                <SelectTrigger
+                  className="h-7 text-xs bg-muted/30 border-border/40 min-w-[130px] max-w-[170px]"
+                  data-testid="select-dest-country"
+                >
+                  <SelectValue placeholder="All Countries" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All Countries</SelectItem>
+                  {availableDestCountries.map(c => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <ChevronDown className="w-3 h-3 text-muted-foreground/30 flex-shrink-0" />
+
+              <Select
+                value={destBreakoutFilter || '__all__'}
+                onValueChange={v => setDestBreakoutFilter(v === '__all__' ? '' : v)}
+                disabled={!destCountryFilter}
+              >
+                <SelectTrigger
+                  className="h-7 text-xs bg-muted/30 border-border/40 min-w-[150px] max-w-[210px] disabled:opacity-40"
+                  data-testid="select-dest-breakout"
+                >
+                  <SelectValue placeholder={destCountryFilter ? 'All Breakouts' : 'Select Country first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All Breakouts</SelectItem>
+                  {availableDestBreakouts.map(b => (
+                    <SelectItem key={b} value={b}>{b}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {(destCountryFilter || destBreakoutFilter) && (
+                <button
+                  data-testid="btn-clear-dest-filter"
+                  onClick={() => { setDestCountryFilter(''); setDestBreakoutFilter(''); }}
+                  className="p-1 rounded hover:bg-muted/50 text-muted-foreground/50 hover:text-foreground transition-colors"
+                  title="Clear filters"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex-1" />
           {isViewer && viewerAccounts?.kamName && (
             <span className="hidden md:flex items-center gap-1 text-[10px] text-blue-400/70 bg-blue-500/10 border border-blue-500/20 px-2 py-1 rounded-lg">
