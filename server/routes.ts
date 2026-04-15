@@ -9061,15 +9061,17 @@ export async function registerRoutes(
       const entries: Array<{ rateCardId: number; prefix: string; country: string | null; breakout: string | null; ratePerMin: number }> = [];
       for (let i = 1; i < rows.length; i++) {
         const cols = rows[i];
-        const prefix = (cols[prefixIdx] ?? '').replace(/\D/g, '');
+        const prefix = (cols[prefixIdx] ?? '').replace(/\D/g, '').slice(0, 20);
         const rateStr = (cols[rateIdx] ?? '').replace(/[^0-9.]/g, '');
         const ratePerMin = parseFloat(rateStr);
         if (!prefix || isNaN(ratePerMin)) continue;
+        const rawCountry  = countryIdx  >= 0 ? (cols[countryIdx]  || null) : null;
+        const rawBreakout = breakoutIdx >= 0 ? (cols[breakoutIdx] || null) : null;
         entries.push({
           rateCardId,
           prefix,
-          country: countryIdx >= 0 ? (cols[countryIdx] || null) : null,
-          breakout: breakoutIdx >= 0 ? (cols[breakoutIdx] || null) : null,
+          country:  rawCountry  ? rawCountry.slice(0, 255)  : null,
+          breakout: rawBreakout ? rawBreakout.slice(0, 255) : null,
           ratePerMin,
         });
       }

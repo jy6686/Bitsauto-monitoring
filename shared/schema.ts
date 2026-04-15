@@ -449,8 +449,8 @@ export const rateCardEntries = pgTable("rate_card_entries", {
   id:          serial("id").primaryKey(),
   rateCardId:  integer("rate_card_id").notNull(),
   prefix:      varchar("prefix",   { length: 20  }).notNull(),
-  country:     varchar("country",  { length: 64  }),
-  breakout:    varchar("breakout", { length: 64  }),
+  country:     varchar("country",  { length: 255 }),
+  breakout:    varchar("breakout", { length: 255 }),
   ratePerMin:  real("rate_per_min").notNull(),
 });
 export type RateCardEntry = typeof rateCardEntries.$inferSelect;
