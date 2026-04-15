@@ -18,3 +18,9 @@ id = "sUlqpJExleydmqnUIkQIi"
 uri = "file://attached_assets/VoIP_Watcher_Feature_Roadmap.docx"
 type = "word_document"
 title = "VoIP Watcher — Feature Roadmap & Proposals (.docx)"
+
+[[outputs]]
+id = "GIRU7GY-AyLY4yNYQi78y"
+uri = "file://VoIP_Platform_Volume1_Status.docx"
+type = "word_document"
+title = "VoIP Platform — Volume 1 Status Report"
