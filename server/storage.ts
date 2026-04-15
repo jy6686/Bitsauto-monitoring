@@ -4,6 +4,7 @@ import {
   switches, fasEvents, callSnapshots, monitoringAssignments, outageLog, alertRules,
   monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts, sippySnapshots,
   watcherRecipients, irsfEvents, blacklistRules, rateCards, rateCardEntries, mosHourly,
+  apiKeys, dashboardWidgetPrefs,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -26,6 +27,8 @@ import {
   type RateCard, type InsertRateCard,
   type RateCardEntry, type InsertRateCardEntry,
   type MosHourly,
+  type ApiKey,
+  type DashboardWidgetPrefs,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -156,6 +159,17 @@ export interface IStorage {
   // MOS Hourly Snapshots
   getMosHourly(hoursBack?: number, vendor?: string): Promise<MosHourly[]>;
   upsertMosHourly(hour: Date, vendor: string | null, avgMos: number, minMos: number, maxMos: number, callCount: number): Promise<void>;
+
+  // API Keys (Tier 5 — #24)
+  getApiKeys(userId: string): Promise<ApiKey[]>;
+  createApiKey(data: { userId: string; name: string; keyHash: string; keyPrefix: string; permissions: string[] }): Promise<ApiKey>;
+  revokeApiKey(id: number, userId: string): Promise<void>;
+  validateApiKey(keyHash: string): Promise<ApiKey | null>;
+  touchApiKey(id: number): Promise<void>;
+
+  // Dashboard Widget Prefs (Tier 5 — #20)
+  getDashboardWidgetPrefs(userId: string): Promise<DashboardWidgetPrefs | null>;
+  setDashboardWidgetPrefs(userId: string, hiddenWidgets: string[]): Promise<DashboardWidgetPrefs>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -874,6 +888,48 @@ export class DatabaseStorage implements IStorage {
     await db.insert(mosHourly)
       .values({ hour, vendor, avgMos, minMos, maxMos, callCount })
       .onConflictDoNothing();
+  }
+
+  // ── API Keys ───────────────────────────────────────────────────────────────
+  async getApiKeys(userId: string): Promise<ApiKey[]> {
+    return db.select().from(apiKeys)
+      .where(eq(apiKeys.userId, userId))
+      .orderBy(desc(apiKeys.createdAt));
+  }
+
+  async createApiKey(data: { userId: string; name: string; keyHash: string; keyPrefix: string; permissions: string[] }): Promise<ApiKey> {
+    const [row] = await db.insert(apiKeys).values(data).returning();
+    return row;
+  }
+
+  async revokeApiKey(id: number, userId: string): Promise<void> {
+    await db.update(apiKeys)
+      .set({ active: false })
+      .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)));
+  }
+
+  async validateApiKey(keyHash: string): Promise<ApiKey | null> {
+    const [row] = await db.select().from(apiKeys)
+      .where(and(eq(apiKeys.keyHash, keyHash), eq(apiKeys.active, true)));
+    return row ?? null;
+  }
+
+  async touchApiKey(id: number): Promise<void> {
+    await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, id));
+  }
+
+  // ── Dashboard Widget Prefs ────────────────────────────────────────────────
+  async getDashboardWidgetPrefs(userId: string): Promise<DashboardWidgetPrefs | null> {
+    const [row] = await db.select().from(dashboardWidgetPrefs).where(eq(dashboardWidgetPrefs.userId, userId));
+    return row ?? null;
+  }
+
+  async setDashboardWidgetPrefs(userId: string, hiddenWidgets: string[]): Promise<DashboardWidgetPrefs> {
+    const [row] = await db.insert(dashboardWidgetPrefs)
+      .values({ userId, hiddenWidgets })
+      .onConflictDoUpdate({ target: dashboardWidgetPrefs.userId, set: { hiddenWidgets, updatedAt: new Date() } })
+      .returning();
+    return row;
   }
 }
 

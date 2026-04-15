@@ -1,7 +1,7 @@
 # VoIP Monitoring Platform
 
 ## Overview
-Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting, team management, and live softswitch integration.
+Full-stack VoIP monitoring dashboard with real-time metrics, alerting, team management, and live softswitch integration. Supports light/dark theme, command palette, API key management, customizable dashboard widgets, and mobile-responsive NOC view.
 
 ## Architecture
 - **Backend**: Express + TypeScript (`server/`)
@@ -25,6 +25,12 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 - **Sippy Change Watcher** (`server/sippy-watcher.ts`): polls every 5 minutes, detects IP auth rule add/remove/change, new/removed client accounts, new/removed vendor connections, new client starts traffic — emails admin on each change. State persisted in `sippy_snapshots` DB table (no false-positives on restart). `notifyNewClientTraffic(name)` hook called from `pushConcurrentPoint` in routes.ts.
 - **Security Hardening** (`server/index.ts`): `helmet` HTTP security headers (CSP, XSS protection, clickjacking), `express-rate-limit` (300 req/15min general, 20 req/15min auth), 1MB body limit, `trust proxy` for Replit reverse-proxy, suspicious activity tracker (logs IPs with 15+ 401/403s in 5 min).
 - **Traffic Map** (`/traffic-map`): Interactive Leaflet world choropleth map showing destination traffic % by country. Uses CDR `country` field, TopoJSON (world-atlas via `/api/geo/world`), topojson-client, and `/api/traffic-map` endpoint. Dark CartoDB tiles, violet colour scale, hover tooltips, top-destinations sidebar, time range selector (3/6/12/24/48/72h).
+- **Tier 5 UX & Workflow Improvements** (Volume 1):
+  - **#21 Dark/Light Mode Toggle**: `use-theme.tsx` ThemeProvider, CSS vars in `:root`/`.dark`, sun/moon toggle in sidebar footer, persists in localStorage.
+  - **#23 Command Bar**: `command-bar.tsx` with Ctrl+K/Cmd+K shortcut, CommandDialog with all nav items, mounted in `layout-shell.tsx`.
+  - **#24 API Key Management**: `api_keys` table, CRUD at `GET/POST/DELETE /api/keys`, external endpoints `GET /ext/api/live-calls|asr-acd|balance/:vendor` (Bearer token auth via SHA-256 hash), `/api-keys` page.
+  - **#20 Dashboard Widget Customization**: `dashboard_widget_prefs` table, `GET/PUT /api/user/dashboard-prefs`, "Customize" button in NOC header, Sheet drawer with 5 widget toggles (live_metrics, revenue_analytics, live_calls_table, asr_trend, fas_events), prefs persist per user.
+  - **#22 Mobile-Responsive NOC View**: hamburger menu with Sheet slide-out sidebar on mobile, mobile header with theme toggle, push notification opt-in panel in Settings page.
 
 ## Sippy Integration (`server/sippy.ts`)
 - XML-RPC POST to `/xmlapi/xmlapi`, HTTP **Digest** Auth (RFC-2617, NOT Basic) — `sippyPost()` handles 2-step probe-then-digest

@@ -483,6 +483,32 @@ export const insertWatcherRecipientSchema = createInsertSchema(watcherRecipients
 export type InsertWatcherRecipient = z.infer<typeof insertWatcherRecipientSchema>;
 export type WatcherRecipient = typeof watcherRecipients.$inferSelect;
 
+// ── API Keys (Tier 5 — #24) ──────────────────────────────────────────────────
+export const apiKeys = pgTable("api_keys", {
+  id:          serial("id").primaryKey(),
+  userId:      varchar("user_id").notNull(),
+  name:        varchar("name", { length: 128 }).notNull(),
+  keyHash:     varchar("key_hash", { length: 64 }).notNull(),   // SHA-256 hex of the raw key
+  keyPrefix:   varchar("key_prefix", { length: 12 }).notNull(), // first 12 chars shown in UI
+  permissions: text("permissions").array().notNull().default([]),
+  active:      boolean("active").notNull().default(true),
+  lastUsedAt:  timestamp("last_used_at"),
+  createdAt:   timestamp("created_at").defaultNow(),
+});
+
+export const insertApiKeySchema = createInsertSchema(apiKeys).omit({ id: true, createdAt: true, lastUsedAt: true });
+export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
+export type ApiKey = typeof apiKeys.$inferSelect;
+
+// ── Dashboard Widget Prefs (Tier 5 — #20) ────────────────────────────────────
+export const dashboardWidgetPrefs = pgTable("dashboard_widget_prefs", {
+  userId:        varchar("user_id").primaryKey(),
+  hiddenWidgets: text("hidden_widgets").array().notNull().default([]),
+  updatedAt:     timestamp("updated_at").defaultNow(),
+});
+
+export type DashboardWidgetPrefs = typeof dashboardWidgetPrefs.$inferSelect;
+
 // API Request Types
 export type UpdateSettingsRequest = Partial<InsertSettings>;
 

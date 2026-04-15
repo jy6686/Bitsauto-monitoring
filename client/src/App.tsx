@@ -37,6 +37,8 @@ class GlobalErrorBoundary extends Component<{ children: ReactNode }, { error: Er
   }
 }
 
+import { ThemeProvider } from "@/hooks/use-theme";
+import ApiKeysPage from "@/pages/api-keys";
 import DashboardPage from "@/pages/dashboard";
 import CallsListPage from "@/pages/calls-list";
 import CallDetailPage from "@/pages/call-detail";
@@ -201,6 +203,9 @@ function Router() {
       <Route path="/analytics">
         {() => <ProtectedRoute component={AnalyticsPage} requiredRoles={['admin','management']} />}
       </Route>
+      <Route path="/api-keys">
+        {() => <ProtectedRoute component={ApiKeysPage} requiredRoles={['admin']} />}
+      </Route>
 
       <Route component={NotFound} />
     </Switch>
@@ -210,12 +215,14 @@ function Router() {
 function App() {
   return (
     <GlobalErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
-      </QueryClientProvider>
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
     </GlobalErrorBoundary>
   );
 }

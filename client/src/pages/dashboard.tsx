@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { StatCard } from "@/components/stat-card";
 import { MosBadge } from "@/components/mos-badge";
 import { Link } from "wouter";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { MONITORING_ITEMS } from "@shared/schema";
 import { 
   Activity, 
@@ -37,8 +37,12 @@ import {
   ArrowUpRight,
   Minus,
   Target,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
+import { apiRequest, queryClient as qc } from "@/lib/queryClient";
 import { 
   ComposedChart,
   Area, 
@@ -132,7 +136,7 @@ function LiveCallRow({ call, index }: { call: any; index: number }) {
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { user, role } = useAuth();
+  const { user, role, isAdmin } = useAuth();
   const { data: stats } = useDashboardStats();
   const { data: recentCalls } = useCalls(5);
   const { data: settings } = useSettings();
@@ -163,6 +167,33 @@ export default function DashboardPage() {
   });
 
 
+
+  // Dashboard widget preferences
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const { data: widgetPrefs } = useQuery<{ hiddenWidgets: string[] }>({
+    queryKey: ['/api/user/dashboard-prefs'],
+  });
+  const hiddenWidgets = new Set(widgetPrefs?.hiddenWidgets ?? []);
+  const showWidget = (id: string) => !hiddenWidgets.has(id);
+
+  const savePrefsMutation = useMutation({
+    mutationFn: (hidden: string[]) => apiRequest('PUT', '/api/user/dashboard-prefs', { hiddenWidgets: hidden }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/user/dashboard-prefs'] }),
+  });
+
+  const toggleWidget = (id: string) => {
+    const current = widgetPrefs?.hiddenWidgets ?? [];
+    const updated = current.includes(id) ? current.filter(w => w !== id) : [...current, id];
+    savePrefsMutation.mutate(updated);
+  };
+
+  const DASHBOARD_WIDGETS = [
+    { id: 'live_metrics',       label: 'Live Metrics Cards',      description: 'Active Calls, MOS, ASR, ACD, Traffic Score, CPS' },
+    { id: 'revenue_analytics',  label: 'Revenue & Margin Analytics', description: '30-day P&L summary, per-client and per-vendor breakdown' },
+    { id: 'live_calls_table',   label: 'Live Calls Table',         description: 'Real-time active call list with quality metrics' },
+    { id: 'asr_trend',          label: 'ASR/ACD Trend & Call Back Ratio', description: 'Historical ASR/ACD charts and FAS deduction graph' },
+    { id: 'fas_events',         label: 'FAS Events & Stats',       description: 'False Answer Supervision detection log and summary' },
+  ] as const;
 
   // Sippy session
   const { data: sippySession } = useQuery<{ active: boolean; username?: string; connectedAt?: string; portalUrl?: string }>({
@@ -705,6 +736,47 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* ── Widget Customize Sheet ──────────────────────────────────────────── */}
+      <Sheet open={customizeOpen} onOpenChange={setCustomizeOpen}>
+        <SheetContent side="right" className="w-80 sm:w-96">
+          <SheetHeader className="mb-6">
+            <SheetTitle className="flex items-center gap-2">
+              <SlidersHorizontal className="h-4 w-4 text-primary" />
+              Customize Dashboard
+            </SheetTitle>
+            <SheetDescription>
+              Toggle sections on or off. Your layout is saved automatically.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-3">
+            {DASHBOARD_WIDGETS.map(widget => (
+              <div key={widget.id} className="flex items-start justify-between gap-4 p-3 rounded-lg bg-muted/30 border border-border/50">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium leading-tight">{widget.label}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{widget.description}</p>
+                </div>
+                <Switch
+                  checked={showWidget(widget.id)}
+                  onCheckedChange={() => toggleWidget(widget.id)}
+                  disabled={savePrefsMutation.isPending}
+                  data-testid={`switch-widget-${widget.id}`}
+                />
+              </div>
+            ))}
+          </div>
+          {hiddenWidgets.size > 0 && (
+            <button
+              onClick={() => savePrefsMutation.mutate([])}
+              disabled={savePrefsMutation.isPending}
+              className="mt-6 w-full text-xs text-muted-foreground hover:text-foreground py-2 rounded-lg border border-border/50 hover:bg-muted/30 transition-colors"
+              data-testid="button-reset-widgets"
+            >
+              Reset to defaults (show all)
+            </button>
+          )}
+        </SheetContent>
+      </Sheet>
+
       {/* ── Page Header ───────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -723,6 +795,23 @@ export default function DashboardPage() {
               <span className="ml-2 text-muted-foreground/60">· refreshed {secsAgo}s ago</span>
             )}
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button
+              onClick={() => setCustomizeOpen(true)}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              data-testid="button-customize-dashboard"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Customize
+              {hiddenWidgets.size > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-bold leading-none">
+                  {hiddenWidgets.size}
+                </span>
+              )}
+            </button>
+          )}
         </div>
         {/* Inline key metrics strip */}
         {anyPortalActive && (
@@ -773,6 +862,7 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {showWidget('live_metrics') && (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Active Calls + call rate badge */}
         <div className={cn(
@@ -910,10 +1000,11 @@ export default function DashboardPage() {
         })()}
 
       </div>
+      )}
 
 
       {/* ── Revenue & Margin Analytics ───────────────────────────────────────── */}
-      {anyPortalActive && (
+      {showWidget('revenue_analytics') && anyPortalActive && (
         <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-2.5 border-b border-border/40 bg-muted/10">
             <div className="flex items-center gap-2">
@@ -1025,7 +1116,7 @@ export default function DashboardPage() {
 
 
       {/* Active Calls Table — Sippy live when connected, local DB otherwise */}
-      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+      {showWidget('live_calls_table') && <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         <div className="p-6 border-b border-border/50 flex items-center justify-between">
           <h3 className="font-semibold flex items-center gap-2">
             <PhoneCall className="w-4 h-4 text-blue-500" />
@@ -1102,10 +1193,10 @@ export default function DashboardPage() {
             </table>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* ── Graphs Row: ASR/ACD Trend + Call Back Ratio ─────────────────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      {showWidget('asr_trend') && <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
         {/* ASR & ACD Trend */}
         <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
@@ -1280,10 +1371,10 @@ export default function DashboardPage() {
         )}
       </div>
 
-      </div>{/* ── end Graphs Row grid ─── */}
+      </div>}{/* ── end Graphs Row grid ─── */}
 
       {/* ── FAS Events + Stats ───────────────────────────────────────────────── */}
-      {(fasEventsData?.events ?? []).length > 0 && (() => {
+      {showWidget('fas_events') && (fasEventsData?.events ?? []).length > 0 && (() => {
         const fasAll = fasEventsData!.events;
         const zeroBilled  = fasAll.filter((e: any) => (e.reason ?? '').includes('zero_billed')).length;
         const highPdd     = fasAll.filter((e: any) => (e.reason ?? '').includes('high_pdd')).length;

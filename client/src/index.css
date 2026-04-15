@@ -4,7 +4,43 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Light mode (default) ─────────────────────────────────────────────────── */
 :root {
+  --background: 210 40% 98%;
+  --foreground: 222.2 84% 4.9%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+
+  --primary: 222.2 47.4% 20%;
+  --primary-foreground: 210 40% 98%;
+
+  --secondary: 210 40% 92%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+
+  --muted: 210 40% 93%;
+  --muted-foreground: 215.4 16.3% 40%;
+
+  --accent: 210 40% 92%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 214.3 31.8% 82%;
+  --input: 214.3 31.8% 82%;
+  --ring: 222.2 84% 4.9%;
+
+  --success: 142 71% 38%;
+  --warning: 45 93% 40%;
+  --danger: 0 84% 55%;
+}
+
+/* ── Dark mode ─────────────────────────────────────────────────────────────── */
+.dark {
   --background: 224 71% 4%;
   --foreground: 213 31% 91%;
 
@@ -32,8 +68,7 @@
   --border: 217.2 32.6% 17.5%;
   --input: 217.2 32.6% 17.5%;
   --ring: 212.7 26.8% 83.9%;
-  
-  /* Custom Status Colors */
+
   --success: 142 71% 45%;
   --warning: 45 93% 47%;
   --danger: 0 84% 60%;

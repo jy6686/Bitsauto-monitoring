@@ -10,6 +10,7 @@ import {
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
   Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp, Users, UserPlus, X, AlertCircle,
   Radio, Activity, Mail, Bell, Send, MailCheck, MailX, UserCheck, Download, FileText,
+  BellRing, BellOff, Smartphone,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -1181,6 +1182,106 @@ const EMPTY_SWITCH: Omit<SwitchRow, 'id' | 'lastSyncAt' | 'lastSyncStatus'> = {
   enabled: true, notes: '',
 };
 
+function PushNotificationPanel() {
+  const [permission, setPermission] = useState<NotificationPermission>('default');
+  const [requesting, setRequesting] = useState(false);
+
+  useEffect(() => {
+    if ('Notification' in window) {
+      setPermission(Notification.permission);
+    }
+  }, []);
+
+  const supported = typeof window !== 'undefined' && 'Notification' in window;
+
+  const requestPermission = async () => {
+    if (!supported) return;
+    setRequesting(true);
+    try {
+      const result = await Notification.requestPermission();
+      setPermission(result);
+      if (result === 'granted') {
+        new Notification('VoIP Monitor', {
+          body: 'Push notifications enabled! You\'ll now receive alerts.',
+          icon: '/favicon.ico',
+        });
+      }
+    } finally {
+      setRequesting(false);
+    }
+  };
+
+  const statusConfig = {
+    granted:  { icon: BellRing,  color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', label: 'Notifications enabled', desc: 'You\'ll receive browser alerts for critical events and threshold breaches.' },
+    denied:   { icon: BellOff,   color: 'text-rose-400',    bg: 'bg-rose-500/10 border-rose-500/20',       label: 'Notifications blocked', desc: 'You\'ve blocked notifications. Reset this in your browser\'s site settings.' },
+    default:  { icon: Bell,      color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/20',    label: 'Notifications not enabled', desc: 'Enable browser push notifications to get alerts for critical VoIP events.' },
+  };
+
+  const cfg = statusConfig[permission] || statusConfig.default;
+  const StatusIcon = cfg.icon;
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-border/50 bg-muted/20">
+        <Smartphone className="h-4 w-4 text-blue-400" />
+        <h3 className="font-semibold text-sm">Browser Push Notifications</h3>
+        <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 uppercase tracking-wider">T005</span>
+      </div>
+      <div className="p-5">
+        {!supported ? (
+          <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/30 border border-border/50">
+            <BellOff className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium">Not supported</p>
+              <p className="text-xs text-muted-foreground mt-1">Your browser does not support push notifications.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className={`flex items-start gap-3 p-4 rounded-lg border ${cfg.bg}`}>
+              <StatusIcon className={`h-5 w-5 flex-shrink-0 mt-0.5 ${cfg.color}`} />
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-semibold ${cfg.color}`}>{cfg.label}</p>
+                <p className="text-xs text-muted-foreground mt-1">{cfg.desc}</p>
+              </div>
+            </div>
+
+            {permission === 'default' && (
+              <button
+                onClick={requestPermission}
+                disabled={requesting}
+                data-testid="button-enable-push-notifications"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 transition-colors disabled:opacity-50"
+              >
+                {requesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
+                Enable Push Notifications
+              </button>
+            )}
+
+            {permission === 'granted' && (
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground">Notifications will fire for:</p>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  <li>Alert threshold breaches (ASR, MOS, Jitter, Latency)</li>
+                  <li>Active calls anomalies</li>
+                  <li>Sippy connection changes</li>
+                </ul>
+                <p className="pt-2 text-muted-foreground/60">To disable, click the lock icon in your browser address bar → Notifications → Block.</p>
+              </div>
+            )}
+
+            {permission === 'denied' && (
+              <p className="text-xs text-muted-foreground">
+                To re-enable: click the <strong>lock icon</strong> in your browser&apos;s address bar → Notifications → Allow → Reload this page.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SwitchesPanel() {
   const qc = useQueryClient();
   const { data: switches = [], isLoading } = useQuery<SwitchRow[]>({ queryKey: ['/api/switches'] });
@@ -1990,6 +2091,9 @@ export default function SettingsPage() {
 
       {/* Additional Switches */}
       <SwitchesPanel />
+
+      {/* Push Notifications */}
+      <PushNotificationPanel />
 
       {/* Downloads */}
       <div className="bg-card border border-border rounded-xl p-6">

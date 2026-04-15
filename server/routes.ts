@@ -3,6 +3,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import * as net from "net";
 import * as https from "https";
+import { createHash, randomBytes } from "crypto";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
@@ -9156,6 +9157,106 @@ export async function registerRoutes(
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
+  });
+
+  // ── API Keys (Tier 5 — #24) ───────────────────────────────────────────────
+  // GET  /api/keys           — list keys for authenticated user (admin only)
+  // POST /api/keys           — create a new key
+  // DELETE /api/keys/:id     — revoke a key
+
+  app.get('/api/keys', (req: any, res: any) => {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+    storage.getApiKeys(req.user.id).then(keys => res.json(keys)).catch((e: any) => res.status(500).json({ message: e.message }));
+  });
+
+  app.post('/api/keys', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+
+      const { name, permissions = [] } = req.body;
+      if (!name || typeof name !== 'string') return res.status(400).json({ message: 'name is required' });
+
+      const rawKey   = `vw_${randomBytes(24).toString('hex')}`;  // 52-char key
+      const keyHash  = createHash('sha256').update(rawKey).digest('hex');
+      const keyPrefix = rawKey.slice(0, 12);
+
+      const row = await storage.createApiKey({ userId: req.user.id, name, keyHash, keyPrefix, permissions });
+      res.json({ ...row, rawKey });   // rawKey shown ONCE then discarded
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete('/api/keys/:id', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+      await storage.revokeApiKey(Number(req.params.id), req.user.id);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── Dashboard Widget Prefs (Tier 5 — #20) ────────────────────────────────
+  app.get('/api/user/dashboard-prefs', async (req: any, res: any) => {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    const prefs = await storage.getDashboardWidgetPrefs(req.user.id);
+    res.json({ hiddenWidgets: prefs?.hiddenWidgets ?? [] });
+  });
+
+  app.put('/api/user/dashboard-prefs', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const { hiddenWidgets } = req.body;
+      if (!Array.isArray(hiddenWidgets)) return res.status(400).json({ message: 'hiddenWidgets must be an array' });
+      const prefs = await storage.setDashboardWidgetPrefs(req.user.id, hiddenWidgets);
+      res.json({ hiddenWidgets: prefs.hiddenWidgets });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── External API (Tier 5 — #24) — authenticated via Bearer token ──────────
+  async function validateBearerKey(req: any, res: any): Promise<boolean> {
+    const authHeader = req.headers['authorization'] ?? '';
+    const rawKey = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (!rawKey) { res.status(401).json({ message: 'Missing Bearer token' }); return false; }
+    const keyHash = createHash('sha256').update(rawKey).digest('hex');
+    const record  = await storage.validateApiKey(keyHash);
+    if (!record)  { res.status(401).json({ message: 'Invalid or revoked API key' }); return false; }
+    await storage.touchApiKey(record.id);
+    return true;
+  }
+
+  app.get('/ext/api/live-calls', async (req: any, res: any) => {
+    if (!(await validateBearerKey(req, res))) return;
+    try {
+      const calls = await storage.getCalls(100);
+      res.json({ ok: true, calls, ts: new Date().toISOString() });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get('/ext/api/asr-acd', async (req: any, res: any) => {
+    if (!(await validateBearerKey(req, res))) return;
+    try {
+      const stats = await storage.getDashboardStats();
+      res.json({ ok: true, asr: stats.asr, acd: stats.acd, activeCalls: stats.activeCalls, ts: new Date().toISOString() });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get('/ext/api/balance/:vendor', async (req: any, res: any) => {
+    if (!(await validateBearerKey(req, res))) return;
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings.sippyHost) return res.status(503).json({ message: 'Sippy not configured' });
+      const vendors = await sippy.listSippyVendors(settings);
+      const target  = vendors.find((v: any) => v.name?.toLowerCase() === req.params.vendor.toLowerCase());
+      if (!target)  return res.status(404).json({ message: 'Vendor not found' });
+      res.json({ ok: true, vendor: target.name, balance: target.balance, ts: new Date().toISOString() });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
