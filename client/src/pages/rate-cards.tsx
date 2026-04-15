@@ -88,6 +88,7 @@ export default function RateCardsPage() {
     typeParam === 'client' ? 'client' : typeParam === 'vendor' ? 'vendor' : null;
 
   const [expandedCardId, setExpandedCardId] = useState<number | null>(null);
+  const [entrySearch, setEntrySearch]       = useState('');
   const [createOpen, setCreateOpen] = useState(false);
 
   // Create form
@@ -193,6 +194,15 @@ export default function RateCardsPage() {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const vendorOptions = clients.map(c => c.name);
+  const entryQ = entrySearch.trim().toLowerCase();
+  const filteredEntries = entryQ
+    ? entries.filter(e =>
+        e.prefix.startsWith(entryQ) ||
+        (e.country ?? '').toLowerCase().includes(entryQ) ||
+        (e.breakout ?? '').toLowerCase().includes(entryQ)
+      )
+    : entries;
+  const shownEntries = filteredEntries.slice(0, 500);
   const resolvedVendorName = vendorOptions.length === 0
     ? customVendor
     : selectedVendor === CUSTOM_VENDOR ? customVendor : selectedVendor;
@@ -521,7 +531,7 @@ export default function RateCardsPage() {
               <div key={card.id} className="bg-card border border-border rounded-xl overflow-hidden">
                 {/* Card header row */}
                 <div className="flex items-center gap-4 p-4">
-                  <button onClick={() => setExpandedCardId(isExpanded ? null : card.id)} className="text-muted-foreground hover:text-foreground transition-colors" data-testid={`toggle-card-${card.id}`}>
+                  <button onClick={() => { setExpandedCardId(isExpanded ? null : card.id); setEntrySearch(''); }} className="text-muted-foreground hover:text-foreground transition-colors" data-testid={`toggle-card-${card.id}`}>
                     {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </button>
                   <div className="flex-1 min-w-0">
@@ -589,8 +599,27 @@ export default function RateCardsPage() {
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
-                        <div className="px-4 py-2 text-xs text-muted-foreground border-b border-border/50">
-                          Showing first 200 of {entries.length} entries
+                        {/* Search bar */}
+                        <div className="px-4 py-2 border-b border-border/50 flex items-center gap-2">
+                          <ScanSearch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <Input
+                            className="h-7 text-xs bg-transparent border-0 focus-visible:ring-0 px-0 placeholder:text-muted-foreground/50"
+                            placeholder="Search prefix, country, or breakout…"
+                            value={entrySearch}
+                            onChange={e => setEntrySearch(e.target.value)}
+                            data-testid="input-entry-search"
+                          />
+                          {entryQ && (
+                            <button onClick={() => setEntrySearch('')} className="text-muted-foreground hover:text-foreground text-xs shrink-0">
+                              ✕ clear
+                            </button>
+                          )}
+                        </div>
+                        <div className="px-4 py-1.5 text-xs text-muted-foreground border-b border-border/50">
+                          {entryQ
+                            ? `${filteredEntries.length} match${filteredEntries.length !== 1 ? 'es' : ''} (showing ${shownEntries.length})`
+                            : `Showing ${shownEntries.length} of ${entries.length} entries`
+                          }
                         </div>
                         <table className="w-full text-sm">
                           <thead>
@@ -602,7 +631,9 @@ export default function RateCardsPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {entries.slice(0, 200).map(e => (
+                            {shownEntries.length === 0 ? (
+                              <tr><td colSpan={4} className="px-4 py-6 text-center text-xs text-muted-foreground">No entries match "{entrySearch}"</td></tr>
+                            ) : shownEntries.map(e => (
                               <tr key={e.id} className="border-b border-border/30 hover:bg-muted/20">
                                 <td className="px-4 py-1.5 font-mono text-xs text-emerald-400">{e.prefix}</td>
                                 <td className="px-4 py-1.5 text-xs">{e.country ?? "—"}</td>
