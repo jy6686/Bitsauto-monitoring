@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
@@ -145,7 +145,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/team",              label: "Team & KAM",        icon: Users,           roles: ['admin']                       as Role[] },
     { href: "/api-keys",          label: "API Keys",           icon: Key,             roles: ['admin']                       as Role[] },
     { href: "/test-call",         label: "Test Call",          icon: PhoneCall,       roles: ['admin','management']          as Role[] },
-    { href: "/lcr-analyser",      label: "LCR Analyser",       icon: GitBranch,       roles: ['admin','management']          as Role[] },
+    { href: "/lcr-analyser",         label: "LCR Analyser",        icon: GitBranch,  roles: ['admin','management'] as Role[] },
+    { href: "/call-flow-simulator",  label: "Call Flow Simulator", icon: Workflow,   roles: ['admin','management'] as Role[] },
   ];
 
   const VIEWER_ALWAYS_SHOW = new Set(['/', '/account']);

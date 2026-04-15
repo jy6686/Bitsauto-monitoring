@@ -9143,6 +9143,238 @@ export async function registerRoutes(
     }
   });
 
+  // ── Call Flow Simulator ───────────────────────────────────────────────────────
+  // POST /api/simulator/run — step-by-step trace of how a call would be handled
+  app.post('/api/simulator/run', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { cli, cld, accountId } = req.body;
+      if (!cld) return res.status(400).json({ message: 'cld is required' });
+
+      type StepStatus = 'ok' | 'warn' | 'error' | 'skip' | 'info';
+      interface SimStep {
+        id: string; title: string; status: StepStatus;
+        summary: string; detail: string;
+        data?: Record<string, unknown>;
+      }
+      const steps: SimStep[] = [];
+
+      // ── Step 1: Normalize ──────────────────────────────────────────────────
+      const cliDigits = (cli  || '').replace(/^\+/, '').replace(/\D/g, '');
+      const cldDigits = (cld  || '').replace(/^\+/, '').replace(/\D/g, '');
+      const cldOk = cldDigits.length >= 3;
+      const cliOk = !cliDigits || cliDigits.length >= 3;
+      steps.push({
+        id: 'normalize', title: 'Number Normalization',
+        status: cldOk && cliOk ? 'ok' : 'error',
+        summary: `CLI: +${cliDigits || '(none)'}  →  CLD: +${cldDigits}`,
+        detail: cldOk
+          ? `Numbers normalized to E.164. CLI ${cliDigits.length} digits, CLD ${cldDigits.length} digits.`
+          : `CLD +${cldDigits} is too short — must be at least 3 digits. Call would be rejected at ingress.`,
+        data: { cli: cliDigits, cld: cldDigits },
+      });
+      if (!cldOk) return res.json({ steps, outcome: 'invalid' });
+
+      // ── Step 2: Account resolution ─────────────────────────────────────────
+      let accountInfo: Record<string, unknown> | null = null;
+      if (accountId) {
+        try {
+          const settings = await storage.getSettings();
+          const { username, password } = sippyXmlCreds(settings);
+          const info = await sippy.getAccountInfo(username, password, sippyPortalUrl(settings), parseInt(String(accountId), 10));
+          if (info) {
+            accountInfo = info as unknown as Record<string, unknown>;
+            const blocked  = !!(info as any).blocked;
+            const expired  = !!(info as any).expired;
+            const st: StepStatus = blocked ? 'error' : expired ? 'warn' : 'ok';
+            const uname  = (info as any).username ?? `#${accountId}`;
+            const aname  = (info as any).name     ?? '';
+            steps.push({
+              id: 'account', title: 'Account Resolution', status: st,
+              summary: blocked ? `BLOCKED — ${uname}` : expired ? `EXPIRED — ${uname}` : `${uname}${aname ? ' · ' + aname : ''}`,
+              detail: blocked
+                ? `Account ${uname} is blocked. Sippy rejects calls at ingress with 403 Forbidden.`
+                : expired ? `Account ${uname} has expired. Calls may be rejected.`
+                : `Account resolved. Max sessions: ${(info as any).maxSessions ?? 'unlimited'}. Tariff ID: ${(info as any).iTariff ?? 'none'}. Routing group: ${(info as any).iRoutingGroup ?? 'default'}.`,
+              data: {
+                username: (info as any).username,
+                name: (info as any).name,
+                maxSessions: (info as any).maxSessions,
+                iTariff: (info as any).iTariff,
+                iRoutingGroup: (info as any).iRoutingGroup,
+                blocked, expired,
+              },
+            });
+          } else throw new Error('Account not found');
+        } catch (e: any) {
+          steps.push({ id: 'account', title: 'Account Resolution', status: 'warn',
+            summary: `Could not fetch account #${accountId}`,
+            detail: `Sippy API error: ${e.message}. Continuing simulation without account context.`, data: {} });
+        }
+      } else {
+        steps.push({ id: 'account', title: 'Account Resolution', status: 'skip',
+          summary: 'No account selected',
+          detail: 'Select a billing account to include tariff, balance, and routing group checks.', data: {} });
+      }
+
+      // ── Step 3: Balance & credit check ────────────────────────────────────
+      if (accountInfo) {
+        const balance      = (accountInfo as any).balance      ?? 0;
+        const creditLimit  = (accountInfo as any).creditLimit  ?? 0;
+        const available    = +(balance - creditLimit).toFixed(4);
+        const hasFunds     = balance > creditLimit;
+        steps.push({
+          id: 'balance', title: 'Balance & Credit Check',
+          status: hasFunds ? 'ok' : 'error',
+          summary: hasFunds
+            ? `Balance ${balance.toFixed(4)} · Available ${available} (limit ${creditLimit.toFixed(4)})`
+            : `Insufficient funds — balance ${balance.toFixed(4)} ≤ limit ${creditLimit.toFixed(4)}`,
+          detail: hasFunds
+            ? `Account has sufficient funds. Sippy will allow call setup.`
+            : `Call will be REJECTED. Balance (${balance.toFixed(4)}) does not exceed credit limit (${creditLimit.toFixed(4)}). The account needs to be topped up.`,
+          data: { balance, creditLimit, available },
+        });
+      }
+
+      // ── Step 4: Tariff / sell-rate lookup (local rate cards as proxy) ──────
+      const allCards    = await storage.getRateCards();
+      const clientCards = allCards.filter((c: any) => c.cardType === 'client');
+      let clientRate: { card: unknown; entry: unknown } | null = null;
+      for (const card of clientCards) {
+        const entry = await storage.lookupRateForPrefix((card as any).id, cldDigits);
+        if (entry) { clientRate = { card, entry }; break; }
+      }
+      const aTariffId = accountInfo ? (accountInfo as any).iTariff : null;
+      if (clientCards.length === 0) {
+        steps.push({ id: 'tariff', title: 'Tariff Rate Lookup', status: 'skip',
+          summary: 'No client rate cards in system',
+          detail: 'Import a client rate card (Rate Cards → Client Rate Cards) to enable tariff simulation.', data: {} });
+      } else if (clientRate) {
+        const e = clientRate.entry as any;
+        const c = clientRate.card  as any;
+        steps.push({
+          id: 'tariff', title: 'Tariff Rate Lookup', status: 'ok',
+          summary: `Sell rate: ${e.ratePerMin.toFixed(6)} ${c.currency ?? 'USD'}/min  ·  Prefix +${e.prefix}  ·  ${e.country ?? ''}`,
+          detail: `${aTariffId ? `Tariff ID ${aTariffId} assigned. ` : ''}Local rate card "${c.name}" matched prefix +${e.prefix} (${e.country ?? 'unknown'}, ${e.breakout ?? 'general'}). Sell rate: ${e.ratePerMin} ${c.currency ?? 'USD'}/min.`,
+          data: { tariffId: aTariffId, prefix: e.prefix, country: e.country, ratePerMin: e.ratePerMin, currency: c.currency, rateCardName: c.name },
+        });
+      } else {
+        steps.push({ id: 'tariff', title: 'Tariff Rate Lookup', status: 'warn',
+          summary: `No client rate covers +${cldDigits}`,
+          detail: `${aTariffId ? `Account tariff ID ${aTariffId}. ` : ''}No local client rate card covers this destination. The destination may be forbidden or the rate card needs updating.`,
+          data: { tariffId: aTariffId } });
+      }
+
+      // ── Step 5: Routing group ──────────────────────────────────────────────
+      const iRG = accountInfo ? (accountInfo as any).iRoutingGroup : null;
+      if (iRG) {
+        try {
+          const settings = await storage.getSettings();
+          const { username, password } = sippyXmlCreds(settings);
+          const groups = await sippy.listSippyRoutingGroups(username, password, sippyPortalUrl(settings));
+          const rg = (groups as any[]).find((g: any) => g.iRoutingGroup === iRG);
+          const mResult = await sippy.listRoutingGroupMembers(username, password, iRG, { portalUrl: sippyPortalUrl(settings) });
+          const members = (mResult.members ?? []) as any[];
+          const enriched = members.slice(0, 8).map((m: any) => ({
+            preference:  m.preference,
+            weight:      m.weight,
+            iConnection: m.iConnection,
+            vendor:      m.iConnection ? (connectionVendorCache.get(String(m.iConnection)) ?? `Connection #${m.iConnection}`) : null,
+            iDestinationSet: m.iDestinationSet,
+          }));
+          steps.push({
+            id: 'routing_group', title: 'Routing Group', status: 'ok',
+            summary: `"${rg?.name ?? `Group #${iRG}`}" · policy: ${rg?.policy ?? 'unknown'} · ${members.length} member(s)`,
+            detail: `Account assigned routing group "${rg?.name ?? iRG}" (ID ${iRG}). Routing policy: ${rg?.policy ?? 'unknown'}. ${members.length} carrier connection(s) listed.`,
+            data: { groupId: iRG, groupName: rg?.name, policy: rg?.policy, membersCount: members.length, members: enriched },
+          });
+        } catch (e: any) {
+          steps.push({ id: 'routing_group', title: 'Routing Group', status: 'warn',
+            summary: `Routing group #${iRG} (details unavailable)`,
+            detail: `Assigned routing group ID ${iRG} but details could not be fetched: ${e.message}.`,
+            data: { groupId: iRG } });
+        }
+      } else {
+        steps.push({ id: 'routing_group', title: 'Routing Group', status: 'info',
+          summary: accountInfo ? 'No dedicated routing group — switch default' : 'Skipped (no account)',
+          detail: accountInfo
+            ? `Account has no dedicated routing group. Calls route via the switch's default policy.`
+            : 'Select an account to see routing group assignment.',
+          data: {} });
+      }
+
+      // ── Step 6: LCR vendor analysis ───────────────────────────────────────
+      const { vendorResults } = await storage.lcrAnalyse(cldDigits);
+      if (vendorResults.length > 0) {
+        const best = vendorResults[0];
+        const topRoutes = vendorResults.slice(0, 6).map((r: any, i: number) => ({
+          rank: i + 1, carrier: r.card.vendorName, ratePerMin: r.entry.ratePerMin,
+          prefix: r.entry.prefix, country: r.entry.country, currency: r.card.currency ?? 'USD',
+        }));
+        steps.push({
+          id: 'lcr', title: 'LCR Vendor Selection', status: 'ok',
+          summary: `Best: ${best.card.vendorName} — ${best.entry.ratePerMin.toFixed(6)} ${best.card.currency ?? 'USD'}/min  ·  ${vendorResults.length} route(s) found`,
+          detail: `${vendorResults.length} vendor route(s) match +${cldDigits}. Least-cost: ${best.card.vendorName} at ${best.entry.ratePerMin.toFixed(6)} ${best.card.currency ?? 'USD'}/min (prefix +${best.entry.prefix}, ${best.entry.country ?? 'unknown'}).`,
+          data: { routesFound: vendorResults.length, topRoutes },
+        });
+      } else {
+        steps.push({ id: 'lcr', title: 'LCR Vendor Selection', status: 'error',
+          summary: `No vendor routes for +${cldDigits}`,
+          detail: `No vendor rate card covers +${cldDigits}. The call would fail with a "no route to destination" error. Import vendor rate cards under Rate Cards → Vendor Rate Cards.`,
+          data: { routesFound: 0 } });
+      }
+
+      // ── Step 7: Predicted outcome ─────────────────────────────────────────
+      const acctBlocked  = accountInfo ? !!(accountInfo as any).blocked : false;
+      const noFunds      = accountInfo ? (accountInfo as any).balance <= (accountInfo as any).creditLimit : false;
+      const noRoute      = vendorResults.length === 0;
+      type Outcome = 'connected' | 'no_route' | 'blocked' | 'insufficient_balance';
+      let outcome: Outcome;
+      let outcomeDetail: string;
+
+      if (acctBlocked) {
+        outcome = 'blocked';
+        outcomeDetail = `Account ${(accountInfo as any).username} is blocked. Sippy returns 403 Forbidden at ingress.`;
+      } else if (noFunds) {
+        const b = (accountInfo as any).balance, l = (accountInfo as any).creditLimit;
+        outcome = 'insufficient_balance';
+        outcomeDetail = `Balance (${b.toFixed(4)}) ≤ credit limit (${l.toFixed(4)}). Sippy blocks the call until the account is topped up.`;
+      } else if (noRoute) {
+        outcome = 'no_route';
+        outcomeDetail = `No vendor rate card covers +${cldDigits}. Sippy returns 404 / 503 "no route to destination".`;
+      } else {
+        outcome = 'connected';
+        const best = vendorResults[0];
+        const margin = clientRate ? (clientRate.entry as any).ratePerMin - best.entry.ratePerMin : null;
+        const marginPct = margin !== null && (clientRate!.entry as any).ratePerMin > 0
+          ? (margin / (clientRate!.entry as any).ratePerMin * 100).toFixed(1) : null;
+        outcomeDetail = `Call would route via ${best.card.vendorName} at ${best.entry.ratePerMin.toFixed(6)} ${best.card.currency ?? 'USD'}/min.`
+          + (margin !== null ? ` Estimated margin: ${margin.toFixed(6)} ${(clientRate!.card as any).currency ?? 'USD'}/min (${margin >= 0 ? '+' : ''}${marginPct}%).` : '');
+      }
+
+      const bestVendor = vendorResults[0];
+      steps.push({
+        id: 'outcome', title: 'Predicted Outcome',
+        status: outcome === 'connected' ? 'ok' : 'error',
+        summary: outcome === 'connected' ? 'CALL WOULD CONNECT'
+          : outcome === 'blocked'               ? 'CALL BLOCKED — Account blocked'
+          : outcome === 'insufficient_balance'  ? 'CALL BLOCKED — Insufficient balance'
+          : 'CALL FAILED — No route to destination',
+        detail: outcomeDetail,
+        data: {
+          outcome,
+          bestVendor: bestVendor?.card.vendorName,
+          bestRate:   bestVendor?.entry.ratePerMin,
+          clientRate: clientRate ? (clientRate.entry as any).ratePerMin : null,
+          margin: clientRate && bestVendor ? (clientRate.entry as any).ratePerMin - bestVendor.entry.ratePerMin : null,
+        },
+      });
+
+      res.json({ steps, outcome });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get('/api/rate-cards', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (_req, res) => {
     const cards = await storage.getRateCards();
     res.json(cards);
