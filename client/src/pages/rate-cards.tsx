@@ -39,7 +39,7 @@ type RateCardEntry = {
 };
 
 type ClientProfile = { id: number; name: string; type: string };
-type SippyTariff   = { i_tariff: number; name: string; currency?: string };
+type SippyTariff   = { iTariff: number; name: string; currency?: string };
 
 type RateCardContextClient = {
   iCustomer: number;
@@ -129,7 +129,7 @@ export default function RateCardsPage() {
   });
   const { data: sippyTariffs = [] } = useQuery<SippyTariff[]>({
     queryKey: ["/api/sippy/tariffs"],
-    queryFn: () => fetch('/api/sippy/tariffs').then(r => r.json()).then(d => d.tariffs ?? d ?? []),
+    queryFn: () => fetch('/api/sippy/tariffs').then(r => r.json()).then(d => Array.isArray(d) ? d : Array.isArray(d?.tariffs) ? d.tariffs : []),
     refetchOnWindowFocus: false,
     enabled: !!(pushCard || verifyCard),
   });
@@ -646,7 +646,7 @@ export default function RateCardsPage() {
                   <SelectTrigger data-testid="select-push-tariff"><SelectValue placeholder="Select tariff…" /></SelectTrigger>
                   <SelectContent>
                     {sippyTariffs.map(t => (
-                      <SelectItem key={t.i_tariff} value={String(t.i_tariff)}>
+                      <SelectItem key={t.iTariff} value={String(t.iTariff)}>
                         {t.name} {t.currency ? `(${t.currency})` : ''}
                       </SelectItem>
                     ))}
@@ -718,7 +718,7 @@ export default function RateCardsPage() {
                   <SelectTrigger data-testid="select-verify-tariff"><SelectValue placeholder="Select tariff…" /></SelectTrigger>
                   <SelectContent>
                     {sippyTariffs.map(t => (
-                      <SelectItem key={t.i_tariff} value={String(t.i_tariff)}>
+                      <SelectItem key={t.iTariff} value={String(t.iTariff)}>
                         {t.name} {t.currency ? `(${t.currency})` : ''}
                       </SelectItem>
                     ))}
