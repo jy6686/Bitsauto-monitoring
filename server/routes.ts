@@ -16,6 +16,7 @@ import { initSippyWatcher, notifyNewClientTraffic, getWatcherStatus, sendTestWat
 import { lookupDialCode } from "./dial-lookup";
 import { readFileSync } from "fs";
 import { join as _pathJoin } from "path";
+import { generateStatusReport, STATUS_REPORT_PATH } from "./doc-generator";
 
 // ── /api/dial-codes handler — serves raw prefix JSON for client-side lookup ───
 // Uses process.cwd() so it works in both ESM dev (tsx) and CJS production build.
@@ -7828,6 +7829,20 @@ export async function registerRoutes(
     res.download(filePath, 'VoIP_Platform_API_Reference.docx', (err: any) => {
       if (err) res.status(404).json({ error: 'File not found' });
     });
+  });
+
+  // POST /api/download/regenerate — rebuild the status-report .docx with all latest features (admin)
+  app.post('/api/download/regenerate', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user.claims?.sub;
+      const role = await storage.getUserRole(userId);
+      if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+      await generateStatusReport(STATUS_REPORT_PATH);
+      res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'VoIP_Platform_Volume1_Status.docx' });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   // GET /api/bitseye/per-entity — per-entity CDR time-series for BitsEye page

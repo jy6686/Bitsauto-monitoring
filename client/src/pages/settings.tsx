@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 const formSchema = insertSettingsSchema.pick({
   jitterThreshold: true,
@@ -1564,6 +1565,20 @@ export default function SettingsPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [testResult, setTestResult] = useState<TestResult>(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [regeneratedAt, setRegeneratedAt] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const regenMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/download/regenerate'),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setRegeneratedAt(data.regeneratedAt);
+      toast({ title: 'Documentation updated', description: 'Status report regenerated with all Tier 1–5 features. Download it now.' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Update failed', description: err.message ?? 'Could not regenerate the document.', variant: 'destructive' });
+    },
+  });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -2097,10 +2112,28 @@ export default function SettingsPage() {
 
       {/* Downloads */}
       <div className="bg-card border border-border rounded-xl p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Download className="h-4 w-4 text-blue-400" />
-          <h3 className="font-semibold">Documentation Downloads</h3>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <Download className="h-4 w-4 text-blue-400" />
+            <h3 className="font-semibold">Documentation Downloads</h3>
+          </div>
+          <button
+            data-testid="button-regenerate-docs"
+            onClick={() => regenMutation.mutate()}
+            disabled={regenMutation.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {regenMutation.isPending
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <RefreshCcw className="h-3 w-3" />}
+            {regenMutation.isPending ? 'Updating…' : 'Update'}
+          </button>
         </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          {regeneratedAt
+            ? `Status report last updated: ${new Date(regeneratedAt).toLocaleString()}`
+            : 'Click Update to regenerate the Status Report with all completed Tier 1–5 features.'}
+        </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {[
             { label: "Volume 1 — Status Report", desc: "Completed features & pending items", href: "/api/download/status-report", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
