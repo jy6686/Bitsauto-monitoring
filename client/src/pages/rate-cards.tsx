@@ -196,6 +196,9 @@ export default function RateCardsPage() {
     ? customVendor
     : selectedVendor === CUSTOM_VENDOR ? customVendor : selectedVendor;
   const canCreate = resolvedVendorName.trim() && newName.trim() && !createMutation.isPending;
+  const matchedSippyClient = (activeType === 'client' && resolvedVendorName.trim())
+    ? (rcCtx?.clients?.find(c => c.name.toLowerCase() === resolvedVendorName.trim().toLowerCase()) ?? null)
+    : null;
 
   function handleSubmitCreate() {
     createMutation.mutate({
@@ -305,26 +308,20 @@ export default function RateCardsPage() {
                   )}
                 </div>
                 {/* Sippy match hint */}
-                {activeType === 'client' && resolvedVendorName.trim() && (() => {
-                  const match = rcCtx?.clients?.find(c =>
-                    c.name.toLowerCase() === resolvedVendorName.trim().toLowerCase()
-                  );
-                  if (!match) return null;
-                  return (
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-xs flex items-start gap-2">
-                      <Building2 className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
-                      <div>
-                        <span className="text-amber-300 font-medium">Sippy match found</span>
-                        <div className="text-muted-foreground mt-0.5">
-                          {match.tariffName
-                            ? <>Assigned tariff: <span className="text-amber-300 font-medium">{match.tariffName}</span> (ID: {match.iTariff})</>
-                            : 'No tariff assigned in Sippy yet'
-                          }
-                        </div>
+                {matchedSippyClient && (
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-xs flex items-start gap-2">
+                    <Building2 className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
+                    <div>
+                      <span className="text-amber-300 font-medium">Sippy match found</span>
+                      <div className="text-muted-foreground mt-0.5">
+                        {matchedSippyClient.tariffName
+                          ? <>Assigned tariff: <span className="text-amber-300 font-medium">{matchedSippyClient.tariffName}</span> (ID: {matchedSippyClient.iTariff})</>
+                          : 'No tariff assigned in Sippy yet'
+                        }
                       </div>
                     </div>
-                  );
-                })()}
+                  </div>
+                )}
                 {activeType === 'vendor' && resolvedVendorName.trim() && rcCtx?.destSets && rcCtx.destSets.length > 0 && (
                   <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg px-3 py-2 text-xs flex items-start gap-2">
                     <MapPin className="h-3.5 w-3.5 text-cyan-400 mt-0.5 shrink-0" />
