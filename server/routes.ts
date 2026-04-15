@@ -329,6 +329,10 @@ function probeIp(ip: string, priorityPorts: number[] = []): Promise<{ latency: n
 let lastProbeResult: { latency: number; reachable: boolean; port?: number; host?: string; timestamp: Date } | null = null;
 let lastSwitchProbeResult: { latency: number; reachable: boolean; port?: number; host?: string; timestamp: Date; label: string } | null = null;
 
+// ── In-memory push jobs (Rate Card → Sippy Tariff) ──────────────────────────
+type PushJob = { status: 'running'|'done'|'error'; pushed: number; failed: number; total: number; startedAt: string; message?: string };
+const pushJobs = new Map<string, PushJob>();
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -9088,6 +9092,127 @@ export async function registerRoutes(
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
+  });
+
+  // GET /api/rate-cards/:id/export — download rate card entries as CSV
+  app.get('/api/rate-cards/:id/export', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const cards = await storage.getRateCards();
+      const card = cards.find(c => c.id === id);
+      const entries = await storage.getRateCardEntries(id);
+      const filename = card ? `${card.vendorName}_${card.name}.csv`.replace(/[^a-zA-Z0-9_.-]/g, '_') : `rate_card_${id}.csv`;
+      const header = 'prefix,country,breakout,rate\r\n';
+      const rows = entries.map(e => `${e.prefix},${(e.country ?? '').replace(/,/g, ' ')},${(e.breakout ?? '').replace(/,/g, ' ')},${e.ratePerMin}`).join('\r\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(header + rows);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/rate-cards/push-jobs/:jobId — poll bulk-push progress
+  app.get('/api/rate-cards/push-jobs/:jobId', (req, res, next) => requireRole(['admin','management'], req, res, next), (req, res) => {
+    const job = pushJobs.get(req.params.jobId);
+    if (!job) return res.status(404).json({ message: 'Job not found' });
+    res.json(job);
+  });
+
+  // POST /api/rate-cards/:id/push-to-sippy — bulk-push all entries to a Sippy tariff
+  app.post('/api/rate-cards/:id/push-to-sippy', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    try {
+      const rateCardId = Number(req.params.id);
+      const { tariffId, switchId, effectiveFrom, effectiveTill } = req.body as {
+        tariffId: string; switchId?: number; effectiveFrom?: string; effectiveTill?: string;
+      };
+      if (!tariffId) return res.status(400).json({ message: 'tariffId is required' });
+
+      const entries = await storage.getRateCardEntries(rateCardId);
+      if (!entries.length) return res.status(400).json({ message: 'Rate card has no entries to push' });
+
+      const settings = await storage.getSettings();
+      let { username: u, password: p } = sippyXmlCreds(settings);
+      let portalUrl = sippyPortalUrl(settings);
+      if (switchId) {
+        const sw = (await storage.getSwitches()).find(s => s.id === Number(switchId) && s.type === 'sippy');
+        if (sw) { portalUrl = sw.portalUrl ?? portalUrl; const swCreds = sippyXmlCreds(settings, sw); u = swCreds.username; p = swCreds.password; }
+      }
+
+      // Start background job
+      const jobId = randomBytes(8).toString('hex');
+      const job: PushJob = { status: 'running', pushed: 0, failed: 0, total: entries.length, startedAt: new Date().toISOString() };
+      pushJobs.set(jobId, job);
+      res.json({ jobId, total: entries.length });
+
+      // Run push in background with concurrency=15
+      (async () => {
+        const CONCURRENCY = 15;
+        let i = 0;
+        async function worker() {
+          while (i < entries.length) {
+            const entry = entries[i++];
+            try {
+              const result = await sippy.setSippyRateEntry(u, p, tariffId, {
+                prefix: entry.prefix,
+                rate: entry.ratePerMin,
+                effectiveFrom,
+                effectiveTill,
+              }, portalUrl);
+              if (result.success) job.pushed++; else job.failed++;
+            } catch { job.failed++; }
+          }
+        }
+        await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+        job.status = job.failed === 0 ? 'done' : (job.pushed === 0 ? 'error' : 'done');
+        job.message = `Pushed ${job.pushed} rates${job.failed ? `, ${job.failed} failed` : ''}`;
+        // Expire job after 10 min
+        setTimeout(() => pushJobs.delete(jobId), 10 * 60 * 1000);
+      })().catch(err => { job.status = 'error'; job.message = err.message; });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/rate-cards/:id/verify-sippy?tariffId=xxx — compare local entries vs Sippy tariff
+  app.get('/api/rate-cards/:id/verify-sippy', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    try {
+      const rateCardId = Number(req.params.id);
+      const tariffId = req.query.tariffId as string;
+      if (!tariffId) return res.status(400).json({ message: 'tariffId is required' });
+
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const localEntries = await storage.getRateCardEntries(rateCardId);
+
+      // Fetch up to 1000 rates from Sippy tariff
+      const sippyResult = await sippy.getTariffRatesListFull(username, password, Number(tariffId), undefined, 0, 1000);
+      const sippyRates: any[] = (sippyResult as any)?.rates ?? sippyResult ?? [];
+      const sippyMap = new Map<string, number>();
+      for (const r of sippyRates) {
+        const pfx = String(r.prefix ?? r.destination ?? '').replace(/\D/g, '');
+        if (pfx) sippyMap.set(pfx, Number(r.price_1 ?? r.rate ?? 0));
+      }
+
+      const localMap = new Map(localEntries.map(e => [e.prefix, e.ratePerMin]));
+      let matched = 0, mismatched = 0, localOnly = 0, sippyOnly = 0;
+      const sample: { prefix: string; local: number | null; sippy: number | null; match: boolean }[] = [];
+
+      for (const [pfx, localRate] of localMap) {
+        if (sippyMap.has(pfx)) {
+          const sippyRate = sippyMap.get(pfx)!;
+          const ok = Math.abs(localRate - sippyRate) < 0.00005;
+          if (ok) matched++; else mismatched++;
+          if (sample.length < 20 && !ok) sample.push({ prefix: pfx, local: localRate, sippy: sippyRate, match: false });
+        } else { localOnly++; }
+      }
+      for (const pfx of sippyMap.keys()) {
+        if (!localMap.has(pfx)) sippyOnly++;
+      }
+
+      res.json({
+        localTotal: localEntries.length,
+        sippyFetched: sippyRates.length,
+        matched, mismatched, localOnly, sippyOnly,
+        mismatchSample: sample,
+      });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
   // ── Revenue & Margin Analytics ─────────────────────────────────────────────────
