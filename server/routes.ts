@@ -243,6 +243,32 @@ async function withSippyCreds<T extends { error?: string; success?: boolean; mes
   return last;
 }
 
+// Like withSippyCreds but for functions that THROW on auth failure rather than returning an error object.
+// Returns the first successful result; retries the next credential pair on HTTP 401/403 errors.
+async function withSippyCredsRaw<T>(
+  settings: SippyCreds,
+  fn: (username: string, password: string) => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  const pairs = sippyXmlCredsPairs(settings);
+  let lastErr: Error | null = null;
+  for (const { username, password } of pairs) {
+    try {
+      return await fn(username, password);
+    } catch (err: any) {
+      lastErr = err;
+      const msg = (err.message ?? '').toLowerCase();
+      if (msg.includes('401') || msg.includes('403') || msg.includes('unauthorized') || msg.includes('not authorized')) {
+        continue; // try next credential pair
+      }
+      throw err; // non-auth error — re-throw immediately
+    }
+  }
+  // All pairs exhausted
+  if (lastErr) console.warn('[withSippyCredsRaw] all credential pairs failed:', lastErr.message);
+  return fallback;
+}
+
 // Simulation Constants
 const SIMULATION_INTERVAL = 2000; // 2 seconds
 const MAX_ACTIVE_CALLS = 10;
@@ -2907,13 +2933,16 @@ export async function registerRoutes(
   app.get('/api/sippy/tariffs', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.getTariffsList(
-        username, password,
-        req.query.namePattern as string | undefined,
-        req.query.offset      ? Number(req.query.offset)    : undefined,
-        req.query.limit       ? Number(req.query.limit)     : undefined,
-        req.query.iCustomer   ? Number(req.query.iCustomer) : undefined,
+      const result = await withSippyCredsRaw(
+        settings,
+        (u, p) => sippy.getTariffsList(
+          u, p,
+          req.query.namePattern as string | undefined,
+          req.query.offset      ? Number(req.query.offset)    : undefined,
+          req.query.limit       ? Number(req.query.limit)     : undefined,
+          req.query.iCustomer   ? Number(req.query.iCustomer) : undefined,
+        ),
+        [],
       );
       res.json(result);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -9625,10 +9654,22 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSippySettings();
       if (!settings) return res.json({ clients: [], destSets: [], vendors: [] });
-      const { username, password } = sippyXmlCreds(settings);
       const portalUrl = sippyPortalUrl(settings);
 
-      // Fetch all three in parallel
+      // Discover the working credential pair (tries ssp-root then RTST1)
+      const pairs = sippyXmlCredsPairs(settings);
+      let username = pairs[0].username;
+      let password = pairs[0].password;
+      for (const pair of pairs) {
+        try {
+          await sippy.getTariffsList(pair.username, pair.password, undefined, undefined, 1);
+          username = pair.username;
+          password = pair.password;
+          break;
+        } catch { /* try next pair */ }
+      }
+
+      // Fetch all in parallel using the working credentials
       const [custResult, tariffResult, destResult, vendorResult] = await Promise.all([
         sippy.listSippyCustomers(username, password, { portalUrl }),
         sippy.listSippyTariffs(username, password, portalUrl),
@@ -9807,7 +9848,16 @@ export async function registerRoutes(
       if (!entries.length) return res.status(400).json({ message: 'Rate card has no entries to push' });
 
       const settings = await storage.getSettings();
-      let { username: u, password: p } = sippyXmlCreds(settings);
+      // Discover working credential pair (ssp-root may have wrong password; RTST1 is the fallback)
+      const pairs = sippyXmlCredsPairs(settings);
+      let u = pairs[0].username;
+      let p = pairs[0].password;
+      for (const pair of pairs) {
+        try {
+          await sippy.getTariffsList(pair.username, pair.password, undefined, undefined, 1);
+          u = pair.username; p = pair.password; break;
+        } catch { /* try next */ }
+      }
       let portalUrl = sippyPortalUrl(settings);
       if (switchId) {
         const sw = (await storage.getSwitches()).find(s => s.id === Number(switchId) && s.type === 'sippy');
@@ -9855,11 +9905,14 @@ export async function registerRoutes(
       if (!tariffId) return res.status(400).json({ message: 'tariffId is required' });
 
       const settings = await storage.getSettings();
-      const { username, password } = sippyXmlCreds(settings);
       const localEntries = await storage.getRateCardEntries(rateCardId);
 
-      // Fetch up to 1000 rates from Sippy tariff
-      const sippyResult = await sippy.getTariffRatesListFull(username, password, Number(tariffId), undefined, 0, 1000);
+      // Fetch up to 1000 rates from Sippy tariff — retry with fallback credentials on 401
+      const sippyResult = await withSippyCredsRaw(
+        settings,
+        (u, p) => sippy.getTariffRatesListFull(u, p, Number(tariffId), undefined, 0, 1000),
+        [],
+      );
       const sippyRates: any[] = (sippyResult as any)?.rates ?? sippyResult ?? [];
       const sippyMap = new Map<string, number>();
       for (const r of sippyRates) {
