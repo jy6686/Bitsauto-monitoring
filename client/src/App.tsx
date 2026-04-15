@@ -44,6 +44,7 @@ import TestCallPage from "@/pages/test-call";
 import LcrAnalyserPage from "@/pages/lcr-analyser";
 import CallFlowSimulatorPage from "@/pages/call-flow-simulator";
 import VendorSlaScorecardPage from "@/pages/vendor-sla-scorecard";
+import CostOptimisationPage from "@/pages/cost-optimisation";
 import DashboardPage from "@/pages/dashboard";
 import CallsListPage from "@/pages/calls-list";
 import CallDetailPage from "@/pages/call-detail";
@@ -222,6 +223,9 @@ function Router() {
       </Route>
       <Route path="/vendor-sla-scorecard">
         {() => <ProtectedRoute component={VendorSlaScorecardPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/cost-optimisation">
+        {() => <ProtectedRoute component={CostOptimisationPage} requiredRoles={['admin','management']} />}
       </Route>
 
       <Route component={NotFound} />

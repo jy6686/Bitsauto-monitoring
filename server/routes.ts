@@ -9979,6 +9979,216 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Cost Optimisation Recommendations Engine
+  // Multi-factor smart analysis of CDR cache + rate cards → actionable insights
+  // ═══════════════════════════════════════════════════════════════════════════
+  app.get('/api/cost-optimisation/analyse', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const hours = Math.min(720, Math.max(1, Number(_req.query.hours) || 168));
+      const cutoff = Date.now() - hours * 3600 * 1000;
+      const analysisDays = hours / 24;
+
+      // ── 1. Filter CDR cache to window ──────────────────────────────────────
+      const cdrs = [...cdrCache.values()].filter(c => {
+        const ts = c.startTime ? new Date(c.startTime).getTime()
+          : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+        return ts >= cutoff;
+      });
+
+      if (cdrs.length === 0) {
+        return res.json({ recommendations: [], summary: { totalSpend: 0, estimatedMonthlySpend: 0, totalPotentialMonthlySavings: 0, cdrCount: 0, vendorCount: 0, analysisDays, portfolioCPM: 0, lowestCPM: null }, hours, generatedAt: new Date().toISOString() });
+      }
+
+      // ── 2. Group CDRs by vendor ─────────────────────────────────────────────
+      type VStats = { vendor: string; totalCalls: number; answeredCalls: number; billedSec: number; totalCost: number; pddSum: number; pddN: number; };
+      const vendorMap = new Map<string, VStats>();
+      let offPeakCalls = 0; let offPeakCost = 0;
+
+      for (const c of cdrs) {
+        let vendor = c.vendor || '';
+        if (!vendor && c.iConnection) vendor = connectionVendorCache.get(c.iConnection) || '';
+        if (!vendor) continue;
+        if (!vendorMap.has(vendor)) vendorMap.set(vendor, { vendor, totalCalls: 0, answeredCalls: 0, billedSec: 0, totalCost: 0, pddSum: 0, pddN: 0 });
+        const v = vendorMap.get(vendor)!;
+        v.totalCalls++;
+        const isAns = String(c.result) === '0' && (Number(c.duration) || 0) > 0;
+        if (isAns) { v.answeredCalls++; v.billedSec += Number(c.duration) || 0; }
+        v.totalCost += Number(c.cost) || 0;
+        const pdd = Number(c.pdd1xx ?? c.pdd) || 0;
+        if (pdd > 0) { v.pddSum += pdd; v.pddN++; }
+        const hr = c.startTime ? new Date(c.startTime).getUTCHours() : -1;
+        if (hr >= 0 && hr < 6) { offPeakCalls++; offPeakCost += Number(c.cost) || 0; }
+      }
+
+      // ── 3. Derived metrics per vendor ──────────────────────────────────────
+      type VM = VStats & { asr: number; acdSec: number; avgPddSec: number; billedMin: number; costPerMin: number; };
+      const vendors: VM[] = [];
+      for (const [, v] of vendorMap) {
+        const asr       = v.totalCalls > 0 ? (v.answeredCalls / v.totalCalls) * 100 : 0;
+        const acdSec    = v.answeredCalls > 0 ? v.billedSec / v.answeredCalls : 0;
+        const avgPddSec = v.pddN > 0 ? v.pddSum / v.pddN : 0;
+        const billedMin = v.billedSec / 60;
+        const costPerMin = billedMin > 0 ? v.totalCost / billedMin : 0;
+        vendors.push({ ...v, asr, acdSec, avgPddSec, billedMin, costPerMin });
+      }
+      vendors.sort((a, b) => b.totalCost - a.totalCost);
+
+      // ── 4. Portfolio aggregates ─────────────────────────────────────────────
+      const totalSpend   = vendors.reduce((s, v) => s + v.totalCost, 0);
+      const totalMinutes = vendors.reduce((s, v) => s + v.billedMin, 0);
+      const totalCalls   = vendors.reduce((s, v) => s + v.totalCalls, 0);
+      const portfolioAvgCPM = totalMinutes > 0 ? totalSpend / totalMinutes : 0;
+      const cpmVals = vendors.filter(v => v.billedMin > 5).map(v => v.costPerMin);
+      const cpmMean = cpmVals.length > 0 ? cpmVals.reduce((a, b) => a + b, 0) / cpmVals.length : 0;
+      const cpmStd  = cpmVals.length > 1 ? Math.sqrt(cpmVals.reduce((s, x) => s + (x - cpmMean) ** 2, 0) / cpmVals.length) : 0;
+      const lowestCpm = cpmVals.length > 0 ? Math.min(...cpmVals.filter(v => v > 0)) : null;
+      const monthlyFactor = 30 / Math.max(analysisDays, 0.5);
+
+      // ── 5. Rate cards (for unmanaged vendor detection) ──────────────────────
+      const allCards = await storage.getRateCards();
+      const vendorCardNames = new Set(allCards.filter(rc => rc.cardType === 'vendor').map(rc => rc.vendorName.toLowerCase()));
+
+      // ── 6. Recommendation rules ─────────────────────────────────────────────
+      type Rec = { id: string; category: string; priority: string; title: string; description: string; vendor?: string; metrics: { label: string; value: string }[]; estimatedMonthlySavings: number; confidence: number; actions: string[]; };
+      const recs: Rec[] = [];
+
+      for (const v of vendors) {
+        const conf = Math.min(95, 40 + Math.round(v.totalCalls / 5));
+
+        // Rule 1 — High cost vendor
+        if (v.billedMin > 10 && cpmStd > 0 && v.costPerMin > cpmMean + cpmStd) {
+          const excess = v.costPerMin - cpmMean;
+          const savings = excess * v.billedMin * monthlyFactor;
+          recs.push({ id: `high-cost-${v.vendor}`, category: 'cost_reduction', priority: savings > 300 ? 'high' : 'medium',
+            title: `${v.vendor} — Above-Average Cost Per Minute`,
+            description: `At $${v.costPerMin.toFixed(5)}/min, ${v.vendor} is ${((v.costPerMin - cpmMean) / cpmMean * 100).toFixed(1)}% above the portfolio mean ($${cpmMean.toFixed(5)}/min). Renegotiating rates or routing some traffic to lower-cost carriers with comparable quality could generate meaningful savings.`,
+            vendor: v.vendor,
+            metrics: [{ label: 'Vendor CPM', value: `$${v.costPerMin.toFixed(5)}` }, { label: 'Portfolio Mean CPM', value: `$${cpmMean.toFixed(5)}` }, { label: 'Volume', value: `${v.billedMin.toFixed(0)} min` }, { label: 'ASR', value: `${v.asr.toFixed(1)}%` }],
+            estimatedMonthlySavings: savings, confidence: conf,
+            actions: [`Request rate revision from ${v.vendor} citing portfolio benchmark data.`, `Test alternative vendors using the LCR Analyser for your key destinations.`, `Set a CPM ceiling threshold alert for this carrier.`] });
+        }
+
+        // Rule 2 — Poor quality (low ASR)
+        if (v.asr < 50 && v.totalCalls >= 30) {
+          const unanswered = v.totalCalls - v.answeredCalls;
+          const revLoss = unanswered * 0.05 * monthlyFactor;
+          recs.push({ id: `poor-quality-${v.vendor}`, category: 'quality_alert', priority: v.asr < 20 ? 'high' : 'medium',
+            title: `${v.vendor} — Low Answer Rate (${v.asr.toFixed(1)}%)`,
+            description: `${v.vendor} answered only ${v.asr.toFixed(1)}% of calls — ${unanswered.toLocaleString()} attempts failed over the last ${analysisDays.toFixed(0)} days. Below-benchmark ASR degrades customer experience and inflates cost-per-connected-minute. Consider reducing or suspending traffic allocation.`,
+            vendor: v.vendor,
+            metrics: [{ label: 'ASR', value: `${v.asr.toFixed(1)}%` }, { label: 'Unanswered', value: unanswered.toLocaleString() }, { label: 'Total Calls', value: v.totalCalls.toLocaleString() }, { label: 'ACD', value: `${v.acdSec.toFixed(0)}s` }],
+            estimatedMonthlySavings: revLoss, confidence: Math.min(90, conf),
+            actions: [`File a performance SLA breach report with ${v.vendor}.`, `Reduce ${v.vendor}'s traffic weight in Sippy LCR tables.`, `Enable automatic failover to backup carrier on ring timeout.`] });
+        }
+
+        // Rule 3 — Zero answer (route failure)
+        if (v.answeredCalls === 0 && v.totalCalls >= 10) {
+          recs.push({ id: `zero-answer-${v.vendor}`, category: 'anomaly', priority: 'high',
+            title: `${v.vendor} — Zero Answered Calls (Route Failure)`,
+            description: `${v.vendor} received ${v.totalCalls.toLocaleString()} call attempts with 0% ASR over the last ${analysisDays.toFixed(0)} days — indicating a complete route failure or misconfiguration. All traffic should be immediately re-routed.`,
+            vendor: v.vendor,
+            metrics: [{ label: 'Call Attempts', value: v.totalCalls.toLocaleString() }, { label: 'ASR', value: '0.0%' }, { label: 'Wasted Spend', value: `$${v.totalCost.toFixed(4)}` }, { label: 'Est. Monthly Loss', value: `$${(v.totalCost * monthlyFactor).toFixed(2)}` }],
+            estimatedMonthlySavings: v.totalCost * monthlyFactor, confidence: 98,
+            actions: [`Immediately suspend traffic to ${v.vendor}.`, `Contact ${v.vendor} NOC to investigate route failure.`, `Review SIP trace logs for disconnect cause codes.`] });
+        }
+
+        // Rule 4 — High PDD
+        if (v.avgPddSec > 4 && v.answeredCalls >= 20) {
+          const revLoss = v.answeredCalls * Math.min(0.3, (v.avgPddSec - 4) * 0.05) * 0.04 * monthlyFactor;
+          recs.push({ id: `high-pdd-${v.vendor}`, category: 'quality_alert', priority: v.avgPddSec > 8 ? 'high' : 'medium',
+            title: `${v.vendor} — High Post-Dial Delay (${v.avgPddSec.toFixed(1)}s)`,
+            description: `${v.vendor}'s average PDD is ${v.avgPddSec.toFixed(1)}s, well above the ≤2s industry benchmark. Extended ring delay increases caller abandonment and degrades perceived quality scores. Escalate to vendor NOC or configure this carrier as last-resort.`,
+            vendor: v.vendor,
+            metrics: [{ label: 'Avg PDD', value: `${v.avgPddSec.toFixed(2)}s` }, { label: 'Benchmark', value: '≤ 2.0s' }, { label: 'Answered Calls', value: v.answeredCalls.toLocaleString() }, { label: 'ACD', value: `${v.acdSec.toFixed(0)}s` }],
+            estimatedMonthlySavings: revLoss, confidence: 65,
+            actions: [`Raise PDD SLA escalation ticket with ${v.vendor}.`, `Re-order LCR table to route through this vendor last.`, `Monitor PDD trend in Vendor SLA Scorecard.`] });
+        }
+
+        // Rule 5 — No rate card loaded
+        if (!vendorCardNames.has(v.vendor.toLowerCase()) && v.totalCost > 5) {
+          const estMonthly = v.totalCost * monthlyFactor;
+          recs.push({ id: `no-ratecard-${v.vendor}`, category: 'risk', priority: estMonthly > 200 ? 'high' : 'medium',
+            title: `${v.vendor} — No Rate Card Loaded`,
+            description: `${v.vendor} has generated an estimated $${estMonthly.toFixed(2)}/month in spend but has no rate card in the system. Without a reference rate card, billing discrepancies may go undetected and LCR optimisation is incomplete.`,
+            vendor: v.vendor,
+            metrics: [{ label: 'Est. Monthly Spend', value: `$${estMonthly.toFixed(2)}` }, { label: 'Period Spend', value: `$${v.totalCost.toFixed(4)}` }, { label: 'Volume', value: `${v.billedMin.toFixed(0)} min` }],
+            estimatedMonthlySavings: 0, confidence: 99,
+            actions: [`Upload ${v.vendor}'s rate card in the Rate Card Manager.`, `Use Rate Card → Verify vs Sippy to detect any billing discrepancies.`, `Request the latest rate schedule from ${v.vendor}.`] });
+        }
+
+        // Rule 6 — Negotiation leverage
+        const shareOfSpend = totalSpend > 0 ? (v.totalCost / totalSpend) * 100 : 0;
+        if (shareOfSpend > 25 && v.costPerMin > portfolioAvgCPM && v.billedMin > 30) {
+          const savings = v.totalCost * 0.10 * monthlyFactor;
+          recs.push({ id: `leverage-${v.vendor}`, category: 'opportunity', priority: 'high',
+            title: `${v.vendor} — Negotiation Leverage (${shareOfSpend.toFixed(0)}% of Spend)`,
+            description: `${v.vendor} accounts for ${shareOfSpend.toFixed(1)}% of total spend (~$${(v.totalCost * monthlyFactor).toFixed(0)}/mo) at an above-average rate. Your traffic volume gives you significant leverage. A negotiated 10% rate reduction would save an estimated $${savings.toFixed(0)}/month.`,
+            vendor: v.vendor,
+            metrics: [{ label: 'Spend Share', value: `${shareOfSpend.toFixed(1)}%` }, { label: 'Est. Monthly', value: `$${(v.totalCost * monthlyFactor).toFixed(2)}` }, { label: 'CPM', value: `$${v.costPerMin.toFixed(5)}` }, { label: 'Volume', value: `${v.billedMin.toFixed(0)} min` }],
+            estimatedMonthlySavings: savings, confidence: 70,
+            actions: [`Schedule a rate review with ${v.vendor} — present traffic volume data.`, `Request volume-discount tier structure.`, `Benchmark competitor rates via LCR Analyser before negotiation.`] });
+        }
+      }
+
+      // Rule 7 — Vendor concentration risk
+      if (vendors.length > 0 && totalCalls > 50) {
+        const top = vendors[0];
+        const topShare = (top.totalCalls / totalCalls) * 100;
+        if (topShare > 60) {
+          recs.push({ id: 'concentration-risk', category: 'risk', priority: topShare > 80 ? 'high' : 'medium',
+            title: `Concentration Risk — ${top.vendor} Carries ${topShare.toFixed(0)}% of Traffic`,
+            description: `${top.vendor} handles ${topShare.toFixed(0)}% of all call traffic. A disruption, rate hike, or outage at this single vendor would severely impact operations. Industry best practice is no single vendor above 40–50%.`,
+            vendor: top.vendor,
+            metrics: [{ label: 'Traffic Share', value: `${topShare.toFixed(1)}%` }, { label: 'Calls', value: top.totalCalls.toLocaleString() }, { label: 'Active Vendors', value: vendors.filter(v => v.totalCalls > 0).length.toString() }],
+            estimatedMonthlySavings: 0, confidence: 95,
+            actions: [`Onboard at least one alternative vendor for redundancy.`, `Configure load-balanced routing split across vendors.`, `Set up automatic failover in Sippy for key destination groups.`] });
+        }
+      }
+
+      // Rule 8 — Best value vendor (expand usage)
+      const qualityVendors = vendors.filter(v => v.asr >= 65 && v.billedMin > 20);
+      if (qualityVendors.length > 0 && cpmMean > 0) {
+        const best = [...qualityVendors].sort((a, b) => a.costPerMin - b.costPerMin)[0];
+        if (best.costPerMin < cpmMean * 0.85) {
+          const savings = (cpmMean - best.costPerMin) * (totalMinutes * 0.1) * monthlyFactor;
+          recs.push({ id: 'best-value-vendor', category: 'opportunity', priority: 'medium',
+            title: `${best.vendor} — Best Value Carrier (Expand Usage)`,
+            description: `${best.vendor} delivers ${best.asr.toFixed(0)}% ASR at $${best.costPerMin.toFixed(5)}/min — ${((1 - best.costPerMin / cpmMean) * 100).toFixed(0)}% below portfolio average — with excellent quality metrics. Routing additional traffic through this carrier could reduce blended cost.`,
+            vendor: best.vendor,
+            metrics: [{ label: 'ASR', value: `${best.asr.toFixed(1)}%` }, { label: 'CPM', value: `$${best.costPerMin.toFixed(5)}` }, { label: 'Portfolio Avg', value: `$${cpmMean.toFixed(5)}` }, { label: 'Volume', value: `${best.billedMin.toFixed(0)} min` }],
+            estimatedMonthlySavings: savings, confidence: Math.min(80, 40 + Math.round(best.totalCalls / 10)),
+            actions: [`Increase ${best.vendor}'s routing weight in Sippy LCR tables.`, `Run LCR Analyser to confirm routing efficiency for key destinations.`, `Negotiate a capacity commitment for further rate improvements.`] });
+        }
+      }
+
+      // Rule 9 — Off-peak routing opportunity
+      const offPeakPct = totalCalls > 0 ? (offPeakCalls / totalCalls) * 100 : 0;
+      if (offPeakCalls > 50 && offPeakPct > 5) {
+        recs.push({ id: 'off-peak-routing', category: 'strategy', priority: 'low',
+          title: `Time-Based Routing — ${offPeakPct.toFixed(0)}% Off-Peak Traffic`,
+          description: `${offPeakPct.toFixed(1)}% of calls (${offPeakCalls.toLocaleString()}) occur during off-peak hours (midnight–6am UTC). Many carriers offer reduced off-peak rates. Configuring time-based routing rules to favour cheaper carriers during these hours could reduce blended cost.`,
+          metrics: [{ label: 'Off-Peak Calls', value: offPeakCalls.toLocaleString() }, { label: '% of Traffic', value: `${offPeakPct.toFixed(1)}%` }, { label: 'Est. Monthly Off-Peak Spend', value: `$${(offPeakCost * monthlyFactor).toFixed(2)}` }],
+          estimatedMonthlySavings: offPeakCost * 0.15 * monthlyFactor, confidence: 55,
+          actions: [`Request off-peak rate schedules from your top 3 vendors.`, `Configure time-based routing rules in Sippy dialplan.`, `Use Call Flow Simulator to model routing change impact.`] });
+      }
+
+      // ── 7. Sort: priority → estimated savings ──────────────────────────────
+      const priOrd: Record<string, number> = { high: 3, medium: 2, low: 1 };
+      recs.sort((a, b) => {
+        const pd = (priOrd[b.priority] || 0) - (priOrd[a.priority] || 0);
+        return pd !== 0 ? pd : b.estimatedMonthlySavings - a.estimatedMonthlySavings;
+      });
+
+      const totalSavings = recs.reduce((s, r) => s + r.estimatedMonthlySavings, 0);
+      res.json({
+        recommendations: recs,
+        summary: { totalSpend: parseFloat(totalSpend.toFixed(4)), estimatedMonthlySpend: parseFloat((totalSpend * monthlyFactor).toFixed(2)), totalPotentialMonthlySavings: parseFloat(totalSavings.toFixed(2)), cdrCount: cdrs.length, vendorCount: vendors.length, analysisDays: parseFloat(analysisDays.toFixed(1)), portfolioCPM: parseFloat(portfolioAvgCPM.toFixed(6)), lowestCPM: lowestCpm !== null ? parseFloat(lowestCpm.toFixed(6)) : null },
+        hours, generatedAt: new Date().toISOString(),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();
 
