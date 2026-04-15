@@ -9390,16 +9390,25 @@ export async function registerRoutes(
   // POST /api/keys           — create a new key
   // DELETE /api/keys/:id     — revoke a key
 
-  app.get('/api/keys', (req: any, res: any) => {
-    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
-    storage.getApiKeys(req.user.id).then(keys => res.json(keys)).catch((e: any) => res.status(500).json({ message: e.message }));
+  app.get('/api/keys', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user.claims?.sub;
+      const role = await storage.getUserRole(userId);
+      if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+      const keys = await storage.getApiKeys(userId);
+      res.json(keys);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   app.post('/api/keys', async (req: any, res: any) => {
     try {
       if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-      if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+      const userId = req.user.claims?.sub;
+      const role = await storage.getUserRole(userId);
+      if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
 
       const { name, permissions = [] } = req.body;
       if (!name || typeof name !== 'string') return res.status(400).json({ message: 'name is required' });
@@ -9408,7 +9417,7 @@ export async function registerRoutes(
       const keyHash  = createHash('sha256').update(rawKey).digest('hex');
       const keyPrefix = rawKey.slice(0, 12);
 
-      const row = await storage.createApiKey({ userId: req.user.id, name, keyHash, keyPrefix, permissions });
+      const row = await storage.createApiKey({ userId, name, keyHash, keyPrefix, permissions });
       res.json({ ...row, rawKey });   // rawKey shown ONCE then discarded
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -9418,8 +9427,10 @@ export async function registerRoutes(
   app.delete('/api/keys/:id', async (req: any, res: any) => {
     try {
       if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-      if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
-      await storage.revokeApiKey(Number(req.params.id), req.user.id);
+      const userId = req.user.claims?.sub;
+      const role = await storage.getUserRole(userId);
+      if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+      await storage.revokeApiKey(Number(req.params.id), userId);
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -9428,17 +9439,23 @@ export async function registerRoutes(
 
   // ── Dashboard Widget Prefs (Tier 5 — #20) ────────────────────────────────
   app.get('/api/user/dashboard-prefs', async (req: any, res: any) => {
-    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-    const prefs = await storage.getDashboardWidgetPrefs(req.user.id);
-    res.json({ hiddenWidgets: prefs?.hiddenWidgets ?? [], widgetOrder: prefs?.widgetOrder ?? [] });
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user.claims?.sub;
+      const prefs = await storage.getDashboardWidgetPrefs(userId);
+      res.json({ hiddenWidgets: prefs?.hiddenWidgets ?? [], widgetOrder: prefs?.widgetOrder ?? [] });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   app.put('/api/user/dashboard-prefs', async (req: any, res: any) => {
     try {
       if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user.claims?.sub;
       const { hiddenWidgets, widgetOrder } = req.body;
       if (!Array.isArray(hiddenWidgets)) return res.status(400).json({ message: 'hiddenWidgets must be an array' });
-      const prefs = await storage.setDashboardWidgetPrefs(req.user.id, hiddenWidgets, Array.isArray(widgetOrder) ? widgetOrder : []);
+      const prefs = await storage.setDashboardWidgetPrefs(userId, hiddenWidgets, Array.isArray(widgetOrder) ? widgetOrder : []);
       res.json({ hiddenWidgets: prefs.hiddenWidgets, widgetOrder: prefs.widgetOrder });
     } catch (e: any) {
       res.status(500).json({ message: e.message });

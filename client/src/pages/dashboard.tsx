@@ -196,7 +196,17 @@ export default function DashboardPage() {
   const savePrefsMutation = useMutation({
     mutationFn: ({ hidden, order }: { hidden: string[]; order: string[] }) =>
       apiRequest('PUT', '/api/user/dashboard-prefs', { hiddenWidgets: hidden, widgetOrder: order }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/user/dashboard-prefs'] }),
+    onMutate: async ({ hidden, order }) => {
+      await qc.cancelQueries({ queryKey: ['/api/user/dashboard-prefs'] });
+      const prev = qc.getQueryData<{ hiddenWidgets: string[]; widgetOrder: string[] }>(['/api/user/dashboard-prefs']);
+      qc.setQueryData(['/api/user/dashboard-prefs'], { hiddenWidgets: hidden, widgetOrder: order });
+      return { prev };
+    },
+    onError: (_err, _vars, ctx: any) => {
+      if (ctx?.prev) qc.setQueryData(['/api/user/dashboard-prefs'], ctx.prev);
+      toast({ title: 'Failed to save preferences', description: 'Please try again.', variant: 'destructive' });
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['/api/user/dashboard-prefs'] }),
   });
 
   const currentOrder: KpiWidgetId[] = (widgetPrefs?.widgetOrder?.length
@@ -278,6 +288,17 @@ export default function DashboardPage() {
     refetchInterval: 30000,
   });
   const recentFasEvents = (fasEventsData?.events ?? []).slice(0, 5);
+  const fasAll         = fasEventsData?.events ?? [];
+  const fasZeroBilled  = fasAll.filter((e: any) => (e.reason ?? '').includes('zero_billed')).length;
+  const fasHighPdd     = fasAll.filter((e: any) => (e.reason ?? '').includes('high_pdd')).length;
+  const fasShortBilled = fasAll.filter((e: any) => (e.reason ?? '').includes('short_billed')).length;
+  const fasEarlyAnswer = fasAll.filter((e: any) => (e.reason ?? '').includes('early_answer')).length;
+  const fasBarData = [
+    { name: 'Zero Billed',   count: fasZeroBilled,  fill: '#ef4444' },
+    { name: 'High PDD',      count: fasHighPdd,     fill: '#f97316' },
+    { name: 'Short Billed',  count: fasShortBilled, fill: '#a855f7' },
+    { name: 'Early Answer',  count: fasEarlyAnswer, fill: '#eab308' },
+  ];
 
   const { data: qualityTrend } = useQuery<{ ok: boolean; points: { ts: number; asr: number; acd: number }[] }>({
     queryKey: ['/api/sippy/monitoring/acd-asr', trendHours],
@@ -1470,114 +1491,101 @@ export default function DashboardPage() {
       </div>}{/* ── end Graphs Row grid ─── */}
 
       {/* ── FAS Events + Stats ───────────────────────────────────────────────── */}
-      {showWidget('fas_events') && (fasEventsData?.events ?? []).length > 0 && (() => {
-        const fasAll = fasEventsData!.events;
-        const zeroBilled  = fasAll.filter((e: any) => (e.reason ?? '').includes('zero_billed')).length;
-        const highPdd     = fasAll.filter((e: any) => (e.reason ?? '').includes('high_pdd')).length;
-        const shortBilled = fasAll.filter((e: any) => (e.reason ?? '').includes('short_billed')).length;
-        const earlyAnswer = fasAll.filter((e: any) => (e.reason ?? '').includes('early_answer')).length;
-        const fasBarData = [
-          { name: 'Zero Billed', count: zeroBilled,  fill: '#ef4444' },
-          { name: 'High PDD',    count: highPdd,     fill: '#f97316' },
-          { name: 'Short Billed',count: shortBilled, fill: '#a855f7' },
-          { name: 'Early Answer',count: earlyAnswer, fill: '#eab308' },
-        ];
-        return (
-          <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center gap-2 px-5 py-3 border-b border-rose-500/15">
-              <ShieldAlert className="w-4 h-4 text-rose-400" />
-              <h3 className="font-semibold text-sm text-rose-300">FAS Detections</h3>
-              <span className="ml-1 text-xs text-rose-400/70">— False Answer Supervision analysis</span>
-              <Link href="/fraud" className="ml-auto text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1">
-                View all <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
+      {showWidget('fas_events') && fasAll.length > 0 && (
+        <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-rose-500/15">
+            <ShieldAlert className="w-4 h-4 text-rose-400" />
+            <h3 className="font-semibold text-sm text-rose-300">FAS Detections</h3>
+            <span className="ml-1 text-xs text-rose-400/70">— False Answer Supervision analysis</span>
+            <Link href="/fraud" className="ml-auto text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1">
+              View all <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
 
-            {/* Stats + Chart row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-y md:divide-y-0 md:divide-x divide-rose-500/15">
-              {/* Stat chips */}
-              <div className="grid grid-cols-2 divide-x divide-y divide-rose-500/10">
-                {[
-                  { label: 'Zero Billed',  count: zeroBilled,  cls: 'text-red-400',    bg: 'bg-red-500/10'    },
-                  { label: 'High PDD',     count: highPdd,     cls: 'text-orange-400', bg: 'bg-orange-500/10' },
-                  { label: 'Short Billed', count: shortBilled, cls: 'text-violet-400', bg: 'bg-violet-500/10' },
-                  { label: 'Early Answer', count: earlyAnswer, cls: 'text-yellow-400', bg: 'bg-yellow-500/10' },
-                ].map(s => (
-                  <div key={s.label} className={`flex flex-col items-center justify-center py-5 px-3 ${s.bg}`}>
-                    <span className={`text-2xl font-bold tabular-nums ${s.cls}`}>{s.count}</span>
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1 text-center">{s.label}</span>
-                  </div>
-                ))}
-              </div>
-              {/* Bar chart */}
-              <div className="p-4">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Reason Breakdown</p>
-                <div className="h-[140px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={fasBarData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barCategoryGap="30%">
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
-                      <XAxis dataKey="name" stroke="#555" fontSize={9} tickLine={false} axisLine={false} />
-                      <YAxis stroke="#555" fontSize={9} tickLine={false} axisLine={false} allowDecimals={false} />
-                      <Tooltip contentStyle={{ backgroundColor: '#0f0f0f', borderColor: '#2a2a2a', borderRadius: '8px', fontSize: '11px' }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                      <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-                        {fasBarData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} fillOpacity={0.8} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+          {/* Stats + Chart row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-y md:divide-y-0 md:divide-x divide-rose-500/15">
+            {/* Stat chips */}
+            <div className="grid grid-cols-2 divide-x divide-y divide-rose-500/10">
+              {[
+                { label: 'Zero Billed',  count: fasZeroBilled,  cls: 'text-red-400',    bg: 'bg-red-500/10'    },
+                { label: 'High PDD',     count: fasHighPdd,     cls: 'text-orange-400', bg: 'bg-orange-500/10' },
+                { label: 'Short Billed', count: fasShortBilled, cls: 'text-violet-400', bg: 'bg-violet-500/10' },
+                { label: 'Early Answer', count: fasEarlyAnswer, cls: 'text-yellow-400', bg: 'bg-yellow-500/10' },
+              ].map(s => (
+                <div key={s.label} className={`flex flex-col items-center justify-center py-5 px-3 ${s.bg}`}>
+                  <span className={`text-2xl font-bold tabular-nums ${s.cls}`}>{s.count}</span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1 text-center">{s.label}</span>
                 </div>
-              </div>
+              ))}
             </div>
-
-            {/* Events feed */}
-            <div className="divide-y divide-rose-500/10 border-t border-rose-500/15">
-              {recentFasEvents.map((ev: any) => {
-                const reasons: string[] = (ev.reason ?? '').split(',').map((r: string) => r.trim()).filter(Boolean);
-                return (
-                  <div key={ev.id} className="flex items-center gap-4 px-5 py-2.5 text-xs hover:bg-rose-500/5">
-                    <div className="flex-shrink-0 text-muted-foreground/60 w-28">
-                      {formatUTC(new Date(ev.detectedAt), 'dd MMM HH:mm:ss')}
-                    </div>
-                    <div className="flex-shrink-0 min-w-[90px]">
-                      <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary/80 font-medium">
-                        {ev.clientName || 'Unknown'}
-                      </span>
-                    </div>
-                    <div className="flex-shrink-0">
-                      {ev.vendor ? (
-                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-medium">
-                          <Server className="h-2.5 w-2.5" />{ev.vendor}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground/40">—</span>
-                      )}
-                    </div>
-                    <div className="font-mono text-muted-foreground truncate">
-                      {ev.caller ?? '—'} <span className="text-muted-foreground/40">→</span> {ev.callee ?? '—'}
-                    </div>
-                    <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
-                      {reasons.map(r => (
-                        <span key={r} className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${
-                          r === 'high_pdd'    ? 'bg-orange-500/15 text-orange-400' :
-                          r === 'zero_billed' ? 'bg-red-500/15 text-red-400' :
-                          r === 'short_billed'? 'bg-violet-500/15 text-violet-400' :
-                          r === 'early_answer'? 'bg-yellow-500/15 text-yellow-400' :
-                          'bg-muted/30 text-muted-foreground'
-                        }`}>
-                          {r.replace(/_/g, ' ')}
-                        </span>
+            {/* Bar chart */}
+            <div className="p-4">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Reason Breakdown</p>
+              <div className="h-[140px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={fasBarData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barCategoryGap="30%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
+                    <XAxis dataKey="name" stroke="#555" fontSize={9} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#555" fontSize={9} tickLine={false} axisLine={false} allowDecimals={false} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f0f0f', borderColor: '#2a2a2a', borderRadius: '8px', fontSize: '11px' }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                    <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+                      {fasBarData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} fillOpacity={0.8} />
                       ))}
-                      <span className="ml-1 text-rose-400 font-bold">Score {ev.fraudScore ?? 0}</span>
-                    </div>
-                  </div>
-                );
-              })}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
-        );
-      })()}
+
+          {/* Events feed */}
+          <div className="divide-y divide-rose-500/10 border-t border-rose-500/15">
+            {recentFasEvents.map((ev: any) => {
+              const reasons: string[] = (ev.reason ?? '').split(',').map((r: string) => r.trim()).filter(Boolean);
+              return (
+                <div key={ev.id} className="flex items-center gap-4 px-5 py-2.5 text-xs hover:bg-rose-500/5">
+                  <div className="flex-shrink-0 text-muted-foreground/60 w-28">
+                    {formatUTC(new Date(ev.detectedAt), 'dd MMM HH:mm:ss')}
+                  </div>
+                  <div className="flex-shrink-0 min-w-[90px]">
+                    <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary/80 font-medium">
+                      {ev.clientName || 'Unknown'}
+                    </span>
+                  </div>
+                  <div className="flex-shrink-0">
+                    {ev.vendor ? (
+                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-medium">
+                        <Server className="h-2.5 w-2.5" />{ev.vendor}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/40">—</span>
+                    )}
+                  </div>
+                  <div className="font-mono text-muted-foreground truncate">
+                    {ev.caller ?? '—'} <span className="text-muted-foreground/40">→</span> {ev.callee ?? '—'}
+                  </div>
+                  <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+                    {reasons.map(r => (
+                      <span key={r} className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${
+                        r === 'high_pdd'    ? 'bg-orange-500/15 text-orange-400' :
+                        r === 'zero_billed' ? 'bg-red-500/15 text-red-400' :
+                        r === 'short_billed'? 'bg-violet-500/15 text-violet-400' :
+                        r === 'early_answer'? 'bg-yellow-500/15 text-yellow-400' :
+                        'bg-muted/30 text-muted-foreground'
+                      }`}>
+                        {r.replace(/_/g, ' ')}
+                      </span>
+                    ))}
+                    <span className="ml-1 text-rose-400 font-bold">Score {ev.fraudScore ?? 0}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
     </div>
   );
