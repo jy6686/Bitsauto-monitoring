@@ -1642,6 +1642,27 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // GET /api/sippy/available-methods — lists all XML-RPC methods registered on this Sippy
+  app.get('/api/sippy/available-methods', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const settings = await storage.getSettings();
+      if (!settings?.portalUrl) return res.json({ methods: [], error: 'Sippy not configured' });
+      // Try each credential pair; return on first success
+      const pairs = sippyXmlCredsPairs(settings);
+      for (const { username, password } of pairs) {
+        const result = await sippy.listAvailableMethods(username, password, settings.portalUrl);
+        if (result.methods.length > 0) return res.json(result);
+      }
+      // All pairs failed — return last error
+      const { username, password } = pairs[pairs.length - 1];
+      const result = await sippy.listAvailableMethods(username, password, settings.portalUrl);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ methods: [], error: e.message });
+    }
+  });
+
   // POST /api/sippy/make-call — originates a test call via Sippy makeCall XML-RPC (Vol 2 — #16)
   // Body: { cli, cld, iAccount? }
   app.post('/api/sippy/make-call', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {

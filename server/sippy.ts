@@ -1166,6 +1166,27 @@ export async function testSippyConnection(
   };
 }
 
+// ── listAvailableMethods — enumerate all XML-RPC methods on this Sippy ───────
+export async function listAvailableMethods(
+  username: string,
+  password: string,
+  portalUrl: string,
+): Promise<{ methods: string[]; error?: string }> {
+  try {
+    const apiUrl = `${sippyBase(portalUrl)}/xmlapi/xmlapi`;
+    const resp = await sippyPost(apiUrl, xmlRpcCall('i_version.listAvailableMethods'), username, password);
+    if (resp.statusCode === 401 || resp.statusCode === 403) {
+      return { methods: [], error: `HTTP ${resp.statusCode} — authentication failed` };
+    }
+    // Extract all <string> values from the response
+    const matches = resp.body.match(/<string>([^<]+)<\/string>/g) ?? [];
+    const methods = matches.map((m: string) => m.replace(/<\/?string>/g, '').trim()).filter(Boolean);
+    return { methods };
+  } catch (err: any) {
+    return { methods: [], error: err.message };
+  }
+}
+
 // ── Login (connect and store session) ────────────────────────────────────────
 
 export async function connectSippy(
@@ -1389,10 +1410,12 @@ export async function makeCall(
   if (opts.iAccount)    params.i_account    = opts.iAccount;
   if (opts.billingCode) params.billing_code = opts.billingCode;
 
-  // Try method names in order of preference:
-  // 1. call_control.makeCall  — namespaced, preferred in Sippy 4.x+
-  // 2. makeCall               — legacy bare name, older Sippy builds
-  const methodsToTry = ['call_control.makeCall', 'makeCall'];
+  // Try method names in order of preference across Sippy versions / builds:
+  // 1. call_control.makeCall  — namespaced, Sippy 4.x+
+  // 2. makeCall               — legacy bare name
+  // 3. make_call              — snake_case variant used in some distributions
+  // 4. originate              — used in some custom Sippy forks
+  const methodsToTry = ['call_control.makeCall', 'makeCall', 'make_call', 'originate'];
 
   for (const method of methodsToTry) {
     try {

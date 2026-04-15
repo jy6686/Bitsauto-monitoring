@@ -65,6 +65,10 @@ export default function TestCallPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [callResult, setCallResult] = useState<CallResult>(null);
+  const [showMethods, setShowMethods] = useState(false);
+  const [methodsLoading, setMethodsLoading] = useState(false);
+  const [availableMethods, setAvailableMethods] = useState<string[] | null>(null);
+  const [methodsError, setMethodsError] = useState<string | null>(null);
 
   // Read pre-filled values from query string (?cli=X&cld=Y)
   const params = new URLSearchParams(window.location.search);
@@ -132,6 +136,26 @@ export default function TestCallPage() {
   function onSubmit(values: FormValues) {
     setCallResult(null);
     makeMutation.mutate(values);
+  }
+
+  async function checkAvailableMethods() {
+    setMethodsLoading(true);
+    setShowMethods(true);
+    setAvailableMethods(null);
+    setMethodsError(null);
+    try {
+      const res = await fetch('/api/sippy/available-methods');
+      const data = await res.json();
+      if (data.error && !data.methods?.length) {
+        setMethodsError(data.error);
+      } else {
+        setAvailableMethods(data.methods ?? []);
+      }
+    } catch (err: any) {
+      setMethodsError(err.message);
+    } finally {
+      setMethodsLoading(false);
+    }
   }
 
   function prefillFromLog(log: TestCallLog) {
@@ -303,16 +327,61 @@ export default function TestCallPage() {
                         <li>Enable <code className="bg-background px-1 rounded font-mono">makeCall</code> for the API user account (RTST1)</li>
                         <li>Alternatively, add <code className="bg-background px-1 rounded font-mono">call_control.makeCall</code> permission</li>
                       </ol>
-                      <p className="text-xs text-muted-foreground">
-                        In the meantime, use the <strong className="text-foreground/70">Call Flow Simulator</strong> to verify your routing logic without actually placing a call.
-                      </p>
-                      <a
-                        href="/call-flow-simulator"
-                        className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
-                        data-testid="link-call-flow-simulator"
-                      >
-                        Open Call Flow Simulator <ExternalLink className="h-3 w-3" />
-                      </a>
+                      <div className="flex flex-wrap items-center gap-3 pt-1">
+                        <button
+                          onClick={checkAvailableMethods}
+                          disabled={methodsLoading}
+                          className="inline-flex items-center gap-1.5 text-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 px-3 py-1.5 rounded-md font-medium transition-colors disabled:opacity-60"
+                          data-testid="button-check-methods"
+                        >
+                          {methodsLoading
+                            ? <><Loader2 className="h-3 w-3 animate-spin" /> Checking…</>
+                            : <><Settings className="h-3 w-3" /> Check Available Methods on this Sippy</>
+                          }
+                        </button>
+                        <a
+                          href="/call-flow-simulator"
+                          className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
+                          data-testid="link-call-flow-simulator"
+                        >
+                          Open Call Flow Simulator <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                      {showMethods && (
+                        <div className="mt-3 rounded-md bg-background border border-border p-3 max-h-48 overflow-y-auto">
+                          {methodsLoading ? (
+                            <p className="text-xs text-muted-foreground">Loading XML-RPC method list…</p>
+                          ) : methodsError ? (
+                            <p className="text-xs text-rose-400">Error: {methodsError}</p>
+                          ) : availableMethods && availableMethods.length > 0 ? (
+                            <>
+                              <p className="text-xs font-semibold text-foreground/80 mb-2">
+                                {availableMethods.length} methods found.{" "}
+                                {availableMethods.some(m => m.toLowerCase().includes('call'))
+                                  ? <span className="text-emerald-400">Call-related methods detected ↓</span>
+                                  : <span className="text-amber-400">No call origination methods found.</span>
+                                }
+                              </p>
+                              <div className="space-y-0.5">
+                                {availableMethods
+                                  .sort((a, b) => {
+                                    const aCall = a.toLowerCase().includes('call');
+                                    const bCall = b.toLowerCase().includes('call');
+                                    return aCall === bCall ? a.localeCompare(b) : aCall ? -1 : 1;
+                                  })
+                                  .map(m => (
+                                    <div key={m} className={`text-xs font-mono px-1.5 py-0.5 rounded ${m.toLowerCase().includes('call') ? 'text-emerald-400 bg-emerald-500/5' : 'text-muted-foreground'}`}>
+                                      {m}
+                                    </div>
+                                  ))
+                                }
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">No methods returned — authentication may have failed.</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
