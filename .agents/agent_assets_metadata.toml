@@ -12,3 +12,9 @@ id = "ZzSmPyvxrbYA99V5wBtd5"
 uri = "file://attached_assets/voip-feature-roadmap.md"
 type = "text"
 title = "VoIP Watcher — Feature Roadmap & Proposals"
+
+[[outputs]]
+id = "sUlqpJExleydmqnUIkQIi"
+uri = "file://attached_assets/VoIP_Watcher_Feature_Roadmap.docx"
+type = "word_document"
+title = "VoIP Watcher — Feature Roadmap & Proposals (.docx)"
