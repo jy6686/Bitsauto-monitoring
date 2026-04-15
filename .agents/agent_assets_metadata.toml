@@ -6,3 +6,9 @@ id = "Zeu9soD5hZx1Jn-TFE7OI"
 uri = "file://APP_DOCUMENTATION.md"
 type = "text"
 title = "VoIP Watcher — Complete Application Documentation"
+
+[[outputs]]
+id = "ZzSmPyvxrbYA99V5wBtd5"
+uri = "file://attached_assets/voip-feature-roadmap.md"
+type = "text"
+title = "VoIP Watcher — Feature Roadmap & Proposals"
