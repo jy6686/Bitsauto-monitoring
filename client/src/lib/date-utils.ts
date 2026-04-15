@@ -1,9 +1,108 @@
 /**
- * UTC date utilities — all display and input handling is UTC (GMT+00).
- * Never use date-fns format() or browser-local Date methods for display.
+ * Date utilities — UTC baseline with optional timezone-aware variants.
+ * formatInTz / toTzDateInput / tzDateToUTC / toSippyDateTz are TZ-aware.
+ * All UTC functions remain unchanged for backwards compatibility.
  */
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// ── Timezone-aware helpers ────────────────────────────────────────────────────
+
+/**
+ * Format a Date in a given IANA timezone using named patterns.
+ * Falls back to formatUTC when tz === 'UTC'.
+ */
+export function formatInTz(d: Date | number | string, pattern: string, tz: string): string {
+  if (!tz || tz === 'UTC') return formatUTC(d, pattern);
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return '—';
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).formatToParts(dt);
+
+  const get = (type: string) => parts.find(p => p.type === type)?.value ?? '00';
+
+  const Y   = get('year');
+  const Mo  = get('month');
+  const D2  = get('day');
+  const D1  = String(parseInt(D2, 10));
+  const H   = get('hour') === '24' ? '00' : get('hour');
+  const Mi  = get('minute');
+  const S   = get('second');
+  const Mon = MONTHS_SHORT[parseInt(Mo, 10) - 1] ?? '';
+
+  return pattern
+    .replace("yyyy-MM-dd'T'HH:mm",      `${Y}-${Mo}-${D2}T${H}:${Mi}`)
+    .replace('yyyyMMdd_HHmmss',          `${Y}${Mo}${D2}_${H}${Mi}${S}`)
+    .replace('yyyyMMdd_HHmm',            `${Y}${Mo}${D2}_${H}${Mi}`)
+    .replace('dd MMM yyyy HH:mm:ss',     `${D2} ${Mon} ${Y} ${H}:${Mi}:${S}`)
+    .replace('dd MMM yyyy HH:mm',        `${D2} ${Mon} ${Y} ${H}:${Mi}`)
+    .replace('MMM d, yyyy HH:mm:ss',     `${Mon} ${D1}, ${Y} ${H}:${Mi}:${S}`)
+    .replace('MMM d, yyyy HH:mm',        `${Mon} ${D1}, ${Y} ${H}:${Mi}`)
+    .replace('d MMM HH:mm:ss',           `${D1} ${Mon} ${H}:${Mi}:${S}`)
+    .replace('d MMM HH:mm',              `${D1} ${Mon} ${H}:${Mi}`)
+    .replace('MMM d, HH:mm:ss',          `${Mon} ${D1}, ${H}:${Mi}:${S}`)
+    .replace('MMM d, HH:mm',             `${Mon} ${D1}, ${H}:${Mi}`)
+    .replace('HH:mm:ss',                 `${H}:${Mi}:${S}`)
+    .replace('HH:mm',                    `${H}:${Mi}`)
+    .replace('mm:ss',                    `${Mi}:${S}`);
+}
+
+/**
+ * Convert a UTC Date to a "datetime-local" input string expressed in the given timezone.
+ * e.g. a UTC Date for 13:00 UTC with tz="America/New_York" → "2026-04-15T09:00"
+ */
+export function toTzDateInput(d: Date, tz: string): string {
+  if (!tz || tz === 'UTC') return toUTCDateInput(d);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const get = (type: string) => parts.find(p => p.type === type)?.value ?? '00';
+  const H = get('hour') === '24' ? '00' : get('hour');
+  return `${get('year')}-${get('month')}-${get('day')}T${H}:${get('minute')}`;
+}
+
+/**
+ * Interpret a "datetime-local" input string as being in the given timezone and return
+ * the corresponding UTC Date.
+ * e.g. "2026-04-15T09:00" in "America/New_York" → Date for 13:00 UTC (UTC-4 in April)
+ */
+export function tzDateToUTC(localDtStr: string, tz: string): Date {
+  if (!tz || tz === 'UTC') {
+    return new Date(localDtStr.length === 16 ? localDtStr + ':00Z' : localDtStr + 'Z');
+  }
+  // "toLocaleString offset" trick: find the UTC time whose TZ representation equals localDtStr
+  const asIfUTC = new Date(localDtStr.length === 16 ? localDtStr + ':00Z' : localDtStr + 'Z');
+  const tzStr  = asIfUTC.toLocaleString('en-US', { timeZone: tz });
+  const tzDate = new Date(tzStr);
+  const offset = asIfUTC.getTime() - tzDate.getTime();
+  return new Date(asIfUTC.getTime() + offset);
+}
+
+/**
+ * Convert a "datetime-local" input (interpreted in the given timezone) to Sippy's
+ * date format "MM/DD/YYYY HH:MM:SS" (which Sippy always treats as UTC).
+ */
+export function toSippyDateTz(localDt: string, tz: string): string {
+  if (!localDt) return '';
+  if (!tz || tz === 'UTC') return toSippyDateUTC(localDt);
+  const utc = tzDateToUTC(localDt, tz);
+  if (isNaN(utc.getTime())) return localDt;
+  const mm  = String(utc.getUTCMonth() + 1).padStart(2, '0');
+  const dd  = String(utc.getUTCDate()).padStart(2, '0');
+  const yy  = utc.getUTCFullYear();
+  const hh  = String(utc.getUTCHours()).padStart(2, '0');
+  const min = String(utc.getUTCMinutes()).padStart(2, '0');
+  return `${mm}/${dd}/${yy} ${hh}:${min}:00`;
+}
+
+// ── UTC helpers (unchanged) ──────────────────────────────────────────────────
 
 /** Format a Date in UTC using the given named pattern. */
 export function formatUTC(d: Date | number | string, pattern: string): string {

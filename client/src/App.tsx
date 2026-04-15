@@ -38,6 +38,7 @@ class GlobalErrorBoundary extends Component<{ children: ReactNode }, { error: Er
 }
 
 import { ThemeProvider } from "@/hooks/use-theme";
+import { TimezoneProvider } from "@/context/timezone-context";
 import ApiKeysPage from "@/pages/api-keys";
 import TestCallPage from "@/pages/test-call";
 import LcrAnalyserPage from "@/pages/lcr-analyser";
@@ -232,12 +233,14 @@ function App() {
   return (
     <GlobalErrorBoundary>
       <ThemeProvider>
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <Toaster />
-            <Router />
-          </TooltipProvider>
-        </QueryClientProvider>
+        <TimezoneProvider>
+          <QueryClientProvider client={queryClient}>
+            <TooltipProvider>
+              <Toaster />
+              <Router />
+            </TooltipProvider>
+          </QueryClientProvider>
+        </TimezoneProvider>
       </ThemeProvider>
     </GlobalErrorBoundary>
   );

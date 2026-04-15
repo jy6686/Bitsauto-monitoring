@@ -15,7 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
-import { toUTCDateInput, toSippyDateUTC } from "@/lib/date-utils";
+import { toTzDateInput, toSippyDateTz } from "@/lib/date-utils";
+import { useTimezone } from "@/context/timezone-context";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -97,10 +98,10 @@ const TABS: { id: Tab; label: string; icon: typeof Wrench }[] = [
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function toLocalDateInput(d: Date) { return toUTCDateInput(d); }
+function toLocalDateInput(d: Date, tz: string) { return toTzDateInput(d, tz); }
 
-function sipDate(localDt: string) {
-  return toSippyDateUTC(localDt);
+function sipDate(localDt: string, tz: string) {
+  return toSippyDateTz(localDt, tz);
 }
 
 function kbpsToMbps(kbps: number) { return (kbps / 1000).toFixed(2); }
@@ -122,8 +123,9 @@ function StatPill({ label, value, sub }: { label: string; value: string; sub?: s
 function CarrierQualityTab() {
   const now = new Date();
   const yesterday = new Date(now.getTime() - 86400000);
-  const [startDate, setStartDate] = useState(toLocalDateInput(yesterday));
-  const [endDate, setEndDate]     = useState(toLocalDateInput(now));
+  const { tz } = useTimezone();
+  const [startDate, setStartDate] = useState(() => toLocalDateInput(yesterday, tz));
+  const [endDate, setEndDate]     = useState(() => toLocalDateInput(now, tz));
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResult | null>(null);
 
   const { data: vsData } = useQuery<{ vendorScores: VendorFraudStats[] }>({
@@ -133,7 +135,7 @@ function CarrierQualityTab() {
   const analyzeMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("POST", "/api/fas/analyze", {
-        startDate: sipDate(startDate), endDate: sipDate(endDate), limit: 500,
+        startDate: sipDate(startDate, tz), endDate: sipDate(endDate, tz), limit: 500,
       }).then(r => r.json()) as Promise<AnalyzeResult>;
     },
     onSuccess: setAnalyzeResult,
@@ -141,7 +143,7 @@ function CarrierQualityTab() {
 
   function setPreset(hours: number) {
     const e = new Date(), s = new Date(e.getTime() - hours * 3600000);
-    setStartDate(toLocalDateInput(s)); setEndDate(toLocalDateInput(e));
+    setStartDate(toLocalDateInput(s, tz)); setEndDate(toLocalDateInput(e, tz));
   }
 
   const rawScores = analyzeResult?.vendorScores ?? vsData?.vendorScores ?? [];

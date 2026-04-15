@@ -1,11 +1,12 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  formatUTC, toUTCDateInput,
+  formatUTC, formatInTz, toTzDateInput, tzDateToUTC,
   subMinutesUTC, subHoursUTC, subDaysUTC, subWeeksUTC, subMonthsUTC,
   startOfDayUTC, endOfDayUTC, startOfWeekUTC, endOfWeekUTC,
   startOfMonthUTC, endOfMonthUTC,
 } from "@/lib/date-utils";
+import { useTimezone } from "@/context/timezone-context";
 import {
   Download, RefreshCw, Filter, TrendingUp, TrendingDown, Minus,
   Calendar, Clock, Globe, Building2, PhoneCall, CheckCircle2, PhoneOff,
@@ -76,8 +77,8 @@ function fmtDuration(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
-function toInput(d: Date): string {
-  return toUTCDateInput(d);
+function toInput(d: Date, tz: string): string {
+  return toTzDateInput(d, tz);
 }
 
 const PRESET_GROUPS = [
@@ -148,9 +149,10 @@ function matchProfile(
 export default function ReportsPage() {
   const now = new Date();
   const qc = useQueryClient();
+  const { tz, tzAbbr } = useTimezone();
 
-  const [startTime, setStartTime] = useState(toInput(subHoursUTC(now, 3)));
-  const [endTime,   setEndTime]   = useState(toInput(now));
+  const [startTime, setStartTime] = useState(() => toInput(subHoursUTC(now, 3), tz));
+  const [endTime,   setEndTime]   = useState(() => toInput(now, tz));
   const [activePreset, setActivePreset] = useState("Last 3 hr");
   const [cliFilter, setCliFilter]  = useState("");
   const [cldFilter, setCldFilter]  = useState("");
@@ -161,7 +163,7 @@ export default function ReportsPage() {
   const [hideEmpty, setHideEmpty] = useState(true);
 
   const [applied, setApplied] = useState({
-    cliFilter, cldFilter, startTime, endTime, groupBy, sortBy, hideEmpty,
+    cliFilter, cldFilter, startTime, endTime, groupBy, sortBy, hideEmpty, tz,
   });
 
   const { data: profiles = [] } = useQuery<ClientProfile[]>({
@@ -191,8 +193,8 @@ export default function ReportsPage() {
       const params = new URLSearchParams();
       if (applied.cliFilter)  params.set('cli',       applied.cliFilter);
       if (applied.cldFilter)  params.set('cld',       applied.cldFilter);
-      if (applied.startTime)  params.set('startTime', applied.startTime.length === 16 ? applied.startTime + ':00Z' : applied.startTime);
-      if (applied.endTime)    params.set('endTime',   applied.endTime.length   === 16 ? applied.endTime   + ':00Z' : applied.endTime);
+      if (applied.startTime)  params.set('startTime', tzDateToUTC(applied.startTime, applied.tz).toISOString());
+      if (applied.endTime)    params.set('endTime',   tzDateToUTC(applied.endTime, applied.tz).toISOString());
       params.set('groupBy',   applied.groupBy);
       params.set('sortBy',    applied.sortBy);
       params.set('hideEmpty', String(applied.hideEmpty));
@@ -215,19 +217,20 @@ export default function ReportsPage() {
   }, [rows, partyType, profiles, groupBy]);
 
   function applyFilters() {
-    setApplied({ cliFilter, cldFilter, startTime, endTime, groupBy, sortBy, hideEmpty });
+    setApplied({ cliFilter, cldFilter, startTime, endTime, groupBy, sortBy, hideEmpty, tz });
   }
 
   function applyPreset(label: string, fn: () => [Date, Date]) {
     const [start, end] = fn();
-    setStartTime(toInput(start));
-    setEndTime(toInput(end));
+    setStartTime(toInput(start, tz));
+    setEndTime(toInput(end, tz));
     setActivePreset(label);
     // Auto-apply immediately
     setApplied(prev => ({
       ...prev,
-      startTime: toInput(start),
-      endTime:   toInput(end),
+      startTime: toInput(start, tz),
+      endTime:   toInput(end, tz),
+      tz,
     }));
   }
 
@@ -289,8 +292,8 @@ export default function ReportsPage() {
     };
   }, [displayRows, profiles]);
 
-  const toUTCDate = (s: string) => new Date(s.length === 16 ? s + ':00Z' : s);
-  const rangeLabel = `${formatUTC(toUTCDate(applied.startTime || startTime), 'd MMM HH:mm')} → ${formatUTC(toUTCDate(applied.endTime || endTime), 'd MMM HH:mm')} UTC`;
+  const toAppliedUTC = (s: string) => tzDateToUTC(s, applied.tz || tz);
+  const rangeLabel = `${formatInTz(toAppliedUTC(applied.startTime || startTime), 'd MMM HH:mm', applied.tz || tz)} → ${formatInTz(toAppliedUTC(applied.endTime || endTime), 'd MMM HH:mm', applied.tz || tz)} ${tzAbbr}`;
 
   return (
     <div className="space-y-6">
@@ -302,7 +305,7 @@ export default function ReportsPage() {
             <Calendar className="w-3.5 h-3.5" />
             {rangeLabel}
             {dataUpdatedAt > 0 && (
-              <span className="text-muted-foreground/50 ml-2">· Updated {formatUTC(new Date(dataUpdatedAt), 'HH:mm:ss')} UTC</span>
+              <span className="text-muted-foreground/50 ml-2">· Updated {formatInTz(new Date(dataUpdatedAt), 'HH:mm:ss', tz)} {tzAbbr}</span>
             )}
           </p>
         </div>
@@ -330,6 +333,7 @@ export default function ReportsPage() {
             <div className="flex items-center gap-2 mb-3">
               <Clock className="w-3.5 h-3.5 text-muted-foreground" />
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Time Range</span>
+              <span className="text-xs text-muted-foreground/60 ml-1">({tzAbbr})</span>
             </div>
 
             {/* Preset groups */}
@@ -359,7 +363,7 @@ export default function ReportsPage() {
             {/* Custom date inputs */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground uppercase tracking-wider">From <span className="normal-case font-medium text-primary/60">(UTC)</span></label>
+                <label className="text-xs text-muted-foreground uppercase tracking-wider">From <span className="normal-case font-medium text-primary/60">({tzAbbr})</span></label>
                 <input
                   data-testid="input-start-time"
                   type="datetime-local"
@@ -369,7 +373,7 @@ export default function ReportsPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground uppercase tracking-wider">To <span className="normal-case font-medium text-primary/60">(UTC)</span></label>
+                <label className="text-xs text-muted-foreground uppercase tracking-wider">To <span className="normal-case font-medium text-primary/60">({tzAbbr})</span></label>
                 <input
                   data-testid="input-end-time"
                   type="datetime-local"
@@ -592,7 +596,7 @@ export default function ReportsPage() {
               {/* Chart */}
               <ResponsiveContainer width="100%" height={280}>
                 <ComposedChart data={monitorData.points.map(p => ({
-                  time: formatUTC(new Date(p.ts * 1000), 'HH:mm'),
+                  time: formatInTz(new Date(p.ts * 1000), 'HH:mm', applied.tz || tz),
                   acd:  p.acd != null ? Math.round(p.acd) : undefined,
                   asr:  p.asr != null ? parseFloat(p.asr.toFixed(1)) : undefined,
                 }))}>

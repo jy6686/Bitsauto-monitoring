@@ -4,11 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearch, Link } from "wouter";
 import * as XLSX from "xlsx";
 import {
-  formatUTC, toUTCDateInput,
+  formatUTC, formatInTz, toTzDateInput, tzDateToUTC,
   subMinutesUTC, subHoursUTC, subDaysUTC, subWeeksUTC, subMonthsUTC,
   startOfDayUTC, endOfDayUTC, startOfWeekUTC, endOfWeekUTC,
   startOfMonthUTC, endOfMonthUTC,
 } from "@/lib/date-utils";
+import { useTimezone } from "@/context/timezone-context";
 import {
   RefreshCw, Download, Phone, PhoneOff, PhoneMissed,
   ChevronLeft, ChevronRight, Filter, X, Clock,
@@ -22,8 +23,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-function toInput(d: Date): string {
-  return toUTCDateInput(d);
+function toInput(d: Date, tz: string): string {
+  return toTzDateInput(d, tz);
 }
 
 function fmtDurSec(seconds: number): string {
@@ -57,10 +58,10 @@ function parseSippyRawDate(raw: string): Date | null {
   return null;
 }
 
-function fmtSetupTime(raw: string): string {
+function fmtSetupTime(raw: string, tz: string): string {
   if (!raw || raw === '-') return '-';
   const d = parseSippyRawDate(raw);
-  if (d) return formatUTC(d, 'dd MMM yyyy HH:mm:ss');
+  if (d) return formatInTz(d, 'dd MMM yyyy HH:mm:ss', tz);
   return raw;
 }
 
@@ -144,13 +145,14 @@ export default function CDRsPage() {
   const search = useSearch();
   const view = (new URLSearchParams(search).get('view') ?? 'client') as 'client' | 'vendor';
   const isVendor = view === 'vendor';
+  const { tz, tzAbbr } = useTimezone();
 
   const defaultStart = subHoursUTC(new Date(), 24);
   const defaultEnd   = new Date();
   const [start, setStart]       = useState(defaultStart);
   const [end,   setEnd]         = useState(defaultEnd);
-  const [startInput, setStartInput] = useState(toInput(defaultStart));
-  const [endInput,   setEndInput]   = useState(toInput(defaultEnd));
+  const [startInput, setStartInput] = useState(() => toInput(defaultStart, tz));
+  const [endInput,   setEndInput]   = useState(() => toInput(defaultEnd, tz));
   const [callType,  setCallType]    = useState('non_zero');
   const [cli,       setCli]         = useState('');
   const [cld,       setCld]         = useState('');
@@ -205,9 +207,8 @@ export default function CDRsPage() {
   const hasMore = cdrs.length === PAGE_SIZE;
 
   function applyFilters() {
-    const parseUTC = (v: string) => new Date(v.length === 16 ? v + ':00Z' : v);
-    const s = parseUTC(startInput);
-    const e = parseUTC(endInput);
+    const s = tzDateToUTC(startInput, tz);
+    const e = tzDateToUTC(endInput, tz);
     if (isNaN(s.getTime()) || isNaN(e.getTime())) return;
     setStart(s); setEnd(e);
     setApplied({ start: s, end: e, callType, cli, cld });
@@ -217,7 +218,7 @@ export default function CDRsPage() {
   function applyPreset(fn: () => [Date, Date]) {
     const [s, e] = fn();
     setStart(s); setEnd(e);
-    setStartInput(toInput(s)); setEndInput(toInput(e));
+    setStartInput(toInput(s, tz)); setEndInput(toInput(e, tz));
     setApplied({ start: s, end: e, callType, cli, cld });
     setPage(0);
   }
@@ -260,7 +261,7 @@ export default function CDRsPage() {
         m?.country || c.country || '',
         m?.breakout || '',
         c.areaName || c.description || '',
-        fmtSetupTime(c.startTime),
+        fmtSetupTime(c.startTime, tz),
         fmtDurSec(c.totalDuration || 0),
         fmtDurSec(c.duration || 0),
         fmtCurrency(c.cost || 0),
@@ -365,7 +366,7 @@ export default function CDRsPage() {
         {/* Date + filters row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Start Date/Time <span className="font-medium text-primary/60">(UTC)</span></label>
+            <label className="text-xs text-muted-foreground">Start Date/Time <span className="font-medium text-primary/60">({tzAbbr})</span></label>
             <Input
               type="datetime-local"
               value={startInput}
@@ -375,7 +376,7 @@ export default function CDRsPage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">End Date/Time <span className="font-medium text-primary/60">(UTC)</span></label>
+            <label className="text-xs text-muted-foreground">End Date/Time <span className="font-medium text-primary/60">({tzAbbr})</span></label>
             <Input
               type="datetime-local"
               value={endInput}
@@ -439,7 +440,7 @@ export default function CDRsPage() {
             </Button>
           )}
           <span className="text-xs text-muted-foreground ml-auto">
-            {formatUTC(applied.start, 'dd MMM yyyy HH:mm')} → {formatUTC(applied.end, 'dd MMM yyyy HH:mm')} UTC
+            {formatInTz(applied.start, 'dd MMM yyyy HH:mm', tz)} → {formatInTz(applied.end, 'dd MMM yyyy HH:mm', tz)} {tzAbbr}
           </span>
         </div>
       </div>
@@ -625,7 +626,7 @@ export default function CDRsPage() {
                       {cdr.areaName || cdr.description || '-'}
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-foreground/60 whitespace-nowrap">
-                      {fmtSetupTime(cdr.startTime)}
+                      {fmtSetupTime(cdr.startTime, tz)}
                     </td>
                     <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
                       <span className={isAnswered ? "text-emerald-400" : "text-muted-foreground/50"}>

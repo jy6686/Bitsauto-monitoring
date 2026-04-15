@@ -14,7 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { toUTCDateInput, toSippyDateUTC, formatUTC } from "@/lib/date-utils";
+import { toTzDateInput, toSippyDateTz, formatInTz } from "@/lib/date-utils";
+import { useTimezone } from "@/context/timezone-context";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -89,8 +90,8 @@ type BlacklistRule = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function toLocalDateInput(d: Date) {
-  return toUTCDateInput(d);
+function toLocalDateInput(d: Date, tz: string) {
+  return toTzDateInput(d, tz);
 }
 
 function reasonBadges(reason: string | null) {
@@ -144,8 +145,9 @@ export default function FraudPage() {
   // Date range for analysis
   const now = new Date();
   const yesterday = new Date(now.getTime() - 86400000);
-  const [startDate, setStartDate] = useState(toLocalDateInput(yesterday));
-  const [endDate, setEndDate]     = useState(toLocalDateInput(now));
+  const { tz, tzAbbr } = useTimezone();
+  const [startDate, setStartDate] = useState(() => toLocalDateInput(yesterday, tz));
+  const [endDate, setEndDate]     = useState(() => toLocalDateInput(now, tz));
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResult | null>(null);
 
   // FAS events from DB
@@ -178,14 +180,14 @@ export default function FraudPage() {
   });
 
   function sipDate(localDt: string) {
-    return toSippyDateUTC(localDt);
+    return toSippyDateTz(localDt, tz);
   }
 
   function setPreset(hours: number) {
     const e = new Date();
     const s = new Date(e.getTime() - hours * 3600000);
-    setStartDate(toLocalDateInput(s));
-    setEndDate(toLocalDateInput(e));
+    setStartDate(toLocalDateInput(s, tz));
+    setEndDate(toLocalDateInput(e, tz));
   }
 
   const events = eventsData?.events ?? [];
@@ -318,12 +320,12 @@ export default function FraudPage() {
             ))}
           </div>
           <div>
-            <Label className="text-xs text-muted-foreground mb-1">From <span className="font-medium text-primary/60">(UTC)</span></Label>
+            <Label className="text-xs text-muted-foreground mb-1">From <span className="font-medium text-primary/60">({tzAbbr})</span></Label>
             <Input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)}
               className="h-8 text-xs w-48" data-testid="input-start-date" />
           </div>
           <div>
-            <Label className="text-xs text-muted-foreground mb-1">To <span className="font-medium text-primary/60">(UTC)</span></Label>
+            <Label className="text-xs text-muted-foreground mb-1">To <span className="font-medium text-primary/60">({tzAbbr})</span></Label>
             <Input type="datetime-local" value={endDate} onChange={e => setEndDate(e.target.value)}
               className="h-8 text-xs w-48" data-testid="input-end-date" />
           </div>
@@ -409,7 +411,7 @@ export default function FraudPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground">
-                    <th className="px-4 py-3 text-left">Time (UTC)</th>
+                    <th className="px-4 py-3 text-left">Time ({tzAbbr})</th>
                     <th className="px-4 py-3 text-left">Client</th>
                     <th className="px-4 py-3 text-left">Vendor</th>
                     <th className="px-4 py-3 text-left">Caller → Callee</th>
@@ -425,7 +427,7 @@ export default function FraudPage() {
                       className="border-b border-border/50 hover:bg-muted/20 transition-colors"
                       data-testid={`row-fas-${event.id}`}>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                        {formatUTC(new Date(event.detectedAt), 'dd MMM yyyy HH:mm:ss')}
+                        {formatInTz(new Date(event.detectedAt), 'dd MMM yyyy HH:mm:ss', tz)}
                       </td>
                       <td className="px-4 py-3">
                         <span className="text-xs font-medium text-primary/90">
@@ -692,7 +694,7 @@ export default function FraudPage() {
                   <tbody>
                     {irsfEvents.slice(0, 100).map(ev => (
                       <tr key={ev.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-                        <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{formatUTC(new Date(ev.detectedAt), 'dd MMM yyyy HH:mm:ss')}</td>
+                        <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{formatInTz(new Date(ev.detectedAt), 'dd MMM yyyy HH:mm:ss', tz)}</td>
                         <td className="px-4 py-2.5 font-mono text-xs">{ev.caller ?? "—"}</td>
                         <td className="px-4 py-2.5 font-mono text-xs text-red-400">{ev.callee ?? "—"}</td>
                         <td className="px-4 py-2.5 text-xs">{ev.clientName ?? "—"}</td>

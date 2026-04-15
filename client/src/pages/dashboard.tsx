@@ -78,6 +78,8 @@ import {
 import { formatUTC } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import { lookupCountry } from "@/lib/country-lookup";
+import { useTimezone, TZ_OPTIONS, getTzAbbr } from "@/context/timezone-context";
+import { formatInTz } from "@/lib/date-utils";
 
 // Parses Sippy's non-standard timestamp "20260411T20:20:32.055" → ms since epoch
 function parseSippyTime(setupTime: string): number | null {
@@ -160,6 +162,24 @@ export default function DashboardPage() {
   const { data: recentCalls } = useCalls(5);
   const { data: settings } = useSettings();
   const [trendHours, setTrendHours] = useState(1);
+
+  // ── App clock ────────────────────────────────────────────────────────────────
+  const { tz, setTz, tzAbbr } = useTimezone();
+  const [clockDisplay, setClockDisplay] = useState({ time: '', date: '', abbr: '' });
+  const [tzPickerOpen, setTzPickerOpen] = useState(false);
+
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      const time = now.toLocaleTimeString('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+      const date = now.toLocaleDateString('en-GB', { timeZone: tz, day: '2-digit', month: 'short', year: 'numeric' });
+      const abbr = getTzAbbr(tz);
+      setClockDisplay({ time, date, abbr });
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [tz]);
 
   // Viewer's own monitoring assignments — fetched for all, used only for viewer role
   const { data: myAssignmentsData } = useQuery<{ userId: string; items: string[] }>({
@@ -896,7 +916,55 @@ export default function DashboardPage() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {/* ── NOC Clock ────────────────────────────────────────────────────── */}
+          <div className="relative" data-testid="noc-clock">
+            <div
+              className="flex flex-col items-end cursor-pointer select-none rounded-xl border border-border/50 bg-card/70 px-4 py-2 hover:bg-muted/30 transition-colors"
+              onClick={() => setTzPickerOpen(o => !o)}
+              data-testid="button-clock-tz-edit"
+              title="Click to change timezone"
+            >
+              <span className="font-mono text-2xl font-bold tabular-nums leading-none tracking-tight text-foreground">
+                {clockDisplay.time || '--:--:--'}
+              </span>
+              <div className="flex items-center gap-1 mt-0.5">
+                <span className="text-[11px] text-muted-foreground font-mono">{clockDisplay.date}</span>
+                <span className="text-[11px] font-semibold text-indigo-400 font-mono">{clockDisplay.abbr || tzAbbr}</span>
+                <Pencil className="h-2.5 w-2.5 text-indigo-400/60" />
+              </div>
+            </div>
+
+            {/* Timezone picker dropdown */}
+            {tzPickerOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setTzPickerOpen(false)} />
+                <div className="absolute top-full right-0 mt-1.5 w-56 rounded-xl border border-border/60 bg-card shadow-xl z-50 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-border/40 bg-muted/30 flex items-center gap-2">
+                    <Globe className="h-3.5 w-3.5 text-indigo-400" />
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">App Timezone</p>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto">
+                    {TZ_OPTIONS.map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => { setTz(opt.value); setTzPickerOpen(false); }}
+                        className={`w-full px-3 py-2 flex items-center justify-between text-left hover:bg-muted/50 transition-colors ${tz === opt.value ? 'bg-indigo-500/10 text-indigo-400' : ''}`}
+                        data-testid={`button-tz-${opt.value}`}
+                      >
+                        <span className="text-sm font-medium">{opt.label}</span>
+                        <span className="text-xs text-muted-foreground font-mono">{opt.offset}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="px-3 py-2 border-t border-border/30 bg-muted/10">
+                    <p className="text-[10px] text-muted-foreground/60">Applied to all reports & timestamps</p>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
           {isAdmin && (
             <button
               onClick={() => setCustomizeOpen(true)}
