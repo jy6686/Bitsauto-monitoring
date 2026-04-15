@@ -1131,7 +1131,7 @@ export default function DashboardPage() {
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Revenue</p>
                 </div>
                 <p className="text-2xl font-bold tabular-nums text-emerald-400" data-testid="analytics-revenue">
-                  {analyticsData ? `$${analyticsData.summary.totalRevenue.toFixed(2)}` : '…'}
+                  {analyticsData?.summary ? `$${analyticsData.summary.totalRevenue.toFixed(2)}` : '…'}
                 </p>
                 <p className="text-[10px] text-muted-foreground mt-0.5">Last 30 days</p>
               </div>
@@ -1142,7 +1142,7 @@ export default function DashboardPage() {
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Cost</p>
                 </div>
                 <p className="text-2xl font-bold tabular-nums text-rose-400" data-testid="analytics-cost">
-                  {analyticsData ? `$${analyticsData.summary.totalCost.toFixed(2)}` : '…'}
+                  {analyticsData?.summary ? `$${analyticsData.summary.totalCost.toFixed(2)}` : '…'}
                 </p>
                 <p className="text-[10px] text-muted-foreground mt-0.5">Vendor interconnect</p>
               </div>
@@ -1152,8 +1152,8 @@ export default function DashboardPage() {
                   <Zap className="w-3.5 h-3.5 text-blue-400" />
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Gross Profit</p>
                 </div>
-                <p className={`text-2xl font-bold tabular-nums ${(analyticsData?.summary.totalProfit ?? 0) >= 0 ? 'text-blue-400' : 'text-rose-400'}`} data-testid="analytics-profit">
-                  {analyticsData ? `$${analyticsData.summary.totalProfit.toFixed(2)}` : '…'}
+                <p className={`text-2xl font-bold tabular-nums ${(analyticsData?.summary?.totalProfit ?? 0) >= 0 ? 'text-blue-400' : 'text-rose-400'}`} data-testid="analytics-profit">
+                  {analyticsData?.summary ? `$${analyticsData.summary.totalProfit.toFixed(2)}` : '…'}
                 </p>
               </div>
               {/* Margin % */}
@@ -1162,8 +1162,8 @@ export default function DashboardPage() {
                   <Target className="w-3.5 h-3.5 text-emerald-400" />
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Margin</p>
                 </div>
-                <p className={`text-2xl font-bold tabular-nums ${(analyticsData?.summary.margin ?? 0) >= 15 ? 'text-emerald-400' : (analyticsData?.summary.margin ?? 0) >= 5 ? 'text-amber-400' : 'text-rose-400'}`} data-testid="analytics-margin">
-                  {analyticsData ? `${analyticsData.summary.margin.toFixed(1)}%` : '…'}
+                <p className={`text-2xl font-bold tabular-nums ${(analyticsData?.summary?.margin ?? 0) >= 15 ? 'text-emerald-400' : (analyticsData?.summary?.margin ?? 0) >= 5 ? 'text-amber-400' : 'text-rose-400'}`} data-testid="analytics-margin">
+                  {analyticsData?.summary ? `${analyticsData.summary.margin.toFixed(1)}%` : '…'}
                 </p>
               </div>
             </div>

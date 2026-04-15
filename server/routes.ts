@@ -9010,6 +9010,73 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
+  // GET /api/sippy/rate-card-context — enriched reference data for the Rate Cards UI
+  // Returns: clients (with their Sippy tariff assignments) + destination sets (for vendor rate cards)
+  app.get('/api/sippy/rate-card-context', (req, res, next) => requireRole(['admin', 'management'], req, res, next), async (_req, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.json({ clients: [], destSets: [], vendors: [] });
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+
+      // Fetch all three in parallel
+      const [custResult, tariffResult, destResult, vendorResult] = await Promise.all([
+        sippy.listSippyCustomers(username, password, { portalUrl }),
+        sippy.listSippyTariffs(username, password, portalUrl),
+        sippy.listDestinationSets(username, password, { portalUrl }),
+        sippy.listSippyVendors(username, password, {}, portalUrl),
+      ]);
+
+      // Build tariff map: id → name + currency
+      const tariffMap = new Map<number, { name: string; currency: string }>();
+      for (const t of (tariffResult.tariffs ?? [])) {
+        tariffMap.set(t.id, { name: t.name, currency: t.currency ?? '' });
+      }
+
+      // For each customer fetch their tariff assignment (i_tariff in getCustomerInfo)
+      // Run in parallel but cap at 10 concurrent requests
+      const customerList = custResult.customers ?? [];
+      const customerInfos = await Promise.all(
+        customerList.map(c =>
+          sippy.getSippyCustomerInfo(username, password, { iCustomer: c.iCustomer }, { portalUrl })
+            .then(r => r.customer ?? null)
+            .catch(() => null)
+        )
+      );
+
+      const clients = customerList.map((c, i) => {
+        const info = customerInfos[i];
+        const iTariff = info?.iTariff ?? null;
+        const tariff = iTariff ? tariffMap.get(iTariff) : undefined;
+        return {
+          iCustomer: c.iCustomer,
+          name: c.name,
+          baseCurrency: c.baseCurrency,
+          iTariff,
+          tariffName: tariff?.name ?? null,
+          tariffCurrency: tariff?.currency ?? null,
+        };
+      });
+
+      const destSets = (destResult.list ?? []).map(d => ({
+        iDestinationSet: d.iDestinationSet,
+        name: d.name,
+        currency: d.iso4217,
+      }));
+
+      const vendors = (vendorResult.vendors ?? []).map(v => ({
+        iVendor: v.iVendor,
+        name: v.name,
+        baseCurrency: v.baseCurrency ?? null,
+      }));
+
+      res.json({ clients, destSets, vendors });
+    } catch (e: any) {
+      console.error('[rate-card-context]', e.message);
+      res.json({ clients: [], destSets: [], vendors: [] });
+    }
+  });
+
   app.get('/api/rate-cards/:id/entries', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (req, res) => {
     const entries = await storage.getRateCardEntries(Number(req.params.id));
     res.json(entries);

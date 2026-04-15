@@ -6,7 +6,7 @@ import {
   CreditCard, Upload, Trash2, RefreshCw, Plus, FileText,
   ChevronDown, ChevronRight, PenLine, Download, Send,
   CheckCircle, XCircle, AlertTriangle, Loader2, ShieldCheck,
-  Building2, Wallet,
+  Building2, Wallet, Database, MapPin,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,30 @@ type RateCardEntry = {
 
 type ClientProfile = { id: number; name: string; type: string };
 type SippyTariff   = { i_tariff: number; name: string; currency?: string };
+
+type RateCardContextClient = {
+  iCustomer: number;
+  name: string;
+  baseCurrency: string;
+  iTariff: number | null;
+  tariffName: string | null;
+  tariffCurrency: string | null;
+};
+type RateCardContextDestSet = {
+  iDestinationSet: number;
+  name: string;
+  currency: string;
+};
+type RateCardContextVendor = {
+  iVendor: number;
+  name: string;
+  baseCurrency: string | null;
+};
+type RateCardContext = {
+  clients: RateCardContextClient[];
+  destSets: RateCardContextDestSet[];
+  vendors: RateCardContextVendor[];
+};
 
 type PushJob = {
   status: 'running' | 'done' | 'error';
@@ -108,6 +132,12 @@ export default function RateCardsPage() {
     queryFn: () => fetch('/api/sippy/tariffs').then(r => r.json()).then(d => d.tariffs ?? d ?? []),
     refetchOnWindowFocus: false,
     enabled: !!(pushCard || verifyCard),
+  });
+  const { data: rcCtx, isLoading: ctxLoading } = useQuery<RateCardContext>({
+    queryKey: ["/api/sippy/rate-card-context"],
+    queryFn: () => fetch('/api/sippy/rate-card-context').then(r => r.json()),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   // ── Mutations ──────────────────────────────────────────────────────────────
@@ -274,6 +304,38 @@ export default function RateCardsPage() {
                     <Input value={customVendor} onChange={e => setCustomVendor(e.target.value)} placeholder="e.g. Callntalk" data-testid="input-vendor-name" />
                   )}
                 </div>
+                {/* Sippy match hint */}
+                {activeType === 'client' && resolvedVendorName.trim() && (() => {
+                  const match = rcCtx?.clients?.find(c =>
+                    c.name.toLowerCase() === resolvedVendorName.trim().toLowerCase()
+                  );
+                  if (!match) return null;
+                  return (
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-xs flex items-start gap-2">
+                      <Building2 className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
+                      <div>
+                        <span className="text-amber-300 font-medium">Sippy match found</span>
+                        <div className="text-muted-foreground mt-0.5">
+                          {match.tariffName
+                            ? <>Assigned tariff: <span className="text-amber-300 font-medium">{match.tariffName}</span> (ID: {match.iTariff})</>
+                            : 'No tariff assigned in Sippy yet'
+                          }
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {activeType === 'vendor' && resolvedVendorName.trim() && rcCtx?.destSets && rcCtx.destSets.length > 0 && (
+                  <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg px-3 py-2 text-xs flex items-start gap-2">
+                    <MapPin className="h-3.5 w-3.5 text-cyan-400 mt-0.5 shrink-0" />
+                    <div>
+                      <span className="text-cyan-300 font-medium">{rcCtx.destSets.length} destination set{rcCtx.destSets.length !== 1 ? 's' : ''} available in Sippy</span>
+                      <div className="text-muted-foreground mt-0.5">
+                        {rcCtx.destSets.slice(0, 3).map(d => d.name).join(', ')}{rcCtx.destSets.length > 3 ? ` +${rcCtx.destSets.length - 3} more` : ''}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1.5 block">Rate Card Name</Label>
                   <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Q2 2026 Standard Rates" data-testid="input-card-name" />
@@ -320,6 +382,130 @@ export default function RateCardsPage() {
           </div>
         </div>
       </div>
+
+      {/* Sippy Reference Panel */}
+      {(activeType === 'client' || activeType === null) && (rcCtx?.clients?.length ?? 0) > 0 && (
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-500/15">
+            <Building2 className="h-4 w-4 text-amber-400" />
+            <span className="text-sm font-medium text-amber-300">Sippy Clients &amp; Assigned Tariffs</span>
+            <Badge className="bg-amber-500/20 text-amber-400 border-0 text-xs ml-auto">{rcCtx?.clients?.length} clients</Badge>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-muted-foreground border-b border-amber-500/10">
+                  <th className="px-4 py-2 text-left font-medium">Client Name</th>
+                  <th className="px-4 py-2 text-left font-medium">Sippy Tariff</th>
+                  <th className="px-4 py-2 text-left font-medium">Tariff ID</th>
+                  <th className="px-4 py-2 text-left font-medium">Currency</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ctxLoading ? (
+                  <tr><td colSpan={4} className="px-4 py-3 text-center text-muted-foreground text-xs"><Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />Loading from Sippy…</td></tr>
+                ) : (rcCtx?.clients ?? []).map(c => (
+                  <tr key={c.iCustomer} className="border-b border-amber-500/5 hover:bg-amber-500/5 transition-colors" data-testid={`sippy-client-row-${c.iCustomer}`}>
+                    <td className="px-4 py-2.5">
+                      <span className="font-medium text-foreground text-xs">{c.name}</span>
+                      <span className="text-muted-foreground text-xs ml-2">#{c.iCustomer}</span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {c.tariffName
+                        ? <span className="text-amber-300 text-xs font-medium">{c.tariffName}</span>
+                        : <span className="text-muted-foreground text-xs italic">No tariff assigned</span>
+                      }
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {c.iTariff
+                        ? <Badge className="bg-muted text-muted-foreground border-0 text-xs font-mono">{c.iTariff}</Badge>
+                        : <span className="text-muted-foreground text-xs">—</span>
+                      }
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{c.tariffCurrency || c.baseCurrency || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {(activeType === 'vendor' || activeType === null) && (rcCtx?.destSets?.length ?? 0) > 0 && (
+        <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-cyan-500/15">
+            <MapPin className="h-4 w-4 text-cyan-400" />
+            <span className="text-sm font-medium text-cyan-300">Sippy Destination Sets</span>
+            <Badge className="bg-cyan-500/20 text-cyan-400 border-0 text-xs ml-auto">{rcCtx?.destSets?.length} sets</Badge>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-muted-foreground border-b border-cyan-500/10">
+                  <th className="px-4 py-2 text-left font-medium">Destination Set Name</th>
+                  <th className="px-4 py-2 text-left font-medium">Set ID</th>
+                  <th className="px-4 py-2 text-left font-medium">Currency</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ctxLoading ? (
+                  <tr><td colSpan={3} className="px-4 py-3 text-center text-muted-foreground text-xs"><Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />Loading from Sippy…</td></tr>
+                ) : (rcCtx?.destSets ?? []).map(d => (
+                  <tr key={d.iDestinationSet} className="border-b border-cyan-500/5 hover:bg-cyan-500/5 transition-colors" data-testid={`sippy-destset-row-${d.iDestinationSet}`}>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="h-3 w-3 text-cyan-400 shrink-0" />
+                        <span className="font-medium text-foreground text-xs">{d.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <Badge className="bg-muted text-muted-foreground border-0 text-xs font-mono">{d.iDestinationSet}</Badge>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{d.currency || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {(activeType === 'vendor' || activeType === null) && (rcCtx?.vendors?.length ?? 0) > 0 && (
+        <div className="bg-violet-500/5 border border-violet-500/20 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-violet-500/15">
+            <Database className="h-4 w-4 text-violet-400" />
+            <span className="text-sm font-medium text-violet-300">Sippy Vendors</span>
+            <Badge className="bg-violet-500/20 text-violet-400 border-0 text-xs ml-auto">{rcCtx?.vendors?.length} vendors</Badge>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-muted-foreground border-b border-violet-500/10">
+                  <th className="px-4 py-2 text-left font-medium">Vendor Name</th>
+                  <th className="px-4 py-2 text-left font-medium">Vendor ID</th>
+                  <th className="px-4 py-2 text-left font-medium">Currency</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ctxLoading ? (
+                  <tr><td colSpan={3} className="px-4 py-3 text-center text-muted-foreground text-xs"><Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />Loading from Sippy…</td></tr>
+                ) : (rcCtx?.vendors ?? []).map(v => (
+                  <tr key={v.iVendor} className="border-b border-violet-500/5 hover:bg-violet-500/5 transition-colors" data-testid={`sippy-vendor-row-${v.iVendor}`}>
+                    <td className="px-4 py-2.5">
+                      <span className="font-medium text-foreground text-xs">{v.name}</span>
+                      <span className="text-muted-foreground text-xs ml-2">#{v.iVendor}</span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <Badge className="bg-muted text-muted-foreground border-0 text-xs font-mono">{v.iVendor}</Badge>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{v.baseCurrency || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Rate Cards List */}
       {isLoading ? (
