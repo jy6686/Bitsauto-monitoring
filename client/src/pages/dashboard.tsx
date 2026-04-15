@@ -55,6 +55,8 @@ import {
   Minus,
   Target,
   SlidersHorizontal,
+  Pencil,
+  ChevronDown,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
