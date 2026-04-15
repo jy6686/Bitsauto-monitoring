@@ -45,6 +45,7 @@ import LcrAnalyserPage from "@/pages/lcr-analyser";
 import CallFlowSimulatorPage from "@/pages/call-flow-simulator";
 import VendorSlaScorecardPage from "@/pages/vendor-sla-scorecard";
 import CostOptimisationPage from "@/pages/cost-optimisation";
+import MultiSwitchPage from "@/pages/multi-switch";
 import DashboardPage from "@/pages/dashboard";
 import CallsListPage from "@/pages/calls-list";
 import CallDetailPage from "@/pages/call-detail";
@@ -226,6 +227,9 @@ function Router() {
       </Route>
       <Route path="/cost-optimisation">
         {() => <ProtectedRoute component={CostOptimisationPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/multi-switch">
+        {() => <ProtectedRoute component={MultiSwitchPage} requiredRoles={['admin','management']} />}
       </Route>
 
       <Route component={NotFound} />

@@ -955,6 +955,125 @@ export async function registerRoutes(
     } catch { res.status(500).json({ message: 'Failed to delete switch' }); }
   });
 
+  // GET /api/switches/consolidated — poll all switches in parallel and return aggregated stats
+  app.get('/api/switches/consolidated', async (_req, res) => {
+    try {
+      const [primarySettings, secondarySwitches] = await Promise.all([
+        storage.getSettings(),
+        storage.getSwitches(),
+      ]);
+
+      type SwitchResult = {
+        id: string;
+        name: string;
+        portalUrl: string;
+        isPrimary: boolean;
+        enabled: boolean;
+        status: 'online' | 'offline' | 'error' | 'unconfigured';
+        activeCalls: number;
+        totalCalls: number;
+        answeredCalls: number;
+        asr: number;
+        acd: number;
+        totalMinutes: number;
+        error?: string;
+        polledAt: string;
+      };
+
+      async function pollSwitch(
+        id: string,
+        name: string,
+        portalUrl: string | null | undefined,
+        username: string | null | undefined,
+        password: string | null | undefined,
+        isPrimary: boolean,
+        enabled: boolean,
+      ): Promise<SwitchResult> {
+        const base: SwitchResult = {
+          id, name, portalUrl: portalUrl || '', isPrimary, enabled,
+          status: 'unconfigured', activeCalls: 0, totalCalls: 0,
+          answeredCalls: 0, asr: 0, acd: 0, totalMinutes: 0,
+          polledAt: new Date().toISOString(),
+        };
+        if (!portalUrl || !username || !password) return base;
+        if (!enabled) return { ...base, status: 'offline' };
+        try {
+          const metrics = await sippy.getSippyDashboardMetrics(username, password, portalUrl);
+          return {
+            ...base,
+            status: 'online',
+            activeCalls: metrics.activeCalls,
+            totalCalls: metrics.totalCalls,
+            answeredCalls: metrics.answeredCalls,
+            asr: metrics.asr,
+            acd: metrics.acd,
+            totalMinutes: metrics.totalMinutes,
+          };
+        } catch (err: any) {
+          return { ...base, status: 'error', error: err.message };
+        }
+      }
+
+      const primaryTask = pollSwitch(
+        'primary',
+        primarySettings.name || 'Primary Switch',
+        primarySettings.portalUrl,
+        primarySettings.apiAdminUsername || primarySettings.portalUsername,
+        primarySettings.apiAdminPassword || primarySettings.portalPassword,
+        true,
+        true,
+      );
+
+      const secondaryTasks = secondarySwitches
+        .filter(s => s.type === 'sippy')
+        .map(s => pollSwitch(
+          String(s.id),
+          s.name,
+          s.portalUrl,
+          s.portalUsername,
+          s.portalPassword,
+          false,
+          s.enabled ?? true,
+        ));
+
+      const results = await Promise.all([primaryTask, ...secondaryTasks]);
+
+      const online = results.filter(r => r.status === 'online');
+      const aggregate = {
+        totalActiveCalls: results.reduce((s, r) => s + r.activeCalls, 0),
+        onlineSwitches: online.length,
+        totalSwitches: results.length,
+        overallAsr: online.length > 0
+          ? Math.round(online.reduce((s, r) => s + r.asr, 0) / online.length)
+          : 0,
+        avgAcd: online.length > 0
+          ? Math.round(online.reduce((s, r) => s + r.acd, 0) / online.length)
+          : 0,
+        totalMinutes: results.reduce((s, r) => s + r.totalMinutes, 0),
+      };
+
+      res.json({ switches: results, aggregate });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/switches/:id/test — test connectivity of a specific switch
+  app.post('/api/switches/:id/test', async (req, res) => {
+    try {
+      const allSwitches = await storage.getSwitches();
+      const sw = allSwitches.find(s => s.id === Number(req.params.id));
+      if (!sw) return res.status(404).json({ success: false, message: 'Switch not found' });
+      if (!sw.portalUrl || !sw.portalUsername || !sw.portalPassword)
+        return res.json({ success: false, message: 'Incomplete credentials — fill in URL, username, and password.' });
+
+      const result = await sippy.connectSippy(sw.portalUrl, sw.portalUsername, sw.portalPassword);
+      res.json(result);
+    } catch (err: any) {
+      res.json({ success: false, message: err.message });
+    }
+  });
+
   // Get session status for a specific switch
   app.get('/api/switches/:id/session', async (req, res) => {
     try {
