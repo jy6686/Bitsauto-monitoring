@@ -7818,6 +7818,14 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/download/api-reference — Full API endpoint catalogue
+  app.get('/api/download/api-reference', (_req: any, res: any) => {
+    const filePath = _pathJoin(process.cwd(), 'attached_assets', 'VoIP_Platform_API_Reference.docx');
+    res.download(filePath, 'VoIP_Platform_API_Reference.docx', (err: any) => {
+      if (err) res.status(404).json({ error: 'File not found' });
+    });
+  });
+
   // GET /api/bitseye/per-entity — per-entity CDR time-series for BitsEye page
   app.get('/api/bitseye/per-entity', async (req: any, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');

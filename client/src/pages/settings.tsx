@@ -2106,6 +2106,7 @@ export default function SettingsPage() {
             { label: "Volume 1 — Status Report", desc: "Completed features & pending items", href: "/api/download/status-report", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
             { label: "Feature Roadmap", desc: "Full platform feature roadmap", href: "/api/download/feature-roadmap", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
             { label: "Extended Features Vol II", desc: "Proposed Tier 2 & Tier 3 features", href: "/api/download/feature-roadmap-v2", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
+            { label: "API Reference", desc: "All 200+ endpoints across 21 categories", href: "/api/download/api-reference", color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
           ].map(doc => (
             <a
               key={doc.href}
