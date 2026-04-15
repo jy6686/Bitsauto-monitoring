@@ -395,6 +395,80 @@ export const sippySnapshots = pgTable("sippy_snapshots", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// ── IRSF Events: International Revenue Share Fraud detections ─────────────────
+export const irsfEvents = pgTable("irsf_events", {
+  id:          serial("id").primaryKey(),
+  callId:      varchar("call_id",      { length: 64 }).notNull(),
+  caller:      varchar("caller",       { length: 64 }),
+  callee:      varchar("callee",       { length: 64 }),
+  clientName:  varchar("client_name",  { length: 128 }),
+  vendor:      varchar("vendor",       { length: 128 }),
+  riskPrefix:  varchar("risk_prefix",  { length: 20 }),
+  country:     varchar("country",      { length: 64 }),
+  breakout:    varchar("breakout",     { length: 64 }),
+  fraudScore:  real("fraud_score").default(100),
+  blocked:     boolean("blocked").default(false),
+  alertSent:   boolean("alert_sent").default(false),
+  detectedAt:  timestamp("detected_at").defaultNow(),
+});
+export type IrsfEvent = typeof irsfEvents.$inferSelect;
+export type InsertIrsfEvent = typeof irsfEvents.$inferInsert;
+export const insertIrsfEventSchema = createInsertSchema(irsfEvents).omit({ id: true, detectedAt: true });
+
+// ── Blacklist Rules: auto-block entries for callers, callees, or prefixes ────
+export const blacklistRules = pgTable("blacklist_rules", {
+  id:         serial("id").primaryKey(),
+  type:       varchar("type",    { length: 20 }).notNull(),  // caller | callee | prefix
+  value:      varchar("value",   { length: 64  }).notNull(), // the number / prefix to block
+  reason:     text("reason"),
+  source:     varchar("source",  { length: 32  }).default('manual'), // manual | irsf | fas | robocall
+  active:     boolean("active").default(true),
+  hitCount:   integer("hit_count").default(0),
+  createdAt:  timestamp("created_at").defaultNow(),
+});
+export type BlacklistRule = typeof blacklistRules.$inferSelect;
+export type InsertBlacklistRule = typeof blacklistRules.$inferInsert;
+export const insertBlacklistRuleSchema = createInsertSchema(blacklistRules).omit({ id: true, createdAt: true, hitCount: true });
+
+// ── Rate Cards: carrier buy-rate sheets ──────────────────────────────────────
+export const rateCards = pgTable("rate_cards", {
+  id:            serial("id").primaryKey(),
+  vendorName:    varchar("vendor_name",  { length: 128 }).notNull(),
+  name:          varchar("name",         { length: 128 }).notNull(),
+  currency:      varchar("currency",     { length: 8   }).default('USD'),
+  effectiveDate: timestamp("effective_date"),
+  entryCount:    integer("entry_count").default(0),
+  createdAt:     timestamp("created_at").defaultNow(),
+});
+export type RateCard = typeof rateCards.$inferSelect;
+export type InsertRateCard = typeof rateCards.$inferInsert;
+export const insertRateCardSchema = createInsertSchema(rateCards).omit({ id: true, createdAt: true, entryCount: true });
+
+// ── Rate Card Entries: individual prefix → rate mappings ─────────────────────
+export const rateCardEntries = pgTable("rate_card_entries", {
+  id:          serial("id").primaryKey(),
+  rateCardId:  integer("rate_card_id").notNull(),
+  prefix:      varchar("prefix",   { length: 20  }).notNull(),
+  country:     varchar("country",  { length: 64  }),
+  breakout:    varchar("breakout", { length: 64  }),
+  ratePerMin:  real("rate_per_min").notNull(),
+});
+export type RateCardEntry = typeof rateCardEntries.$inferSelect;
+export type InsertRateCardEntry = typeof rateCardEntries.$inferInsert;
+
+// ── MOS Hourly Snapshots: hourly quality aggregates for trend charts ──────────
+export const mosHourly = pgTable("mos_hourly", {
+  id:         serial("id").primaryKey(),
+  hour:       timestamp("hour").notNull(),           // truncated to hour boundary
+  vendor:     varchar("vendor", { length: 128 }),    // null = system-wide
+  avgMos:     real("avg_mos"),
+  minMos:     real("min_mos"),
+  maxMos:     real("max_mos"),
+  callCount:  integer("call_count").default(0),
+  createdAt:  timestamp("created_at").defaultNow(),
+});
+export type MosHourly = typeof mosHourly.$inferSelect;
+
 // Watcher alert recipients — team members / emails that receive Sippy change alerts
 export const watcherRecipients = pgTable("watcher_recipients", {
   id:          serial("id").primaryKey(),

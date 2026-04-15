@@ -23,6 +23,7 @@ const TABS = [
   { id: "carrier-asr",   label: "Carrier ASR",    icon: TrendingDown },
   { id: "alert-rules",   label: "Alert Rules",    icon: Bell },
   { id: "registrations", label: "Reg Storm",      icon: Radio },
+  { id: "sip-options",   label: "SIP Trunk Health", icon: Shield },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -1502,6 +1503,130 @@ function RegistrationsTab() {
   );
 }
 
+// ── SIP OPTIONS / Trunk Health Tab ─────────────────────────────────────────────
+type SipOption = {
+  host: string;
+  port: number;
+  status: "up" | "down" | "timeout";
+  rttMs: number | null;
+  probeTs: string | null;
+  responseCode: number | null;
+};
+
+function SipOptionsTab() {
+  const { data, isLoading, refetch, isFetching, dataUpdatedAt } = useQuery<SipOption[]>({
+    queryKey: ["/api/monitoring/sip-options"],
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const results = data ?? [];
+  const upCount   = results.filter(r => r.status === "up").length;
+  const downCount = results.filter(r => r.status === "down").length;
+  const toCount   = results.filter(r => r.status === "timeout").length;
+  const updatedAt = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : null;
+
+  return (
+    <div className="space-y-5">
+      {/* Summary row */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-card border border-border rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold text-emerald-400">{upCount}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">Trunks Up</div>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold text-red-400">{downCount}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">Trunks Down</div>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold text-amber-400">{toCount}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">Timeout</div>
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="text-sm font-medium flex items-center gap-2">
+          <Shield className="h-4 w-4 text-blue-400" />
+          SIP OPTIONS Probe Results
+          {updatedAt && <span className="text-xs text-muted-foreground">— polled at {updatedAt}</span>}
+        </div>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="btn-refresh-sip-options"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg border border-border hover:bg-muted/40 transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+          {isFetching ? "Probing…" : "Re-probe"}
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="text-center text-muted-foreground py-12">Probing SIP trunks…</div>
+      ) : results.length === 0 ? (
+        <div className="bg-card border border-border rounded-xl p-8 text-center text-muted-foreground">
+          <Shield className="h-10 w-10 mx-auto mb-3 opacity-30" />
+          <div className="font-medium mb-1">No SIP hosts configured</div>
+          <div className="text-sm">Add Sippy switch IPs in Settings → Switches. The monitor probes each IP on port 5060.</div>
+        </div>
+      ) : (
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-xs text-muted-foreground">
+                <th className="px-4 py-3 text-left">Host / IP</th>
+                <th className="px-4 py-3 text-left">Port</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-right">RTT</th>
+                <th className="px-4 py-3 text-right">SIP Code</th>
+                <th className="px-4 py-3 text-right">Last Probe</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((r, i) => (
+                <tr key={i} className="border-b border-border/40 hover:bg-muted/20 transition-colors" data-testid={`row-sip-${r.host}`}>
+                  <td className="px-4 py-3 font-mono text-xs">{r.host}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{r.port}</td>
+                  <td className="px-4 py-3">
+                    {r.status === "up" ? (
+                      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        <CheckCircle className="h-3 w-3" /> UP
+                      </span>
+                    ) : r.status === "down" ? (
+                      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
+                        <WifiOff className="h-3 w-3" /> DOWN
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                        <Clock className="h-3 w-3" /> TIMEOUT
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-xs">
+                    {r.rttMs != null ? `${r.rttMs} ms` : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">
+                    {r.responseCode ?? "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right text-xs text-muted-foreground">
+                    {r.probeTs ? fmtTs(r.probeTs) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border/40 bg-muted/10 px-5 py-3 text-xs text-muted-foreground">
+        <Shield className="w-3.5 h-3.5 inline mr-1.5 text-blue-400" />
+        SIP OPTIONS probes use TCP on port 5060. Any SIP/2.0 response (200, 405, 404, etc.) is counted as UP. No response within 5 s = TIMEOUT. Probes run every 60 s.
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function ServerMonitoringPage() {
   const [, navigate] = useLocation();
@@ -1545,6 +1670,7 @@ export default function ServerMonitoringPage() {
         {activeTab === "carrier-asr"   && <CarrierAsrTab />}
         {activeTab === "alert-rules"   && <AlertRulesTab />}
         {activeTab === "registrations" && <RegistrationsTab />}
+        {activeTab === "sip-options"   && <SipOptionsTab />}
       </div>
     </div>
   );

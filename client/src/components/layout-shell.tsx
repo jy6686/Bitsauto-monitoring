@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useEffect } from "react";
@@ -127,6 +127,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/reports",           label: "Reports",           icon: BarChart2,       roles: ['admin','management']          as Role[] },
     { href: "/cdrs",              label: "CDR Viewer",        icon: FileText,        roles: ['admin','management']          as Role[], hasSubmenu: 'cdr' as const },
     { href: "/fraud",             label: "Fraud / FAS",       icon: ShieldAlert,     roles: ['admin','management']          as Role[] },
+    { href: "/rate-cards",        label: "Rate Cards",        icon: CreditCard,      roles: ['admin','management']          as Role[] },
+    { href: "/analytics",         label: "Revenue Analytics", icon: TrendingUp,      roles: ['admin','management']          as Role[] },
     { href: "/server-monitoring", label: "Server Monitoring", icon: Server,          roles: ['admin','management']          as Role[], hasSubmenu: 'monitoring' as const },
     { href: "/tools",             label: "Tools",             icon: Wrench,          roles: ['admin','management']          as Role[] },
     { href: "/settings",          label: "Settings",          icon: Settings,        roles: ['admin']                       as Role[], hasSubmenu: 'settings' as const },

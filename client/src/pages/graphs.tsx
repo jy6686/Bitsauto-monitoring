@@ -1329,6 +1329,9 @@ export default function GraphsPage() {
         )}
       </div>}
 
+      {/* ── MOS Quality Trend ─────────────────────────────────────── */}
+      <MosTrendingSection />
+
       {/* Summary footer */}
       <div className="flex flex-wrap gap-4 p-4 bg-card/40 border border-border/40 rounded-xl text-xs text-muted-foreground">
         <span>Window: <strong className="text-foreground">{hours}h</strong></span>
@@ -1339,6 +1342,150 @@ export default function GraphsPage() {
         <span>KAMs: <strong className="text-foreground">{kams.length}</strong></span>
         <span className="ml-auto text-muted-foreground/50">Polled every 30 s · auto-refreshes every 30 s</span>
       </div>
+    </div>
+  );
+}
+
+// ── MOS Trending Section ──────────────────────────────────────────────────────
+type MosHourly = {
+  bucket: string;
+  avgMos: number;
+  sampleCount: number;
+  goodPct: number;
+  fairPct: number;
+  poorPct: number;
+};
+
+function mosBadge(score: number) {
+  if (score >= 4.0) return "text-emerald-400";
+  if (score >= 3.5) return "text-yellow-400";
+  return "text-red-400";
+}
+
+function MosTrendingSection() {
+  const [daysBack, setDaysBack] = useState(7);
+  const [collapsed, setCollapsed] = useState(false);
+
+  const { data, isLoading, refetch, isFetching } = useQuery<MosHourly[]>({
+    queryKey: ["/api/mos-trending", daysBack],
+    queryFn: () => fetch(`/api/mos-trending?days=${daysBack}`).then(r => r.json()),
+    refetchOnWindowFocus: false,
+  });
+
+  const rows = data ?? [];
+  const latestMos = rows.length ? rows[rows.length - 1].avgMos : null;
+
+  const chartData = rows.map(r => ({
+    time: new Date(r.bucket).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit' }),
+    MOS: parseFloat(r.avgMos.toFixed(3)),
+    Good: parseFloat(r.goodPct.toFixed(1)),
+    Poor: parseFloat(r.poorPct.toFixed(1)),
+  }));
+
+  return (
+    <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-lg shadow-black/5">
+      {/* Header */}
+      <div
+        className="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-muted/20 transition-colors select-none"
+        onClick={() => setCollapsed(c => !c)}
+        data-testid="toggle-mos-section"
+      >
+        <Activity className="w-4 h-4 text-purple-400 shrink-0" />
+        <div className="flex-1">
+          <span className="text-sm font-semibold">MOS Quality Trends</span>
+          {latestMos !== null && (
+            <span className={`ml-2 text-xs font-mono font-bold ${mosBadge(latestMos)}`}>
+              Latest: {latestMos.toFixed(2)}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground" onClick={e => e.stopPropagation()}>
+          {([7, 14, 30] as const).map(d => (
+            <button
+              key={d}
+              onClick={() => setDaysBack(d)}
+              className={`px-2 py-1 rounded transition-colors ${daysBack === d ? 'bg-primary text-primary-foreground' : 'hover:bg-muted/40'}`}
+              data-testid={`mos-days-${d}`}
+            >
+              {d}d
+            </button>
+          ))}
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-muted/40 transition-colors disabled:opacity-50"
+            data-testid="btn-refresh-mos"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+        <TrendingDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+      </div>
+
+      {!collapsed && (
+        <div className="px-5 pb-5 pt-1 space-y-4">
+          {isLoading ? (
+            <div className="h-40 flex items-center justify-center text-muted-foreground/50 text-sm">Loading MOS data…</div>
+          ) : rows.length === 0 ? (
+            <div className="h-40 flex flex-col items-center justify-center gap-2 text-muted-foreground/50 text-sm">
+              <Activity className="w-6 h-6 opacity-40" />
+              <span>No MOS data yet — CDR enrichment populates this hourly</span>
+            </div>
+          ) : (
+            <>
+              {/* MOS Score Line Chart */}
+              <div>
+                <div className="text-xs text-muted-foreground mb-2">Average MOS per hour (4.0+ = Excellent, 3.5+ = Good, &lt;3.5 = Poor)</div>
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#6b7280' }} interval="preserveStartEnd" />
+                    <YAxis domain={[1, 5]} tick={{ fontSize: 9, fill: '#6b7280' }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1c1c1e', border: '1px solid #2d2d30', borderRadius: 8, fontSize: 12 }}
+                      formatter={(v: number) => v.toFixed(3)}
+                    />
+                    <Line type="monotone" dataKey="MOS" stroke="#a78bfa" strokeWidth={2} dot={false} name="Avg MOS" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Good vs Poor % Bar Chart */}
+              <div>
+                <div className="text-xs text-muted-foreground mb-2">Good (≥3.5) vs Poor (&lt;3.0) call percentage per hour</div>
+                <ResponsiveContainer width="100%" height={140}>
+                  <BarChart data={chartData} barGap={0}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#6b7280' }} interval="preserveStartEnd" />
+                    <YAxis unit="%" tick={{ fontSize: 9, fill: '#6b7280' }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1c1c1e', border: '1px solid #2d2d30', borderRadius: 8, fontSize: 12 }}
+                      formatter={(v: number) => `${v.toFixed(1)}%`}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="Good" fill="#10b981" radius={[2,2,0,0]} />
+                    <Bar dataKey="Poor" fill="#ef4444" radius={[2,2,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Summary stats row */}
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: "Avg MOS",    value: (rows.reduce((a,r) => a + r.avgMos, 0) / rows.length).toFixed(3), color: mosBadge(rows.reduce((a,r) => a + r.avgMos, 0) / rows.length) },
+                  { label: "Good Calls", value: `${(rows.reduce((a,r) => a + r.goodPct, 0) / rows.length).toFixed(1)}%`, color: "text-emerald-400" },
+                  { label: "Poor Calls", value: `${(rows.reduce((a,r) => a + r.poorPct, 0) / rows.length).toFixed(1)}%`, color: "text-red-400" },
+                ].map(s => (
+                  <div key={s.label} className="bg-muted/20 border border-border/40 rounded-lg p-3 text-center">
+                    <div className={`text-xl font-bold ${s.color}`}>{s.value}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

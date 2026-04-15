@@ -79,6 +79,14 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 - Dashboard-stats endpoint (`/api/sippy/dashboard-stats`) now returns: ckRatio, ckBreakdown, cdrCount, estimatedMos in addition to activeCalls/asr/acd/pdd
 - CK breakdown maps Sippy result codes: "0" = Connected; "-16"/"-1"/"-20" = Wrong Number; "-17"/"-18"/"-19" = Switched Off; "-23"/"-24"/"-21"/"-22" = Untraceable
 
+## Tier 1 Features (Added April 2026)
+- **IRSF Detection**: Background worker scans CDRs for 35+ IRSF risk prefixes (Somalia, Congo, Cuba, etc.), stores events in `irsf_events` table. `/api/fraud/irsf` CRUD, scan trigger at `/api/fraud/irsf/scan`. Visible as a tab in the Fraud page.
+- **Auto-Blacklist**: `blacklist_rules` table with prefix/IP/account blocking. CRUD at `/api/fraud/blacklist`. UI tab in Fraud page with add-rule form + enable/disable/delete.
+- **MOS Trending**: Hourly MOS quality aggregation in `mos_hourly` table. Endpoint `/api/mos-trending?days=N`. Visible as a collapsible section at the bottom of the Graphs page with line chart (avg MOS) + bar chart (Good/Poor %).
+- **SIP OPTIONS Monitor**: TCP-based `probeSipOptions(ip, port)` probes all configured switch IPs every 60s. Results cached in `sipOptionsCache` Map. API `/api/monitoring/sip-options`. New "SIP Trunk Health" tab in Server Monitoring page.
+- **Rate Card Management**: `rate_cards` + `rate_card_entries` tables. CRUD at `/api/rate-cards`. CSV upload (auto-detects prefix/country/breakout/rate columns) at `/api/rate-cards/:id/upload`. Dedicated `/rate-cards` page with expandable entry tables.
+- **Revenue Analytics**: `/api/analytics/revenue?days=N` computes P&L from call snapshots + client profile rates. Returns summary, byClient, byVendor arrays. `/analytics` page with summary cards, Revenue vs Cost bar chart, vendor cost pie, client P&L table.
+
 ## Pages
 - `/` — Dashboard with live stats, KPIs, IP probe, portal data
 - `/calls` — Call list with metrics
@@ -87,6 +95,9 @@ Full-stack dark-mode VoIP monitoring dashboard with real-time metrics, alerting,
 - `/reports` — ASR/ACD report + client stats table
 - `/cdrs` — CDR Viewer: full CDR table (CLI, CLD, country, duration, billed, charged), date presets, call type filter, CLI/CLD search, pagination (50/page), CSV export, summary stats. Shows data when RTST1 accounts make completed calls. API: GET /api/sippy/cdr
 - `/tools` — Telecom Tools & Calculators: 4 tabs — (1) Carrier Quality Scoring (ASR/ACD/PDD/FraudRisk → 0-100 score + rating from Sippy CDRs), (2) SIP Capacity Calculator (employees × concurrency × codec → channels + bandwidth, industry presets), (3) Bandwidth Planner (concurrent calls × codec → Mbps, QoS/VPN overhead, max calls table), (4) Burst Capacity Simulator (normal × peak multiplier + overflow %, scenario presets)
+- `/fraud` — Fraud & FAS: 3 tabs — FAS detection, IRSF events (scan + table), Blacklist (CRUD)
+- `/rate-cards` — Carrier Rate Card management: create cards, upload CSV, expand prefix entries
+- `/analytics` — Revenue Analytics: P&L by client/vendor, margin trending, summary cards
 - `/clients` — Client/vendor profiles
 - `/settings` — Thresholds, IP probe, softswitch connection
 - `/team` — Team member management

@@ -4,12 +4,15 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   ShieldAlert, AlertTriangle, Clock, Phone, Server, RefreshCw,
   TrendingUp, Eye, Play, Calendar, Zap, Ban, PhoneOff, Activity,
-  CheckCircle2, XCircle, MinusCircle,
+  CheckCircle2, XCircle, MinusCircle, Satellite, Plus, Trash2,
+  Globe, ToggleLeft, ToggleRight, ShieldBan, ScanSearch,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { toUTCDateInput, toSippyDateUTC, formatUTC } from "@/lib/date-utils";
 
@@ -56,6 +59,32 @@ type AnalyzeResult = {
   vendorScores: VendorFraudStats[];
   message?: string;
   error?: string;
+};
+
+type IrsfEvent = {
+  id: number;
+  callId: string;
+  caller: string | null;
+  callee: string | null;
+  clientName: string | null;
+  vendor: string | null;
+  riskPrefix: string | null;
+  country: string | null;
+  breakout: string | null;
+  fraudScore: number | null;
+  blocked: boolean;
+  detectedAt: string;
+};
+
+type BlacklistRule = {
+  id: number;
+  type: 'caller' | 'callee' | 'prefix';
+  value: string;
+  reason: string | null;
+  source: string;
+  active: boolean;
+  hitCount: number;
+  createdAt: string;
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -173,6 +202,59 @@ export default function FraudPage() {
   const redVendors    = vendorScores.filter(v => v.riskLevel === "red").length;
   const yellowVendors = vendorScores.filter(v => v.riskLevel === "yellow").length;
 
+  // ── IRSF Events ────────────────────────────────────────────────────────────
+  const { data: irsfData, isLoading: irsfLoading, refetch: refetchIrsf } = useQuery<IrsfEvent[]>({
+    queryKey: ["/api/irsf-events"],
+    refetchInterval: 60000,
+  });
+  const irsfEvents = irsfData ?? [];
+  const irsfScanMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/irsf-events/scan").then(r => r.json()),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/irsf-events"] }); },
+  });
+
+  // ── Blacklist Rules ─────────────────────────────────────────────────────────
+  const { data: blacklistData, isLoading: blacklistLoading, refetch: refetchBlacklist } = useQuery<BlacklistRule[]>({
+    queryKey: ["/api/blacklist-rules"],
+    refetchInterval: 60000,
+  });
+  const blacklistRules = blacklistData ?? [];
+  const [blType,   setBlType]   = useState<'caller'|'callee'|'prefix'>('callee');
+  const [blValue,  setBlValue]  = useState('');
+  const [blReason, setBlReason] = useState('');
+  const addBlacklistMutation = useMutation({
+    mutationFn: (data: { type: string; value: string; reason: string }) =>
+      apiRequest("POST", "/api/blacklist-rules", data).then(r => r.json()),
+    onSuccess: () => {
+      setBlValue(''); setBlReason('');
+      queryClient.invalidateQueries({ queryKey: ["/api/blacklist-rules"] });
+    },
+  });
+  const deleteBlacklistMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/blacklist-rules/${id}`).then(r => r.json()),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/blacklist-rules"] }),
+  });
+  const toggleBlacklistMutation = useMutation({
+    mutationFn: ({ id, active }: { id: number; active: boolean }) =>
+      apiRequest("PATCH", `/api/blacklist-rules/${id}`, { active }).then(r => r.json()),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/blacklist-rules"] }),
+  });
+
+  // Risk level helper for IRSF
+  function irsfRiskBadge(score: number | null) {
+    const s = score ?? 0;
+    if (s >= 80) return <Badge className="bg-red-500/20 text-red-400 border border-red-500/30 text-xs">Critical</Badge>;
+    if (s >= 60) return <Badge className="bg-orange-500/20 text-orange-400 border border-orange-500/30 text-xs">High</Badge>;
+    if (s >= 40) return <Badge className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 text-xs">Medium</Badge>;
+    return <Badge className="bg-green-500/20 text-green-400 border border-green-500/30 text-xs">Low</Badge>;
+  }
+
+  function sourceBadge(source: string) {
+    const map: Record<string, string> = { manual: 'bg-blue-500/20 text-blue-400', irsf: 'bg-red-500/20 text-red-400', fas: 'bg-orange-500/20 text-orange-400', robocall: 'bg-purple-500/20 text-purple-400' };
+    const cls = map[source] ?? 'bg-muted text-muted-foreground';
+    return <Badge className={`${cls} border-0 text-xs`}>{source}</Badge>;
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -198,7 +280,21 @@ export default function FraudPage() {
         </Button>
       </div>
 
-      {/* CDR Analysis Runner */}
+      <Tabs defaultValue="fas" className="space-y-4">
+        <TabsList className="bg-card border border-border">
+          <TabsTrigger value="fas" data-testid="tab-fas" className="gap-1.5">
+            <ShieldAlert className="h-3.5 w-3.5" />FAS Detection
+          </TabsTrigger>
+          <TabsTrigger value="irsf" data-testid="tab-irsf" className="gap-1.5">
+            <Satellite className="h-3.5 w-3.5" />IRSF Detection
+          </TabsTrigger>
+          <TabsTrigger value="blacklist" data-testid="tab-blacklist" className="gap-1.5">
+            <ShieldBan className="h-3.5 w-3.5" />Blacklist
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="fas" className="mt-0 space-y-6">
+          {/* CDR Analysis Runner */}
       <div className="bg-card rounded-xl border border-border p-5">
         <div className="flex items-center gap-2 mb-4">
           <Activity className="h-4 w-4 text-primary" />
@@ -525,6 +621,205 @@ export default function FraudPage() {
           </div>
         </div>
       )}
+        </TabsContent>
+
+        {/* ── IRSF Detection Tab ── */}
+        <TabsContent value="irsf" className="mt-0 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Satellite className="h-5 w-5 text-red-400" />
+                IRSF Detection
+              </h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                International Revenue Share Fraud — calls to satellite, premium-rate, and high-risk destinations
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => irsfScanMutation.mutate()} disabled={irsfScanMutation.isPending} data-testid="button-irsf-scan" className="gap-1.5">
+                <ScanSearch className="h-3.5 w-3.5" />{irsfScanMutation.isPending ? "Scanning..." : "Scan Now"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => refetchIrsf()} data-testid="button-irsf-refresh" className="gap-1.5">
+                <RefreshCw className="h-3.5 w-3.5" />Refresh
+              </Button>
+            </div>
+          </div>
+
+          {/* IRSF Stats */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "Total Detected", value: irsfEvents.length, color: "text-red-400", icon: <Satellite className="h-4 w-4" /> },
+              { label: "Satellite Calls", value: irsfEvents.filter(e => e.breakout === "Satellite").length, color: "text-orange-400", icon: <Globe className="h-4 w-4" /> },
+              { label: "Africa High-Risk", value: irsfEvents.filter(e => e.breakout === "Africa").length, color: "text-yellow-400", icon: <AlertTriangle className="h-4 w-4" /> },
+              { label: "Pacific Islands", value: irsfEvents.filter(e => e.breakout === "Pacific Islands").length, color: "text-purple-400", icon: <Globe className="h-4 w-4" /> },
+            ].map(s => (
+              <div key={s.label} className="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
+                <div className={`${s.color} opacity-70`}>{s.icon}</div>
+                <div>
+                  <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
+                  <div className="text-xs text-muted-foreground">{s.label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* IRSF Events Table */}
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+              <Satellite className="h-4 w-4 text-primary" />
+              <span className="font-semibold text-sm">IRSF Events</span>
+              <Badge className="bg-red-500/20 text-red-400 border-0 text-xs">{irsfEvents.length}</Badge>
+            </div>
+            {irsfLoading ? (
+              <div className="p-8 text-center text-muted-foreground text-sm">Loading…</div>
+            ) : irsfEvents.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground text-sm">No IRSF events detected yet. Background scan runs every 5 minutes.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-xs text-muted-foreground">
+                      <th className="px-4 py-2.5 text-left">When</th>
+                      <th className="px-4 py-2.5 text-left">Caller</th>
+                      <th className="px-4 py-2.5 text-left">Callee</th>
+                      <th className="px-4 py-2.5 text-left">Client</th>
+                      <th className="px-4 py-2.5 text-left">Prefix</th>
+                      <th className="px-4 py-2.5 text-left">Country</th>
+                      <th className="px-4 py-2.5 text-left">Breakout</th>
+                      <th className="px-4 py-2.5 text-right">Risk Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {irsfEvents.slice(0, 100).map(ev => (
+                      <tr key={ev.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{formatUTC(new Date(ev.detectedAt), 'dd MMM yyyy HH:mm:ss')}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs">{ev.caller ?? "—"}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-red-400">{ev.callee ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-xs">{ev.clientName ?? "—"}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-orange-400">+{ev.riskPrefix}</td>
+                        <td className="px-4 py-2.5 text-xs">{ev.country ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-xs text-muted-foreground">{ev.breakout ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-right">{irsfRiskBadge(ev.fraudScore)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* ── Blacklist Tab ── */}
+        <TabsContent value="blacklist" className="mt-0 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <ShieldBan className="h-5 w-5 text-red-400" />
+                Blacklist Manager
+              </h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Block callers, callees, or number prefixes from generating traffic or being flagged
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => refetchBlacklist()} data-testid="button-blacklist-refresh" className="gap-1.5">
+              <RefreshCw className="h-3.5 w-3.5" />Refresh
+            </Button>
+          </div>
+
+          {/* Add Rule Form */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <h3 className="font-semibold text-sm mb-4 flex items-center gap-2"><Plus className="h-4 w-4 text-primary" />Add Blacklist Rule</h3>
+            <div className="flex flex-wrap gap-3 items-end">
+              <div className="w-36">
+                <Label className="text-xs text-muted-foreground mb-1">Type</Label>
+                <Select value={blType} onValueChange={(v) => setBlType(v as 'caller'|'callee'|'prefix')}>
+                  <SelectTrigger className="h-9 text-xs" data-testid="select-bl-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="caller">Caller (CLI)</SelectItem>
+                    <SelectItem value="callee">Callee (CLD)</SelectItem>
+                    <SelectItem value="prefix">Prefix</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex-1 min-w-48">
+                <Label className="text-xs text-muted-foreground mb-1">Number / Prefix</Label>
+                <Input value={blValue} onChange={e => setBlValue(e.target.value)} placeholder={blType === 'prefix' ? 'e.g. 252 (Somalia)' : 'e.g. 12345678900'} className="h-9 text-xs" data-testid="input-bl-value" />
+              </div>
+              <div className="flex-1 min-w-48">
+                <Label className="text-xs text-muted-foreground mb-1">Reason (optional)</Label>
+                <Input value={blReason} onChange={e => setBlReason(e.target.value)} placeholder="IRSF, fraud, abuse…" className="h-9 text-xs" data-testid="input-bl-reason" />
+              </div>
+              <Button size="sm" onClick={() => addBlacklistMutation.mutate({ type: blType, value: blValue, reason: blReason })} disabled={!blValue || addBlacklistMutation.isPending} data-testid="button-add-blacklist" className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" />{addBlacklistMutation.isPending ? "Adding…" : "Add Rule"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Blacklist Table */}
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+              <ShieldBan className="h-4 w-4 text-primary" />
+              <span className="font-semibold text-sm">Active Rules</span>
+              <Badge className="bg-muted text-muted-foreground border-0 text-xs">{blacklistRules.length}</Badge>
+            </div>
+            {blacklistLoading ? (
+              <div className="p-8 text-center text-muted-foreground text-sm">Loading…</div>
+            ) : blacklistRules.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground text-sm">No blacklist rules yet. Add a rule above to start blocking.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-xs text-muted-foreground">
+                      <th className="px-4 py-2.5 text-left">Type</th>
+                      <th className="px-4 py-2.5 text-left">Value</th>
+                      <th className="px-4 py-2.5 text-left">Reason</th>
+                      <th className="px-4 py-2.5 text-left">Source</th>
+                      <th className="px-4 py-2.5 text-right">Hits</th>
+                      <th className="px-4 py-2.5 text-center">Status</th>
+                      <th className="px-4 py-2.5 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {blacklistRules.map(rule => (
+                      <tr key={rule.id} className={`border-b border-border/50 hover:bg-muted/30 transition-colors ${!rule.active ? 'opacity-50' : ''}`}>
+                        <td className="px-4 py-2.5">
+                          <Badge className={`text-xs border-0 ${rule.type === 'prefix' ? 'bg-purple-500/20 text-purple-400' : rule.type === 'caller' ? 'bg-blue-500/20 text-blue-400' : 'bg-red-500/20 text-red-400'}`}>
+                            {rule.type}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-red-400">{rule.value}</td>
+                        <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-48 truncate">{rule.reason ?? "—"}</td>
+                        <td className="px-4 py-2.5">{sourceBadge(rule.source)}</td>
+                        <td className="px-4 py-2.5 text-right font-mono text-xs">{rule.hitCount}</td>
+                        <td className="px-4 py-2.5 text-center">
+                          <button
+                            onClick={() => toggleBlacklistMutation.mutate({ id: rule.id, active: !rule.active })}
+                            data-testid={`toggle-blacklist-${rule.id}`}
+                            className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${rule.active ? 'text-green-400 hover:text-red-400' : 'text-muted-foreground hover:text-green-400'}`}
+                          >
+                            {rule.active ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                            {rule.active ? "Active" : "Disabled"}
+                          </button>
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <button
+                            onClick={() => deleteBlacklistMutation.mutate(rule.id)}
+                            data-testid={`delete-blacklist-${rule.id}`}
+                            className="text-muted-foreground hover:text-red-400 transition-colors p-1 rounded"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

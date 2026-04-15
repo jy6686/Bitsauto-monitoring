@@ -10,7 +10,7 @@ import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import * as sippy from "./sippy";
 import * as sippySnmp from "./snmp";
 import * as emailSvc from "./email";
-import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas, calcVendorFraudStats } from "./cdr-enrichment";
+import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas, calcVendorFraudStats, detectIrsf } from "./cdr-enrichment";
 import { initSippyWatcher, notifyNewClientTraffic, getWatcherStatus, sendTestWatcherAlert } from "./sippy-watcher";
 import { lookupDialCode } from "./dial-lookup";
 import { readFileSync } from "fs";
@@ -8755,6 +8755,399 @@ export async function registerRoutes(
   app.delete('/api/watcher-recipients/:id', (req, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     await storage.deleteWatcherRecipient(Number(req.params.id));
     res.json({ ok: true });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // ── TIER 1 FEATURES ──────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  // ── IRSF Background Detection Worker ─────────────────────────────────────────
+  async function runBackgroundIrsfAnalysis() {
+    try {
+      const settings = await storage.getSettings();
+      if (!settings.portalUrl) return;
+      const credPairs = sippyXmlCredsPairs(settings);
+      if (!credPairs.length) return;
+      const startDate = sippy.toSippyDate(new Date(Date.now() - 30 * 60 * 1000));
+      const endDate   = sippy.toSippyDate(new Date());
+      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      for (const { username, password } of credPairs) {
+        cdrs = await sippy.getSippyCDRs(username, password, 500, { startDate, endDate });
+        if (cdrs.length > 0) break;
+      }
+      let saved = 0;
+      for (const cdr of cdrs) {
+        if (!cdr.callee || !cdr.callId) continue;
+        const irsfResult = detectIrsf(String(cdr.callee));
+        if (!irsfResult.isIrsf) continue;
+        const resolvedClient = cdr.clientName || cdr.user
+          || accountNameCache.get(String(cdr.accountId ?? cdr.iAccount ?? ''))
+          || (cdr.accountId ? `Acct#${cdr.accountId}` : 'Unknown');
+        const resolvedVendor = (() => {
+          if (cdr.vendor) return cdr.vendor;
+          if (cdr.iConnection) {
+            const v = connectionVendorCache.get(String(cdr.iConnection));
+            if (v && !/^\d+$/.test(v)) return v;
+          }
+          for (const val of connectionVendorCache.values()) {
+            if (!/^\d+$/.test(val)) return val;
+          }
+          return '';
+        })();
+        try {
+          await storage.createIrsfEvent({
+            callId: String(cdr.callId),
+            caller: cdr.caller ?? '',
+            callee: cdr.callee ?? '',
+            clientName: resolvedClient,
+            vendor: resolvedVendor,
+            riskPrefix: irsfResult.riskPrefix,
+            country: irsfResult.country,
+            breakout: irsfResult.breakout,
+            fraudScore: irsfResult.fraudScore,
+            blocked: false,
+            alertSent: false,
+          });
+          saved++;
+        } catch { /* duplicate — ignore */ }
+      }
+      if (saved > 0) console.log(`[irsf-bg] Saved ${saved} new IRSF events from ${cdrs.length} CDRs`);
+    } catch (err: any) {
+      console.error('[irsf-bg] Error:', err.message);
+    }
+  }
+  setTimeout(() => {
+    runBackgroundIrsfAnalysis();
+    setInterval(runBackgroundIrsfAnalysis, 5 * 60 * 1000);
+  }, 45000); // offset from FAS to spread DB load
+
+  // ── IRSF Events API ───────────────────────────────────────────────────────────
+  app.get('/api/irsf-events', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (_req, res) => {
+    const events = await storage.getIrsfEvents(300);
+    res.json(events);
+  });
+
+  // Manual IRSF scan trigger
+  app.post('/api/irsf-events/scan', (req, res, next) => requireRole(['admin','management'], req, res, next), async (_req, res) => {
+    runBackgroundIrsfAnalysis().catch(() => {});
+    res.json({ ok: true, message: 'IRSF scan triggered' });
+  });
+
+  // ── Blacklist Rules CRUD ──────────────────────────────────────────────────────
+  app.get('/api/blacklist-rules', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (_req, res) => {
+    const rules = await storage.getBlacklistRules();
+    res.json(rules);
+  });
+
+  app.post('/api/blacklist-rules', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    const { type, value, reason, source } = req.body;
+    if (!type || !value) return res.status(400).json({ message: 'type and value are required' });
+    if (!['caller','callee','prefix'].includes(type)) return res.status(400).json({ message: 'type must be caller | callee | prefix' });
+    const rule = await storage.createBlacklistRule({ type, value: value.trim(), reason: reason || null, source: source || 'manual', active: true });
+    res.json(rule);
+  });
+
+  app.patch('/api/blacklist-rules/:id', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    const id = Number(req.params.id);
+    const row = await storage.updateBlacklistRule(id, req.body);
+    if (!row) return res.status(404).json({ message: 'Not found' });
+    res.json(row);
+  });
+
+  app.delete('/api/blacklist-rules/:id', (req, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    await storage.deleteBlacklistRule(Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  // ── MOS Trending ──────────────────────────────────────────────────────────────
+  // Compute MOS hourly snapshots on-the-fly from the metrics table (DB query)
+  app.get('/api/mos-trending', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (req, res) => {
+    try {
+      const hoursBack = Math.min(Number(req.query.hours) || 24, 168);
+      const since = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
+      const { db: dbConn } = await import('./db');
+      const { metrics: metricsTable } = await import('@shared/schema');
+      const { sql: sqlExpr, gte: gteOp } = await import('drizzle-orm');
+      const rows = await dbConn.select({
+        hour: sqlExpr<string>`date_trunc('hour', ${metricsTable.timestamp})`,
+        avgMos: sqlExpr<number>`ROUND(AVG(${metricsTable.mos})::numeric, 3)`,
+        minMos: sqlExpr<number>`ROUND(MIN(${metricsTable.mos})::numeric, 3)`,
+        maxMos: sqlExpr<number>`ROUND(MAX(${metricsTable.mos})::numeric, 3)`,
+        callCount: sqlExpr<number>`COUNT(DISTINCT ${metricsTable.callId})`,
+      })
+      .from(metricsTable)
+      .where(gteOp(metricsTable.timestamp, since))
+      .groupBy(sqlExpr`date_trunc('hour', ${metricsTable.timestamp})`)
+      .orderBy(sqlExpr`date_trunc('hour', ${metricsTable.timestamp})`);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── SIP OPTIONS Probe ─────────────────────────────────────────────────────────
+  // Per-host SIP OPTIONS keepalive results stored in-memory (refreshed every 60s)
+  const sipOptionsCache: Map<number, {
+    hostId: number; label: string; ip: string; port: number;
+    status: 'up'|'down'|'timeout'|'unknown'; responseMs: number | null; checkedAt: Date;
+  }> = new Map();
+
+  async function probeSipOptions(ip: string, port = 5060): Promise<{ status: 'up'|'down'|'timeout'; responseMs: number }> {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      // Send a minimal SIP OPTIONS message over TCP
+      const socket = net.createConnection({ host: ip, port }, () => {
+        const callId = Math.random().toString(36).slice(2);
+        const msg = [
+          `OPTIONS sip:${ip} SIP/2.0`,
+          `Via: SIP/2.0/TCP ${ip}:${port};branch=z9hG4bK${callId}`,
+          `Max-Forwards: 70`,
+          `From: <sip:noc@voipwatcher.local>;tag=${callId}`,
+          `To: <sip:${ip}>`,
+          `Call-ID: ${callId}@voipwatcher.local`,
+          `CSeq: 1 OPTIONS`,
+          `Content-Length: 0`,
+          ``,
+          ``,
+        ].join('\r\n');
+        socket.write(msg);
+      });
+      socket.setTimeout(4000);
+      let responded = false;
+      socket.on('data', (chunk) => {
+        if (responded) return;
+        responded = true;
+        const responseMs = Date.now() - start;
+        const text = chunk.toString();
+        // Accept any SIP response (200 OK, 405 Not Allowed, 403, etc.) — all mean the server is alive
+        const status: 'up'|'down' = /^SIP\/2\.0\s+\d+/.test(text) ? 'up' : 'down';
+        socket.destroy();
+        resolve({ status, responseMs });
+      });
+      socket.on('timeout', () => {
+        if (responded) return;
+        responded = true;
+        socket.destroy();
+        resolve({ status: 'timeout', responseMs: 4000 });
+      });
+      socket.on('error', () => {
+        if (responded) return;
+        responded = true;
+        resolve({ status: 'down', responseMs: Date.now() - start });
+      });
+    });
+  }
+
+  async function runSipOptionsProbe() {
+    try {
+      const hosts = await storage.getMonitoredHosts();
+      const enabled = hosts.filter(h => h.enabled);
+      for (const host of enabled) {
+        const port = 5060;
+        const result = await probeSipOptions(host.ip, port);
+        sipOptionsCache.set(host.id, {
+          hostId: host.id, label: host.label, ip: host.ip, port,
+          status: result.status as 'up'|'down'|'timeout'|'unknown',
+          responseMs: result.responseMs,
+          checkedAt: new Date(),
+        });
+      }
+    } catch { /* ignore */ }
+  }
+
+  app.get('/api/monitoring/sip-options', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), (_req, res) => {
+    res.json(Array.from(sipOptionsCache.values()));
+  });
+
+  // Start SIP OPTIONS probe 60s after startup, repeat every 60s
+  setTimeout(() => {
+    runSipOptionsProbe();
+    setInterval(runSipOptionsProbe, 60 * 1000);
+  }, 60000);
+
+  // ── Rate Cards CRUD ───────────────────────────────────────────────────────────
+  app.get('/api/rate-cards', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (_req, res) => {
+    const cards = await storage.getRateCards();
+    res.json(cards);
+  });
+
+  app.post('/api/rate-cards', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    const { vendorName, name, currency, effectiveDate } = req.body;
+    if (!vendorName || !name) return res.status(400).json({ message: 'vendorName and name required' });
+    const card = await storage.createRateCard({
+      vendorName: vendorName.trim(),
+      name: name.trim(),
+      currency: currency || 'USD',
+      effectiveDate: effectiveDate ? new Date(effectiveDate) : null,
+    });
+    res.json(card);
+  });
+
+  app.delete('/api/rate-cards/:id', (req, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    await storage.deleteRateCard(Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  app.get('/api/rate-cards/:id/entries', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (req, res) => {
+    const entries = await storage.getRateCardEntries(Number(req.params.id));
+    res.json(entries);
+  });
+
+  // CSV upload for rate card entries
+  // Accepts multipart/form-data with field "csv" OR raw text/plain body
+  // Expected CSV columns (flexible header detection): prefix, country, breakout, rate
+  app.post('/api/rate-cards/:id/upload', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    try {
+      const rateCardId = Number(req.params.id);
+      // Read raw body as text (client sends text/plain CSV)
+      let csvText = '';
+      await new Promise<void>((resolve, reject) => {
+        req.setEncoding('utf-8');
+        req.on('data', chunk => { csvText += chunk; });
+        req.on('end', resolve);
+        req.on('error', reject);
+      });
+      if (!csvText.trim()) return res.status(400).json({ message: 'Empty CSV' });
+      const lines = csvText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      if (lines.length < 2) return res.status(400).json({ message: 'CSV must have header + at least 1 row' });
+      // Detect column positions from header
+      const header = lines[0].toLowerCase().split(',').map(h => h.replace(/"/g,'').trim());
+      const prefixIdx  = header.findIndex(h => h.includes('prefix') || h === 'code' || h === 'dial_code');
+      const countryIdx = header.findIndex(h => h.includes('country') || h.includes('destination') || h === 'name');
+      const breakoutIdx= header.findIndex(h => h.includes('breakout') || h.includes('description') || h.includes('desc'));
+      const rateIdx    = header.findIndex(h => h.includes('rate') || h.includes('price') || h.includes('cost') || h === 'sell_rate');
+      if (prefixIdx === -1 || rateIdx === -1) {
+        return res.status(400).json({ message: 'CSV must have prefix (or code) and rate columns' });
+      }
+      const entries: Array<{ rateCardId: number; prefix: string; country: string | null; breakout: string | null; ratePerMin: number }> = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',').map(c => c.replace(/"/g,'').trim());
+        const prefix = cols[prefixIdx]?.replace(/\D/g, '');
+        const rateStr = cols[rateIdx]?.replace(/[^0-9.]/g, '');
+        const ratePerMin = parseFloat(rateStr);
+        if (!prefix || isNaN(ratePerMin)) continue;
+        entries.push({
+          rateCardId,
+          prefix,
+          country: countryIdx >= 0 ? (cols[countryIdx] || null) : null,
+          breakout: breakoutIdx >= 0 ? (cols[breakoutIdx] || null) : null,
+          ratePerMin,
+        });
+      }
+      if (!entries.length) return res.status(400).json({ message: 'No valid rows parsed from CSV' });
+      // Clear old entries and insert new
+      const { db: dbConn } = await import('./db');
+      const { rateCardEntries: rceTable } = await import('@shared/schema');
+      const { eq: eqOp } = await import('drizzle-orm');
+      await dbConn.delete(rceTable).where(eqOp(rceTable.rateCardId, rateCardId));
+      const inserted = await storage.bulkInsertRateCardEntries(entries);
+      await storage.updateRateCardEntryCount(rateCardId, inserted);
+      res.json({ ok: true, inserted });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Revenue & Margin Analytics ─────────────────────────────────────────────────
+  app.get('/api/analytics/revenue', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    try {
+      const days = Math.min(Number(req.query.days) || 30, 90);
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const profiles = await storage.getClientProfiles();
+      const clientMap = new Map<string, { ratePerMin: number; revenuePerMin?: number | null; type: string }>();
+      for (const p of profiles) {
+        clientMap.set(p.name.toLowerCase(), {
+          ratePerMin: p.ratePerMin ?? 0.025,
+          revenuePerMin: p.revenuePerMin,
+          type: p.type,
+        });
+      }
+      const { db: dbConn } = await import('./db');
+      const { callSnapshots: csTable } = await import('@shared/schema');
+      const { sql: sqlExpr, gte: gteOp } = await import('drizzle-orm');
+      // Use call_snapshots for enriched call data
+      const snapRows = await dbConn.select({
+        clientName: csTable.clientName,
+        vendor: csTable.vendor,
+        totalCalls: sqlExpr<number>`COUNT(*)`,
+        totalSecs: sqlExpr<number>`SUM(${csTable.maxDurationSecs})`,
+      })
+      .from(csTable)
+      .where(gteOp(csTable.firstSeen, since))
+      .groupBy(csTable.clientName, csTable.vendor);
+
+      // Aggregate by client
+      const clientAgg = new Map<string, { calls: number; secs: number; revenue: number; cost: number }>();
+      for (const row of snapRows) {
+        const name = row.clientName ?? 'Unknown';
+        const minutes = (Number(row.totalSecs) || 0) / 60;
+        const profile = clientMap.get(name.toLowerCase());
+        const ratePerMin = profile?.revenuePerMin ?? profile?.ratePerMin ?? 0.025;
+        // Cost: look up vendor profile
+        const vendorProfile = clientMap.get((row.vendor ?? '').toLowerCase());
+        const costPerMin = vendorProfile?.ratePerMin ?? 0.012;
+        const revenue = minutes * ratePerMin;
+        const cost = minutes * costPerMin;
+        const existing = clientAgg.get(name) ?? { calls: 0, secs: 0, revenue: 0, cost: 0 };
+        clientAgg.set(name, {
+          calls: existing.calls + Number(row.totalCalls),
+          secs: existing.secs + Number(row.totalSecs),
+          revenue: existing.revenue + revenue,
+          cost: existing.cost + cost,
+        });
+      }
+      const byClient = Array.from(clientAgg.entries())
+        .map(([name, d]) => ({
+          name,
+          calls: d.calls,
+          minutes: Math.round(d.secs / 60),
+          revenue: parseFloat(d.revenue.toFixed(4)),
+          cost: parseFloat(d.cost.toFixed(4)),
+          profit: parseFloat((d.revenue - d.cost).toFixed(4)),
+          margin: d.revenue > 0 ? parseFloat(((d.revenue - d.cost) / d.revenue * 100).toFixed(2)) : 0,
+        }))
+        .sort((a, b) => b.revenue - a.revenue);
+
+      // Aggregate by vendor for cost breakdown
+      const vendorAgg = new Map<string, { calls: number; secs: number; cost: number }>();
+      for (const row of snapRows) {
+        const name = row.vendor ?? 'Unknown';
+        const minutes = (Number(row.totalSecs) || 0) / 60;
+        const profile = clientMap.get(name.toLowerCase());
+        const costPerMin = profile?.ratePerMin ?? 0.012;
+        const cost = minutes * costPerMin;
+        const existing = vendorAgg.get(name) ?? { calls: 0, secs: 0, cost: 0 };
+        vendorAgg.set(name, {
+          calls: existing.calls + Number(row.totalCalls),
+          secs: existing.secs + Number(row.totalSecs),
+          cost: existing.cost + cost,
+        });
+      }
+      const byVendor = Array.from(vendorAgg.entries())
+        .map(([name, d]) => ({
+          name, calls: d.calls, minutes: Math.round(d.secs / 60), cost: parseFloat(d.cost.toFixed(4)),
+        }))
+        .sort((a, b) => b.cost - a.cost);
+
+      const totalRevenue = byClient.reduce((s, c) => s + c.revenue, 0);
+      const totalCost    = byClient.reduce((s, c) => s + c.cost,    0);
+      const totalProfit  = totalRevenue - totalCost;
+      const totalMargin  = totalRevenue > 0 ? (totalProfit / totalRevenue * 100) : 0;
+
+      res.json({
+        period: { days, since: since.toISOString() },
+        summary: {
+          totalRevenue: parseFloat(totalRevenue.toFixed(4)),
+          totalCost:    parseFloat(totalCost.toFixed(4)),
+          totalProfit:  parseFloat(totalProfit.toFixed(4)),
+          margin:       parseFloat(totalMargin.toFixed(2)),
+        },
+        byClient,
+        byVendor,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // Start Sippy change-detection watcher (accounts, IPs, vendors)

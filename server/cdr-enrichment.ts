@@ -269,6 +269,96 @@ export function calcRevenueSummary(opts: {
   return { revenue, cost, profit, margin };
 }
 
+// ── IRSF Detection ────────────────────────────────────────────────────────────
+// International Revenue Share Fraud: calls to premium-rate / satellite / high-risk destinations
+// where a fraudster earns a share of the termination revenue.
+//
+// Source of truth: GSMA IRSF Intelligence Sharing, i3Forum, known fraud destination lists.
+
+export const IRSF_RISK_PREFIXES: Array<{
+  prefix: string; country: string; breakout: string; riskLevel: 1|2|3
+}> = [
+  // === Satellite Numbers (level 3 — Highest Risk) ===
+  { prefix: '870',  country: 'Inmarsat Satellite',    breakout: 'Satellite',        riskLevel: 3 },
+  { prefix: '8816', country: 'Iridium Satellite',     breakout: 'Satellite',        riskLevel: 3 },
+  { prefix: '8817', country: 'Iridium Satellite',     breakout: 'Satellite',        riskLevel: 3 },
+  { prefix: '8818', country: 'Globalstar Satellite',  breakout: 'Satellite',        riskLevel: 3 },
+  { prefix: '8819', country: 'Globalstar Satellite',  breakout: 'Satellite',        riskLevel: 3 },
+  { prefix: '8821', country: 'Globalstar Satellite',  breakout: 'Satellite',        riskLevel: 3 },
+  { prefix: '881',  country: 'Global Mobile Sat.',    breakout: 'Satellite',        riskLevel: 3 },
+  // === Pacific Island Nations (level 3) ===
+  { prefix: '674',  country: 'Nauru',                 breakout: 'Pacific Islands',  riskLevel: 3 },
+  { prefix: '676',  country: 'Tonga',                 breakout: 'Pacific Islands',  riskLevel: 3 },
+  { prefix: '678',  country: 'Vanuatu',               breakout: 'Pacific Islands',  riskLevel: 3 },
+  { prefix: '680',  country: 'Palau',                 breakout: 'Pacific Islands',  riskLevel: 3 },
+  { prefix: '682',  country: 'Cook Islands',          breakout: 'Pacific Islands',  riskLevel: 3 },
+  { prefix: '683',  country: 'Niue',                  breakout: 'Pacific Islands',  riskLevel: 3 },
+  { prefix: '686',  country: 'Kiribati',              breakout: 'Pacific Islands',  riskLevel: 3 },
+  { prefix: '688',  country: 'Tuvalu',                breakout: 'Pacific Islands',  riskLevel: 3 },
+  { prefix: '690',  country: 'Tokelau',               breakout: 'Pacific Islands',  riskLevel: 3 },
+  { prefix: '692',  country: 'Marshall Islands',      breakout: 'Pacific Islands',  riskLevel: 3 },
+  { prefix: '685',  country: 'Samoa',                 breakout: 'Pacific Islands',  riskLevel: 2 },
+  { prefix: '691',  country: 'Micronesia',            breakout: 'Pacific Islands',  riskLevel: 2 },
+  // === Africa High-Risk (level 2–3) ===
+  { prefix: '239',  country: 'São Tomé & Príncipe',   breakout: 'Africa',           riskLevel: 3 },
+  { prefix: '252',  country: 'Somalia',               breakout: 'Africa',           riskLevel: 3 },
+  { prefix: '269',  country: 'Comoros',               breakout: 'Africa',           riskLevel: 3 },
+  { prefix: '231',  country: 'Liberia',               breakout: 'Africa',           riskLevel: 2 },
+  { prefix: '232',  country: 'Sierra Leone',          breakout: 'Africa',           riskLevel: 2 },
+  { prefix: '245',  country: 'Guinea-Bissau',         breakout: 'Africa',           riskLevel: 2 },
+  { prefix: '253',  country: 'Djibouti',              breakout: 'Africa',           riskLevel: 2 },
+  { prefix: '291',  country: 'Eritrea',               breakout: 'Africa',           riskLevel: 2 },
+  // === Caribbean Premium (level 1–2) ===
+  { prefix: '1264', country: 'Anguilla',              breakout: 'Caribbean',        riskLevel: 2 },
+  { prefix: '1649', country: 'Turks & Caicos',        breakout: 'Caribbean',        riskLevel: 2 },
+  { prefix: '1664', country: 'Montserrat',            breakout: 'Caribbean',        riskLevel: 3 },
+  { prefix: '1473', country: 'Grenada',               breakout: 'Caribbean',        riskLevel: 1 },
+  { prefix: '1767', country: 'Dominica',              breakout: 'Caribbean',        riskLevel: 1 },
+  { prefix: '1784', country: 'St. Vincent',           breakout: 'Caribbean',        riskLevel: 1 },
+  // === Other High-Risk ===
+  { prefix: '850',  country: 'North Korea',           breakout: 'Other',            riskLevel: 3 },
+  { prefix: '53',   country: 'Cuba',                  breakout: 'Other',            riskLevel: 2 },
+  { prefix: '679',  country: 'Fiji (premium)',         breakout: 'Pacific Islands',  riskLevel: 1 },
+  { prefix: '677',  country: 'Solomon Islands',       breakout: 'Pacific Islands',  riskLevel: 2 },
+];
+
+export type IrsfResult = {
+  isIrsf: boolean;
+  riskPrefix: string | null;
+  country: string | null;
+  breakout: string | null;
+  riskLevel: number;
+  fraudScore: number;
+};
+
+/**
+ * Check if a callee number matches a known IRSF-prone prefix.
+ * Prefixes are sorted longest-first to ensure most-specific match wins.
+ */
+export function detectIrsf(callee: string): IrsfResult {
+  const none: IrsfResult = { isIrsf: false, riskPrefix: null, country: null, breakout: null, riskLevel: 0, fraudScore: 0 };
+  if (!callee) return none;
+  // Strip leading + and non-digits, then re-normalize
+  const digits = callee.replace(/^\+/, '').replace(/\D/g, '');
+  if (!digits) return none;
+  // Sort longest prefix first for most-specific match
+  const sorted = [...IRSF_RISK_PREFIXES].sort((a, b) => b.prefix.length - a.prefix.length);
+  for (const entry of sorted) {
+    if (digits.startsWith(entry.prefix)) {
+      const fraudScore = entry.riskLevel === 3 ? 90 : entry.riskLevel === 2 ? 65 : 40;
+      return {
+        isIrsf: true,
+        riskPrefix: entry.prefix,
+        country: entry.country,
+        breakout: entry.breakout,
+        riskLevel: entry.riskLevel,
+        fraudScore,
+      };
+    }
+  }
+  return none;
+}
+
 // ── ASR / ACD / PDD / Call-back ratio calculation ─────────────────────────
 
 export type CallStats = {

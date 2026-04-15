@@ -3,7 +3,7 @@ import {
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
   switches, fasEvents, callSnapshots, monitoringAssignments, outageLog, alertRules,
   monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts, sippySnapshots,
-  watcherRecipients,
+  watcherRecipients, irsfEvents, blacklistRules, rateCards, rateCardEntries, mosHourly,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -21,6 +21,11 @@ import {
   type KamAccount, type InsertKamAccount,
   type TrafficAlert, type InsertTrafficAlert,
   type WatcherRecipient, type InsertWatcherRecipient,
+  type IrsfEvent, type InsertIrsfEvent,
+  type BlacklistRule, type InsertBlacklistRule,
+  type RateCard, type InsertRateCard,
+  type RateCardEntry, type InsertRateCardEntry,
+  type MosHourly,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -127,6 +132,30 @@ export interface IStorage {
   addWatcherRecipient(data: InsertWatcherRecipient): Promise<WatcherRecipient>;
   updateWatcherRecipient(id: number, data: Partial<InsertWatcherRecipient>): Promise<WatcherRecipient | undefined>;
   deleteWatcherRecipient(id: number): Promise<void>;
+
+  // IRSF Events
+  getIrsfEvents(limit?: number): Promise<IrsfEvent[]>;
+  createIrsfEvent(event: InsertIrsfEvent): Promise<IrsfEvent>;
+
+  // Blacklist Rules
+  getBlacklistRules(): Promise<BlacklistRule[]>;
+  createBlacklistRule(rule: InsertBlacklistRule): Promise<BlacklistRule>;
+  updateBlacklistRule(id: number, updates: Partial<InsertBlacklistRule>): Promise<BlacklistRule | undefined>;
+  deleteBlacklistRule(id: number): Promise<void>;
+  incrementBlacklistHit(id: number): Promise<void>;
+
+  // Rate Cards
+  getRateCards(): Promise<RateCard[]>;
+  createRateCard(card: InsertRateCard): Promise<RateCard>;
+  deleteRateCard(id: number): Promise<void>;
+  getRateCardEntries(rateCardId: number): Promise<RateCardEntry[]>;
+  bulkInsertRateCardEntries(entries: InsertRateCardEntry[]): Promise<number>;
+  updateRateCardEntryCount(rateCardId: number, count: number): Promise<void>;
+  lookupRateForPrefix(rateCardId: number, callee: string): Promise<RateCardEntry | null>;
+
+  // MOS Hourly Snapshots
+  getMosHourly(hoursBack?: number, vendor?: string): Promise<MosHourly[]>;
+  upsertMosHourly(hour: Date, vendor: string | null, avgMos: number, minMos: number, maxMos: number, callCount: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -744,6 +773,107 @@ export class DatabaseStorage implements IStorage {
 
   async deleteWatcherRecipient(id: number): Promise<void> {
     await db.delete(watcherRecipients).where(eq(watcherRecipients.id, id));
+  }
+
+  // ── IRSF Events ──────────────────────────────────────────────────────────────
+  async getIrsfEvents(limit = 200): Promise<IrsfEvent[]> {
+    return db.select().from(irsfEvents).orderBy(desc(irsfEvents.detectedAt)).limit(limit);
+  }
+
+  async createIrsfEvent(event: InsertIrsfEvent): Promise<IrsfEvent> {
+    const [row] = await db.insert(irsfEvents).values(event).returning();
+    return row;
+  }
+
+  // ── Blacklist Rules ───────────────────────────────────────────────────────────
+  async getBlacklistRules(): Promise<BlacklistRule[]> {
+    return db.select().from(blacklistRules).orderBy(desc(blacklistRules.createdAt));
+  }
+
+  async createBlacklistRule(rule: InsertBlacklistRule): Promise<BlacklistRule> {
+    const [row] = await db.insert(blacklistRules).values(rule).returning();
+    return row;
+  }
+
+  async updateBlacklistRule(id: number, updates: Partial<InsertBlacklistRule>): Promise<BlacklistRule | undefined> {
+    const [row] = await db.update(blacklistRules).set(updates).where(eq(blacklistRules.id, id)).returning();
+    return row;
+  }
+
+  async deleteBlacklistRule(id: number): Promise<void> {
+    await db.delete(blacklistRules).where(eq(blacklistRules.id, id));
+  }
+
+  async incrementBlacklistHit(id: number): Promise<void> {
+    await db.update(blacklistRules)
+      .set({ hitCount: sql`${blacklistRules.hitCount} + 1` })
+      .where(eq(blacklistRules.id, id));
+  }
+
+  // ── Rate Cards ────────────────────────────────────────────────────────────────
+  async getRateCards(): Promise<RateCard[]> {
+    return db.select().from(rateCards).orderBy(desc(rateCards.createdAt));
+  }
+
+  async createRateCard(card: InsertRateCard): Promise<RateCard> {
+    const [row] = await db.insert(rateCards).values(card).returning();
+    return row;
+  }
+
+  async deleteRateCard(id: number): Promise<void> {
+    await db.delete(rateCardEntries).where(eq(rateCardEntries.rateCardId, id));
+    await db.delete(rateCards).where(eq(rateCards.id, id));
+  }
+
+  async getRateCardEntries(rateCardId: number): Promise<RateCardEntry[]> {
+    return db.select().from(rateCardEntries)
+      .where(eq(rateCardEntries.rateCardId, rateCardId))
+      .orderBy(rateCardEntries.prefix)
+      .limit(5000);
+  }
+
+  async bulkInsertRateCardEntries(entries: InsertRateCardEntry[]): Promise<number> {
+    if (!entries.length) return 0;
+    // Insert in batches of 500 to avoid parameter limits
+    let inserted = 0;
+    for (let i = 0; i < entries.length; i += 500) {
+      const batch = entries.slice(i, i + 500);
+      await db.insert(rateCardEntries).values(batch);
+      inserted += batch.length;
+    }
+    return inserted;
+  }
+
+  async updateRateCardEntryCount(rateCardId: number, count: number): Promise<void> {
+    await db.update(rateCards).set({ entryCount: count }).where(eq(rateCards.id, rateCardId));
+  }
+
+  async lookupRateForPrefix(rateCardId: number, callee: string): Promise<RateCardEntry | null> {
+    const digits = callee.replace(/^\+/, '').replace(/\D/g, '');
+    // Try progressively shorter prefixes from longest match down
+    for (let len = Math.min(digits.length, 11); len >= 1; len--) {
+      const prefix = digits.slice(0, len);
+      const [row] = await db.select().from(rateCardEntries)
+        .where(and(eq(rateCardEntries.rateCardId, rateCardId), eq(rateCardEntries.prefix, prefix)))
+        .limit(1);
+      if (row) return row;
+    }
+    return null;
+  }
+
+  // ── MOS Hourly ────────────────────────────────────────────────────────────────
+  async getMosHourly(hoursBack = 24, vendor?: string): Promise<MosHourly[]> {
+    const since = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
+    const conditions = [gte(mosHourly.hour, since)];
+    if (vendor && vendor !== '__all__') conditions.push(eq(mosHourly.vendor, vendor));
+    else if (!vendor || vendor === '__all__') conditions.push(sql`${mosHourly.vendor} IS NULL`);
+    return db.select().from(mosHourly).where(and(...conditions)).orderBy(mosHourly.hour);
+  }
+
+  async upsertMosHourly(hour: Date, vendor: string | null, avgMos: number, minMos: number, maxMos: number, callCount: number): Promise<void> {
+    await db.insert(mosHourly)
+      .values({ hour, vendor, avgMos, minMos, maxMos, callCount })
+      .onConflictDoNothing();
   }
 }
 
