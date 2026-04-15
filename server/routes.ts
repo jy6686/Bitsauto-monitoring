@@ -981,6 +981,49 @@ export async function registerRoutes(
     } catch { res.status(500).json({ message: 'Failed to delete switch' }); }
   });
 
+  // POST /api/switches/:id/promote — promote a secondary switch to primary.
+  // Saves the old primary as a new secondary switch, then deletes the promoted one.
+  app.post('/api/switches/:id/promote', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const allSwitches = await storage.getSwitches();
+      const target = allSwitches.find(s => s.id === id);
+      if (!target) return res.status(404).json({ message: 'Switch not found.' });
+
+      const primarySettings = await storage.getSettings();
+
+      // Save old primary as a new secondary switch (only if it had a URL configured)
+      const oldPrimaryUrl = primarySettings.portalUrl;
+      if (oldPrimaryUrl) {
+        await storage.createSwitch({
+          name: 'Former Primary Switch',
+          type: 'sippy',
+          portalUrl: oldPrimaryUrl,
+          portalUsername: primarySettings.portalUsername || null,
+          portalPassword: primarySettings.portalPassword || null,
+          enabled: true,
+        });
+      }
+
+      // Update primary settings with the promoted switch's credentials
+      await storage.updateSettings({
+        portalUrl: target.portalUrl || undefined,
+        portalUsername: target.portalUsername || undefined,
+        portalPassword: target.portalPassword || undefined,
+        // Clear admin-specific creds so they don't conflict
+        apiAdminUsername: undefined,
+        apiAdminPassword: undefined,
+      });
+
+      // Remove the promoted switch from secondary list
+      await storage.deleteSwitch(id);
+
+      res.json({ success: true, message: `"${target.name}" is now the primary switch. Old primary saved as secondary.` });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // GET /api/switches/consolidated — poll all switches in parallel and return aggregated stats
   app.get('/api/switches/consolidated', async (_req, res) => {
     try {

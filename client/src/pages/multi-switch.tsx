@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   Layers, RefreshCw, Plus, Pencil, Trash2, TestTube2, CheckCircle2,
   XCircle, AlertTriangle, WifiOff, Wifi, Phone, Activity, Clock,
-  BarChart2, Server, ChevronDown, ChevronUp, Eye, EyeOff, Star,
+  BarChart2, Server, ChevronDown, ChevronUp, Eye, EyeOff, Star, Crown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -461,6 +461,19 @@ export default function MultiSwitchPage() {
     onError: (err: any) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
   });
 
+  const promoteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest('POST', `/api/switches/${id}/promote`, {});
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/switches'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/switches/consolidated'] });
+      toast({ title: 'Primary switch updated', description: data.message });
+    },
+    onError: (err: any) => toast({ title: 'Promote failed', description: err.message, variant: 'destructive' }),
+  });
+
   const handleRefresh = useCallback(() => {
     consolidatedQuery.refetch();
   }, [consolidatedQuery]);
@@ -661,6 +674,53 @@ export default function MultiSwitchPage() {
                         {isAdmin && (
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
+                              {/* Set as Primary */}
+                              <AlertDialog>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 w-7 p-0 text-amber-500 hover:text-amber-600"
+                                        data-testid={`btn-promote-${sw.id}`}
+                                        disabled={promoteMutation.isPending}
+                                      >
+                                        <Crown className="w-3.5 h-3.5" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Set as Primary</TooltipContent>
+                                </Tooltip>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle className="flex items-center gap-2">
+                                      <Crown className="w-4 h-4 text-amber-500" /> Set as Primary Switch?
+                                    </AlertDialogTitle>
+                                    <AlertDialogDescription className="space-y-2">
+                                      <span className="block">
+                                        This will promote <strong>{sw.name}</strong> to be the primary Sippy switch.
+                                      </span>
+                                      <span className="block text-sm">
+                                        The current primary switch will automatically be saved as a secondary switch so no connection is lost.
+                                        All app features (Live Calls, Rate Cards, CDRs, etc.) will use <strong>{sw.name}</strong> going forward.
+                                      </span>
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-amber-600 hover:bg-amber-700 text-white"
+                                      onClick={() => promoteMutation.mutate(sw.id)}
+                                      data-testid={`btn-confirm-promote-${sw.id}`}
+                                    >
+                                      <Crown className="w-3.5 h-3.5 mr-1.5" /> Set as Primary
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+
+                              {/* Edit */}
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button
@@ -675,6 +735,8 @@ export default function MultiSwitchPage() {
                                 </TooltipTrigger>
                                 <TooltipContent>Edit</TooltipContent>
                               </Tooltip>
+
+                              {/* Delete */}
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                   <Button
