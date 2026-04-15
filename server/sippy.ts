@@ -1038,6 +1038,22 @@ function extractTag(xml: string, tag: string): string | null {
   return m ? m[1].trim() : null;
 }
 
+/**
+ * Extracts the human-readable fault message from a Sippy XML-RPC fault response.
+ * Sippy wraps faultString inside a struct member, not a direct <faultString> tag:
+ *   <fault><value><struct><member><name>faultString</name><value><string>...</string></value></member>...
+ * Falls back to a direct <faultString> tag for other XML-RPC implementations.
+ */
+function extractFaultString(xml: string): string | null {
+  const faultSection = extractTag(xml, 'fault');
+  if (faultSection) {
+    const members = extractStructMembers(faultSection);
+    if (members['faultString']) return members['faultString'];
+    if (members['faultCode'])   return `Fault code ${members['faultCode']}`;
+  }
+  return extractTag(xml, 'faultString');
+}
+
 function extractAllTags(xml: string, tag: string): string[] {
   const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
   const results: string[] = [];
@@ -1340,7 +1356,7 @@ export async function disconnectSippyCall(
       const result = extractTag(text, 'string') || 'OK';
       return { success: true, result, message: `Call ${id} disconnected: ${result}` };
     }
-    const fault = extractTag(text, 'faultString');
+    const fault = extractFaultString(text);
     return { success: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'Disconnect failed.' };
   } catch (err: any) {
     return { success: false, message: err.message };
@@ -1385,7 +1401,7 @@ export async function makeCall(
     if (resp.statusCode === 401) {
       return { success: false, message: 'Authentication failed (HTTP 401) — the API credentials used do not have permission to originate calls via XML-RPC. Check that apiAdminUsername/apiAdminPassword are set correctly in Settings.' };
     }
-    const fault = extractTag(text, 'faultString');
+    const fault = extractFaultString(text);
     const cleaned = fault?.replace(/<[^>]+>/g, '').trim() || `HTTP ${resp.statusCode}`;
     return { success: false, message: cleaned };
   } catch (err: any) {
@@ -1415,7 +1431,7 @@ export async function disconnectSippyAccount(
       const count = parseInt(countStr, 10) || 0;
       return { success: true, count, message: `Disconnected ${count} call(s) for account ${iAccount}.` };
     }
-    const fault = extractTag(text, 'faultString');
+    const fault = extractFaultString(text);
     return { success: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'Disconnect failed.' };
   } catch (err: any) {
     return { success: false, message: err.message };
@@ -1447,7 +1463,7 @@ export async function disconnectSippyCustomer(
       const count = parseInt(countStr, 10) || 0;
       return { success: true, count, message: `Disconnected ${count} call(s) for customer ${iCustomer}.` };
     }
-    const fault = extractTag(text, 'faultString');
+    const fault = extractFaultString(text);
     return { success: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'Disconnect failed.' };
   } catch (err: any) {
     return { success: false, message: err.message };
@@ -1485,7 +1501,7 @@ export async function getSippyCallStats(
       }
       return { success: true, data, message: 'OK' };
     }
-    const fault = extractTag(text, 'faultString');
+    const fault = extractFaultString(text);
     return { success: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'getAccountCallStats failed.' };
   } catch (err: any) {
     return { success: false, message: err.message };
@@ -1523,7 +1539,7 @@ export async function getSippyCallStatsCustomer(
       }
       return { success: true, data, message: 'OK' };
     }
-    const fault = extractTag(text, 'faultString');
+    const fault = extractFaultString(text);
     return { success: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'getAccountCallStatsCustomer failed.' };
   } catch (err: any) {
     return { success: false, message: err.message };
@@ -1820,7 +1836,7 @@ export async function getSippyMonitoringData(
     const resp = await sippyPost(apiUrl, xmlRpcCall('getMonitoringGraphData', params), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (resp.statusCode !== 200 || text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, points: [], error: fault?.replace(/<[^>]+>/g, '').trim() || 'getMonitoringGraphData failed' };
     }
     // Response contains base64-encoded CSV in <value><string> inside the 'csv_data' member
@@ -1924,7 +1940,7 @@ export async function getMonitoringGraph(
     const resp = await sippyPost(apiUrl, xmlRpcCall('getMonitoringGraph', params as any), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (resp.statusCode !== 200 || text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, error: fault?.replace(/<[^>]+>/g, '').trim() || 'getMonitoringGraph failed' };
     }
     // Response: base64 PNG in 'graph' struct member
@@ -2498,7 +2514,7 @@ export async function exportVendorsCDRsMera(
     }
 
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'exportVendorsCDRs_Mera failed.';
+      ?? extractFaultString(text) ?? 'exportVendorsCDRs_Mera failed.';
     return { success: false, cdrs: [], message: fault };
   } catch (e: any) {
     return { success: false, cdrs: [], message: e.message };
@@ -2543,7 +2559,7 @@ export async function getCDRSDP(
     const resp = await sippyPost(apiUrl, xmlRpcCall('getCDRSDP', params), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (resp.statusCode !== 200 || text.includes('faultCode')) {
-      const fault = extractTag(text, 'faultString') ?? 'getCDRSDP failed.';
+      const fault = extractFaultString(text) ?? 'getCDRSDP failed.';
       throw new Error(fault);
     }
 
@@ -2683,7 +2699,7 @@ export async function getUploadToken(
   const text = resp.body.toString?.() ?? resp.body;
 
   if (resp.statusCode !== 200 || text.includes('faultCode')) {
-    const fault = extractTag(text, 'faultString') ?? 'getUploadToken failed.';
+    const fault = extractFaultString(text) ?? 'getUploadToken failed.';
     throw new Error(fault);
   }
 
@@ -2724,7 +2740,7 @@ export async function getUploadStatus(
   const text = resp.body.toString?.() ?? resp.body;
 
   if (resp.statusCode !== 200 || text.includes('faultCode')) {
-    const fault = extractTag(text, 'faultString') ?? 'getUploadStatus failed.';
+    const fault = extractFaultString(text) ?? 'getUploadStatus failed.';
     throw new Error(fault);
   }
 
@@ -2904,7 +2920,7 @@ function parseRelayResult(text: string): SippyRelayResult | undefined {
 /** Shared error / fault check helper — throws if Sippy returned a fault. */
 function assertSippyOk(text: string, method: string): void {
   if (text.includes('faultCode')) {
-    const fault = extractTag(text, 'faultString') ?? `${method} failed.`;
+    const fault = extractFaultString(text) ?? `${method} failed.`;
     throw new Error(fault);
   }
 }
@@ -4601,7 +4617,7 @@ export async function pushAccountToSippy(
       // Fault is a struct with <name>faultString</name><value><string>...</string></value>
       // NOT a direct <faultString> element — extractTag won't find it.
       const faultStrRaw = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString');  // fallback for other formats
+        ?? extractFaultString(text);  // fallback for other formats
       const faultStr = faultStrRaw ?? null;
       if (faultStr) {
         lastFault = faultStr.replace(/<[^>]+>/g, '').trim();
@@ -4792,7 +4808,7 @@ export async function listSippyBillingPlans(
       if (resp.statusCode !== 200) continue;
       const text = resp.body;
       if (text.includes('faultCode')) {
-        const fault = extractTag(text, 'faultString')?.replace(/<[^>]+>/g, '').trim() ?? '';
+        const fault = extractFaultString(text)?.replace(/<[^>]+>/g, '').trim() ?? '';
         if (fault.toLowerCase().includes('not found') || fault.toLowerCase().includes('unknown method')) continue;
         break;
       }
@@ -5381,7 +5397,7 @@ export async function listSippyCustomers(
 
     if (resp.statusCode !== 200 || text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'listCustomers failed.';
+        ?? extractFaultString(text) ?? 'listCustomers failed.';
       return { success: false, customers: [], message: fault };
     }
 
@@ -5511,7 +5527,7 @@ export async function resetSippyCustomerOneTimePassword(
 
     if (resp.statusCode !== 200 || text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'resetCustomerOneTimePassword failed.';
+        ?? extractFaultString(text) ?? 'resetCustomerOneTimePassword failed.';
       return { success: false, message: fault };
     }
 
@@ -5568,7 +5584,7 @@ export async function authSippyCustomer(
 
     if (resp.statusCode !== 200 || text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'authCustomer failed.';
+        ?? extractFaultString(text) ?? 'authCustomer failed.';
       return { success: false, message: fault };
     }
 
@@ -5619,7 +5635,7 @@ export async function getSippyCustomerInfo(
 
     if (resp.statusCode !== 200 || text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'getCustomerInfo failed.';
+        ?? extractFaultString(text) ?? 'getCustomerInfo failed.';
       return { success: false, message: fault };
     }
 
@@ -5904,7 +5920,7 @@ export async function createCustomer(
       const iCustomer = iCustomerRaw ? parseInt(iCustomerRaw, 10) : undefined;
       return { success: true, iCustomer, message: 'Customer created successfully.' };
     }
-    const fault = extractTag(text, 'faultString') ?? 'createCustomer failed.';
+    const fault = extractFaultString(text) ?? 'createCustomer failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -6437,7 +6453,7 @@ export async function listSippyAccounts(
     }
     const text = resp.body;
     if (text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString') || 'listAccounts failed.';
+      const fault = extractFaultString(text) || 'listAccounts failed.';
       return { accounts: [], error: fault };
     }
 
@@ -6747,7 +6763,7 @@ export async function authSippyAccount(
     // Error code 410 = successfully authenticated by One Time Password
     const faultCode = text.match(/<name>faultCode<\/name>\s*<value>[^<]*(?:<[a-z]+>)?(\d+)/i)?.[1];
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'authAccount failed.';
+      ?? extractFaultString(text) ?? 'authAccount failed.';
 
     if (faultCode === '410') {
       return { success: true, oneTimePassword: true, message: 'Authenticated via One Time Password (code 410).' };
@@ -6880,7 +6896,7 @@ export async function createSippyVendor(
     const resp = await sippyPost(apiUrl, xmlRpcCall('createVendor', params), username, password);
     const text = resp.body;
     if (resp.statusCode !== 200 || text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString') || 'createVendor failed.';
+      const fault = extractFaultString(text) || 'createVendor failed.';
       return { success: false, message: fault };
     }
     const m = extractStructMembers(text);
@@ -6974,7 +6990,7 @@ export async function getSippyVendorInfo(
     const resp = await sippyPost(apiUrl, xmlRpcCall('getVendorInfo', params), username, password);
     const text = resp.body;
     if (resp.statusCode !== 200 || text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString') || 'getVendorInfo failed.';
+      const fault = extractFaultString(text) || 'getVendorInfo failed.';
       return { success: false, message: fault };
     }
 
@@ -7285,7 +7301,7 @@ export async function listVendorConnections(
     const resp = await sippyPost(apiUrl, xmlRpcCall('getVendorConnectionsList', { i_vendor: iVendor, i_customer: 1 }), username, password);
     const text = resp.body;
     if (text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString') || 'getVendorConnectionsList failed.';
+      const fault = extractFaultString(text) || 'getVendorConnectionsList failed.';
       return { connections: [], error: fault };
     }
 
@@ -7322,7 +7338,7 @@ export async function getVendorConnectionInfo(
     const resp = await sippyPost(apiUrl, xmlRpcCall('getVendorConnectionInfo', { i_connection: iConnection, i_customer: 1 }), username, password);
     const text = resp.body;
     if (text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString') || 'getVendorConnectionInfo failed.';
+      const fault = extractFaultString(text) || 'getVendorConnectionInfo failed.';
       return { success: false, error: fault };
     }
 
@@ -7470,7 +7486,7 @@ export async function createVendorConnection(
       const iConnection = parseInt(m['i_connection'] || '0', 10);
       return { success: true, message: 'Vendor connection created.', iConnection: iConnection || undefined };
     }
-    const fault = extractTag(text, 'faultString') || 'createVendorConnection failed.';
+    const fault = extractFaultString(text) || 'createVendorConnection failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -7507,7 +7523,7 @@ export async function updateVendorConnection(
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       return { success: true, message: 'Vendor connection updated.' };
     }
-    const fault = extractTag(text, 'faultString') || 'updateVendorConnection failed.';
+    const fault = extractFaultString(text) || 'updateVendorConnection failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -7534,7 +7550,7 @@ export async function deleteVendorConnection(
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       return { success: true, message: 'Vendor connection deleted.' };
     }
-    const fault = extractTag(text, 'faultString') || 'deleteVendorConnection failed.';
+    const fault = extractFaultString(text) || 'deleteVendorConnection failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -7616,7 +7632,7 @@ export async function createConnectionGroup(
       const iConnectionGroup = parseInt(m['i_connection_group'] || '0', 10);
       return { success: true, message: 'Connection group created.', iConnectionGroup: iConnectionGroup || undefined };
     }
-    const fault = extractTag(text, 'faultString') || 'createConnectionGroup failed.';
+    const fault = extractFaultString(text) || 'createConnectionGroup failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -7658,7 +7674,7 @@ export async function updateConnectionGroup(
       const returned = parseInt(m['i_connection_group'] || '0', 10);
       return { success: true, message: 'Connection group updated.', iConnectionGroup: returned || iConnectionGroup };
     }
-    const fault = extractTag(text, 'faultString') || 'updateConnectionGroup failed.';
+    const fault = extractFaultString(text) || 'updateConnectionGroup failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -7689,7 +7705,7 @@ export async function deleteConnectionGroup(
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       return { success: true, message: 'Connection group deleted.' };
     }
-    const fault = extractTag(text, 'faultString') || 'deleteConnectionGroup failed.';
+    const fault = extractFaultString(text) || 'deleteConnectionGroup failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -7724,7 +7740,7 @@ export async function getConnectionGroupInfo(
       const structXml = text.slice(structStart, structEnd + 9);
       return { success: true, connectionGroup: parseConnectionGroupStruct(structXml) };
     }
-    const fault = extractTag(text, 'faultString') || 'getConnectionGroupInfo failed.';
+    const fault = extractFaultString(text) || 'getConnectionGroupInfo failed.';
     return { success: false, error: fault };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -7770,7 +7786,7 @@ export async function listConnectionGroups(
       }
       return { connectionGroups };
     }
-    const fault = extractTag(text, 'faultString') || 'getConnectionGroupsList failed.';
+    const fault = extractFaultString(text) || 'getConnectionGroupsList failed.';
     return { connectionGroups: [], error: fault };
   } catch (e: any) {
     return { connectionGroups: [], error: e.message };
@@ -7814,7 +7830,7 @@ export async function createCgMember(
       const iCgMember = parseInt(m['i_cg_member'] || '0', 10);
       return { success: true, message: 'CG member created.', iCgMember: iCgMember || undefined };
     }
-    const fault = extractTag(text, 'faultString') || 'createCgMember failed.';
+    const fault = extractFaultString(text) || 'createCgMember failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -7855,7 +7871,7 @@ export async function updateCgMember(
       const returned = parseInt(m['i_cg_member'] || '0', 10);
       return { success: true, message: 'CG member updated.', iCgMember: returned || iCgMember };
     }
-    const fault = extractTag(text, 'faultString') || 'updateCgMember failed.';
+    const fault = extractFaultString(text) || 'updateCgMember failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -7886,7 +7902,7 @@ export async function deleteCgMember(
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       return { success: true, message: 'CG member deleted.' };
     }
-    const fault = extractTag(text, 'faultString') || 'deleteCgMember failed.';
+    const fault = extractFaultString(text) || 'deleteCgMember failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -7921,7 +7937,7 @@ export async function getCgMemberInfo(
       const structXml = text.slice(structStart, structEnd + 9);
       return { success: true, cgMember: parseCgMemberStruct(structXml) };
     }
-    const fault = extractTag(text, 'faultString') || 'getCgMemberInfo failed.';
+    const fault = extractFaultString(text) || 'getCgMemberInfo failed.';
     return { success: false, error: fault };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -7959,7 +7975,7 @@ export async function listCgMembers(
       }
       return { cgMembers };
     }
-    const fault = extractTag(text, 'faultString') || 'getCgMembersList failed.';
+    const fault = extractFaultString(text) || 'getCgMembersList failed.';
     return { cgMembers: [], error: fault };
   } catch (e: any) {
     return { cgMembers: [], error: e.message };
@@ -8223,7 +8239,7 @@ export async function listSwitchIPs(
       }
       return { ips };
     }
-    const fault = extractTag(text, 'faultString') || 'listSwitchIPs failed.';
+    const fault = extractFaultString(text) || 'listSwitchIPs failed.';
     return { ips: [], error: fault };
   } catch (e: any) {
     return { ips: [], error: e.message };
@@ -8258,7 +8274,7 @@ export async function createEnvironment(
       const iEnvironment = parseInt(m['i_environment'] || '0', 10);
       return { success: true, message: 'Environment created.', iEnvironment: iEnvironment || undefined };
     }
-    const fault = extractTag(text, 'faultString') || 'createEnvironment failed.';
+    const fault = extractFaultString(text) || 'createEnvironment failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -8292,7 +8308,7 @@ export async function updateEnvironment(
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       return { success: true, message: 'Environment updated.' };
     }
-    const fault = extractTag(text, 'faultString') || 'updateEnvironment failed.';
+    const fault = extractFaultString(text) || 'updateEnvironment failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -8328,7 +8344,7 @@ export async function deleteEnvironment(
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       return { success: true, message: 'Environment deleted.' };
     }
-    const fault = extractTag(text, 'faultString') || 'deleteEnvironment failed.';
+    const fault = extractFaultString(text) || 'deleteEnvironment failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -8365,7 +8381,7 @@ export async function getEnvironmentInfo(
       if (structStart === -1) return { success: false, error: 'No environment data returned.' };
       return { success: true, environment: parseEnvInfoStruct(text.slice(structStart, structEnd + 9)) };
     }
-    const fault = extractTag(text, 'faultString') || 'getEnvironmentInfo failed.';
+    const fault = extractFaultString(text) || 'getEnvironmentInfo failed.';
     return { success: false, error: fault };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -8411,7 +8427,7 @@ export async function listEnvironments(
       }
       return { environments };
     }
-    const fault = extractTag(text, 'faultString') || 'listEnvironments failed.';
+    const fault = extractFaultString(text) || 'listEnvironments failed.';
     return { environments: [], error: fault };
   } catch (e: any) {
     return { environments: [], error: e.message };
@@ -8454,7 +8470,7 @@ export async function queueEnvironmentAction(
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       return { success: true, message: `Action '${action}' queued for environment ${iEnvironment}.` };
     }
-    const fault = extractTag(text, 'faultString') || 'queueEnvironmentAction failed.';
+    const fault = extractFaultString(text) || 'queueEnvironmentAction failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -8668,7 +8684,7 @@ export async function createSippyBalance(
       return { success: true, iBalance, message: 'Balance entity created.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'create_balance failed.';
+      ?? extractFaultString(text) ?? 'create_balance failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -8700,7 +8716,7 @@ export async function incSippyBalanceRefCount(
       return { success: true, message: 'Reference count incremented.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'inc_ref_count failed.';
+      ?? extractFaultString(text) ?? 'inc_ref_count failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -8731,7 +8747,7 @@ export async function decSippyBalanceRefCount(
       return { success: true, message: 'Reference count decremented.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'dec_ref_count failed.';
+      ?? extractFaultString(text) ?? 'dec_ref_count failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -8931,7 +8947,7 @@ export async function addDebitCreditCard(
       const iDebitCreditCard = parseInt(m['i_debit_credit_card'] || '0', 10);
       return { success: true, message: 'Card added.', iDebitCreditCard: iDebitCreditCard || undefined };
     }
-    return { success: false, message: extractTag(text, 'faultString') || 'addDebitCreditCard failed.' };
+    return { success: false, message: extractFaultString(text) || 'addDebitCreditCard failed.' };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
 
@@ -8963,7 +8979,7 @@ export async function updateDebitCreditCard(
     const resp = await sippyPost(apiUrl, xmlRpcCall('updateDebitCreditCard', params), username, password);
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Card updated.' };
-    return { success: false, message: extractTag(text, 'faultString') || 'updateDebitCreditCard failed.' };
+    return { success: false, message: extractFaultString(text) || 'updateDebitCreditCard failed.' };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
 
@@ -8991,7 +9007,7 @@ export async function deleteDebitCreditCard(
     const resp = await sippyPost(apiUrl, xmlRpcCall('deleteDebitCreditCard', params), username, password);
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Card deleted.' };
-    return { success: false, message: extractTag(text, 'faultString') || 'deleteDebitCreditCard failed.' };
+    return { success: false, message: extractFaultString(text) || 'deleteDebitCreditCard failed.' };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
 
@@ -9023,7 +9039,7 @@ export async function getDebitCreditCardInfo(
       if (s === -1) return { success: false, error: 'No card data returned.' };
       return { success: true, card: parseDebitCreditCardStruct(text.slice(s, e + 9)) };
     }
-    return { success: false, error: extractTag(text, 'faultString') || 'getDebitCreditCardInfo failed.' };
+    return { success: false, error: extractFaultString(text) || 'getDebitCreditCardInfo failed.' };
   } catch (e: any) { return { success: false, error: e.message }; }
 }
 
@@ -9064,7 +9080,7 @@ export async function listDebitCreditCards(
       }
       return { cards };
     }
-    return { cards: [], error: extractTag(text, 'faultString') || 'listDebitCreditCards failed.' };
+    return { cards: [], error: extractFaultString(text) || 'listDebitCreditCards failed.' };
   } catch (e: any) { return { cards: [], error: e.message }; }
 }
 
@@ -9200,7 +9216,7 @@ export async function getPaymentInfo(
       if (s === -1) return { success: false, error: 'No payment data returned.' };
       return { success: true, payment: parsePaymentStruct(text.slice(s, e + 9)) };
     }
-    return { success: false, error: extractTag(text, 'faultString') || 'getPaymentInfo failed.' };
+    return { success: false, error: extractFaultString(text) || 'getPaymentInfo failed.' };
   } catch (e: any) { return { success: false, error: e.message }; }
 }
 
@@ -9253,7 +9269,7 @@ export async function getPaymentsList(
       }
       return { payments };
     }
-    return { payments: [], error: extractTag(text, 'faultString') || 'getPaymentsList failed.' };
+    return { payments: [], error: extractFaultString(text) || 'getPaymentsList failed.' };
   } catch (e: any) { return { payments: [], error: e.message }; }
 }
 
@@ -9308,7 +9324,7 @@ export async function rechargeVoucher(
         payerAmount:    m['payer_amount']    ? parseFloat(m['payer_amount'])    : undefined,
       };
     }
-    return { success: false, error: extractTag(text, 'faultString') || 'rechargeVoucher failed.' };
+    return { success: false, error: extractFaultString(text) || 'rechargeVoucher failed.' };
   } catch (e: any) { return { success: false, error: e.message }; }
 }
 
@@ -9355,7 +9371,7 @@ export async function makePayment(
         iPayment: m['i_payment'] ? parseInt(m['i_payment'], 10) : undefined,
       };
     }
-    return { success: false, message: extractTag(text, 'faultString') || 'makePayment failed.' };
+    return { success: false, message: extractFaultString(text) || 'makePayment failed.' };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
 
@@ -9426,7 +9442,7 @@ export async function makePaymentByCard(
         iPayment: m['i_payment'] ? parseInt(m['i_payment'], 10) : undefined,
       };
     }
-    return { success: false, message: extractTag(text, 'faultString') || 'makePaymentByCard failed.' };
+    return { success: false, message: extractFaultString(text) || 'makePaymentByCard failed.' };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
 
@@ -9495,7 +9511,7 @@ export async function getSippyLowBalance(
     const text = resp.body;
 
     if (text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString') || 'getLowBalance failed.';
+      const fault = extractFaultString(text) || 'getLowBalance failed.';
       return { success: false, error: fault };
     }
 
@@ -9604,7 +9620,7 @@ export async function setSippyLowBalance(
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       return { success: true, message: 'Low balance settings updated.' };
     }
-    const fault = extractTag(text, 'faultString') || 'setLowBalance failed.';
+    const fault = extractFaultString(text) || 'setLowBalance failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -9745,7 +9761,7 @@ export async function addSippyAuthRule(
     const resp = await sippyPost(apiUrl, xmlRpcCall('addAuthRule', params), username, password);
     const text = resp.body;
     if (text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString') || 'addAuthRule failed.';
+      const fault = extractFaultString(text) || 'addAuthRule failed.';
       return { success: false, message: fault };
     }
     const m = extractStructMembers(text);
@@ -9797,7 +9813,7 @@ export async function updateSippyAuthRule(
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       return { success: true, message: 'Auth rule updated.' };
     }
-    const fault = extractTag(text, 'faultString') || 'updateAuthRule failed.';
+    const fault = extractFaultString(text) || 'updateAuthRule failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -9829,7 +9845,7 @@ export async function delSippyAuthRule(
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       return { success: true, message: 'Auth rule deleted.' };
     }
-    const fault = extractTag(text, 'faultString') || 'delAuthRule failed.';
+    const fault = extractFaultString(text) || 'delAuthRule failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -9859,7 +9875,7 @@ export async function getSippyAuthRuleInfo(
     const resp = await sippyPost(apiUrl, xmlRpcCall('getAuthRuleInfo', params), username, password);
     const text = resp.body;
     if (text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString') || 'getAuthRuleInfo failed.';
+      const fault = extractFaultString(text) || 'getAuthRuleInfo failed.';
       return { success: false, error: fault };
     }
 
@@ -9917,7 +9933,7 @@ export async function listSippyAuthRules(
     const resp = await sippyPost(apiUrl, xmlRpcCall('listAuthRules', params), username, password);
     const text = resp.body;
     if (text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString') || 'listAuthRules failed.';
+      const fault = extractFaultString(text) || 'listAuthRules failed.';
       return { authRules: [], error: fault };
     }
 
@@ -9973,7 +9989,7 @@ export async function getSippyDictionary(
     console.log(`[Sippy] getDictionary(${dictName}) → HTTP ${resp.statusCode}: ${text.slice(0, 200)}`);
 
     if (text.includes('<fault>')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { entries: [], error: fault?.replace(/<[^>]+>/g, '').trim() || `getDictionary(${dictName}) failed.` };
     }
 
@@ -10045,7 +10061,7 @@ export async function createTrunk(
     const resp = await sippyPost(apiUrl, xmlRpcCall('createTrunk', p), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (text.includes('faultCode')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'createTrunk failed.' };
     }
     const m = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
@@ -10068,7 +10084,7 @@ export async function updateTrunk(
     const resp = await sippyPost(apiUrl, xmlRpcCall('updateTrunk', p), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (text.includes('faultCode')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'updateTrunk failed.' };
     }
     const m = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
@@ -10086,7 +10102,7 @@ export async function deleteTrunk(
     const resp = await sippyPost(apiUrl, xmlRpcCall('deleteTrunk', { i_trunk: iTrunk, i_customer: 1 }), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (text.includes('faultCode')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'deleteTrunk failed.' };
     }
     return { ok: true };
@@ -10107,7 +10123,7 @@ export async function getTrunkInfo(
     const resp = await sippyPost(apiUrl, xmlRpcCall('getTrunkInfo', p), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (text.includes('faultCode')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'getTrunkInfo failed.' };
     }
     const structs = extractAllTags(text, 'struct');
@@ -10132,7 +10148,7 @@ export async function getTrunksList(
     const resp = await sippyPost(apiUrl, xmlRpcCall('getTrunksList', p), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (text.includes('faultCode')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, trunks: [], message: fault?.replace(/<[^>]+>/g, '').trim() || 'getTrunksList failed.' };
     }
     const structs = extractAllTags(text, 'struct');
@@ -10248,7 +10264,7 @@ export async function createTrunkConnection(
     const resp = await sippyPost(apiUrl, xmlRpcCall('createTrunkConnection', p), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (text.includes('faultCode')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'createTrunkConnection failed.' };
     }
     const m = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
@@ -10301,7 +10317,7 @@ export async function updateTrunkConnection(
     const resp = await sippyPost(apiUrl, xmlRpcCall('updateTrunkConnection', p), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (text.includes('faultCode')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'updateTrunkConnection failed.' };
     }
     const m = extractStructMembers(extractAllTags(text, 'struct')[0] ?? '');
@@ -10319,7 +10335,7 @@ export async function deleteTrunkConnection(
     const resp = await sippyPost(apiUrl, xmlRpcCall('deleteTrunkConnection', { i_trunk_connection: iTrunkConnection, i_customer: 1 }), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (text.includes('faultCode')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'deleteTrunkConnection failed.' };
     }
     return { ok: true };
@@ -10340,7 +10356,7 @@ export async function getTrunkConnectionInfo(
     const resp = await sippyPost(apiUrl, xmlRpcCall('getTrunkConnectionInfo', p), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (text.includes('faultCode')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, message: fault?.replace(/<[^>]+>/g, '').trim() || 'getTrunkConnectionInfo failed.' };
     }
     const structs = extractAllTags(text, 'struct');
@@ -10365,7 +10381,7 @@ export async function getTrunkConnectionsList(
     const resp = await sippyPost(apiUrl, xmlRpcCall('getTrunkConnectionsList', p), username, password);
     const text = resp.body.toString?.() ?? resp.body;
     if (text.includes('faultCode')) {
-      const fault = extractTag(text, 'faultString');
+      const fault = extractFaultString(text);
       return { ok: false, trunkConnections: [], message: fault?.replace(/<[^>]+>/g, '').trim() || 'getTrunkConnectionsList failed.' };
     }
     const structs = extractAllTags(text, 'struct');
@@ -10412,7 +10428,7 @@ export async function getAccountMinutePlans(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'getAccountMinutePlans failed.';
+        ?? extractFaultString(text) ?? 'getAccountMinutePlans failed.';
       return { success: false, minutePlans: [], error: fault };
     }
 
@@ -10469,7 +10485,7 @@ export async function resetAccountOneTimePassword(
 
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'resetAccountOneTimePassword failed.';
+        ?? extractFaultString(text) ?? 'resetAccountOneTimePassword failed.';
       return { success: false, message: fault };
     }
 
@@ -10573,7 +10589,7 @@ export async function addPostAuthRule(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'addPostAuthRule failed.';
+        ?? extractFaultString(text) ?? 'addPostAuthRule failed.';
       return { success: false, message: fault };
     }
     const m = extractStructMembers(text);
@@ -10615,7 +10631,7 @@ export async function updatePostAuthRule(
       return { success: true, message: 'Post-auth rule updated.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'updatePostAuthRule failed.';
+      ?? extractFaultString(text) ?? 'updatePostAuthRule failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -10646,7 +10662,7 @@ export async function deletePostAuthRule(
       return { success: true, message: 'Post-auth rule deleted.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'deletePostAuthRule failed.';
+      ?? extractFaultString(text) ?? 'deletePostAuthRule failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -10675,7 +10691,7 @@ export async function getPostAuthRuleInfo(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'getPostAuthRuleInfo failed.';
+        ?? extractFaultString(text) ?? 'getPostAuthRuleInfo failed.';
       return { success: false, error: fault };
     }
     const nestedMatch = /<name>post_auth_rule<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>\s*<\/value>/.exec(text);
@@ -10717,7 +10733,7 @@ export async function listPostAuthRules(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'listPostAuthRules failed.';
+        ?? extractFaultString(text) ?? 'listPostAuthRules failed.';
       return { postAuthRules: [], error: fault };
     }
 
@@ -10772,7 +10788,7 @@ export async function matchAccountMinutePlan(
       const faultCode = codeMatch ? parseInt(codeMatch[1], 10) : 0;
       if (faultCode === 410) return { matched: false };
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'matchAccountMinutePlan failed.';
+        ?? extractFaultString(text) ?? 'matchAccountMinutePlan failed.';
       return { matched: false, error: fault };
     }
 
@@ -10831,7 +10847,7 @@ export async function addCLIMapping(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'addCLIMapping failed.';
+        ?? extractFaultString(text) ?? 'addCLIMapping failed.';
       return { success: false, message: fault };
     }
     return { success: true, message: 'CLI mapping added.' };
@@ -10864,7 +10880,7 @@ export async function updateCLIMapping(
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'CLI mapping updated.' };
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'updateCLIMapping failed.';
+      ?? extractFaultString(text) ?? 'updateCLIMapping failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -10888,7 +10904,7 @@ export async function delCLIMapping(
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'CLI mapping removed.' };
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'delCLIMapping failed.';
+      ?? extractFaultString(text) ?? 'delCLIMapping failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -10912,7 +10928,7 @@ export async function listCLIMappings(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'listCLIMappings failed.';
+        ?? extractFaultString(text) ?? 'listCLIMappings failed.';
       return { mappings: [], error: fault };
     }
 
@@ -10963,7 +10979,7 @@ export async function findCLIMapping(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'findCLIMapping failed.';
+        ?? extractFaultString(text) ?? 'findCLIMapping failed.';
       return { success: false, error: fault };
     }
     const m = extractStructMembers(text);
@@ -11014,7 +11030,7 @@ export async function addSmartDial(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'addSmartDial failed.';
+        ?? extractFaultString(text) ?? 'addSmartDial failed.';
       return { success: false, message: fault };
     }
     return { success: true, message: 'Smart dial added.' };
@@ -11048,7 +11064,7 @@ export async function updateSmartDial(
       return { success: true, message: 'Smart dial updated.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'updateSmartDial failed.';
+      ?? extractFaultString(text) ?? 'updateSmartDial failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -11075,7 +11091,7 @@ export async function deleteSmartDial(
       return { success: true, message: 'Smart dial deleted.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'deleteSmartDial failed.';
+      ?? extractFaultString(text) ?? 'deleteSmartDial failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -11100,7 +11116,7 @@ export async function listSmartDials(
 
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'listSmartDials failed.';
+        ?? extractFaultString(text) ?? 'listSmartDials failed.';
       return { smartDials: [], error: fault };
     }
 
@@ -11162,7 +11178,7 @@ export async function addHotDialNumber(
       return { success: true, message: 'Hot dial number added.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'addHotDialNumber failed.';
+      ?? extractFaultString(text) ?? 'addHotDialNumber failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -11195,7 +11211,7 @@ export async function delHotDialNumber(
       return { success: true, message: 'Hot dial number deleted.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'delHotDialNumber failed.';
+      ?? extractFaultString(text) ?? 'delHotDialNumber failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -11229,7 +11245,7 @@ export async function updateHotDialNumber(
       return { success: true, message: 'Hot dial number updated.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'updateHotDialNumber failed.';
+      ?? extractFaultString(text) ?? 'updateHotDialNumber failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -11260,7 +11276,7 @@ export async function listHotDialNumbers(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'listHotDialNumbers failed.';
+        ?? extractFaultString(text) ?? 'listHotDialNumbers failed.';
       return { success: false, hotKeys: [], error: fault };
     }
 
@@ -11327,7 +11343,7 @@ export async function getAccountRates(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'getAccountRates failed.';
+        ?? extractFaultString(text) ?? 'getAccountRates failed.';
       return { success: false, rates: [], error: fault };
     }
 
@@ -11394,7 +11410,7 @@ export async function getFollowMeOptions(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'getFollowMeOptions failed.';
+        ?? extractFaultString(text) ?? 'getFollowMeOptions failed.';
       return { success: false, error: fault };
     }
     const m = extractStructMembers(text);
@@ -11442,7 +11458,7 @@ export async function setFollowMeOptions(
       return { success: true, message: 'Follow Me options updated.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'setFollowMeOptions failed.';
+      ?? extractFaultString(text) ?? 'setFollowMeOptions failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -11471,7 +11487,7 @@ export async function listFollowMeEntries(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'listFollowMeEntries failed.';
+        ?? extractFaultString(text) ?? 'listFollowMeEntries failed.';
       return { success: false, entries: [], error: fault };
     }
 
@@ -11533,7 +11549,7 @@ export async function addFollowMeEntry(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'addFollowMeEntry failed.';
+        ?? extractFaultString(text) ?? 'addFollowMeEntry failed.';
       return { success: false, message: fault };
     }
     const m = extractStructMembers(text);
@@ -11580,7 +11596,7 @@ export async function updateFollowMeEntry(
       return { success: true, message: 'Follow Me entry updated.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'updateFollowMeEntry failed.';
+      ?? extractFaultString(text) ?? 'updateFollowMeEntry failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -11612,7 +11628,7 @@ export async function deleteFollowMeEntry(
       return { success: true, message: 'Follow Me entry deleted.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'deleteFollowMeEntry failed.';
+      ?? extractFaultString(text) ?? 'deleteFollowMeEntry failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -11650,7 +11666,7 @@ export async function blockWebUser(
       if (result === 'OK') return { success: true, iWebUser: id, message: 'Web user blocked.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'blockWebUser failed.';
+      ?? extractFaultString(text) ?? 'blockWebUser failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -11684,7 +11700,7 @@ export async function unblockWebUser(
       if (result === 'OK') return { success: true, iWebUser: id, message: 'Web user unblocked.' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'unblockWebUser failed.';
+      ?? extractFaultString(text) ?? 'unblockWebUser failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -11849,7 +11865,7 @@ export async function addDestinationSet(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'addDestinationSet failed.';
+      ?? extractFaultString(text) ?? 'addDestinationSet failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -11904,7 +11920,7 @@ export async function updateDestinationSet(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'updateDestinationSet failed.';
+      ?? extractFaultString(text) ?? 'updateDestinationSet failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -11933,7 +11949,7 @@ export async function getDestinationSetInfo(
       return { success: true, destinationSet: parseDestinationSet(m), message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'getDestinationSetInfo failed.';
+      ?? extractFaultString(text) ?? 'getDestinationSetInfo failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -11968,7 +11984,7 @@ export async function listDestinationSets(
       return { success: true, list, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'listDestinationSets failed.';
+      ?? extractFaultString(text) ?? 'listDestinationSets failed.';
     return { success: false, list: [], message: fault };
   } catch (e: any) { return { success: false, list: [], message: e.message }; }
 }
@@ -11989,7 +12005,7 @@ export async function deleteDestinationSet(
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Destination set deleted.' };
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'deleteDestinationSet failed.';
+      ?? extractFaultString(text) ?? 'deleteDestinationSet failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -12019,7 +12035,7 @@ export async function getDestinationSetRoutesList(
       return { success: true, list, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'getDestinationSetRoutesList failed.';
+      ?? extractFaultString(text) ?? 'getDestinationSetRoutesList failed.';
     return { success: false, list: [], message: fault };
   } catch (e: any) { return { success: false, list: [], message: e.message }; }
 }
@@ -12067,7 +12083,7 @@ export async function addRouteToDestinationSet(
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Route added to destination set.' };
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'addRouteToDestinationSet failed.';
+      ?? extractFaultString(text) ?? 'addRouteToDestinationSet failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -12113,7 +12129,7 @@ export async function updateRouteInDestinationSet(
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Route updated.' };
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'updateRouteInDestinationSet failed.';
+      ?? extractFaultString(text) ?? 'updateRouteInDestinationSet failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -12135,7 +12151,7 @@ export async function delRouteFromDestinationSet(
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'Route removed from destination set.' };
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'delRouteFromDestinationSet failed.';
+      ?? extractFaultString(text) ?? 'delRouteFromDestinationSet failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -12156,7 +12172,7 @@ export async function deleteAllRoutesInDestinationSet(
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'All routes deleted from destination set.' };
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'deleteAllRoutesInDestinationSet failed.';
+      ?? extractFaultString(text) ?? 'deleteAllRoutesInDestinationSet failed.';
     return { success: false, message: fault };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
@@ -12205,7 +12221,7 @@ export async function sendSippyEmail(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'sendEMail failed.';
+      ?? extractFaultString(text) ?? 'sendEMail failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12251,7 +12267,7 @@ export async function validatePassword(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'validatePassword failed.';
+      ?? extractFaultString(text) ?? 'validatePassword failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12311,7 +12327,7 @@ export async function getServicePlanInfo(
       return { success: true, servicePlan: plan, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'getServicePlanInfo failed.';
+      ?? extractFaultString(text) ?? 'getServicePlanInfo failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12345,7 +12361,7 @@ export async function applyTranslationRule(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'applyTranslationRule failed.';
+      ?? extractFaultString(text) ?? 'applyTranslationRule failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12380,7 +12396,7 @@ export async function checkMatchRule(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'checkMatchRule failed.';
+      ?? extractFaultString(text) ?? 'checkMatchRule failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12509,7 +12525,7 @@ export async function addDID(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'addDID failed.';
+      ?? extractFaultString(text) ?? 'addDID failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12572,7 +12588,7 @@ export async function updateDID(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'updateDID failed.';
+      ?? extractFaultString(text) ?? 'updateDID failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12606,7 +12622,7 @@ export async function deleteDID(
       if ((m['result'] ?? '').trim() === 'OK') return { success: true, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'deleteDID failed.';
+      ?? extractFaultString(text) ?? 'deleteDID failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12642,7 +12658,7 @@ export async function getDIDInfo(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'getDIDInfo failed.';
+      ?? extractFaultString(text) ?? 'getDIDInfo failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12694,7 +12710,7 @@ export async function getDIDsList(
       return { success: false, dids: [], message: `HTTP ${resp.statusCode}: getDIDsList unauthorized` };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'getDIDsList failed.';
+      ?? extractFaultString(text) ?? 'getDIDsList failed.';
     return { success: false, dids: [], message: fault };
   } catch (e: any) {
     return { success: false, dids: [], message: e.message };
@@ -12746,7 +12762,7 @@ export async function getDIDChargingGroupInfo(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'getDIDChargingGroupInfo failed.';
+      ?? extractFaultString(text) ?? 'getDIDChargingGroupInfo failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12791,7 +12807,7 @@ export async function addDIDDelegation(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'addDIDDelegation failed.';
+      ?? extractFaultString(text) ?? 'addDIDDelegation failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12827,7 +12843,7 @@ export async function updateDIDDelegation(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'updateDIDDelegation failed.';
+      ?? extractFaultString(text) ?? 'updateDIDDelegation failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12856,7 +12872,7 @@ export async function deleteDIDDelegation(
       if ((m['result'] ?? '').trim() === 'OK') return { success: true, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'deleteDIDDelegation failed.';
+      ?? extractFaultString(text) ?? 'deleteDIDDelegation failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12913,7 +12929,7 @@ export async function addConference(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'addConference failed.';
+      ?? extractFaultString(text) ?? 'addConference failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -12947,7 +12963,7 @@ export async function deleteConference(
       if ((m['result'] ?? '').trim() === 'OK') return { success: true, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'deleteConference failed.';
+      ?? extractFaultString(text) ?? 'deleteConference failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -13008,7 +13024,7 @@ export async function dumpIPTraffic(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'dumpIPTraffic failed.';
+      ?? extractFaultString(text) ?? 'dumpIPTraffic failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -13045,7 +13061,7 @@ export async function dumpIPTrafficStatus(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'dumpIPTrafficStatus failed.';
+      ?? extractFaultString(text) ?? 'dumpIPTrafficStatus failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -13093,7 +13109,7 @@ export async function getAuditLogs(
       return { success: true, records, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'getAuditLogs failed.';
+      ?? extractFaultString(text) ?? 'getAuditLogs failed.';
     return { success: false, records: [], message: fault };
   } catch (e: any) {
     return { success: false, records: [], message: e.message };
@@ -13151,7 +13167,7 @@ export async function writeAuditLog(
       }
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'writeAuditLog failed.';
+      ?? extractFaultString(text) ?? 'writeAuditLog failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -13184,7 +13200,7 @@ export async function generateInvoicePreview(
       return { success: true, pdf, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'generateInvoicePreview failed.';
+      ?? extractFaultString(text) ?? 'generateInvoicePreview failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -13224,7 +13240,7 @@ export async function validateInvoiceTemplate(
       return { success: true, ...(pdf ? { pdf } : {}), message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'validateInvoiceTemplate failed.';
+      ?? extractFaultString(text) ?? 'validateInvoiceTemplate failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -13267,7 +13283,7 @@ export async function generateInvoice(
       return { success: true, pdf, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'generateInvoice failed.';
+      ?? extractFaultString(text) ?? 'generateInvoice failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -13532,7 +13548,7 @@ export async function testDialplan(
       return { success: true, data, message: data.result ?? 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'testDialplan failed.';
+      ?? extractFaultString(text) ?? 'testDialplan failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -13585,7 +13601,7 @@ export async function listExtendedRouting(
 
     if (resp.statusCode !== 200 || text.includes('<fault>')) {
       const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-        ?? extractTag(text, 'faultString') ?? 'listExtendedRouting failed.';
+        ?? extractFaultString(text) ?? 'listExtendedRouting failed.';
       return { success: false, extendedRouting: [], message: fault };
     }
 
@@ -13735,7 +13751,7 @@ export async function listRoutingGroups(
       return { success: true, groups, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'listRoutingGroups failed.';
+      ?? extractFaultString(text) ?? 'listRoutingGroups failed.';
     return { success: false, groups: [], message: fault };
   } catch (e: any) {
     return { success: false, groups: [], message: e.message };
@@ -13798,7 +13814,7 @@ export async function addRoutingGroup(
       return { success: true, iRoutingGroup, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'addRoutingGroup failed.';
+      ?? extractFaultString(text) ?? 'addRoutingGroup failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -13860,7 +13876,7 @@ export async function updateRoutingGroup(
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'OK' };
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'updateRoutingGroup failed.';
+      ?? extractFaultString(text) ?? 'updateRoutingGroup failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -13886,7 +13902,7 @@ export async function delRoutingGroup(
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'OK' };
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'delRoutingGroup failed.';
+      ?? extractFaultString(text) ?? 'delRoutingGroup failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -13922,7 +13938,7 @@ export async function listRoutingGroupMembers(
       return { success: true, members, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'listRoutingGroupMembers failed.';
+      ?? extractFaultString(text) ?? 'listRoutingGroupMembers failed.';
     return { success: false, members: [], message: fault };
   } catch (e: any) {
     return { success: false, members: [], message: e.message };
@@ -13975,7 +13991,7 @@ export async function addRoutingGroupMember(
       return { success: true, iRoutingGroupMember, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'addRoutingGroupMember failed.';
+      ?? extractFaultString(text) ?? 'addRoutingGroupMember failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -14024,7 +14040,7 @@ export async function updateRoutingGroupMember(
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'OK' };
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'updateRoutingGroupMember failed.';
+      ?? extractFaultString(text) ?? 'updateRoutingGroupMember failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -14057,7 +14073,7 @@ export async function delRoutingGroupMember(
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) return { success: true, message: 'OK' };
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'delRoutingGroupMember failed.';
+      ?? extractFaultString(text) ?? 'delRoutingGroupMember failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -14106,7 +14122,7 @@ export async function getSystemConfig(
       return { success: true, config, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'getSystemConfig failed.';
+      ?? extractFaultString(text) ?? 'getSystemConfig failed.';
     return { success: false, config: [], message: fault };
   } catch (e: any) {
     return { success: false, config: [], message: e.message };
@@ -14138,7 +14154,7 @@ export async function setSystemConfig(
       return { success: true, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'setSystemConfig failed.';
+      ?? extractFaultString(text) ?? 'setSystemConfig failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -14192,7 +14208,7 @@ export async function getReplicationStatus(
       return { success: true, status, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'getReplicationStatus failed.';
+      ?? extractFaultString(text) ?? 'getReplicationStatus failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -14229,7 +14245,7 @@ export async function getReplicationLag(
       return { success: true, lag, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'getReplicationLag failed.';
+      ?? extractFaultString(text) ?? 'getReplicationLag failed.';
     return { success: false, message: fault };
   } catch (e: any) {
     return { success: false, message: e.message };
@@ -14283,7 +14299,7 @@ export async function make2WayCallback(
         message:          'Callback initiated.',
       };
     }
-    return { success: false, message: extractTag(text, 'faultString') || 'make2WayCallback failed.' };
+    return { success: false, message: extractFaultString(text) || 'make2WayCallback failed.' };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
 
@@ -14364,7 +14380,7 @@ export async function callbackCallingCard(
         message:          'Calling Card callback initiated.',
       };
     }
-    return { success: false, message: extractTag(text, 'faultString') || 'callbackCallingCard failed.' };
+    return { success: false, message: extractFaultString(text) || 'callbackCallingCard failed.' };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
 
@@ -14392,7 +14408,7 @@ export async function cancelCallback(
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       return { success: true, message: 'Callback cancel request sent.' };
     }
-    return { success: false, message: extractTag(text, 'faultString') || 'cancelCallback failed.' };
+    return { success: false, message: extractFaultString(text) || 'cancelCallback failed.' };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
 
@@ -14447,7 +14463,7 @@ export async function getCallbackStatus(
         message:    'OK',
       };
     }
-    return { success: false, message: extractTag(text, 'faultString') || 'getCallbackStatus failed.' };
+    return { success: false, message: extractFaultString(text) || 'getCallbackStatus failed.' };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
 
@@ -14583,7 +14599,7 @@ export async function sippyMulticall(
       };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()
-      ?? extractTag(text, 'faultString') ?? 'system.multicall failed.';
+      ?? extractFaultString(text) ?? 'system.multicall failed.';
     return { success: false, results: [], message: fault };
   } catch (e: any) {
     return { success: false, results: [], message: e.message };
