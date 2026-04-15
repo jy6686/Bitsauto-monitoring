@@ -192,6 +192,7 @@ export default function RateCardsPage() {
   }, [jobId]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
+  const vendorOptions = clients.map(c => c.name);
   const resolvedVendorName = vendorOptions.length === 0
     ? customVendor
     : selectedVendor === CUSTOM_VENDOR ? customVendor : selectedVendor;
@@ -245,7 +246,6 @@ export default function RateCardsPage() {
     setVerifyLoading(false);
   }
 
-  const vendorOptions = clients.map(c => c.name);
   const pushProgress = jobData ? Math.round(((jobData.pushed + jobData.failed) / jobData.total) * 100) : 0;
 
   const typeConfig = {
