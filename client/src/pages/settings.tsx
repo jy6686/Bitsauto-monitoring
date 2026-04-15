@@ -1566,6 +1566,7 @@ export default function SettingsPage() {
   const [testResult, setTestResult] = useState<TestResult>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [regeneratedAt, setRegeneratedAt] = useState<string | null>(null);
+  const [manualRegeneratedAt, setManualRegeneratedAt] = useState<string | null>(null);
   const { toast } = useToast();
 
   const regenMutation = useMutation({
@@ -1577,6 +1578,18 @@ export default function SettingsPage() {
     },
     onError: (err: any) => {
       toast({ title: 'Update failed', description: err.message ?? 'Could not regenerate the document.', variant: 'destructive' });
+    },
+  });
+
+  const regenManualMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/download/regenerate-manual'),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setManualRegeneratedAt(data.regeneratedAt);
+      toast({ title: 'User Manual updated', description: 'The User Manual has been regenerated. Download it now.' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Manual update failed', description: err.message ?? 'Could not regenerate the User Manual.', variant: 'destructive' });
     },
   });
 
@@ -2117,25 +2130,43 @@ export default function SettingsPage() {
             <Download className="h-4 w-4 text-blue-400" />
             <h3 className="font-semibold">Documentation Downloads</h3>
           </div>
-          <button
-            data-testid="button-regenerate-docs"
-            onClick={() => regenMutation.mutate()}
-            disabled={regenMutation.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {regenMutation.isPending
-              ? <Loader2 className="h-3 w-3 animate-spin" />
-              : <RefreshCcw className="h-3 w-3" />}
-            {regenMutation.isPending ? 'Updating…' : 'Update'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              data-testid="button-regenerate-manual"
+              onClick={() => regenManualMutation.mutate()}
+              disabled={regenManualMutation.isPending}
+              title="Regenerate User Manual"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-500/10 border border-violet-500/20 text-violet-400 hover:bg-violet-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {regenManualMutation.isPending
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <RefreshCcw className="h-3 w-3" />}
+              {regenManualMutation.isPending ? 'Building…' : 'Update Manual'}
+            </button>
+            <button
+              data-testid="button-regenerate-docs"
+              onClick={() => regenMutation.mutate()}
+              disabled={regenMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {regenMutation.isPending
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <RefreshCcw className="h-3 w-3" />}
+              {regenMutation.isPending ? 'Updating…' : 'Update Status Report'}
+            </button>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground mb-4">
+          {manualRegeneratedAt
+            ? `User Manual last built: ${new Date(manualRegeneratedAt).toLocaleString()}  ·  `
+            : 'Click "Update Manual" to generate the User Manual with process flows and diagrams.  '}
           {regeneratedAt
             ? `Status report last updated: ${new Date(regeneratedAt).toLocaleString()}`
-            : 'Click Update to regenerate the Status Report with all completed Tier 1–5 features.'}
+            : ''}
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {[
+            { label: "User Manual", desc: "Full operator guide — all features, process flows & diagrams", href: "/api/download/user-manual", color: "text-violet-400", bg: "bg-violet-500/10 border-violet-500/20" },
             { label: "Volume 1 — Status Report", desc: "Completed features & pending items", href: "/api/download/status-report", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
             { label: "Feature Roadmap", desc: "Full platform feature roadmap", href: "/api/download/feature-roadmap", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
             { label: "Extended Features Vol II", desc: "Proposed Tier 2 & Tier 3 features", href: "/api/download/feature-roadmap-v2", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },

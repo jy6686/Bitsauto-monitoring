@@ -11,6 +11,7 @@ Full-stack VoIP monitoring dashboard with real-time metrics, alerting, team mana
 
 ## Vol 2 Features
 - **#16 Click-to-call & Test Call Launcher** (`/test-call`): Form with CLI/CLD inputs + optional Sippy billing account picker. Calls Sippy `makeCall` XML-RPC on submit, displays call ID on success. History table shows recent test calls from `call_test_logs` DB table. CDR table and live-calls dashboard table both have hover PhoneCall icons that pre-fill `/test-call?cli=X&cld=Y`. Nav item under admin+management roles.
+- **User Manual** (`server/manual-generator.ts`): 18-section comprehensive `.docx` user manual covering all platform features, role access matrix, process flow diagrams, keyboard shortcuts, troubleshooting, and glossary. Generated on demand via "Update Manual" button in Settings → Documentation Downloads. Routes: `POST /api/download/regenerate-manual`, `GET /api/download/user-manual`.
 
 ## Key Features
 - Real-time call quality metrics (Jitter, Latency, Packet Loss, MOS)

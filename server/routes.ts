@@ -17,6 +17,7 @@ import { lookupDialCode } from "./dial-lookup";
 import { readFileSync } from "fs";
 import { join as _pathJoin } from "path";
 import { generateStatusReport, STATUS_REPORT_PATH } from "./doc-generator";
+import { generateUserManual, USER_MANUAL_PATH } from "./manual-generator";
 
 // ── /api/dial-codes handler — serves raw prefix JSON for client-side lookup ───
 // Uses process.cwd() so it works in both ESM dev (tsx) and CJS production build.
@@ -7882,6 +7883,31 @@ export async function registerRoutes(
       if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
       await generateStatusReport(STATUS_REPORT_PATH);
       res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'VoIP_Platform_Volume1_Status.docx' });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/download/user-manual — serve the User Manual Word document
+  app.get('/api/download/user-manual', (_req: any, res: any) => {
+    const { existsSync } = require('fs');
+    if (!existsSync(USER_MANUAL_PATH)) {
+      return res.status(404).json({ message: 'User Manual not yet generated. Click "Update Manual" in Settings to generate it.' });
+    }
+    res.download(USER_MANUAL_PATH, 'VoIP_Watcher_User_Manual.docx', (err: any) => {
+      if (err && !res.headersSent) res.status(500).json({ message: 'Download error' });
+    });
+  });
+
+  // POST /api/download/regenerate-manual — build/rebuild the User Manual .docx (admin)
+  app.post('/api/download/regenerate-manual', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user.claims?.sub;
+      const role = await storage.getUserRole(userId);
+      if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+      await generateUserManual(USER_MANUAL_PATH);
+      res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'VoIP_Watcher_User_Manual.docx' });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
