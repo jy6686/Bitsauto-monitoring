@@ -7793,6 +7793,14 @@ export async function registerRoutes(
   // GET /api/dial-codes — serve raw dial-codes JSON for client-side prefix lookup
   app.get('/api/dial-codes', dialCodesHandler);
 
+  // GET /api/download/feature-roadmap — serve the Feature Roadmap Word document
+  app.get('/api/download/feature-roadmap', (_req: any, res: any) => {
+    const filePath = require('path').join(process.cwd(), 'attached_assets', 'VoIP_Watcher_Feature_Roadmap.docx');
+    res.download(filePath, 'VoIP_Watcher_Feature_Roadmap.docx', (err: any) => {
+      if (err) res.status(404).json({ error: 'File not found' });
+    });
+  });
+
   // GET /api/bitseye/per-entity — per-entity CDR time-series for BitsEye page
   app.get('/api/bitseye/per-entity', async (req: any, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
