@@ -489,6 +489,28 @@ export async function registerRoutes(
     setInterval(runBackgroundFasAnalysis, 5 * 60 * 1000);
   }, 30000);
 
+  // === PRE-GENERATE documentation files if missing ===
+  // Runs immediately in the background so files are ready before first download request.
+  (async () => {
+    const { existsSync } = await import('fs');
+    if (!existsSync(USER_MANUAL_PATH)) {
+      try {
+        await generateUserManual(USER_MANUAL_PATH);
+        console.log('[startup] User Manual pre-generated successfully.');
+      } catch (e: any) {
+        console.warn('[startup] User Manual pre-generation failed:', e.message);
+      }
+    }
+    if (!existsSync(STATUS_REPORT_PATH)) {
+      try {
+        await generateStatusReport(STATUS_REPORT_PATH);
+        console.log('[startup] Status Report pre-generated successfully.');
+      } catch (e: any) {
+        console.warn('[startup] Status Report pre-generation failed:', e.message);
+      }
+    }
+  })();
+
   // === STARTUP GUARD: disable simulation if a real portal is configured ===
   // This corrects any mis-matched state (e.g. settings migrated from a demo DB).
   // Also purges all active simulated calls so the dashboard starts clean.
@@ -7888,15 +7910,19 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/download/user-manual — serve the User Manual Word document
-  app.get('/api/download/user-manual', (_req: any, res: any) => {
-    const { existsSync } = require('fs');
-    if (!existsSync(USER_MANUAL_PATH)) {
-      return res.status(404).json({ message: 'User Manual not yet generated. Click "Update Manual" in Settings to generate it.' });
+  // GET /api/download/user-manual — serve the User Manual Word document (auto-generates if missing)
+  app.get('/api/download/user-manual', async (_req: any, res: any) => {
+    try {
+      const { existsSync } = await import('fs');
+      if (!existsSync(USER_MANUAL_PATH)) {
+        await generateUserManual(USER_MANUAL_PATH);
+      }
+      res.download(USER_MANUAL_PATH, 'VoIP_Watcher_User_Manual.docx', (err: any) => {
+        if (err && !res.headersSent) res.status(500).json({ message: 'Download error' });
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: `Failed to generate manual: ${e.message}` });
     }
-    res.download(USER_MANUAL_PATH, 'VoIP_Watcher_User_Manual.docx', (err: any) => {
-      if (err && !res.headersSent) res.status(500).json({ message: 'Download error' });
-    });
   });
 
   // POST /api/download/regenerate-manual — build/rebuild the User Manual .docx (admin)

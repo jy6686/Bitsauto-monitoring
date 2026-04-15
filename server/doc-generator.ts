@@ -106,19 +106,35 @@ function statusColor(s: string) {
   return RED_C;
 }
 
+// Page geometry: Letter (12240 twips) - 2 * 1440 (1" margins) = 9360 usable twips
+const PAGE_DXA = 9360;
+function dxa(pct: number) { return Math.round(PAGE_DXA * pct / 100); }
+
+// Column widths as DXA (must sum to PAGE_DXA)
+const COL_W = {
+  num:     dxa(5),   // 468
+  feature: dxa(25),  // 2340
+  status:  dxa(12),  // 1123
+  notes:   PAGE_DXA - dxa(5) - dxa(25) - dxa(12), // remainder = 5429
+};
+
 function featureTable(features: typeof FEATURES) {
   const headerRow = new TableRow({
     tableHeader: true,
-    children: ['#', 'Feature', 'Status', 'Notes'].map(h =>
+    children: (
+      [
+        { label: '#',       width: COL_W.num     },
+        { label: 'Feature', width: COL_W.feature  },
+        { label: 'Status',  width: COL_W.status   },
+        { label: 'Notes',   width: COL_W.notes    },
+      ] as { label: string; width: number }[]
+    ).map(({ label, width }) =>
       new TableCell({
         shading: { type: ShadingType.SOLID, color: hex(DARK_BG) },
-        width: h === '#' ? { size: 5, type: WidthType.PERCENTAGE }
-             : h === 'Feature' ? { size: 25, type: WidthType.PERCENTAGE }
-             : h === 'Status' ? { size: 12, type: WidthType.PERCENTAGE }
-             : { size: 58, type: WidthType.PERCENTAGE },
+        width: { size: width, type: WidthType.DXA },
         children: [new Paragraph({
           alignment: AlignmentType.LEFT,
-          children: [new TextRun({ text: h, bold: true, color: ACCENT, size: 18 })],
+          children: [new TextRun({ text: label, bold: true, color: ACCENT, size: 18 })],
         })],
       })
     ),
@@ -127,16 +143,16 @@ function featureTable(features: typeof FEATURES) {
   const dataRows = features.map(f =>
     new TableRow({
       children: [
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: String(f.id), color: MID_GY, size: 18 })] })] }),
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: f.name, color: WHITE, size: 18, bold: true })] })] }),
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: f.status, color: statusColor(f.status), size: 18, bold: true })] })] }),
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: f.notes, color: MID_GY, size: 17 })] })] }),
+        new TableCell({ width: { size: COL_W.num,     type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: String(f.id), color: MID_GY, size: 18 })] })] }),
+        new TableCell({ width: { size: COL_W.feature, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: f.name, color: WHITE, size: 18, bold: true })] })] }),
+        new TableCell({ width: { size: COL_W.status,  type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: f.status, color: statusColor(f.status), size: 18, bold: true })] })] }),
+        new TableCell({ width: { size: COL_W.notes,   type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: f.notes, color: MID_GY, size: 17 })] })] }),
       ],
     })
   );
 
   return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: { size: PAGE_DXA, type: WidthType.DXA },
     rows: [headerRow, ...dataRows],
   });
 }

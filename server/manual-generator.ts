@@ -12,13 +12,16 @@ const DARK_BG  = '0D1117';
 const ACCENT   = '00D4FF';
 const GREEN    = '00C853';
 const ORANGE   = 'FF6D00';
-const RED_C    = 'D32F2F';
-const PURPLE   = '9C27B0';
 const WHITE    = 'FFFFFF';
 const LIGHT_GY = 'E8E8E8';
 const MID_GY   = 'BDBDBD';
 const DARK_GY  = '424242';
 const PANEL_BG = '161B22';
+
+// ── Page geometry (Letter, 1" margins each side) ───────────────────────────────
+// Usable width = 12240 - 2 * 1440 = 9360 twips
+const PAGE_DXA = 9360;
+function w(pct: number) { return Math.round(PAGE_DXA * pct / 100); }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function h1(text: string) {
@@ -74,7 +77,7 @@ function note(text: string) {
     indent: { left: 360 },
     spacing: { after: 100 },
     border: { left: { color: ACCENT, style: BorderStyle.SINGLE, size: 8 } },
-    children: [new TextRun({ text: `ℹ  ${text}`, color: ACCENT, size: 18, italics: true })],
+    children: [new TextRun({ text: `NOTE: ${text}`, color: ACCENT, size: 18, italics: true })],
   });
 }
 function warn(text: string) {
@@ -82,20 +85,30 @@ function warn(text: string) {
     indent: { left: 360 },
     spacing: { after: 100 },
     border: { left: { color: ORANGE, style: BorderStyle.SINGLE, size: 8 } },
-    children: [new TextRun({ text: `⚠  ${text}`, color: ORANGE, size: 18, italics: true })],
+    children: [new TextRun({ text: `WARNING: ${text}`, color: ORANGE, size: 18, italics: true })],
   });
 }
 
-// ── Simple 2-column definition table ─────────────────────────────────────────
-function defTable(rows: [string, string][], headerLabel = '') {
+// ── 2-column definition table ─────────────────────────────────────────────────
+// Uses DXA widths (valid OOXML). keyPct = percentage width of key column.
+function defTable(rows: [string, string][], headerLabel = '', keyPct = 30) {
+  const keyW  = w(keyPct);
+  const valW  = PAGE_DXA - keyW;
   const hdr = headerLabel
     ? [new TableRow({
         tableHeader: true,
-        children: [headerLabel, ''].map(h => new TableCell({
-          shading: { type: ShadingType.SOLID, color: DARK_BG },
-          width: { size: h === headerLabel ? 30 : 70, type: WidthType.PERCENTAGE },
-          children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, color: ACCENT, size: 18 })] })],
-        })),
+        children: [
+          new TableCell({
+            shading: { type: ShadingType.SOLID, color: DARK_BG },
+            width: { size: keyW, type: WidthType.DXA },
+            children: [new Paragraph({ children: [new TextRun({ text: headerLabel, bold: true, color: ACCENT, size: 18 })] })],
+          }),
+          new TableCell({
+            shading: { type: ShadingType.SOLID, color: DARK_BG },
+            width: { size: valW, type: WidthType.DXA },
+            children: [new Paragraph({ children: [] })],
+          }),
+        ],
       })]
     : [];
   const dataRows = rows.map(([k, v]) =>
@@ -103,133 +116,139 @@ function defTable(rows: [string, string][], headerLabel = '') {
       children: [
         new TableCell({
           shading: { type: ShadingType.SOLID, color: PANEL_BG },
-          width: { size: 30, type: WidthType.PERCENTAGE },
+          width: { size: keyW, type: WidthType.DXA },
           children: [new Paragraph({ children: [new TextRun({ text: k, bold: true, color: WHITE, size: 18 })] })],
         }),
         new TableCell({
-          width: { size: 70, type: WidthType.PERCENTAGE },
+          width: { size: valW, type: WidthType.DXA },
           children: [new Paragraph({ children: [new TextRun({ text: v, color: MID_GY, size: 18 })] })],
         }),
       ],
     })
   );
-  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [...hdr, ...dataRows] });
+  return new Table({
+    width: { size: PAGE_DXA, type: WidthType.DXA },
+    rows: [...hdr, ...dataRows],
+  });
 }
 
 // ── Role access matrix ────────────────────────────────────────────────────────
 function roleMatrix(rows: { feature: string; admin: string; mgmt: string; viewer: string }[]) {
-  const tick = '✔';
-  const cross = '—';
-  function cell(text: string, head = false) {
+  const cols = [55, 15, 15, 15]; // percentages — must sum to 100
+  const colW = cols.map(c => w(c));
+
+  function hdrCell(text: string, colWidth: number) {
     return new TableCell({
-      shading: head ? { type: ShadingType.SOLID, color: DARK_BG } : undefined,
+      shading: { type: ShadingType.SOLID, color: DARK_BG },
+      width: { size: colWidth, type: WidthType.DXA },
       children: [new Paragraph({
         alignment: AlignmentType.CENTER,
-        children: [new TextRun({
-          text,
-          bold: head,
-          color: head ? ACCENT : text === tick ? GREEN : text === cross ? DARK_GY : WHITE,
-          size: 18,
-        })],
+        children: [new TextRun({ text, bold: true, color: ACCENT, size: 18 })],
       })],
     });
   }
+  function dataCell(text: string, colWidth: number, color = WHITE) {
+    return new TableCell({
+      width: { size: colWidth, type: WidthType.DXA },
+      children: [new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text, color, size: 18 })],
+      })],
+    });
+  }
+
+  const yes = 'Yes';
+  const no  = '-';
+
   const headerRow = new TableRow({
     tableHeader: true,
-    children: ['Feature / Page', 'Admin', 'Management', 'Viewer'].map(h => cell(h, true)),
+    children: [
+      hdrCell('Feature / Page', colW[0]),
+      hdrCell('Admin',      colW[1]),
+      hdrCell('Management', colW[2]),
+      hdrCell('Viewer',     colW[3]),
+    ],
   });
   const dataRows = rows.map(r =>
     new TableRow({
       children: [
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.feature, color: LIGHT_GY, size: 18 })] })] }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: r.admin, color: r.admin === tick ? GREEN : DARK_GY, size: 18 })] })] }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: r.mgmt, color: r.mgmt === tick ? GREEN : DARK_GY, size: 18 })] })] }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: r.viewer, color: r.viewer === tick ? GREEN : DARK_GY, size: 18 })] })] }),
+        new TableCell({
+          width: { size: colW[0], type: WidthType.DXA },
+          children: [new Paragraph({ children: [new TextRun({ text: r.feature, color: LIGHT_GY, size: 18 })] })],
+        }),
+        dataCell(r.admin,  colW[1], r.admin  === yes ? GREEN : DARK_GY),
+        dataCell(r.mgmt,   colW[2], r.mgmt   === yes ? GREEN : DARK_GY),
+        dataCell(r.viewer, colW[3], r.viewer  === yes ? GREEN : DARK_GY),
       ],
     })
   );
-  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [headerRow, ...dataRows] });
-}
-
-// ── Flowchart (linear, horizontal steps) ────────────────────────────────────
-function flowChart(steps: { label: string; detail?: string }[], title: string) {
-  const elems: any[] = [];
-  elems.push(h3(title));
-  // Each step as a shaded box, with arrows between
-  const stepCells = steps.flatMap((s, i) => {
-    const box = new TableCell({
-      shading: { type: ShadingType.SOLID, color: PANEL_BG },
-      width: { size: Math.floor(90 / steps.length), type: WidthType.PERCENTAGE },
-      children: [
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.label, bold: true, color: ACCENT, size: 18 })] }),
-        ...(s.detail ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.detail, color: MID_GY, size: 16, italics: true })] })] : []),
-      ],
-    });
-    if (i < steps.length - 1) {
-      const arrow = new TableCell({
-        width: { size: Math.floor(10 / (steps.length - 1)), type: WidthType.PERCENTAGE },
-        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '→', color: ACCENT, size: 22, bold: true })] })],
-      });
-      return [box, arrow];
-    }
-    return [box];
+  return new Table({
+    width: { size: PAGE_DXA, type: WidthType.DXA },
+    rows: [headerRow, ...dataRows],
   });
-  elems.push(new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [new TableRow({ children: stepCells })],
-  }));
-  elems.push(spacer(120));
-  return elems;
 }
 
-// ── Vertical flowchart ───────────────────────────────────────────────────────
-function vFlow(steps: { label: string; detail?: string; color?: string }[], title: string) {
-  const elems: any[] = [h3(title)];
-  for (let i = 0; i < steps.length; i++) {
-    const s = steps[i];
-    elems.push(new Table({
-      width: { size: 80, type: WidthType.PERCENTAGE },
-      rows: [new TableRow({
-        children: [new TableCell({
-          shading: { type: ShadingType.SOLID, color: PANEL_BG },
-          children: [
-            new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.label, bold: true, color: s.color ?? ACCENT, size: 20 })] }),
-            ...(s.detail ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.detail, color: MID_GY, size: 17, italics: true })] })] : []),
-          ],
-        })],
-      })],
+// ── Flow diagram (numbered vertical steps) ───────────────────────────────────
+// Represents a flow as a numbered list with shaded step boxes — avoids
+// complex column-width maths that can produce invalid OOXML.
+function flowDiagram(steps: { label: string; detail?: string }[], title: string): Paragraph[] {
+  const elems: Paragraph[] = [h3(title)];
+  steps.forEach((s, i) => {
+    elems.push(new Paragraph({
+      spacing: { before: 80, after: 4 },
+      shading: { type: ShadingType.SOLID, color: PANEL_BG },
+      indent: { left: 180, hanging: 180 },
+      children: [
+        new TextRun({ text: `Step ${i + 1}:  `, color: ACCENT, bold: true, size: 20 }),
+        new TextRun({ text: s.label, color: WHITE, bold: true, size: 20 }),
+        ...(s.detail ? [new TextRun({ text: `  —  ${s.detail}`, color: MID_GY, size: 18, italics: true })] : []),
+      ],
     }));
     if (i < steps.length - 1) {
-      elems.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 0 }, children: [new TextRun({ text: '↓', color: DARK_GY, size: 22 })] }));
+      elems.push(new Paragraph({
+        spacing: { after: 4 },
+        indent: { left: 360 },
+        children: [new TextRun({ text: '|', color: DARK_GY, size: 16 })],
+      }));
     }
-  }
+  });
   elems.push(spacer(160));
   return elems;
 }
 
 // ── Keyboard shortcut table ───────────────────────────────────────────────────
 function shortcutTable(shortcuts: [string, string][]) {
+  const keyW = w(35);
+  const actW = PAGE_DXA - keyW;
   const headerRow = new TableRow({
     tableHeader: true,
-    children: ['Shortcut', 'Action'].map(h => new TableCell({
-      shading: { type: ShadingType.SOLID, color: DARK_BG },
-      children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, color: ACCENT, size: 18 })] })],
-    })),
+    children: [
+      new TableCell({
+        shading: { type: ShadingType.SOLID, color: DARK_BG },
+        width: { size: keyW, type: WidthType.DXA },
+        children: [new Paragraph({ children: [new TextRun({ text: 'Shortcut', bold: true, color: ACCENT, size: 18 })] })],
+      }),
+      new TableCell({
+        shading: { type: ShadingType.SOLID, color: DARK_BG },
+        width: { size: actW, type: WidthType.DXA },
+        children: [new Paragraph({ children: [new TextRun({ text: 'Action', bold: true, color: ACCENT, size: 18 })] })],
+      }),
+    ],
   });
   const rows = shortcuts.map(([k, v]) => new TableRow({
     children: [
       new TableCell({
         shading: { type: ShadingType.SOLID, color: PANEL_BG },
-        width: { size: 35, type: WidthType.PERCENTAGE },
+        width: { size: keyW, type: WidthType.DXA },
         children: [new Paragraph({ children: [new TextRun({ text: k, color: WHITE, size: 18, bold: true })] })],
       }),
       new TableCell({
-        width: { size: 65, type: WidthType.PERCENTAGE },
+        width: { size: actW, type: WidthType.DXA },
         children: [new Paragraph({ children: [new TextRun({ text: v, color: MID_GY, size: 18 })] })],
       }),
     ],
   }));
-  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [headerRow, ...rows] });
+  return new Table({ width: { size: PAGE_DXA, type: WidthType.DXA }, rows: [headerRow, ...rows] });
 }
 
 // ── Master document builder ───────────────────────────────────────────────────
@@ -238,16 +257,16 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
   const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
   const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-  const tick = '✔';
-  const cross = '—';
+  const yes = 'Yes';
+  const no  = '-';
 
   const doc = new Document({
     numbering: {
       config: [{
         reference: 'bullet-list',
         levels: [
-          { level: 0, format: NumberFormat.BULLET, text: '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 360, hanging: 260 } } } },
-          { level: 1, format: NumberFormat.BULLET, text: '◦', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 260 } } } },
+          { level: 0, format: NumberFormat.BULLET, text: 'o', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 360, hanging: 260 } } } },
+          { level: 1, format: NumberFormat.BULLET, text: '-', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 260 } } } },
         ],
       }],
     },
@@ -276,9 +295,9 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
 
       children: [
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // COVER PAGE
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         spacer(600),
         new Paragraph({
           alignment: AlignmentType.CENTER,
@@ -307,9 +326,9 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
         }),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
-        // TABLE OF CONTENTS (manual — docx lib has no auto-ToC)
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
+        // TABLE OF CONTENTS
+        // ════════════════════════════════════════════════════
         h1('Table of Contents'),
         ...([
           ['1', 'Introduction & Platform Overview'],
@@ -341,18 +360,18 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
         ),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 1. INTRODUCTION
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('1. Introduction & Platform Overview'),
         p('VoIP Watcher is a real-time Network Operations Centre (NOC) monitoring and analytics platform built exclusively for the Sippy Softswitch. It gives NOC engineers, Key Account Managers, and management a single pane of glass to monitor call quality, detect fraud, manage billing, and operate the softswitch — without needing to log into the Sippy admin portal directly.', { size: 21 }),
         spacer(100),
         h2('What this platform covers'),
         bullet('Real-time concurrent call monitoring, MOS, ASR, ACD, PDD, CPS, and traffic quality scoring'),
         bullet('CDR search, filtering, and export in multiple formats'),
-        bullet('Revenue & margin analytics, vendor balance tracking, and P&L reporting'),
+        bullet('Revenue and margin analytics, vendor balance tracking, and P&L reporting'),
         bullet('Fraud detection via the FAS (False Answer Supervision) engine'),
-        bullet('Rate card management (local + Sippy tariff verification)'),
+        bullet('Rate card management (local and Sippy tariff verification)'),
         bullet('Alert engine with configurable thresholds and email notifications'),
         bullet('Team and KAM management with client-to-account-manager assignment'),
         bullet('Test Call Launcher — originate a real call from the UI to test routing'),
@@ -363,94 +382,93 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
         note('This platform is scoped to Sippy Softswitch only. No other softswitch targets (VOS-3000, FreeSWITCH, etc.) are supported.'),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 2. SYSTEM ARCHITECTURE
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('2. System Architecture'),
         p('VoIP Watcher is a full-stack web application with the following layers:', { size: 21 }),
         spacer(80),
         defTable([
-          ['Frontend', 'React + Vite + TailwindCSS — runs in the browser, communicates with the backend over a REST API'],
-          ['Backend', 'Express + TypeScript — handles authentication, Sippy API calls, business logic, and data persistence'],
-          ['Database', 'PostgreSQL via Drizzle ORM — stores users, settings, CDR cache, rate cards, alert config, KAMs, API keys, test call logs, widget preferences'],
+          ['Frontend',   'React + Vite + TailwindCSS — runs in the browser, communicates with the backend over a REST API'],
+          ['Backend',    'Express + TypeScript — handles authentication, Sippy API calls, business logic, and data persistence'],
+          ['Database',   'PostgreSQL via Drizzle ORM — stores users, settings, CDR cache, rate cards, alert config, KAMs, API keys, test call logs, and widget preferences'],
           ['Sippy Link', 'XML-RPC over HTTP/HTTPS — two credential sets: ssp-root (admin API) and portal username (customer portal). All Sippy calls are proxied through the backend.'],
-          ['Auth', 'Replit OpenID Connect (OAuth 2.0) — all routes protected; role stored in the users table'],
+          ['Auth',       'Replit OpenID Connect (OAuth 2.0) — all routes protected; role stored in the users table'],
         ]),
         spacer(180),
-        ...flowChart([
-          { label: 'Browser', detail: 'React UI' },
-          { label: 'Express API', detail: 'Port 5000' },
-          { label: 'PostgreSQL', detail: 'Drizzle ORM' },
-          { label: 'Sippy XML-RPC', detail: 'ssp-root / portal' },
-        ], 'Data Flow — Frontend to Sippy'),
-        note('All Sippy credentials are stored server-side only. The frontend never receives or stores passwords.'),
+        h3('Data Flow: Browser to Sippy'),
+        ...flowDiagram([
+          { label: 'Browser (React UI)', detail: 'User actions trigger API calls' },
+          { label: 'Express API Server (Port 5000)', detail: 'Validates auth and role, runs business logic' },
+          { label: 'PostgreSQL Database', detail: 'Cached CDRs, settings, preferences' },
+          { label: 'Sippy XML-RPC Endpoint', detail: 'ssp-root / portal credentials used server-side' },
+        ], ''),
+        note('All Sippy credentials are stored server-side only. The browser never receives or stores passwords.'),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 3. RBAC
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('3. Role-Based Access Control (RBAC)'),
         p('Every user is assigned one of three roles. The role is set by an Administrator in the Team page. The role controls which pages and actions are available.', { size: 21 }),
         spacer(100),
         defTable([
-          ['Admin', 'Full access to all pages and settings. Can manage users, configure Sippy, create API keys, set alert thresholds, and download all reports.'],
+          ['Admin',      'Full access to all pages and settings. Can manage users, configure Sippy, create API keys, set alert thresholds, and download all reports.'],
           ['Management', 'Access to operational and analytics pages. Cannot access system settings, user management, or API key management.'],
-          ['Viewer', 'Read-only NOC view. Sees only the widgets and data assigned to them by an Admin via Monitoring Assignments.'],
+          ['Viewer',     'Read-only NOC view. Sees only the widgets and data assigned to them by an Admin via Monitoring Assignments.'],
         ], 'Role'),
         spacer(180),
         h2('Feature Access Matrix'),
         roleMatrix([
-          { feature: 'Dashboard (Live Calls, KPIs)',      admin: tick, mgmt: tick, viewer: tick },
-          { feature: 'CDR Browser',                        admin: tick, mgmt: tick, viewer: tick },
-          { feature: 'Analytics / Revenue',               admin: tick, mgmt: tick, viewer: cross },
-          { feature: 'Rate Card Management',              admin: tick, mgmt: tick, viewer: cross },
-          { feature: 'Fraud Detection (FAS)',             admin: tick, mgmt: tick, viewer: cross },
-          { feature: 'Alerts — View',                     admin: tick, mgmt: tick, viewer: tick },
-          { feature: 'Alerts — Configure Thresholds',     admin: tick, mgmt: cross, viewer: cross },
-          { feature: 'Team & KAM Management',             admin: tick, mgmt: cross, viewer: cross },
-          { feature: 'Test Call Launcher',                admin: tick, mgmt: tick, viewer: cross },
-          { feature: 'API Key Management',                admin: tick, mgmt: cross, viewer: cross },
-          { feature: 'Settings (Sippy, email, SNMP)',     admin: tick, mgmt: cross, viewer: cross },
-          { feature: 'Monitoring Assignments (assign)',   admin: tick, mgmt: cross, viewer: cross },
-          { feature: 'Download Reports',                  admin: tick, mgmt: cross, viewer: cross },
+          { feature: 'Dashboard (Live Calls, KPIs)',    admin: yes, mgmt: yes, viewer: yes },
+          { feature: 'CDR Browser',                     admin: yes, mgmt: yes, viewer: yes },
+          { feature: 'Analytics / Revenue',             admin: yes, mgmt: yes, viewer: no  },
+          { feature: 'Rate Card Management',            admin: yes, mgmt: yes, viewer: no  },
+          { feature: 'Fraud Detection (FAS)',           admin: yes, mgmt: yes, viewer: no  },
+          { feature: 'Alerts — View',                   admin: yes, mgmt: yes, viewer: yes },
+          { feature: 'Alerts — Configure Thresholds',  admin: yes, mgmt: no,  viewer: no  },
+          { feature: 'Team & KAM Management',          admin: yes, mgmt: no,  viewer: no  },
+          { feature: 'Test Call Launcher',             admin: yes, mgmt: yes, viewer: no  },
+          { feature: 'API Key Management',             admin: yes, mgmt: no,  viewer: no  },
+          { feature: 'Settings (Sippy, email, SNMP)',  admin: yes, mgmt: no,  viewer: no  },
+          { feature: 'Monitoring Assignments (assign)', admin: yes, mgmt: no,  viewer: no  },
+          { feature: 'Download Reports',               admin: yes, mgmt: no,  viewer: no  },
         ]),
         spacer(100),
         warn('Changing a user\'s role takes effect immediately on their next page load. If a user is currently logged in, they may need to refresh.'),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 4. GETTING STARTED
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('4. Getting Started'),
         h2('4.1  Logging In'),
         p('VoIP Watcher uses Replit authentication. Users log in via their Replit account — no separate password is required.', { size: 21 }),
         spacer(80),
-        ...vFlow([
+        ...flowDiagram([
           { label: 'Open the platform URL in your browser' },
           { label: 'Click "Sign in with Replit"', detail: 'You are redirected to Replit OAuth' },
-          { label: 'Authorise the application', detail: 'Grant the requested permissions' },
+          { label: 'Authorise the application',   detail: 'Grant the requested permissions' },
           { label: 'Redirected back to the Dashboard', detail: 'First login creates your user record; an Admin must assign your role.' },
         ], 'Login Flow'),
         note('First-time users have no role assigned and see only a limited view. Ask your Administrator to assign your role in the Team page.'),
         spacer(100),
         h2('4.2  First-Time Admin Setup'),
         bullet('Log in as the first user — you are automatically assigned Admin role.'),
-        bullet('Go to Settings → Sippy Connection and enter your credentials (portal URL, portal username, API admin username and passwords).'),
+        bullet('Go to Settings and enter your Sippy credentials (portal URL, portal username, API admin username and passwords).'),
         bullet('Click "Connect to Sippy" — the status indicator turns green when connected.'),
-        bullet('Go to Settings → Alert Thresholds and configure your ASR, MOS, ACD, and call-count limits.'),
-        bullet('Go to Settings → Email Notifications and enter your Gmail SMTP credentials for alert emails.'),
+        bullet('Go to Settings > Alert Configuration and set your ASR, MOS, ACD, and call-count thresholds.'),
+        bullet('Go to Settings > Email Notifications and enter your Gmail SMTP credentials for alert emails.'),
         bullet('Go to Team & KAM to invite and assign roles to your team members.'),
         spacer(100),
         h2('4.3  Navigation'),
         p('The left sidebar lists all available pages. Items visible depend on your role. Collapse the sidebar using the arrow icon at the bottom left. On mobile, the sidebar opens via the hamburger menu.', { size: 20 }),
         spacer(80),
-        p('Sidebar navigation structure:', { bold: true, color: WHITE }),
         bullet('Dashboard — live call KPIs and widget grid'),
         bullet('CDR Browser — historical call records'),
-        bullet('Live Calls — active call list (same as Dashboard live section)'),
         bullet('Analytics — revenue, ASR/ACD trends, BitsEye traffic graph, traffic map'),
         bullet('Graphs — KAM overview, client traffic pulse, traffic alert log'),
-        bullet('Rate Cards — local rate management + Sippy tariff comparison'),
+        bullet('Rate Cards — local rate management and Sippy tariff comparison'),
         bullet('Fraud Detection — FAS engine results and scoring'),
         bullet('Alerts — alert list and threshold configuration'),
         bullet('Team & KAM — user roles and KAM assignments'),
@@ -459,29 +477,27 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
         bullet('Settings — all system configuration'),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 5. DASHBOARD
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('5. Dashboard — Live Call Monitoring'),
         p('The Dashboard is the primary NOC view. It refreshes automatically every 15 seconds by polling the Sippy API for live call data.', { size: 21 }),
         spacer(80),
         h2('5.1  KPI Cards'),
-        p('At the top of the Dashboard are the key performance indicator cards:', { size: 20 }),
         defTable([
           ['Concurrent Calls', 'Total active calls on the switch right now'],
-          ['ASR (%)', 'Answer Seizure Ratio — percentage of call attempts that connected successfully'],
-          ['ACD (s)', 'Average Call Duration in seconds — a measure of traffic quality'],
-          ['CPS', 'Calls Per Second — origination rate'],
-          ['PDD (ms)', 'Post-Dial Delay — time from dial to ringing'],
-          ['MOS', 'Mean Opinion Score — voice quality metric (1–5; ≥4.0 = Excellent)'],
-          ['Traffic Score', 'Composite quality score combining ASR, ACD, and MOS into a single 0–100 rating'],
-          ['Fraud Score', 'FAS engine composite risk score — higher = more suspicious activity detected'],
+          ['ASR (%)',          'Answer Seizure Ratio — percentage of call attempts that connected successfully'],
+          ['ACD (s)',          'Average Call Duration in seconds — a measure of traffic quality'],
+          ['CPS',             'Calls Per Second — origination rate'],
+          ['PDD (ms)',         'Post-Dial Delay — time from dial to ringing'],
+          ['MOS',             'Mean Opinion Score — voice quality metric (1-5; 4.0+ = Excellent)'],
+          ['Traffic Score',   'Composite quality score combining ASR, ACD, and MOS into a single 0-100 rating'],
+          ['Fraud Score',     'FAS engine composite risk score — higher = more suspicious activity detected'],
         ]),
         spacer(160),
         h2('5.2  Widget Grid'),
         p('Below the KPI cards is a customisable widget grid. Each user can toggle widgets on/off and drag them to their preferred position. Changes are saved per-user in the database.', { size: 20 }),
         spacer(80),
-        p('Available widgets:', { bold: true, color: WHITE }),
         bullet('Live Call Quality — real-time MOS, jitter, latency, packet loss per active call'),
         bullet('ASR / ACD Trend — line chart of answer rate and call duration over the selected window'),
         bullet('Revenue Overview — 30-day income vs cost vs margin'),
@@ -491,255 +507,222 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
         bullet('Traffic Map Preview — mini world map of destination traffic'),
         bullet('Recent CDRs — last 20 call records inline'),
         spacer(80),
-        p('To customise widgets:', { bold: true, color: WHITE }),
-        bullet('Click the slider icon (⊟) in the top-right of the Dashboard to open the widget panel'),
-        bullet('Toggle any widget on or off using the switch'),
-        bullet('Drag widget cards by their header to reorder'),
-        bullet('Changes are saved automatically'),
+        p('To customise widgets: click the slider icon in the top-right of the Dashboard to open the widget panel, toggle switches to show/hide, and drag cards by their header to reorder. Changes are saved automatically.', { size: 20 }),
         spacer(100),
         h2('5.3  Live Calls Table'),
-        p('The lower section of the Dashboard shows the currently active calls with caller, callee, MOS score, call start time, and a link to the call detail page. Hover over a number to reveal the click-to-call icon — clicking it pre-fills the Test Call Launcher.', { size: 20 }),
+        p('The lower section of the Dashboard shows currently active calls with caller, callee, MOS score, call start time, and a link to the call detail page. Hover over a number to reveal the click-to-call icon — clicking it pre-fills the Test Call Launcher.', { size: 20 }),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 6. CDR BROWSER
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('6. CDR (Call Detail Records) Browser'),
         p('The CDR Browser lets you search, filter, and export historical call records retrieved from Sippy. Records are cached locally for fast access.', { size: 21 }),
         spacer(80),
         h2('6.1  Filters'),
         defTable([
-          ['Date Range', 'Select preset (Last 1h, 6h, 24h, 7d, 30d) or enter a custom UTC start/end date'],
-          ['Caller / Callee', 'Free-text filter on the CLI (caller) or CLD (callee) number'],
-          ['Account', 'Filter by a specific Sippy customer account'],
-          ['Disconnect Code', 'Filter by SIP response code (e.g. 200, 486, 404)'],
-          ['Duration', 'Filter: all calls, answered only (>0s), or unanswered (0s)'],
-          ['Direction', 'Origination or termination leg'],
+          ['Date Range',       'Select preset (Last 1h, 6h, 24h, 7d, 30d) or enter a custom UTC start/end date'],
+          ['Caller / Callee',  'Free-text filter on the CLI (caller) or CLD (callee) number'],
+          ['Account',          'Filter by a specific Sippy customer account'],
+          ['Disconnect Code',  'Filter by SIP response code (e.g. 200, 486, 404)'],
+          ['Duration',         'Filter: all calls, answered only (>0s), or unanswered (0s)'],
+          ['Direction',        'Origination or termination leg'],
         ]),
         spacer(160),
         h2('6.2  Export'),
         bullet('Click the Export button to download the currently filtered CDRs as a CSV file.'),
-        bullet('For Mera-format export (vendor CDR reconciliation), use the Sippy → Vendor CDR Export menu in Settings.'),
+        bullet('For Mera-format export (vendor CDR reconciliation), use Settings > Vendor CDR Export.'),
         spacer(100),
         h2('6.3  Click-to-Call from CDR'),
         p('Every row in the CDR table has a hover phone icon next to the caller and callee numbers. Clicking it opens the Test Call Launcher pre-filled with those numbers.', { size: 20 }),
         note('This is useful for retesting a failed call — simply click the icon on the failed CDR row and hit Launch.'),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 7. ANALYTICS
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('7. Analytics & Reporting'),
         h2('7.1  Revenue & Margin Analytics'),
-        p('Found in Analytics → Revenue. Shows a 30-day rolling P&L breakdown:', { size: 20 }),
+        p('Found in Analytics > Revenue. Shows a 30-day rolling P&L breakdown:', { size: 20 }),
         bullet('Total revenue vs total cost vs margin'),
         bullet('Per-client margin table with colour-coded profitability'),
         bullet('Revenue and cost time-series chart'),
         bullet('Margin percentage trend'),
         spacer(100),
         h2('7.2  ASR / ACD Trend Graphs'),
-        p('Found in the Graphs page. Dual-axis recharts plot of answer rate (%) and average duration (s) over a configurable time window (6h / 12h / 24h). Quality band shading highlights periods below acceptable thresholds.', { size: 20 }),
+        p('Dual-axis recharts plot of answer rate (%) and average duration (s) over a configurable time window (6h / 12h / 24h). Quality band shading highlights periods below acceptable thresholds.', { size: 20 }),
         spacer(100),
         h2('7.3  BitsEye Traffic Graph'),
         p('Per-entity concurrent-call time-series. Switch between Clients, Vendors, and All. Choose ordering by traffic volume or entity name. Supports multi-line overlay comparison.', { size: 20 }),
         spacer(100),
         h2('7.4  Traffic Map'),
-        p('An interactive Leaflet world choropleth map showing destination traffic distribution by country. Based on CDR country codes. Features include:', { size: 20 }),
-        bullet('Hover country tooltips showing call count and % of total'),
-        bullet('Top-10 destinations sidebar'),
-        bullet('Time range selector (3h / 6h / 12h / 24h / 48h / 72h)'),
-        bullet('Dark CartoDB tile layer optimised for NOC displays'),
+        p('An interactive Leaflet world map showing destination traffic distribution by country. Hover tooltips show call count and percentage. Top-10 destinations sidebar with time range selector (3h / 6h / 12h / 24h / 48h / 72h).', { size: 20 }),
         spacer(100),
         h2('7.5  Vendor Balance Tracking'),
-        p('Live balance for each configured vendor account on Sippy, refreshed every polling cycle. Low-balance alerts are triggered when a vendor drops below the configured threshold.', { size: 20 }),
+        p('Live balance for each configured vendor account on Sippy, refreshed every polling cycle. Low-balance alerts trigger when a vendor drops below the configured threshold.', { size: 20 }),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 8. RATE CARDS
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('8. Rate Card Management'),
-        p('Rate Cards allow you to manage your client-facing and vendor-facing rate schedules locally within the platform, and optionally compare them against the tariffs configured in Sippy.', { size: 21 }),
+        p('Rate Cards allow you to manage client-facing and vendor-facing rate schedules locally within the platform, and compare them against the tariffs configured in Sippy.', { size: 21 }),
         spacer(80),
-        h2('8.1  Creating a Rate Card'),
-        bullet('Go to Rate Cards → click "New Rate Card"'),
+        bullet('Go to Rate Cards and click "New Rate Card"'),
         bullet('Enter a name and select type: Client or Vendor'),
         bullet('Add prefixes with their per-minute rate, currency, and description'),
         bullet('Optionally select a Sippy tariff to compare against — mismatches are highlighted'),
+        bullet('Export each rate card as CSV for sharing with clients or reconciliation'),
         spacer(100),
-        h2('8.2  Prefix Search'),
-        p('Use the search box within a rate card to filter prefixes. Dial-code lookup enriches each prefix with its country and destination name automatically.', { size: 20 }),
-        spacer(100),
-        h2('8.3  Export'),
-        p('Each rate card can be exported as a CSV file containing all prefixes and rates. Use for sharing with clients or reconciliation.', { size: 20 }),
         note('Rate card data is stored locally in the VoIP Watcher database. It is not pushed back to Sippy.'),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 9. FRAUD DETECTION
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('9. Fraud Detection — FAS Engine'),
         p('The FAS (False Answer Supervision) engine analyses recent CDRs for patterns associated with fraudulent traffic. It runs automatically on every data refresh.', { size: 21 }),
         spacer(80),
         h2('9.1  Detection Categories'),
         defTable([
-          ['Zero-Billed Calls', 'Connected calls (200 OK) with zero billable duration — typical of FAS termination fraud'],
-          ['Short-Billed Calls', 'Calls with a very short billed duration (< 6 seconds) relative to actual duration'],
-          ['High PDD', 'Calls with Post-Dial Delay > 10 seconds — may indicate quality issues or simulated alerting'],
-          ['Early Answer', 'Calls answered in < 1 second — characteristic of FAS/SPIT injection'],
+          ['Zero-Billed Calls',  'Connected calls (200 OK) with zero billable duration — typical of FAS termination fraud'],
+          ['Short-Billed Calls', 'Calls with very short billed duration (< 6 seconds) relative to actual duration'],
+          ['High PDD',           'Calls with Post-Dial Delay > 10 seconds — may indicate quality issues or simulated alerting'],
+          ['Early Answer',       'Calls answered in < 1 second — characteristic of FAS/SPIT injection'],
         ]),
         spacer(160),
         h2('9.2  Fraud Score'),
-        p('The Fraud Score (0–100) is a composite metric shown on the Dashboard FAS widget. A score above 60 is considered high-risk. Scores above 80 trigger an alert.', { size: 20 }),
+        p('The Fraud Score (0-100) is a composite metric shown on the Dashboard FAS widget. A score above 60 is considered high-risk. Scores above 80 trigger an alert.', { size: 20 }),
         spacer(100),
         h2('9.3  Responding to FAS Alerts'),
-        ...vFlow([
+        ...flowDiagram([
           { label: 'FAS alert fires (high fraud score)' },
-          { label: 'Open Fraud Detection page', detail: 'Review zero-billed and short-billed call lists' },
-          { label: 'Identify affected vendor/route', detail: 'Check which connections have the most anomalies' },
-          { label: 'Check Sippy vendor settings', detail: 'Disable or re-route the suspect vendor' },
-          { label: 'Monitor CDRs for improvement', detail: 'Fraud score should drop within next refresh cycle' },
+          { label: 'Open Fraud Detection page',          detail: 'Review zero-billed and short-billed call lists' },
+          { label: 'Identify affected vendor or route',  detail: 'Check which connections have the most anomalies' },
+          { label: 'Disable or re-route the suspect vendor in Sippy' },
+          { label: 'Monitor CDRs for improvement',       detail: 'Fraud score should drop within next refresh cycle' },
         ], 'FAS Response Workflow'),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 10. ALERTS
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('10. Alerts System'),
-        p('The Alerts system monitors key metrics against administrator-configured thresholds. When a threshold is breached, an alert is created and (optionally) an email notification is sent.', { size: 21 }),
+        p('The Alerts system monitors key metrics against administrator-configured thresholds. When a threshold is breached, an alert is created and optionally an email notification is sent.', { size: 21 }),
         spacer(80),
         h2('10.1  Configurable Thresholds'),
         defTable([
-          ['Minimum ASR (%)', 'Alert fires if ASR drops below this percentage'],
-          ['Minimum MOS', 'Alert fires if MOS drops below this value (e.g. 3.5)'],
-          ['Minimum ACD (s)', 'Alert fires if average call duration drops below this threshold'],
-          ['Maximum Concurrent Calls', 'Alert fires if concurrent calls exceed this limit (capacity protection)'],
-          ['Low Vendor Balance', 'Alert fires if any vendor balance drops below the configured minimum'],
-          ['Fraud Score', 'Alert fires when FAS composite score exceeds the limit'],
-          ['Traffic Drop', 'Alert fires when a client\'s concurrent calls drop >50% vs the 60-minute peak'],
+          ['Minimum ASR (%)',        'Alert fires if ASR drops below this percentage'],
+          ['Minimum MOS',            'Alert fires if MOS drops below this value (e.g. 3.5)'],
+          ['Minimum ACD (s)',        'Alert fires if average call duration drops below this threshold'],
+          ['Max Concurrent Calls',   'Alert fires if concurrent calls exceed this limit (capacity protection)'],
+          ['Low Vendor Balance',     'Alert fires if any vendor balance drops below the configured minimum'],
+          ['Fraud Score',            'Alert fires when FAS composite score exceeds the limit'],
+          ['Traffic Drop',           'Alert fires when a client\'s calls drop >50% vs the 60-minute peak'],
         ]),
         spacer(160),
         h2('10.2  Alert Lifecycle'),
-        ...vFlow([
-          { label: 'Metric crosses threshold', detail: 'Detected on next polling cycle' },
-          { label: 'Alert record created', detail: 'Stored in DB with severity, metric, and value' },
-          { label: 'In-app notification shown', detail: 'Red badge on Alerts nav item' },
-          { label: 'Email sent (if configured)', detail: 'Gmail SMTP via Settings' },
-          { label: 'Alert auto-resolves', detail: 'When metric returns to acceptable range' },
+        ...flowDiagram([
+          { label: 'Metric crosses threshold',     detail: 'Detected on next polling cycle' },
+          { label: 'Alert record created',         detail: 'Stored in DB with severity, metric, and value' },
+          { label: 'In-app notification shown',    detail: 'Red badge on Alerts nav item' },
+          { label: 'Email sent if SMTP configured' },
+          { label: 'Alert auto-resolves',          detail: 'When metric returns to acceptable range' },
         ], 'Alert Lifecycle'),
-        spacer(100),
-        h2('10.3  Viewing Alerts'),
-        p('Go to Alerts in the sidebar. The list shows all active and recently resolved alerts with severity (Critical / Warning / Info), the metric that triggered it, and when it occurred.', { size: 20 }),
-        note('Alerts are also summarised on the Dashboard Active Alerts widget. Admins can configure thresholds in Settings → Alert Configuration.'),
+        note('Admins configure thresholds in Settings > Alert Configuration. Changes take effect on the next polling cycle.'),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
-        // 11. TEAM & KAM MANAGEMENT
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
+        // 11. TEAM & KAM
+        // ════════════════════════════════════════════════════
         h1('11. Team & KAM Management'),
         h2('11.1  Managing Users'),
-        p('Admins assign roles to users from the Team page. Users must have logged in at least once before they can be assigned a role (their account is created on first login).', { size: 20 }),
         bullet('Navigate to Team & KAM'),
-        bullet('Find the user in the list (or use Quick Assign Role form)'),
+        bullet('Find the user in the list or use the Quick Assign Role form'),
         bullet('Select their role: Admin, Management, or Viewer'),
-        bullet('Click Assign — the change takes effect immediately'),
+        bullet('Click Assign — the change takes effect on their next page load'),
         spacer(100),
         h2('11.2  Key Account Managers (KAMs)'),
-        p('KAMs are team members responsible for managing specific client accounts. The KAM management system allows you to:', { size: 20 }),
         bullet('Create KAM profiles with contact information'),
         bullet('Assign one or more Sippy client accounts to each KAM'),
         bullet('View a live call count overlay per KAM on the Graphs page'),
         bullet('See which KAM is responsible for a client in alert and CDR views'),
         spacer(100),
         h2('11.3  Monitoring Assignments (for Viewers)'),
-        p('Viewers see only the data they are assigned to monitor. Admins configure this in Settings → Monitoring Assignments:', { size: 20 }),
-        bullet('Select which dashboard widgets the viewer can see'),
+        bullet('In Settings > Monitoring Assignments, select which dashboard widgets the viewer can see'),
         bullet('Optionally restrict CDR and live-call views to specific accounts'),
         bullet('Assignments are saved per-viewer and applied on their next login'),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 12. TEST CALL LAUNCHER
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('12. Test Call Launcher'),
         p('The Test Call Launcher allows NOC engineers and management to originate a real call via the Sippy switch directly from the browser — without logging into the Sippy admin portal.', { size: 21 }),
         spacer(80),
         warn('This sends a real call origination request to the live Sippy switch. Use internal test extensions or agreed test numbers to avoid unintended charges.'),
         spacer(100),
         h2('12.1  Launching a Call'),
-        ...vFlow([
+        ...flowDiagram([
           { label: 'Navigate to Test Call in the sidebar' },
-          { label: 'Enter the From (CLI) number', detail: 'E.164 format (e.g. +441234567890) or local format' },
-          { label: 'Enter the To (CLD) number', detail: 'The number to dial' },
+          { label: 'Enter the From (CLI) number',    detail: 'E.164 format (e.g. +441234567890) or local format' },
+          { label: 'Enter the To (CLD) number',      detail: 'The destination number to dial' },
           { label: 'Select a Billing Account (optional)', detail: 'Routes the call through that account\'s tariff' },
           { label: 'Enter a Billing Code (optional)', detail: 'Tags the call for reconciliation' },
-          { label: 'Click Launch Call', detail: 'Request sent to Sippy makeCall XML-RPC endpoint' },
-          { label: 'Result displayed', detail: 'Success: call ID shown. Error: fault code and message shown.' },
+          { label: 'Click Launch Call',              detail: 'Request sent to Sippy makeCall XML-RPC endpoint' },
+          { label: 'Result displayed',               detail: 'Success: call ID shown. Error: fault code and message shown.' },
         ], 'Test Call Flow'),
         spacer(100),
         h2('12.2  Call History'),
-        p('All test calls are logged in the Recent Test Calls table at the bottom of the page. Each entry shows:', { size: 20 }),
-        defTable([
-          ['Time', 'Timestamp when the call was launched'],
-          ['From (CLI)', 'Caller number entered'],
-          ['To (CLD)', 'Called number entered'],
-          ['Account', 'Sippy account ID used (if any)'],
-          ['Call ID', 'The call ID returned by Sippy on success'],
-          ['Status', 'Success or Error'],
-          ['Message', 'Sippy\'s response message or fault description'],
-        ]),
-        spacer(160),
+        p('All test calls are logged in the Recent Test Calls table at the bottom of the page with: timestamp, CLI, CLD, account used, call ID, status, and Sippy response message.', { size: 20 }),
+        spacer(100),
         h2('12.3  Click-to-Call from CDR and Live Calls'),
-        p('In both the CDR Browser and the Dashboard live calls table, hovering over a caller or callee number reveals a phone icon. Clicking it navigates to the Test Call Launcher with the CLI and CLD pre-filled from that call record — enabling rapid retesting.', { size: 20 }),
+        p('In both the CDR Browser and the Dashboard live calls table, hovering over a caller or callee number reveals a phone icon. Clicking it navigates to the Test Call Launcher with the CLI and CLD pre-filled — enabling rapid retesting.', { size: 20 }),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
-        // 13. API KEY MANAGEMENT
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
+        // 13. API KEYS
+        // ════════════════════════════════════════════════════
         h1('13. API Key Management'),
-        p('Admins can create Bearer-token API keys that allow external systems (dashboards, monitoring tools, scripts) to query key platform endpoints without logging in.', { size: 21 }),
+        p('Admins can create Bearer-token API keys that allow external systems to query key platform endpoints without a user login.', { size: 21 }),
         spacer(80),
-        h2('13.1  Creating an API Key'),
-        bullet('Go to API Keys in the sidebar (Admin only)'),
-        bullet('Click "Create New API Key"'),
+        bullet('Go to API Keys in the sidebar (Admin only) and click "Create New API Key"'),
         bullet('Enter a label (e.g. "External NOC Dashboard")'),
         bullet('The key is generated and displayed once — copy and store it securely'),
         bullet('The key cannot be retrieved again after the dialog is closed'),
         spacer(100),
-        h2('13.2  Available External Endpoints'),
+        h2('13.1  Available External Endpoints'),
         defTable([
-          ['GET /api/ext/live-calls', 'Current active calls on the switch'],
-          ['GET /api/ext/asr-acd', 'Current ASR and ACD metrics'],
+          ['GET /api/ext/live-calls',      'Current active calls on the switch'],
+          ['GET /api/ext/asr-acd',         'Current ASR and ACD metrics'],
           ['GET /api/ext/vendor-balances', 'All vendor balance snapshots'],
         ]),
         spacer(160),
-        p('Include the key in the Authorization header:', { bold: true, color: WHITE }),
+        p('Usage: Include the key in the Authorization header:', { bold: true, color: WHITE }),
         new Paragraph({
           shading: { type: ShadingType.SOLID, color: PANEL_BG },
           spacing: { after: 100 },
-          children: [new TextRun({ text: 'Authorization: Bearer YOUR_API_KEY_HERE', color: GREEN, size: 18, font: 'Courier New' })],
+          children: [new TextRun({ text: 'Authorization: Bearer YOUR_API_KEY_HERE', color: GREEN, size: 18 })],
         }),
         spacer(100),
-        h2('13.3  Revoking a Key'),
-        p('In the API Keys page, click the delete (trash) icon next to a key to revoke it immediately. Any system using that key will receive 401 Unauthorized from that point on.', { size: 20 }),
+        p('To revoke a key: click the delete icon next to it in the API Keys page. Any system using that key will immediately receive 401 Unauthorized.', { size: 20 }),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
-        // 14. SETTINGS & CONFIGURATION
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
+        // 14. SETTINGS
+        // ════════════════════════════════════════════════════
         h1('14. Settings & Configuration'),
         p('All system configuration is in the Settings page (Admin only). Settings are grouped into panels:', { size: 21 }),
         spacer(80),
         h2('14.1  Sippy Connection'),
         defTable([
-          ['Portal URL', 'Base URL of the Sippy customer portal (e.g. https://switch.example.com)'],
-          ['Portal Username', 'Customer portal login — used for CDR and account queries'],
-          ['Portal Password', 'Portal password — stored encrypted server-side'],
-          ['API Admin Username', 'ssp-root or similar Sippy XML-RPC admin user'],
-          ['API Admin Password', 'Admin password — stored encrypted server-side'],
+          ['Portal URL',          'Base URL of the Sippy customer portal (e.g. https://switch.example.com)'],
+          ['Portal Username',     'Customer portal login — used for CDR and account queries'],
+          ['Portal Password',     'Portal password — stored encrypted server-side'],
+          ['API Admin Username',  'ssp-root or similar Sippy XML-RPC admin user'],
+          ['API Admin Password',  'Admin password — stored encrypted server-side'],
         ]),
         spacer(160),
-        p('Click Connect to Sippy to test and activate the connection. The status badge turns green when connected.', { size: 20 }),
-        spacer(100),
         h2('14.2  Alert Thresholds'),
         p('Configure numeric thresholds for each alert type. Changes take effect on the next polling cycle.', { size: 20 }),
         spacer(100),
@@ -751,75 +734,70 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
         spacer(100),
         h2('14.5  Documentation Downloads'),
         p('The Settings page includes a Documentation Downloads section where all platform documents can be downloaded as .docx files:', { size: 20 }),
+        bullet('User Manual — this document (click "Update Manual" to regenerate)'),
         bullet('Volume 1 Status Report — implementation status of all 24 Volume 1 features'),
         bullet('Feature Roadmap — the full platform feature roadmap'),
-        bullet('Extended Features Vol II — proposed Tier 2 & Tier 3 feature proposals'),
+        bullet('Extended Features Vol II — proposed Tier 2 and Tier 3 feature proposals'),
         bullet('API Reference — all 200+ REST endpoints across 21 categories'),
-        bullet('User Manual — this document (regenerated on demand)'),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 15. PROCESS FLOWS
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('15. Process Flows'),
-
-        ...flowChart([
-          { label: 'Log in', detail: 'Replit OAuth' },
-          { label: 'Dashboard', detail: 'Review KPIs' },
-          { label: 'Alert fires?', detail: 'Check alert badge' },
-          { label: 'Investigate', detail: 'CDR / Live Calls' },
-          { label: 'Resolve', detail: 'Update Sippy or escalate' },
+        ...flowDiagram([
+          { label: 'Log in',          detail: 'Replit OAuth' },
+          { label: 'Dashboard',       detail: 'Review KPIs and active alerts' },
+          { label: 'Alert fired?',    detail: 'Check alert badge on sidebar' },
+          { label: 'Investigate',     detail: 'Drill into CDR Browser or Live Calls' },
+          { label: 'Resolve',         detail: 'Update Sippy settings or escalate' },
         ], '15.1  NOC Shift Workflow'),
 
-        ...flowChart([
-          { label: 'Metric breach detected', detail: 'Next poll cycle' },
-          { label: 'Alert created', detail: 'Stored in DB' },
-          { label: 'Badge shown', detail: 'Sidebar count' },
-          { label: 'Email sent', detail: 'If SMTP configured' },
-          { label: 'Metric recovers', detail: 'Alert auto-resolves' },
+        ...flowDiagram([
+          { label: 'Metric crosses threshold', detail: 'On next poll cycle' },
+          { label: 'Alert created',            detail: 'Stored in DB' },
+          { label: 'Badge shown',              detail: 'Sidebar count increments' },
+          { label: 'Email sent',               detail: 'If SMTP configured' },
+          { label: 'Metric recovers',          detail: 'Alert auto-resolves' },
         ], '15.2  Alert Trigger & Resolution Flow'),
 
-        ...flowChart([
-          { label: 'Open CDR', detail: 'Find failed call' },
-          { label: 'Click ☎ icon', detail: 'On caller/callee' },
-          { label: 'Test Call page', detail: 'Pre-filled numbers' },
-          { label: 'Launch Call', detail: 'Sippy makeCall' },
-          { label: 'Verify result', detail: 'Check call ID / error' },
+        ...flowDiagram([
+          { label: 'Open CDR Browser',       detail: 'Find the failed call record' },
+          { label: 'Click phone icon',       detail: 'Hover over caller or callee number' },
+          { label: 'Test Call page opens',   detail: 'Numbers pre-filled from CDR' },
+          { label: 'Click Launch Call',      detail: 'Sippy makeCall API called' },
+          { label: 'Review result',          detail: 'Check call ID or error message' },
         ], '15.3  Click-to-Call Retest Workflow'),
 
-        ...flowChart([
-          { label: 'FAS Score > 60', detail: 'On dashboard' },
-          { label: 'Open FAS page', detail: 'View anomalies' },
-          { label: 'Identify vendor', detail: 'Filter by vendor' },
-          { label: 'Block in Sippy', detail: 'Via Sippy admin' },
-          { label: 'Monitor score', detail: 'Should drop next cycle' },
+        ...flowDiagram([
+          { label: 'FAS Score exceeds 60',   detail: 'Shown on dashboard panel' },
+          { label: 'Open Fraud Detection',   detail: 'Review anomaly list' },
+          { label: 'Identify vendor',        detail: 'Filter by vendor/connection' },
+          { label: 'Block in Sippy',         detail: 'Via Sippy admin portal' },
+          { label: 'Monitor score',          detail: 'Should drop on next refresh' },
         ], '15.4  Fraud Detection Response Workflow'),
 
-        ...vFlow([
+        ...flowDiagram([
           { label: 'New team member joins' },
-          { label: 'Admin creates Replit account for user (or user self-registers)' },
           { label: 'User logs in once to create their account record' },
-          { label: 'Admin goes to Team & KAM → assigns role (Admin / Management / Viewer)' },
+          { label: 'Admin opens Team & KAM and assigns their role' },
           { label: 'If Viewer: Admin configures Monitoring Assignments for that user' },
           { label: 'User refreshes — new role and page access applied' },
         ], '15.5  Onboarding a New Team Member'),
-
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 16. KEYBOARD SHORTCUTS
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('16. Keyboard Shortcuts & Quick Actions'),
         shortcutTable([
           ['Cmd + K  /  Ctrl + K', 'Open the Command Bar — search for any page, dial code, or action'],
-          ['Esc', 'Close the Command Bar or any open dialog'],
-          ['↑ / ↓', 'Navigate Command Bar results'],
-          ['Enter', 'Select the highlighted Command Bar result'],
-          ['Cmd + ,  /  Ctrl + ,', 'Jump directly to Settings (when Command Bar is open)'],
+          ['Esc',                  'Close the Command Bar or any open dialog'],
+          ['Up / Down arrow keys', 'Navigate Command Bar results'],
+          ['Enter',                'Select the highlighted Command Bar result'],
         ]),
         spacer(160),
         h2('Command Bar Actions'),
-        p('The Command Bar (Cmd+K) provides instant access to:', { size: 20 }),
         bullet('All sidebar navigation links'),
         bullet('Dial-code lookup — type a number to identify country and carrier'),
         bullet('CDR search — type "cdr <number>" to search for a specific call'),
@@ -827,70 +805,54 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
         bullet('Dark/light mode toggle'),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 17. TROUBLESHOOTING
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('17. Troubleshooting & FAQ'),
         defTable([
-          [
-            'Sippy connection shows "Disconnected"',
-            'Check portal URL, username, and password in Settings → Sippy Connection. Ensure the switch is reachable on HTTPS and the XML-RPC port is not firewalled. Click "Connect to Sippy" to retry.',
-          ],
-          [
-            'No CDRs showing',
-            'Verify the Sippy connection is active. Check the date range filter — the default is "Last 24 hours". If the connection is new, wait for the next CDR cache refresh (runs every 5 minutes).',
-          ],
-          [
-            'Dashboard KPIs all show zero',
-            'There may be no active calls on the switch. KPIs pull from the live Sippy call list. Verify by checking the Sippy admin portal directly.',
-          ],
-          [
-            'Alert emails not being received',
-            'Go to Settings → Email Notifications, verify Gmail credentials, and click "Send Test Email". Check your spam folder. Make sure the Gmail app password (not your main password) is used.',
-          ],
-          [
-            'Test call fails with "Fault"',
-            'The Sippy API returned an XML-RPC fault. Common causes: invalid CLI format (use E.164), the account ID does not exist, or the switch has no route for the CLD. Check the fault message in the result card.',
-          ],
-          [
-            'User cannot see certain pages',
-            'Their role may be Viewer. Ask an Admin to change their role in Team & KAM. Role changes take effect on next page refresh.',
-          ],
-          [
-            'Dashboard widgets not saving position',
-            'Widget preferences are saved per-user. If you are logged in on multiple tabs, changes in one tab may conflict with another. Refresh after making changes.',
-          ],
-          [
-            'Traffic map shows no data',
-            'The traffic map uses CDR country codes. Ensure CDRs are being fetched and contain valid country data. Try extending the time range selector.',
-          ],
-        ]),
+          ['Sippy connection shows "Disconnected"',
+           'Check portal URL, username, and password in Settings. Ensure the switch is reachable on HTTPS and the XML-RPC port is not firewalled. Click "Connect to Sippy" to retry.'],
+          ['No CDRs showing',
+           'Verify the Sippy connection is active. Check the date range filter — the default is Last 24 hours. If the connection is new, wait for the next CDR cache refresh (runs every 5 minutes).'],
+          ['Dashboard KPIs all show zero',
+           'There may be no active calls on the switch. KPIs pull from the live Sippy call list. Verify by checking the Sippy admin portal directly.'],
+          ['Alert emails not received',
+           'Go to Settings > Email Notifications, verify Gmail credentials, and click "Send Test Email". Check your spam folder. Make sure the Gmail app password (not your main password) is used.'],
+          ['Test call fails with "Fault"',
+           'The Sippy API returned an XML-RPC fault. Common causes: invalid CLI format (use E.164), the account ID does not exist, or the switch has no route for the CLD. Check the fault message in the result card.'],
+          ['User cannot see certain pages',
+           'Their role may be Viewer. Ask an Admin to change their role in Team & KAM. Role changes take effect on next page refresh.'],
+          ['Dashboard widgets not saving',
+           'Widget preferences are saved per-user. If logged in on multiple tabs, changes may conflict. Refresh after making changes.'],
+          ['Traffic map shows no data',
+           'The traffic map uses CDR country codes. Ensure CDRs are being fetched and contain valid country data. Try extending the time range selector.'],
+        ], 'Problem', 30),
         pageBreak(),
 
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         // 18. GLOSSARY
-        // ════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════
         h1('18. Glossary'),
         defTable([
-          ['ASR', 'Answer Seizure Ratio — the percentage of call attempts that result in a successful connection (200 OK)'],
-          ['ACD', 'Average Call Duration — mean duration of connected calls in seconds'],
-          ['CPS', 'Calls Per Second — the rate at which new call attempts are arriving on the switch'],
-          ['PDD', 'Post-Dial Delay — time in milliseconds between the initial INVITE and the first 180 Ringing response'],
-          ['MOS', 'Mean Opinion Score — a numerical measure of voice call quality on a scale from 1 (worst) to 5 (best)'],
-          ['FAS', 'False Answer Supervision — a fraud technique where calls are answered immediately with silence to bill the originator without delivering a real connection'],
-          ['CLI', 'Calling Line Identification — the caller\'s phone number (A-number, From)'],
-          ['CLD', 'Called Line Destination — the destination phone number being dialled (B-number, To)'],
-          ['KAM', 'Key Account Manager — a team member responsible for managing a portfolio of client accounts'],
-          ['CDR', 'Call Detail Record — a record produced by the switch for each call leg, containing routing, duration, billing, and quality data'],
+          ['ASR',     'Answer Seizure Ratio — the percentage of call attempts that result in a successful connection (200 OK)'],
+          ['ACD',     'Average Call Duration — mean duration of connected calls in seconds'],
+          ['CPS',     'Calls Per Second — the rate at which new call attempts arrive on the switch'],
+          ['PDD',     'Post-Dial Delay — time in milliseconds between the initial INVITE and the first 180 Ringing response'],
+          ['MOS',     'Mean Opinion Score — a numerical measure of voice call quality on a scale from 1 (worst) to 5 (best)'],
+          ['FAS',     'False Answer Supervision — a fraud technique where calls are answered immediately with silence to bill the originator without delivering a real connection'],
+          ['CLI',     'Calling Line Identification — the caller\'s phone number (A-number, From)'],
+          ['CLD',     'Called Line Destination — the destination phone number being dialled (B-number, To)'],
+          ['KAM',     'Key Account Manager — a team member responsible for managing a portfolio of client accounts'],
+          ['CDR',     'Call Detail Record — a record produced by the switch for each call leg, containing routing, duration, billing, and quality data'],
           ['XML-RPC', 'A remote procedure call protocol using XML over HTTP, used by the Sippy Softswitch API'],
-          ['NOC', 'Network Operations Centre — the team and facility responsible for real-time monitoring and management of telecom infrastructure'],
-          ['RBAC', 'Role-Based Access Control — a security model where system access is granted based on the user\'s assigned role'],
-          ['SNMP', 'Simple Network Management Protocol — used to collect hardware-level performance metrics from network equipment'],
-          ['Sippy', 'Sippy Software — the Class 4 VoIP softswitch platform that VoIP Watcher is integrated with'],
-        ]),
+          ['NOC',     'Network Operations Centre — the team and facility responsible for real-time monitoring and management of telecom infrastructure'],
+          ['RBAC',    'Role-Based Access Control — a security model where system access is granted based on the user\'s assigned role'],
+          ['SNMP',    'Simple Network Management Protocol — used to collect hardware-level performance metrics from network equipment'],
+          ['Sippy',   'Sippy Software — the Class 4 VoIP softswitch platform that VoIP Watcher is integrated with'],
+        ], 'Term', 20),
         spacer(200),
         divider(),
-        p(`This document was auto-generated by VoIP Watcher on ${dateStr} at ${timeStr}. It is updated automatically when new features are added to the platform.`, { color: DARK_GY, size: 17, italic: true }),
+        p(`This document was auto-generated by VoIP Watcher on ${dateStr} at ${timeStr}. Regenerate it after adding new features using Settings > Documentation Downloads > Update Manual.`, { color: DARK_GY, size: 17, italic: true }),
         p('VoIP Watcher Platform — Confidential. For internal use only.', { color: DARK_GY, size: 17, italic: true }),
       ],
     }],
