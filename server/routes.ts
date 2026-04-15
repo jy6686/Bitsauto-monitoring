@@ -9016,31 +9016,53 @@ export async function registerRoutes(
   app.post('/api/rate-cards/:id/upload', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
     try {
       const rateCardId = Number(req.params.id);
-      // Read raw body as text (client sends text/plain CSV)
-      let csvText = '';
+      const contentType = (req.headers['content-type'] || '').toLowerCase();
+      const isExcel = contentType.includes('spreadsheet') || contentType.includes('excel') || contentType.includes('octet-stream');
+
+      // ── Read raw body as buffer ────────────────────────────────────────────
+      const chunks: Buffer[] = [];
       await new Promise<void>((resolve, reject) => {
-        req.setEncoding('utf-8');
-        req.on('data', chunk => { csvText += chunk; });
+        req.on('data', (chunk: Buffer) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
         req.on('end', resolve);
         req.on('error', reject);
       });
-      if (!csvText.trim()) return res.status(400).json({ message: 'Empty CSV' });
-      const lines = csvText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      if (lines.length < 2) return res.status(400).json({ message: 'CSV must have header + at least 1 row' });
-      // Detect column positions from header
-      const header = lines[0].toLowerCase().split(',').map(h => h.replace(/"/g,'').trim());
-      const prefixIdx  = header.findIndex(h => h.includes('prefix') || h === 'code' || h === 'dial_code');
-      const countryIdx = header.findIndex(h => h.includes('country') || h.includes('destination') || h === 'name');
-      const breakoutIdx= header.findIndex(h => h.includes('breakout') || h.includes('description') || h.includes('desc'));
-      const rateIdx    = header.findIndex(h => h.includes('rate') || h.includes('price') || h.includes('cost') || h === 'sell_rate');
-      if (prefixIdx === -1 || rateIdx === -1) {
-        return res.status(400).json({ message: 'CSV must have prefix (or code) and rate columns' });
+      const rawBuffer = Buffer.concat(chunks);
+      if (!rawBuffer.length) return res.status(400).json({ message: 'Empty file' });
+
+      // ── Parse rows into [header[], ...dataRows[]] ─────────────────────────
+      let rows: string[][] = [];
+
+      if (isExcel) {
+        // Parse Excel with xlsx library
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(rawBuffer, { type: 'buffer' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const jsonRows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        rows = jsonRows.map(r => r.map((c: any) => String(c ?? '').trim()));
+      } else {
+        // Parse CSV as text
+        const csvText = rawBuffer.toString('utf-8');
+        rows = csvText.split(/\r?\n/).map(l => l.split(',').map(c => c.replace(/"/g, '').trim())).filter(r => r.some(c => c));
       }
+
+      if (rows.length < 2) return res.status(400).json({ message: 'File must have header + at least 1 data row' });
+
+      // ── Detect column positions from header row ────────────────────────────
+      const header = rows[0].map(h => h.toLowerCase());
+      const prefixIdx   = header.findIndex(h => h.includes('prefix') || h === 'code' || h === 'dial_code');
+      const countryIdx  = header.findIndex(h => h.includes('country') || h.includes('destination') || h === 'name');
+      const breakoutIdx = header.findIndex(h => h.includes('breakout') || h.includes('description') || h.includes('desc'));
+      const rateIdx     = header.findIndex(h => h.includes('rate') || h.includes('price') || h.includes('cost') || h === 'sell_rate');
+      if (prefixIdx === -1 || rateIdx === -1) {
+        return res.status(400).json({ message: 'File must have prefix (or code) and rate columns' });
+      }
+
+      // ── Build entries ─────────────────────────────────────────────────────
       const entries: Array<{ rateCardId: number; prefix: string; country: string | null; breakout: string | null; ratePerMin: number }> = [];
-      for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(',').map(c => c.replace(/"/g,'').trim());
-        const prefix = cols[prefixIdx]?.replace(/\D/g, '');
-        const rateStr = cols[rateIdx]?.replace(/[^0-9.]/g, '');
+      for (let i = 1; i < rows.length; i++) {
+        const cols = rows[i];
+        const prefix = (cols[prefixIdx] ?? '').replace(/\D/g, '');
+        const rateStr = (cols[rateIdx] ?? '').replace(/[^0-9.]/g, '');
         const ratePerMin = parseFloat(rateStr);
         if (!prefix || isNaN(ratePerMin)) continue;
         entries.push({
@@ -9051,8 +9073,9 @@ export async function registerRoutes(
           ratePerMin,
         });
       }
-      if (!entries.length) return res.status(400).json({ message: 'No valid rows parsed from CSV' });
-      // Clear old entries and insert new
+      if (!entries.length) return res.status(400).json({ message: 'No valid rows parsed from file' });
+
+      // ── Persist ───────────────────────────────────────────────────────────
       const { db: dbConn } = await import('./db');
       const { rateCardEntries: rceTable } = await import('@shared/schema');
       const { eq: eqOp } = await import('drizzle-orm');

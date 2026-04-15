@@ -3,13 +3,14 @@ import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   CreditCard, Upload, Trash2, RefreshCw, Plus, FileText,
-  ChevronDown, ChevronRight, Download, AlertTriangle,
+  ChevronDown, ChevronRight, PenLine,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -32,21 +33,39 @@ type RateCardEntry = {
   ratePerMin: number;
 };
 
+type ClientProfile = {
+  id: number;
+  name: string;
+  type: string;
+};
+
+const CUSTOM_VENDOR = "__custom__";
+
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function RateCardsPage() {
   const { toast } = useToast();
   const [expandedCardId, setExpandedCardId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [newVendor, setNewVendor] = useState('');
+
+  // Create form state
+  const [selectedVendor, setSelectedVendor] = useState('');
+  const [customVendor, setCustomVendor] = useState('');
   const [newName, setNewName] = useState('');
   const [newCurrency, setNewCurrency] = useState('USD');
   const [newDate, setNewDate] = useState('');
+
   const [uploadCardId, setUploadCardId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Queries ────────────────────────────────────────────────────────────────
   const { data: cards = [], isLoading, refetch } = useQuery<RateCard[]>({
     queryKey: ["/api/rate-cards"],
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: clients = [] } = useQuery<ClientProfile[]>({
+    queryKey: ["/api/clients"],
     refetchOnWindowFocus: false,
   });
 
@@ -56,11 +75,12 @@ export default function RateCardsPage() {
     enabled: expandedCardId !== null,
   });
 
+  // ── Mutations ──────────────────────────────────────────────────────────────
   const createMutation = useMutation({
     mutationFn: (data: object) => apiRequest("POST", "/api/rate-cards", data).then(r => r.json()),
     onSuccess: () => {
       setCreateOpen(false);
-      setNewVendor(''); setNewName(''); setNewCurrency('USD'); setNewDate('');
+      setSelectedVendor(''); setCustomVendor(''); setNewName(''); setNewCurrency('USD'); setNewDate('');
       queryClient.invalidateQueries({ queryKey: ["/api/rate-cards"] });
       toast({ title: "Rate card created" });
     },
@@ -76,11 +96,24 @@ export default function RateCardsPage() {
 
   const uploadMutation = useMutation({
     mutationFn: async ({ id, file }: { id: number; file: File }) => {
-      const text = await file.text();
+      const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls') ||
+        file.type.includes('spreadsheet') || file.type.includes('excel');
+
+      let body: BodyInit;
+      let contentType: string;
+
+      if (isExcel) {
+        body = await file.arrayBuffer();
+        contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      } else {
+        body = await file.text();
+        contentType = 'text/plain';
+      }
+
       const res = await fetch(`/api/rate-cards/${id}/upload`, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: text,
+        headers: { 'Content-Type': contentType },
+        body,
       });
       if (!res.ok) {
         const err = await res.json();
@@ -98,6 +131,19 @@ export default function RateCardsPage() {
     },
   });
 
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const resolvedVendorName = selectedVendor === CUSTOM_VENDOR ? customVendor : selectedVendor;
+  const canCreate = resolvedVendorName.trim() && newName.trim() && !createMutation.isPending;
+
+  function handleSubmitCreate() {
+    createMutation.mutate({
+      vendorName: resolvedVendorName.trim(),
+      name: newName.trim(),
+      currency: newCurrency || 'USD',
+      effectiveDate: newDate || null,
+    });
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file && uploadCardId !== null) {
@@ -105,6 +151,9 @@ export default function RateCardsPage() {
     }
     e.target.value = '';
   }
+
+  // All unique vendor names already in rate cards (for badge colouring etc.)
+  const vendorOptions = clients.map(c => c.name);
 
   return (
     <div className="space-y-6">
@@ -116,7 +165,7 @@ export default function RateCardsPage() {
             Carrier Rate Cards
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage buy-rate sheets from your vendors — upload CSV to import prefix rates
+            Manage buy-rate sheets from your vendors — upload CSV or Excel to import prefix rates
           </p>
         </div>
         <div className="flex gap-2">
@@ -134,28 +183,68 @@ export default function RateCardsPage() {
                 <DialogTitle>Create Rate Card</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 pt-2">
+
+                {/* Vendor / Client selection */}
                 <div>
-                  <Label className="text-xs text-muted-foreground mb-1">Vendor Name</Label>
-                  <Input value={newVendor} onChange={e => setNewVendor(e.target.value)} placeholder="e.g. Callntalk" data-testid="input-vendor-name" />
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">Vendor / Client</Label>
+                  {vendorOptions.length > 0 ? (
+                    <>
+                      <Select value={selectedVendor} onValueChange={setSelectedVendor} data-testid="select-vendor">
+                        <SelectTrigger data-testid="trigger-vendor-select">
+                          <SelectValue placeholder="Select a vendor or client…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {vendorOptions.map(name => (
+                            <SelectItem key={name} value={name} data-testid={`vendor-option-${name}`}>
+                              {name}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value={CUSTOM_VENDOR} data-testid="vendor-option-custom">
+                            <span className="flex items-center gap-1.5 text-muted-foreground">
+                              <PenLine className="h-3.5 w-3.5" />Enter manually…
+                            </span>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {selectedVendor === CUSTOM_VENDOR && (
+                        <Input
+                          className="mt-2"
+                          value={customVendor}
+                          onChange={e => setCustomVendor(e.target.value)}
+                          placeholder="e.g. Callntalk"
+                          data-testid="input-custom-vendor"
+                          autoFocus
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <Input
+                      value={customVendor}
+                      onChange={e => setCustomVendor(e.target.value)}
+                      placeholder="e.g. Callntalk"
+                      data-testid="input-vendor-name"
+                    />
+                  )}
                 </div>
+
                 <div>
-                  <Label className="text-xs text-muted-foreground mb-1">Rate Card Name</Label>
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">Rate Card Name</Label>
                   <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Q2 2026 Standard Rates" data-testid="input-card-name" />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs text-muted-foreground mb-1">Currency</Label>
+                    <Label className="text-xs text-muted-foreground mb-1.5 block">Currency</Label>
                     <Input value={newCurrency} onChange={e => setNewCurrency(e.target.value)} placeholder="USD" data-testid="input-currency" />
                   </div>
                   <div>
-                    <Label className="text-xs text-muted-foreground mb-1">Effective Date</Label>
+                    <Label className="text-xs text-muted-foreground mb-1.5 block">Effective Date</Label>
                     <Input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} data-testid="input-effective-date" />
                   </div>
                 </div>
                 <Button
                   className="w-full"
-                  onClick={() => createMutation.mutate({ vendorName: newVendor, name: newName, currency: newCurrency || 'USD', effectiveDate: newDate || null })}
-                  disabled={!newVendor || !newName || createMutation.isPending}
+                  onClick={handleSubmitCreate}
+                  disabled={!canCreate}
                   data-testid="button-submit-ratecard"
                 >
                   {createMutation.isPending ? "Creating…" : "Create Rate Card"}
@@ -166,14 +255,16 @@ export default function RateCardsPage() {
         </div>
       </div>
 
-      {/* CSV Upload Format Hint */}
+      {/* Upload Format Hint */}
       <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex gap-3 items-start">
         <FileText className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
         <div className="text-sm">
-          <div className="text-blue-300 font-medium mb-1">CSV Upload Format</div>
+          <div className="text-blue-300 font-medium mb-1">CSV &amp; Excel Upload Format</div>
           <div className="text-muted-foreground text-xs font-mono">prefix, country, breakout, rate</div>
           <div className="text-muted-foreground text-xs font-mono mt-0.5">252, Somalia, Africa, 0.1250</div>
-          <div className="text-muted-foreground text-xs mt-1">Headers are flexible — column names are auto-detected. Rate = per-minute cost in the card's currency.</div>
+          <div className="text-muted-foreground text-xs mt-1">
+            Accepts <span className="text-blue-300 font-medium">.csv</span> or <span className="text-blue-300 font-medium">.xlsx</span> — column names are auto-detected. Rate = per-minute cost in the card's currency.
+          </div>
         </div>
       </div>
 
@@ -184,7 +275,7 @@ export default function RateCardsPage() {
         <div className="text-center text-muted-foreground py-12 bg-card border border-border rounded-xl">
           <CreditCard className="h-10 w-10 mx-auto mb-3 opacity-30" />
           <div className="font-medium mb-1">No rate cards yet</div>
-          <div className="text-sm">Create a rate card and upload a CSV to get started</div>
+          <div className="text-sm">Create a rate card and upload a CSV or Excel file to get started</div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -217,7 +308,6 @@ export default function RateCardsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {/* Upload CSV button */}
                     <Button
                       variant="outline" size="sm"
                       onClick={() => { setUploadCardId(card.id); fileInputRef.current?.click(); }}
@@ -226,7 +316,7 @@ export default function RateCardsPage() {
                       className="gap-1.5 text-xs"
                     >
                       <Upload className="h-3 w-3" />
-                      {uploadMutation.isPending && uploadCardId === card.id ? "Uploading…" : "Upload CSV"}
+                      {uploadMutation.isPending && uploadCardId === card.id ? "Uploading…" : "Upload CSV / Excel"}
                     </Button>
                     <button
                       onClick={() => deleteMutation.mutate(card.id)}
@@ -246,7 +336,7 @@ export default function RateCardsPage() {
                     ) : entries.length === 0 ? (
                       <div className="p-6 text-center text-muted-foreground text-sm">
                         <Upload className="h-6 w-6 mx-auto mb-2 opacity-30" />
-                        No entries yet. Upload a CSV to import prefix rates.
+                        No entries yet. Upload a CSV or Excel file to import prefix rates.
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
@@ -283,14 +373,14 @@ export default function RateCardsPage() {
         </div>
       )}
 
-      {/* Hidden file input */}
+      {/* Hidden file input — accepts CSV and Excel */}
       <input
         ref={fileInputRef}
         type="file"
-        accept=".csv,text/csv,text/plain"
+        accept=".csv,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
         className="hidden"
         onChange={handleFileChange}
-        data-testid="file-input-csv"
+        data-testid="file-input-upload"
       />
     </div>
   );
