@@ -4,7 +4,7 @@ import {
   switches, fasEvents, callSnapshots, monitoringAssignments, outageLog, alertRules,
   monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts, sippySnapshots,
   watcherRecipients, irsfEvents, blacklistRules, rateCards, rateCardEntries, mosHourly,
-  apiKeys, dashboardWidgetPrefs,
+  apiKeys, dashboardWidgetPrefs, callTestLogs,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -29,6 +29,7 @@ import {
   type MosHourly,
   type ApiKey,
   type DashboardWidgetPrefs,
+  type CallTestLog, type InsertCallTestLog,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -170,6 +171,10 @@ export interface IStorage {
   // Dashboard Widget Prefs (Tier 5 — #20)
   getDashboardWidgetPrefs(userId: string): Promise<DashboardWidgetPrefs | null>;
   setDashboardWidgetPrefs(userId: string, hiddenWidgets: string[], widgetOrder?: string[]): Promise<DashboardWidgetPrefs>;
+
+  // Call Test Logs (Vol 2 — #16)
+  logTestCall(data: InsertCallTestLog): Promise<CallTestLog>;
+  getTestCallLogs(userId: string, limit?: number): Promise<CallTestLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -930,6 +935,19 @@ export class DatabaseStorage implements IStorage {
       .onConflictDoUpdate({ target: dashboardWidgetPrefs.userId, set: { hiddenWidgets, widgetOrder, updatedAt: new Date() } })
       .returning();
     return row;
+  }
+
+  // ── Call Test Logs (Vol 2 — #16) ─────────────────────────────────────────────
+  async logTestCall(data: InsertCallTestLog): Promise<CallTestLog> {
+    const [row] = await db.insert(callTestLogs).values(data).returning();
+    return row;
+  }
+
+  async getTestCallLogs(userId: string, limit = 50): Promise<CallTestLog[]> {
+    return db.select().from(callTestLogs)
+      .where(eq(callTestLogs.userId, userId))
+      .orderBy(desc(callTestLogs.createdAt))
+      .limit(limit);
   }
 }
 

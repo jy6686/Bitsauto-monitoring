@@ -1283,9 +1283,35 @@ export default function DashboardPage() {
                   const calleeCountry = lookupCountry(call.callee);
                   return (
                     <tr key={call.id} className="hover:bg-muted/30 transition-colors group">
-                      <td className="px-6 py-4 font-mono text-xs">{call.caller}</td>
+                      <td className="px-6 py-4 font-mono text-xs">
+                        <span className="flex items-center gap-1.5 group/caller">
+                          {call.caller}
+                          {call.caller && call.callee && (
+                            <Link
+                              href={`/test-call?cli=${encodeURIComponent(call.caller)}&cld=${encodeURIComponent(call.callee)}`}
+                              data-testid={`link-testcall-caller-${call.id}`}
+                              title="Launch test call"
+                              className="text-primary/40 hover:text-primary transition-colors opacity-0 group-hover/caller:opacity-100"
+                            >
+                              <PhoneCall className="h-3 w-3" />
+                            </Link>
+                          )}
+                        </span>
+                      </td>
                       <td className="px-6 py-4">
+                        <span className="flex items-center gap-1.5 group/callee">
                         <span className="font-mono text-xs">{call.callee}</span>
+                        {call.caller && call.callee && (
+                          <Link
+                            href={`/test-call?cli=${encodeURIComponent(call.caller)}&cld=${encodeURIComponent(call.callee)}`}
+                            data-testid={`link-testcall-callee-${call.id}`}
+                            title="Launch test call"
+                            className="text-primary/40 hover:text-primary transition-colors opacity-0 group-hover/callee:opacity-100"
+                          >
+                            <PhoneCall className="h-3 w-3" />
+                          </Link>
+                        )}
+                        </span>
                         {calleeCountry && (
                           <p className="text-[10px] text-muted-foreground mt-0.5">
                             {calleeCountry.flag} {calleeCountry.name}

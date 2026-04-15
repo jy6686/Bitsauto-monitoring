@@ -511,6 +511,23 @@ export const dashboardWidgetPrefs = pgTable("dashboard_widget_prefs", {
 
 export type DashboardWidgetPrefs = typeof dashboardWidgetPrefs.$inferSelect;
 
+// ── Call Test Logs — stores test-call history ─────────────────────────────────
+export const callTestLogs = pgTable("call_test_logs", {
+  id:          serial("id").primaryKey(),
+  userId:      varchar("user_id").notNull(),
+  cli:         varchar("cli", { length: 64 }).notNull(),
+  cld:         varchar("cld", { length: 64 }).notNull(),
+  iAccount:    integer("i_account"),
+  callId:      varchar("call_id", { length: 128 }),
+  status:      varchar("status", { length: 16 }).notNull().default('pending'), // pending | success | error
+  message:     text("message"),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertCallTestLogSchema = createInsertSchema(callTestLogs).omit({ id: true, createdAt: true });
+export type InsertCallTestLog = z.infer<typeof insertCallTestLogSchema>;
+export type CallTestLog = typeof callTestLogs.$inferSelect;
+
 // API Request Types
 export type UpdateSettingsRequest = Partial<InsertSettings>;
 

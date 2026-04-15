@@ -1500,6 +1500,48 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // POST /api/sippy/make-call — originates a test call via Sippy makeCall XML-RPC (Vol 2 — #16)
+  // Body: { cli, cld, iAccount? }
+  app.post('/api/sippy/make-call', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      const { cli, cld, iAccount, billingCode } = req.body;
+      if (!cli || !cld) return res.status(400).json({ success: false, message: 'cli and cld are required.' });
+
+      const result = await sippy.makeCall(cli, cld, {
+        iAccount: iAccount ? Number(iAccount) : undefined,
+        billingCode,
+      });
+
+      await storage.logTestCall({
+        userId,
+        cli,
+        cld,
+        iAccount: iAccount ? Number(iAccount) : null,
+        callId: result.callId ?? null,
+        status: result.success ? 'success' : 'error',
+        message: result.message,
+      });
+
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  // GET /api/sippy/test-call-logs — recent test call history for the authenticated user
+  app.get('/api/sippy/test-call-logs', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user?.claims?.sub;
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const logs = await storage.getTestCallLogs(userId, limit);
+      res.json(logs);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // POST /api/sippy/customers/:iCustomer/disconnect — disconnect all calls for a customer (since 5.2)
   // Body (optional): { iWholesaler } — trusted mode
   app.post('/api/sippy/customers/:iCustomer/disconnect', async (req: any, res) => {

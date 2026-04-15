@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { lookupDialCode, preloadDialCodes } from "@/lib/dial-lookup";
 import { useQuery } from "@tanstack/react-query";
-import { useSearch } from "wouter";
+import { useSearch, Link } from "wouter";
 import * as XLSX from "xlsx";
 import {
   formatUTC, toUTCDateInput,
@@ -12,7 +12,7 @@ import {
 import {
   RefreshCw, Download, Phone, PhoneOff, PhoneMissed,
   ChevronLeft, ChevronRight, Filter, X, Clock,
-  DollarSign, Globe, Activity, FileSpreadsheet, Users, Building2,
+  DollarSign, Globe, Activity, FileSpreadsheet, Users, Building2, PhoneCall,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -571,8 +571,36 @@ export default function CDRsPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cli-${i}`}>{cdr.caller || '-'}</td>
-                    <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cld-${i}`}>{cdr.callee || '-'}</td>
+                    <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cli-${i}`}>
+                      <span className="flex items-center gap-1.5 group/cli">
+                        {cdr.caller || '-'}
+                        {cdr.caller && cdr.callee && (
+                          <Link
+                            href={`/test-call?cli=${encodeURIComponent(cdr.caller)}&cld=${encodeURIComponent(cdr.callee)}`}
+                            data-testid={`link-testcall-cli-${i}`}
+                            title="Launch test call"
+                            className="text-primary/40 hover:text-primary transition-colors opacity-0 group-hover/cli:opacity-100"
+                          >
+                            <PhoneCall className="h-3 w-3" />
+                          </Link>
+                        )}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cld-${i}`}>
+                      <span className="flex items-center gap-1.5 group/cld">
+                        {cdr.callee || '-'}
+                        {cdr.caller && cdr.callee && (
+                          <Link
+                            href={`/test-call?cli=${encodeURIComponent(cdr.caller)}&cld=${encodeURIComponent(cdr.callee)}`}
+                            data-testid={`link-testcall-cld-${i}`}
+                            title="Launch test call"
+                            className="text-primary/40 hover:text-primary transition-colors opacity-0 group-hover/cld:opacity-100"
+                          >
+                            <PhoneCall className="h-3 w-3" />
+                          </Link>
+                        )}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 text-center">
                       {(() => {
                         const m = cdr.callee ? lookupDialCode(cdr.callee) : null;

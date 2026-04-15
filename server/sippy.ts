@@ -1347,6 +1347,49 @@ export async function disconnectSippyCall(
   }
 }
 
+// ── makeCall() — originates a test/click-to-call via Sippy XML-RPC ───────────
+// CLI = caller ID (from number), CLD = called number (to number).
+// i_account: optional billing account ID. Returns { success, callId?, message }.
+export async function makeCall(
+  cli: string,
+  cld: string,
+  opts: { iAccount?: number; billingCode?: string } = {},
+  username: string = '',
+  password: string = '',
+  explicitPortalUrl?: string,
+): Promise<{ success: boolean; callId?: string; message: string }> {
+  const sess = activeSession;
+  const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : sess?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+
+  const u = username || sess?.adminUsername || '';
+  const p = password || sess?.adminPassword || '';
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number | boolean | null> = {
+    CLI: cli.trim(),
+    CLD: cld.trim(),
+  };
+  if (opts.iAccount)    params.i_account    = opts.iAccount;
+  if (opts.billingCode) params.billing_code = opts.billingCode;
+
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('makeCall', params), u, p);
+    const text = resp.body;
+    console.log(`[Sippy] makeCall(${cli}→${cld}) HTTP ${resp.statusCode}: ${text.slice(0, 300)}`);
+
+    if (resp.statusCode === 200 && !text.includes('<fault>')) {
+      const callId = extractTag(text, 'string') || extractTag(text, 'int') || extractTag(text, 'i4') || 'unknown';
+      return { success: true, callId, message: `Call initiated — ID: ${callId}` };
+    }
+    const fault = extractTag(text, 'faultString');
+    const cleaned = fault?.replace(/<[^>]+>/g, '').trim() || `HTTP ${resp.statusCode}`;
+    return { success: false, message: cleaned };
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
+}
+
 // ── disconnectAccount() — docs 107462 (post 1.7.1+) ─────────────────────────
 // Disconnects ALL active calls for a given i_account.
 // Returns { success, count, message }.
