@@ -9096,6 +9096,53 @@ export async function registerRoutes(
   }, 60000);
 
   // ── Rate Cards CRUD ───────────────────────────────────────────────────────────
+  // ── LCR Analyser ─────────────────────────────────────────────────────────────
+  // POST /api/lcr/analyse — find cheapest vendor route(s) for a given destination number
+  app.post('/api/lcr/analyse', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { number, clientRateCardId } = req.body;
+      if (!number || typeof number !== 'string') return res.status(400).json({ message: 'number is required' });
+      const digits = number.replace(/^\+/, '').replace(/\D/g, '');
+      if (digits.length < 3) return res.status(400).json({ message: 'number too short — enter at least a country code + area code' });
+
+      const { vendorResults, clientEntry } = await storage.lcrAnalyse(digits, clientRateCardId ? Number(clientRateCardId) : undefined);
+
+      const best  = vendorResults[0]?.entry.ratePerMin ?? null;
+      const worst = vendorResults[vendorResults.length - 1]?.entry.ratePerMin ?? null;
+
+      const ranked = vendorResults.map((r, idx) => ({
+        rank:          idx + 1,
+        rateCardId:    r.card.id,
+        carrierName:   r.card.vendorName,
+        rateCardName:  r.card.name,
+        currency:      r.card.currency ?? 'USD',
+        prefix:        r.entry.prefix,
+        country:       r.entry.country ?? '',
+        breakout:      r.entry.breakout ?? '',
+        ratePerMin:    r.entry.ratePerMin,
+        savingsVsBest: best !== null ? +(r.entry.ratePerMin - best).toFixed(6) : 0,
+        pctMoreThanBest: best && best > 0 ? +((r.entry.ratePerMin - best) / best * 100).toFixed(2) : 0,
+        margin:        clientEntry ? +(clientEntry.ratePerMin - r.entry.ratePerMin).toFixed(6) : null,
+      }));
+
+      res.json({
+        number:       digits,
+        routesFound:  ranked.length,
+        bestRate:     best,
+        worstRate:    worst,
+        maxSaving:    best !== null && worst !== null ? +(worst - best).toFixed(6) : null,
+        clientRate:   clientEntry ? {
+          prefix:    clientEntry.prefix,
+          country:   clientEntry.country,
+          ratePerMin: clientEntry.ratePerMin,
+        } : null,
+        routes: ranked,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get('/api/rate-cards', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (_req, res) => {
     const cards = await storage.getRateCards();
     res.json(cards);

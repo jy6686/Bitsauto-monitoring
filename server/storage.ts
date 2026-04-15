@@ -156,6 +156,10 @@ export interface IStorage {
   bulkInsertRateCardEntries(entries: InsertRateCardEntry[]): Promise<number>;
   updateRateCardEntryCount(rateCardId: number, count: number): Promise<void>;
   lookupRateForPrefix(rateCardId: number, callee: string): Promise<RateCardEntry | null>;
+  lcrAnalyse(number: string, clientRateCardId?: number): Promise<{
+    vendorResults: { card: RateCard; entry: RateCardEntry }[];
+    clientEntry: RateCardEntry | null;
+  }>;
 
   // MOS Hourly Snapshots
   getMosHourly(hoursBack?: number, vendor?: string): Promise<MosHourly[]>;
@@ -878,6 +882,28 @@ export class DatabaseStorage implements IStorage {
       if (row) return row;
     }
     return null;
+  }
+
+  async lcrAnalyse(number: string, clientRateCardId?: number): Promise<{
+    vendorResults: { card: RateCard; entry: RateCardEntry }[];
+    clientEntry: RateCardEntry | null;
+  }> {
+    const allCards = await this.getRateCards();
+    const vendorCards = allCards.filter(c => c.cardType === 'vendor');
+
+    const vendorResults: { card: RateCard; entry: RateCardEntry }[] = [];
+    for (const card of vendorCards) {
+      const entry = await this.lookupRateForPrefix(card.id, number);
+      if (entry) vendorResults.push({ card, entry });
+    }
+    vendorResults.sort((a, b) => a.entry.ratePerMin - b.entry.ratePerMin);
+
+    let clientEntry: RateCardEntry | null = null;
+    if (clientRateCardId) {
+      clientEntry = await this.lookupRateForPrefix(clientRateCardId, number);
+    }
+
+    return { vendorResults, clientEntry };
   }
 
   // ── MOS Hourly ────────────────────────────────────────────────────────────────

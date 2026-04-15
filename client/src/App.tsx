@@ -40,6 +40,7 @@ class GlobalErrorBoundary extends Component<{ children: ReactNode }, { error: Er
 import { ThemeProvider } from "@/hooks/use-theme";
 import ApiKeysPage from "@/pages/api-keys";
 import TestCallPage from "@/pages/test-call";
+import LcrAnalyserPage from "@/pages/lcr-analyser";
 import DashboardPage from "@/pages/dashboard";
 import CallsListPage from "@/pages/calls-list";
 import CallDetailPage from "@/pages/call-detail";
@@ -209,6 +210,9 @@ function Router() {
       </Route>
       <Route path="/test-call">
         {() => <ProtectedRoute component={TestCallPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/lcr-analyser">
+        {() => <ProtectedRoute component={LcrAnalyserPage} requiredRoles={['admin','management']} />}
       </Route>
 
       <Route component={NotFound} />
