@@ -83,22 +83,25 @@ export function LayoutShell({ children }: LayoutShellProps) {
     try { localStorage.setItem(SIDEBAR_KEY, String(collapsed)); } catch { /* ignore */ }
   }, [collapsed]);
 
-  const isCallsActive      = location.startsWith('/calls');
-  const isMonitoringActive = location.startsWith('/server-monitoring');
-  const isBitseyeActive    = location.startsWith('/bitseye');
-  const isCdrActive        = location.startsWith('/cdrs');
-  const isSettingsActive   = location.startsWith('/settings');
+  const isCallsActive        = location.startsWith('/calls');
+  const isMonitoringActive   = location.startsWith('/server-monitoring');
+  const isBitseyeActive      = location.startsWith('/bitseye');
+  const isCdrActive          = location.startsWith('/cdrs');
+  const isSettingsActive     = location.startsWith('/settings');
+  const isRateCardsActive    = location.startsWith('/rate-cards');
   const [callsExpanded,      setCallsExpanded]      = useState(isCallsActive);
   const [monitoringExpanded, setMonitoringExpanded] = useState(isMonitoringActive);
   const [bitseyeExpanded,    setBitseyeExpanded]    = useState(isBitseyeActive);
   const [cdrExpanded,        setCdrExpanded]        = useState(isCdrActive);
   const [settingsExpanded,   setSettingsExpanded]   = useState(isSettingsActive);
+  const [rateCardsExpanded,  setRateCardsExpanded]  = useState(isRateCardsActive);
 
   useEffect(() => { if (isCallsActive)      setCallsExpanded(true);      }, [isCallsActive]);
   useEffect(() => { if (isMonitoringActive) setMonitoringExpanded(true);  }, [isMonitoringActive]);
   useEffect(() => { if (isBitseyeActive)    setBitseyeExpanded(true);     }, [isBitseyeActive]);
   useEffect(() => { if (isCdrActive)        setCdrExpanded(true);         }, [isCdrActive]);
   useEffect(() => { if (isSettingsActive)   setSettingsExpanded(true);    }, [isSettingsActive]);
+  useEffect(() => { if (isRateCardsActive)  setRateCardsExpanded(true);   }, [isRateCardsActive]);
 
   const { data: kamList = [] } = useQuery<Kam[]>({
     queryKey: ['/api/kam'],
@@ -132,7 +135,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/reports",           label: "Reports",           icon: BarChart2,       roles: ['admin','management']          as Role[] },
     { href: "/cdrs",              label: "CDR Viewer",        icon: FileText,        roles: ['admin','management']          as Role[], hasSubmenu: 'cdr' as const },
     { href: "/fraud",             label: "Fraud / FAS",       icon: ShieldAlert,     roles: ['admin','management']          as Role[] },
-    { href: "/rate-cards",        label: "Rate Cards",        icon: CreditCard,      roles: ['admin','management']          as Role[] },
+    { href: "/rate-cards",        label: "Rate Cards",        icon: CreditCard,      roles: ['admin','management']          as Role[], hasSubmenu: 'ratecards' as const },
     { href: "/analytics",         label: "Revenue Analytics", icon: TrendingUp,      roles: ['admin','management']          as Role[] },
     { href: "/server-monitoring", label: "Server Monitoring", icon: Server,          roles: ['admin','management']          as Role[], hasSubmenu: 'monitoring' as const },
     { href: "/tools",             label: "Tools",             icon: Wrench,          roles: ['admin','management']          as Role[] },
@@ -448,6 +451,51 @@ export function LayoutShell({ children }: LayoutShellProps) {
               );
             }
 
+            /* ── Rate Cards submenu ── */
+            if (item.hasSubmenu === 'ratecards') {
+              const rcType = isRateCardsActive ? new URLSearchParams(search).get('type') : null;
+              if (collapsed) {
+                return (
+                  <Link key={item.href} href={item.href} title={item.label}
+                    className={navItemClass(isRateCardsActive)}>
+                    <item.icon className={navIconClass(isRateCardsActive)} />
+                  </Link>
+                );
+              }
+              return (
+                <div key={item.href}>
+                  <button
+                    onClick={() => setRateCardsExpanded(o => !o)}
+                    className={navItemClass(isRateCardsActive)}
+                  >
+                    <item.icon className={navIconClass(isRateCardsActive)} />
+                    <span className="flex-1 text-left">{item.label}</span>
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+                      rateCardsExpanded ? "rotate-180" : "",
+                      isRateCardsActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+                  </button>
+                  {rateCardsExpanded && (
+                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+                      {([
+                        { type: 'client', label: 'Client Rate Cards',  icon: Building2, iconColor: 'text-amber-400' },
+                        { type: 'vendor', label: 'Vendor Rate Cards',   icon: Wallet,    iconColor: 'text-cyan-400'  },
+                      ] as const).map(sub => {
+                        const subActive = isRateCardsActive && rcType === sub.type;
+                        return (
+                          <Link key={sub.type} href={`/rate-cards?type=${sub.type}`}
+                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
+                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
+                            <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
+                            {sub.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
             /* ── Settings submenu ── */
             if (item.hasSubmenu === 'settings') {
               const settingsSearch = isSettingsActive ? new URLSearchParams(search).get('section') : null;
@@ -613,8 +661,34 @@ export function LayoutShell({ children }: LayoutShellProps) {
               </div>
               {/* Sheet nav */}
               <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-                {navItems.filter(item => !item.hasSubmenu).map(item => {
+                {navItems.map(item => {
                   const isActive = item.href === '/' ? location === '/' : location.startsWith(item.href);
+
+                  if (item.hasSubmenu === 'ratecards') {
+                    return (
+                      <div key={item.href}>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 px-3 pt-3 pb-1">Rate Cards</p>
+                        {([
+                          { type: 'client', label: 'Client Rate Cards', icon: Building2, color: 'text-amber-400' },
+                          { type: 'vendor', label: 'Vendor Rate Cards',  icon: Wallet,    color: 'text-cyan-400'  },
+                        ] as const).map(sub => {
+                          const subActive = isRateCardsActive && new URLSearchParams(search).get('type') === sub.type;
+                          return (
+                            <Link key={sub.type} href={`/rate-cards?type=${sub.type}`}
+                              onClick={() => setMobileOpen(false)}
+                              className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
+                                subActive ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
+                              <sub.icon className="h-4 w-4 flex-shrink-0" />
+                              {sub.label}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    );
+                  }
+
+                  if (item.hasSubmenu) return null;
+
                   return (
                     <Link
                       key={item.href}

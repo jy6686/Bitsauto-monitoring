@@ -1,10 +1,12 @@
 
 import { useState, useRef, useEffect } from "react";
+import { useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   CreditCard, Upload, Trash2, RefreshCw, Plus, FileText,
   ChevronDown, ChevronRight, PenLine, Download, Send,
   CheckCircle, XCircle, AlertTriangle, Loader2, ShieldCheck,
+  Building2, Wallet,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +22,7 @@ type RateCard = {
   id: number;
   vendorName: string;
   name: string;
+  cardType: string;
   currency: string;
   effectiveDate: string | null;
   entryCount: number;
@@ -55,6 +58,11 @@ const CUSTOM_VENDOR = "__custom__";
 // ── Main Page ──────────────────────────────────────────────────────────────
 export default function RateCardsPage() {
   const { toast } = useToast();
+  const search = useSearch();
+  const typeParam = new URLSearchParams(search).get('type'); // 'client' | 'vendor' | null (all)
+  const activeType: 'client' | 'vendor' | null =
+    typeParam === 'client' ? 'client' : typeParam === 'vendor' ? 'vendor' : null;
+
   const [expandedCardId, setExpandedCardId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -158,8 +166,17 @@ export default function RateCardsPage() {
   const canCreate = resolvedVendorName.trim() && newName.trim() && !createMutation.isPending;
 
   function handleSubmitCreate() {
-    createMutation.mutate({ vendorName: resolvedVendorName.trim(), name: newName.trim(), currency: newCurrency || 'USD', effectiveDate: newDate || null });
+    createMutation.mutate({
+      vendorName: resolvedVendorName.trim(),
+      name: newName.trim(),
+      cardType: activeType ?? 'vendor',
+      currency: newCurrency || 'USD',
+      effectiveDate: newDate || null,
+    });
   }
+
+  // Filter cards by the active type from the URL (or show all if no type selected)
+  const visibleCards = activeType ? cards.filter(c => (c.cardType ?? 'vendor') === activeType) : cards;
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -196,18 +213,23 @@ export default function RateCardsPage() {
   const vendorOptions = clients.map(c => c.name);
   const pushProgress = jobData ? Math.round(((jobData.pushed + jobData.failed) / jobData.total) * 100) : 0;
 
+  const typeConfig = {
+    client: { label: 'Client Rate Cards', icon: Building2, iconColor: 'text-amber-400', desc: 'Rates you charge clients — upload tariff sheets to compare and push to Sippy client tariffs' },
+    vendor: { label: 'Vendor Rate Cards', icon: Wallet,    iconColor: 'text-cyan-400',  desc: 'Buy-rates from your vendors — upload carrier rate sheets to compare and push to Sippy vendor tariffs' },
+    all:    { label: 'Rate Cards',        icon: CreditCard, iconColor: 'text-emerald-400', desc: 'Manage client and vendor rate sheets — upload CSV or Excel to import prefix rates' },
+  };
+  const tc = activeType ? typeConfig[activeType] : typeConfig.all;
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <CreditCard className="h-6 w-6 text-emerald-400" />
-            Carrier Rate Cards
+            <tc.icon className={`h-6 w-6 ${tc.iconColor}`} />
+            {tc.label}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage buy-rate sheets from your vendors — upload CSV or Excel to import prefix rates
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">{tc.desc}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-ratecards" className="gap-1.5">
@@ -220,7 +242,14 @@ export default function RateCardsPage() {
               </Button>
             </DialogTrigger>
             <DialogContent>
-              <DialogHeader><DialogTitle>Create Rate Card</DialogTitle></DialogHeader>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  {activeType === 'client'
+                    ? <><Building2 className="h-4 w-4 text-amber-400" />Create Client Rate Card</>
+                    : <><Wallet className="h-4 w-4 text-cyan-400" />Create Vendor Rate Card</>
+                  }
+                </DialogTitle>
+              </DialogHeader>
               <div className="space-y-4 pt-2">
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1.5 block">Vendor / Client</Label>
@@ -293,15 +322,15 @@ export default function RateCardsPage() {
       {/* Rate Cards List */}
       {isLoading ? (
         <div className="text-center text-muted-foreground py-12">Loading rate cards…</div>
-      ) : cards.length === 0 ? (
+      ) : visibleCards.length === 0 ? (
         <div className="text-center text-muted-foreground py-12 bg-card border border-border rounded-xl">
           <CreditCard className="h-10 w-10 mx-auto mb-3 opacity-30" />
-          <div className="font-medium mb-1">No rate cards yet</div>
+          <div className="font-medium mb-1">No {activeType ?? ''} rate cards yet</div>
           <div className="text-sm">Create a rate card and upload a CSV or Excel file to get started</div>
         </div>
       ) : (
         <div className="space-y-3">
-          {cards.map(card => {
+          {visibleCards.map(card => {
             const isExpanded = expandedCardId === card.id;
             return (
               <div key={card.id} className="bg-card border border-border rounded-xl overflow-hidden">
@@ -314,6 +343,10 @@ export default function RateCardsPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm" data-testid={`card-name-${card.id}`}>{card.name}</span>
                       <Badge className="bg-emerald-500/20 text-emerald-400 border-0 text-xs">{card.vendorName}</Badge>
+                      {(card.cardType ?? 'vendor') === 'client'
+                        ? <Badge className="bg-amber-500/20 text-amber-400 border-0 text-xs flex items-center gap-1"><Building2 className="h-2.5 w-2.5" />Client</Badge>
+                        : <Badge className="bg-cyan-500/20 text-cyan-400 border-0 text-xs flex items-center gap-1"><Wallet className="h-2.5 w-2.5" />Vendor</Badge>
+                      }
                       <Badge className="bg-muted text-muted-foreground border-0 text-xs">{card.currency}</Badge>
                       {card.effectiveDate && (
                         <Badge className="bg-blue-500/20 text-blue-400 border-0 text-xs">

@@ -435,6 +435,7 @@ export const rateCards = pgTable("rate_cards", {
   id:            serial("id").primaryKey(),
   vendorName:    varchar("vendor_name",  { length: 128 }).notNull(),
   name:          varchar("name",         { length: 128 }).notNull(),
+  cardType:      varchar("card_type",    { length: 10  }).default('vendor').notNull(), // 'client' | 'vendor'
   currency:      varchar("currency",     { length: 8   }).default('USD'),
   effectiveDate: timestamp("effective_date"),
   entryCount:    integer("entry_count").default(0),
