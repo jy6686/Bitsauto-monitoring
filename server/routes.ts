@@ -8993,13 +8993,14 @@ export async function registerRoutes(
   });
 
   app.post('/api/rate-cards', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
-    const { vendorName, name, currency, effectiveDate } = req.body;
+    const { vendorName, name, currency, effectiveDate, cardType } = req.body;
     if (!vendorName || !name) return res.status(400).json({ message: 'vendorName and name required' });
     const card = await storage.createRateCard({
       vendorName: vendorName.trim(),
       name: name.trim(),
       currency: currency || 'USD',
       effectiveDate: effectiveDate ? new Date(effectiveDate) : null,
+      cardType: cardType === 'client' ? 'client' : 'vendor',
     });
     res.json(card);
   });

@@ -162,7 +162,9 @@ export default function RateCardsPage() {
   }, [jobId]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-  const resolvedVendorName = selectedVendor === CUSTOM_VENDOR ? customVendor : selectedVendor;
+  const resolvedVendorName = vendorOptions.length === 0
+    ? customVendor
+    : selectedVendor === CUSTOM_VENDOR ? customVendor : selectedVendor;
   const canCreate = resolvedVendorName.trim() && newName.trim() && !createMutation.isPending;
 
   function handleSubmitCreate() {
