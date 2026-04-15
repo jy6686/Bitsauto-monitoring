@@ -863,4 +863,6 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
   return buffer;
 }
 
-export const USER_MANUAL_PATH = join(process.cwd(), 'attached_assets', 'VoIP_Watcher_User_Manual.docx');
+// Use /tmp so this is writable in both dev and production deployments.
+// The file is re-generated on every server startup if missing.
+export const USER_MANUAL_PATH = '/tmp/VoIP_Watcher_User_Manual.docx';

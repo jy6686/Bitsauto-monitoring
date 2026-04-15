@@ -272,4 +272,6 @@ export async function generateStatusReport(outputPath?: string): Promise<Buffer>
   return buffer;
 }
 
-export const STATUS_REPORT_PATH = join(process.cwd(), 'attached_assets', 'VoIP_Platform_Volume1_Status.docx');
+// Use /tmp so this is writable in both dev and production deployments.
+// The file is re-generated on every server startup if missing.
+export const STATUS_REPORT_PATH = '/tmp/VoIP_Platform_Volume1_Status.docx';
