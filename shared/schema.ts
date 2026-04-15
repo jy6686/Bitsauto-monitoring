@@ -505,6 +505,7 @@ export type ApiKey = typeof apiKeys.$inferSelect;
 export const dashboardWidgetPrefs = pgTable("dashboard_widget_prefs", {
   userId:        varchar("user_id").primaryKey(),
   hiddenWidgets: text("hidden_widgets").array().notNull().default([]),
+  widgetOrder:   text("widget_order").array().notNull().default([]),
   updatedAt:     timestamp("updated_at").defaultNow(),
 });
 

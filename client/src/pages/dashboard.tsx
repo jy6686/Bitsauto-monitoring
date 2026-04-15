@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useDashboardStats } from "@/hooks/use-dashboard";
 import { useCalls } from "@/hooks/use-calls";
 import { useSettings } from "@/hooks/use-settings";
@@ -6,6 +6,23 @@ import { useAuth } from "@/hooks/use-auth";
 import { StatCard } from "@/components/stat-card";
 import { MosBadge } from "@/components/mos-badge";
 import { Link } from "wouter";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, rectSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import {
+  SortableWidgetShell,
+  KpiWidgetRenderer,
+  KPI_WIDGET_DEFS,
+  DEFAULT_KPI_ORDER,
+  type KpiWidgetId,
+} from "@/components/kpi-widgets";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { MONITORING_ITEMS } from "@shared/schema";
 import { 
@@ -170,22 +187,42 @@ export default function DashboardPage() {
 
   // Dashboard widget preferences
   const [customizeOpen, setCustomizeOpen] = useState(false);
-  const { data: widgetPrefs } = useQuery<{ hiddenWidgets: string[] }>({
+  const { data: widgetPrefs } = useQuery<{ hiddenWidgets: string[]; widgetOrder: string[] }>({
     queryKey: ['/api/user/dashboard-prefs'],
   });
   const hiddenWidgets = new Set(widgetPrefs?.hiddenWidgets ?? []);
   const showWidget = (id: string) => !hiddenWidgets.has(id);
 
   const savePrefsMutation = useMutation({
-    mutationFn: (hidden: string[]) => apiRequest('PUT', '/api/user/dashboard-prefs', { hiddenWidgets: hidden }),
+    mutationFn: ({ hidden, order }: { hidden: string[]; order: string[] }) =>
+      apiRequest('PUT', '/api/user/dashboard-prefs', { hiddenWidgets: hidden, widgetOrder: order }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/user/dashboard-prefs'] }),
   });
 
+  const currentOrder: KpiWidgetId[] = (widgetPrefs?.widgetOrder?.length
+    ? widgetPrefs.widgetOrder
+    : DEFAULT_KPI_ORDER) as KpiWidgetId[];
+
   const toggleWidget = (id: string) => {
-    const current = widgetPrefs?.hiddenWidgets ?? [];
-    const updated = current.includes(id) ? current.filter(w => w !== id) : [...current, id];
-    savePrefsMutation.mutate(updated);
+    const hidden = widgetPrefs?.hiddenWidgets ?? [];
+    const updated = hidden.includes(id) ? hidden.filter(w => w !== id) : [...hidden, id];
+    savePrefsMutation.mutate({ hidden: updated, order: currentOrder });
   };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+  );
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = currentOrder.indexOf(active.id as KpiWidgetId);
+    const newIdx = currentOrder.indexOf(over.id as KpiWidgetId);
+    if (oldIdx === -1 || newIdx === -1) return;
+    const newOrder = arrayMove([...currentOrder], oldIdx, newIdx);
+    savePrefsMutation.mutate({ hidden: widgetPrefs?.hiddenWidgets ?? [], order: newOrder });
+  }, [currentOrder, widgetPrefs, savePrefsMutation]);
 
   const DASHBOARD_WIDGETS = [
     { id: 'live_metrics',       label: 'Live Metrics Cards',      description: 'Active Calls, MOS, ASR, ACD, Traffic Score, CPS' },
@@ -738,40 +775,80 @@ export default function DashboardPage() {
     <div className="space-y-6">
       {/* ── Widget Customize Sheet ──────────────────────────────────────────── */}
       <Sheet open={customizeOpen} onOpenChange={setCustomizeOpen}>
-        <SheetContent side="right" className="w-80 sm:w-96">
-          <SheetHeader className="mb-6">
+        <SheetContent side="right" className="w-80 sm:w-[420px] overflow-y-auto">
+          <SheetHeader className="mb-5">
             <SheetTitle className="flex items-center gap-2">
               <SlidersHorizontal className="h-4 w-4 text-primary" />
               Customize Dashboard
             </SheetTitle>
             <SheetDescription>
-              Toggle sections on or off. Your layout is saved automatically.
+              Toggle KPI widgets and sections. Drag cards on the dashboard to reorder.
             </SheetDescription>
           </SheetHeader>
-          <div className="space-y-3">
-            {DASHBOARD_WIDGETS.map(widget => (
-              <div key={widget.id} className="flex items-start justify-between gap-4 p-3 rounded-lg bg-muted/30 border border-border/50">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium leading-tight">{widget.label}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{widget.description}</p>
-                </div>
-                <Switch
-                  checked={showWidget(widget.id)}
-                  onCheckedChange={() => toggleWidget(widget.id)}
-                  disabled={savePrefsMutation.isPending}
-                  data-testid={`switch-widget-${widget.id}`}
-                />
-              </div>
-            ))}
+
+          {/* ── KPI Widget Library ── */}
+          <div className="mb-6">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">KPI Widgets</p>
+            <div className="space-y-2">
+              {KPI_WIDGET_DEFS.map(w => {
+                const enabled = showWidget(w.id);
+                return (
+                  <div
+                    key={w.id}
+                    className={cn(
+                      "flex items-center gap-3 p-3 rounded-lg border transition-all",
+                      enabled ? "bg-muted/30 border-border/50" : "bg-muted/10 border-border/20 opacity-60"
+                    )}
+                    data-testid={`widget-library-card-${w.id}`}
+                  >
+                    <div className={cn("p-1.5 rounded-lg", enabled ? "bg-primary/10" : "bg-muted/30")}>
+                      <w.icon className={cn("h-3.5 w-3.5", enabled ? "text-primary" : "text-muted-foreground/40")} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium leading-tight">{w.label}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{w.description}</p>
+                    </div>
+                    <Switch
+                      checked={enabled}
+                      onCheckedChange={() => toggleWidget(w.id)}
+                      disabled={savePrefsMutation.isPending}
+                      data-testid={`switch-widget-${w.id}`}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          {hiddenWidgets.size > 0 && (
+
+          {/* ── Dashboard Sections ── */}
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">Dashboard Sections</p>
+            <div className="space-y-2">
+              {DASHBOARD_WIDGETS.map(widget => (
+                <div key={widget.id} className="flex items-start justify-between gap-4 p-3 rounded-lg bg-muted/30 border border-border/50">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium leading-tight">{widget.label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{widget.description}</p>
+                  </div>
+                  <Switch
+                    checked={showWidget(widget.id)}
+                    onCheckedChange={() => toggleWidget(widget.id)}
+                    disabled={savePrefsMutation.isPending}
+                    data-testid={`switch-widget-${widget.id}`}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {(hiddenWidgets.size > 0 || currentOrder.join(',') !== DEFAULT_KPI_ORDER.join(',')) && (
             <button
-              onClick={() => savePrefsMutation.mutate([])}
+              onClick={() => savePrefsMutation.mutate({ hidden: [], order: [...DEFAULT_KPI_ORDER] })}
               disabled={savePrefsMutation.isPending}
               className="mt-6 w-full text-xs text-muted-foreground hover:text-foreground py-2 rounded-lg border border-border/50 hover:bg-muted/30 transition-colors"
               data-testid="button-reset-widgets"
             >
-              Reset to defaults (show all)
+              Reset to defaults (show all · default order)
             </button>
           )}
         </SheetContent>
@@ -807,7 +884,7 @@ export default function DashboardPage() {
               Customize
               {hiddenWidgets.size > 0 && (
                 <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-bold leading-none">
-                  {hiddenWidgets.size}
+                  {hiddenWidgets.size} hidden
                 </span>
               )}
             </button>
@@ -861,6 +938,25 @@ export default function DashboardPage() {
           </Link>
         </div>
       )}
+
+      {/* ── Draggable KPI Widget Grid ────────────────────────────────────────── */}
+      {(() => {
+        const visibleKpiWidgets = currentOrder.filter(id => !hiddenWidgets.has(id));
+        if (visibleKpiWidgets.length === 0) return null;
+        return (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={currentOrder} strategy={rectSortingStrategy}>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" data-testid="kpi-widget-grid">
+                {visibleKpiWidgets.map(id => (
+                  <SortableWidgetShell key={id} id={id}>
+                    <KpiWidgetRenderer id={id} />
+                  </SortableWidgetShell>
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        );
+      })()}
 
       {showWidget('live_metrics') && (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

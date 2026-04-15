@@ -9362,19 +9362,30 @@ export async function registerRoutes(
   app.get('/api/user/dashboard-prefs', async (req: any, res: any) => {
     if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
     const prefs = await storage.getDashboardWidgetPrefs(req.user.id);
-    res.json({ hiddenWidgets: prefs?.hiddenWidgets ?? [] });
+    res.json({ hiddenWidgets: prefs?.hiddenWidgets ?? [], widgetOrder: prefs?.widgetOrder ?? [] });
   });
 
   app.put('/api/user/dashboard-prefs', async (req: any, res: any) => {
     try {
       if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-      const { hiddenWidgets } = req.body;
+      const { hiddenWidgets, widgetOrder } = req.body;
       if (!Array.isArray(hiddenWidgets)) return res.status(400).json({ message: 'hiddenWidgets must be an array' });
-      const prefs = await storage.setDashboardWidgetPrefs(req.user.id, hiddenWidgets);
-      res.json({ hiddenWidgets: prefs.hiddenWidgets });
+      const prefs = await storage.setDashboardWidgetPrefs(req.user.id, hiddenWidgets, Array.isArray(widgetOrder) ? widgetOrder : []);
+      res.json({ hiddenWidgets: prefs.hiddenWidgets, widgetOrder: prefs.widgetOrder });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
+  });
+
+  // GET /api/vendors/current-balances — latest vendor balance snapshot (internal)
+  app.get('/api/vendors/current-balances', async (req: any, res: any) => {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    const latest = vendorBalanceHistory.length > 0 ? vendorBalanceHistory[vendorBalanceHistory.length - 1] : null;
+    res.json({
+      vendors: latest?.vendors ?? [],
+      ts: latest ? new Date(latest.timestamp).toISOString() : null,
+      snapshotCount: vendorBalanceHistory.length,
+    });
   });
 
   // ── External API (Tier 5 — #24) — authenticated via Bearer token ──────────

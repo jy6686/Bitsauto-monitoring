@@ -169,7 +169,7 @@ export interface IStorage {
 
   // Dashboard Widget Prefs (Tier 5 — #20)
   getDashboardWidgetPrefs(userId: string): Promise<DashboardWidgetPrefs | null>;
-  setDashboardWidgetPrefs(userId: string, hiddenWidgets: string[]): Promise<DashboardWidgetPrefs>;
+  setDashboardWidgetPrefs(userId: string, hiddenWidgets: string[], widgetOrder?: string[]): Promise<DashboardWidgetPrefs>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -924,10 +924,10 @@ export class DatabaseStorage implements IStorage {
     return row ?? null;
   }
 
-  async setDashboardWidgetPrefs(userId: string, hiddenWidgets: string[]): Promise<DashboardWidgetPrefs> {
+  async setDashboardWidgetPrefs(userId: string, hiddenWidgets: string[], widgetOrder: string[] = []): Promise<DashboardWidgetPrefs> {
     const [row] = await db.insert(dashboardWidgetPrefs)
-      .values({ userId, hiddenWidgets })
-      .onConflictDoUpdate({ target: dashboardWidgetPrefs.userId, set: { hiddenWidgets, updatedAt: new Date() } })
+      .values({ userId, hiddenWidgets, widgetOrder })
+      .onConflictDoUpdate({ target: dashboardWidgetPrefs.userId, set: { hiddenWidgets, widgetOrder, updatedAt: new Date() } })
       .returning();
     return row;
   }
