@@ -1389,24 +1389,46 @@ export async function makeCall(
   if (opts.iAccount)    params.i_account    = opts.iAccount;
   if (opts.billingCode) params.billing_code = opts.billingCode;
 
-  try {
-    const resp = await sippyPost(apiUrl, xmlRpcCall('makeCall', params), u, p);
-    const text = resp.body;
-    console.log(`[Sippy] makeCall(${cli}→${cld}) HTTP ${resp.statusCode}: ${text.slice(0, 300)}`);
+  // Try method names in order of preference:
+  // 1. call_control.makeCall  — namespaced, preferred in Sippy 4.x+
+  // 2. makeCall               — legacy bare name, older Sippy builds
+  const methodsToTry = ['call_control.makeCall', 'makeCall'];
 
-    if (resp.statusCode === 200 && !text.includes('<fault>')) {
-      const callId = extractTag(text, 'string') || extractTag(text, 'int') || extractTag(text, 'i4') || 'unknown';
-      return { success: true, callId, message: `Call initiated — ID: ${callId}` };
+  for (const method of methodsToTry) {
+    try {
+      const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), u, p);
+      const text = resp.body;
+      console.log(`[Sippy] ${method}(${cli}→${cld}) HTTP ${resp.statusCode}: ${text.slice(0, 400)}`);
+
+      if (resp.statusCode === 401) {
+        return { success: false, message: 'Authentication failed (HTTP 401) — check apiAdminUsername/apiAdminPassword in Settings.' };
+      }
+
+      if (resp.statusCode === 200 && !text.includes('<fault>')) {
+        const callId = extractTag(text, 'string') || extractTag(text, 'int') || extractTag(text, 'i4') || 'unknown';
+        return { success: true, callId, message: `Call initiated via ${method} — ID: ${callId}` };
+      }
+
+      const fault = extractFaultString(text);
+      const faultMsg = fault?.replace(/<[^>]+>/g, '').trim() || '';
+
+      // If method not found, try the next one in the list
+      if (faultMsg.toLowerCase().includes('not found') || faultMsg.toLowerCase().includes('no such method') || faultMsg.toLowerCase().includes('unknown method')) {
+        console.log(`[Sippy] ${method} not available, trying next…`);
+        continue;
+      }
+
+      // Any other fault (routing, credit, etc.) — return immediately, no point retrying
+      return { success: false, message: faultMsg || `HTTP ${resp.statusCode}` };
+    } catch (err: any) {
+      return { success: false, message: err.message };
     }
-    if (resp.statusCode === 401) {
-      return { success: false, message: 'Authentication failed (HTTP 401) — the API credentials used do not have permission to originate calls via XML-RPC. Check that apiAdminUsername/apiAdminPassword are set correctly in Settings.' };
-    }
-    const fault = extractFaultString(text);
-    const cleaned = fault?.replace(/<[^>]+>/g, '').trim() || `HTTP ${resp.statusCode}`;
-    return { success: false, message: cleaned };
-  } catch (err: any) {
-    return { success: false, message: err.message };
   }
+
+  return {
+    success: false,
+    message: 'Call origination is not available on this Sippy instance. Neither "call_control.makeCall" nor "makeCall" XML-RPC methods are enabled. Ask your Sippy administrator to enable call origination API access for the API user.',
+  };
 }
 
 // ── disconnectAccount() — docs 107462 (post 1.7.1+) ─────────────────────────

@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Phone, PhoneCall, PhoneOff, Clock, CheckCircle2, XCircle,
   Loader2, ArrowRight, History, Trash2, RefreshCw, ChevronDown,
-  Info, Zap,
+  Info, Zap, AlertTriangle, ExternalLink, Settings,
 } from "lucide-react";
 import {
   Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
@@ -284,6 +284,37 @@ export default function TestCallPage() {
                       </code>
                     </div>
                   )}
+                  {/* Contextual help when makeCall method is not enabled on the switch */}
+                  {!callResult.success && (
+                    callResult.message?.toLowerCase().includes('not found') ||
+                    callResult.message?.toLowerCase().includes('not available') ||
+                    callResult.message?.toLowerCase().includes('not enabled')
+                  ) && (
+                    <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+                      <p className="text-xs font-semibold text-amber-400 flex items-center gap-2">
+                        <AlertTriangle className="h-3.5 w-3.5" /> Call origination is not enabled on this Sippy instance
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        The <code className="bg-background px-1 rounded font-mono">makeCall</code> XML-RPC method must be enabled in your Sippy admin panel before this feature will work. Ask your Sippy administrator to:
+                      </p>
+                      <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                        <li>Log in to the Sippy admin portal</li>
+                        <li>Go to <strong className="text-foreground/70">System → XML-RPC API Settings</strong></li>
+                        <li>Enable <code className="bg-background px-1 rounded font-mono">makeCall</code> for the API user account (RTST1)</li>
+                        <li>Alternatively, add <code className="bg-background px-1 rounded font-mono">call_control.makeCall</code> permission</li>
+                      </ol>
+                      <p className="text-xs text-muted-foreground">
+                        In the meantime, use the <strong className="text-foreground/70">Call Flow Simulator</strong> to verify your routing logic without actually placing a call.
+                      </p>
+                      <a
+                        href="/call-flow-simulator"
+                        className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
+                        data-testid="link-call-flow-simulator"
+                      >
+                        Open Call Flow Simulator <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -306,7 +337,7 @@ export default function TestCallPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5">3</span>
-                  Click Launch. The request hits Sippy's <code className="bg-background px-1 rounded">makeCall</code> XML-RPC endpoint.
+                  Click Launch. The platform tries <code className="bg-background px-1 rounded">call_control.makeCall</code> then <code className="bg-background px-1 rounded">makeCall</code> on the XML-RPC API.
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5">4</span>
@@ -315,10 +346,13 @@ export default function TestCallPage() {
               </ul>
             </div>
 
-            <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
+            <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4 space-y-2">
               <p className="text-xs text-amber-400/80 leading-relaxed">
                 <strong className="text-amber-400">Note:</strong> This sends a real call origination request to the Sippy switch.
                 Use test numbers or internal extensions to avoid unexpected charges.
+              </p>
+              <p className="text-xs text-amber-400/60 leading-relaxed">
+                <strong className="text-amber-400/80">Requirement:</strong> The <code className="bg-background/50 px-1 rounded font-mono">makeCall</code> XML-RPC method must be enabled by a Sippy administrator for the API user. If you see "method not found", ask your Sippy admin to enable call origination API access.
               </p>
             </div>
           </div>
