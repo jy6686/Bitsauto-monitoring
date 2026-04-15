@@ -1650,10 +1650,13 @@ export async function registerRoutes(
       const { cli, cld, iAccount, billingCode } = req.body;
       if (!cli || !cld) return res.status(400).json({ success: false, message: 'cli and cld are required.' });
 
-      const result = await sippy.makeCall(cli, cld, {
-        iAccount: iAccount ? Number(iAccount) : undefined,
-        billingCode,
-      });
+      const settings = await storage.getSettings();
+      const result = await withSippyCreds(settings, (u, p) =>
+        sippy.makeCall(cli, cld, {
+          iAccount: iAccount ? Number(iAccount) : undefined,
+          billingCode,
+        }, u, p),
+      );
 
       await storage.logTestCall({
         userId,

@@ -1382,6 +1382,9 @@ export async function makeCall(
       const callId = extractTag(text, 'string') || extractTag(text, 'int') || extractTag(text, 'i4') || 'unknown';
       return { success: true, callId, message: `Call initiated — ID: ${callId}` };
     }
+    if (resp.statusCode === 401) {
+      return { success: false, message: 'Authentication failed (HTTP 401) — the API credentials used do not have permission to originate calls via XML-RPC. Check that apiAdminUsername/apiAdminPassword are set correctly in Settings.' };
+    }
     const fault = extractTag(text, 'faultString');
     const cleaned = fault?.replace(/<[^>]+>/g, '').trim() || `HTTP ${resp.statusCode}`;
     return { success: false, message: cleaned };
