@@ -6,7 +6,7 @@ import {
   CreditCard, Upload, Trash2, RefreshCw, Plus, FileText,
   ChevronDown, ChevronRight, PenLine, Download, Send,
   CheckCircle, XCircle, AlertTriangle, Loader2, ShieldCheck,
-  Building2, Wallet, Database, MapPin,
+  Building2, Wallet, Database, MapPin, ScanSearch,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
