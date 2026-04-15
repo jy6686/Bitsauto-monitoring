@@ -9375,6 +9375,84 @@ export async function registerRoutes(
     }
   });
 
+  // ── Vendor SLA Scorecard ─────────────────────────────────────────────────────
+  // GET /api/vendor-sla/scorecard?hours=24
+  // Groups CDR cache by vendor, computes ASR/ACD/PDD/MOS/cost metrics and
+  // grades each vendor A–F against SLA thresholds.
+  app.get('/api/vendor-sla/scorecard', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const hours = Math.min(72, Math.max(1, Number(req.query.hours) || 24));
+      const cutoff = Date.now() - hours * 3600 * 1000;
+
+      // Filter CDR cache to time window
+      const cdrs = [...cdrCache.values()].filter(c => {
+        const ts = c.startTime
+          ? new Date(c.startTime).getTime()
+          : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+        return ts >= cutoff;
+      });
+
+      // Group by vendor
+      const groups = new Map<string, typeof cdrs>();
+      for (const c of cdrs) {
+        let vendorName = c.vendor || '';
+        if (!vendorName && c.iConnection) vendorName = connectionVendorCache.get(c.iConnection) || '';
+        if (!vendorName) continue;
+        if (!groups.has(vendorName)) groups.set(vendorName, []);
+        groups.get(vendorName)!.push(c);
+      }
+
+      // SLA grading helpers
+      const gradeASR = (v: number) => v >= 65 ? 'A' : v >= 50 ? 'B' : v >= 35 ? 'C' : v >= 20 ? 'D' : 'F';
+      const gradeACD = (v: number) => v >= 180 ? 'A' : v >= 60 ? 'B' : v >= 30 ? 'C' : v >= 10 ? 'D' : 'F';
+      const gradePDD = (v: number) => v <= 1 ? 'A' : v <= 2 ? 'B' : v <= 4 ? 'C' : v <= 6 ? 'D' : 'F';
+      const gradeMOS = (v: number) => v >= 4.0 ? 'A' : v >= 3.5 ? 'B' : v >= 3.0 ? 'C' : v >= 2.5 ? 'D' : 'F';
+      const gp = (g: string) => g === 'A' ? 4 : g === 'B' ? 3 : g === 'C' ? 2 : g === 'D' ? 1 : 0;
+      const pg = (p: number) => p >= 3.5 ? 'A' : p >= 2.5 ? 'B' : p >= 1.5 ? 'C' : p >= 0.5 ? 'D' : 'F';
+      const estimateMOS = (pddSec: number) => Math.max(1.0, Math.min(4.5, 4.5 - pddSec * 0.5));
+
+      const rows = [];
+      for (const [vendor, calls] of groups) {
+        const totalCalls   = calls.length;
+        const answered     = calls.filter(c => String(c.result) === '0' && (Number(c.duration) || 0) > 0);
+        const asr          = parseFloat((answered.length / totalCalls * 100).toFixed(2));
+        const totalDurSec  = answered.reduce((s, c) => s + (Number(c.duration) || 0), 0);
+        const acdSec       = answered.length > 0 ? parseFloat((totalDurSec / answered.length).toFixed(1)) : 0;
+        const pddArr       = answered.map(c => Number(c.pdd1xx ?? c.pdd) || 0).filter(v => v > 0);
+        const avgPddSec    = pddArr.length > 0 ? parseFloat((pddArr.reduce((a, b) => a + b, 0) / pddArr.length).toFixed(3)) : 0;
+        const mos          = avgPddSec > 0 ? parseFloat(estimateMOS(avgPddSec).toFixed(2)) : null;
+        const totalMinutes = parseFloat((totalDurSec / 60).toFixed(2));
+        const totalCost    = parseFloat(calls.reduce((s, c) => s + (Number(c.cost) || 0), 0).toFixed(4));
+        const costPerMin   = totalMinutes > 0 ? parseFloat((totalCost / totalMinutes).toFixed(6)) : 0;
+
+        const asrGrade     = gradeASR(asr);
+        const acdGrade     = acdSec > 0 ? gradeACD(acdSec) : 'N/A';
+        const pddGrade     = avgPddSec > 0 ? gradePDD(avgPddSec) : 'N/A';
+        const mosGrade     = mos !== null ? gradeMOS(mos) : 'N/A';
+
+        // Weighted overall: ASR×2 + ACD + PDD + MOS (ASR is most critical)
+        const gradedMetrics = [asrGrade, acdGrade, pddGrade, mosGrade].filter(g => g !== 'N/A');
+        const points = gradedMetrics.length > 0
+          ? (gp(asrGrade) * 2 + (acdGrade !== 'N/A' ? gp(acdGrade) : 2) + (pddGrade !== 'N/A' ? gp(pddGrade) : 2) + (mosGrade !== 'N/A' ? gp(mosGrade) : 2)) / 5
+          : 0;
+        const overallGrade = pg(points);
+
+        // Top 5 countries by call count
+        const ctyMap = new Map<string, number>();
+        for (const c of calls) { const k = c.country || 'Unknown'; ctyMap.set(k, (ctyMap.get(k) || 0) + 1); }
+        const topCountries = [...ctyMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+          .map(([country, count]) => ({ country, count }));
+
+        rows.push({ vendor, totalCalls, answeredCalls: answered.length, asr, acdSec, avgPddSec, mos, totalMinutes, totalCost, costPerMin, asrGrade, acdGrade, pddGrade, mosGrade, overallGrade, topCountries });
+      }
+
+      rows.sort((a, b) => b.totalCalls - a.totalCalls);
+      res.json({ rows, total: rows.length, hours, cdrCacheSize: cdrCache.size, updatedAt: cdrCacheUpdatedAt });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get('/api/rate-cards', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (_req, res) => {
     const cards = await storage.getRateCards();
     res.json(cards);
