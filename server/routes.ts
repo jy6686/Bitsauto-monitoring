@@ -7809,6 +7809,14 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/download/status-report — Volume 1 Implementation Status Report
+  app.get('/api/download/status-report', (_req: any, res: any) => {
+    const filePath = _pathJoin(process.cwd(), 'attached_assets', 'VoIP_Platform_Volume1_Status.docx');
+    res.download(filePath, 'VoIP_Platform_Volume1_Status.docx', (err: any) => {
+      if (err) res.status(404).json({ error: 'File not found' });
+    });
+  });
+
   // GET /api/bitseye/per-entity — per-entity CDR time-series for BitsEye page
   app.get('/api/bitseye/per-entity', async (req: any, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');

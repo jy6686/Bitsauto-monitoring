@@ -9,7 +9,7 @@ import {
   Loader2, Save, RefreshCw, Eye, EyeOff, Globe, CheckCircle2,
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
   Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp, Users, UserPlus, X, AlertCircle,
-  Radio, Activity, Mail, Bell, Send, MailCheck, MailX, UserCheck,
+  Radio, Activity, Mail, Bell, Send, MailCheck, MailX, UserCheck, Download, FileText,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -1990,6 +1990,38 @@ export default function SettingsPage() {
 
       {/* Additional Switches */}
       <SwitchesPanel />
+
+      {/* Downloads */}
+      <div className="bg-card border border-border rounded-xl p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Download className="h-4 w-4 text-blue-400" />
+          <h3 className="font-semibold">Documentation Downloads</h3>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {[
+            { label: "Volume 1 — Status Report", desc: "Completed features & pending items", href: "/api/download/status-report", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
+            { label: "Feature Roadmap", desc: "Full platform feature roadmap", href: "/api/download/feature-roadmap", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
+            { label: "Extended Features Vol II", desc: "Proposed Tier 2 & Tier 3 features", href: "/api/download/feature-roadmap-v2", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
+          ].map(doc => (
+            <a
+              key={doc.href}
+              href={doc.href}
+              download
+              data-testid={`download-${doc.href.split('/').pop()}`}
+              className={`flex items-start gap-3 p-4 rounded-lg border ${doc.bg} hover:opacity-80 transition-opacity group`}
+            >
+              <FileText className={`h-5 w-5 mt-0.5 shrink-0 ${doc.color}`} />
+              <div className="min-w-0">
+                <div className={`text-sm font-medium ${doc.color}`}>{doc.label}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{doc.desc}</div>
+                <div className="text-xs text-muted-foreground/50 mt-1 flex items-center gap-1">
+                  <Download className="h-3 w-3" /> Click to download .docx
+                </div>
+              </div>
+            </a>
+          ))}
+        </div>
+      </div>
 
       {/* Danger Zone */}
       <div className="bg-destructive/5 border border-destructive/20 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
