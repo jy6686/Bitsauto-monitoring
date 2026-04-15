@@ -1386,7 +1386,11 @@ export async function disconnectSippyCall(
 
 // ── makeCall() — originates a test/click-to-call via Sippy XML-RPC ───────────
 // CLI = caller ID (from number), CLD = called number (to number).
-// i_account: optional billing account ID. Returns { success, callId?, message }.
+// i_account: optional billing account ID.
+// Returns { success, callId?, message, errorType? } where errorType is:
+//   'auth_failed'      — credentials rejected (HTTP 401/403)
+//   'method_not_found' — no call origination method available on this switch
+//   'call_error'       — call was rejected for routing/credit/other reason
 export async function makeCall(
   cli: string,
   cld: string,
@@ -1394,10 +1398,10 @@ export async function makeCall(
   username: string = '',
   password: string = '',
   explicitPortalUrl?: string,
-): Promise<{ success: boolean; callId?: string; message: string }> {
+): Promise<{ success: boolean; callId?: string; message: string; errorType?: string; apiUser?: string }> {
   const sess = activeSession;
   const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : sess?.portalUrl;
-  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+  if (!base) return { success: false, message: 'Not connected to Sippy.', errorType: 'not_connected' };
 
   const u = username || sess?.adminUsername || '';
   const p = password || sess?.adminPassword || '';
@@ -1416,6 +1420,7 @@ export async function makeCall(
   // 3. make_call              — snake_case variant used in some distributions
   // 4. originate              — used in some custom Sippy forks
   const methodsToTry = ['call_control.makeCall', 'makeCall', 'make_call', 'originate'];
+  let methodsNotFound = 0;
 
   for (const method of methodsToTry) {
     try {
@@ -1424,7 +1429,12 @@ export async function makeCall(
       console.log(`[Sippy] ${method}(${cli}→${cld}) HTTP ${resp.statusCode}: ${text.slice(0, 400)}`);
 
       if (resp.statusCode === 401) {
-        return { success: false, message: 'Authentication failed (HTTP 401) — check apiAdminUsername/apiAdminPassword in Settings.' };
+        return {
+          success: false,
+          message: `XML-RPC authentication failed for user "${u}" (HTTP 401). The stored API credentials may be incorrect — update apiAdminPassword in Settings or verify credentials in Sippy admin.`,
+          errorType: 'auth_failed',
+          apiUser: u,
+        };
       }
 
       if (resp.statusCode === 200 && !text.includes('<fault>')) {
@@ -1438,19 +1448,23 @@ export async function makeCall(
       // If method not found, try the next one in the list
       if (faultMsg.toLowerCase().includes('not found') || faultMsg.toLowerCase().includes('no such method') || faultMsg.toLowerCase().includes('unknown method')) {
         console.log(`[Sippy] ${method} not available, trying next…`);
+        methodsNotFound++;
         continue;
       }
 
-      // Any other fault (routing, credit, etc.) — return immediately, no point retrying
-      return { success: false, message: faultMsg || `HTTP ${resp.statusCode}` };
+      // Any other fault (routing, credit, permissions, etc.) — return immediately
+      return { success: false, message: faultMsg || `HTTP ${resp.statusCode}`, errorType: 'call_error', apiUser: u };
     } catch (err: any) {
-      return { success: false, message: err.message };
+      return { success: false, message: err.message, errorType: 'call_error', apiUser: u };
     }
   }
 
   return {
     success: false,
-    message: 'Call origination is not available on this Sippy instance. Neither "call_control.makeCall" nor "makeCall" XML-RPC methods are enabled. Ask your Sippy administrator to enable call origination API access for the API user.',
+    errorType: 'method_not_found',
+    apiUser: u,
+    message: `Call origination XML-RPC method is not enabled on this Sippy instance (tried ${methodsNotFound} method names, all returned "not found"). ` +
+      `Ask your Sippy administrator to enable the makeCall XML-RPC method for user "${u}" in Sippy Admin → System → XML-RPC API Settings.`,
   };
 }
 

@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Phone, PhoneCall, PhoneOff, Clock, CheckCircle2, XCircle,
   Loader2, ArrowRight, History, Trash2, RefreshCw, ChevronDown,
-  Info, Zap, AlertTriangle, ExternalLink, Settings,
+  Info, Zap, AlertTriangle, ExternalLink, Settings, KeyRound, ShieldAlert, WrenchIcon,
 } from "lucide-react";
 import {
   Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
@@ -33,6 +33,8 @@ type CallResult = {
   success: boolean;
   callId?: string;
   message: string;
+  errorType?: string;
+  apiUser?: string;
 } | null;
 
 type TestCallLog = {
@@ -308,24 +310,49 @@ export default function TestCallPage() {
                       </code>
                     </div>
                   )}
-                  {/* Contextual help when makeCall method is not enabled on the switch */}
-                  {!callResult.success && (
-                    callResult.message?.toLowerCase().includes('not found') ||
-                    callResult.message?.toLowerCase().includes('not available') ||
-                    callResult.message?.toLowerCase().includes('not enabled')
-                  ) && (
-                    <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
-                      <p className="text-xs font-semibold text-amber-400 flex items-center gap-2">
-                        <AlertTriangle className="h-3.5 w-3.5" /> Call origination is not enabled on this Sippy instance
+                  {/* Contextual help panels based on errorType */}
+                  {!callResult.success && callResult.errorType === 'auth_failed' && (
+                    <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/5 p-4 space-y-3">
+                      <p className="text-xs font-semibold text-rose-400 flex items-center gap-2">
+                        <KeyRound className="h-3.5 w-3.5" /> XML-RPC credentials rejected by Sippy
                       </p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        The <code className="bg-background px-1 rounded font-mono">makeCall</code> XML-RPC method must be enabled in your Sippy admin panel before this feature will work. Ask your Sippy administrator to:
+                        Sippy returned HTTP 401 for user <code className="bg-background px-1 rounded font-mono">{callResult.apiUser || 'unknown'}</code>.
+                        The API Admin Password stored in Settings does not match the XML-RPC password on the Sippy server.
                       </p>
                       <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-                        <li>Log in to the Sippy admin portal</li>
-                        <li>Go to <strong className="text-foreground/70">System → XML-RPC API Settings</strong></li>
-                        <li>Enable <code className="bg-background px-1 rounded font-mono">makeCall</code> for the API user account (RTST1)</li>
-                        <li>Alternatively, add <code className="bg-background px-1 rounded font-mono">call_control.makeCall</code> permission</li>
+                        <li>Go to <strong className="text-foreground/70">Settings → Sippy Connection</strong> in this app</li>
+                        <li>Update the <strong className="text-foreground/70">API Admin Password</strong> to match the XML-RPC API password on your Sippy server</li>
+                        <li>In Sippy admin, the XML-RPC password is set under <strong className="text-foreground/70">Admin → Manage Administrators → API Access</strong></li>
+                        <li>Alternatively, use the <strong className="text-foreground/70">Portal Username/Password</strong> if that account has XML-RPC access</li>
+                      </ol>
+                      <div className="flex flex-wrap items-center gap-3 pt-1">
+                        <a
+                          href="/settings"
+                          className="inline-flex items-center gap-1.5 text-xs bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 px-3 py-1.5 rounded-md font-medium transition-colors"
+                          data-testid="link-settings-credentials"
+                        >
+                          <Settings className="h-3 w-3" /> Open Settings to fix credentials
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
+                  {!callResult.success && callResult.errorType === 'method_not_found' && (
+                    <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+                      <p className="text-xs font-semibold text-amber-400 flex items-center gap-2">
+                        <WrenchIcon className="h-3.5 w-3.5" /> makeCall not enabled for API user <code className="bg-background/50 px-1 rounded font-mono text-amber-300">{callResult.apiUser || 'unknown'}</code>
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        The credentials authenticated successfully, but the <code className="bg-background px-1 rounded font-mono">makeCall</code> XML-RPC method is not available for this user.
+                        A Sippy administrator must enable call origination API access.
+                      </p>
+                      <p className="text-xs font-semibold text-foreground/60 mt-1">Steps to enable in Sippy Admin:</p>
+                      <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
+                        <li>Log in to the Sippy admin portal as a system administrator</li>
+                        <li>Go to <strong className="text-foreground/70">System → Administrators</strong> and select the API user <code className="bg-background px-1 rounded font-mono">{callResult.apiUser || 'RTST1'}</code></li>
+                        <li>Under <strong className="text-foreground/70">API Access</strong>, enable <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
+                        <li>Alternatively, go to <strong className="text-foreground/70">Customer → Accounts</strong>, find the account, and enable <strong className="text-foreground/70">XML-RPC API → Allow makeCall</strong></li>
                       </ol>
                       <div className="flex flex-wrap items-center gap-3 pt-1">
                         <button
@@ -382,6 +409,53 @@ export default function TestCallPage() {
                           )}
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {!callResult.success && callResult.errorType === 'call_error' && (
+                    <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/5 p-4 space-y-2">
+                      <p className="text-xs font-semibold text-rose-400 flex items-center gap-2">
+                        <ShieldAlert className="h-3.5 w-3.5" /> Call rejected by Sippy routing engine
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        The makeCall method was found and authenticated, but Sippy rejected the call. Common reasons: no route for this destination, insufficient credit, CLI/CLD blocked, or account limits.
+                        Check the call logs in your Sippy admin portal for details.
+                      </p>
+                    </div>
+                  )}
+
+                  {!callResult.success && !callResult.errorType && (
+                    callResult.message?.toLowerCase().includes('not found') ||
+                    callResult.message?.toLowerCase().includes('not available') ||
+                    callResult.message?.toLowerCase().includes('not enabled')
+                  ) && (
+                    <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+                      <p className="text-xs font-semibold text-amber-400 flex items-center gap-2">
+                        <AlertTriangle className="h-3.5 w-3.5" /> Call origination is not available on this Sippy instance
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        The <code className="bg-background px-1 rounded font-mono">makeCall</code> XML-RPC method must be enabled in your Sippy admin panel.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-3 pt-1">
+                        <button
+                          onClick={checkAvailableMethods}
+                          disabled={methodsLoading}
+                          className="inline-flex items-center gap-1.5 text-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 px-3 py-1.5 rounded-md font-medium transition-colors disabled:opacity-60"
+                          data-testid="button-check-methods"
+                        >
+                          {methodsLoading
+                            ? <><Loader2 className="h-3 w-3 animate-spin" /> Checking…</>
+                            : <><Settings className="h-3 w-3" /> Check Available Methods on this Sippy</>
+                          }
+                        </button>
+                        <a
+                          href="/call-flow-simulator"
+                          className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
+                          data-testid="link-call-flow-simulator"
+                        >
+                          Open Call Flow Simulator <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
                     </div>
                   )}
                 </div>
