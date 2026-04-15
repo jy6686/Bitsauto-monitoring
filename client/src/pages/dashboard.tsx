@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useDashboardStats } from "@/hooks/use-dashboard";
 import { useCalls } from "@/hooks/use-calls";
 import { useSettings } from "@/hooks/use-settings";
@@ -36,6 +36,7 @@ import {
   Radio,
   ArrowUpRight,
   Minus,
+  Target,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -145,6 +146,20 @@ export default function DashboardPage() {
   // Viewer's assigned Sippy accounts (via KAM email match)
   const { data: myAccountsData } = useQuery<{ kamId: number | null; kamName: string | null; accountIds: string[]; clientNames: string[] }>({
     queryKey: ['/api/user/assigned-accounts'],
+  });
+
+  // Revenue & Margin Analytics — 30-day P&L summary from call snapshots
+  type AnalyticsSummary = { totalRevenue: number; totalCost: number; totalProfit: number; margin: number };
+  type AnalyticsClient  = { name: string; calls: number; minutes: number; revenue: number; cost: number; profit: number; margin: number };
+  const { data: analyticsData, refetch: refetchAnalytics, isRefetching: analyticsRefetching } = useQuery<{
+    period: { days: number; since: string };
+    summary: AnalyticsSummary;
+    byClient: AnalyticsClient[];
+    byVendor: any[];
+  }>({
+    queryKey: ['/api/analytics/revenue', 30],
+    queryFn: () => fetch('/api/analytics/revenue?days=30').then(r => r.json()),
+    refetchInterval: 120_000,
   });
 
 
@@ -276,6 +291,19 @@ export default function DashboardPage() {
   const callRatePerMin = sippyStats?.cdrCount && sippyStats.cdrCount > 0
     ? parseFloat((sippyStats.cdrCount / 60).toFixed(1))
     : 0;
+
+  // ── KAM/viewer filtered analytics — revenue for assigned clients only ──────
+  const kamAnalytics = useMemo(() => {
+    const assignedNames = myAccountsData?.clientNames ?? [];
+    if (!analyticsData?.byClient?.length || !assignedNames.length) return null;
+    const nameSet = new Set(assignedNames.map(n => n.toLowerCase()));
+    const matched = analyticsData.byClient.filter(c => nameSet.has(c.name.toLowerCase()));
+    if (!matched.length) return null;
+    return {
+      totalRevenue: matched.reduce((s, c) => s + c.revenue, 0),
+      clients: matched,
+    };
+  }, [analyticsData, myAccountsData]);
 
 
   // ── Last refreshed countdown ──────────────────────────────────────────────
@@ -486,46 +514,45 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── balance_monitor — Revenue / Cost strip ─────────────────────── */}
+        {/* ── balance_monitor — Revenue & Margin Analytics (viewer) ──────── */}
         {has('balance_monitor') && anyPortalActive && (
           <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-2.5 border-b border-border/40 bg-muted/10">
               <div className="flex items-center gap-2">
-                <DollarSign className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue &amp; Cost — 90→30 min ago (settled CDRs)</span>
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue &amp; Margin Analytics</span>
+                {myAccountsData?.kamName && (
+                  <span className="text-[10px] text-muted-foreground/60 normal-case ml-1">— {myAccountsData.kamName}'s clients</span>
+                )}
               </div>
             </div>
-            <div className="grid grid-cols-3 sm:grid-cols-6 divide-x divide-border/40">
-              <div className="px-4 py-3 text-center">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Total Calls</p>
-                <p className="text-xl font-bold tabular-nums">{sippyFinancials?.origination.totalCalls ?? '—'}</p>
-              </div>
-              <div className="px-4 py-3 text-center">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">ASR</p>
-                <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.origination.asr ?? 0) >= 30 ? 'text-emerald-400' : 'text-amber-400'}`}>{sippyFinancials?.origination.totalCalls ? `${sippyFinancials.origination.asr}%` : '—'}</p>
-              </div>
-              <div className="px-4 py-3 text-center bg-emerald-500/5">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Revenue</p>
-                <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.origination.revenue ?? 0) > 0 ? 'text-emerald-400' : 'text-muted-foreground'}`}>{sippyFinancials?.origination.revenue != null ? `$${sippyFinancials.origination.revenue.toFixed(4)}` : '—'}</p>
-              </div>
-              <div className="px-4 py-3 text-center">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Term Calls</p>
-                <p className="text-xl font-bold tabular-nums">{sippyFinancials?.termination.totalCalls ?? '—'}</p>
-              </div>
-              <div className="px-4 py-3 text-center bg-rose-500/5">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Cost</p>
-                {sippyFinancials?.costSource === 'pending'
-                  ? <p className="text-xl font-bold tabular-nums text-muted-foreground" title="Vendor cost tracking accumulates over 90 min — check back shortly">Tracking…</p>
-                  : <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.termination.cost ?? 0) > 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>{sippyFinancials?.termination.cost != null ? `$${sippyFinancials.termination.cost.toFixed(4)}` : '—'}</p>
-                }
-              </div>
-              <div className={`px-4 py-3 text-center ${sippyFinancials?.costSource !== 'pending' && (sippyFinancials?.margin ?? 0) > 0 ? 'bg-emerald-500/10' : sippyFinancials?.costSource !== 'pending' && (sippyFinancials?.margin ?? 0) < 0 ? 'bg-rose-500/10' : ''}`}>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Margin</p>
-                {sippyFinancials?.costSource === 'pending'
-                  ? <p className="text-xl font-bold tabular-nums text-muted-foreground">—</p>
-                  : <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.margin ?? 0) > 0 ? 'text-emerald-400' : (sippyFinancials?.margin ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>{sippyFinancials?.margin != null ? `$${Math.abs(sippyFinancials.margin).toFixed(4)}` : '—'}</p>
-                }
-              </div>
+            <div className="px-5 py-4">
+              {kamAnalytics ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-5 py-3 flex items-center gap-3">
+                      <DollarSign className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Your Clients Revenue</p>
+                        <p className="text-2xl font-bold text-emerald-400 tabular-nums">${kamAnalytics.totalRevenue.toFixed(2)}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Last 30 days · {kamAnalytics.clients.length} client{kamAnalytics.clients.length !== 1 ? 's' : ''}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {kamAnalytics.clients.map(c => (
+                      <div key={c.name} className="bg-card border border-border/50 rounded-lg px-3 py-2 text-center min-w-[100px]">
+                        <p className="text-[10px] text-muted-foreground truncate max-w-[120px]">{c.name}</p>
+                        <p className="text-sm font-bold text-emerald-400 tabular-nums">${c.revenue.toFixed(2)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center text-muted-foreground text-sm py-2">
+                  {analyticsData ? 'No revenue data for your assigned clients in the last 30 days' : 'Loading analytics…'}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -885,88 +912,114 @@ export default function DashboardPage() {
       </div>
 
 
-      {/* ── Revenue / Cost / Margin Strip ──────────────────────────────────── */}
+      {/* ── Revenue & Margin Analytics ───────────────────────────────────────── */}
       {anyPortalActive && (
         <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-2.5 border-b border-border/40 bg-muted/10">
             <div className="flex items-center gap-2">
-              <DollarSign className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue &amp; Cost — 90→30 min ago (settled CDRs)</span>
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue &amp; Margin Analytics</span>
+              {role !== 'admin' && myAccountsData?.kamName && (
+                <span className="text-[10px] text-muted-foreground/60 normal-case ml-1">— {myAccountsData.kamName}'s clients</span>
+              )}
             </div>
             <button
-              onClick={() => refetchFinancials()}
-              disabled={financialsRefetching}
+              onClick={() => refetchAnalytics()}
+              disabled={analyticsRefetching}
               className="flex items-center gap-1 text-[10px] text-muted-foreground/70 hover:text-muted-foreground transition-colors px-2 py-1 rounded hover:bg-muted/30 disabled:opacity-50"
-              title="Refresh revenue & cost data"
-              data-testid="button-refresh-financials"
+              data-testid="button-refresh-analytics-dash"
             >
-              <RefreshCw className={`w-3 h-3 ${financialsRefetching ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{financialsRefetching ? 'Refreshing…' : 'Refresh'}</span>
+              <RefreshCw className={`w-3 h-3 ${analyticsRefetching ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{analyticsRefetching ? 'Refreshing…' : 'Refresh'}</span>
             </button>
           </div>
-          <div className="grid grid-cols-3 sm:grid-cols-6 divide-x divide-border/40">
-            {/* Orig calls */}
-            <div className="px-4 py-3 text-center">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Total Calls</p>
-              <p className="text-xl font-bold tabular-nums">{sippyFinancials?.origination.totalCalls ?? '—'}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">{sippyFinancials ? `${sippyFinancials.origination.billableCalls} billable` : '…'}</p>
+
+          {/* Admin: 4 summary cards */}
+          {role === 'admin' && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/40">
+              {/* Total Revenue */}
+              <div className="px-5 py-4 text-center bg-emerald-500/5">
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Revenue</p>
+                </div>
+                <p className="text-2xl font-bold tabular-nums text-emerald-400" data-testid="analytics-revenue">
+                  {analyticsData ? `$${analyticsData.summary.totalRevenue.toFixed(2)}` : '…'}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Last 30 days</p>
+              </div>
+              {/* Total Cost */}
+              <div className="px-5 py-4 text-center bg-rose-500/5">
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <TrendingDown className="w-3.5 h-3.5 text-rose-400" />
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Cost</p>
+                </div>
+                <p className="text-2xl font-bold tabular-nums text-rose-400" data-testid="analytics-cost">
+                  {analyticsData ? `$${analyticsData.summary.totalCost.toFixed(2)}` : '…'}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Vendor interconnect</p>
+              </div>
+              {/* Gross Profit */}
+              <div className="px-5 py-4 text-center bg-blue-500/5">
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <Zap className="w-3.5 h-3.5 text-blue-400" />
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Gross Profit</p>
+                </div>
+                <p className={`text-2xl font-bold tabular-nums ${(analyticsData?.summary.totalProfit ?? 0) >= 0 ? 'text-blue-400' : 'text-rose-400'}`} data-testid="analytics-profit">
+                  {analyticsData ? `$${analyticsData.summary.totalProfit.toFixed(2)}` : '…'}
+                </p>
+              </div>
+              {/* Margin % */}
+              <div className="px-5 py-4 text-center">
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <Target className="w-3.5 h-3.5 text-emerald-400" />
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Margin</p>
+                </div>
+                <p className={`text-2xl font-bold tabular-nums ${(analyticsData?.summary.margin ?? 0) >= 15 ? 'text-emerald-400' : (analyticsData?.summary.margin ?? 0) >= 5 ? 'text-amber-400' : 'text-rose-400'}`} data-testid="analytics-margin">
+                  {analyticsData ? `${analyticsData.summary.margin.toFixed(1)}%` : '…'}
+                </p>
+              </div>
             </div>
-            {/* ASR orig */}
-            <div className="px-4 py-3 text-center">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">ASR</p>
-              <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.origination.asr ?? 0) >= 30 ? 'text-emerald-400' : (sippyFinancials?.origination.asr ?? 0) > 0 ? 'text-amber-400' : 'text-muted-foreground'}`}>
-                {sippyFinancials?.origination.totalCalls ? `${sippyFinancials.origination.asr}%` : '—'}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">ACD: {sippyFinancials?.origination.acd ? `${sippyFinancials.origination.acd}s` : '—'}</p>
+          )}
+
+          {/* Management / Viewer (KAM): Revenue only, filtered to assigned clients */}
+          {role !== 'admin' && (
+            <div className="px-5 py-4">
+              {kamAnalytics ? (
+                <div className="space-y-3">
+                  {/* Revenue total */}
+                  <div className="flex items-center gap-3">
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-5 py-3 flex items-center gap-3">
+                      <DollarSign className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Your Clients Revenue</p>
+                        <p className="text-2xl font-bold text-emerald-400 tabular-nums" data-testid="analytics-kam-revenue">
+                          ${kamAnalytics.totalRevenue.toFixed(2)}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Last 30 days · {kamAnalytics.clients.length} client{kamAnalytics.clients.length !== 1 ? 's' : ''}</p>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Per-client revenue breakdown */}
+                  <div className="flex flex-wrap gap-2">
+                    {kamAnalytics.clients.map(c => (
+                      <div key={c.name} className="bg-card border border-border/50 rounded-lg px-3 py-2 text-center min-w-[100px]">
+                        <p className="text-[10px] text-muted-foreground truncate max-w-[120px]">{c.name}</p>
+                        <p className="text-sm font-bold text-emerald-400 tabular-nums">${c.revenue.toFixed(2)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : analyticsData ? (
+                <div className="text-center text-muted-foreground text-sm py-3">
+                  <DollarSign className="w-5 h-5 mx-auto mb-1.5 opacity-30" />
+                  No revenue data for your assigned clients in the last 30 days
+                </div>
+              ) : (
+                <div className="text-center text-muted-foreground text-sm py-3">Loading analytics…</div>
+              )}
             </div>
-            {/* Revenue */}
-            <div className="px-4 py-3 text-center bg-emerald-500/5">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Revenue</p>
-              <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.origination.revenue ?? 0) > 0 ? 'text-emerald-400' : 'text-muted-foreground'}`} data-testid="fin-revenue">
-                {sippyFinancials?.origination.revenue != null ? `$${sippyFinancials.origination.revenue.toFixed(4)}` : '—'}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Customer billed</p>
-            </div>
-            {/* Term calls */}
-            <div className="px-4 py-3 text-center">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Term Calls</p>
-              <p className="text-xl font-bold tabular-nums">{sippyFinancials?.termination.totalCalls ?? '—'}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">{sippyFinancials ? `${sippyFinancials.termination.billableCalls} billable` : '…'}</p>
-            </div>
-            {/* Cost */}
-            <div className="px-4 py-3 text-center bg-rose-500/5">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Cost</p>
-              {sippyFinancials?.costSource === 'pending'
-                ? <>
-                    <p className="text-xl font-bold tabular-nums text-muted-foreground" data-testid="fin-cost" title="Vendor cost tracking accumulates over 90 min — check back shortly">Tracking…</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Balance tracking…</p>
-                  </>
-                : <>
-                    <p className={`text-xl font-bold tabular-nums ${(sippyFinancials?.termination.cost ?? 0) > 0 ? 'text-rose-400' : 'text-muted-foreground'}`} data-testid="fin-cost">
-                      {sippyFinancials?.termination.cost != null ? `$${sippyFinancials.termination.cost.toFixed(4)}` : '—'}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Vendor cost</p>
-                  </>
-              }
-            </div>
-            {/* Margin */}
-            <div className={`px-4 py-3 text-center ${sippyFinancials?.costSource !== 'pending' && (sippyFinancials?.margin ?? 0) > 0 ? 'bg-emerald-500/10' : sippyFinancials?.costSource !== 'pending' && (sippyFinancials?.margin ?? 0) < 0 ? 'bg-rose-500/10' : ''}`}>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Margin</p>
-              {sippyFinancials?.costSource === 'pending'
-                ? <>
-                    <p className="text-xl font-bold tabular-nums text-muted-foreground flex items-center justify-center gap-1" data-testid="fin-margin"><Minus className="w-4 h-4" />—</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Revenue − Cost</p>
-                  </>
-                : <>
-                    <p className={`text-xl font-bold tabular-nums flex items-center justify-center gap-1 ${(sippyFinancials?.margin ?? 0) > 0 ? 'text-emerald-400' : (sippyFinancials?.margin ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground'}`} data-testid="fin-margin">
-                      {(sippyFinancials?.margin ?? 0) > 0 ? <TrendingUp className="w-4 h-4" /> : (sippyFinancials?.margin ?? 0) < 0 ? <TrendingDown className="w-4 h-4" /> : <Minus className="w-4 h-4" />}
-                      {sippyFinancials?.margin != null ? `$${Math.abs(sippyFinancials.margin).toFixed(4)}` : '—'}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Revenue − Cost</p>
-                  </>
-              }
-            </div>
-          </div>
+          )}
         </div>
       )}
 
