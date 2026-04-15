@@ -140,6 +140,8 @@ export const switches = pgTable("switches", {
   portalUrl: varchar("portal_url", { length: 512 }),
   portalUsername: varchar("portal_username", { length: 128 }),
   portalPassword: varchar("portal_password", { length: 255 }),
+  apiAdminUsername: varchar("api_admin_username", { length: 128 }), // optional XML-RPC admin user
+  apiAdminPassword: varchar("api_admin_password", { length: 255 }), // optional XML-RPC admin password
   loginType: integer("login_type").default(1),                   // VOS3000 loginType (1=gateway)
   enabled: boolean("enabled").default(true),
   lastSyncAt: timestamp("last_sync_at"),

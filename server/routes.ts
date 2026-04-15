@@ -1001,6 +1001,8 @@ export async function registerRoutes(
           portalUrl: oldPrimaryUrl,
           portalUsername: primarySettings.portalUsername || null,
           portalPassword: primarySettings.portalPassword || null,
+          apiAdminUsername: primarySettings.apiAdminUsername || null,
+          apiAdminPassword: primarySettings.apiAdminPassword || null,
           enabled: true,
         });
       }
@@ -1010,9 +1012,9 @@ export async function registerRoutes(
         portalUrl: target.portalUrl || undefined,
         portalUsername: target.portalUsername || undefined,
         portalPassword: target.portalPassword || undefined,
-        // Clear admin-specific creds so they don't conflict
-        apiAdminUsername: undefined,
-        apiAdminPassword: undefined,
+        // Use API admin creds from the switch if provided, otherwise clear them
+        apiAdminUsername: target.apiAdminUsername || undefined,
+        apiAdminPassword: target.apiAdminPassword || undefined,
       });
 
       // Remove the promoted switch from secondary list

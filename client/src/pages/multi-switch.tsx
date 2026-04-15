@@ -74,6 +74,8 @@ interface SwitchRecord {
   portalUrl: string | null;
   portalUsername: string | null;
   portalPassword: string | null;
+  apiAdminUsername: string | null;
+  apiAdminPassword: string | null;
   enabled: boolean | null;
   lastSyncAt: string | null;
   lastSyncStatus: string | null;
@@ -87,6 +89,8 @@ const switchFormSchema = z.object({
   portalUrl: z.string().url("Must be a valid URL (e.g. https://192.168.1.1:9000)"),
   portalUsername: z.string().min(1, "Username is required"),
   portalPassword: z.string().min(1, "Password is required"),
+  apiAdminUsername: z.string().optional(),
+  apiAdminPassword: z.string().optional(),
   enabled: z.boolean(),
 });
 type SwitchFormValues = z.infer<typeof switchFormSchema>;
@@ -277,14 +281,19 @@ function SwitchFormDialog({
   const form = useForm<SwitchFormValues>({
     resolver: zodResolver(switchFormSchema),
     defaultValues: {
-      name: '', portalUrl: '', portalUsername: '', portalPassword: '', enabled: true,
+      name: '', portalUrl: '', portalUsername: '', portalPassword: '',
+      apiAdminUsername: '', apiAdminPassword: '', enabled: true,
       ...initialValues,
     },
   });
 
   useEffect(() => {
     if (open) {
-      form.reset({ name: '', portalUrl: '', portalUsername: '', portalPassword: '', enabled: true, ...initialValues });
+      form.reset({
+        name: '', portalUrl: '', portalUsername: '', portalPassword: '',
+        apiAdminUsername: '', apiAdminPassword: '', enabled: true,
+        ...initialValues,
+      });
       setTestResult(null);
     }
   }, [open]);
@@ -378,6 +387,46 @@ function SwitchFormDialog({
                 <FormMessage />
               </FormItem>
             )} />
+            {/* Optional API Admin credentials */}
+            <div className="rounded-lg border border-dashed border-border p-3 space-y-3">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">API Admin Credentials</span> — optional.
+                Set these if the portal user lacks XML-RPC admin access (e.g. for rate card push, call control).
+              </p>
+              <FormField control={form.control} name="apiAdminUsername" render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">API Admin Username <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                  <FormControl><Input placeholder="e.g. ssp-root" data-testid="input-switch-api-user" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="apiAdminPassword" render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">API Admin Password <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input
+                        type={showPass ? 'text' : 'password'}
+                        placeholder="••••••••"
+                        data-testid="input-switch-api-pass"
+                        {...field}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-1 top-1 h-7 w-7 p-0"
+                        onClick={() => setShowPass(v => !v)}
+                      >
+                        {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </Button>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+
             <FormField control={form.control} name="enabled" render={({ field }) => (
               <FormItem className="flex items-center gap-3">
                 <FormLabel className="mt-0">Enabled</FormLabel>
@@ -811,6 +860,8 @@ export default function MultiSwitchPage() {
               portalUrl: editSwitch.portalUrl || '',
               portalUsername: editSwitch.portalUsername || '',
               portalPassword: editSwitch.portalPassword || '',
+              apiAdminUsername: editSwitch.apiAdminUsername || '',
+              apiAdminPassword: editSwitch.apiAdminPassword || '',
               enabled: editSwitch.enabled ?? true,
             }}
             onSuccess={() => {
