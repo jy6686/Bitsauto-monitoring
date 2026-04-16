@@ -14365,6 +14365,14 @@ export async function make2WayCallback(
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('make2WayCallback', params as any), username, password);
     const text = resp.body;
+    console.log(`[Sippy] make2WayCallback(${opts.authname}) HTTP ${resp.statusCode}: ${text.slice(0, 600)}`);
+
+    if (resp.statusCode === 401 || resp.statusCode === 403) {
+      return {
+        success: false,
+        message: `auth_failed: HTTP ${resp.statusCode} — credentials rejected for user "${username}".`,
+      };
+    }
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
       const m = extractStructMembers(text);
       return {
@@ -14373,7 +14381,10 @@ export async function make2WayCallback(
         message:          'Callback initiated.',
       };
     }
-    return { success: false, message: extractFaultString(text) || 'make2WayCallback failed.' };
+    // Extract and clean the Sippy fault string
+    const rawFault = extractFaultString(text) || '';
+    const cleanFault = rawFault.replace(/<[^>]+>/g, '').trim();
+    return { success: false, message: cleanFault || `make2WayCallback fault (HTTP ${resp.statusCode})` };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
 

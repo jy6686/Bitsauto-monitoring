@@ -1789,13 +1789,10 @@ export async function registerRoutes(
           apiUser:  username,
         };
         if (r.success) break;
-        // On auth failure the XML-RPC endpoint returns a fault with "auth" in the message —
-        // continue to next pair so we exhaust all credential options.
-        if (r.message?.toLowerCase().includes('auth') ||
-            r.message?.toLowerCase().includes('401') ||
-            r.message?.toLowerCase().includes('permission')) continue;
-        // Hard Sippy fault (routing, credit, invalid number) — stop immediately
-        break;
+        // For make2WayCallback, always exhaust all credential pairs:
+        // RTST1 often gets 401 (not authorised to initiate callbacks),
+        // while ssp-root may have the permission. Only stop on success.
+        continue;
       }
 
       const safeUserId = userId ?? 'unknown';
