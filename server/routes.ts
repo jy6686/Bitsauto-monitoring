@@ -799,13 +799,32 @@ export async function registerRoutes(
     res.json(alerts);
   });
 
-  // Settings
-  app.get(api.settings.get.path, async (req, res) => {
+  // Sensitive fields that are stripped from settings responses for non-admin users
+  const SETTINGS_SENSITIVE_FIELDS = [
+    'portalPassword',
+    'apiAdminPassword',
+    'adminWebPassword',
+    'alertGmailAppPass',
+    'whatsappApiKey',
+    'portalSessionToken',
+  ] as const;
+
+  // Settings — GET (authenticated; admins see all fields, others get passwords redacted)
+  app.get(api.settings.get.path, async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
     const settings = await storage.getSettings();
+    const role = await storage.getUserRole(userId);
+    if (role !== 'admin') {
+      const redacted: any = { ...settings };
+      for (const field of SETTINGS_SENSITIVE_FIELDS) redacted[field] = null;
+      return res.json(redacted);
+    }
     res.json(settings);
   });
 
-  app.patch(api.settings.update.path, async (req, res) => {
+  // Settings — PATCH (admin only)
+  app.patch(api.settings.update.path, (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {
       const input = api.settings.update.input.parse(req.body);
       const updated = await storage.updateSettings(input);
@@ -822,7 +841,8 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.settings.resetSimulation.path, async (req, res) => {
+  // Settings — reset simulation (admin only)
+  app.post(api.settings.resetSimulation.path, (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (_req, res) => {
     res.json({ message: "Simulation reset acknowledged" });
   });
 

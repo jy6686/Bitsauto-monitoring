@@ -94,7 +94,7 @@ export default function WhatsappAlertsPage() {
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const saveMutation = useMutation({
-    mutationFn: () => apiRequest('POST', '/api/settings', {
+    mutationFn: () => apiRequest('PATCH', '/api/settings', {
       whatsappEnabled:    enabled,
       whatsappProvider:   provider,
       whatsappPhones:     phones,
