@@ -6,8 +6,9 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import {
-  RefreshCw, ChevronRight, BarChart3, WifiOff,
+  RefreshCw, ChevronRight, BarChart3,
   TrendingUp, TrendingDown, Minus, AlertCircle, Globe, Users, Layers,
+  ArrowRight, ArrowLeft, LayoutGrid, Maximize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -54,16 +55,30 @@ interface PerEntityResponse {
 // ── Nav state ─────────────────────────────────────────────────────────────────
 type NavType =
   | 'welcome'
-  | 'country-agg' | 'country-all' | 'country'
+  | 'clients-all'                               // ?view=clients
+  | 'vendors-all'                               // ?view=vendors
+  | 'country-agg' | 'country-all' | 'country'  // ?view=countries
   | 'country-clients' | 'country-vendors'
-  | 'kam-agg' | 'kam-all' | 'kam'
-  | 'dest-agg' | 'dest-all' | 'dest';
+  | 'kam-agg' | 'kam-all' | 'kam'              // ?view=kam[&kamId=N]
+  | 'dest-agg' | 'dest-all' | 'dest';          // ?view=destinations
 
 interface NavState {
   type: NavType;
-  country?: string;
-  kamName?: string;
-  destName?: string;
+  country?: string;       // active country filter
+  kamName?: string;       // active KAM name
+  kamId?: number;         // active KAM id (from URL ?kamId=N)
+  destName?: string;      // active destination name
+  destCountryFilter?: string; // country filter on destinations view
+}
+
+function urlToNav(urlView: string, urlParams: URLSearchParams): NavState {
+  const kamId = urlParams.get('kamId') ? Number(urlParams.get('kamId')) : undefined;
+  if (urlView === 'clients')      return { type: 'clients-all' };
+  if (urlView === 'vendors')      return { type: 'vendors-all' };
+  if (urlView === 'destinations') return { type: 'dest-all' };
+  if (urlView === 'countries')    return { type: 'country-all' };
+  if (urlView === 'kam')          return kamId ? { type: 'kam', kamId } : { type: 'kam-all' };
+  return { type: 'welcome' };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -309,7 +324,12 @@ function StatsTable({ entity }: { entity: EntityData }) {
 }
 
 // ── Single entity panel (full size) ──────────────────────────────────────────
-function EntityPanel({ entity, dimmed }: { entity: EntityData; dimmed?: boolean }) {
+function EntityPanel({ entity, dimmed, onDrillDown, drillLabel }: {
+  entity: EntityData;
+  dimmed?: boolean;
+  onDrillDown?: () => void;
+  drillLabel?: string;
+}) {
   const live = entity.curConcurrent > 0;
   const uid  = entity.name.replace(/[^a-z0-9]/gi, '_').slice(0, 16);
   return (
@@ -379,13 +399,27 @@ function EntityPanel({ entity, dimmed }: { entity: EntityData; dimmed?: boolean 
 
       {/* KAM client pills */}
       {entity.clients && entity.clients.length > 0 && (
-        <div className="px-4 pb-3 border-t border-border/15 pt-2 flex flex-wrap gap-1.5">
+        <div className="px-4 pb-2 border-t border-border/15 pt-2 flex flex-wrap gap-1.5">
           {entity.clients.slice(0, 8).map(c => (
             <span key={c} className="text-[9px] px-2 py-0.5 rounded-full bg-muted/30 border border-border/25 text-muted-foreground/50">{c}</span>
           ))}
           {entity.clients.length > 8 && (
             <span className="text-[9px] px-2 py-0.5 rounded-full bg-muted/30 border border-border/25 text-muted-foreground/35">+{entity.clients.length - 8} more</span>
           )}
+        </div>
+      )}
+
+      {/* Drill-down button */}
+      {onDrillDown && (
+        <div className={cn("px-4 pb-3 flex justify-end", (!entity.clients || entity.clients.length === 0) && "border-t border-border/15 pt-3")}>
+          <button
+            onClick={onDrillDown}
+            data-testid={`btn-drilldown-${entity.name}`}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/25 text-sky-400 hover:bg-sky-500/20 transition-colors text-xs font-semibold"
+          >
+            {drillLabel ?? 'Drill Down'}
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
     </div>
@@ -395,35 +429,34 @@ function EntityPanel({ entity, dimmed }: { entity: EntityData; dimmed?: boolean 
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function BitsEyePage() {
-  const { role } = useAuth();
-  const isViewer = role === 'viewer';
+  useAuth();
 
   // ── URL param → initial nav ────────────────────────────────────────────
   const search = useSearch();
-  const urlView = new URLSearchParams(search).get('view') ?? '';
+  const urlParams = useMemo(() => new URLSearchParams(search), [search]);
+  const urlView   = urlParams.get('view') ?? '';
 
-  const initNav = useMemo<NavState>(() => {
-    if (urlView === 'countries') return { type: 'country-agg' };
-    return { type: 'welcome' };
-  }, [urlView]);
+  const initNav = useMemo<NavState>(() => urlToNav(urlView, urlParams), [urlView]);
 
   // ── Nav state ─────────────────────────────────────────────────────────────
   const [nav, setNav] = useState<NavState>(initNav);
   const [lastRefresh,  setLastRefresh]  = useState(Date.now());
 
-  // Sync nav when URL view changes (e.g. user clicks sidebar link)
+  // Sync nav when URL view / kamId changes (sidebar clicks)
   useEffect(() => {
-    if (urlView === 'countries') setNav({ type: 'country-agg' });
-    else if (urlView === '' || urlView === 'welcome') setNav({ type: 'welcome' });
-  }, [urlView]);
+    setNav(urlToNav(urlView, urlParams));
+  }, [urlView, urlParams.get('kamId')]);
 
-  // ── Determine active country/KAM for data fetching ────────────────────────
-  const activeCountry = nav.country ?? '';
-  const activeKam     = nav.kamName ?? '';
+  // ── Determine active filters for data fetching ────────────────────────────
+  const activeCountry     = nav.country ?? '';
+  const activeKam         = nav.kamName ?? '';
+  const activeKamId       = nav.kamId   ?? null;
+  const activeDestCountry = nav.destCountryFilter ?? '';
 
-  // ── Data queries ─────────────────────────────────────────────────────────
-  // Countries list (always fetched; used both for sidebar and country-level content)
-  const { data: countriesData, isFetching: fetchingCountries, refetch: refetchCountries } =
+  // ── Data queries ──────────────────────────────────────────────────────────
+
+  // Countries — always fetched
+  const { data: countriesData, isFetching: fetchingCountries } =
     useQuery<PerEntityResponse>({
       queryKey: ['/api/bitseye/per-entity', 'countries', lastRefresh],
       queryFn: async () => {
@@ -435,14 +468,15 @@ export default function BitsEyePage() {
       refetchInterval: 60_000,
     });
 
-  // KAMs — fetched when a country is expanded or KAM category is open
+  // KAMs — fetched when needed (country drill-down or KAM views)
   const fetchKams = !!activeCountry || nav.type.startsWith('kam');
   const { data: kamsData, isFetching: fetchingKams } =
     useQuery<PerEntityResponse>({
-      queryKey: ['/api/bitseye/per-entity', 'kam', activeCountry, lastRefresh],
+      queryKey: ['/api/bitseye/per-entity', 'kam', activeCountry, activeKamId, lastRefresh],
       queryFn: async () => {
         const p = new URLSearchParams({ category: 'kam', aliveOnly: 'false', orderBy: 'name' });
         if (activeCountry) p.set('countryFilter', activeCountry);
+        if (activeKamId)   p.set('kamId', String(activeKamId));
         const r = await fetch(`/api/bitseye/per-entity?${p}`);
         if (!r.ok) throw new Error(await r.text());
         return r.json();
@@ -452,15 +486,16 @@ export default function BitsEyePage() {
       refetchInterval: 60_000,
     });
 
-  // Destinations — fetched when a KAM is expanded or dest category is open
+  // Destinations — fetched when needed (KAM drill-down, dest views)
   const fetchDests = !!activeKam || nav.type.startsWith('dest');
   const { data: destsData, isFetching: fetchingDests } =
     useQuery<PerEntityResponse>({
-      queryKey: ['/api/bitseye/per-entity', 'destinations', activeCountry, activeKam, lastRefresh],
+      queryKey: ['/api/bitseye/per-entity', 'destinations', activeCountry, activeKam, activeDestCountry, lastRefresh],
       queryFn: async () => {
         const p = new URLSearchParams({ category: 'destinations', aliveOnly: 'false', orderBy: 'name' });
-        if (activeCountry) p.set('countryFilter', activeCountry);
-        if (activeKam)     p.set('kamFilter', activeKam);
+        const cf = activeCountry || activeDestCountry;
+        if (cf)         p.set('countryFilter', cf);
+        if (activeKam)  p.set('kamFilter', activeKam);
         const r = await fetch(`/api/bitseye/per-entity?${p}`);
         if (!r.ok) throw new Error(await r.text());
         return r.json();
@@ -470,33 +505,68 @@ export default function BitsEyePage() {
       refetchInterval: 60_000,
     });
 
-  // Clients — shown for country-level client/vendor views
-  const fetchClients = nav.type === 'country-clients' || nav.type === 'country-vendors';
-  const { data: clientsData, isFetching: fetchingClients } =
+  // Clients (all, unfiltered) — for ?view=clients
+  const { data: clientsAllData, isFetching: fetchingClientsAll } =
     useQuery<PerEntityResponse>({
-      queryKey: ['/api/bitseye/per-entity', 'clients', activeCountry, activeKam, lastRefresh],
+      queryKey: ['/api/bitseye/per-entity', 'clients', lastRefresh],
       queryFn: async () => {
-        const p = new URLSearchParams({ category: 'clients', aliveOnly: 'false', orderBy: 'name' });
+        const r = await fetch('/api/bitseye/per-entity?category=clients&aliveOnly=false&orderBy=name');
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      },
+      enabled: nav.type === 'clients-all',
+      staleTime: 20_000,
+    });
+
+  // Vendors (all, unfiltered) — for ?view=vendors
+  const { data: vendorsAllData, isFetching: fetchingVendorsAll } =
+    useQuery<PerEntityResponse>({
+      queryKey: ['/api/bitseye/per-entity', 'vendors', lastRefresh],
+      queryFn: async () => {
+        const r = await fetch('/api/bitseye/per-entity?category=vendors&aliveOnly=false&orderBy=name');
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      },
+      enabled: nav.type === 'vendors-all',
+      staleTime: 20_000,
+    });
+
+  // Country-filtered clients/vendors
+  const fetchFilteredClients = nav.type === 'country-clients' || nav.type === 'country-vendors';
+  const { data: filteredClientsData, isFetching: fetchingFilteredClients } =
+    useQuery<PerEntityResponse>({
+      queryKey: ['/api/bitseye/per-entity', 'clients-filtered', activeCountry, activeKam, lastRefresh],
+      queryFn: async () => {
+        const cat = nav.type === 'country-vendors' ? 'vendors' : 'clients';
+        const p = new URLSearchParams({ category: cat, aliveOnly: 'false', orderBy: 'name' });
         if (activeCountry) p.set('countryFilter', activeCountry);
         if (activeKam)     p.set('kamFilter', activeKam);
         const r = await fetch(`/api/bitseye/per-entity?${p}`);
         if (!r.ok) throw new Error(await r.text());
         return r.json();
       },
-      enabled: fetchClients,
+      enabled: fetchFilteredClients,
       staleTime: 20_000,
     });
 
-  const vendorsData = clientsData; // same structure; reuse for vendors category
+  // ── Entity lists ──────────────────────────────────────────────────────────
+  const countries = useMemo(() => countriesData?.entities ?? [], [countriesData]);
+  const kams      = useMemo(() => kamsData?.entities ?? [], [kamsData]);
+  const dests     = useMemo(() => destsData?.entities ?? [], [destsData]);
 
-  // ── Sidebar entity lists ──────────────────────────────────────────────────
-  const countries  = useMemo(() => countriesData?.entities ?? [], [countriesData]);
-  const kams       = useMemo(() => kamsData?.entities ?? [], [kamsData]);
-  const dests      = useMemo(() => destsData?.entities ?? [], [destsData]);
+  // Country names for the Destinations filter dropdown
+  const countryNames = useMemo(
+    () => [...new Set(countries.map(c => c.name))].sort(),
+    [countries]
+  );
 
   // ── Main content derivation ───────────────────────────────────────────────
   const { contentEntities, contentTitle, isFetchingContent } = useMemo(() => {
     switch (nav.type) {
+      case 'clients-all':
+        return { contentEntities: clientsAllData?.entities ?? [], contentTitle: 'All Clients', isFetchingContent: fetchingClientsAll };
+      case 'vendors-all':
+        return { contentEntities: vendorsAllData?.entities ?? [], contentTitle: 'All Vendors', isFetchingContent: fetchingVendorsAll };
       case 'country-agg': {
         const agg = aggregateEntities(countries);
         return { contentEntities: agg ? [agg] : [], contentTitle: 'All Countries — Aggregated', isFetchingContent: fetchingCountries };
@@ -508,25 +578,29 @@ export default function BitsEyePage() {
         return { contentEntities: e ? [e] : [], contentTitle: nav.country ?? '', isFetchingContent: fetchingCountries };
       }
       case 'country-clients':
-        return { contentEntities: clientsData?.entities ?? [], contentTitle: `${nav.country} — Clients`, isFetchingContent: fetchingClients };
+        return { contentEntities: filteredClientsData?.entities ?? [], contentTitle: `${nav.country} — Clients`, isFetchingContent: fetchingFilteredClients };
       case 'country-vendors':
-        return { contentEntities: clientsData?.entities ?? [], contentTitle: `${nav.country} — Vendors`, isFetchingContent: fetchingClients };
+        return { contentEntities: filteredClientsData?.entities ?? [], contentTitle: `${nav.country} — Vendors`, isFetchingContent: fetchingFilteredClients };
       case 'kam-agg': {
         const agg = aggregateEntities(kams);
         return { contentEntities: agg ? [agg] : [], contentTitle: 'All KAMs — Aggregated', isFetchingContent: fetchingKams };
       }
       case 'kam-all':
-        return { contentEntities: kams, contentTitle: 'All KAMs', isFetchingContent: fetchingKams };
+        return { contentEntities: kams, contentTitle: activeCountry ? `KAMs — ${activeCountry}` : 'All KAMs', isFetchingContent: fetchingKams };
       case 'kam': {
-        const e = kams.find(k => k.name === nav.kamName);
-        return { contentEntities: e ? [e] : [], contentTitle: nav.kamName ?? '', isFetchingContent: fetchingKams };
+        const title = nav.kamName ? nav.kamName : (kams[0]?.name ?? `KAM #${nav.kamId}`);
+        return { contentEntities: kams, contentTitle: title, isFetchingContent: fetchingKams };
       }
       case 'dest-agg': {
         const agg = aggregateEntities(dests);
         return { contentEntities: agg ? [agg] : [], contentTitle: 'All Destinations — Aggregated', isFetchingContent: fetchingDests };
       }
-      case 'dest-all':
-        return { contentEntities: dests, contentTitle: 'All Destinations', isFetchingContent: fetchingDests };
+      case 'dest-all': {
+        const title = activeKam
+          ? `Destinations — ${nav.kamName ?? 'KAM'}`
+          : (activeDestCountry ? `Destinations — ${activeDestCountry}` : 'All Destinations');
+        return { contentEntities: dests, contentTitle: title, isFetchingContent: fetchingDests };
+      }
       case 'dest': {
         const e = dests.find(d => d.name === nav.destName);
         return { contentEntities: e ? [e] : [], contentTitle: nav.destName ?? '', isFetchingContent: fetchingDests };
@@ -534,61 +608,141 @@ export default function BitsEyePage() {
       default:
         return { contentEntities: [], contentTitle: 'BitsEye', isFetchingContent: false };
     }
-  }, [nav, countries, kams, dests, clientsData, fetchingCountries, fetchingKams, fetchingDests, fetchingClients]);
+  }, [nav, countries, kams, dests, clientsAllData, vendorsAllData, filteredClientsData,
+      fetchingCountries, fetchingKams, fetchingDests, fetchingClientsAll, fetchingVendorsAll, fetchingFilteredClients]);
 
   // Show all="grid" or single="panel"
   const showGrid = nav.type === 'country-all' || nav.type === 'kam-all' || nav.type === 'dest-all' ||
-    nav.type === 'country-clients' || nav.type === 'country-vendors';
+    nav.type === 'country-clients' || nav.type === 'country-vendors' ||
+    nav.type === 'clients-all' || nav.type === 'vendors-all' || nav.type === 'kam';
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
-  function doRefresh() {
-    setLastRefresh(Date.now());
+  // ── Drill-down helpers ─────────────────────────────────────────────────────
+  function getDrillDownForEntity(entityName: string): (() => void) | undefined {
+    if (nav.type === 'country-all' || nav.type === 'country-agg') {
+      return () => setNav({ type: 'kam-all', country: entityName });
+    }
+    if (nav.type === 'kam-all' || nav.type === 'kam-agg') {
+      return () => setNav({ type: 'dest-all', country: nav.country, kamName: entityName });
+    }
+    if (nav.type === 'kam') {
+      return () => setNav({ type: 'dest-all', country: nav.country, kamName: entityName });
+    }
+    return undefined;
+  }
+  function getDrillLabel(): string | undefined {
+    if (nav.type === 'country-all' || nav.type === 'country-agg') return 'View KAMs';
+    if (nav.type === 'kam-all' || nav.type === 'kam-agg' || nav.type === 'kam') return 'View Destinations';
+    return undefined;
   }
 
-  const isFetchingAny = fetchingCountries || fetchingKams || fetchingDests || fetchingClients;
+  // ── Sub-nav: tabs for current level ───────────────────────────────────────
+  // Returns the "peer" toggle nav: Aggregated ↔ All for current level
+  type SubNavTab = { label: string; active: boolean; onClick: () => void; icon: React.ReactNode };
+  const subNavTabs: SubNavTab[] = useMemo(() => {
+    if (nav.type === 'country-agg' || nav.type === 'country-all') {
+      return [
+        { label: 'Aggregated', active: nav.type === 'country-agg', icon: <Maximize2 className="w-3 h-3" />, onClick: () => setNav({ type: 'country-agg' }) },
+        { label: 'All',        active: nav.type === 'country-all', icon: <LayoutGrid className="w-3 h-3" />, onClick: () => setNav({ type: 'country-all' }) },
+      ];
+    }
+    if (nav.type === 'kam-agg' || nav.type === 'kam-all') {
+      return [
+        { label: 'Aggregated', active: nav.type === 'kam-agg', icon: <Maximize2 className="w-3 h-3" />, onClick: () => setNav({ ...nav, type: 'kam-agg' }) },
+        { label: 'All',        active: nav.type === 'kam-all', icon: <LayoutGrid className="w-3 h-3" />, onClick: () => setNav({ ...nav, type: 'kam-all' }) },
+      ];
+    }
+    if (nav.type === 'dest-agg' || nav.type === 'dest-all') {
+      return [
+        { label: 'Aggregated', active: nav.type === 'dest-agg', icon: <Maximize2 className="w-3 h-3" />, onClick: () => setNav({ ...nav, type: 'dest-agg' }) },
+        { label: 'All',        active: nav.type === 'dest-all', icon: <LayoutGrid className="w-3 h-3" />, onClick: () => setNav({ ...nav, type: 'dest-all' }) },
+      ];
+    }
+    return [];
+  }, [nav]);
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+  function doRefresh() { setLastRefresh(Date.now()); }
+
+  const isFetchingAny = fetchingCountries || fetchingKams || fetchingDests ||
+    fetchingClientsAll || fetchingVendorsAll || fetchingFilteredClients;
+
+  // ── Breadcrumb items ───────────────────────────────────────────────────────
+  const breadcrumbs: { label: string; onClick?: () => void }[] = useMemo(() => {
+    const crumbs: { label: string; onClick?: () => void }[] = [];
+    // Only show "Countries" root crumb when we're in the country drill-down path
+    const inCountryDrillDown = nav.type.startsWith('country') ||
+      (nav.type.startsWith('kam') && !!nav.country) ||
+      (nav.type.startsWith('dest') && !!nav.country);
+    if (inCountryDrillDown) {
+      crumbs.push({ label: 'Countries', onClick: () => setNav({ type: 'country-all' }) });
+    }
+    if (nav.country) {
+      crumbs.push({ label: nav.country, onClick: () => setNav({ type: 'kam-all', country: nav.country }) });
+    }
+    if (nav.kamName) {
+      crumbs.push({ label: nav.kamName, onClick: () => setNav({ type: 'dest-all', country: nav.country, kamName: nav.kamName }) });
+    }
+    if (nav.destName) {
+      crumbs.push({ label: nav.destName });
+    }
+    return crumbs;
+  }, [nav]);
+
+  // ── Back target ───────────────────────────────────────────────────────────
+  const backTarget = useMemo((): NavState | null => {
+    if (nav.type === 'kam-all' && nav.country)   return { type: 'country-all' };
+    if (nav.type === 'dest-all' && nav.kamName)  return { type: 'kam-all', country: nav.country };
+    if (nav.type === 'dest-all' && nav.country)  return { type: 'country-all' };
+    if (nav.type === 'dest')                     return { type: 'dest-all', country: nav.country, kamName: nav.kamName };
+    if (nav.type === 'kam')                      return { type: 'kam-all', country: nav.country };
+    if (nav.type === 'country')                  return { type: 'country-all' };
+    return null;
+  }, [nav]);
 
   return (
     <div className="flex h-full min-h-screen bg-background overflow-hidden">
-
 
       {/* ── Main content ─────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* Top bar */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40 bg-card/60 backdrop-blur-xl flex-shrink-0">
+          {/* Back button */}
+          {backTarget && (
+            <button
+              data-testid="btn-back"
+              onClick={() => setNav(backTarget)}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors text-xs"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+            </button>
+          )}
+
           <div className="flex items-center gap-2">
             <div className="bg-amber-500/15 border border-amber-500/20 p-1.5 rounded-lg">
               <BarChart3 className="w-4 h-4 text-amber-400" />
             </div>
             <div className="leading-tight">
               <span className="text-sm font-bold">BitsEye</span>
-              <span className="ml-2 text-xs text-muted-foreground/40 font-medium truncate">{contentTitle}</span>
             </div>
           </div>
 
-          {/* Breadcrumb */}
-          {nav.country && (
-            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/40 ml-2">
-              <ChevronRight className="w-3 h-3" />
-              <button
-                className="hover:text-foreground transition-colors"
-                onClick={() => setNav({ type: 'country', country: nav.country })}
-              >{nav.country}</button>
-              {nav.kamName && (
-                <>
-                  <ChevronRight className="w-3 h-3" />
-                  <button
-                    className="hover:text-foreground transition-colors"
-                    onClick={() => setNav({ type: 'kam', country: nav.country, kamName: nav.kamName })}
-                  >{nav.kamName}</button>
-                </>
-              )}
-              {nav.destName && (
-                <>
-                  <ChevronRight className="w-3 h-3" />
-                  <span className="text-muted-foreground/60 truncate max-w-[140px]">{nav.destName}</span>
-                </>
-              )}
+          {/* Breadcrumb path */}
+          {breadcrumbs.length > 0 && (
+            <div className="flex items-center gap-1 ml-1">
+              {breadcrumbs.map((crumb, i) => (
+                <span key={i} className="flex items-center gap-1">
+                  <ChevronRight className="w-3 h-3 text-muted-foreground/30" />
+                  {crumb.onClick ? (
+                    <button
+                      className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors font-medium"
+                      onClick={crumb.onClick}
+                    >{crumb.label}</button>
+                  ) : (
+                    <span className="text-[11px] text-foreground/80 font-semibold">{crumb.label}</span>
+                  )}
+                </span>
+              ))}
             </div>
           )}
 
@@ -612,6 +766,65 @@ export default function BitsEyePage() {
           </button>
         </div>
 
+        {/* Sub-navigation strip (Aggregated | All tabs + country filter for destinations) */}
+        {(subNavTabs.length > 0 || nav.type === 'dest-all') && (
+          <div className="flex items-center gap-3 px-4 py-2 border-b border-border/25 bg-muted/5 flex-shrink-0">
+            {/* Aggregated / All tabs */}
+            {subNavTabs.length > 0 && (
+              <div className="flex items-center gap-1 bg-muted/20 border border-border/30 rounded-lg p-0.5">
+                {subNavTabs.map(tab => (
+                  <button
+                    key={tab.label}
+                    onClick={tab.onClick}
+                    data-testid={`tab-${tab.label.toLowerCase()}`}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all",
+                      tab.active
+                        ? "bg-card text-foreground shadow-sm border border-border/30"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {tab.icon}
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Country filter dropdown — shown on Destinations view */}
+            {nav.type === 'dest-all' && !nav.kamName && !nav.country && countryNames.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-muted-foreground/50 font-medium">Country</span>
+                <select
+                  data-testid="select-country-filter"
+                  value={nav.destCountryFilter ?? ''}
+                  onChange={e => setNav({ ...nav, destCountryFilter: e.target.value || undefined })}
+                  className="text-xs bg-muted/20 border border-border/40 rounded-lg px-2 py-1 text-foreground focus:outline-none focus:border-primary/50 transition-colors"
+                >
+                  <option value="">All Countries</option>
+                  {countryNames.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                {nav.destCountryFilter && (
+                  <button
+                    onClick={() => setNav({ ...nav, destCountryFilter: undefined })}
+                    className="text-[10px] text-muted-foreground/50 hover:text-foreground transition-colors"
+                  >✕ Clear</button>
+                )}
+              </div>
+            )}
+
+            {/* Drill-down path hint */}
+            {(nav.type === 'country-all' || nav.type === 'country-agg') && (
+              <span className="text-[10px] text-muted-foreground/35 ml-2">Click a country card → View KAMs → View Destinations</span>
+            )}
+            {(nav.type === 'kam-all') && nav.country && (
+              <span className="text-[10px] text-muted-foreground/35 ml-2">KAMs in {nav.country} · Click a card to view destinations</span>
+            )}
+          </div>
+        )}
+
         {/* Content area */}
         <div className="flex-1 overflow-y-auto p-5">
           {nav.type === 'welcome' ? (
@@ -622,21 +835,26 @@ export default function BitsEyePage() {
               </div>
               <div>
                 <h2 className="text-xl font-bold">BitsEye Analytics</h2>
-                <p className="text-sm text-muted-foreground/50 mt-2 max-w-xs">
-                  Select a country from the sidebar to drill into call traffic by KAM and destination.
+                <p className="text-sm text-muted-foreground/50 mt-2 max-w-sm">
+                  Select a view from the sidebar. Use the Countries section to drill down:<br />
+                  <span className="text-muted-foreground/40">Country → KAMs → Destinations → Detail</span>
                 </p>
               </div>
               <div className="grid grid-cols-3 gap-4 text-center">
                 {[
-                  { label: 'Countries', value: countries.length, icon: <Globe className="w-4 h-4" /> },
-                  { label: 'KAMs', value: '-', icon: <Users className="w-4 h-4" /> },
-                  { label: 'Destinations', value: '-', icon: <Layers className="w-4 h-4" /> },
+                  { label: 'Countries', value: countries.length || '…', icon: <Globe className="w-4 h-4" />, onClick: () => setNav({ type: 'country-all' }) },
+                  { label: 'KAMs',     value: '→',                      icon: <Users className="w-4 h-4" />, onClick: () => setNav({ type: 'kam-all' }) },
+                  { label: 'Dests',    value: '→',                      icon: <Layers className="w-4 h-4" />, onClick: () => setNav({ type: 'dest-all' }) },
                 ].map(item => (
-                  <div key={item.label} className="bg-card border border-border/30 rounded-xl px-6 py-4 flex flex-col items-center gap-1">
+                  <button
+                    key={item.label}
+                    onClick={item.onClick}
+                    className="bg-card border border-border/30 rounded-xl px-6 py-4 flex flex-col items-center gap-1 hover:border-border/60 hover:bg-muted/20 transition-all"
+                  >
                     <span className="text-muted-foreground/40">{item.icon}</span>
                     <span className="text-lg font-bold">{item.value}</span>
                     <span className="text-[9px] uppercase tracking-wider text-muted-foreground/40">{item.label}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -654,6 +872,11 @@ export default function BitsEyePage() {
               <div>
                 <p className="text-base font-semibold text-muted-foreground/40">No data found</p>
                 <p className="text-sm text-muted-foreground/25 mt-1">{contentTitle}</p>
+                {(nav.type === 'country-all' || nav.type === 'country-agg') && (
+                  <p className="text-xs text-muted-foreground/20 mt-2 max-w-xs mx-auto">
+                    Country data is derived from CDR destination numbers. Data appears once calls have been processed.
+                  </p>
+                )}
               </div>
             </div>
           ) : showGrid ? (
@@ -661,10 +884,16 @@ export default function BitsEyePage() {
             <div className="space-y-5">
               {/* Summary bar */}
               <div className="flex items-center gap-4 pb-3 border-b border-border/20">
-                <span className="text-xs text-muted-foreground/50">{contentEntities.length} entities</span>
+                <span className="text-xs text-muted-foreground/50">{contentEntities.length} {
+                  nav.type === 'clients-all' ? 'clients'
+                  : nav.type === 'vendors-all' ? 'vendors'
+                  : nav.type.startsWith('country') ? 'countries'
+                  : nav.type.startsWith('kam') ? 'KAMs'
+                  : 'destinations'
+                }</span>
                 <span className="text-xs text-muted-foreground/30">·</span>
                 <span className="text-xs text-muted-foreground/50">
-                  {contentEntities.reduce((s, e) => s + e.todayCalls, 0)} calls today
+                  {contentEntities.reduce((s, e) => s + e.todayCalls, 0).toLocaleString()} calls today
                 </span>
                 <span className="text-xs text-muted-foreground/30">·</span>
                 <span className={cn("text-xs", asrColor(
@@ -674,10 +903,26 @@ export default function BitsEyePage() {
                   ASR {Math.round(contentEntities.reduce((s, e) => s + e.todayCalls * e.asr, 0) /
                     Math.max(contentEntities.reduce((s, e) => s + e.todayCalls, 0), 1))}%
                 </span>
+                {/* Show current drill context */}
+                {nav.country && (
+                  <span className="ml-auto flex items-center gap-1.5 text-[10px] text-sky-400/60 bg-sky-500/5 border border-sky-500/15 px-2 py-0.5 rounded-full">
+                    <Globe className="w-3 h-3" />{nav.country}
+                  </span>
+                )}
+                {nav.kamName && (
+                  <span className="flex items-center gap-1.5 text-[10px] text-violet-400/60 bg-violet-500/5 border border-violet-500/15 px-2 py-0.5 rounded-full">
+                    <Users className="w-3 h-3" />{nav.kamName}
+                  </span>
+                )}
               </div>
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
                 {contentEntities.map(entity => (
-                  <EntityPanel key={entity.name} entity={entity} />
+                  <EntityPanel
+                    key={entity.name}
+                    entity={entity}
+                    onDrillDown={getDrillDownForEntity(entity.name)}
+                    drillLabel={getDrillLabel()}
+                  />
                 ))}
               </div>
             </div>
