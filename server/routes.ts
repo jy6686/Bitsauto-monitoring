@@ -9993,74 +9993,135 @@ export async function registerRoutes(
   // ── Revenue & Margin Analytics ─────────────────────────────────────────────────
   app.get('/api/analytics/revenue', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
     try {
-      const days   = Math.min(Number(req.query.days) || 30, 90);
-      const toDate = new Date();
+      const days     = Math.min(Number(req.query.days) || 30, 90);
+      const toDate   = new Date();
       const fromDate = new Date(toDate.getTime() - days * 24 * 60 * 60 * 1000);
 
-      // Pull credentials from settings — env vars take priority so prod always works
-      const settings = await storage.getSettings();
-      const portalUser  = settings.portalUsername ?? '';
-      const portalPass  = settings.portalPassword ?? '';
-      const adminUser   = process.env.SIPPY_ADMIN_USERNAME || settings.apiAdminUsername || '';
-      const adminPass   = process.env.SIPPY_ADMIN_PASSWORD || settings.apiAdminPassword || '';
+      const settings   = await storage.getSettings();
+      const portalBase = sippyPortalUrl(settings);
 
-      // Fetch real Sippy stats for the date range (same source as Sippy's own stats page)
-      const statsResult = await sippy.getSippyPerAccountStats(
+      // Credential priority: env var → apiAdmin → portal login
+      const portalUser = settings.apiAdminUsername || settings.portalUsername || '';
+      const portalPass = settings.apiAdminPassword || settings.portalPassword || '';
+      const adminUser  = process.env.SIPPY_ADMIN_USERNAME || settings.portalUsername || '';
+      const adminPass  = process.env.SIPPY_ADMIN_PASSWORD || settings.portalPassword || '';
+
+      // ── Strategy 1: Try portal ASR/ACD stats (admin/reseller session) ────────
+      let statsResult = await sippy.getSippyPerAccountStats(
         portalUser, portalPass,
-        days * 24 * 60,   // periodMinutes (fallback if fromDate/toDate ignored)
+        days * 24 * 60,
         adminUser, adminPass,
         fromDate, toDate,
       );
+
+      // ── Strategy 2: If asr_acd returned no data, fall back to CDR aggregation ─
+      // scrapePortalCDRs uses /cdrs_customer.php — works with any customer session
+      const hasData = statsResult.ok && (statsResult.origTotal.amount > 0 || statsResult.origTotal.totalCalls > 0);
+
+      if (!hasData) {
+        console.log('[analytics] asr_acd returned no data — falling back to CDR aggregation');
+        // Format date for the portal CDR filter (MM/DD/YYYY HH:MM:SS)
+        const fmtPortalDate = (d: Date) => {
+          const pad = (n: number) => String(n).padStart(2, '0');
+          return `${pad(d.getMonth()+1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        };
+
+        const cdrs = await sippy.scrapePortalCDRs(
+          portalUser, portalPass,
+          portalBase,
+          {
+            limit: 1000,
+            startDate: fmtPortalDate(fromDate),
+            endDate:   fmtPortalDate(toDate),
+            callsSelect: '4',   // non-zero billed calls only
+            fallbackUsername: adminUser,
+            fallbackPassword: adminPass,
+          },
+        );
+
+        if (cdrs.length > 0) {
+          // Aggregate CDRs by clientName → revenue
+          const clientMap = new Map<string, { calls: number; secs: number; revenue: number }>();
+          for (const c of cdrs) {
+            const name = (c.clientName || 'Unknown').trim();
+            const ex   = clientMap.get(name) ?? { calls: 0, secs: 0, revenue: 0 };
+            clientMap.set(name, {
+              calls:   ex.calls   + 1,
+              secs:    ex.secs    + (c.duration || 0),
+              revenue: ex.revenue + (c.cost     || 0),
+            });
+          }
+          const totalRevFromCDR = [...clientMap.values()].reduce((s, v) => s + v.revenue, 0);
+
+          // Vendor cost from latest balance snapshot (running total Sippy tracks per vendor)
+          const latestSnap = vendorBalanceHistory.length > 0
+            ? vendorBalanceHistory[vendorBalanceHistory.length - 1] : null;
+          const totalVendorCost = latestSnap
+            ? latestSnap.vendors.reduce((s, v) => s + (v.balance || 0), 0)
+            : 0;
+
+          const byClientCDR = [...clientMap.entries()]
+            .map(([name, d]) => {
+              const revenue   = parseFloat(d.revenue.toFixed(4));
+              const costShare = totalRevFromCDR > 0 ? d.revenue / totalRevFromCDR : 0;
+              const cost      = parseFloat((costShare * totalVendorCost).toFixed(4));
+              const profit    = parseFloat((revenue - cost).toFixed(4));
+              const margin    = revenue > 0 ? parseFloat(((profit / revenue) * 100).toFixed(2)) : 0;
+              return { name, calls: d.calls, minutes: Math.round(d.secs / 60), revenue, cost, profit, margin };
+            })
+            .sort((a, b) => b.revenue - a.revenue);
+
+          const byVendorCDR = latestSnap
+            ? latestSnap.vendors
+                .filter(v => (v.balance || 0) > 0)
+                .map(v => ({ name: v.name, calls: 0, minutes: 0, cost: parseFloat((v.balance || 0).toFixed(4)) }))
+            : [];
+
+          const totalCost   = parseFloat(totalVendorCost.toFixed(4));
+          const totalProfit = parseFloat((totalRevFromCDR - totalVendorCost).toFixed(4));
+          const totalMargin = totalRevFromCDR > 0 ? parseFloat(((totalRevFromCDR - totalVendorCost) / totalRevFromCDR * 100).toFixed(2)) : 0;
+
+          return res.json({
+            period: { days, since: fromDate.toISOString() },
+            summary: {
+              totalRevenue: parseFloat(totalRevFromCDR.toFixed(4)),
+              totalCost,
+              totalProfit,
+              margin: totalMargin,
+            },
+            byClient: byClientCDR,
+            byVendor: byVendorCDR,
+            vendorDataLimited: totalVendorCost === 0,
+            _source: 'cdr-aggregation',
+          });
+        }
+        // If CDR scraping also returned nothing, fall through with empty data
+      }
 
       if (!statsResult.ok) {
         return res.status(502).json({ message: statsResult.error ?? 'Failed to fetch Sippy stats.' });
       }
 
+      // ── Build response from asr_acd stats ────────────────────────────────────
       const vendorDataLimited = statsResult.vendorDataLimited ?? false;
-
-      // Build byClient from origination rows (amount = revenue charged to customer)
-      // Distribute total vendor cost proportionally across clients by their revenue share
-      const totalRevenue    = statsResult.origTotal.amount;
-
-      // If vendor data is limited (customer session only), pull vendor cost from CDR cache
-      // as a fallback — cost = vendor balance snapshots (last known vendor spend)
-      let totalVendorCost = statsResult.termTotal.amount;
-      if (vendorDataLimited || totalVendorCost === 0) {
-        // Use CDR cache: sum of all `cost` values represents what customers were billed.
-        // For vendor cost, fall back to 0 — it's unknown without admin access.
-        totalVendorCost = 0;
-      }
+      const totalRevenue      = statsResult.origTotal.amount;
+      const totalVendorCost   = statsResult.termTotal.amount;
 
       const byClient = statsResult.clients
         .filter(r => r.amount > 0 || r.totalCalls > 0)
         .map(r => {
-          const revenue = parseFloat(r.amount.toFixed(4));
-          // Allocate vendor cost proportional to this client's revenue share
-          const costShare = totalRevenue > 0 ? (r.amount / totalRevenue) : 0;
+          const revenue   = parseFloat(r.amount.toFixed(4));
+          const costShare = totalRevenue > 0 ? r.amount / totalRevenue : 0;
           const cost      = parseFloat((costShare * totalVendorCost).toFixed(4));
           const profit    = parseFloat((revenue - cost).toFixed(4));
           const margin    = revenue > 0 ? parseFloat(((profit / revenue) * 100).toFixed(2)) : 0;
-          return {
-            name:    r.name,
-            calls:   r.totalCalls,
-            minutes: Math.round(r.durationSec / 60),
-            revenue,
-            cost,
-            profit,
-            margin,
-          };
+          return { name: r.name, calls: r.totalCalls, minutes: Math.round(r.durationSec / 60), revenue, cost, profit, margin };
         })
         .sort((a, b) => b.revenue - a.revenue);
 
-      // Build byVendor from termination rows (amount = vendor interconnect cost)
       const byVendor = statsResult.vendors
         .filter(r => r.amount > 0 || r.totalCalls > 0)
-        .map(r => ({
-          name:    r.name,
-          calls:   r.totalCalls,
-          minutes: Math.round(r.durationSec / 60),
-          cost:    parseFloat(r.amount.toFixed(4)),
-        }))
+        .map(r => ({ name: r.name, calls: r.totalCalls, minutes: Math.round(r.durationSec / 60), cost: parseFloat(r.amount.toFixed(4)) }))
         .sort((a, b) => b.cost - a.cost);
 
       const totalCost   = parseFloat(totalVendorCost.toFixed(4));
