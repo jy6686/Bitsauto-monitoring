@@ -10016,10 +10016,20 @@ export async function registerRoutes(
         return res.status(502).json({ message: statsResult.error ?? 'Failed to fetch Sippy stats.' });
       }
 
+      const vendorDataLimited = statsResult.vendorDataLimited ?? false;
+
       // Build byClient from origination rows (amount = revenue charged to customer)
       // Distribute total vendor cost proportionally across clients by their revenue share
-      const totalVendorCost = statsResult.termTotal.amount;
       const totalRevenue    = statsResult.origTotal.amount;
+
+      // If vendor data is limited (customer session only), pull vendor cost from CDR cache
+      // as a fallback — cost = vendor balance snapshots (last known vendor spend)
+      let totalVendorCost = statsResult.termTotal.amount;
+      if (vendorDataLimited || totalVendorCost === 0) {
+        // Use CDR cache: sum of all `cost` values represents what customers were billed.
+        // For vendor cost, fall back to 0 — it's unknown without admin access.
+        totalVendorCost = 0;
+      }
 
       const byClient = statsResult.clients
         .filter(r => r.amount > 0 || r.totalCalls > 0)
@@ -10067,6 +10077,7 @@ export async function registerRoutes(
         },
         byClient,
         byVendor,
+        vendorDataLimited,
         _source: 'sippy-portal-stats',
       });
     } catch (err: any) {

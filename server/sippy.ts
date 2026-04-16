@@ -645,14 +645,15 @@ export interface SippyAccountStatRow {
 }
 
 export interface SippyPerAccountStats {
-  ok:           boolean;
-  period:       string;
-  fetchedAt:    string;
-  clients:      SippyAccountStatRow[];   // origination rows (per customer/caller)
-  vendors:      SippyAccountStatRow[];   // termination rows (per vendor/connection)
-  origTotal:    SippyAccountStatRow;
-  termTotal:    SippyAccountStatRow;
-  error?:       string;
+  ok:                 boolean;
+  period:             string;
+  fetchedAt:          string;
+  clients:            SippyAccountStatRow[];   // origination rows (per customer/caller)
+  vendors:            SippyAccountStatRow[];   // termination rows (per vendor/connection)
+  origTotal:          SippyAccountStatRow;
+  termTotal:          SippyAccountStatRow;
+  vendorDataLimited?: boolean;   // true when only customer session was available (no admin/reseller)
+  error?:             string;
 }
 
 const EMPTY_ROW: SippyAccountStatRow = {
@@ -774,15 +775,23 @@ export async function getSippyPerAccountStats(
   }
 
   try {
-    // ── Step 1: Get admin portal session (cached — re-logins at most every 5 min) ──
-    // Try fallback (ssp-root = apiAdminUsername) first as admin, then portalUsername (RTST1).
-    // Admin login is required to see actual vendor termination costs on /asr_acd.php.
-    const cookies = await getAdminPortalSession(
+    // ── Step 1: Get portal session ────────────────────────────────────────────
+    // Prefer admin/reseller (shows correct vendor termination costs).
+    // Fall back to any session (customer) so we still return origination revenue.
+    let cookies = await getAdminPortalSession(
       base,
       fallbackUsername ?? '', fallbackPassword ?? '',  // ssp-root / apiAdminUsername first
       portalUsername, portalPassword,                   // RTST1 / portalUsername second
     );
-    if (!cookies) return FAIL('Portal login failed: no admin/reseller session available. Vendor cost unavailable.');
+    let vendorDataFull = true;
+    if (!cookies) {
+      // Try any session (customer login) — origination amounts will be correct,
+      // termination/vendor costs will be zero or unavailable.
+      cookies = await getAnyPortalSession(base, [portalUsername, portalPassword] as [string, string]);
+      vendorDataFull = false;
+      if (!cookies) return FAIL('Portal login failed: unable to log in with any credentials.');
+      console.log('[Sippy] getSippyPerAccountStats: using customer session — vendor cost unavailable');
+    }
 
     // ── Step 2: POST /asr_acd.php with correct form parameters ─────────────
     // orig_disp=1 → group by Caller (account)
@@ -840,13 +849,14 @@ export async function getSippyPerAccountStats(
     const { origRows, termRows } = scrapeAsrAcdRows(acrHtml);
 
     return {
-      ok:          true,
-      period:      `${periodMinutes} min`,
-      fetchedAt:   new Date().toISOString(),
-      clients:     origRows,
-      vendors:     termRows,
-      origTotal:   sumRows(origRows, 'revenue'),
-      termTotal:   sumRows(termRows, 'cost'),
+      ok:               true,
+      period:           `${periodMinutes} min`,
+      fetchedAt:        new Date().toISOString(),
+      clients:          origRows,
+      vendors:          termRows,
+      origTotal:        sumRows(origRows, 'revenue'),
+      termTotal:        sumRows(termRows, 'cost'),
+      vendorDataLimited: !vendorDataFull,
     };
   } catch (e: any) {
     return FAIL(e.message ?? 'Unknown error fetching per-account stats.');

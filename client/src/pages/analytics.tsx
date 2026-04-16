@@ -41,6 +41,7 @@ type AnalyticsData = {
   summary: RevenueSummary;
   byClient: ClientRow[];
   byVendor: VendorRow[];
+  vendorDataLimited?: boolean;
 };
 
 const PERIOD_OPTIONS = [
@@ -138,11 +139,14 @@ export default function AnalyticsPage() {
       {error && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 px-4 py-3 text-sm">
           <span className="font-medium">Unable to load analytics: </span>{(error as Error).message}
-          {(error as Error).message?.includes('Portal login') && (
-            <span className="block mt-1 text-red-300">
-              Ensure API Admin credentials are configured in Settings → API Admin Username/Password.
-            </span>
-          )}
+        </div>
+      )}
+
+      {data?.vendorDataLimited && !error && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-400 px-4 py-3 text-sm">
+          <span className="font-medium">Revenue data only — vendor cost unavailable.</span>{" "}
+          To see accurate vendor interconnect costs, add your Sippy admin credentials in{" "}
+          <span className="font-medium">Settings → API Admin Username / Password</span>.
         </div>
       )}
 
