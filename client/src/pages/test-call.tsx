@@ -138,6 +138,10 @@ export default function TestCallPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  const callErrorMsg = callResult?.message?.toLowerCase() ?? '';
+  const isModuleError = !callResult?.success && callResult?.errorType === 'call_error' &&
+    (callErrorMsg.includes('callback module') || callErrorMsg.includes('module is not available') || callErrorMsg.includes('not available'));
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
@@ -306,14 +310,38 @@ export default function TestCallPage() {
                     </div>
                   )}
 
-                  {!callResult.success && callResult.errorType === 'call_error' && (
+                  {!callResult.success && callResult.errorType === 'call_error' && isModuleError && (
+                    <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+                      <p className="text-xs font-semibold text-amber-400 flex items-center gap-2">
+                        <WrenchIcon className="h-3.5 w-3.5" /> Callback module not enabled on this Sippy switch
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Sippy returned: <em className="text-foreground/70">&ldquo;{callResult.message}&rdquo;</em>
+                      </p>
+                      <p className="text-xs font-semibold text-foreground/60">To enable in Sippy Admin:</p>
+                      <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
+                        <li>Log in to Sippy as a system administrator</li>
+                        <li>Go to <strong className="text-foreground/70">Applications → Callback</strong> (or <strong className="text-foreground/70">System → Applications</strong>)</li>
+                        <li>Enable the <strong className="text-foreground/70">Callback</strong> application / module</li>
+                        <li>Ensure the billing account selected has <strong className="text-foreground/70">Callback service</strong> enabled under its plan</li>
+                      </ol>
+                      <p className="text-xs text-muted-foreground">
+                        Alternatively, ask your Sippy reseller or Sippy support to activate the Callback module on this switch.
+                      </p>
+                    </div>
+                  )}
+
+                  {!callResult.success && callResult.errorType === 'call_error' && !isModuleError && (
                     <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/5 p-4 space-y-2">
                       <p className="text-xs font-semibold text-rose-400 flex items-center gap-2">
                         <ShieldAlert className="h-3.5 w-3.5" /> Sippy rejected the callback request
                       </p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
+                        Sippy fault: <em className="text-foreground/70">&ldquo;{callResult.message}&rdquo;</em>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
                         Common reasons: the <code className="bg-background px-1 rounded font-mono">authname</code> account doesn't exist or has no credit,
-                        no route for this destination, the CLI/CLD is blocked, or the account has call limits. Check your Sippy admin portal for details.
+                        no route for this destination, the CLI/CLD is blocked, or the account has call limits.
                       </p>
                     </div>
                   )}
