@@ -212,11 +212,17 @@ export default function TestCallPage() {
                     <div className="text-muted-foreground">Admin API Username</div>
                     <div className="text-emerald-400">{swappedPortalUser || 'ssp-root'}</div>
                     <div className="text-muted-foreground">Admin API Password</div>
-                    <div className="text-emerald-400">!chiaan1 <span className="font-sans text-muted-foreground/60">(XML-RPC API pass)</span></div>
+                    <div className="text-emerald-400 flex items-center gap-1.5">
+                      <span className="tracking-widest">••••••••</span>
+                      <span className="font-sans text-muted-foreground/60 text-[10px]">(your XML-RPC API pass from My Preferences)</span>
+                    </div>
                     <div className="text-muted-foreground">Portal Username</div>
                     <div className="text-emerald-400">{apiAdminUser} <span className="font-sans text-muted-foreground/60">(CDR scraping)</span></div>
                     <div className="text-muted-foreground">Portal Password</div>
-                    <div className="text-emerald-400">abcd@1234</div>
+                    <div className="text-emerald-400 flex items-center gap-1.5">
+                      <span className="tracking-widest">••••••••</span>
+                      <span className="font-sans text-muted-foreground/60 text-[10px]">(your Sippy web password)</span>
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
