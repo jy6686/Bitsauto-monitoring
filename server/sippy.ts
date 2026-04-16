@@ -758,6 +758,8 @@ export async function getSippyPerAccountStats(
   periodMinutes = 90,
   fallbackUsername?: string,
   fallbackPassword?: string,
+  fromDate?: Date,
+  toDate?: Date,
 ): Promise<SippyPerAccountStats> {
   const FAIL = (error: string): SippyPerAccountStats => ({
     ok: false, period: `${periodMinutes} min`, fetchedAt: new Date().toISOString(),
@@ -785,8 +787,8 @@ export async function getSippyPerAccountStats(
     // ── Step 2: POST /asr_acd.php with correct form parameters ─────────────
     // orig_disp=1 → group by Caller (account)
     // term_disp=2 → group by Connection (vendor/connection)
-    const now   = new Date();
-    const start = new Date(now.getTime() - periodMinutes * 60_000);
+    const now   = toDate ?? new Date();
+    const start = fromDate ?? new Date(now.getTime() - periodMinutes * 60_000);
 
     const postBody = encodeForm({
       startDate:        formatSippyPortalDate(start),

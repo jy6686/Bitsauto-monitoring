@@ -9993,99 +9993,81 @@ export async function registerRoutes(
   // ── Revenue & Margin Analytics ─────────────────────────────────────────────────
   app.get('/api/analytics/revenue', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
     try {
-      const days = Math.min(Number(req.query.days) || 30, 90);
-      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-      const profiles = await storage.getClientProfiles();
-      const clientMap = new Map<string, { ratePerMin: number; revenuePerMin?: number | null; type: string }>();
-      for (const p of profiles) {
-        clientMap.set(p.name.toLowerCase(), {
-          ratePerMin: p.ratePerMin ?? 0.025,
-          revenuePerMin: p.revenuePerMin,
-          type: p.type,
-        });
-      }
-      const { db: dbConn } = await import('./db');
-      const { callSnapshots: csTable } = await import('@shared/schema');
-      const { sql: sqlExpr, gte: gteOp } = await import('drizzle-orm');
-      // Use call_snapshots for enriched call data
-      const snapRows = await dbConn.select({
-        clientName: csTable.clientName,
-        vendor: csTable.vendor,
-        totalCalls: sqlExpr<number>`COUNT(*)`,
-        totalSecs: sqlExpr<number>`SUM(${csTable.maxDurationSecs})`,
-      })
-      .from(csTable)
-      .where(gteOp(csTable.firstSeen, since))
-      .groupBy(csTable.clientName, csTable.vendor);
+      const days   = Math.min(Number(req.query.days) || 30, 90);
+      const toDate = new Date();
+      const fromDate = new Date(toDate.getTime() - days * 24 * 60 * 60 * 1000);
 
-      // Aggregate by client
-      const clientAgg = new Map<string, { calls: number; secs: number; revenue: number; cost: number }>();
-      for (const row of snapRows) {
-        const name = row.clientName ?? 'Unknown';
-        const minutes = (Number(row.totalSecs) || 0) / 60;
-        const profile = clientMap.get(name.toLowerCase());
-        const ratePerMin = profile?.revenuePerMin ?? profile?.ratePerMin ?? 0.025;
-        // Cost: look up vendor profile
-        const vendorProfile = clientMap.get((row.vendor ?? '').toLowerCase());
-        const costPerMin = vendorProfile?.ratePerMin ?? 0.012;
-        const revenue = minutes * ratePerMin;
-        const cost = minutes * costPerMin;
-        const existing = clientAgg.get(name) ?? { calls: 0, secs: 0, revenue: 0, cost: 0 };
-        clientAgg.set(name, {
-          calls: existing.calls + Number(row.totalCalls),
-          secs: existing.secs + Number(row.totalSecs),
-          revenue: existing.revenue + revenue,
-          cost: existing.cost + cost,
-        });
+      // Pull credentials from settings
+      const settings = await storage.getSettings();
+      const portalUser  = settings.portalUsername ?? '';
+      const portalPass  = settings.portalPassword ?? '';
+      const adminUser   = settings.apiAdminUsername ?? '';
+      const adminPass   = settings.apiAdminPassword ?? '';
+
+      // Fetch real Sippy stats for the date range (same source as Sippy's own stats page)
+      const statsResult = await sippy.getSippyPerAccountStats(
+        portalUser, portalPass,
+        days * 24 * 60,   // periodMinutes (fallback if fromDate/toDate ignored)
+        adminUser, adminPass,
+        fromDate, toDate,
+      );
+
+      if (!statsResult.ok) {
+        return res.status(502).json({ message: statsResult.error ?? 'Failed to fetch Sippy stats.' });
       }
-      const byClient = Array.from(clientAgg.entries())
-        .map(([name, d]) => ({
-          name,
-          calls: d.calls,
-          minutes: Math.round(d.secs / 60),
-          revenue: parseFloat(d.revenue.toFixed(4)),
-          cost: parseFloat(d.cost.toFixed(4)),
-          profit: parseFloat((d.revenue - d.cost).toFixed(4)),
-          margin: d.revenue > 0 ? parseFloat(((d.revenue - d.cost) / d.revenue * 100).toFixed(2)) : 0,
-        }))
+
+      // Build byClient from origination rows (amount = revenue charged to customer)
+      // Distribute total vendor cost proportionally across clients by their revenue share
+      const totalVendorCost = statsResult.termTotal.amount;
+      const totalRevenue    = statsResult.origTotal.amount;
+
+      const byClient = statsResult.clients
+        .filter(r => r.amount > 0 || r.totalCalls > 0)
+        .map(r => {
+          const revenue = parseFloat(r.amount.toFixed(4));
+          // Allocate vendor cost proportional to this client's revenue share
+          const costShare = totalRevenue > 0 ? (r.amount / totalRevenue) : 0;
+          const cost      = parseFloat((costShare * totalVendorCost).toFixed(4));
+          const profit    = parseFloat((revenue - cost).toFixed(4));
+          const margin    = revenue > 0 ? parseFloat(((profit / revenue) * 100).toFixed(2)) : 0;
+          return {
+            name:    r.name,
+            calls:   r.totalCalls,
+            minutes: Math.round(r.durationSec / 60),
+            revenue,
+            cost,
+            profit,
+            margin,
+          };
+        })
         .sort((a, b) => b.revenue - a.revenue);
 
-      // Aggregate by vendor for cost breakdown
-      const vendorAgg = new Map<string, { calls: number; secs: number; cost: number }>();
-      for (const row of snapRows) {
-        const name = row.vendor ?? 'Unknown';
-        const minutes = (Number(row.totalSecs) || 0) / 60;
-        const profile = clientMap.get(name.toLowerCase());
-        const costPerMin = profile?.ratePerMin ?? 0.012;
-        const cost = minutes * costPerMin;
-        const existing = vendorAgg.get(name) ?? { calls: 0, secs: 0, cost: 0 };
-        vendorAgg.set(name, {
-          calls: existing.calls + Number(row.totalCalls),
-          secs: existing.secs + Number(row.totalSecs),
-          cost: existing.cost + cost,
-        });
-      }
-      const byVendor = Array.from(vendorAgg.entries())
-        .map(([name, d]) => ({
-          name, calls: d.calls, minutes: Math.round(d.secs / 60), cost: parseFloat(d.cost.toFixed(4)),
+      // Build byVendor from termination rows (amount = vendor interconnect cost)
+      const byVendor = statsResult.vendors
+        .filter(r => r.amount > 0 || r.totalCalls > 0)
+        .map(r => ({
+          name:    r.name,
+          calls:   r.totalCalls,
+          minutes: Math.round(r.durationSec / 60),
+          cost:    parseFloat(r.amount.toFixed(4)),
         }))
         .sort((a, b) => b.cost - a.cost);
 
-      const totalRevenue = byClient.reduce((s, c) => s + c.revenue, 0);
-      const totalCost    = byClient.reduce((s, c) => s + c.cost,    0);
-      const totalProfit  = totalRevenue - totalCost;
-      const totalMargin  = totalRevenue > 0 ? (totalProfit / totalRevenue * 100) : 0;
+      const totalCost   = parseFloat(totalVendorCost.toFixed(4));
+      const totalProfit = parseFloat((totalRevenue - totalVendorCost).toFixed(4));
+      const totalMargin = totalRevenue > 0 ? parseFloat(((totalRevenue - totalVendorCost) / totalRevenue * 100).toFixed(2)) : 0;
 
       res.json({
-        period: { days, since: since.toISOString() },
+        period: { days, since: fromDate.toISOString() },
         summary: {
           totalRevenue: parseFloat(totalRevenue.toFixed(4)),
-          totalCost:    parseFloat(totalCost.toFixed(4)),
-          totalProfit:  parseFloat(totalProfit.toFixed(4)),
-          margin:       parseFloat(totalMargin.toFixed(2)),
+          totalCost,
+          totalProfit,
+          margin: totalMargin,
         },
         byClient,
         byVendor,
+        _source: 'sippy-portal-stats',
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

@@ -71,10 +71,16 @@ function SummaryCard({ label, value, sub, icon, color }: { label: string; value:
 export default function AnalyticsPage() {
   const [days, setDays] = useState(30);
 
-  const { data, isLoading, refetch, isFetching } = useQuery<AnalyticsData>({
+  const { data, isLoading, refetch, isFetching, error } = useQuery<AnalyticsData>({
     queryKey: ["/api/analytics/revenue", days],
-    queryFn: () => fetch(`/api/analytics/revenue?days=${days}`).then(r => r.json()),
+    queryFn: async () => {
+      const r = await fetch(`/api/analytics/revenue?days=${days}`);
+      const json = await r.json();
+      if (!r.ok) throw new Error(json.message ?? 'Failed to load analytics');
+      return json;
+    },
     refetchOnWindowFocus: false,
+    retry: 1,
   });
 
   const summary = data?.summary;
@@ -106,7 +112,7 @@ export default function AnalyticsPage() {
             Revenue &amp; Margin Analytics
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            P&amp;L breakdown by client and vendor — powered by call snapshots and profile rates
+            P&amp;L breakdown by client and vendor — sourced directly from Sippy Softswitch
           </p>
         </div>
         <div className="flex gap-2 items-center">
@@ -128,6 +134,17 @@ export default function AnalyticsPage() {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 px-4 py-3 text-sm">
+          <span className="font-medium">Unable to load analytics: </span>{(error as Error).message}
+          {(error as Error).message?.includes('Portal login') && (
+            <span className="block mt-1 text-red-300">
+              Ensure API Admin credentials are configured in Settings → API Admin Username/Password.
+            </span>
+          )}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-center text-muted-foreground py-16">Loading analytics…</div>
