@@ -9997,12 +9997,12 @@ export async function registerRoutes(
       const toDate = new Date();
       const fromDate = new Date(toDate.getTime() - days * 24 * 60 * 60 * 1000);
 
-      // Pull credentials from settings
+      // Pull credentials from settings — env vars take priority so prod always works
       const settings = await storage.getSettings();
       const portalUser  = settings.portalUsername ?? '';
       const portalPass  = settings.portalPassword ?? '';
-      const adminUser   = settings.apiAdminUsername ?? '';
-      const adminPass   = settings.apiAdminPassword ?? '';
+      const adminUser   = process.env.SIPPY_ADMIN_USERNAME || settings.apiAdminUsername || '';
+      const adminPass   = process.env.SIPPY_ADMIN_PASSWORD || settings.apiAdminPassword || '';
 
       // Fetch real Sippy stats for the date range (same source as Sippy's own stats page)
       const statsResult = await sippy.getSippyPerAccountStats(
