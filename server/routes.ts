@@ -1498,6 +1498,23 @@ export async function registerRoutes(
     res.json(sippy.getSippySessionStatus());
   });
 
+  // GET /api/sippy/methods — list all XML-RPC methods available on this switch (diagnostic)
+  app.get('/api/sippy/methods', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+      const result = await sippy.listAvailableMethods(username, password, portalUrl);
+      const callMethods = result.methods.filter(m =>
+        m.toLowerCase().includes('call') || m.toLowerCase().includes('originate') || m.toLowerCase().includes('callback')
+      );
+      res.json({ ...result, callMethods });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // DELETE /api/sippy/session — disconnect Sippy session
   app.delete('/api/sippy/session', (_req, res) => {
     sippy.clearSippySession();

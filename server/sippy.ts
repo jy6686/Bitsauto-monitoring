@@ -1458,6 +1458,14 @@ export async function makeCall(
         return { success: true, callId, message: `Call initiated via ${method} — ID: ${callId}` };
       }
 
+      // HTTP 500 with non-XML body = method crashes the XML-RPC handler (module not installed/enabled)
+      // Treat as "not available" and try the next method name rather than stopping
+      if (resp.statusCode >= 500 && !text.includes('<?xml') && !text.includes('<methodResponse>')) {
+        console.log(`[Sippy] ${method} returned HTTP ${resp.statusCode} (non-XML body) — module not enabled, trying next…`);
+        methodsNotFound++;
+        continue;
+      }
+
       const fault = extractFaultString(text);
       const faultMsg = fault?.replace(/<[^>]+>/g, '').trim() || '';
 
@@ -1468,7 +1476,7 @@ export async function makeCall(
         continue;
       }
 
-      // Any other fault (routing, credit, permissions, etc.) — return immediately
+      // Any other XML-RPC fault (routing, credit, permissions, etc.) — return immediately
       return { success: false, message: faultMsg || `HTTP ${resp.statusCode}`, errorType: 'call_error', apiUser: u };
     } catch (err: any) {
       return { success: false, message: err.message, errorType: 'call_error', apiUser: u };
@@ -1480,10 +1488,9 @@ export async function makeCall(
     errorType: 'method_not_found',
     apiUser: u,
     message:
-      `makeCall is not enabled for API user "${u}" — the Sippy switch rejected all ${methodsNotFound} call origination method names. ` +
-      `In Sippy Admin go to: Customers → ${u} → Advanced Parameters → check "Allow makeCall via API", ` +
-      `OR go to System → Administrators → ssp-root → enable XML-RPC call origination. ` +
-      `The customer "${u}" already has "Allow API Calls" ticked — the next step is enabling the specific makeCall permission.`,
+      `Call origination is not available via XML-RPC on this Sippy switch (all ${methodsNotFound} method names returned server errors). ` +
+      `To enable it: in Sippy Admin go to System → Administrators → ${u} → API Access tab and enable "Allow XML-RPC call origination". ` +
+      `If the option is missing, the Call Origination or Callback module may need to be activated at the system level (System → Applications).`,
   };
 }
 
@@ -14383,6 +14390,13 @@ export async function make2WayCallback(
         success:          true,
         iCallbackRequest: m['i_callback_request'] ? parseInt(m['i_callback_request'], 10) : undefined,
         message:          'Callback initiated.',
+      };
+    }
+    // HTTP 500 with non-XML body = Callback module not enabled/installed on this Sippy switch
+    if (resp.statusCode >= 500 && !text.includes('<?xml') && !text.includes('<methodResponse>')) {
+      return {
+        success: false,
+        message: `Callback module not enabled on this Sippy switch (HTTP ${resp.statusCode}). Enable the Callback Application in Sippy Admin: System → Applications → Callback → Enable.`,
       };
     }
     // Extract and clean the Sippy fault string

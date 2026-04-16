@@ -155,7 +155,10 @@ export default function TestCallPage() {
   const isNotConfigured = !callResult?.success && (
     callErrorMsg.includes('callback module') ||
     callErrorMsg.includes('module is not available') ||
+    callErrorMsg.includes('module not enabled') ||
+    callErrorMsg.includes('not available via xml-rpc') ||
     callErrorMsg.includes('method not found') ||
+    callErrorMsg.includes('server errors') ||
     callResult?.errorType === 'method_not_found' ||
     callResult?.errorType === 'not_connected'
   );
@@ -416,17 +419,17 @@ export default function TestCallPage() {
                   {!callResult.success && isModuleError && (
                     <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
                       <p className="text-xs font-semibold text-amber-400 flex items-center gap-2">
-                        <WrenchIcon className="h-3.5 w-3.5" /> All call origination methods failed
+                        <WrenchIcon className="h-3.5 w-3.5" /> Call Origination module not enabled on this Sippy switch
                       </p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        Sippy returned: <em className="text-foreground/70">&ldquo;{callResult.message}&rdquo;</em>
+                        The switch returned a server error (HTTP 500) for all call origination methods — this means the feature is not installed or not enabled at the system level.
                       </p>
-                      <p className="text-xs font-semibold text-foreground/60">To enable direct call origination in Sippy Admin:</p>
+                      <p className="text-xs font-semibold text-foreground/60">Steps to enable in Sippy Admin:</p>
                       <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
                         <li>Log in to Sippy as a system administrator</li>
-                        <li>Go to <strong className="text-foreground/70">System → Administrators</strong> and open the API admin user</li>
-                        <li>Under <strong className="text-foreground/70">API Access</strong>, enable <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
-                        <li>Alternatively go to <strong className="text-foreground/70">Applications → Callback</strong> and enable the Callback module if you want 2-way callback</li>
+                        <li>Go to <strong className="text-foreground/70">System → Applications</strong> and enable the <strong className="text-foreground/70">Callback</strong> application</li>
+                        <li>Then go to <strong className="text-foreground/70">System → Administrators</strong>, open the API admin user, and under <strong className="text-foreground/70">API Access</strong> enable <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
+                        <li>If the above option does not appear, contact Sippy support to enable the Call Origination feature on your license</li>
                       </ol>
                     </div>
                   )}
