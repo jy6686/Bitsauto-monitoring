@@ -140,15 +140,18 @@ function aggregateEntities(entities: EntityData[], name = 'All Aggregated'): Ent
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const labelMap: Record<string, string> = {
-    total_calls: 'Total', connected_calls: 'Connected', concurrent_calls: 'Live',
+    total_calls: 'Total Calls', connected_calls: 'Connected', concurrent_calls: 'Live',
   };
   return (
-    <div className="rounded-lg border border-border/60 bg-card/95 backdrop-blur px-3 py-2 text-xs shadow-xl z-50">
-      <p className="font-medium text-muted-foreground mb-1.5 truncate max-w-[180px]">{label}</p>
+    <div className="rounded-xl border border-border/50 bg-card/98 backdrop-blur-md px-3.5 py-2.5 text-xs shadow-2xl z-50 min-w-[140px]">
+      <p className="font-semibold text-muted-foreground/70 mb-2 truncate max-w-[180px] text-[10px] uppercase tracking-wide">{label}</p>
       {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center justify-between gap-4">
-          <span style={{ color: p.color }}>{labelMap[p.dataKey] ?? p.dataKey}</span>
-          <span className="font-mono font-semibold text-foreground">{p.value}</span>
+        <div key={p.dataKey} className="flex items-center justify-between gap-5 py-0.5">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-sm inline-block flex-shrink-0" style={{ backgroundColor: p.color }} />
+            <span className="text-muted-foreground/70">{labelMap[p.dataKey] ?? p.dataKey}</span>
+          </span>
+          <span className="font-mono font-bold text-foreground tabular-nums">{p.value}</span>
         </div>
       ))}
     </div>
@@ -169,69 +172,84 @@ function LargeChart({
 }) {
   const hasData = data.some(d => d[keyA] > 0 || d[keyB] > 0);
   const ticks = data.length > 10
-    ? data.filter((_, i) => i % Math.ceil(data.length / 8) === 0).map(d => d.label)
+    ? data.filter((_, i) => i % Math.ceil(data.length / 6) === 0).map(d => d.label)
     : data.map(d => d.label);
   return (
-    <div className="flex flex-col gap-2">
-      <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50">{title}</p>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">{title}</p>
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-[9px] text-muted-foreground/60">
+            <span className="w-4 h-1 rounded-full inline-block" style={{ backgroundColor: colorA }} />{labelA}
+          </span>
+          <span className="flex items-center gap-1.5 text-[9px] text-muted-foreground/60">
+            <span className="w-4 h-1 rounded-full inline-block" style={{ backgroundColor: colorB }} />{labelB}
+          </span>
+        </div>
+      </div>
       {!hasData ? (
         <div className="h-44 flex items-center justify-center border border-dashed border-border/20 rounded-xl text-xs text-muted-foreground/25">
           No data
         </div>
       ) : (
-        <div style={{ position: 'relative', width: '100%', height: 176 }}>
+        <div style={{ position: 'relative', width: '100%', height: 188 }}>
           <div style={{ position: 'absolute', inset: 0 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data} margin={{ top: 4, right: 8, left: -28, bottom: 0 }}>
+              <AreaChart data={data} margin={{ top: 6, right: 4, left: -24, bottom: 0 }}>
                 <defs>
                   <linearGradient id={gradientA} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={colorA} stopOpacity={0.25} />
-                    <stop offset="95%" stopColor={colorA} stopOpacity={0.02} />
+                    <stop offset="0%"   stopColor={colorA} stopOpacity={0.45} />
+                    <stop offset="75%"  stopColor={colorA} stopOpacity={0.08} />
+                    <stop offset="100%" stopColor={colorA} stopOpacity={0.0} />
                   </linearGradient>
                   <linearGradient id={gradientB} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={colorB} stopOpacity={0.20} />
-                    <stop offset="95%" stopColor={colorB} stopOpacity={0.02} />
+                    <stop offset="0%"   stopColor={colorB} stopOpacity={0.40} />
+                    <stop offset="75%"  stopColor={colorB} stopOpacity={0.07} />
+                    <stop offset="100%" stopColor={colorB} stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border)/0.15)" />
+                <CartesianGrid
+                  horizontal={true} vertical={false}
+                  stroke="rgba(255,255,255,0.05)"
+                  strokeDasharray="0"
+                />
                 <XAxis
                   dataKey="label"
                   ticks={ticks}
-                  tick={{ fontSize: 7, fill: 'hsl(var(--muted-foreground)/0.5)' }}
+                  tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.5)', fontFamily: 'monospace' }}
                   tickLine={false} axisLine={false}
                   interval="preserveStartEnd"
                 />
                 <YAxis
-                  tick={{ fontSize: 7, fill: 'hsl(var(--muted-foreground)/0.5)' }}
+                  tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.5)', fontFamily: 'monospace' }}
                   tickLine={false} axisLine={false}
-                  allowDecimals={false} width={26}
+                  allowDecimals={false} width={28}
                 />
-                <Tooltip content={<ChartTooltip />} />
+                <Tooltip
+                  content={<ChartTooltip />}
+                  cursor={{ stroke: 'rgba(148,163,184,0.2)', strokeWidth: 1, strokeDasharray: '4 2' }}
+                />
                 <Area
                   type="monotone" dataKey={keyA}
-                  stroke={colorA} strokeWidth={2}
+                  stroke={colorA} strokeWidth={2.5}
                   fill={`url(#${gradientA})`}
-                  dot={false} activeDot={{ r: 3 }}
+                  dot={false}
+                  activeDot={{ r: 4, fill: colorA, stroke: 'hsl(var(--card))', strokeWidth: 2 }}
+                  strokeLinejoin="round" strokeLinecap="round"
                 />
                 <Area
                   type="monotone" dataKey={keyB}
-                  stroke={colorB} strokeWidth={1.5}
+                  stroke={colorB} strokeWidth={2}
                   fill={`url(#${gradientB})`}
-                  dot={false} activeDot={{ r: 2 }}
+                  dot={false}
+                  activeDot={{ r: 3.5, fill: colorB, stroke: 'hsl(var(--card))', strokeWidth: 2 }}
+                  strokeLinejoin="round" strokeLinecap="round"
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
-      <div className="flex items-center gap-3 px-0.5">
-        <span className="flex items-center gap-1 text-[8px] text-muted-foreground/50">
-          <span className="w-3.5 h-0.5 rounded inline-block" style={{ backgroundColor: colorA }} />{labelA}
-        </span>
-        <span className="flex items-center gap-1 text-[8px] text-muted-foreground/50">
-          <span className="w-3.5 h-0.5 rounded inline-block" style={{ backgroundColor: colorB }} />{labelB}
-        </span>
-      </div>
     </div>
   );
 }
@@ -239,42 +257,54 @@ function LargeChart({
 // ── Stats table ───────────────────────────────────────────────────────────────
 function StatVal({ v }: { v: number }) {
   return (
-    <td className="px-2 py-1 text-right text-[11px] tabular-nums">
-      {v === 0 ? <span className="text-muted-foreground/20">-</span> : <span className="text-foreground/80">{v}</span>}
+    <td className="px-3 py-1.5 text-right text-[11px] tabular-nums font-mono">
+      {v === 0 ? <span className="text-muted-foreground/20">—</span> : <span className="text-foreground/80 font-semibold">{v}</span>}
     </td>
   );
 }
 function StatsTable({ entity }: { entity: EntityData }) {
   return (
-    <table className="w-full text-xs border-t border-border/20 mt-2">
-      <thead>
-        <tr>
-          <th className="px-2 py-1 text-left text-[9px] font-normal text-muted-foreground/30 w-36" />
-          {(['Cur','Min','Max','Avg'] as const).map(h => (
-            <th key={h} className="px-2 py-1 text-right text-[9px] font-semibold text-muted-foreground/40">{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        <tr className="border-t border-border/10">
-          <td className="px-2 py-1 text-[10px] font-medium text-violet-400/80">Total_Calls</td>
-          <StatVal v={entity.stats.total.cur} /><StatVal v={entity.stats.total.min} />
-          <StatVal v={entity.stats.total.max} /><StatVal v={entity.stats.total.avg} />
-        </tr>
-        <tr className="border-t border-border/10">
-          <td className="px-2 py-1 text-[10px] font-medium text-sky-400/80">Connected_Calls</td>
-          <StatVal v={entity.stats.connected.cur} /><StatVal v={entity.stats.connected.min} />
-          <StatVal v={entity.stats.connected.max} /><StatVal v={entity.stats.connected.avg} />
-        </tr>
-      </tbody>
-      <tfoot>
-        <tr className="border-t border-border/15">
-          <td colSpan={3} className="px-2 pt-1 pb-0.5 text-[9px] text-muted-foreground/30">Last Updated</td>
-          <td className="px-2 pt-1 pb-0.5 text-right text-[9px] tabular-nums text-muted-foreground/30">{entity.lastUpdatedAt}</td>
-          <td className="px-2 pt-1 pb-0.5 text-right text-[9px] tabular-nums text-muted-foreground/30">{entity.lastUpdatedDate}</td>
-        </tr>
-      </tfoot>
-    </table>
+    <div className="rounded-xl border border-border/20 bg-muted/5 overflow-hidden">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border/15 bg-muted/10">
+            <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-muted-foreground/40 uppercase tracking-wider w-36">Metric</th>
+            {(['Cur','Min','Max','Avg'] as const).map(h => (
+              <th key={h} className="px-3 py-1.5 text-right text-[9px] font-semibold text-muted-foreground/40 uppercase tracking-wider">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="border-b border-border/10 hover:bg-muted/10 transition-colors">
+            <td className="px-3 py-1.5">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm inline-block flex-shrink-0" style={{ backgroundColor: '#8b5cf6' }} />
+                <span className="text-[10px] font-semibold text-foreground/70">Total Calls</span>
+              </span>
+            </td>
+            <StatVal v={entity.stats.total.cur} /><StatVal v={entity.stats.total.min} />
+            <StatVal v={entity.stats.total.max} /><StatVal v={entity.stats.total.avg} />
+          </tr>
+          <tr className="hover:bg-muted/10 transition-colors">
+            <td className="px-3 py-1.5">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm inline-block flex-shrink-0" style={{ backgroundColor: '#38bdf8' }} />
+                <span className="text-[10px] font-semibold text-foreground/70">Connected</span>
+              </span>
+            </td>
+            <StatVal v={entity.stats.connected.cur} /><StatVal v={entity.stats.connected.min} />
+            <StatVal v={entity.stats.connected.max} /><StatVal v={entity.stats.connected.avg} />
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-border/15 bg-muted/5">
+            <td colSpan={3} className="px-3 pt-1.5 pb-1 text-[9px] text-muted-foreground/30">Last Updated</td>
+            <td className="px-3 pt-1.5 pb-1 text-right text-[9px] tabular-nums text-muted-foreground/30 font-mono">{entity.lastUpdatedAt}</td>
+            <td className="px-3 pt-1.5 pb-1 text-right text-[9px] tabular-nums text-muted-foreground/30 font-mono">{entity.lastUpdatedDate}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   );
 }
 
@@ -325,27 +355,27 @@ function EntityPanel({ entity, dimmed }: { entity: EntityData; dimmed?: boolean 
       </div>
 
       {/* Charts */}
-      <div className="p-4 grid grid-cols-2 gap-5">
+      <div className="p-4 grid grid-cols-2 gap-6 border-b border-border/15">
         <LargeChart
           data={entity.daily}
-          title="Daily (24h)"
+          title="Daily  ·  24 h"
           gradientA={`dT_${uid}`} gradientB={`dC_${uid}`}
           colorA="#8b5cf6" colorB="#38bdf8"
           keyA="total_calls" keyB="connected_calls"
-          labelA="total" labelB="connected"
+          labelA="Total Calls" labelB="Connected"
         />
         <LargeChart
           data={entity.weekly}
-          title="Weekly (7d)"
+          title="Weekly  ·  7 d"
           gradientA={`wT_${uid}`} gradientB={`wC_${uid}`}
           colorA="#f59e0b" colorB="#14b8a6"
           keyA="total_calls" keyB="connected_calls"
-          labelA="total" labelB="connected"
+          labelA="Total Calls" labelB="Connected"
         />
       </div>
 
       {/* Stats table */}
-      <div className="px-4 pb-4"><StatsTable entity={entity} /></div>
+      <div className="px-4 py-3"><StatsTable entity={entity} /></div>
 
       {/* KAM client pills */}
       {entity.clients && entity.clients.length > 0 && (
