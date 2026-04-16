@@ -1734,54 +1734,84 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/sippy/make-call — originates a test call via Sippy makeCall XML-RPC (Vol 2 — #16)
-  // Body: { cli, cld, iAccount? }
+  // POST /api/sippy/make-call — initiates a 2-way callback via Sippy make2WayCallback XML-RPC (doc 107448)
+  // Body: { cli, cld, iAccount?, authname? }
+  // Sippy calls cld_first (CLI) first, bridges to cld_second (CLD) when answered.
+  // authname must be a valid VoIP account login on the Sippy switch.
   app.post('/api/sippy/make-call', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const userId = req.user?.claims?.sub;
-      const { cli, cld, iAccount, billingCode } = req.body;
+      const { cli, cld, iAccount, authname: bodyAuthname } = req.body;
       if (!cli || !cld) return res.status(400).json({ success: false, message: 'cli and cld are required.' });
 
+      // Resolve authname: explicit > iAccount lookup > first cached account
+      let authname: string = bodyAuthname?.trim() || '';
+      if (!authname && iAccount) {
+        authname = accountNameCache.get(String(iAccount)) || '';
+      }
+      if (!authname) {
+        const firstEntry = [...accountNameCache.entries()][0];
+        authname = firstEntry?.[1] || '';
+      }
+      if (!authname) {
+        return res.status(400).json({
+          success: false,
+          message: 'No authname provided and no accounts cached. Please select a billing account or enter an authname.',
+          errorType: 'no_authname',
+        });
+      }
+
       const settings = await storage.getSettings();
-      // For makeCall: exhaust ALL credential pairs.
-      // Different Sippy user levels have different method permissions AND different API passwords,
-      // so we try every pair — only stop early on a clean success or a Sippy routing/credit error.
-      const callOpts = { iAccount: iAccount ? Number(iAccount) : undefined, billingCode };
       const credPairs = sippyXmlCredsPairs(settings);
       let result: { success: boolean; callId?: string; message: string; errorType?: string; apiUser?: string } = {
         success: false,
         message: 'No Sippy credentials configured.',
         errorType: 'not_connected',
       };
+
       for (const { username, password } of credPairs) {
-        let r: typeof result;
+        let r: { success: boolean; iCallbackRequest?: number; message: string };
         try {
-          r = await sippy.makeCall(cli, cld, callOpts, username, password);
+          r = await sippy.make2WayCallback(username, password, {
+            authname,
+            cldFirst:  cli.trim(),
+            cldSecond: cld.trim(),
+          });
         } catch (err: any) {
-          console.error(`[make-call] sippy.makeCall threw for user ${username}:`, err);
-          r = { success: false, message: err?.message || String(err), errorType: 'call_error', apiUser: username };
+          console.error(`[make-call] make2WayCallback threw for user ${username}:`, err);
+          r = { success: false, message: err?.message || String(err) };
         }
-        result = r;
+        result = {
+          success:  r.success,
+          callId:   r.iCallbackRequest != null ? String(r.iCallbackRequest) : undefined,
+          message:  r.message,
+          errorType: r.success ? undefined : 'call_error',
+          apiUser:  username,
+        };
         if (r.success) break;
-        // Continue to next pair for auth failures (wrong creds for this user) and method-not-found
-        if (r.errorType === 'auth_failed' || r.errorType === 'method_not_found') continue;
-        // Sippy accepted the request but returned a routing/credit/permission fault — stop
+        // On auth failure the XML-RPC endpoint returns a fault with "auth" in the message —
+        // continue to next pair so we exhaust all credential options.
+        if (r.message?.toLowerCase().includes('auth') ||
+            r.message?.toLowerCase().includes('401') ||
+            r.message?.toLowerCase().includes('permission')) continue;
+        // Hard Sippy fault (routing, credit, invalid number) — stop immediately
         break;
       }
 
       const safeUserId = userId ?? 'unknown';
       await storage.logTestCall({
-        userId: safeUserId,
+        userId:   safeUserId,
         cli,
         cld,
         iAccount: iAccount ? Number(iAccount) : null,
-        callId: result.callId ?? null,
-        status: result.success ? 'success' : 'error',
-        message: result.message,
+        callId:   result.callId ?? null,
+        status:   result.success ? 'success' : 'error',
+        message:  result.message,
       });
 
       res.json(result);
     } catch (e: any) {
+      console.error('[make-call] unhandled error:', e);
       res.status(500).json({ success: false, message: e.message });
     }
   });
