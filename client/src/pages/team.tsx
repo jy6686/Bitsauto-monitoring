@@ -9,6 +9,7 @@ import {
   AlertTriangle, DollarSign, Phone, Route, Tv2, List,
   Mail, Plus, Trash2, Edit2, X, TrendingUp, TrendingDown,
   UserPlus, PhoneCall, LinkIcon, Unlink, ShieldAlert, Check, Server, FileText,
+  PieChart, CreditCard, GitBranch, Award, Zap, Layers, Settings2,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import type { Role } from "@shared/schema";
@@ -566,39 +567,55 @@ function KamRow({ kam, sippyAccounts, liveMap, onEdit, onDelete }: {
 // ─── Monitoring item visual config ───────────────────────────────────────────
 
 const ITEM_ICON: Record<MonitoringItemId, React.ElementType> = {
-  live_summary:      Tv2,
-  live_details:      List,
-  live_quality:      Activity,
-  call_history:      Phone,
-  balance_monitor:   DollarSign,
-  alerts:            Bell,
-  fraud_fas:         AlertTriangle,
-  traffic_map:       MapPin,
-  graphs:            TrendingUp,
-  bitseye:           Eye,
-  server_monitoring: Server,
-  cdr_viewer:        FileText,
-  reports:           BarChart2,
-  route_quality:     Route,
-  did_management:    MonitorDot,
+  live_summary:        Tv2,
+  live_details:        List,
+  live_quality:        Activity,
+  call_history:        Phone,
+  balance_monitor:     DollarSign,
+  rate_cards:          CreditCard,
+  cost_optimisation:   Zap,
+  alerts:              Bell,
+  traffic_map:         MapPin,
+  server_monitoring:   Server,
+  did_management:      MonitorDot,
+  multi_switch:        Layers,
+  test_call:           PhoneCall,
+  call_flow_simulator: GitBranch,
+  fraud_fas:           AlertTriangle,
+  vendor_sla:          Award,
+  graphs:              TrendingUp,
+  bitseye:             Eye,
+  analytics:           PieChart,
+  lcr_analyser:        Route,
+  cdr_viewer:          FileText,
+  reports:             BarChart2,
+  route_quality:       Activity,
 };
 
 const ITEM_COLOR: Record<MonitoringItemId, string> = {
-  live_summary:      'text-violet-400',
-  live_details:      'text-violet-400',
-  live_quality:      'text-violet-400',
-  call_history:      'text-violet-400',
-  balance_monitor:   'text-emerald-400',
-  alerts:            'text-rose-400',
-  fraud_fas:         'text-orange-400',
-  traffic_map:       'text-cyan-400',
-  graphs:            'text-indigo-400',
-  bitseye:           'text-blue-400',
-  server_monitoring: 'text-slate-400',
-  cdr_viewer:        'text-teal-400',
-  reports:           'text-blue-400',
-  route_quality:     'text-blue-400',
-  did_management:    'text-amber-400',
+  live_summary:        'text-violet-400',
+  live_details:        'text-violet-400',
+  live_quality:        'text-violet-400',
+  call_history:        'text-violet-400',
+  balance_monitor:     'text-emerald-400',
+  rate_cards:          'text-emerald-400',
+  cost_optimisation:   'text-lime-400',
+  alerts:              'text-rose-400',
+  traffic_map:         'text-cyan-400',
+  server_monitoring:   'text-slate-400',
+  did_management:      'text-amber-400',
+  multi_switch:        'text-cyan-400',
+  test_call:           'text-green-400',
+  call_flow_simulator: 'text-sky-400',
+  fraud_fas:           'text-orange-400',
+  vendor_sla:          'text-yellow-400',
+  graphs:              'text-indigo-400',
+  bitseye:             'text-blue-400',
+  analytics:           'text-purple-400',
+  lcr_analyser:        'text-sky-400',
+  cdr_viewer:          'text-teal-400',
+  reports:             'text-blue-400',
+  route_quality:       'text-blue-400',
 };
 
 const GROUP_COLOR: Record<string, string> = {
@@ -623,7 +640,7 @@ const ROLE_META: Record<Role, {
     border: "border-rose-500/30",
     iconColor: "text-rose-400",
     icon: Crown,
-    desc: "Full access — all pages, settings, and team management.",
+    desc: "Full access to all pages, settings, team management, and controls what Management users can access.",
   },
   management: {
     label: "Management",
@@ -632,7 +649,7 @@ const ROLE_META: Record<Role, {
     border: "border-amber-500/30",
     iconColor: "text-amber-400",
     icon: Briefcase,
-    desc: "Dashboard, calls, alerts, reports. No settings or team management.",
+    desc: "Operational access to calls, analytics, reports and more. Admin defines which monitoring areas they are assigned.",
   },
   viewer: {
     label: "Viewer",
@@ -641,23 +658,61 @@ const ROLE_META: Record<Role, {
     border: "border-blue-500/30",
     iconColor: "text-blue-400",
     icon: Eye,
-    desc: "Dashboard and alerts only. Read-only access.",
+    desc: "Dashboard and active calls always visible. Additional areas unlocked per monitoring assignment.",
   },
 };
 
-const PERMISSIONS = [
-  { label: "Dashboard",          admin: true,  mgmt: true,  viewer: true  },
-  { label: "Active Calls",       admin: true,  mgmt: true,  viewer: true  },
-  { label: "Call History (CDR)", admin: true,  mgmt: true,  viewer: false },
-  { label: "Traffic Map",        admin: true,  mgmt: true,  viewer: false },
-  { label: "Alerts",             admin: true,  mgmt: true,  viewer: false },
-  { label: "ASR/ACD Reports",    admin: true,  mgmt: true,  viewer: false },
-  { label: "FAS / Fraud",        admin: true,  mgmt: true,  viewer: false },
-  { label: "Client Profiles",    admin: true,  mgmt: true,  viewer: false },
-  { label: "Vendor Profiles",    admin: true,  mgmt: true,  viewer: false },
-  { label: "Calculators",        admin: true,  mgmt: true,  viewer: true  },
-  { label: "Settings",           admin: true,  mgmt: false, viewer: false },
-  { label: "Team Management",    admin: true,  mgmt: false, viewer: false },
+type AccessLevel = 'full' | 'configurable' | 'none';
+type PermRow = { label: string; admin: AccessLevel; mgmt: AccessLevel; viewer: AccessLevel; note?: string };
+type PermSection = { section: string };
+type PermEntry = PermRow | PermSection;
+
+const PERMISSIONS: PermEntry[] = [
+  { section: 'Core' },
+  { label: 'Dashboard',                 admin: 'full', mgmt: 'full', viewer: 'full'  },
+  { label: 'Active Calls (live view)',   admin: 'full', mgmt: 'full', viewer: 'full'  },
+  { label: 'Call Detail',               admin: 'full', mgmt: 'full', viewer: 'full'  },
+  { label: 'Account Profile',           admin: 'full', mgmt: 'full', viewer: 'full'  },
+
+  { section: 'Operations' },
+  { label: 'Alerts',                    admin: 'full', mgmt: 'full', viewer: 'configurable' },
+  { label: 'Traffic Map',               admin: 'full', mgmt: 'full', viewer: 'configurable' },
+  { label: 'Server Monitoring',         admin: 'full', mgmt: 'full', viewer: 'configurable' },
+  { label: 'DID Management',            admin: 'full', mgmt: 'full', viewer: 'configurable' },
+  { label: 'Multi-Switch View',         admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'Test Call / Click-to-Call', admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'Call Flow Simulator',       admin: 'full', mgmt: 'full', viewer: 'none'  },
+
+  { section: 'Analytics & Reports' },
+  { label: 'Graphs',                    admin: 'full', mgmt: 'full', viewer: 'configurable' },
+  { label: 'BitsEye Live Graphs',       admin: 'full', mgmt: 'full', viewer: 'configurable' },
+  { label: 'ASR / ACD Reports',         admin: 'full', mgmt: 'full', viewer: 'configurable' },
+  { label: 'CDR Viewer',                admin: 'full', mgmt: 'full', viewer: 'configurable' },
+  { label: 'Revenue & Margin Analytics',admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'Route Quality Analysis',    admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'LCR Analyser',              admin: 'full', mgmt: 'full', viewer: 'none'  },
+
+  { section: 'Finance' },
+  { label: 'Balance Monitor',           admin: 'full', mgmt: 'full', viewer: 'configurable' },
+  { label: 'Rate Card Management',      admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'Cost Optimisation Engine',  admin: 'full', mgmt: 'full', viewer: 'none'  },
+
+  { section: 'Security & Fraud' },
+  { label: 'FAS / Fraud Detection',     admin: 'full', mgmt: 'full', viewer: 'configurable' },
+  { label: 'Vendor SLA Scorecard',      admin: 'full', mgmt: 'full', viewer: 'none'  },
+
+  { section: 'Client & Vendor Management' },
+  { label: 'Client Profiles',           admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'Vendor Profiles',           admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'Tools / Calculators',       admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'KAM Management',            admin: 'full', mgmt: 'none', viewer: 'none'  },
+
+  { section: 'Administration' },
+  { label: 'Settings',                  admin: 'full', mgmt: 'none', viewer: 'none'  },
+  { label: 'Team Management',           admin: 'full', mgmt: 'none', viewer: 'none'  },
+  { label: 'Define Management Access',  admin: 'full', mgmt: 'none', viewer: 'none', note: 'Admin assigns which monitoring areas each Management user is responsible for' },
+  { label: 'WhatsApp Push Alerts',      admin: 'full', mgmt: 'none', viewer: 'none'  },
+  { label: 'API Keys',                  admin: 'full', mgmt: 'none', viewer: 'none'  },
 ];
 
 // ─── Small reusable pieces ────────────────────────────────────────────────────
@@ -1453,7 +1508,9 @@ export default function TeamPage() {
           <Activity className="w-4 h-4 text-cyan-400" />
           <div>
             <h3 className="font-semibold text-sm">Assignment Overview</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Which team members are watching each area</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Who is watching each area — covering all {MONITORING_ITEMS.length} monitoring areas including Live Calls, Analytics, Finance, Operations, Security, and Reports
+            </p>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -1691,39 +1748,76 @@ export default function TeamPage() {
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-5 py-4 border-b border-border/50 bg-muted/20">
           <h3 className="font-semibold text-sm">Permissions Matrix</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Which pages each role can access</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Full access includes all pages. Admins define which areas Management users are assigned to monitor.
+          </p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/50 bg-muted/10">
-                <th className="text-left px-5 py-3 text-muted-foreground font-medium text-xs uppercase tracking-wide">Page / Feature</th>
-                <th className="text-center px-4 py-3 text-xs uppercase tracking-wide">
+                <th className="text-left px-5 py-3 text-muted-foreground font-medium text-xs uppercase tracking-wide w-1/2">Page / Feature</th>
+                <th className="text-center px-4 py-3 text-xs uppercase tracking-wide w-[16%]">
                   <span className="inline-flex items-center gap-1.5 text-rose-400 font-semibold"><Crown className="w-3.5 h-3.5" />Admin</span>
                 </th>
-                <th className="text-center px-4 py-3 text-xs uppercase tracking-wide">
+                <th className="text-center px-4 py-3 text-xs uppercase tracking-wide w-[16%]">
                   <span className="inline-flex items-center gap-1.5 text-amber-400 font-semibold"><Briefcase className="w-3.5 h-3.5" />Mgmt</span>
                 </th>
-                <th className="text-center px-4 py-3 text-xs uppercase tracking-wide">
+                <th className="text-center px-4 py-3 text-xs uppercase tracking-wide w-[16%]">
                   <span className="inline-flex items-center gap-1.5 text-blue-400 font-semibold"><Eye className="w-3.5 h-3.5" />Viewer</span>
                 </th>
               </tr>
             </thead>
             <tbody>
-              {PERMISSIONS.map(({ label, admin, mgmt, viewer }, i) => (
-                <tr key={label} className={`border-b border-border/20 last:border-0 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
-                  <td className="px-5 py-2.5 font-medium text-sm">{label}</td>
-                  {[admin, mgmt, viewer].map((has, j) => (
-                    <td key={j} className="text-center px-4 py-2.5">
-                      {has
-                        ? <CheckCircle2 className="w-4 h-4 text-emerald-400 mx-auto" />
-                        : <span className="block w-4 h-0.5 bg-muted-foreground/20 mx-auto rounded-full" />}
+              {PERMISSIONS.map((entry, i) => {
+                if ('section' in entry) {
+                  return (
+                    <tr key={entry.section}>
+                      <td colSpan={4} className="px-5 py-2 bg-muted/30 border-y border-border/30">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{entry.section}</span>
+                      </td>
+                    </tr>
+                  );
+                }
+                const { label, admin, mgmt, viewer, note } = entry as PermRow;
+                const renderCell = (level: AccessLevel) => {
+                  if (level === 'full') return <CheckCircle2 className="w-4 h-4 text-emerald-400 mx-auto" />;
+                  if (level === 'configurable') return (
+                    <div className="flex items-center justify-center" title="Viewer access if assigned by Admin">
+                      <Settings2 className="w-3.5 h-3.5 text-amber-400" />
+                    </div>
+                  );
+                  return <span className="block w-4 h-0.5 bg-muted-foreground/15 mx-auto rounded-full" />;
+                };
+                return (
+                  <tr key={label} className={`border-b border-border/20 last:border-0 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
+                    <td className="px-5 py-2.5">
+                      <span className="font-medium text-sm">{label}</span>
+                      {note && <p className="text-[10px] text-muted-foreground/60 mt-0.5 leading-relaxed">{note}</p>}
                     </td>
-                  ))}
-                </tr>
-              ))}
+                    <td className="text-center px-4 py-2.5">{renderCell(admin)}</td>
+                    <td className="text-center px-4 py-2.5">{renderCell(mgmt)}</td>
+                    <td className="text-center px-4 py-2.5">{renderCell(viewer)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+        </div>
+        {/* Legend */}
+        <div className="px-5 py-3 border-t border-border/30 bg-muted/10 flex flex-wrap gap-4">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+            Always accessible
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Settings2 className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+            Accessible if assigned by Admin (Monitoring Assignments)
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="w-3.5 h-0.5 bg-muted-foreground/30 rounded-full flex-shrink-0" />
+            No access
+          </div>
         </div>
       </div>
 
