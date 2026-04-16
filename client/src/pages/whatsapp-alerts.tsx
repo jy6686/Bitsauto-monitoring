@@ -208,15 +208,33 @@ export default function WhatsappAlertsPage() {
 
             {/* Provider help */}
             {provider === 'callmebot' && (
-              <div className="rounded-lg bg-sky-500/5 border border-sky-500/20 p-4 space-y-2">
+              <div className="rounded-lg bg-sky-500/5 border border-sky-500/20 p-4 space-y-3">
                 <p className="text-xs font-semibold text-sky-400 flex items-center gap-2">
-                  <ExternalLink className="h-3.5 w-3.5" /> How to set up CallMeBot (free)
+                  <ExternalLink className="h-3.5 w-3.5" /> How to activate CallMeBot (free, one-time per number)
                 </p>
-                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-                  <li>Open WhatsApp and send <code className="bg-background px-1 rounded font-mono text-foreground/80">I allow callmebot to send me messages</code> to <strong className="text-foreground/70">+34 644 597 302</strong></li>
-                  <li>Wait for the reply with your <strong className="text-foreground/70">API Key</strong></li>
-                  <li>Enter your phone (E.164, e.g. <code className="bg-background px-1 rounded font-mono text-foreground/80">+923001234567</code>) and the API key below</li>
+                <ol className="text-xs text-muted-foreground space-y-2 list-decimal list-inside leading-relaxed">
+                  <li>
+                    Tap the button below — it opens WhatsApp with the activation message pre-typed. Just hit <strong className="text-foreground/70">Send</strong>.
+                    <div className="mt-2 not-italic">
+                      <a
+                        href="https://wa.me/34644597302?text=I%20allow%20callmebot%20to%20send%20me%20messages"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 text-xs font-semibold hover:bg-emerald-500/25 transition-colors"
+                      >
+                        <ExternalLink className="h-3 w-3" /> Open WhatsApp to activate CallMeBot
+                      </a>
+                    </div>
+                  </li>
+                  <li>CallMeBot replies with your personal <strong className="text-foreground/70">API Key</strong> (a 6-digit number). Copy it.</li>
+                  <li>Enter your phone number in E.164 format (e.g. <code className="bg-background px-1 rounded font-mono text-foreground/80">+923001234567</code>) and paste the API key in the fields below.</li>
                 </ol>
+                <p className="text-xs text-muted-foreground/60 border-t border-border/30 pt-2">
+                  ⚠️ Each recipient must activate their own number individually before they can receive alerts.
+                  If the link doesn't work, visit{' '}
+                  <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener noreferrer" className="text-sky-400 underline underline-offset-2">callmebot.com</a>
+                  {' '}for the latest setup instructions.
+                </p>
               </div>
             )}
             {provider === 'ultramsg' && (
