@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -108,15 +108,32 @@ export default function WhatsappAlertsPage() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    values: {
-      whatsappEnabled:    settings?.whatsappEnabled    ?? false,
-      whatsappProvider:   (settings?.whatsappProvider  as 'callmebot' | 'ultramsg') ?? 'callmebot',
-      whatsappPhones:     settings?.whatsappPhones     ?? '',
-      whatsappApiKey:     settings?.whatsappApiKey     ?? '',
-      whatsappInstanceId: settings?.whatsappInstanceId ?? '',
-      whatsappAlertTypes: settings?.whatsappAlertTypes ?? 'fas,balance,traffic,outage,auth',
+    defaultValues: {
+      whatsappEnabled:    false,
+      whatsappProvider:   'callmebot',
+      whatsappPhones:     '',
+      whatsappApiKey:     '',
+      whatsappInstanceId: '',
+      whatsappAlertTypes: 'fas,balance,traffic,outage,auth',
     },
   });
+
+  // Populate form once when settings load from the server (avoids infinite loop
+  // that the `values:` option causes when settings reference changes each render)
+  const settingsResetDone = useRef(false);
+  useEffect(() => {
+    if (settings && !settingsResetDone.current) {
+      settingsResetDone.current = true;
+      form.reset({
+        whatsappEnabled:    settings.whatsappEnabled    ?? false,
+        whatsappProvider:   (settings.whatsappProvider  as 'callmebot' | 'ultramsg') ?? 'callmebot',
+        whatsappPhones:     settings.whatsappPhones     ?? '',
+        whatsappApiKey:     settings.whatsappApiKey     ?? '',
+        whatsappInstanceId: settings.whatsappInstanceId ?? '',
+        whatsappAlertTypes: settings.whatsappAlertTypes ?? 'fas,balance,traffic,outage,auth',
+      });
+    }
+  }, [settings, form]);
 
   const provider = form.watch('whatsappProvider');
   const enabled  = form.watch('whatsappEnabled');
