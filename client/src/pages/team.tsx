@@ -676,10 +676,10 @@ const PERMISSIONS: PermEntry[] = [
 
   { section: 'Operations' },
   { label: 'Alerts',                    admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'Traffic Map',               admin: 'full', mgmt: 'full', viewer: 'configurable' },
+  { label: 'Traffic Map',               admin: 'full', mgmt: 'none', viewer: 'configurable' },
   { label: 'Server Monitoring',         admin: 'full', mgmt: 'full', viewer: 'configurable' },
   { label: 'DID Management',            admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'Multi-Switch View',         admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'Multi-Switch View',         admin: 'full', mgmt: 'none', viewer: 'none'  },
   { label: 'Test Call / Click-to-Call', admin: 'full', mgmt: 'full', viewer: 'none'  },
   { label: 'Call Flow Simulator',       admin: 'full', mgmt: 'full', viewer: 'none'  },
 
@@ -688,14 +688,14 @@ const PERMISSIONS: PermEntry[] = [
   { label: 'BitsEye Live Graphs',       admin: 'full', mgmt: 'full', viewer: 'configurable' },
   { label: 'ASR / ACD Reports',         admin: 'full', mgmt: 'full', viewer: 'configurable' },
   { label: 'CDR Viewer',                admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'Revenue & Margin Analytics',admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'Revenue & Margin Analytics',admin: 'full', mgmt: 'none', viewer: 'none'  },
   { label: 'Route Quality Analysis',    admin: 'full', mgmt: 'full', viewer: 'none'  },
   { label: 'LCR Analyser',              admin: 'full', mgmt: 'full', viewer: 'none'  },
 
   { section: 'Finance' },
   { label: 'Balance Monitor',           admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'Rate Card Management',      admin: 'full', mgmt: 'full', viewer: 'none'  },
-  { label: 'Cost Optimisation Engine',  admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'Rate Card Management',      admin: 'full', mgmt: 'none', viewer: 'none'  },
+  { label: 'Cost Optimisation Engine',  admin: 'full', mgmt: 'none', viewer: 'none'  },
 
   { section: 'Security & Fraud' },
   { label: 'FAS / Fraud Detection',     admin: 'full', mgmt: 'full', viewer: 'configurable' },
