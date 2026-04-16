@@ -10292,6 +10292,167 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/analytics/margin — Full Revenue & Margin Analytics Dashboard
+  // Query: days (1-90), vendorCardId? (rate card ID for per-route cost), threshold (default 10%)
+  app.get('/api/analytics/margin', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const days = Math.min(Number(req.query.days) || 30, 90);
+      const vendorCardId = req.query.vendorCardId ? Number(req.query.vendorCardId) : null;
+      const marginThreshold = Number(req.query.threshold) || 10;
+      const toDate = new Date();
+      const fromDate = new Date(toDate.getTime() - days * 24 * 60 * 60 * 1000);
+      const settings = await storage.getSettings();
+      const portalBase = sippyPortalUrl(settings);
+      const creds = sippyXmlCredsPairs(settings);
+      const { username = '', password = '' } = creds[0] ?? {};
+
+      const allCards = await storage.getRateCards();
+
+      // Load vendor rate card entries sorted by prefix length (longest first for matching)
+      let vendorEntries: Array<{ prefix: string; ratePerMin: number }> = [];
+      if (vendorCardId) {
+        const entries = await storage.getRateCardEntries(vendorCardId);
+        vendorEntries = entries
+          .map(e => ({ prefix: e.prefix, ratePerMin: e.ratePerMin }))
+          .sort((a, b) => b.prefix.length - a.prefix.length);
+      }
+
+      function matchVendorRate(cld: string): number | null {
+        if (!vendorEntries.length) return null;
+        const digits = cld.replace(/\D/g, '');
+        for (const e of vendorEntries) { if (digits.startsWith(e.prefix)) return e.ratePerMin; }
+        return null;
+      }
+
+      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      const startDate = sippy.toSippyDate(fromDate);
+      const endDate   = sippy.toSippyDate(toDate);
+      if (username && password) {
+        try { cdrs = await sippy.getSippyCDRs(username, password, 2000, { startDate, endDate }); } catch { /* ignore */ }
+      }
+      if (!cdrs.length) {
+        const pUser = settings.portalUsername || '';
+        const pPass = settings.portalPassword || '';
+        if (pUser && pPass) {
+          try {
+            const pad = (n: number) => String(n).padStart(2, '0');
+            const fmt = (d: Date) => `${pad(d.getMonth()+1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            cdrs = await sippy.scrapePortalCDRs(pUser, pPass, portalBase, { limit: 2000, startDate: fmt(fromDate), endDate: fmt(toDate), callsSelect: '4' });
+          } catch { /* ignore */ }
+        }
+      }
+
+      if (!cdrs.length) {
+        return res.json({
+          period: { days, since: fromDate.toISOString() },
+          summary: { totalRevenue: 0, totalCost: 0, totalProfit: 0, margin: 0, totalCalls: 0, totalMinutes: 0 },
+          daily: [], byClient: [], byDestination: [], worstRoutes: [],
+          rateCards: allCards, selectedVendorCardId: vendorCardId, vendorDataLimited: true, _source: 'no-data',
+        });
+      }
+
+      const enriched = cdrs.map(c => ({
+        ...c,
+        clientName: c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || (c.iAccount ? `Acct.${c.iAccount}` : 'Unknown'),
+      }));
+
+      const totalRevenue = enriched.reduce((s, c) => s + (c.cost || 0), 0);
+      const latestSnap = vendorBalanceHistory.length > 0 ? vendorBalanceHistory[vendorBalanceHistory.length - 1] : null;
+      const totalVendorBalance = latestSnap ? latestSnap.vendors.reduce((s, v) => s + (v.balance || 0), 0) : 0;
+      const useRateCard = !!vendorCardId && vendorEntries.length > 0;
+      const costRatio = (!useRateCard && totalRevenue > 0) ? totalVendorBalance / totalRevenue : 0;
+
+      const cdrCost = (c: typeof enriched[0]): number => {
+        if (useRateCard) {
+          const rate = matchVendorRate(c.callee || '');
+          if (rate !== null) return rate * ((c.duration || 0) / 60);
+        }
+        return (c.cost || 0) * costRatio;
+      };
+
+      // Daily P&L (all days in period)
+      const dailyMap = new Map<string, { revenue: number; cost: number; calls: number }>();
+      for (let d = 0; d < days; d++) {
+        const dt = new Date(toDate.getTime() - (days - 1 - d) * 86400000);
+        dailyMap.set(dt.toISOString().slice(0, 10), { revenue: 0, cost: 0, calls: 0 });
+      }
+      for (const c of enriched) {
+        const key = (c.startTime || c.connectTime || '').slice(0, 10);
+        if (!dailyMap.has(key)) continue;
+        const ex = dailyMap.get(key)!;
+        ex.revenue += (c.cost || 0); ex.cost += cdrCost(c); ex.calls++;
+      }
+      const daily = [...dailyMap.entries()].map(([date, v]) => ({
+        date,
+        revenue: +v.revenue.toFixed(4),
+        cost: +v.cost.toFixed(4),
+        profit: +(v.revenue - v.cost).toFixed(4),
+        calls: v.calls,
+      }));
+
+      // By client
+      const clientMap = new Map<string, { calls: number; mins: number; revenue: number; cost: number }>();
+      for (const c of enriched) {
+        const ex = clientMap.get(c.clientName) ?? { calls: 0, mins: 0, revenue: 0, cost: 0 };
+        ex.calls++; ex.mins += (c.duration || 0) / 60; ex.revenue += (c.cost || 0); ex.cost += cdrCost(c);
+        clientMap.set(c.clientName, ex);
+      }
+      const byClient = [...clientMap.entries()].map(([name, v]) => {
+        const revenue = +v.revenue.toFixed(4); const cost = +v.cost.toFixed(4);
+        const profit = +(revenue - cost).toFixed(4);
+        const margin = revenue > 0 ? +((profit / revenue) * 100).toFixed(2) : 0;
+        return { name, calls: v.calls, minutes: Math.round(v.mins), revenue, cost, profit, margin };
+      }).sort((a, b) => b.revenue - a.revenue);
+
+      // By destination (country + breakout)
+      type DestAcc = { country: string; breakout: string; calls: number; mins: number; revenue: number; cost: number; vendorRate: number | null };
+      const destMap = new Map<string, DestAcc>();
+      for (const c of enriched) {
+        const country  = c.country || 'Unknown';
+        const breakout = c.description || c.areaName || '';
+        const key = `${country}||${breakout}`;
+        const ex: DestAcc = destMap.get(key) ?? { country, breakout, calls: 0, mins: 0, revenue: 0, cost: 0, vendorRate: null };
+        const rate = useRateCard ? matchVendorRate(c.callee || '') : null;
+        ex.calls++; ex.mins += (c.duration || 0) / 60; ex.revenue += (c.cost || 0); ex.cost += cdrCost(c);
+        if (rate !== null && ex.vendorRate === null) ex.vendorRate = rate;
+        destMap.set(key, ex);
+      }
+      const byDestination = [...destMap.values()].map(v => {
+        const revenue = +v.revenue.toFixed(4); const cost = +v.cost.toFixed(4);
+        const profit = +(revenue - cost).toFixed(4);
+        const margin = revenue > 0 ? +((profit / revenue) * 100).toFixed(2) : 0;
+        return { country: v.country, breakout: v.breakout, calls: v.calls, minutes: Math.round(v.mins), revenue, cost, profit, margin, vendorRate: v.vendorRate };
+      }).sort((a, b) => b.revenue - a.revenue);
+      const worstRoutes = [...byDestination].filter(d => d.margin < marginThreshold).sort((a, b) => a.margin - b.margin);
+
+      const totalCostComputed = enriched.reduce((s, c) => s + cdrCost(c), 0);
+      const totalMinutes = enriched.reduce((s, c) => s + (c.duration || 0) / 60, 0);
+      const totalProfit = totalRevenue - totalCostComputed;
+
+      res.json({
+        period: { days, since: fromDate.toISOString() },
+        summary: {
+          totalRevenue: +totalRevenue.toFixed(4),
+          totalCost: +totalCostComputed.toFixed(4),
+          totalProfit: +totalProfit.toFixed(4),
+          margin: totalRevenue > 0 ? +((totalProfit / totalRevenue) * 100).toFixed(2) : 0,
+          totalCalls: enriched.length,
+          totalMinutes: Math.round(totalMinutes),
+        },
+        daily,
+        byClient,
+        byDestination,
+        worstRoutes,
+        rateCards: allCards,
+        selectedVendorCardId: vendorCardId,
+        vendorDataLimited: !useRateCard && totalVendorBalance === 0,
+        _source: `cdr-${useRateCard ? 'ratecard' : 'proportional'}`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── API Keys (Tier 5 — #24) ───────────────────────────────────────────────
   // GET  /api/keys           — list keys for authenticated user (admin only)
   // POST /api/keys           — create a new key
