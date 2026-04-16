@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Phone, PhoneCall, PhoneOff, Clock, CheckCircle2, XCircle,
   Loader2, ArrowRight, History, Trash2, RefreshCw, ChevronDown,
-  Info, Zap, AlertTriangle, ExternalLink, Settings, KeyRound, ShieldAlert, WrenchIcon, ArrowRightLeft,
+  Info, Zap, AlertTriangle, ExternalLink, Settings, ShieldAlert, WrenchIcon, ArrowRightLeft,
 } from "lucide-react";
 import {
   Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
@@ -233,90 +233,6 @@ export default function TestCallPage() {
             </div>
           </div>
         )}
-
-        {/* ── Proactive setup banner ── always visible until call origination is confirmed working */}
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-5">
-          <div className="flex items-start gap-3">
-            <ShieldAlert className="h-5 w-5 text-amber-400 mt-0.5 shrink-0" />
-            <div className="flex-1 min-w-0 space-y-3">
-              <div>
-                <p className="text-sm font-semibold text-amber-400">Sippy Admin setup required — call origination not yet enabled</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Per{" "}
-                  <a
-                    href="https://support.sippysoft.com/a/solutions/articles/106909"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-amber-300 underline underline-offset-2 hover:text-amber-200"
-                  >
-                    Sippy article 106909
-                  </a>
-                  , the XML-RPC API uses a <strong className="text-foreground/70">separate API Password</strong> (not the portal login password).
-                  Once credentials are correct, two Sippy Admin steps are needed:
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="rounded-lg bg-background/50 border border-border p-3 text-xs space-y-1.5">
-                  <p className="font-semibold text-foreground/80 flex items-center gap-1.5">
-                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">1</span>
-                    Set API password for <code className="font-mono">{credentialsSwapped ? (swappedPortalUser || 'ssp-root') : adminUser}</code>
-                  </p>
-                  <ol className="text-muted-foreground space-y-0.5 list-decimal list-inside leading-relaxed">
-                    <li>Log in to Sippy as <strong className="text-foreground/70">{credentialsSwapped ? (swappedPortalUser || 'ssp-root') : adminUser}</strong> (admin account)</li>
-                    <li>Go to <strong className="text-foreground/70">My Preferences</strong> (top-right corner)</li>
-                    <li>Tick <strong className="text-foreground/70">Allow API Calls</strong></li>
-                    <li>Set <strong className="text-foreground/70">API Password</strong> = <code className="bg-background/60 px-1 rounded font-mono">!chiaan1</code> and save in Settings here</li>
-                  </ol>
-                </div>
-                <div className="rounded-lg bg-background/50 border border-border p-3 text-xs space-y-1.5">
-                  <p className="font-semibold text-foreground/80 flex items-center gap-1.5">
-                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">2</span>
-                    Enable call origination for admin
-                  </p>
-                  <ol className="text-muted-foreground space-y-0.5 list-decimal list-inside leading-relaxed">
-                    <li>Go to <strong className="text-foreground/70">System → Administrators</strong></li>
-                    <li>Open <code className="bg-background/60 px-0.5 rounded font-mono">{credentialsSwapped ? (swappedPortalUser || 'ssp-root') : adminUser}</code></li>
-                    <li><strong className="text-foreground/70">API Access</strong> tab → tick <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
-                    <li>Save, then retry the test call below</li>
-                  </ol>
-                </div>
-              </div>
-
-              <div className="rounded-lg bg-background/50 border border-amber-500/20 p-3 text-xs space-y-1.5">
-                <p className="font-semibold text-foreground/70">Alternative: enable Callback service for the customer account</p>
-                <p className="text-muted-foreground">
-                  In Sippy Admin: <strong className="text-foreground/60">Customers → {credentialsSwapped ? apiAdminUser : 'RTST1'} → Applications</strong> → enable <strong className="text-foreground/60">Callback</strong>.
-                  This enables the fallback <code className="bg-background/60 px-1 rounded font-mono">make2WayCallback</code> route which does not require admin call origination permission.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3 flex-wrap pt-1">
-                <a
-                  href={adminUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-testid="link-sippy-admin"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium hover:bg-amber-500/20 transition-colors"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  Open Sippy Admin
-                </a>
-                <a
-                  href="https://support.sippysoft.com/a/solutions/articles/106909"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-testid="link-sippy-docs"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background/50 border border-border text-muted-foreground text-xs font-medium hover:border-amber-500/30 hover:text-amber-300 transition-colors"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  Sippy article 106909
-                </a>
-                <span className="text-xs text-muted-foreground/50 font-mono hidden sm:inline">{credentialsSwapped ? (swappedPortalUser || 'ssp-root') : adminUser} @ {portalBase}</span>
-              </div>
-            </div>
-          </div>
-        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
 

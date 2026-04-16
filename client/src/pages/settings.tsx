@@ -10,7 +10,7 @@ import {
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
   Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp, Users, UserPlus, X, AlertCircle,
   Radio, Activity, Mail, Bell, Send, MailCheck, MailX, UserCheck, Download, FileText,
-  BellRing, BellOff, Smartphone,
+  BellRing, BellOff, Smartphone, ShieldAlert,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -1887,6 +1887,96 @@ export default function SettingsPage() {
                   Admin API credentials set — will be used for all XML-RPC operations. Click <strong>Save Changes</strong> to store them.
                 </div>
               )}
+
+              {/* ── Call Origination Setup Guide (article 106909 / 107448 / 107525) ── */}
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+                <div className="flex items-start gap-2.5">
+                  <ShieldAlert className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs font-semibold text-amber-400">Call origination setup — required for Test Call Launcher</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Per{" "}
+                      <a
+                        href="https://support.sippysoft.com/a/solutions/articles/106909"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-amber-300 underline underline-offset-2 hover:text-amber-200"
+                      >
+                        Sippy article 106909
+                      </a>
+                      {", "}the XML-RPC API uses a <strong className="text-foreground/70">separate API Password</strong> (not the portal login password). Two Sippy Admin steps are needed after saving:
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pl-6">
+                  <div className="rounded-lg bg-background/50 border border-border p-3 text-xs space-y-1.5">
+                    <p className="font-semibold text-foreground/80 flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">1</span>
+                      Set API password for <code className="font-mono">{form.watch('apiAdminUsername') || 'ssp-root'}</code>
+                    </p>
+                    <ol className="text-muted-foreground space-y-0.5 list-decimal list-inside leading-relaxed">
+                      <li>Log in to Sippy as <strong className="text-foreground/70">{form.watch('apiAdminUsername') || 'ssp-root'}</strong></li>
+                      <li>Click your username → <strong className="text-foreground/70">My Preferences</strong></li>
+                      <li>Tick <strong className="text-foreground/70">Allow API Calls</strong></li>
+                      <li>Set <strong className="text-foreground/70">API Password</strong> and paste it above</li>
+                    </ol>
+                  </div>
+                  <div className="rounded-lg bg-background/50 border border-border p-3 text-xs space-y-1.5">
+                    <p className="font-semibold text-foreground/80 flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">2</span>
+                      Enable call origination for admin
+                    </p>
+                    <ol className="text-muted-foreground space-y-0.5 list-decimal list-inside leading-relaxed">
+                      <li>Go to <strong className="text-foreground/70">System → Administrators</strong></li>
+                      <li>Open <code className="font-mono bg-background/60 px-0.5 rounded">{form.watch('apiAdminUsername') || 'ssp-root'}</code></li>
+                      <li><strong className="text-foreground/70">API Access</strong> tab → tick <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
+                      <li>Save, then test a call</li>
+                    </ol>
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-background/40 border border-amber-500/15 p-3 text-xs space-y-1 pl-6 ml-6">
+                  <p className="font-semibold text-foreground/60">Alternative — enable Callback service for the customer account</p>
+                  <p className="text-muted-foreground">
+                    In Sippy Admin: <strong className="text-foreground/60">Customers → {form.watch('portalUsername') || 'RTST1'} → Applications</strong> → enable <strong className="text-foreground/60">Callback</strong>.
+                    This enables the <code className="bg-background/60 px-1 rounded font-mono">make2WayCallback</code> fallback which does not need admin call origination permission.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2.5 flex-wrap pl-6">
+                  {form.watch('portalUrl') && (
+                    <a
+                      href={`${form.watch('portalUrl')?.replace(/\/$/, '')}/main.php`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="link-sippy-admin-settings"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium hover:bg-amber-500/20 transition-colors"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Open Sippy Admin
+                    </a>
+                  )}
+                  <a
+                    href="https://support.sippysoft.com/a/solutions/articles/106909"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background/50 border border-border text-muted-foreground text-xs font-medium hover:border-amber-500/30 hover:text-amber-300 transition-colors"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Sippy article 106909
+                  </a>
+                  <a
+                    href="https://support.sippysoft.com/a/solutions/articles/107448"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background/50 border border-border text-muted-foreground text-xs font-medium hover:border-amber-500/30 hover:text-amber-300 transition-colors"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Article 107448 (Callback)
+                  </a>
+                </div>
+              </div>
             </div>
           </div>
         )}
