@@ -67,7 +67,110 @@ const ITEM_NAV_MAP: Record<string, string> = {
   did_management:    '/dids',
 };
 
-const SIDEBAR_KEY = 'voip-sidebar-collapsed';
+const SIDEBAR_KEY    = 'voip-sidebar-collapsed';
+const GROUPS_LS_KEY  = 'voip-sidebar-groups';
+
+type SubmenuType = 'calls' | 'bitseye' | 'cdr' | 'monitoring' | 'ratecards' | 'settings';
+
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  roles: Role[];
+  hasSubmenu?: SubmenuType;
+}
+
+interface NavGroup {
+  key: string;
+  label: string;
+  roles: Role[];
+  items: NavItem[];
+}
+
+const NAV_PINNED_TOP: NavItem[] = [
+  { href: "/",        label: "Dashboard", icon: LayoutDashboard, roles: ['admin','management','viewer'] },
+];
+
+const NAV_PINNED_BOTTOM: NavItem[] = [
+  { href: "/account", label: "My Account", icon: UserCog, roles: ['admin','management','viewer'] },
+];
+
+const SIDEBAR_GROUPS: NavGroup[] = [
+  {
+    key: 'monitoring',
+    label: 'Monitoring',
+    roles: ['admin','management','viewer'],
+    items: [
+      { href: "/calls",             label: "Live Calls",        icon: Phone,     roles: ['admin','management','viewer'], hasSubmenu: 'calls'      },
+      { href: "/alerts",            label: "Alerts",            icon: Bell,      roles: ['admin','management']                                    },
+      { href: "/server-monitoring", label: "Server Monitoring", icon: Server,    roles: ['admin','management'],          hasSubmenu: 'monitoring' },
+    ],
+  },
+  {
+    key: 'operations',
+    label: 'Operations',
+    roles: ['admin','management'],
+    items: [
+      { href: "/dids",                label: "DID Management",     icon: PhoneIncoming, roles: ['admin','management'] },
+      { href: "/traffic-map",         label: "Traffic Map",        icon: Globe,         roles: ['admin','management'] },
+      { href: "/multi-switch",        label: "Multi-Switch View",  icon: Layers,        roles: ['admin','management'] },
+      { href: "/test-call",           label: "Test Call",          icon: PhoneCall,     roles: ['admin','management'] },
+      { href: "/call-flow-simulator", label: "Call Flow Sim.",     icon: Workflow,      roles: ['admin','management'] },
+    ],
+  },
+  {
+    key: 'analytics',
+    label: 'Analytics & Reports',
+    roles: ['admin','management'],
+    items: [
+      { href: "/graphs",       label: "Graphs",            icon: LineChart,  roles: ['admin','management']                                 },
+      { href: "/bitseye",      label: "BitsEye",           icon: Eye,        roles: ['admin','management'], hasSubmenu: 'bitseye'          },
+      { href: "/reports",      label: "Reports",           icon: BarChart2,  roles: ['admin','management']                                 },
+      { href: "/cdrs",         label: "CDR Viewer",        icon: FileText,   roles: ['admin','management'], hasSubmenu: 'cdr'             },
+      { href: "/analytics",    label: "Revenue Analytics", icon: TrendingUp, roles: ['admin','management']                                 },
+      { href: "/lcr-analyser", label: "LCR Analyser",      icon: GitBranch,  roles: ['admin','management']                                 },
+    ],
+  },
+  {
+    key: 'finance',
+    label: 'Finance',
+    roles: ['admin','management'],
+    items: [
+      { href: "/balance",           label: "Balance Monitor",   icon: Wallet,    roles: ['admin','management']                                 },
+      { href: "/rate-cards",        label: "Rate Cards",        icon: CreditCard,roles: ['admin','management'], hasSubmenu: 'ratecards'       },
+      { href: "/cost-optimisation", label: "Cost Optimisation", icon: Lightbulb, roles: ['admin','management']                                 },
+    ],
+  },
+  {
+    key: 'security',
+    label: 'Security & Fraud',
+    roles: ['admin','management'],
+    items: [
+      { href: "/fraud",                label: "Fraud / FAS",  icon: ShieldAlert, roles: ['admin','management'] },
+      { href: "/vendor-sla-scorecard", label: "Vendor SLA",   icon: ShieldCheck, roles: ['admin','management'] },
+    ],
+  },
+  {
+    key: 'clients_vendors',
+    label: 'Client & Vendor',
+    roles: ['admin','management'],
+    items: [
+      { href: "/clients", label: "Client / Vendor", icon: Building2, roles: ['admin','management'] },
+      { href: "/tools",   label: "Tools",           icon: Wrench,    roles: ['admin','management'] },
+    ],
+  },
+  {
+    key: 'admin',
+    label: 'Administration',
+    roles: ['admin'],
+    items: [
+      { href: "/settings",        label: "Settings",        icon: Settings,      roles: ['admin'], hasSubmenu: 'settings' },
+      { href: "/whatsapp-alerts", label: "WhatsApp Alerts", icon: MessageSquare, roles: ['admin']                        },
+      { href: "/team",            label: "Team & KAM",      icon: Users,         roles: ['admin']                        },
+      { href: "/api-keys",        label: "API Keys",        icon: Key,           roles: ['admin']                        },
+    ],
+  },
+];
 
 export function LayoutShell({ children }: LayoutShellProps) {
   const [location] = useLocation();
@@ -80,9 +183,24 @@ export function LayoutShell({ children }: LayoutShellProps) {
     try { return localStorage.getItem(SIDEBAR_KEY) === 'true'; } catch { return false; }
   });
 
+  const [groupsExpanded, setGroupsExpanded] = useState<Record<string, boolean>>(() => {
+    try {
+      const stored = localStorage.getItem(GROUPS_LS_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch { /* ignore */ }
+    return {};
+  });
+
   useEffect(() => {
     try { localStorage.setItem(SIDEBAR_KEY, String(collapsed)); } catch { /* ignore */ }
   }, [collapsed]);
+
+  useEffect(() => {
+    try { localStorage.setItem(GROUPS_LS_KEY, JSON.stringify(groupsExpanded)); } catch { /* ignore */ }
+  }, [groupsExpanded]);
+
+  const isGroupOpen  = (key: string) => groupsExpanded[key] !== false;
+  const toggleGroup  = (key: string) => setGroupsExpanded(prev => ({ ...prev, [key]: !isGroupOpen(key) }));
 
   const isCallsActive        = location.startsWith('/calls');
   const isMonitoringActive   = location.startsWith('/server-monitoring');
@@ -90,6 +208,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const isCdrActive          = location.startsWith('/cdrs');
   const isSettingsActive     = location.startsWith('/settings');
   const isRateCardsActive    = location.startsWith('/rate-cards');
+
   const [callsExpanded,      setCallsExpanded]      = useState(isCallsActive);
   const [monitoringExpanded, setMonitoringExpanded] = useState(isMonitoringActive);
   const [bitseyeExpanded,    setBitseyeExpanded]    = useState(isBitseyeActive);
@@ -110,7 +229,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
     staleTime: 120_000,
   });
 
-  // For viewers: fetch their own KAM to show only their entry in BitsEye submenu
   const { data: viewerKamData } = useQuery<{ kamId: number | null; kamName: string | null; accountIds: string[]; clientNames: string[] }>({
     queryKey: ['/api/user/assigned-accounts'],
     enabled: role === 'viewer' && bitseyeExpanded,
@@ -124,45 +242,14 @@ export function LayoutShell({ children }: LayoutShellProps) {
   });
   const assignedItemSet = new Set(viewerAssignmentsData?.items ?? []);
 
-  const allNavItems = [
-    { href: "/",                  label: "Dashboard",        icon: LayoutDashboard, roles: ['admin','management','viewer'] as Role[] },
-    { href: "/calls",             label: "Live Calls",        icon: Phone,           roles: ['admin','management','viewer'] as Role[], hasSubmenu: 'calls' as const },
-    { href: "/clients",           label: "Client / Vendor",   icon: Building2,       roles: ['admin','management']          as Role[] },
-    { href: "/balance",           label: "Balance Monitor",   icon: Wallet,          roles: ['admin','management']          as Role[] },
-    { href: "/dids",              label: "DID Management",    icon: PhoneIncoming,   roles: ['admin','management']          as Role[] },
-    { href: "/traffic-map",       label: "Traffic Map",       icon: Globe,           roles: ['admin','management']          as Role[] },
-    { href: "/graphs",            label: "Graphs",            icon: LineChart,       roles: ['admin','management']          as Role[] },
-    { href: "/bitseye",           label: "BitsEye",           icon: Eye,             roles: ['admin','management']          as Role[], hasSubmenu: 'bitseye' as const },
-    { href: "/reports",           label: "Reports",           icon: BarChart2,       roles: ['admin','management']          as Role[] },
-    { href: "/cdrs",              label: "CDR Viewer",        icon: FileText,        roles: ['admin','management']          as Role[], hasSubmenu: 'cdr' as const },
-    { href: "/fraud",             label: "Fraud / FAS",       icon: ShieldAlert,     roles: ['admin','management']          as Role[] },
-    { href: "/rate-cards",        label: "Rate Cards",        icon: CreditCard,      roles: ['admin','management']          as Role[], hasSubmenu: 'ratecards' as const },
-    { href: "/analytics",         label: "Revenue Analytics", icon: TrendingUp,      roles: ['admin','management']          as Role[] },
-    { href: "/server-monitoring", label: "Server Monitoring", icon: Server,          roles: ['admin','management']          as Role[], hasSubmenu: 'monitoring' as const },
-    { href: "/tools",             label: "Tools",             icon: Wrench,          roles: ['admin','management']          as Role[] },
-    { href: "/settings",          label: "Settings",          icon: Settings,        roles: ['admin']                       as Role[], hasSubmenu: 'settings' as const },
-    { href: "/alerts",            label: "Alerts",            icon: Bell,            roles: ['admin','management']          as Role[] },
-    { href: "/account",           label: "My Account",        icon: UserCog,         roles: ['admin','management','viewer'] as Role[] },
-    { href: "/team",              label: "Team & KAM",        icon: Users,           roles: ['admin']                       as Role[] },
-    { href: "/api-keys",          label: "API Keys",           icon: Key,             roles: ['admin']                       as Role[] },
-    { href: "/test-call",         label: "Test Call",          icon: PhoneCall,       roles: ['admin','management']          as Role[] },
-    { href: "/lcr-analyser",           label: "LCR Analyser",          icon: GitBranch,   roles: ['admin','management'] as Role[] },
-    { href: "/call-flow-simulator",    label: "Call Flow Simulator",   icon: Workflow,    roles: ['admin','management'] as Role[] },
-    { href: "/vendor-sla-scorecard",   label: "Vendor SLA Scorecard",  icon: ShieldCheck, roles: ['admin','management'] as Role[] },
-    { href: "/cost-optimisation",      label: "Cost Optimisation",      icon: Lightbulb,   roles: ['admin','management'] as Role[] },
-    { href: "/multi-switch",           label: "Multi-Switch View",       icon: Layers,      roles: ['admin','management'] as Role[] },
-    { href: "/whatsapp-alerts",        label: "WhatsApp Alerts",          icon: MessageSquare, roles: ['admin'] as Role[] },
-  ];
-
   const VIEWER_ALWAYS_SHOW = new Set(['/', '/account']);
-  const navItems = (() => {
-    if (role !== 'viewer') return allNavItems.filter(item => item.roles.includes(role));
-    const unlockedHrefs = new Set([
-      ...VIEWER_ALWAYS_SHOW,
-      ...[...assignedItemSet].map(id => ITEM_NAV_MAP[id]).filter(Boolean),
-    ]);
-    return allNavItems.filter(item => unlockedHrefs.has(item.href));
-  })();
+
+  const isItemVisible = (item: NavItem): boolean => {
+    if (!item.roles.includes(role)) return false;
+    if (role !== 'viewer') return true;
+    if (VIEWER_ALWAYS_SHOW.has(item.href)) return true;
+    return [...assignedItemSet].some(id => ITEM_NAV_MAP[id] === item.href);
+  };
 
   const visibleCallsSubitems = role === 'viewer'
     ? CALLS_SUBITEMS.filter(sub => assignedItemSet.has(sub.itemId))
@@ -186,6 +273,251 @@ export function LayoutShell({ children }: LayoutShellProps) {
     "h-4 w-4 transition-colors flex-shrink-0",
     isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground"
   );
+
+  const subItemClass = (isActive: boolean) => cn(
+    "flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
+    isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+  );
+
+  // Render a single nav item with any applicable submenu (desktop expanded mode)
+  const renderNavItem = (item: NavItem) => {
+    const isActive = item.href === '/' ? location === '/' : location.startsWith(item.href);
+
+    /* ── Live Calls submenu ── */
+    if (item.hasSubmenu === 'calls') {
+      if (role === 'viewer' && visibleCallsSubitems.length === 0) return null;
+      return (
+        <div key={item.href}>
+          <button onClick={() => setCallsExpanded(o => !o)} className={navItemClass(isActive)}>
+            <item.icon className={navIconClass(isActive)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+              callsExpanded ? "rotate-180" : "",
+              isActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+          </button>
+          {callsExpanded && (
+            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+              {visibleCallsSubitems.map(sub => {
+                const subActive = isActive && currentView === sub.view;
+                return (
+                  <Link key={sub.view} href={`/calls?view=${sub.view}`} className={subItemClass(subActive)}>
+                    <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
+                    {sub.label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── BitsEye submenu ── */
+    if (item.hasSubmenu === 'bitseye') {
+      const bsParams = new URLSearchParams(search);
+      const bsView   = isBitseyeActive ? (bsParams.get('view') ?? 'clients') : null;
+      const bsKamId  = isBitseyeActive ? bsParams.get('kamId') : null;
+      return (
+        <div key={item.href}>
+          <button onClick={() => setBitseyeExpanded(o => !o)} className={navItemClass(isBitseyeActive)}>
+            <item.icon className={navIconClass(isBitseyeActive)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+              bitseyeExpanded ? "rotate-180" : "",
+              isBitseyeActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+          </button>
+          {bitseyeExpanded && (
+            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+              {BITSEYE_FIXED.map(sub => {
+                const subActive = isBitseyeActive && bsView === sub.view && !bsKamId;
+                return (
+                  <Link key={sub.view} href={`/bitseye?view=${sub.view}`} className={subItemClass(subActive)}>
+                    <BarChart3 className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
+                    {sub.label}
+                  </Link>
+                );
+              })}
+              <div className="flex items-center gap-2 pt-1 pb-0.5 px-2">
+                <ContactRound className="h-3 w-3 text-violet-400/60 flex-shrink-0" />
+                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/35">KAM</span>
+              </div>
+              {role === 'viewer' ? (
+                viewerKamData?.kamId ? (
+                  <Link href={`/bitseye?view=kam&kamId=${viewerKamData.kamId}`}
+                    className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
+                      (isBitseyeActive && bsView === 'kam' && bsKamId === String(viewerKamData.kamId)) ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
+                    <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", (isBitseyeActive && bsView === 'kam' && bsKamId === String(viewerKamData.kamId)) ? "text-violet-300" : "text-violet-400/70")} />
+                    <span className="flex-1 truncate">{viewerKamData.kamName ?? 'My Portfolio'}</span>
+                  </Link>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground/30 px-3 py-1">No KAM assigned</p>
+                )
+              ) : (
+                <>
+                  <Link href="/bitseye?view=kam"
+                    className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
+                      (isBitseyeActive && bsView === 'kam' && !bsKamId) ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
+                    <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", (isBitseyeActive && bsView === 'kam' && !bsKamId) ? "text-primary" : "text-violet-400/70")} />
+                    All KAMs
+                  </Link>
+                  {kamList.map(kam => {
+                    const kamActive = isBitseyeActive && bsView === 'kam' && bsKamId === String(kam.id);
+                    return (
+                      <Link key={kam.id} href={`/bitseye?view=kam&kamId=${kam.id}`}
+                        className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
+                          kamActive ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
+                        <ChevronRight className="h-2.5 w-2.5 flex-shrink-0 text-muted-foreground/30" />
+                        <span className="flex-1 truncate">{kam.name}</span>
+                      </Link>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── CDR submenu ── */
+    if (item.hasSubmenu === 'cdr') {
+      const cdrView = isCdrActive ? (new URLSearchParams(search).get('view') ?? 'client') : null;
+      return (
+        <div key={item.href}>
+          <button onClick={() => setCdrExpanded(o => !o)} className={navItemClass(isCdrActive)}>
+            <item.icon className={navIconClass(isCdrActive)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+              cdrExpanded ? "rotate-180" : "",
+              isCdrActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+          </button>
+          {cdrExpanded && (
+            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+              {CDR_SUBITEMS.map(sub => {
+                const subActive = isCdrActive && cdrView === sub.view;
+                return (
+                  <Link key={sub.view} href={`/cdrs?view=${sub.view}`} className={subItemClass(subActive)}>
+                    <FileText className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
+                    {sub.label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── Server Monitoring submenu ── */
+    if (item.hasSubmenu === 'monitoring') {
+      const currentMonTab = isMonitoringActive
+        ? (new URLSearchParams(search).get('tab') ?? 'reachability')
+        : null;
+      return (
+        <div key={item.href}>
+          <button onClick={() => setMonitoringExpanded(o => !o)} className={navItemClass(isActive)}>
+            <item.icon className={navIconClass(isActive)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+              monitoringExpanded ? "rotate-180" : "",
+              isActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+          </button>
+          {monitoringExpanded && (
+            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+              {MONITORING_SUBITEMS.map(sub => {
+                const subActive = isMonitoringActive && currentMonTab === sub.tab;
+                return (
+                  <Link key={sub.tab} href={`/server-monitoring?tab=${sub.tab}`} className={subItemClass(subActive)}>
+                    <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
+                    {sub.label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── Rate Cards submenu ── */
+    if (item.hasSubmenu === 'ratecards') {
+      const rcType = isRateCardsActive ? new URLSearchParams(search).get('type') : null;
+      return (
+        <div key={item.href}>
+          <button onClick={() => setRateCardsExpanded(o => !o)} className={navItemClass(isRateCardsActive)}>
+            <item.icon className={navIconClass(isRateCardsActive)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+              rateCardsExpanded ? "rotate-180" : "",
+              isRateCardsActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+          </button>
+          {rateCardsExpanded && (
+            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+              {([
+                { type: 'client', label: 'Client Rate Cards',  icon: Building2, iconColor: 'text-amber-400' },
+                { type: 'vendor', label: 'Vendor Rate Cards',   icon: Wallet,    iconColor: 'text-cyan-400'  },
+              ] as const).map(sub => {
+                const subActive = isRateCardsActive && rcType === sub.type;
+                return (
+                  <Link key={sub.type} href={`/rate-cards?type=${sub.type}`} className={subItemClass(subActive)}>
+                    <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
+                    {sub.label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── Settings submenu ── */
+    if (item.hasSubmenu === 'settings') {
+      const settingsSearch = isSettingsActive ? new URLSearchParams(search).get('section') : null;
+      return (
+        <div key={item.href}>
+          <button onClick={() => setSettingsExpanded(o => !o)} className={navItemClass(isSettingsActive)}>
+            <item.icon className={navIconClass(isSettingsActive)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+              settingsExpanded ? "rotate-180" : "",
+              isSettingsActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+          </button>
+          {settingsExpanded && (
+            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+              {[
+                { href: '/settings',                 label: 'General Settings', icon: Settings,   color: 'text-blue-400', section: null      },
+                { href: '/settings?section=watcher', label: 'Sippy Watcher',   icon: ScanSearch,  color: 'text-cyan-400', section: 'watcher' },
+              ].map(sub => {
+                const subActive = isSettingsActive && settingsSearch === sub.section;
+                return (
+                  <Link key={sub.href} href={sub.href} className={subItemClass(subActive)}>
+                    <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.color)} />
+                    {sub.label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── Plain nav item ── */
+    return (
+      <Link key={item.href} href={item.href} className={navItemClass(isActive)}>
+        <item.icon className={navIconClass(isActive)} />
+        <span>{item.label}</span>
+      </Link>
+    );
+  };
+
+  // All items as a flat list for collapsed (icon-only) mode
+  const allFlatItems: NavItem[] = [
+    ...NAV_PINNED_TOP,
+    ...SIDEBAR_GROUPS.flatMap(g => g.items),
+    ...NAV_PINNED_BOTTOM,
+  ];
 
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
@@ -233,323 +565,88 @@ export function LayoutShell({ children }: LayoutShellProps) {
         </div>
 
         {/* Nav */}
-        <nav className={cn("flex-1 overflow-y-auto space-y-0.5 py-3", collapsed ? "px-2" : "px-3")}>
-          {navItems.map((item) => {
-            const isActive = item.href === '/'
-              ? location === '/'
-              : location.startsWith(item.href);
+        <nav className={cn("flex-1 overflow-y-auto py-3", collapsed ? "px-2 space-y-0.5" : "px-3")}>
 
-            /* ── Calls submenu ── */
-            if (item.hasSubmenu === 'calls') {
-              if (role === 'viewer' && visibleCallsSubitems.length === 0) return null;
-              if (collapsed) {
-                return (
-                  <Link key={item.href} href={item.href} title={item.label}
-                    className={navItemClass(isActive)}>
-                    <item.icon className={navIconClass(isActive)} />
-                  </Link>
-                );
-              }
-              return (
-                <div key={item.href}>
-                  <button
-                    onClick={() => setCallsExpanded(o => !o)}
-                    className={navItemClass(isActive)}
-                  >
-                    <item.icon className={navIconClass(isActive)} />
-                    <span className="flex-1 text-left">{item.label}</span>
-                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-                      callsExpanded ? "rotate-180" : "",
-                      isActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
-                  </button>
-                  {callsExpanded && (
-                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-                      {visibleCallsSubitems.map(sub => {
-                        const subActive = isActive && currentView === sub.view;
-                        return (
-                          <Link key={sub.view} href={`/calls?view=${sub.view}`}
-                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
-                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
-                            <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
-                            {sub.label}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            /* ── BitsEye submenu ── */
-            if (item.hasSubmenu === 'bitseye') {
-              const bsParams = new URLSearchParams(search);
-              const bsView   = isBitseyeActive ? (bsParams.get('view') ?? 'clients') : null;
-              const bsKamId  = isBitseyeActive ? bsParams.get('kamId') : null;
-
-              if (collapsed) {
-                return (
-                  <Link key={item.href} href={item.href} title={item.label}
-                    className={navItemClass(isBitseyeActive)}>
-                    <item.icon className={navIconClass(isBitseyeActive)} />
-                  </Link>
-                );
-              }
-              return (
-                <div key={item.href}>
-                  <button
-                    onClick={() => setBitseyeExpanded(o => !o)}
-                    className={navItemClass(isBitseyeActive)}
-                  >
-                    <item.icon className={navIconClass(isBitseyeActive)} />
-                    <span className="flex-1 text-left">{item.label}</span>
-                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-                      bitseyeExpanded ? "rotate-180" : "",
-                      isBitseyeActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
-                  </button>
-                  {bitseyeExpanded && (
-                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-                      {BITSEYE_FIXED.map(sub => {
-                        const subActive = isBitseyeActive && bsView === sub.view && !bsKamId;
-                        return (
-                          <Link key={sub.view} href={`/bitseye?view=${sub.view}`}
-                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
-                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
-                            <BarChart3 className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
-                            {sub.label}
-                          </Link>
-                        );
-                      })}
-                      {/* KAM section — admin/management see all; viewer sees only their own */}
-                      <div className="flex items-center gap-2 pt-1 pb-0.5 px-2">
-                        <ContactRound className="h-3 w-3 text-violet-400/60 flex-shrink-0" />
-                        <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/35">KAM</span>
-                      </div>
-                      {role === 'viewer' ? (
-                        /* Viewer: show only their own KAM entry */
-                        viewerKamData?.kamId ? (
-                          <Link href={`/bitseye?view=kam&kamId=${viewerKamData.kamId}`}
-                            className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
-                              (isBitseyeActive && bsView === 'kam' && bsKamId === String(viewerKamData.kamId)) ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
-                            <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", (isBitseyeActive && bsView === 'kam' && bsKamId === String(viewerKamData.kamId)) ? "text-violet-300" : "text-violet-400/70")} />
-                            <span className="flex-1 truncate">{viewerKamData.kamName ?? 'My Portfolio'}</span>
-                          </Link>
-                        ) : (
-                          <p className="text-[10px] text-muted-foreground/30 px-3 py-1">No KAM assigned</p>
-                        )
-                      ) : (
-                        /* Admin / Management: show All KAMs + individual list */
-                        <>
-                          <Link href="/bitseye?view=kam"
-                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
-                              (isBitseyeActive && bsView === 'kam' && !bsKamId) ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
-                            <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", (isBitseyeActive && bsView === 'kam' && !bsKamId) ? "text-primary" : "text-violet-400/70")} />
-                            All KAMs
-                          </Link>
-                          {kamList.map(kam => {
-                            const kamActive = isBitseyeActive && bsView === 'kam' && bsKamId === String(kam.id);
-                            return (
-                              <Link key={kam.id} href={`/bitseye?view=kam&kamId=${kam.id}`}
-                                className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
-                                  kamActive ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
-                                <ChevronRight className="h-2.5 w-2.5 flex-shrink-0 text-muted-foreground/30" />
-                                <span className="flex-1 truncate">{kam.name}</span>
-                              </Link>
-                            );
-                          })}
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            /* ── CDR submenu ── */
-            if (item.hasSubmenu === 'cdr') {
-              const cdrView = isCdrActive ? (new URLSearchParams(search).get('view') ?? 'client') : null;
-              if (collapsed) {
-                return (
-                  <Link key={item.href} href={item.href} title={item.label}
-                    className={navItemClass(isCdrActive)}>
-                    <item.icon className={navIconClass(isCdrActive)} />
-                  </Link>
-                );
-              }
-              return (
-                <div key={item.href}>
-                  <button
-                    onClick={() => setCdrExpanded(o => !o)}
-                    className={navItemClass(isCdrActive)}
-                  >
-                    <item.icon className={navIconClass(isCdrActive)} />
-                    <span className="flex-1 text-left">{item.label}</span>
-                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-                      cdrExpanded ? "rotate-180" : "",
-                      isCdrActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
-                  </button>
-                  {cdrExpanded && (
-                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-                      {CDR_SUBITEMS.map(sub => {
-                        const subActive = isCdrActive && cdrView === sub.view;
-                        return (
-                          <Link key={sub.view} href={`/cdrs?view=${sub.view}`}
-                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
-                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
-                            <FileText className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
-                            {sub.label}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            /* ── Server Monitoring submenu ── */
-            if (item.hasSubmenu === 'monitoring') {
-              const currentMonTab = isMonitoringActive
-                ? (new URLSearchParams(search).get('tab') ?? 'reachability')
-                : null;
-              if (collapsed) {
-                return (
-                  <Link key={item.href} href={item.href} title={item.label}
-                    className={navItemClass(isActive)}>
-                    <item.icon className={navIconClass(isActive)} />
-                  </Link>
-                );
-              }
-              return (
-                <div key={item.href}>
-                  <button
-                    onClick={() => setMonitoringExpanded(o => !o)}
-                    className={navItemClass(isActive)}
-                  >
-                    <item.icon className={navIconClass(isActive)} />
-                    <span className="flex-1 text-left">{item.label}</span>
-                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-                      monitoringExpanded ? "rotate-180" : "",
-                      isActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
-                  </button>
-                  {monitoringExpanded && (
-                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-                      {MONITORING_SUBITEMS.map(sub => {
-                        const subActive = isMonitoringActive && currentMonTab === sub.tab;
-                        return (
-                          <Link key={sub.tab} href={`/server-monitoring?tab=${sub.tab}`}
-                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
-                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
-                            <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
-                            {sub.label}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            /* ── Rate Cards submenu ── */
-            if (item.hasSubmenu === 'ratecards') {
-              const rcType = isRateCardsActive ? new URLSearchParams(search).get('type') : null;
-              if (collapsed) {
-                return (
-                  <Link key={item.href} href={item.href} title={item.label}
-                    className={navItemClass(isRateCardsActive)}>
-                    <item.icon className={navIconClass(isRateCardsActive)} />
-                  </Link>
-                );
-              }
-              return (
-                <div key={item.href}>
-                  <button
-                    onClick={() => setRateCardsExpanded(o => !o)}
-                    className={navItemClass(isRateCardsActive)}
-                  >
-                    <item.icon className={navIconClass(isRateCardsActive)} />
-                    <span className="flex-1 text-left">{item.label}</span>
-                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-                      rateCardsExpanded ? "rotate-180" : "",
-                      isRateCardsActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
-                  </button>
-                  {rateCardsExpanded && (
-                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-                      {([
-                        { type: 'client', label: 'Client Rate Cards',  icon: Building2, iconColor: 'text-amber-400' },
-                        { type: 'vendor', label: 'Vendor Rate Cards',   icon: Wallet,    iconColor: 'text-cyan-400'  },
-                      ] as const).map(sub => {
-                        const subActive = isRateCardsActive && rcType === sub.type;
-                        return (
-                          <Link key={sub.type} href={`/rate-cards?type=${sub.type}`}
-                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
-                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
-                            <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
-                            {sub.label}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            /* ── Settings submenu ── */
-            if (item.hasSubmenu === 'settings') {
-              const settingsSearch = isSettingsActive ? new URLSearchParams(search).get('section') : null;
-              if (collapsed) {
-                return (
-                  <Link key={item.href} href={item.href} title={item.label}
-                    className={navItemClass(isSettingsActive)}>
-                    <item.icon className={navIconClass(isSettingsActive)} />
-                  </Link>
-                );
-              }
-              return (
-                <div key={item.href}>
-                  <button
-                    onClick={() => setSettingsExpanded(o => !o)}
-                    className={navItemClass(isSettingsActive)}
-                  >
-                    <item.icon className={navIconClass(isSettingsActive)} />
-                    <span className="flex-1 text-left">{item.label}</span>
-                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-                      settingsExpanded ? "rotate-180" : "",
-                      isSettingsActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
-                  </button>
-                  {settingsExpanded && (
-                    <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-                      {[
-                        { href: '/settings', label: 'General Settings', icon: Settings, color: 'text-blue-400', section: null },
-                        { href: '/settings?section=watcher', label: 'Sippy Watcher', icon: ScanSearch, color: 'text-cyan-400', section: 'watcher' },
-                      ].map(sub => {
-                        const subActive = isSettingsActive && settingsSearch === sub.section;
-                        return (
-                          <Link key={sub.href} href={sub.href}
-                            className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
-                              subActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
-                            <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.color)} />
-                            {sub.label}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            /* ── Plain nav item ── */
+          {/* ── COLLAPSED: flat icon list ── */}
+          {collapsed && allFlatItems.filter(isItemVisible).map(item => {
+            const isActive = item.href === '/' ? location === '/' : location.startsWith(item.href);
             return (
-              <Link key={item.href} href={item.href} title={collapsed ? item.label : undefined}
-                className={navItemClass(isActive)}>
+              <Link key={item.href} href={item.href} title={item.label} className={navItemClass(isActive)}>
                 <item.icon className={navIconClass(isActive)} />
-                {!collapsed && <span>{item.label}</span>}
               </Link>
             );
           })}
+
+          {/* ── EXPANDED: pinned top + collapsible groups + pinned bottom ── */}
+          {!collapsed && (
+            <>
+              {/* Pinned top (Dashboard) */}
+              <div className="space-y-0.5 mb-1">
+                {NAV_PINNED_TOP.filter(isItemVisible).map(item => {
+                  const isActive = location === '/';
+                  return (
+                    <Link key={item.href} href={item.href} className={navItemClass(isActive)}>
+                      <item.icon className={navIconClass(isActive)} />
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+
+              {/* Collapsible groups */}
+              {SIDEBAR_GROUPS.map(group => {
+                if (!group.roles.includes(role)) return null;
+                const visibleItems = group.items.filter(isItemVisible);
+                if (visibleItems.length === 0) return null;
+                const isOpen = isGroupOpen(group.key);
+                const isGroupActive = visibleItems.some(item =>
+                  item.href === '/' ? location === '/' : location.startsWith(item.href)
+                );
+
+                return (
+                  <div key={group.key} className="mt-3">
+                    {/* Group header */}
+                    <button
+                      data-testid={`sidebar-group-${group.key}`}
+                      onClick={() => toggleGroup(group.key)}
+                      className={cn(
+                        "w-full flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors",
+                        isGroupActive
+                          ? "text-muted-foreground/80 hover:text-muted-foreground"
+                          : "text-muted-foreground/40 hover:text-muted-foreground/70"
+                      )}
+                    >
+                      <span className="flex-1 text-left">{group.label}</span>
+                      <ChevronRight className={cn(
+                        "h-3 w-3 transition-transform duration-200 flex-shrink-0",
+                        isOpen && "rotate-90"
+                      )} />
+                    </button>
+
+                    {/* Group items */}
+                    {isOpen && (
+                      <div className="mt-0.5 space-y-0.5">
+                        {visibleItems.map(item => renderNavItem(item))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Pinned bottom (My Account) */}
+              <div className="mt-3 space-y-0.5">
+                {NAV_PINNED_BOTTOM.filter(isItemVisible).map(item => {
+                  const isActive = location.startsWith(item.href);
+                  return (
+                    <Link key={item.href} href={item.href} className={navItemClass(isActive)}>
+                      <item.icon className={navIconClass(isActive)} />
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </nav>
 
         {/* User footer */}
@@ -581,7 +678,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
               </div>
             ) : (
               <div className="space-y-2">
-                {/* Theme + Cmd+K hint row */}
                 <div className="flex items-center gap-2 px-2">
                   <button
                     onClick={toggleTheme}
@@ -605,7 +701,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
                     <span>K</span>
                   </button>
                 </div>
-                {/* User info row */}
                 <div className="flex items-center gap-3 px-2 py-1">
                   <div className="h-8 w-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500 font-bold text-xs flex-shrink-0">
                     {user.firstName?.[0] || user.email?.[0]?.toUpperCase() || "U"}
@@ -637,7 +732,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
       {/* ── Mobile top bar + slide-out sidebar ── */}
       <div className="md:hidden flex flex-col flex-1 min-h-0">
         <header className="h-14 border-b border-border/50 flex items-center px-4 gap-3 bg-background/80 backdrop-blur-sm sticky top-0 z-40">
-          {/* Hamburger → Sheet sidebar */}
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
               <button
@@ -649,7 +743,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
               </button>
             </SheetTrigger>
             <SheetContent side="left" className="w-72 p-0 border-r border-border bg-card/95 backdrop-blur-xl">
-              {/* Sheet header */}
               <div className="flex items-center gap-3 p-4 border-b border-border/50">
                 <div className="bg-blue-600/20 p-2 rounded-lg flex-shrink-0">
                   <Activity className="h-5 w-5 text-blue-500" />
@@ -659,55 +752,78 @@ export function LayoutShell({ children }: LayoutShellProps) {
                   <p className="text-[10px] text-muted-foreground font-mono">v2.5.0-stable</p>
                 </div>
               </div>
-              {/* Sheet nav */}
               <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-                {navItems.map(item => {
-                  const isActive = item.href === '/' ? location === '/' : location.startsWith(item.href);
-
-                  if (item.hasSubmenu === 'ratecards') {
-                    return (
-                      <div key={item.href}>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 px-3 pt-3 pb-1">Rate Cards</p>
-                        {([
-                          { type: 'client', label: 'Client Rate Cards', icon: Building2, color: 'text-amber-400' },
-                          { type: 'vendor', label: 'Vendor Rate Cards',  icon: Wallet,    color: 'text-cyan-400'  },
-                        ] as const).map(sub => {
-                          const subActive = isRateCardsActive && new URLSearchParams(search).get('type') === sub.type;
-                          return (
-                            <Link key={sub.type} href={`/rate-cards?type=${sub.type}`}
-                              onClick={() => setMobileOpen(false)}
-                              className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
-                                subActive ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
-                              <sub.icon className="h-4 w-4 flex-shrink-0" />
-                              {sub.label}
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    );
-                  }
-
-                  if (item.hasSubmenu) return null;
-
+                {/* Mobile: pinned top */}
+                {NAV_PINNED_TOP.filter(isItemVisible).map(item => {
+                  const isActive = location === '/';
                   return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setMobileOpen(false)}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
-                        isActive
-                          ? "bg-primary text-primary-foreground shadow-md"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                      )}
-                    >
+                    <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)}
+                      className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
+                        isActive ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
+                      <item.icon className="h-4 w-4 flex-shrink-0" />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+
+                {/* Mobile: groups with section labels */}
+                {SIDEBAR_GROUPS.map(group => {
+                  if (!group.roles.includes(role)) return null;
+                  const visibleItems = group.items.filter(isItemVisible);
+                  if (visibleItems.length === 0) return null;
+                  return (
+                    <div key={group.key} className="pt-3">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 px-3 pb-1">{group.label}</p>
+                      {visibleItems.map(item => {
+                        const isActive = item.href === '/' ? location === '/' : location.startsWith(item.href);
+                        if (item.hasSubmenu === 'ratecards') {
+                          return (
+                            <div key={item.href}>
+                              {([
+                                { type: 'client', label: 'Client Rate Cards', icon: Building2, color: 'text-amber-400' },
+                                { type: 'vendor', label: 'Vendor Rate Cards',  icon: Wallet,    color: 'text-cyan-400'  },
+                              ] as const).map(sub => {
+                                const subActive = isRateCardsActive && new URLSearchParams(search).get('type') === sub.type;
+                                return (
+                                  <Link key={sub.type} href={`/rate-cards?type=${sub.type}`}
+                                    onClick={() => setMobileOpen(false)}
+                                    className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
+                                      subActive ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
+                                    <sub.icon className="h-4 w-4 flex-shrink-0" />
+                                    {sub.label}
+                                  </Link>
+                                );
+                              })}
+                            </div>
+                          );
+                        }
+                        if (item.hasSubmenu && item.hasSubmenu !== 'ratecards') return null;
+                        return (
+                          <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)}
+                            className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
+                              isActive ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
+                            <item.icon className="h-4 w-4 flex-shrink-0" />
+                            {item.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+
+                {/* Mobile: pinned bottom */}
+                {NAV_PINNED_BOTTOM.filter(isItemVisible).map(item => {
+                  const isActive = location.startsWith(item.href);
+                  return (
+                    <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)}
+                      className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all mt-2",
+                        isActive ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
                       <item.icon className="h-4 w-4 flex-shrink-0" />
                       {item.label}
                     </Link>
                   );
                 })}
               </nav>
-              {/* Sheet footer */}
               <div className="border-t border-border/50 p-3 space-y-2">
                 <div className="flex items-center gap-2 px-2">
                   <button onClick={toggleTheme} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted/50 transition-colors">
@@ -735,7 +851,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
           <Activity className="h-5 w-5 text-primary" />
           <span className="font-bold flex-1">VoIP Monitor</span>
 
-          {/* Mobile: theme toggle */}
           <button
             onClick={toggleTheme}
             data-testid="button-theme-toggle-mobile"
