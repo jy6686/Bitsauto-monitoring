@@ -1776,10 +1776,11 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/sippy/make-call — initiates a test call via Sippy XML-RPC
-  // Strategy: try direct call origination (call_control.makeCall / makeCall / make_call / originate)
-  // first (no Callback module required). Fall back to make2WayCallback() only if every direct method
-  // returns "method not found" (i.e. the switch genuinely doesn't support any of those methods).
+  // POST /api/sippy/make-call — initiates a test call via Sippy XML-RPC / Simple API
+  // Per article 106909 (XML-RPC API intro), 107448 (make2WayCallback), 107525 (Simple API):
+  //   Phase 1 — call_control.makeCall (Trusted Mode, ADMIN creds): needs "Allow XML-RPC call origination".
+  //   Phase 2 — make2WayCallback (Normal Mode, CUSTOMER creds): needs Callback service on the account.
+  //   Phase 3 — /simpleapi/callback.php (HTTP Basic Auth): needs admin to add creds to .htpassword.
   // Body: { cli, cld, iAccount?, authname? }
   app.post('/api/sippy/make-call', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
@@ -1788,8 +1789,34 @@ export async function registerRoutes(
       if (!cli || !cld) return res.status(400).json({ success: false, message: 'cli and cld are required.' });
 
       const settings = await storage.getSettings();
-      const credPairs = sippyXmlCredsPairs(settings);
       const portalBase = sippyPortalUrl(settings);
+
+      // Per article 106909:
+      //   Phase 1 — makeCall (Trusted Mode): uses ADMIN credentials (ssp-root + API password).
+      //             Requires "Allow XML-RPC call origination" on the admin account in Sippy.
+      //   Phase 2 — make2WayCallback (Normal Mode): uses CUSTOMER credentials (portalUsername + portalPassword).
+      //             Normal mode scopes the session to that customer account.
+      //             Requires Callback service active for the customer account (authname).
+      //   Phase 3 — Simple API (/simpleapi/callback.php): plain HTTP Basic Auth GET.
+      //             Requires admin to add credentials to /simpleapi/.htpassword on the switch server.
+      //             Falls back through both admin and customer credentials.
+
+      // Admin credentials for Phase 1 (XML-RPC Trusted Mode)
+      const adminPairs: Array<{ username: string; password: string }> = [];
+      if (settings.apiAdminUsername && settings.apiAdminPassword)
+        adminPairs.push({ username: settings.apiAdminUsername, password: settings.apiAdminPassword });
+
+      // Customer credentials for Phase 2 (XML-RPC Normal Mode) — customer auth scopes to their account
+      const customerPairs: Array<{ username: string; password: string }> = [];
+      if (settings.portalUsername && settings.portalPassword)
+        customerPairs.push({ username: settings.portalUsername, password: settings.portalPassword });
+
+      // Fallback: if one set is missing, fill from credPairs so we always have at least something
+      const allPairs = sippyXmlCredsPairs(settings);
+      const phase1Pairs = adminPairs.length   ? adminPairs   : allPairs;
+      const phase2Pairs = customerPairs.length ? customerPairs : allPairs;
+      // Phase 3: try customer first (most likely .htpassword entry), then admin
+      const phase3Pairs = [...customerPairs, ...adminPairs].length ? [...customerPairs, ...adminPairs] : allPairs;
 
       let result: { success: boolean; callId?: string; message: string; errorType?: string; apiUser?: string; method?: string } = {
         success: false,
@@ -1797,9 +1824,12 @@ export async function registerRoutes(
         errorType: 'not_connected',
       };
 
-      // ── Phase 1: direct call origination (does NOT need Callback module) ────
+      // ── Phase 1: direct call origination via XML-RPC makeCall ────────────────
+      // Authenticated as ADMIN in Trusted Mode.
+      // Requires: admin account has "Allow XML-RPC call origination" in Sippy Admin →
+      //           System → Administrators → <user> → API Access.
       let allMethodsNotFound = true;
-      for (const { username, password } of credPairs) {
+      for (const { username, password } of phase1Pairs) {
         let r: { success: boolean; callId?: string; message: string; errorType?: string; apiUser?: string };
         try {
           r = await sippy.makeCall(
@@ -1817,21 +1847,28 @@ export async function registerRoutes(
           break;
         }
         if (r.errorType === 'call_error') {
-          // Method was found but Sippy rejected the call (routing, credit, account, etc.) — stop and report
           result = { ...r, method: 'direct' };
           allMethodsNotFound = false;
           break;
         }
-        // method_not_found OR auth_failed — save error but keep trying / allow callback fallback
         result = { ...r, method: 'direct' };
       }
 
-      // ── Phase 2: fall back to make2WayCallback (requires Callback module) ───
+      // ── Phase 2: XML-RPC make2WayCallback (Normal Mode, customer credentials) ─
+      // Authenticated as CUSTOMER (portalUsername/portalPassword).
+      // Requires: customer account has Callback service active in Sippy Admin →
+      //           Customers → <account> → Applications → Callback.
+      // Article 107448: cld_first = first leg (your phone), cld_second = destination.
+      //                 cli_first/cli_second = caller ID shown on each leg.
       if (!result.success && allMethodsNotFound) {
-        // Resolve authname for callback: explicit > iAccount lookup > first cached account
         let authname: string = bodyAuthname?.trim() || '';
         if (!authname && iAccount) authname = accountNameCache.get(String(iAccount)) || '';
-        if (!authname) { const fe = [...accountNameCache.entries()][0]; authname = fe?.[1] || ''; }
+        if (!authname) {
+          const fe = [...accountNameCache.entries()][0];
+          authname = fe?.[1] || '';
+        }
+        // Default authname to the portal/customer username when no explicit value available
+        if (!authname && settings.portalUsername) authname = settings.portalUsername;
 
         if (!authname) {
           result = {
@@ -1840,14 +1877,16 @@ export async function registerRoutes(
             errorType: 'no_authname',
           };
         } else {
-          for (const { username, password } of credPairs) {
+          for (const { username, password } of phase2Pairs) {
             let r: { success: boolean; iCallbackRequest?: number; message: string };
             try {
               r = await sippy.make2WayCallback(username, password, {
                 authname,
                 cldFirst:  cli.trim(),
+                cliFirst:  cli.trim(),
                 cldSecond: cld.trim(),
-              });
+                cliSecond: cli.trim(),
+              }, portalBase);
             } catch (err: any) {
               console.error(`[make-call] make2WayCallback threw for user ${username}:`, err);
               r = { success: false, message: err?.message || String(err) };
@@ -1861,6 +1900,42 @@ export async function registerRoutes(
               method:    'callback',
             };
             if (r.success) break;
+          }
+        }
+      }
+
+      // ── Phase 3: Simple API fallback (/simpleapi/callback.php) ───────────────
+      // HTTP Basic Auth GET — simplest integration per article 107525.
+      // Requires: admin to run htpasswd on the switch server to add credentials,
+      //           AND customer account (authname) must have Callback service active.
+      if (!result.success) {
+        const authname =
+          bodyAuthname?.trim() ||
+          (iAccount ? accountNameCache.get(String(iAccount)) : '') ||
+          settings.portalUsername ||
+          '';
+
+        if (authname) {
+          for (const { username, password } of phase3Pairs) {
+            let r: { success: boolean; message: string };
+            try {
+              r = await sippy.simpleApiCallback(username, password, {
+                authname,
+                cldFirst:  cli.trim(),
+                cliFirst:  cli.trim(),
+                cldSecond: cld.trim(),
+                cliSecond: cli.trim(),
+              }, portalBase);
+            } catch (err: any) {
+              console.error(`[make-call] simpleApiCallback threw for user ${username}:`, err);
+              r = { success: false, message: err?.message || String(err) };
+            }
+            if (r.success) {
+              result = { ...r, errorType: undefined, apiUser: username, method: 'simple-api' };
+              break;
+            }
+            // Only update result if we haven't succeeded — keep last error for logging
+            result = { ...result, message: r.message, errorType: 'call_error', apiUser: username, method: 'simple-api' };
           }
         }
       }

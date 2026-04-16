@@ -1,22 +1,45 @@
 /**
  * Sippy Softswitch Integration
  *
- * Reference: https://support.sippysoft.com/support/solutions/articles/106909
+ * References:
+ *   106909 — Introduction to Sippy XML-RPC API
+ *             https://support.sippysoft.com/support/solutions/articles/106909
+ *   107448 — XML-RPC API: Manage Callback Calls (make2WayCallback)
+ *             https://support.sippysoft.com/support/solutions/articles/107448
+ *   107462 — XML-RPC API: Manage Active Calls (makeCall, listActiveCalls)
+ *             https://support.sippysoft.com/support/solutions/articles/107462
+ *   107525 — Simple API (/simpleapi/callback.php — HTTP Basic Auth GET)
+ *             https://support.sippysoft.com/support/solutions/articles/107525
  *
- * Dual-mode integration:
- * 1. XML-RPC API at /xmlapi/xmlapi — authenticated via HTTP Digest (RFC-2617).
- *    Credentials: Web Login (username) + API Password (separate from portal password,
- *    set in Sippy portal → My Preferences → "Allow API Calls" + API Password field).
- *    Admin credentials (e.g. ssp-root) provide root-level access to all customers.
- *    Customer-level credentials only see that customer's data.
+ * Three integration modes:
  *
- * 2. Web portal session scraping — fallback when XML-RPC is unavailable.
- *    Authenticates via POST /main.php using web portal username + web password,
- *    then maintains session cookies and scrapes HTML pages.
+ * 1. XML-RPC API at /xmlapi/xmlapi — HTTP Digest Auth (RFC-2617, NOT Basic).
+ *    Two credential modes per article 106909:
+ *      a. Trusted Mode (ADMIN credentials — apiAdminUsername/apiAdminPassword):
+ *         Full root-level access. Can originate calls via call_control.makeCall.
+ *         Requires "Allow XML-RPC call origination" on the admin account.
+ *         Credentials: Web Login (username) + API Password (set in My Preferences →
+ *         Allow API Calls → API Password field — separate from web portal password).
+ *      b. Normal Mode (CUSTOMER credentials — portalUsername/portalPassword):
+ *         Scoped to that customer account. Used for make2WayCallback.
+ *         Customer must have Callback service active AND Allow API Calls enabled.
  *
- * Credential priority for XML-RPC calls (in routes.ts via sippyXmlCreds()):
- *   apiAdminUsername / apiAdminPassword  →  admin root access (preferred)
- *   portalUsername   / portalPassword    →  customer-level access (fallback)
+ * 2. Simple API at /simpleapi/callback.php — HTTP Basic Auth GET (article 107525).
+ *    Easiest integration path. Admin must add credentials to .htpassword:
+ *      htpasswd /home/ssp/sippy_web/simpleapi/.htpassword <username>
+ *    Customer account (authname) must still have Callback service active.
+ *
+ * 3. Web portal session scraping — fallback when XML-RPC is restricted.
+ *    Authenticates via POST /main.php and scrapes HTML pages.
+ *
+ * Call origination 3-phase strategy (POST /api/sippy/make-call in routes.ts):
+ *   Phase 1: call_control.makeCall via XML-RPC Trusted Mode (admin creds)
+ *   Phase 2: make2WayCallback via XML-RPC Normal Mode (customer creds)
+ *   Phase 3: /simpleapi/callback.php HTTP Basic Auth GET (customer creds first)
+ *
+ * Credential fields in Settings (DB: settings table):
+ *   apiAdminUsername / apiAdminPassword  →  admin XML-RPC (Trusted Mode)
+ *   portalUsername   / portalPassword    →  customer XML-RPC (Normal Mode) + portal scraping
  */
 
 import http from 'node:http';
@@ -14752,6 +14775,90 @@ export async function bulkAddDIDs(
     return { methodName: 'addDID', params };
   });
   return sippyMulticall(username, password, calls, opts);
+}
+
+/**
+ * Simple API callback — article 107525
+ * Hits /simpleapi/callback.php with HTTP Basic Auth (credentials from admin's .htpassword).
+ * This is the easiest fallback when XML-RPC make2WayCallback fails because the Callback
+ * application service is not enabled on the customer account (it must still be enabled for
+ * the authname account, but this API doesn't need the full XML-RPC session).
+ *
+ * Admin setup (one-time):
+ *   htpasswd /home/ssp/sippy_web/simpleapi/.htpassword <username>
+ * and the customer account (authname) must have the Callback application active.
+ *
+ * Returns plain-text success / error — response 200 means the callback was queued.
+ */
+export async function simpleApiCallback(
+  username:  string,
+  password:  string,
+  opts: {
+    authname:    string;
+    cldFirst:    string;
+    cldSecond:   string;
+    cliFirst?:   string;
+    cliSecond?:  string;
+    creditTime?: number;
+  },
+  portalUrl?: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) return { success: false, message: 'Not connected to Sippy.' };
+
+  const qs = new URLSearchParams({
+    authname:   opts.authname,
+    cld_first:  opts.cldFirst,
+    cld_second: opts.cldSecond,
+  });
+  if (opts.cliFirst   !== undefined) qs.set('cli_first',   opts.cliFirst);
+  if (opts.cliSecond  !== undefined) qs.set('cli_second',  opts.cliSecond);
+  if (opts.creditTime !== undefined) qs.set('credit_time', String(opts.creditTime));
+
+  const url = `${base}/simpleapi/callback.php?${qs.toString()}`;
+  const parsed  = new URL(url);
+  const isHttps = parsed.protocol === 'https:';
+  const path    = parsed.pathname + '?' + parsed.searchParams.toString();
+
+  return new Promise((resolve) => {
+    const opts2: http.RequestOptions = {
+      hostname: parsed.hostname,
+      port:     parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80),
+      path,
+      method:   'GET',
+      headers:  {
+        Authorization: basicAuth(username, password),
+        'User-Agent':  'SippyAPI/1.0',
+      },
+      timeout: 12000,
+      ...(isHttps ? { agent: lenientHttpsAgent, rejectUnauthorized: false } : {}),
+    };
+    let data = '';
+    const req = (isHttps ? https : http).request(opts2, (res) => {
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end',  () => {
+        const code = res.statusCode ?? 0;
+        console.log(`[Sippy] simpleApiCallback(${opts.authname}) HTTP ${code}: ${data.slice(0, 200)}`);
+        if (code === 401 || code === 403) {
+          resolve({ success: false, message: `Simple API: HTTP ${code} — credentials not in /simpleapi/.htpassword. Admin must run: htpasswd /home/ssp/sippy_web/simpleapi/.htpassword ${username}` });
+          return;
+        }
+        if (code === 200 || code === 201) {
+          const lower = data.toLowerCase();
+          if (lower.includes('error') || lower.includes('failed') || lower.includes('invalid')) {
+            resolve({ success: false, message: `Simple API error: ${data.slice(0, 200).trim()}` });
+          } else {
+            resolve({ success: true, message: `Simple API callback queued (HTTP ${code}).` });
+          }
+          return;
+        }
+        resolve({ success: false, message: `Simple API: HTTP ${code} — ${data.slice(0, 200).trim() || 'no response body'}` });
+      });
+    });
+    req.on('error',   (err: Error) => resolve({ success: false, message: `Simple API request failed: ${err.message}` }));
+    req.on('timeout', () => { req.destroy(); resolve({ success: false, message: 'Simple API request timed out.' }); });
+    req.end();
+  });
 }
 
 /**
