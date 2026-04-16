@@ -15,8 +15,9 @@ import {
 } from "lucide-react";
 import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RcTooltip,
-  ResponsiveContainer, ReferenceLine, Legend,
+  ResponsiveContainer, ReferenceLine, Legend, Area,
 } from 'recharts';
+import { BseTooltip, BSE_GRID_PROPS, BSE_AXIS_PROPS, BSE_CURSOR, bseActiveDot } from "@/components/bse-chart";
 import { Link } from "wouter";
 import type { AsrAcdReportRow, ClientProfile } from "@shared/schema";
 import { cn } from "@/lib/utils";
@@ -600,43 +601,34 @@ export default function ReportsPage() {
                   acd:  p.acd != null ? Math.round(p.acd) : undefined,
                   asr:  p.asr != null ? parseFloat(p.asr.toFixed(1)) : undefined,
                 }))}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <CartesianGrid {...BSE_GRID_PROPS} />
                   <XAxis
                     dataKey="time"
-                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-                    tickLine={false}
-                    axisLine={false}
+                    {...BSE_AXIS_PROPS}
                     interval="preserveStartEnd"
                   />
                   <YAxis
                     yAxisId="acd"
                     orientation="left"
-                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-                    tickLine={false}
-                    axisLine={false}
+                    {...BSE_AXIS_PROPS}
                     tickFormatter={v => `${v}s`}
-                    label={{ value: 'ACD (sec)', angle: -90, position: 'insideLeft', style: { fill: 'hsl(var(--muted-foreground))', fontSize: 11 }, dx: 10 }}
+                    label={{ value: 'ACD (sec)', angle: -90, position: 'insideLeft', style: { fill: 'rgba(148,163,184,0.5)', fontSize: 9, fontFamily: 'monospace' }, dx: 10 }}
                   />
                   <YAxis
                     yAxisId="asr"
                     orientation="right"
                     domain={[0, 100]}
-                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-                    tickLine={false}
-                    axisLine={false}
+                    {...BSE_AXIS_PROPS}
                     tickFormatter={v => `${v}%`}
-                    label={{ value: 'ASR (%)', angle: 90, position: 'insideRight', style: { fill: 'hsl(var(--muted-foreground))', fontSize: 11 }, dx: -5 }}
+                    label={{ value: 'ASR (%)', angle: 90, position: 'insideRight', style: { fill: 'rgba(148,163,184,0.5)', fontSize: 9, fontFamily: 'monospace' }, dx: -5 }}
                   />
                   <RcTooltip
-                    contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
-                    labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600 }}
-                    formatter={(value: number, name: string) =>
-                      name === 'acd' ? [`${value}s`, 'ACD'] : [`${value}%`, 'ASR']
-                    }
+                    content={<BseTooltip formatter={(v: number, key) => key === 'acd' ? [`${v}s`, 'ACD'] : [`${v}%`, 'ASR']} />}
+                    cursor={BSE_CURSOR}
                   />
                   <Legend
                     formatter={v => v === 'acd' ? 'ACD (sec)' : 'ASR (%)'}
-                    wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                    wrapperStyle={{ fontSize: 10, paddingTop: 8, color: 'rgba(148,163,184,0.7)' }}
                   />
                   {/* ASR industry benchmark reference lines */}
                   <ReferenceLine yAxisId="asr" y={70} stroke="#10b981" strokeDasharray="6 3" strokeWidth={1.5}
@@ -648,8 +640,8 @@ export default function ReportsPage() {
                   {/* ACD benchmark — retail ~480s */}
                   <ReferenceLine yAxisId="acd" y={480} stroke="#818cf8" strokeDasharray="4 4" strokeWidth={1}
                     label={{ value: 'Retail ACD ~8min', position: 'insideTopLeft', style: { fill: '#818cf8', fontSize: 10 } }} />
-                  <Line yAxisId="acd" type="monotone" dataKey="acd" stroke="#818cf8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} connectNulls />
-                  <Line yAxisId="asr" type="monotone" dataKey="asr" stroke="#34d399" strokeWidth={2} dot={false} activeDot={{ r: 4 }} connectNulls />
+                  <Line yAxisId="acd" type="monotone" dataKey="acd" stroke="#818cf8" strokeWidth={2} dot={false} activeDot={bseActiveDot('#818cf8')} connectNulls strokeLinecap="round" />
+                  <Line yAxisId="asr" type="monotone" dataKey="asr" stroke="#34d399" strokeWidth={2.5} dot={false} activeDot={bseActiveDot('#34d399')} connectNulls strokeLinecap="round" />
                 </ComposedChart>
               </ResponsiveContainer>
 

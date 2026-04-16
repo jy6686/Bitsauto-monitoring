@@ -8,6 +8,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, Legend,
 } from "recharts";
+import { BseTooltip, BSE_GRID_PROPS, BSE_AXIS_PROPS, BSE_CURSOR, bseActiveDot } from "@/components/bse-chart";
 import {
   TrendingUp, Users, Network, Radio, ArrowLeftRight, RefreshCw, Activity,
   Globe, AlertTriangle, UserCheck, Phone, Mail, Plus, Trash2, Edit2,
@@ -127,17 +128,10 @@ function HBar({ data, colors }: { data: { name: string; calls: number }[]; color
   return (
     <ResponsiveContainer width="100%" height={Math.max(160, data.length * 36)}>
       <BarChart data={data} layout="vertical" margin={{ top: 0, right: 32, left: 8, bottom: 0 }} barCategoryGap="25%">
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} horizontal={false} />
-        <XAxis type="number" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} allowDecimals={false} />
-        <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
-        <Tooltip content={({ active, payload, label }) =>
-          active && payload?.length ? (
-            <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-xl text-xs">
-              <p className="font-semibold">{label}</p>
-              <p style={{ color: payload[0]?.color }}>Calls: <b>{payload[0]?.value}</b></p>
-            </div>
-          ) : null
-        } cursor={{ fill: 'hsl(var(--muted))', opacity: 0.25 }} />
+        <CartesianGrid {...BSE_GRID_PROPS} horizontal={false} vertical={true} />
+        <XAxis type="number" {...BSE_AXIS_PROPS} allowDecimals={false} />
+        <YAxis type="category" dataKey="name" width={80} {...BSE_AXIS_PROPS} />
+        <Tooltip content={<BseTooltip formatter={(v, key) => [v, 'Calls']} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
         <Bar dataKey="calls" radius={[0, 4, 4, 0]}>
           {data.map((_, i) => <Cell key={i} fill={(colors ?? COLORS)[i % (colors ?? COLORS).length]} />)}
         </Bar>
@@ -907,26 +901,22 @@ export default function GraphsPage() {
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={data!.trend} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
+            <LineChart data={data!.trend} margin={{ top: 6, right: 8, left: -16, bottom: 0 }}>
+              <CartesianGrid {...BSE_GRID_PROPS} />
               <XAxis
                 dataKey="time"
-                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                tickLine={false}
-                axisLine={false}
+                {...BSE_AXIS_PROPS}
                 interval={data!.trend.length > 20 ? Math.floor(data!.trend.length / 10) : 0}
               />
               <YAxis
-                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                tickLine={false}
-                axisLine={false}
+                {...BSE_AXIS_PROPS}
                 allowDecimals={false}
                 domain={[0, 'auto']}
               />
-              <Tooltip content={<ChartTooltip />} />
-              <Legend wrapperStyle={{ fontSize: '11px', color: 'hsl(var(--muted-foreground))' }} />
-              <Line type="monotone" dataKey="avg" name="Avg Concurrent" stroke="#3b82f6" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
-              <Line type="monotone" dataKey="peak" name="Peak" stroke="#8b5cf6" strokeWidth={1.5} strokeDasharray="4 2" dot={false} activeDot={{ r: 4 }} />
+              <Tooltip content={<BseTooltip />} cursor={BSE_CURSOR} />
+              <Legend wrapperStyle={{ fontSize: 10, color: 'rgba(148,163,184,0.7)' }} />
+              <Line type="monotone" dataKey="avg" name="Avg Concurrent" stroke="#3b82f6" strokeWidth={2.5} dot={false} activeDot={bseActiveDot('#3b82f6')} strokeLinecap="round" />
+              <Line type="monotone" dataKey="peak" name="Peak" stroke="#8b5cf6" strokeWidth={1.5} strokeDasharray="4 2" dot={false} activeDot={bseActiveDot('#8b5cf6', 3)} />
             </LineChart>
           </ResponsiveContainer>
         )}

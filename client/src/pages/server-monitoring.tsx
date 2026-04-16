@@ -14,6 +14,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, BarChart, Bar, Cell, Legend
 } from "recharts";
+import { BseTooltip, BSE_GRID_PROPS, BSE_AXIS_PROPS, BSE_CURSOR, BseGradStops } from "@/components/bse-chart";
 import type { AlertRule } from "@shared/schema";
 
 const TABS = [
@@ -351,10 +352,10 @@ function ReachabilityTab() {
             <div className="p-5">
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={dailyUptime} barCategoryGap="30%">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                  <XAxis dataKey="day" stroke="#555" fontSize={10} tickLine={false} />
-                  <YAxis stroke="#555" fontSize={10} tickLine={false} axisLine={false} domain={[90, 100]} tickFormatter={v => `${v}%`} width={42} />
-                  <Tooltip contentStyle={{ backgroundColor: "#0f0f0f", borderColor: "#2a2a2a", borderRadius: "8px", fontSize: "11px" }} formatter={(v: any) => [`${v}%`, "Uptime"]} />
+                  <CartesianGrid {...BSE_GRID_PROPS} />
+                  <XAxis dataKey="day" {...BSE_AXIS_PROPS} />
+                  <YAxis {...BSE_AXIS_PROPS} domain={[90, 100]} tickFormatter={v => `${v}%`} width={42} />
+                  <Tooltip content={<BseTooltip formatter={(v) => [`${v}%`, 'Uptime']} />} cursor={BSE_CURSOR} />
                   <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
                     {dailyUptime.map((d, i) => (
                       <Cell key={i} fill={d.pct >= 99.9 ? "#34d399" : d.pct >= 99 ? "#f59e0b" : "#f43f5e"} />
@@ -784,15 +785,14 @@ function BandwidthTab() {
                     <AreaChart data={chartData}>
                       <defs>
                         <linearGradient id="bwGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
+                          <BseGradStops color="#06b6d4" />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                      <XAxis dataKey="time" stroke="#555" fontSize={10} tickLine={false} interval="preserveStartEnd" />
-                      <YAxis stroke="#555" fontSize={10} tickLine={false} axisLine={false} tickFormatter={v => `${v}KB/s`} width={58} />
-                      <Tooltip contentStyle={{ backgroundColor: "#0f0f0f", borderColor: "#2a2a2a", borderRadius: "8px", fontSize: "11px" }} formatter={(v: any) => [`${v} KB/s`, "Bandwidth"]} />
-                      <Area type="monotone" dataKey="bw" stroke="#06b6d4" strokeWidth={2} fill="url(#bwGrad)" dot={false} />
+                      <CartesianGrid {...BSE_GRID_PROPS} />
+                      <XAxis dataKey="time" {...BSE_AXIS_PROPS} interval="preserveStartEnd" />
+                      <YAxis {...BSE_AXIS_PROPS} tickFormatter={v => `${v}KB/s`} width={58} />
+                      <Tooltip content={<BseTooltip formatter={(v) => [`${v} KB/s`, 'Bandwidth']} />} cursor={BSE_CURSOR} />
+                      <Area type="monotone" dataKey="bw" stroke="#06b6d4" strokeWidth={2.5} fill="url(#bwGrad)" dot={false} activeDot={bseActiveDot('#06b6d4')} strokeLinejoin="round" strokeLinecap="round" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -950,15 +950,14 @@ function DiskMemoryTab() {
                         <AreaChart data={r.chartData}>
                           <defs>
                             <linearGradient id={`grad-${r.type}`} x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor={r.meta.color} stopOpacity={0.3} />
-                              <stop offset="95%" stopColor={r.meta.color} stopOpacity={0} />
+                              <BseGradStops color={r.meta.color} />
                             </linearGradient>
                           </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                          <XAxis dataKey="time" stroke="#555" fontSize={9} tickLine={false} interval="preserveStartEnd" />
-                          <YAxis stroke="#555" fontSize={9} tickLine={false} axisLine={false} tickFormatter={v => `${v}${r.meta.unit}`} width={38} />
-                          <Tooltip contentStyle={{ backgroundColor: "#0f0f0f", borderColor: "#2a2a2a", borderRadius: "8px", fontSize: "11px" }} formatter={(v: any) => [`${v}${r.meta.unit}`, r.meta.label]} />
-                          <Area type="monotone" dataKey="val" stroke={r.meta.color} strokeWidth={2} fill={`url(#grad-${r.type})`} dot={false} />
+                          <CartesianGrid {...BSE_GRID_PROPS} />
+                          <XAxis dataKey="time" {...BSE_AXIS_PROPS} interval="preserveStartEnd" />
+                          <YAxis {...BSE_AXIS_PROPS} tickFormatter={v => `${v}${r.meta.unit}`} width={38} />
+                          <Tooltip content={<BseTooltip formatter={(v) => [`${v}${r.meta.unit}`, r.meta.label]} />} cursor={BSE_CURSOR} />
+                          <Area type="monotone" dataKey="val" stroke={r.meta.color} strokeWidth={2.5} fill={`url(#grad-${r.type})`} dot={false} activeDot={bseActiveDot(r.meta.color)} strokeLinejoin="round" strokeLinecap="round" />
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
@@ -1085,10 +1084,10 @@ function CarrierAsrTab() {
               <div className="p-5">
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={carriers} layout="vertical" barCategoryGap="20%">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                    <XAxis type="number" domain={[0, 100]} stroke="#555" fontSize={10} tickLine={false} tickFormatter={v => `${v}%`} />
-                    <YAxis type="category" dataKey="carrier" stroke="#555" fontSize={9} tickLine={false} width={80} />
-                    <Tooltip contentStyle={{ backgroundColor: "#0f0f0f", borderColor: "#2a2a2a", borderRadius: "8px", fontSize: "11px" }} formatter={(v: any) => [`${v}%`, "ASR"]} />
+                    <CartesianGrid {...BSE_GRID_PROPS} horizontal={false} vertical={true} />
+                    <XAxis type="number" domain={[0, 100]} {...BSE_AXIS_PROPS} tickFormatter={v => `${v}%`} />
+                    <YAxis type="category" dataKey="carrier" {...BSE_AXIS_PROPS} width={80} />
+                    <Tooltip content={<BseTooltip formatter={(v) => [`${v}%`, 'ASR']} />} cursor={BSE_CURSOR} />
                     <Bar dataKey="asr" radius={[0, 4, 4, 0]}>
                       {carriers.map((c, i) => (
                         <Cell key={i} fill={c.asr >= 50 ? "#34d399" : c.asr >= 20 ? "#f59e0b" : "#f43f5e"} />
@@ -1100,10 +1099,10 @@ function CarrierAsrTab() {
                 <p className="text-xs text-muted-foreground mt-4 mb-2 font-medium">ACD (Avg Call Duration) per Carrier</p>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={carriers} layout="vertical" barCategoryGap="20%">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                    <XAxis type="number" stroke="#555" fontSize={10} tickLine={false} tickFormatter={v => `${v}s`} />
-                    <YAxis type="category" dataKey="carrier" stroke="#555" fontSize={9} tickLine={false} width={80} />
-                    <Tooltip contentStyle={{ backgroundColor: "#0f0f0f", borderColor: "#2a2a2a", borderRadius: "8px", fontSize: "11px" }} formatter={(v: any) => [`${v}s`, "ACD"]} />
+                    <CartesianGrid {...BSE_GRID_PROPS} horizontal={false} vertical={true} />
+                    <XAxis type="number" {...BSE_AXIS_PROPS} tickFormatter={v => `${v}s`} />
+                    <YAxis type="category" dataKey="carrier" {...BSE_AXIS_PROPS} width={80} />
+                    <Tooltip content={<BseTooltip formatter={(v) => [`${v}s`, 'ACD']} />} cursor={BSE_CURSOR} />
                     <Bar dataKey="acd" fill="#a78bfa" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -1433,15 +1432,14 @@ function RegistrationsTab() {
                     <AreaChart data={chartData}>
                       <defs>
                         <linearGradient id="regGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={data?.stormDetected ? "#f43f5e" : "#a78bfa"} stopOpacity={0.3} />
-                          <stop offset="95%" stopColor={data?.stormDetected ? "#f43f5e" : "#a78bfa"} stopOpacity={0} />
+                          <BseGradStops color={data?.stormDetected ? "#f43f5e" : "#a78bfa"} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                      <XAxis dataKey="time" stroke="#555" fontSize={10} tickLine={false} interval="preserveStartEnd" />
-                      <YAxis stroke="#555" fontSize={10} tickLine={false} axisLine={false} width={36} />
-                      <Tooltip contentStyle={{ backgroundColor: "#0f0f0f", borderColor: "#2a2a2a", borderRadius: "8px", fontSize: "11px" }} formatter={(v: any) => [v, "Registrations"]} />
-                      <Area type="monotone" dataKey="regs" stroke={data?.stormDetected ? "#f43f5e" : "#a78bfa"} strokeWidth={2} fill="url(#regGrad)" dot={false} />
+                      <CartesianGrid {...BSE_GRID_PROPS} />
+                      <XAxis dataKey="time" {...BSE_AXIS_PROPS} interval="preserveStartEnd" />
+                      <YAxis {...BSE_AXIS_PROPS} width={36} />
+                      <Tooltip content={<BseTooltip formatter={(v) => [v, 'Registrations']} />} cursor={BSE_CURSOR} />
+                      <Area type="monotone" dataKey="regs" stroke={data?.stormDetected ? "#f43f5e" : "#a78bfa"} strokeWidth={2.5} fill="url(#regGrad)" dot={false} activeDot={bseActiveDot(data?.stormDetected ? "#f43f5e" : "#a78bfa")} strokeLinejoin="round" strokeLinecap="round" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>

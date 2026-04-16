@@ -10,6 +10,7 @@ import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, Legend,
 } from 'recharts';
+import { BseTooltip, BSE_GRID_PROPS, BSE_AXIS_PROPS, BSE_CURSOR, bseActiveDot } from "@/components/bse-chart";
 import { lookupCountry } from "@/lib/country-lookup";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -1642,19 +1643,19 @@ function SwitchPanel({
                       </div>
                       <div className="h-52">
                         <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={chartData} margin={{ top: 4, right: 8, left: -8, bottom: 4 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                            <XAxis dataKey="hour" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.35)' }} />
-                            <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.35)' }} unit="ms" />
+                          <LineChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 4 }}>
+                            <CartesianGrid {...BSE_GRID_PROPS} />
+                            <XAxis dataKey="hour" {...BSE_AXIS_PROPS} />
+                            <YAxis {...BSE_AXIS_PROPS} unit="ms" />
                             <ReTooltip
-                              contentStyle={{ background: '#1a1b23', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', fontSize: 11 }}
-                              formatter={(val: number, name: string) => [`${val} ms`, name.replace('_pdd','')]}
+                              content={<BseTooltip formatter={(val: number, key: string) => [`${val} ms`, key.replace('_pdd','')]} />}
+                              cursor={BSE_CURSOR}
                             />
-                            <Legend wrapperStyle={{ fontSize: 10 }} formatter={n => n.replace('_pdd','')} />
+                            <Legend wrapperStyle={{ fontSize: 10, color: 'rgba(148,163,184,0.7)' }} formatter={n => n.replace('_pdd','')} />
                             {routes.map((route, i) => (
                               <Line key={route.vendor} type="monotone" dataKey={`${route.vendor}_pdd`}
                                 stroke={ROUTE_COLORS[i % ROUTE_COLORS.length]} strokeWidth={2}
-                                dot={false} activeDot={{ r: 3 }} name={route.vendor} />
+                                dot={false} activeDot={bseActiveDot(ROUTE_COLORS[i % ROUTE_COLORS.length], 3)} name={route.vendor} strokeLinecap="round" />
                             ))}
                           </LineChart>
                         </ResponsiveContainer>
@@ -1672,16 +1673,16 @@ function SwitchPanel({
                       </div>
                       <div className="h-44">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={chartData} margin={{ top: 4, right: 8, left: -8, bottom: 4 }} barGap={2}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                            <XAxis dataKey="hour" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.35)' }} />
-                            <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.35)' }} />
-                            <ReTooltip contentStyle={{ background: '#1a1b23', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', fontSize: 11 }} />
-                            <Legend wrapperStyle={{ fontSize: 10 }} formatter={n => n.replace('_calls','')} />
+                          <BarChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 4 }} barGap={2}>
+                            <CartesianGrid {...BSE_GRID_PROPS} />
+                            <XAxis dataKey="hour" {...BSE_AXIS_PROPS} />
+                            <YAxis {...BSE_AXIS_PROPS} />
+                            <ReTooltip content={<BseTooltip formatter={(v, k) => [v, k.replace('_calls','')]} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                            <Legend wrapperStyle={{ fontSize: 10, color: 'rgba(148,163,184,0.7)' }} formatter={n => n.replace('_calls','')} />
                             {routes.map((route, i) => (
                               <Bar key={route.vendor} dataKey={`${route.vendor}_calls`}
-                                fill={ROUTE_COLORS[i % ROUTE_COLORS.length]} fillOpacity={0.7}
-                                radius={[2,2,0,0]} name={route.vendor} />
+                                fill={ROUTE_COLORS[i % ROUTE_COLORS.length]} fillOpacity={0.85}
+                                radius={[3,3,0,0]} name={route.vendor} />
                             ))}
                           </BarChart>
                         </ResponsiveContainer>

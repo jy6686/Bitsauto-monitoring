@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
   Legend
 } from "recharts";
+import { BseTooltip, BSE_GRID_PROPS, BSE_AXIS_PROPS, BSE_CURSOR, bseActiveDot } from "@/components/bse-chart";
 import { formatUTC } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import { lookupCountry } from "@/lib/country-lookup";
@@ -80,19 +81,16 @@ export default function CallDetailPage() {
           </h3>
           <div className="h-[350px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                <XAxis dataKey="time" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis yAxisId="left" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis yAxisId="right" orientation="right" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#111', borderColor: '#333' }}
-                  itemStyle={{ fontSize: '12px' }}
-                />
-                <Legend />
-                <Line yAxisId="left" type="monotone" dataKey="jitter" name="Jitter (ms)" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                <Line yAxisId="left" type="monotone" dataKey="latency" name="Latency (ms)" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                <Line yAxisId="right" type="monotone" dataKey="packetLoss" name="Packet Loss (x10 %)" stroke="#f43f5e" strokeWidth={2} dot={false} />
+              <LineChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
+                <CartesianGrid {...BSE_GRID_PROPS} />
+                <XAxis dataKey="time" {...BSE_AXIS_PROPS} />
+                <YAxis yAxisId="left" {...BSE_AXIS_PROPS} />
+                <YAxis yAxisId="right" orientation="right" {...BSE_AXIS_PROPS} />
+                <Tooltip content={<BseTooltip />} cursor={BSE_CURSOR} />
+                <Legend wrapperStyle={{ fontSize: 10, color: 'rgba(148,163,184,0.7)' }} />
+                <Line yAxisId="left" type="monotone" dataKey="jitter" name="Jitter (ms)" stroke="#f59e0b" strokeWidth={2} dot={false} activeDot={bseActiveDot('#f59e0b')} strokeLinecap="round" />
+                <Line yAxisId="left" type="monotone" dataKey="latency" name="Latency (ms)" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={bseActiveDot('#3b82f6')} strokeLinecap="round" />
+                <Line yAxisId="right" type="monotone" dataKey="packetLoss" name="Packet Loss (x10 %)" stroke="#f43f5e" strokeWidth={2} dot={false} activeDot={bseActiveDot('#f43f5e')} strokeLinecap="round" />
               </LineChart>
             </ResponsiveContainer>
           </div>

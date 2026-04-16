@@ -75,6 +75,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
+import { BseTooltip, BSE_GRID_PROPS, BSE_AXIS_PROPS, BSE_CURSOR, BseGradStops, bseActiveDot } from "@/components/bse-chart";
 import { formatUTC } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import { lookupCountry } from "@/lib/country-lookup";
@@ -703,20 +704,19 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={chartData} margin={{ top: 4, right: 40, left: 0, bottom: 0 }}>
+                    <ComposedChart data={chartData} margin={{ top: 6, right: 40, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorAsrGV" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/>
-                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                          <BseGradStops color="#10b981" />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
-                      <XAxis dataKey="time" stroke="#555" fontSize={10} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                      <YAxis yAxisId="asr" orientation="left" stroke="#555" fontSize={10} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v) => `${v}%`} width={36} />
-                      <YAxis yAxisId="acd" orientation="right" stroke="#555" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}s`} width={36} />
-                      <Tooltip contentStyle={{ backgroundColor: '#0f0f0f', borderColor: '#2a2a2a', borderRadius: '8px', fontSize: '11px' }} itemStyle={{ color: '#ccc' }} formatter={(value: any, name: string) => name === 'asr' ? [`${value}%`, 'ASR'] : [`${value}s`, 'ACD']} />
-                      <Area yAxisId="asr" type="monotone" dataKey="asr" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorAsrGV)" dot={false} />
-                      <Line yAxisId="acd" type="monotone" dataKey="acd" stroke="#a78bfa" strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: '#a78bfa' }} />
+                      <CartesianGrid {...BSE_GRID_PROPS} />
+                      <XAxis dataKey="time" {...BSE_AXIS_PROPS} interval="preserveStartEnd" />
+                      <YAxis yAxisId="asr" orientation="left" {...BSE_AXIS_PROPS} domain={[0, 100]} tickFormatter={(v) => `${v}%`} width={36} />
+                      <YAxis yAxisId="acd" orientation="right" {...BSE_AXIS_PROPS} tickFormatter={(v) => `${v}s`} width={36} />
+                      <Tooltip content={<BseTooltip formatter={(v, key) => key === 'asr' ? [`${v}%`, 'ASR'] : [`${v}s`, 'ACD']} />} cursor={BSE_CURSOR} />
+                      <Area yAxisId="asr" type="monotone" dataKey="asr" stroke="#10b981" strokeWidth={2.5} fill="url(#colorAsrGV)" dot={false} activeDot={bseActiveDot('#10b981')} strokeLinejoin="round" strokeLinecap="round" />
+                      <Line yAxisId="acd" type="monotone" dataKey="acd" stroke="#a78bfa" strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={bseActiveDot('#a78bfa', 3)} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 )}
@@ -1448,20 +1448,19 @@ export default function DashboardPage() {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} margin={{ top: 4, right: 40, left: 0, bottom: 0 }}>
+                <ComposedChart data={chartData} margin={{ top: 6, right: 40, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorAsrG" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      <BseGradStops color="#10b981" />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
-                  <XAxis dataKey="time" stroke="#555" fontSize={10} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                  <YAxis yAxisId="asr" orientation="left" stroke="#555" fontSize={10} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v) => `${v}%`} width={36} />
-                  <YAxis yAxisId="acd" orientation="right" stroke="#555" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}s`} width={36} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f0f0f', borderColor: '#2a2a2a', borderRadius: '8px', fontSize: '11px' }} itemStyle={{ color: '#ccc' }} formatter={(value: any, name: string) => name === 'asr' ? [`${value}%`, 'ASR'] : [`${value}s`, 'ACD']} />
-                  <Area yAxisId="asr" type="monotone" dataKey="asr" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorAsrG)" dot={false} />
-                  <Line yAxisId="acd" type="monotone" dataKey="acd" stroke="#a78bfa" strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: '#a78bfa' }} />
+                  <CartesianGrid {...BSE_GRID_PROPS} />
+                  <XAxis dataKey="time" {...BSE_AXIS_PROPS} interval="preserveStartEnd" />
+                  <YAxis yAxisId="asr" orientation="left" {...BSE_AXIS_PROPS} domain={[0, 100]} tickFormatter={(v) => `${v}%`} width={36} />
+                  <YAxis yAxisId="acd" orientation="right" {...BSE_AXIS_PROPS} tickFormatter={(v) => `${v}s`} width={36} />
+                  <Tooltip content={<BseTooltip formatter={(v, key) => key === 'asr' ? [`${v}%`, 'ASR'] : [`${v}s`, 'ACD']} />} cursor={BSE_CURSOR} />
+                  <Area yAxisId="asr" type="monotone" dataKey="asr" stroke="#10b981" strokeWidth={2.5} fill="url(#colorAsrG)" dot={false} activeDot={bseActiveDot('#10b981')} strokeLinejoin="round" strokeLinecap="round" />
+                  <Line yAxisId="acd" type="monotone" dataKey="acd" stroke="#a78bfa" strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={bseActiveDot('#a78bfa', 3)} />
                 </ComposedChart>
               </ResponsiveContainer>
             )}
@@ -1621,13 +1620,13 @@ export default function DashboardPage() {
               <div className="h-[140px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={fasBarData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barCategoryGap="30%">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
-                    <XAxis dataKey="name" stroke="#555" fontSize={9} tickLine={false} axisLine={false} />
-                    <YAxis stroke="#555" fontSize={9} tickLine={false} axisLine={false} allowDecimals={false} />
-                    <Tooltip contentStyle={{ backgroundColor: '#0f0f0f', borderColor: '#2a2a2a', borderRadius: '8px', fontSize: '11px' }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                    <CartesianGrid {...BSE_GRID_PROPS} />
+                    <XAxis dataKey="name" {...BSE_AXIS_PROPS} />
+                    <YAxis {...BSE_AXIS_PROPS} allowDecimals={false} />
+                    <Tooltip content={<BseTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
                     <Bar dataKey="count" radius={[3, 3, 0, 0]}>
                       {fasBarData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} fillOpacity={0.8} />
+                        <Cell key={`cell-${index}`} fill={entry.fill} fillOpacity={0.85} />
                       ))}
                     </Bar>
                   </BarChart>

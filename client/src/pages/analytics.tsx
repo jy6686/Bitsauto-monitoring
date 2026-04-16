@@ -11,6 +11,7 @@ import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
+import { BseTooltip, BSE_GRID_PROPS, BSE_AXIS_PROPS, BSE_CURSOR, BseGradStops, bseActiveDot } from "@/components/bse-chart";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -318,32 +319,26 @@ export default function AnalyticsPage() {
                     </span>
                   </div>
                   <ResponsiveContainer width="100%" height={260}>
-                    <AreaChart data={dailyChartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                    <AreaChart data={dailyChartData} margin={{ top: 6, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={CHART_COLORS.revenue} stopOpacity={0.25} />
-                          <stop offset="95%" stopColor={CHART_COLORS.revenue} stopOpacity={0} />
+                          <BseGradStops color={CHART_COLORS.revenue} />
                         </linearGradient>
                         <linearGradient id="gCost" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={CHART_COLORS.cost} stopOpacity={0.2} />
-                          <stop offset="95%" stopColor={CHART_COLORS.cost} stopOpacity={0} />
+                          <BseGradStops color={CHART_COLORS.cost} primaryOpacity={0.35} />
                         </linearGradient>
                         <linearGradient id="gProfit" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={CHART_COLORS.profit} stopOpacity={0.2} />
-                          <stop offset="95%" stopColor={CHART_COLORS.profit} stopOpacity={0} />
+                          <BseGradStops color={CHART_COLORS.profit} primaryOpacity={0.35} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} interval="preserveStartEnd" />
-                      <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickFormatter={v => `$${v}`} width={52} />
-                      <Tooltip
-                        contentStyle={{ backgroundColor: "#1c1c1e", border: "1px solid #2d2d30", borderRadius: 8, fontSize: 12 }}
-                        formatter={(v: number, name) => [fmt$(v), name]}
-                      />
-                      <Legend wrapperStyle={{ fontSize: 11 }} />
-                      <Area type="monotone" dataKey="Revenue" stroke={CHART_COLORS.revenue} fill="url(#gRev)" strokeWidth={2} dot={false} />
-                      <Area type="monotone" dataKey="Cost"    stroke={CHART_COLORS.cost}    fill="url(#gCost)"   strokeWidth={2} dot={false} />
-                      <Area type="monotone" dataKey="Profit"  stroke={CHART_COLORS.profit}  fill="url(#gProfit)" strokeWidth={2} dot={false} />
+                      <CartesianGrid {...BSE_GRID_PROPS} />
+                      <XAxis dataKey="date" {...BSE_AXIS_PROPS} interval="preserveStartEnd" />
+                      <YAxis {...BSE_AXIS_PROPS} tickFormatter={v => `$${v}`} width={52} />
+                      <Tooltip content={<BseTooltip formatter={(v: number, key) => [fmt$(v), key]} />} cursor={BSE_CURSOR} />
+                      <Legend wrapperStyle={{ fontSize: 10, color: 'rgba(148,163,184,0.7)' }} />
+                      <Area type="monotone" dataKey="Revenue" stroke={CHART_COLORS.revenue} fill="url(#gRev)" strokeWidth={2.5} dot={false} activeDot={bseActiveDot(CHART_COLORS.revenue)} strokeLinejoin="round" strokeLinecap="round" />
+                      <Area type="monotone" dataKey="Cost"    stroke={CHART_COLORS.cost}    fill="url(#gCost)"   strokeWidth={2} dot={false} activeDot={bseActiveDot(CHART_COLORS.cost)} strokeLinejoin="round" strokeLinecap="round" />
+                      <Area type="monotone" dataKey="Profit"  stroke={CHART_COLORS.profit}  fill="url(#gProfit)" strokeWidth={2} dot={false} activeDot={bseActiveDot(CHART_COLORS.profit)} strokeLinejoin="round" strokeLinecap="round" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -401,14 +396,14 @@ export default function AnalyticsPage() {
               </div>
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={clientBarData} barGap={2}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#6b7280" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickFormatter={v => `$${v}`} />
-                  <Tooltip contentStyle={{ backgroundColor: "#1c1c1e", border: "1px solid #2d2d30", borderRadius: 8, fontSize: 12 }} formatter={(v: number) => fmt$(v)} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="Revenue" fill="#10b981" radius={[3,3,0,0]} />
-                  <Bar dataKey="Cost"    fill="#ef4444" radius={[3,3,0,0]} />
-                  <Bar dataKey="Profit"  fill="#3b82f6" radius={[3,3,0,0]} />
+                  <CartesianGrid {...BSE_GRID_PROPS} />
+                  <XAxis dataKey="name" {...BSE_AXIS_PROPS} />
+                  <YAxis {...BSE_AXIS_PROPS} tickFormatter={v => `$${v}`} />
+                  <Tooltip content={<BseTooltip formatter={(v: number) => [fmt$(v), '']} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                  <Legend wrapperStyle={{ fontSize: 10, color: 'rgba(148,163,184,0.7)' }} />
+                  <Bar dataKey="Revenue" fill="#10b981" radius={[3,3,0,0]} fillOpacity={0.85} />
+                  <Bar dataKey="Cost"    fill="#ef4444" radius={[3,3,0,0]} fillOpacity={0.85} />
+                  <Bar dataKey="Profit"  fill="#3b82f6" radius={[3,3,0,0]} fillOpacity={0.85} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
