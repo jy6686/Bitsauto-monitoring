@@ -95,7 +95,7 @@ export const settings = pgTable("settings", {
   fasEarlyAnswerSecs: integer("fas_early_answer_secs").default(2), // PDD < this = suspiciously fast answer
   fasShortCallSecs: integer("fas_short_call_secs").default(10),   // billed < this = short call (not FAS by itself)
   // Management Feature Permissions (JSON array of enabled feature keys for management role)
-  mgmtFeaturePermissions: text("mgmt_feature_permissions").default('["call_flow_simulator","lcr_analyser","vendor_sla"]'),
+  mgmtFeaturePermissions: text("mgmt_feature_permissions").default('["alerts","server_monitoring","did_management","test_call","graphs","bitseye","reports","cdr_viewer","balance_monitor","fraud_fas","clients","tools","call_flow_simulator","lcr_analyser","vendor_sla"]'),
   // WhatsApp Push Alerts
   whatsappEnabled:     boolean("whatsapp_enabled").default(false),
   whatsappProvider:    varchar("whatsapp_provider",     { length: 20 }).default('callmebot'), // callmebot | ultramsg
@@ -383,14 +383,31 @@ export type MonitoringItemId = typeof MONITORING_ITEMS[number]['id'];
 // Management Configurable Features — which features Admin can grant/revoke for Management role
 // featureKey maps to mgmtFeaturePermissions JSON array; route is enforced in ProtectedRoute
 export const MGMT_CONFIGURABLE_FEATURES = [
+  // Operations
+  { key: 'alerts',             label: 'Alerts',                     route: '/alerts'                 },
+  { key: 'server_monitoring',  label: 'Server Monitoring',          route: '/server-monitoring'      },
+  { key: 'did_management',     label: 'DID Management',             route: '/dids'                   },
+  { key: 'test_call',          label: 'Test Call / Click-to-Call',  route: '/test-call'              },
   { key: 'traffic_map',        label: 'Traffic Map',                route: '/traffic-map'            },
   { key: 'multi_switch',       label: 'Multi-Switch View',          route: '/multi-switch'           },
+  { key: 'call_flow_simulator',label: 'Call Flow Simulator',        route: '/call-flow-simulator'    },
+  // Analytics & Reports
+  { key: 'graphs',             label: 'Graphs',                     route: '/graphs'                 },
+  { key: 'bitseye',            label: 'BitsEye Live Graphs',        route: '/bitseye'                },
+  { key: 'reports',            label: 'ASR / ACD Reports',          route: '/reports'                },
+  { key: 'cdr_viewer',         label: 'CDR Viewer',                 route: '/cdrs'                   },
   { key: 'analytics',          label: 'Revenue & Margin Analytics', route: '/analytics'              },
+  { key: 'lcr_analyser',       label: 'LCR Analyser',               route: '/lcr-analyser'           },
+  // Finance
+  { key: 'balance_monitor',    label: 'Balance Monitor',            route: '/balance'                },
   { key: 'rate_cards',         label: 'Rate Card Management',       route: '/rate-cards'             },
   { key: 'cost_optimisation',  label: 'Cost Optimisation Engine',   route: '/cost-optimisation'      },
-  { key: 'call_flow_simulator',label: 'Call Flow Simulator',        route: '/call-flow-simulator'    },
-  { key: 'lcr_analyser',       label: 'LCR Analyser',               route: '/lcr-analyser'           },
+  // Security & Fraud
+  { key: 'fraud_fas',          label: 'FAS / Fraud Detection',      route: '/fraud'                  },
   { key: 'vendor_sla',         label: 'Vendor SLA Scorecard',       route: '/vendor-sla-scorecard'   },
+  // Client & Vendor
+  { key: 'clients',            label: 'Client & Vendor Profiles',   route: '/clients'                },
+  { key: 'tools',              label: 'Tools / Calculators',        route: '/tools'                  },
 ] as const;
 
 export type MgmtFeatureKey = typeof MGMT_CONFIGURABLE_FEATURES[number]['key'];

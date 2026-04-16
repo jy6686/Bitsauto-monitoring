@@ -196,25 +196,25 @@ function Router() {
         {() => <ProtectedRoute component={CallDetailPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
       <Route path="/alerts">
-        {() => <ProtectedRoute component={AlertsPage} requiredRoles={['admin','management']} viewerAssignment="alerts" />}
+        {() => <ProtectedRoute component={AlertsPage} requiredRoles={['admin','management']} viewerAssignment="alerts" mgmtFeature="alerts" />}
       </Route>
       <Route path="/reports">
-        {() => <ProtectedRoute component={ReportsPage} requiredRoles={['admin','management']} viewerAssignment="reports" />}
+        {() => <ProtectedRoute component={ReportsPage} requiredRoles={['admin','management']} viewerAssignment="reports" mgmtFeature="reports" />}
       </Route>
       <Route path="/settings">
         {() => <ProtectedRoute component={SettingsPage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/clients">
-        {() => <ProtectedRoute component={ClientsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={ClientsPage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
       </Route>
       <Route path="/fraud">
-        {() => <ProtectedRoute component={FraudPage} requiredRoles={['admin','management']} viewerAssignment="fraud_fas" />}
+        {() => <ProtectedRoute component={FraudPage} requiredRoles={['admin','management']} viewerAssignment="fraud_fas" mgmtFeature="fraud_fas" />}
       </Route>
       <Route path="/cdrs">
-        {() => <ProtectedRoute component={CDRsPage} requiredRoles={['admin','management']} viewerAssignment="cdr_viewer" />}
+        {() => <ProtectedRoute component={CDRsPage} requiredRoles={['admin','management']} viewerAssignment="cdr_viewer" mgmtFeature="cdr_viewer" />}
       </Route>
       <Route path="/tools">
-        {() => <ProtectedRoute component={ToolsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={ToolsPage} requiredRoles={['admin','management']} mgmtFeature="tools" />}
       </Route>
       <Route path="/team">
         {() => <ProtectedRoute component={TeamPage} requiredRoles={['admin']} />}
@@ -223,19 +223,19 @@ function Router() {
         {() => <ProtectedRoute component={TrafficMapPage} requiredRoles={['admin','management']} viewerAssignment="traffic_map" mgmtFeature="traffic_map" />}
       </Route>
       <Route path="/balance">
-        {() => <ProtectedRoute component={BalanceMonitorPage} requiredRoles={['admin','management']} viewerAssignment="balance_monitor" />}
+        {() => <ProtectedRoute component={BalanceMonitorPage} requiredRoles={['admin','management']} viewerAssignment="balance_monitor" mgmtFeature="balance_monitor" />}
       </Route>
       <Route path="/dids">
-        {() => <ProtectedRoute component={DIDsPage} requiredRoles={['admin','management']} viewerAssignment="did_management" />}
+        {() => <ProtectedRoute component={DIDsPage} requiredRoles={['admin','management']} viewerAssignment="did_management" mgmtFeature="did_management" />}
       </Route>
       <Route path="/server-monitoring">
-        {() => <ProtectedRoute component={ServerMonitoringPage} requiredRoles={['admin','management']} viewerAssignment="server_monitoring" />}
+        {() => <ProtectedRoute component={ServerMonitoringPage} requiredRoles={['admin','management']} viewerAssignment="server_monitoring" mgmtFeature="server_monitoring" />}
       </Route>
       <Route path="/graphs">
-        {() => <ProtectedRoute component={GraphsPage} requiredRoles={['admin','management']} viewerAssignment="graphs" />}
+        {() => <ProtectedRoute component={GraphsPage} requiredRoles={['admin','management']} viewerAssignment="graphs" mgmtFeature="graphs" />}
       </Route>
       <Route path="/bitseye">
-        {() => <ProtectedRoute component={BitsEyePage} requiredRoles={['admin','management']} viewerAssignment="bitseye" />}
+        {() => <ProtectedRoute component={BitsEyePage} requiredRoles={['admin','management']} viewerAssignment="bitseye" mgmtFeature="bitseye" />}
       </Route>
       <Route path="/account">
         {() => <ProtectedRoute component={AccountPage} requiredRoles={['admin','management','viewer']} />}
@@ -250,7 +250,7 @@ function Router() {
         {() => <ProtectedRoute component={ApiKeysPage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/test-call">
-        {() => <ProtectedRoute component={TestCallPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={TestCallPage} requiredRoles={['admin','management']} mgmtFeature="test_call" />}
       </Route>
       <Route path="/lcr-analyser">
         {() => <ProtectedRoute component={LcrAnalyserPage} requiredRoles={['admin','management']} mgmtFeature="lcr_analyser" />}
