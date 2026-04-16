@@ -19,6 +19,7 @@ import { readFileSync } from "fs";
 import { join as _pathJoin } from "path";
 import { generateStatusReport, STATUS_REPORT_PATH } from "./doc-generator";
 import { generateUserManual, USER_MANUAL_PATH } from "./manual-generator";
+import { generateSippyDataflowDoc, SIPPY_DATAFLOW_PATH } from "./sippy-dataflow-generator";
 
 // ── /api/dial-codes handler — serves raw prefix JSON for client-side lookup ───
 // Uses process.cwd() so it works in both ESM dev (tsx) and CJS production build.
@@ -540,7 +541,22 @@ export async function registerRoutes(
         console.warn('[startup] Status Report pre-generation failed:', e.message);
       }
     }
+    if (!existsSync(SIPPY_DATAFLOW_PATH)) {
+      try {
+        await generateSippyDataflowDoc(SIPPY_DATAFLOW_PATH);
+        console.log('[startup] Sippy Dataflow Reference pre-generated successfully.');
+      } catch (e: any) {
+        console.warn('[startup] Sippy Dataflow Reference pre-generation failed:', e.message);
+      }
+    }
   })();
+
+  // ── Helper: silently regenerate the Sippy Dataflow doc in the background ────
+  function regenDataflowDoc() {
+    generateSippyDataflowDoc(SIPPY_DATAFLOW_PATH).catch(e =>
+      console.warn('[dataflow-doc] background regen failed:', e.message)
+    );
+  }
 
   // === STARTUP GUARD: disable simulation if a real portal is configured ===
   // This corrects any mis-matched state (e.g. settings migrated from a demo DB).
@@ -791,6 +807,7 @@ export async function registerRoutes(
       const input = api.settings.update.input.parse(req.body);
       const updated = await storage.updateSettings(input);
       res.json(updated);
+      regenDataflowDoc();
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({
@@ -3386,6 +3403,7 @@ export async function registerRoutes(
       }
 
       res.json(result);
+      regenDataflowDoc();
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message ?? 'Failed to create Sippy account.' });
     }
@@ -4244,6 +4262,7 @@ export async function registerRoutes(
       const iCustomer = req.body?.i_customer !== undefined ? parseInt(req.body.i_customer, 10) : 1;
       const result = await sippy.deleteSippyAccount(username, password, iAccount, undefined, iCustomer);
       res.json(result);
+      regenDataflowDoc();
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
@@ -5065,6 +5084,7 @@ export async function registerRoutes(
       const result = await sippy.createSippyVendor(username, password, req.body, sippyPortalUrl(settings));
       if (!result.success) return res.status(400).json(result);
       res.status(201).json(result);
+      regenDataflowDoc();
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
@@ -5112,6 +5132,7 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.deleteSippyVendor(username, password, parseInt(req.params.id, 10), sippyPortalUrl(settings));
       res.json(result);
+      regenDataflowDoc();
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
@@ -5202,6 +5223,7 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.createVendorConnection(username, password, { iVendor, ...req.body }, sippyPortalUrl(settings));
       res.json(result);
+      regenDataflowDoc();
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
@@ -5245,6 +5267,7 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.deleteVendorConnection(username, password, iConnection, sippyPortalUrl(settings));
       res.json(result);
+      regenDataflowDoc();
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
@@ -8216,6 +8239,35 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/download/sippy-dataflow — serve the Sippy Data Flow Reference .docx (auto-generates if missing)
+  app.get('/api/download/sippy-dataflow', async (_req: any, res: any) => {
+    try {
+      const { existsSync } = await import('fs');
+      if (!existsSync(SIPPY_DATAFLOW_PATH)) {
+        await generateSippyDataflowDoc(SIPPY_DATAFLOW_PATH);
+      }
+      res.download(SIPPY_DATAFLOW_PATH, 'VoIP_Watcher_Sippy_Dataflow_Reference.docx', (err: any) => {
+        if (err && !res.headersSent) res.status(500).json({ message: 'Download error' });
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: `Failed to generate document: ${e.message}` });
+    }
+  });
+
+  // POST /api/download/regenerate-sippy-dataflow — rebuild on demand (admin)
+  app.post('/api/download/regenerate-sippy-dataflow', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user.claims?.sub;
+      const role = await storage.getUserRole(userId);
+      if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+      await generateSippyDataflowDoc(SIPPY_DATAFLOW_PATH);
+      res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'VoIP_Watcher_Sippy_Dataflow_Reference.docx' });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // GET /api/bitseye/per-entity — per-entity CDR time-series for BitsEye page
   app.get('/api/bitseye/per-entity', async (req: any, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -8797,6 +8849,7 @@ export async function registerRoutes(
       if (!name || !email) return res.status(400).json({ error: 'name and email required' });
       const kam = await storage.createKam({ name, email, phone: phone || null, title: title || null, active: true });
       res.json(kam);
+      regenDataflowDoc();
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -9777,11 +9830,13 @@ export async function registerRoutes(
       cardType: cardType === 'client' ? 'client' : 'vendor',
     });
     res.json(card);
+    regenDataflowDoc();
   });
 
   app.delete('/api/rate-cards/:id', (req, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     await storage.deleteRateCard(Number(req.params.id));
     res.json({ ok: true });
+    regenDataflowDoc();
   });
 
   // GET /api/sippy/rate-card-context — enriched reference data for the Rate Cards UI

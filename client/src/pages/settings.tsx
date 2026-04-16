@@ -1567,6 +1567,7 @@ export default function SettingsPage() {
   const [isTesting, setIsTesting] = useState(false);
   const [regeneratedAt, setRegeneratedAt] = useState<string | null>(null);
   const [manualRegeneratedAt, setManualRegeneratedAt] = useState<string | null>(null);
+  const [dataflowRegeneratedAt, setDataflowRegeneratedAt] = useState<string | null>(null);
   const { toast } = useToast();
 
   const regenMutation = useMutation({
@@ -1590,6 +1591,18 @@ export default function SettingsPage() {
     },
     onError: (err: any) => {
       toast({ title: 'Manual update failed', description: err.message ?? 'Could not regenerate the User Manual.', variant: 'destructive' });
+    },
+  });
+
+  const regenDataflowMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/download/regenerate-sippy-dataflow'),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setDataflowRegeneratedAt(data.regeneratedAt);
+      toast({ title: 'Sippy Dataflow Reference updated', description: 'The document has been regenerated with all current data flows. Download it now.' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Update failed', description: err.message ?? 'Could not regenerate the Sippy Dataflow document.', variant: 'destructive' });
     },
   });
 
@@ -2144,6 +2157,18 @@ export default function SettingsPage() {
               {regenManualMutation.isPending ? 'Building…' : 'Update Manual'}
             </button>
             <button
+              data-testid="button-regenerate-dataflow"
+              onClick={() => regenDataflowMutation.mutate()}
+              disabled={regenDataflowMutation.isPending}
+              title="Regenerate Sippy Dataflow Reference"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 hover:bg-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {regenDataflowMutation.isPending
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <RefreshCcw className="h-3 w-3" />}
+              {regenDataflowMutation.isPending ? 'Building…' : 'Update Dataflow Doc'}
+            </button>
+            <button
               data-testid="button-regenerate-docs"
               onClick={() => regenMutation.mutate()}
               disabled={regenMutation.isPending}
@@ -2159,7 +2184,10 @@ export default function SettingsPage() {
         <p className="text-xs text-muted-foreground mb-4">
           {manualRegeneratedAt
             ? `User Manual last built: ${new Date(manualRegeneratedAt).toLocaleString()}  ·  `
-            : 'Click "Update Manual" to generate the User Manual with process flows and diagrams.  '}
+            : 'Click "Update Manual" or "Update Dataflow Doc" to regenerate documents. They also auto-update after key changes.  '}
+          {dataflowRegeneratedAt
+            ? `Dataflow doc last built: ${new Date(dataflowRegeneratedAt).toLocaleString()}  ·  `
+            : ''}
           {regeneratedAt
             ? `Status report last updated: ${new Date(regeneratedAt).toLocaleString()}`
             : ''}
@@ -2167,6 +2195,7 @@ export default function SettingsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {[
             { label: "User Manual", desc: "Full operator guide — all features, process flows & diagrams", href: "/api/download/user-manual", color: "text-violet-400", bg: "bg-violet-500/10 border-violet-500/20" },
+            { label: "Sippy Dataflow Reference", desc: "Per-page breakdown of every Sippy API fetch & write — auto-updates on key changes", href: "/api/download/sippy-dataflow", color: "text-cyan-400", bg: "bg-cyan-500/10 border-cyan-500/20" },
             { label: "Volume 1 — Status Report", desc: "Completed features & pending items", href: "/api/download/status-report", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
             { label: "Feature Roadmap", desc: "Full platform feature roadmap", href: "/api/download/feature-roadmap", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
             { label: "Extended Features Vol II", desc: "Proposed Tier 2 & Tier 3 features", href: "/api/download/feature-roadmap-v2", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
