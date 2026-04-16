@@ -1,17 +1,14 @@
-import { useRef, useCallback, useEffect, useState, useMemo } from "react";
-import { useSearch, useLocation } from "wouter";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer,
 } from "recharts";
 import {
-  RefreshCw, ChevronRight, ChevronDown, Wifi, WifiOff, BarChart3,
-  TrendingUp, TrendingDown, Minus, AlertCircle, Shield, Globe, X,
+  RefreshCw, ChevronRight, ChevronDown, BarChart3, WifiOff,
+  TrendingUp, TrendingDown, Minus, AlertCircle, Globe, Users,
+  Network, Layers, FolderOpen, Folder,
 } from "lucide-react";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -54,16 +51,32 @@ interface PerEntityResponse {
   summary: Summary;
 }
 
+// ── Nav state ─────────────────────────────────────────────────────────────────
+type NavType =
+  | 'welcome'
+  | 'country-agg' | 'country-all' | 'country'
+  | 'country-clients' | 'country-vendors'
+  | 'kam-agg' | 'kam-all' | 'kam'
+  | 'dest-agg' | 'dest-all' | 'dest';
+
+interface NavState {
+  type: NavType;
+  country?: string;
+  kamName?: string;
+  destName?: string;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtAcd(secs: number): string {
   if (!secs) return '-';
   if (secs < 60) return `${secs}s`;
   return `${Math.floor(secs / 60)}m ${secs % 60}s`;
 }
-function trendBg(pct: number) {
-  if (pct >  10) return 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400';
-  if (pct < -10) return 'bg-rose-500/10    border-rose-500/25    text-rose-400';
-  return              'bg-amber-500/10   border-amber-500/25   text-amber-400';
+function asrColor(asr: number) {
+  if (asr >= 60) return 'text-emerald-400';
+  if (asr >= 40) return 'text-amber-400';
+  if (asr > 0)   return 'text-rose-400';
+  return 'text-muted-foreground/30';
 }
 function trendColor(pct: number) {
   if (pct >  10) return 'text-emerald-400';
@@ -75,24 +88,59 @@ function TrendIcon({ pct }: { pct: number }) {
   if (pct < -5) return <TrendingDown className="w-3 h-3" />;
   return <Minus className="w-3 h-3" />;
 }
-function asrColor(asr: number) {
-  if (asr >= 60) return 'text-emerald-400';
-  if (asr >= 40) return 'text-amber-400';
-  if (asr > 0)   return 'text-rose-400';
-  return 'text-muted-foreground/30';
-}
-function cardBorder(entity: EntityData) {
-  if (entity.trendPct < -20)                         return 'border-rose-500/30';
-  if (entity.curConcurrent > 0 && entity.trendPct > 10) return 'border-emerald-500/35';
-  if (entity.curConcurrent > 0)                      return 'border-blue-500/25';
-  return 'border-border/40';
+
+// Aggregate multiple EntityData into one merged dataset
+function aggregateEntities(entities: EntityData[], name = 'All Aggregated'): EntityData | null {
+  if (!entities.length) return null;
+  const base = entities[0];
+  const dailyMap: Record<string, DailyPoint> = {};
+  const weeklyMap: Record<string, WeeklyPoint> = {};
+  for (const e of entities) {
+    for (const d of e.daily) {
+      if (!dailyMap[d.label]) dailyMap[d.label] = { label: d.label, total_calls: 0, connected_calls: 0, concurrent_calls: 0 };
+      dailyMap[d.label].total_calls      += d.total_calls;
+      dailyMap[d.label].connected_calls  += d.connected_calls;
+      dailyMap[d.label].concurrent_calls += d.concurrent_calls;
+    }
+    for (const w of e.weekly) {
+      if (!weeklyMap[w.label]) weeklyMap[w.label] = { label: w.label, total_calls: 0, connected_calls: 0 };
+      weeklyMap[w.label].total_calls     += w.total_calls;
+      weeklyMap[w.label].connected_calls += w.connected_calls;
+    }
+  }
+  const daily  = base.daily.map(d  => dailyMap[d.label]  ?? d);
+  const weekly = base.weekly.map(w => weeklyMap[w.label] ?? w);
+  const totals   = daily.map(d => d.total_calls);
+  const conns    = daily.map(d => d.connected_calls);
+  const safeMin  = (a: number[]) => a.length ? Math.min(...a) : 0;
+  const safeMax  = (a: number[]) => a.length ? Math.max(...a) : 0;
+  const safeAvg  = (a: number[]) => a.length ? Math.round(a.reduce((s, v) => s + v, 0) / a.length) : 0;
+  const totalAsr = entities.reduce((s, e) => s + e.todayCalls * e.asr, 0);
+  const totalCalls = entities.reduce((s, e) => s + e.todayCalls, 0);
+  const asr = totalCalls > 0 ? Math.round(totalAsr / totalCalls) : 0;
+  return {
+    name,
+    daily, weekly,
+    curConcurrent: entities.reduce((s, e) => s + e.curConcurrent, 0),
+    todayCalls: totalCalls,
+    trendPct: 0,
+    asr,
+    acdSecs: entities.reduce((s, e) => s + e.acdSecs, 0),
+    weeklyAsr: asr,
+    stats: {
+      total:     { cur: totals[totals.length - 1] ?? 0, min: safeMin(totals), max: safeMax(totals), avg: safeAvg(totals) },
+      connected: { cur: conns[conns.length - 1]   ?? 0, min: safeMin(conns),  max: safeMax(conns),  avg: safeAvg(conns)  },
+    },
+    lastUpdatedAt:   entities[0].lastUpdatedAt,
+    lastUpdatedDate: entities[0].lastUpdatedDate,
+  };
 }
 
 // ── Chart tooltip ─────────────────────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const labelMap: Record<string, string> = {
-    total_calls: 'Total', connected_calls: 'Connected', concurrent_calls: 'Live Concurrent',
+    total_calls: 'Total', connected_calls: 'Connected', concurrent_calls: 'Live',
   };
   return (
     <div className="rounded-lg border border-border/60 bg-card/95 backdrop-blur px-3 py-2 text-xs shadow-xl z-50">
@@ -107,75 +155,82 @@ function ChartTooltip({ active, payload, label }: any) {
   );
 }
 
-// ── Mini chart ────────────────────────────────────────────────────────────────
-function MiniChart({
-  data, span, asr, showConcurrent,
+// ── Large chart panel ─────────────────────────────────────────────────────────
+function LargeChart({
+  data, title, gradientA, gradientB, colorA, colorB,
+  keyA, keyB, labelA, labelB,
 }: {
-  data: DailyPoint[] | WeeklyPoint[];
-  span: 'Daily' | 'Weekly';
-  asr: number;
-  showConcurrent?: boolean;
+  data: any[];
+  title: string;
+  gradientA: string; gradientB: string;
+  colorA: string; colorB: string;
+  keyA: string; keyB: string;
+  labelA: string; labelB: string;
 }) {
-  const pts    = data as any[];
-  const hasData = pts.some((d: any) => d.total_calls > 0 || (showConcurrent && d.concurrent_calls > 0));
-  const peakTotal  = Math.max(...pts.map((d: any) => d.total_calls), 0);
-  const peakConc   = showConcurrent ? Math.max(...pts.map((d: any) => d.concurrent_calls ?? 0), 0) : 0;
-  const ticks = span === 'Daily'
-    ? pts.filter((_: any, i: number) => i % 8 === 0).map((d: any) => d.label)
-    : pts.map((d: any) => d.label);
-
+  const hasData = data.some(d => d[keyA] > 0 || d[keyB] > 0);
+  const ticks = data.length > 10
+    ? data.filter((_, i) => i % Math.ceil(data.length / 8) === 0).map(d => d.label)
+    : data.map(d => d.label);
   return (
-    <div className="flex flex-col gap-1 w-full overflow-hidden">
-      <div className="flex items-center justify-between px-0.5">
-        <p className="text-[9px] font-bold tracking-widest uppercase text-muted-foreground/60">{span}</p>
-        {asr > 0 && (
-          <span className={cn("text-[9px] font-semibold tabular-nums", asrColor(asr))}>ASR {asr}%</span>
-        )}
-      </div>
-
+    <div className="flex flex-col gap-2">
+      <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50">{title}</p>
       {!hasData ? (
-        <div className="h-24 flex items-center justify-center text-[10px] text-muted-foreground/25 border border-dashed border-border/25 rounded-lg">
+        <div className="h-44 flex items-center justify-center border border-dashed border-border/20 rounded-xl text-xs text-muted-foreground/25">
           No data
         </div>
       ) : (
-        /* Use position:relative + absolute inner div so browser calculates width before Recharts mounts */
-        <div style={{ position: 'relative', width: '100%', height: 96 }}>
+        <div style={{ position: 'relative', width: '100%', height: 176 }}>
           <div style={{ position: 'absolute', inset: 0 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={pts} margin={{ top: 4, right: 8, left: -28, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border)/0.2)" />
+              <AreaChart data={data} margin={{ top: 4, right: 8, left: -28, bottom: 0 }}>
+                <defs>
+                  <linearGradient id={gradientA} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor={colorA} stopOpacity={0.25} />
+                    <stop offset="95%" stopColor={colorA} stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id={gradientB} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor={colorB} stopOpacity={0.20} />
+                    <stop offset="95%" stopColor={colorB} stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border)/0.15)" />
                 <XAxis
                   dataKey="label"
                   ticks={ticks}
-                  tick={{ fontSize: 7, fill: 'hsl(var(--muted-foreground)/0.6)' }}
+                  tick={{ fontSize: 7, fill: 'hsl(var(--muted-foreground)/0.5)' }}
                   tickLine={false} axisLine={false}
                   interval="preserveStartEnd"
                 />
                 <YAxis
-                  tick={{ fontSize: 7, fill: 'hsl(var(--muted-foreground)/0.6)' }}
+                  tick={{ fontSize: 7, fill: 'hsl(var(--muted-foreground)/0.5)' }}
                   tickLine={false} axisLine={false}
                   allowDecimals={false} width={26}
                 />
                 <Tooltip content={<ChartTooltip />} />
-                {peakTotal > 0 && (
-                  <ReferenceLine y={peakTotal} stroke="hsl(var(--muted-foreground)/0.15)" strokeDasharray="4 3"
-                    label={{ value: `pk ${peakTotal}`, position: 'insideTopRight', fontSize: 6, fill: 'hsl(var(--muted-foreground)/0.4)' }} />
-                )}
-                <Line type="monotone" dataKey="total_calls"     stroke="#f59e0b" strokeWidth={1.5} dot={false} activeDot={{ r: 3 }} />
-                <Line type="monotone" dataKey="connected_calls" stroke="#14b8a6" strokeWidth={1.5} dot={false} activeDot={{ r: 3 }} />
-                {showConcurrent && peakConc > 0 && (
-                  <Line type="monotone" dataKey="concurrent_calls" stroke="#818cf8" strokeWidth={1} strokeDasharray="4 3" dot={false} activeDot={{ r: 2 }} />
-                )}
-              </LineChart>
+                <Area
+                  type="monotone" dataKey={keyA}
+                  stroke={colorA} strokeWidth={2}
+                  fill={`url(#${gradientA})`}
+                  dot={false} activeDot={{ r: 3 }}
+                />
+                <Area
+                  type="monotone" dataKey={keyB}
+                  stroke={colorB} strokeWidth={1.5}
+                  fill={`url(#${gradientB})`}
+                  dot={false} activeDot={{ r: 2 }}
+                />
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
-
       <div className="flex items-center gap-3 px-0.5">
-        <span className="flex items-center gap-1 text-[8px] text-muted-foreground/50"><span className="w-3.5 h-px bg-amber-400 inline-block" />total</span>
-        <span className="flex items-center gap-1 text-[8px] text-muted-foreground/50"><span className="w-3.5 h-px bg-teal-400 inline-block" />connected</span>
-        {showConcurrent && <span className="flex items-center gap-1 text-[8px] text-muted-foreground/50"><span className="w-3.5 h-px bg-indigo-400 inline-block border-dashed border-b border-indigo-400" />live</span>}
+        <span className="flex items-center gap-1 text-[8px] text-muted-foreground/50">
+          <span className="w-3.5 h-0.5 rounded inline-block" style={{ backgroundColor: colorA }} />{labelA}
+        </span>
+        <span className="flex items-center gap-1 text-[8px] text-muted-foreground/50">
+          <span className="w-3.5 h-0.5 rounded inline-block" style={{ backgroundColor: colorB }} />{labelB}
+        </span>
       </div>
     </div>
   );
@@ -184,94 +239,70 @@ function MiniChart({
 // ── Stats table ───────────────────────────────────────────────────────────────
 function StatVal({ v }: { v: number }) {
   return (
-    <td className="px-2 py-0.5 text-right text-[11px] tabular-nums">
-      {v === 0 ? <span className="text-muted-foreground/25">-</span> : <span className="text-foreground/80">{v}</span>}
+    <td className="px-2 py-1 text-right text-[11px] tabular-nums">
+      {v === 0 ? <span className="text-muted-foreground/20">-</span> : <span className="text-foreground/80">{v}</span>}
     </td>
   );
 }
 function StatsTable({ entity }: { entity: EntityData }) {
   return (
-    <table className="w-full text-xs border-t border-border/25">
+    <table className="w-full text-xs border-t border-border/20 mt-2">
       <thead>
         <tr>
-          <th className="px-2 py-1 text-left text-[9px] font-normal text-muted-foreground/40 w-28" />
+          <th className="px-2 py-1 text-left text-[9px] font-normal text-muted-foreground/30 w-36" />
           {(['Cur','Min','Max','Avg'] as const).map(h => (
-            <th key={h} className="px-2 py-1 text-right text-[9px] font-semibold text-muted-foreground/50">{h}</th>
+            <th key={h} className="px-2 py-1 text-right text-[9px] font-semibold text-muted-foreground/40">{h}</th>
           ))}
         </tr>
       </thead>
       <tbody>
         <tr className="border-t border-border/10">
-          <td className="px-2 py-0.5 text-[10px] font-medium text-amber-400/80">Total_Calls</td>
+          <td className="px-2 py-1 text-[10px] font-medium text-violet-400/80">Total_Calls</td>
           <StatVal v={entity.stats.total.cur} /><StatVal v={entity.stats.total.min} />
           <StatVal v={entity.stats.total.max} /><StatVal v={entity.stats.total.avg} />
         </tr>
         <tr className="border-t border-border/10">
-          <td className="px-2 py-0.5 text-[10px] font-medium text-teal-400/80">Connected_Calls</td>
+          <td className="px-2 py-1 text-[10px] font-medium text-sky-400/80">Connected_Calls</td>
           <StatVal v={entity.stats.connected.cur} /><StatVal v={entity.stats.connected.min} />
           <StatVal v={entity.stats.connected.max} /><StatVal v={entity.stats.connected.avg} />
         </tr>
       </tbody>
       <tfoot>
-        <tr className="border-t border-border/20">
-          <td colSpan={3} className="px-2 pt-1 pb-0.5 text-[9px] text-muted-foreground/35">Last Updated</td>
-          <td className="px-2 pt-1 pb-0.5 text-right text-[9px] tabular-nums text-muted-foreground/35">{entity.lastUpdatedAt}</td>
-          <td className="px-2 pt-1 pb-0.5 text-right text-[9px] tabular-nums text-muted-foreground/35">{entity.lastUpdatedDate}</td>
+        <tr className="border-t border-border/15">
+          <td colSpan={3} className="px-2 pt-1 pb-0.5 text-[9px] text-muted-foreground/30">Last Updated</td>
+          <td className="px-2 pt-1 pb-0.5 text-right text-[9px] tabular-nums text-muted-foreground/30">{entity.lastUpdatedAt}</td>
+          <td className="px-2 pt-1 pb-0.5 text-right text-[9px] tabular-nums text-muted-foreground/30">{entity.lastUpdatedDate}</td>
         </tr>
       </tfoot>
     </table>
   );
 }
 
-// ── KAM client pills ──────────────────────────────────────────────────────────
-function KamClientList({ clients }: { clients: string[] }) {
+// ── Single entity panel (full size) ──────────────────────────────────────────
+function EntityPanel({ entity, dimmed }: { entity: EntityData; dimmed?: boolean }) {
+  const live = entity.curConcurrent > 0;
+  const uid  = entity.name.replace(/[^a-z0-9]/gi, '_').slice(0, 16);
   return (
-    <div className="px-3 py-1.5 border-t border-border/20 flex flex-wrap gap-1 items-center">
-      {clients.slice(0, 6).map(c => (
-        <span key={c} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 border border-border/30 text-muted-foreground/60">{c}</span>
-      ))}
-      {clients.length > 6 && (
-        <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 border border-border/30 text-muted-foreground/40">+{clients.length - 6} more</span>
-      )}
-    </div>
-  );
-}
-
-// ── Entity card ───────────────────────────────────────────────────────────────
-function EntityCard({ entity, cardRef }: { entity: EntityData; cardRef?: (el: HTMLDivElement | null) => void }) {
-  const live    = entity.curConcurrent > 0;
-  const hasData = entity.todayCalls > 0;
-  const hasConcurrent = entity.daily.some(d => d.concurrent_calls > 0);
-
-  return (
-    <div
-      ref={cardRef}
-      id={`entity-${entity.name.replace(/\W+/g, '-')}`}
-      data-testid={`card-entity-${entity.name}`}
-      className={cn("bg-card border rounded-xl overflow-hidden transition-all hover:shadow-lg hover:shadow-black/20", cardBorder(entity))}
-    >
+    <div className={cn(
+      "bg-card border rounded-xl overflow-hidden transition-all",
+      live ? "border-blue-500/25" : "border-border/30",
+      dimmed && "opacity-60",
+    )}>
       {/* Header */}
-      <div className={cn("flex items-center gap-2 px-4 py-2.5 border-b border-border/30", live ? "bg-gradient-to-r from-blue-500/5 to-transparent" : "bg-muted/8")}>
-        <div className="flex-shrink-0">
-          {live
-            ? <span className="flex items-center gap-1 text-[10px] font-mono text-blue-400 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />{entity.curConcurrent}
-              </span>
-            : <WifiOff className="w-3.5 h-3.5 text-muted-foreground/20" />
-          }
-        </div>
-        <div className="flex-1 min-w-0">
-          {entity.destCountry && entity.destBreakout ? (
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[9px] font-semibold uppercase tracking-wider text-cyan-400/70">{entity.destCountry}</span>
-              <span className="text-sm font-semibold truncate leading-tight" title={entity.destBreakout}>{entity.destBreakout}</span>
-            </div>
-          ) : (
-            <h3 className="text-sm font-semibold truncate" title={entity.name}>{entity.name}</h3>
-          )}
-        </div>
-        {hasData && (
-          <span className={cn("flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border flex-shrink-0", trendBg(entity.trendPct))}>
+      <div className={cn(
+        "flex items-center gap-3 px-4 py-3 border-b border-border/25",
+        live ? "bg-gradient-to-r from-blue-500/5 to-transparent" : "bg-muted/5",
+      )}>
+        {live ? (
+          <span className="flex items-center gap-1.5 text-[10px] font-mono text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-1 rounded-full flex-shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />{entity.curConcurrent} live
+          </span>
+        ) : (
+          <WifiOff className="w-4 h-4 text-muted-foreground/20 flex-shrink-0" />
+        )}
+        <h3 className="flex-1 text-base font-bold truncate" title={entity.name}>{entity.name}</h3>
+        {entity.todayCalls > 0 && (
+          <span className={cn("flex items-center gap-1 text-xs font-semibold flex-shrink-0", trendColor(entity.trendPct))}>
             <TrendIcon pct={entity.trendPct} />
             {entity.trendPct > 0 ? '+' : ''}{entity.trendPct}%
           </span>
@@ -279,326 +310,644 @@ function EntityCard({ entity, cardRef }: { entity: EntityData; cardRef?: (el: HT
       </div>
 
       {/* KPI strip */}
-      <div className="grid grid-cols-4 border-b border-border/20 divide-x divide-border/15">
+      <div className="grid grid-cols-4 border-b border-border/15 divide-x divide-border/10">
         {[
-          { label: 'Today',      value: entity.todayCalls > 0 ? entity.todayCalls : '-', sub: 'calls',       cls: hasData ? 'text-foreground' : 'text-muted-foreground/30' },
-          { label: 'ASR',        value: entity.asr > 0 ? `${entity.asr}%` : '-',         sub: 'answer rate', cls: asrColor(entity.asr) },
-          { label: 'ACD',        value: fmtAcd(entity.acdSecs),                           sub: 'avg duration',cls: 'text-foreground' },
-          { label: 'Peak/24h',   value: entity.stats.total.max || '-',                    sub: 'hourly max',  cls: 'text-foreground' },
+          { label: 'Today',    value: entity.todayCalls > 0 ? entity.todayCalls : '-',  cls: entity.todayCalls > 0 ? 'text-foreground' : 'text-muted-foreground/20' },
+          { label: 'ASR',      value: entity.asr > 0 ? `${entity.asr}%` : '-',          cls: asrColor(entity.asr) },
+          { label: 'ACD',      value: fmtAcd(entity.acdSecs),                            cls: 'text-foreground' },
+          { label: 'Peak/24h', value: entity.stats.total.max || '-',                     cls: 'text-foreground' },
         ].map(item => (
-          <div key={item.label} className="flex flex-col items-center py-2 gap-0.5">
-            <span className="text-[8px] text-muted-foreground/45 uppercase tracking-wider">{item.label}</span>
+          <div key={item.label} className="flex flex-col items-center py-2.5 gap-0.5">
+            <span className="text-[8px] text-muted-foreground/40 uppercase tracking-wider">{item.label}</span>
             <span className={cn("text-sm font-bold tabular-nums", item.cls)}>{item.value}</span>
-            <span className="text-[8px] text-muted-foreground/35">{item.sub}</span>
           </div>
         ))}
       </div>
 
       {/* Charts */}
-      <div className="p-3 grid grid-cols-2 gap-3 min-w-0">
-        <div className="min-w-0 overflow-hidden">
-          <MiniChart data={entity.daily}  span="Daily"  asr={entity.asr}      showConcurrent={hasConcurrent} />
-        </div>
-        <div className="min-w-0 overflow-hidden">
-          <MiniChart data={entity.weekly} span="Weekly" asr={entity.weeklyAsr} showConcurrent={false} />
-        </div>
+      <div className="p-4 grid grid-cols-2 gap-5">
+        <LargeChart
+          data={entity.daily}
+          title="Daily (24h)"
+          gradientA={`dT_${uid}`} gradientB={`dC_${uid}`}
+          colorA="#8b5cf6" colorB="#38bdf8"
+          keyA="total_calls" keyB="connected_calls"
+          labelA="total" labelB="connected"
+        />
+        <LargeChart
+          data={entity.weekly}
+          title="Weekly (7d)"
+          gradientA={`wT_${uid}`} gradientB={`wC_${uid}`}
+          colorA="#f59e0b" colorB="#14b8a6"
+          keyA="total_calls" keyB="connected_calls"
+          labelA="total" labelB="connected"
+        />
       </div>
 
-      {/* Stats */}
-      <div className="px-1 pb-1"><StatsTable entity={entity} /></div>
+      {/* Stats table */}
+      <div className="px-4 pb-4"><StatsTable entity={entity} /></div>
 
-      {/* KAM clients */}
-      {entity.clients && entity.clients.length > 0 && <KamClientList clients={entity.clients} />}
+      {/* KAM client pills */}
+      {entity.clients && entity.clients.length > 0 && (
+        <div className="px-4 pb-3 border-t border-border/15 pt-2 flex flex-wrap gap-1.5">
+          {entity.clients.slice(0, 8).map(c => (
+            <span key={c} className="text-[9px] px-2 py-0.5 rounded-full bg-muted/30 border border-border/25 text-muted-foreground/50">{c}</span>
+          ))}
+          {entity.clients.length > 8 && (
+            <span className="text-[9px] px-2 py-0.5 rounded-full bg-muted/30 border border-border/25 text-muted-foreground/35">+{entity.clients.length - 8} more</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Summary strip ─────────────────────────────────────────────────────────────
-function SummaryStrip({ summary, count, label }: { summary: Summary; count: number; label: string }) {
+// ── Sidebar tree items ────────────────────────────────────────────────────────
+function SidebarItem({
+  label, selected, active, indent = 0, icon, onClick,
+  hasChildren, expanded, badge, live,
+}: {
+  label: string;
+  selected?: boolean;
+  active?: boolean;
+  indent?: number;
+  icon?: React.ReactNode;
+  onClick?: () => void;
+  hasChildren?: boolean;
+  expanded?: boolean;
+  badge?: number;
+  live?: boolean;
+}) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-5 border-b border-border/40 bg-card/30 divide-x divide-border/25">
-      {[
-        { title: 'Active Entities',  value: count,                      cls: 'text-blue-400',    fmt: String },
-        { title: 'Live Calls',       value: summary.totalConcurrent,    cls: 'text-emerald-400', fmt: (v: number) => v > 0 ? String(v) : '-' },
-        { title: "Today's Calls",    value: summary.totalToday,         cls: 'text-amber-400',   fmt: String },
-        { title: 'Overall ASR',      value: summary.overallAsr,         cls: asrColor(summary.overallAsr), fmt: (v: number) => v > 0 ? `${v}%` : '-' },
-        { title: 'Overall ACD',      value: summary.overallAcdSecs,     cls: 'text-violet-400',  fmt: fmtAcd },
-      ].map((item, i) => (
-        <div key={i} className="flex flex-col px-5 py-2.5">
-          <span className="text-[9px] text-muted-foreground/45 uppercase tracking-wider">{item.title}</span>
-          <span className={cn("text-lg font-bold tabular-nums", item.cls)}>{item.fmt(item.value)}</span>
-        </div>
-      ))}
+    <button
+      onClick={onClick}
+      data-testid={`nav-${label.replace(/\s+/g, '-').toLowerCase()}`}
+      className={cn(
+        "flex items-center gap-1.5 w-full text-left rounded-lg transition-colors py-1.5 pr-2 group",
+        indent === 0 ? "px-2" : indent === 1 ? "pl-5 pr-2" : indent === 2 ? "pl-8 pr-2" : "pl-11 pr-2",
+        selected
+          ? "bg-amber-500/15 text-amber-300 border border-amber-500/20"
+          : active
+            ? "bg-muted/30 text-foreground"
+            : "text-muted-foreground hover:bg-muted/20 hover:text-foreground",
+      )}
+    >
+      {live && (
+        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />
+      )}
+      {!live && icon && <span className="flex-shrink-0 opacity-50">{icon}</span>}
+      <span className="flex-1 truncate text-[11px] font-medium">{label}</span>
+      {badge !== undefined && badge > 0 && (
+        <span className="text-[8px] px-1 py-0.5 rounded bg-muted/40 text-muted-foreground/50 flex-shrink-0 font-mono">{badge}</span>
+      )}
+      {hasChildren && (
+        <span className="flex-shrink-0 opacity-30">
+          {expanded ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronRight className="w-2.5 h-2.5" />}
+        </span>
+      )}
+    </button>
+  );
+}
+
+// ── Sidebar category divider ──────────────────────────────────────────────────
+function SidebarSection({ label }: { label: string }) {
+  return (
+    <div className="px-2 pt-3 pb-0.5">
+      <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/30">{label}</p>
     </div>
+  );
+}
+
+// ── Sub-category placeholder item ─────────────────────────────────────────────
+function SubCatItem({
+  label, selected, indent = 1, onClick, expandable, expanded, badge, icon,
+}: {
+  label: string; selected?: boolean; indent?: number; onClick?: () => void;
+  expandable?: boolean; expanded?: boolean; badge?: number; icon?: React.ReactNode;
+}) {
+  return (
+    <SidebarItem
+      label={label}
+      selected={selected}
+      indent={indent}
+      onClick={onClick}
+      hasChildren={expandable}
+      expanded={expanded}
+      badge={badge}
+      icon={icon}
+    />
   );
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function BitsEyePage() {
-  // Read params from URL (set by sidebar links)
-  const search   = useSearch();
-  const [, setLocation] = useLocation();
-  const params   = new URLSearchParams(search);
-  const view     = (params.get('view') || 'clients') as 'clients' | 'vendors' | 'kam' | 'destinations';
-  const kamIdStr = params.get('kamId');
-  const kamId    = kamIdStr ? Number(kamIdStr) : undefined;
-
-  // Destination drill-down filters
-  const [destCountryFilter,  setDestCountryFilter]  = useState<string>('');
-  const [destBreakoutFilter, setDestBreakoutFilter] = useState<string>('');
-
-  // Map view → API category
-  const category = view === 'kam' ? 'kam' : view;
-
-  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
-  // Viewer filtering: only show their assigned clients/KAM
   const { role } = useAuth();
   const isViewer = role === 'viewer';
-  const { data: viewerAccounts } = useQuery<{ kamId: number | null; kamName: string | null; accountIds: string[]; clientNames: string[] }>({
-    queryKey: ['/api/user/assigned-accounts'],
-    enabled: isViewer,
-    staleTime: 60_000,
-  });
 
-  // For viewers: auto-redirect to their KAM view when navigating to /bitseye without a kamId
-  const viewerKamId = viewerAccounts?.kamId;
-  useEffect(() => {
-    if (isViewer && viewerKamId && !kamIdStr && view !== 'kam') {
-      setLocation(`/bitseye?view=kam&kamId=${viewerKamId}`);
+  // ── Nav state ─────────────────────────────────────────────────────────────
+  const [nav, setNav] = useState<NavState>({ type: 'welcome' });
+  // Sidebar expansion state
+  const [expandedCountry,     setExpandedCountry]     = useState<string | null>(null);
+  const [countryOpenCat,      setCountryOpenCat]      = useState<string | null>(null); // 'kam'|'destination'|null
+  const [expandedKam,         setExpandedKam]         = useState<string | null>(null);
+  const [kamOpenCat,          setKamOpenCat]          = useState<string | null>(null); // 'destination'|null
+  const [sidebarOpen,         setSidebarOpen]         = useState(true);
+  const [lastRefresh,         setLastRefresh]         = useState(Date.now());
+
+  // ── Determine active country/KAM for data fetching ────────────────────────
+  const activeCountry = expandedCountry ?? nav.country ?? '';
+  const activeKam     = expandedKam ?? nav.kamName ?? '';
+
+  // ── Data queries ─────────────────────────────────────────────────────────
+  // Countries list (always fetched; used both for sidebar and country-level content)
+  const { data: countriesData, isFetching: fetchingCountries, refetch: refetchCountries } =
+    useQuery<PerEntityResponse>({
+      queryKey: ['/api/bitseye/per-entity', 'countries', lastRefresh],
+      queryFn: async () => {
+        const r = await fetch('/api/bitseye/per-entity?category=countries&aliveOnly=false&orderBy=name');
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      },
+      staleTime: 20_000,
+      refetchInterval: 60_000,
+    });
+
+  // KAMs — fetched when a country is expanded or KAM category is open
+  const fetchKams = !!activeCountry || nav.type.startsWith('kam');
+  const { data: kamsData, isFetching: fetchingKams } =
+    useQuery<PerEntityResponse>({
+      queryKey: ['/api/bitseye/per-entity', 'kam', activeCountry, lastRefresh],
+      queryFn: async () => {
+        const p = new URLSearchParams({ category: 'kam', aliveOnly: 'false', orderBy: 'name' });
+        if (activeCountry) p.set('countryFilter', activeCountry);
+        const r = await fetch(`/api/bitseye/per-entity?${p}`);
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      },
+      enabled: fetchKams,
+      staleTime: 20_000,
+      refetchInterval: 60_000,
+    });
+
+  // Destinations — fetched when a KAM is expanded or dest category is open
+  const fetchDests = !!activeKam || nav.type.startsWith('dest');
+  const { data: destsData, isFetching: fetchingDests } =
+    useQuery<PerEntityResponse>({
+      queryKey: ['/api/bitseye/per-entity', 'destinations', activeCountry, activeKam, lastRefresh],
+      queryFn: async () => {
+        const p = new URLSearchParams({ category: 'destinations', aliveOnly: 'false', orderBy: 'name' });
+        if (activeCountry) p.set('countryFilter', activeCountry);
+        if (activeKam)     p.set('kamFilter', activeKam);
+        const r = await fetch(`/api/bitseye/per-entity?${p}`);
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      },
+      enabled: fetchDests,
+      staleTime: 20_000,
+      refetchInterval: 60_000,
+    });
+
+  // Clients under a KAM — shown when countryCategory='clients' or kamCategory='clients'
+  const fetchClients = (countryOpenCat === 'clients' || kamOpenCat === 'clients') ||
+    nav.type === 'country-clients' || nav.type === 'country-vendors';
+  const { data: clientsData, isFetching: fetchingClients } =
+    useQuery<PerEntityResponse>({
+      queryKey: ['/api/bitseye/per-entity', 'clients', activeCountry, activeKam, lastRefresh],
+      queryFn: async () => {
+        const p = new URLSearchParams({ category: 'clients', aliveOnly: 'false', orderBy: 'name' });
+        if (activeCountry) p.set('countryFilter', activeCountry);
+        if (activeKam)     p.set('kamFilter', activeKam);
+        const r = await fetch(`/api/bitseye/per-entity?${p}`);
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      },
+      enabled: fetchClients,
+      staleTime: 20_000,
+    });
+
+  const vendorsData = clientsData; // same structure; reuse for vendors category
+
+  // ── Sidebar entity lists ──────────────────────────────────────────────────
+  const countries  = useMemo(() => countriesData?.entities ?? [], [countriesData]);
+  const kams       = useMemo(() => kamsData?.entities ?? [], [kamsData]);
+  const dests      = useMemo(() => destsData?.entities ?? [], [destsData]);
+
+  // ── Main content derivation ───────────────────────────────────────────────
+  const { contentEntities, contentTitle, isFetchingContent } = useMemo(() => {
+    switch (nav.type) {
+      case 'country-agg': {
+        const agg = aggregateEntities(countries);
+        return { contentEntities: agg ? [agg] : [], contentTitle: 'All Countries — Aggregated', isFetchingContent: fetchingCountries };
+      }
+      case 'country-all':
+        return { contentEntities: countries, contentTitle: 'All Countries', isFetchingContent: fetchingCountries };
+      case 'country': {
+        const e = countries.find(c => c.name === nav.country);
+        return { contentEntities: e ? [e] : [], contentTitle: nav.country ?? '', isFetchingContent: fetchingCountries };
+      }
+      case 'country-clients':
+        return { contentEntities: clientsData?.entities ?? [], contentTitle: `${nav.country} — Clients`, isFetchingContent: fetchingClients };
+      case 'country-vendors':
+        return { contentEntities: clientsData?.entities ?? [], contentTitle: `${nav.country} — Vendors`, isFetchingContent: fetchingClients };
+      case 'kam-agg': {
+        const agg = aggregateEntities(kams);
+        return { contentEntities: agg ? [agg] : [], contentTitle: 'All KAMs — Aggregated', isFetchingContent: fetchingKams };
+      }
+      case 'kam-all':
+        return { contentEntities: kams, contentTitle: 'All KAMs', isFetchingContent: fetchingKams };
+      case 'kam': {
+        const e = kams.find(k => k.name === nav.kamName);
+        return { contentEntities: e ? [e] : [], contentTitle: nav.kamName ?? '', isFetchingContent: fetchingKams };
+      }
+      case 'dest-agg': {
+        const agg = aggregateEntities(dests);
+        return { contentEntities: agg ? [agg] : [], contentTitle: 'All Destinations — Aggregated', isFetchingContent: fetchingDests };
+      }
+      case 'dest-all':
+        return { contentEntities: dests, contentTitle: 'All Destinations', isFetchingContent: fetchingDests };
+      case 'dest': {
+        const e = dests.find(d => d.name === nav.destName);
+        return { contentEntities: e ? [e] : [], contentTitle: nav.destName ?? '', isFetchingContent: fetchingDests };
+      }
+      default:
+        return { contentEntities: [], contentTitle: 'BitsEye', isFetchingContent: false };
     }
-  }, [isViewer, viewerKamId, kamIdStr, view, setLocation]);
+  }, [nav, countries, kams, dests, clientsData, fetchingCountries, fetchingKams, fetchingDests, fetchingClients]);
 
-  const { data, isLoading, isFetching, dataUpdatedAt, refetch } = useQuery<PerEntityResponse>({
-    queryKey: ['/api/bitseye/per-entity', category, kamId],
-    queryFn: async () => {
-      const p = new URLSearchParams({ category, aliveOnly: 'false' });
-      // Viewers always query their own KAM id if on the clients view without a kamId
-      if (kamId) p.set('kamId', String(kamId));
-      else if (isViewer && viewerKamId && category === 'clients') p.set('kamId', String(viewerKamId));
-      const r = await fetch(`/api/bitseye/per-entity?${p}`);
-      if (!r.ok) throw new Error(await r.text());
-      return r.json();
-    },
-    refetchInterval: 30_000,
-    staleTime: 20_000,
-  });
+  // Show all="grid" or single="panel"
+  const showGrid = nav.type === 'country-all' || nav.type === 'kam-all' || nav.type === 'dest-all' ||
+    nav.type === 'country-clients' || nav.type === 'country-vendors';
 
-  const allEntities = data?.entities ?? [];
-  // Additional client-side filter: if viewer has assigned client names, restrict to those
-  const viewerClientNames = new Set((viewerAccounts?.clientNames ?? []).map(n => n.toLowerCase()));
-  const baseEntities = isViewer && viewerClientNames.size > 0 && (view === 'clients' || view === 'kam')
-    ? allEntities.filter(e => viewerClientNames.has(e.name.toLowerCase()))
-    : allEntities;
+  // ── Handlers ──────────────────────────────────────────────────────────────
+  function selectCountry(name: string) {
+    setExpandedCountry(prev => prev === name ? null : name);
+    setCountryOpenCat(null);
+    setExpandedKam(null);
+    setKamOpenCat(null);
+    setNav({ type: 'country', country: name });
+  }
+  function toggleCountryCat(cat: string, country: string) {
+    if (countryOpenCat === cat) {
+      setCountryOpenCat(null);
+    } else {
+      setCountryOpenCat(cat);
+      if (cat === 'kam') setNav({ type: 'kam-all', country });
+      else if (cat === 'clients') setNav({ type: 'country-clients', country });
+      else if (cat === 'vendors') setNav({ type: 'country-vendors', country });
+      else if (cat === 'destination') setNav({ type: 'dest-all', country });
+    }
+  }
+  function selectKam(name: string, country: string) {
+    setExpandedKam(prev => prev === name ? null : name);
+    setKamOpenCat(null);
+    setNav({ type: 'kam', country, kamName: name });
+  }
+  function toggleKamCat(cat: string, country: string, kamName: string) {
+    if (kamOpenCat === cat) {
+      setKamOpenCat(null);
+    } else {
+      setKamOpenCat(cat);
+      if (cat === 'destination') setNav({ type: 'dest-all', country, kamName });
+    }
+  }
+  function selectDest(name: string, country: string, kamName?: string) {
+    setNav({ type: 'dest', country, kamName, destName: name });
+  }
 
-  // ── Destination drill-down: available countries & breakouts ───────────────
-  const availableDestCountries = useMemo(() => {
-    if (view !== 'destinations') return [];
-    const seen = new Set<string>();
-    baseEntities.forEach(e => { if (e.destCountry) seen.add(e.destCountry); });
-    return Array.from(seen).sort();
-  }, [baseEntities, view]);
+  function doRefresh() {
+    setLastRefresh(Date.now());
+  }
 
-  const availableDestBreakouts = useMemo(() => {
-    if (view !== 'destinations') return [];
-    const seen = new Set<string>();
-    baseEntities
-      .filter(e => !destCountryFilter || e.destCountry === destCountryFilter)
-      .forEach(e => { if (e.destBreakout) seen.add(e.destBreakout); });
-    return Array.from(seen).sort();
-  }, [baseEntities, view, destCountryFilter]);
-
-  // Apply destination filters
-  const entities = view === 'destinations'
-    ? baseEntities.filter(e =>
-        (!destCountryFilter  || e.destCountry  === destCountryFilter) &&
-        (!destBreakoutFilter || e.destBreakout === destBreakoutFilter))
-    : baseEntities;
-
-  const summary  = data?.summary ?? { totalConcurrent: 0, totalToday: 0, overallAsr: 0, overallAcdSecs: 0 };
-
-  const scrollToEntity = useCallback((name: string) => {
-    const el = cardRefs.current[name];
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
-
-  // Page title based on view
-  const pageTitle = view === 'clients' ? 'Clients'
-    : view === 'vendors' ? 'Vendors'
-    : view === 'destinations' ? 'Destinations'
-    : kamId ? 'KAM — Filtered' : 'KAM Overview';
+  const isFetchingAny = fetchingCountries || fetchingKams || fetchingDests || fetchingClients;
 
   return (
-    <div className="flex flex-col h-full min-h-screen bg-background">
+    <div className="flex h-full min-h-screen bg-background overflow-hidden">
 
-      {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-30 border-b border-border/50 bg-card/80 backdrop-blur-xl">
-        <div className="flex items-center gap-3 px-5 py-3">
+      {/* ── Left Sidebar ─────────────────────────────────────────────── */}
+      <aside className={cn(
+        "flex-shrink-0 border-r border-border/30 bg-card/20 flex flex-col overflow-hidden transition-all duration-200",
+        sidebarOpen ? "w-56" : "w-0",
+      )}>
+        {/* Sidebar header */}
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/25 bg-card/40 flex-shrink-0">
+          <Globe className="w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0" />
+          <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 flex-1">Country</p>
+          {(fetchingCountries || fetchingKams || fetchingDests) && (
+            <RefreshCw className="w-2.5 h-2.5 text-muted-foreground/30 animate-spin flex-shrink-0" />
+          )}
+        </div>
+
+        {/* Tree */}
+        <div className="flex-1 overflow-y-auto p-1.5 space-y-px">
+          {/* All Aggregated */}
+          <SidebarItem
+            label="All Aggregated"
+            selected={nav.type === 'country-agg'}
+            indent={0}
+            badge={countries.length}
+            onClick={() => { setNav({ type: 'country-agg' }); }}
+          />
+          {/* All */}
+          <SidebarItem
+            label="All"
+            selected={nav.type === 'country-all'}
+            indent={0}
+            onClick={() => { setNav({ type: 'country-all' }); }}
+          />
+
+          {/* Country list */}
+          {countries.length === 0 && !fetchingCountries && (
+            <p className="text-[9px] text-muted-foreground/25 px-2 py-2">No data yet</p>
+          )}
+          {countries.map(country => {
+            const isExpanded = expandedCountry === country.name;
+            return (
+              <div key={country.name}>
+                <SidebarItem
+                  label={country.name}
+                  selected={nav.type === 'country' && nav.country === country.name}
+                  active={isExpanded}
+                  indent={0}
+                  live={country.curConcurrent > 0}
+                  hasChildren
+                  expanded={isExpanded}
+                  onClick={() => selectCountry(country.name)}
+                />
+                {isExpanded && (
+                  <div className="space-y-px mt-0.5">
+                    <SubCatItem
+                      label="Clients"
+                      indent={1}
+                      selected={nav.type === 'country-clients' && nav.country === country.name}
+                      icon={<Users className="w-3 h-3" />}
+                      onClick={() => toggleCountryCat('clients', country.name)}
+                    />
+                    <SubCatItem
+                      label="Vendors"
+                      indent={1}
+                      selected={nav.type === 'country-vendors' && nav.country === country.name}
+                      icon={<Network className="w-3 h-3" />}
+                      onClick={() => toggleCountryCat('vendors', country.name)}
+                    />
+                    {/* KAM sub-tree */}
+                    <SubCatItem
+                      label="KAM"
+                      indent={1}
+                      expandable
+                      expanded={countryOpenCat === 'kam'}
+                      icon={<Layers className="w-3 h-3" />}
+                      badge={kams.length || undefined}
+                      onClick={() => toggleCountryCat('kam', country.name)}
+                    />
+                    {countryOpenCat === 'kam' && (
+                      <div className="space-y-px">
+                        <SidebarItem label="All Aggregated" indent={2}
+                          selected={nav.type === 'kam-agg' && nav.country === country.name}
+                          onClick={() => setNav({ type: 'kam-agg', country: country.name })}
+                        />
+                        <SidebarItem label="All" indent={2}
+                          selected={nav.type === 'kam-all' && nav.country === country.name}
+                          onClick={() => setNav({ type: 'kam-all', country: country.name })}
+                        />
+                        {kams.map(kam => {
+                          const kamExpanded = expandedKam === kam.name;
+                          return (
+                            <div key={kam.name}>
+                              <SidebarItem
+                                label={kam.name}
+                                indent={2}
+                                live={kam.curConcurrent > 0}
+                                selected={nav.type === 'kam' && nav.kamName === kam.name}
+                                active={kamExpanded}
+                                hasChildren
+                                expanded={kamExpanded}
+                                onClick={() => selectKam(kam.name, country.name)}
+                              />
+                              {kamExpanded && (
+                                <div className="space-y-px">
+                                  <SubCatItem label="Destination" indent={3}
+                                    expandable
+                                    expanded={kamOpenCat === 'destination'}
+                                    icon={<FolderOpen className="w-3 h-3" />}
+                                    badge={dests.length || undefined}
+                                    onClick={() => toggleKamCat('destination', country.name, kam.name)}
+                                  />
+                                  {kamOpenCat === 'destination' && (
+                                    <div className="space-y-px">
+                                      <SidebarItem label="All Aggregated" indent={3}
+                                        selected={nav.type === 'dest-agg' && nav.kamName === kam.name}
+                                        onClick={() => setNav({ type: 'dest-agg', country: country.name, kamName: kam.name })}
+                                      />
+                                      <SidebarItem label="All" indent={3}
+                                        selected={nav.type === 'dest-all' && nav.kamName === kam.name}
+                                        onClick={() => setNav({ type: 'dest-all', country: country.name, kamName: kam.name })}
+                                      />
+                                      {dests.map(dest => (
+                                        <SidebarItem
+                                          key={dest.name}
+                                          label={dest.destBreakout || dest.name}
+                                          indent={3}
+                                          live={dest.curConcurrent > 0}
+                                          selected={nav.type === 'dest' && nav.destName === dest.name}
+                                          onClick={() => selectDest(dest.name, country.name, kam.name)}
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Destination sub-tree (direct under country) */}
+                    <SubCatItem
+                      label="Destination"
+                      indent={1}
+                      expandable
+                      expanded={countryOpenCat === 'destination'}
+                      icon={<Folder className="w-3 h-3" />}
+                      onClick={() => toggleCountryCat('destination', country.name)}
+                    />
+                    {countryOpenCat === 'destination' && (
+                      <div className="space-y-px">
+                        <SidebarItem label="All Aggregated" indent={2}
+                          selected={nav.type === 'dest-agg' && !nav.kamName && nav.country === country.name}
+                          onClick={() => setNav({ type: 'dest-agg', country: country.name })}
+                        />
+                        <SidebarItem label="All" indent={2}
+                          selected={nav.type === 'dest-all' && !nav.kamName && nav.country === country.name}
+                          onClick={() => setNav({ type: 'dest-all', country: country.name })}
+                        />
+                        {destsData?.entities.map(dest => (
+                          <SidebarItem
+                            key={dest.name}
+                            label={dest.destBreakout || dest.name}
+                            indent={2}
+                            live={dest.curConcurrent > 0}
+                            selected={nav.type === 'dest' && nav.destName === dest.name && !nav.kamName}
+                            onClick={() => selectDest(dest.name, country.name)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </aside>
+
+      {/* ── Main content ─────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+
+        {/* Top bar */}
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40 bg-card/60 backdrop-blur-xl flex-shrink-0">
+          <button
+            data-testid="btn-toggle-sidebar"
+            onClick={() => setSidebarOpen(v => !v)}
+            className="p-1.5 rounded-lg hover:bg-muted/40 text-muted-foreground/50 hover:text-foreground transition-colors"
+          >
+            {sidebarOpen ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4 rotate-90" />}
+          </button>
+
           <div className="flex items-center gap-2">
             <div className="bg-amber-500/15 border border-amber-500/20 p-1.5 rounded-lg">
               <BarChart3 className="w-4 h-4 text-amber-400" />
             </div>
-            <div>
+            <div className="leading-tight">
               <span className="text-sm font-bold">BitsEye</span>
-              <span className="ml-2 text-xs text-muted-foreground/50 font-medium">{pageTitle}</span>
+              <span className="ml-2 text-xs text-muted-foreground/40 font-medium truncate">{contentTitle}</span>
             </div>
           </div>
-          {/* ── Destinations cascade filter ─────────────────────── */}
-          {view === 'destinations' && (
-            <div className="flex items-center gap-2 ml-2">
-              <Globe className="w-3.5 h-3.5 text-muted-foreground/40 flex-shrink-0" />
-              <Select
-                value={destCountryFilter || '__all__'}
-                onValueChange={v => {
-                  setDestCountryFilter(v === '__all__' ? '' : v);
-                  setDestBreakoutFilter('');
-                }}
-              >
-                <SelectTrigger
-                  className="h-7 text-xs bg-muted/30 border-border/40 min-w-[130px] max-w-[170px]"
-                  data-testid="select-dest-country"
-                >
-                  <SelectValue placeholder="All Countries" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">All Countries</SelectItem>
-                  {availableDestCountries.map(c => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
 
-              <ChevronDown className="w-3 h-3 text-muted-foreground/30 flex-shrink-0" />
-
-              <Select
-                value={destBreakoutFilter || '__all__'}
-                onValueChange={v => setDestBreakoutFilter(v === '__all__' ? '' : v)}
-                disabled={!destCountryFilter}
-              >
-                <SelectTrigger
-                  className="h-7 text-xs bg-muted/30 border-border/40 min-w-[150px] max-w-[210px] disabled:opacity-40"
-                  data-testid="select-dest-breakout"
-                >
-                  <SelectValue placeholder={destCountryFilter ? 'All Breakouts' : 'Select Country first'} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">All Breakouts</SelectItem>
-                  {availableDestBreakouts.map(b => (
-                    <SelectItem key={b} value={b}>{b}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {(destCountryFilter || destBreakoutFilter) && (
-                <button
-                  data-testid="btn-clear-dest-filter"
-                  onClick={() => { setDestCountryFilter(''); setDestBreakoutFilter(''); }}
-                  className="p-1 rounded hover:bg-muted/50 text-muted-foreground/50 hover:text-foreground transition-colors"
-                  title="Clear filters"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+          {/* Breadcrumb */}
+          {nav.country && (
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/40 ml-2">
+              <ChevronRight className="w-3 h-3" />
+              <button
+                className="hover:text-foreground transition-colors"
+                onClick={() => setNav({ type: 'country', country: nav.country })}
+              >{nav.country}</button>
+              {nav.kamName && (
+                <>
+                  <ChevronRight className="w-3 h-3" />
+                  <button
+                    className="hover:text-foreground transition-colors"
+                    onClick={() => setNav({ type: 'kam', country: nav.country, kamName: nav.kamName })}
+                  >{nav.kamName}</button>
+                </>
+              )}
+              {nav.destName && (
+                <>
+                  <ChevronRight className="w-3 h-3" />
+                  <span className="text-muted-foreground/60 truncate max-w-[140px]">{nav.destName}</span>
+                </>
               )}
             </div>
           )}
 
           <div className="flex-1" />
-          {isViewer && viewerAccounts?.kamName && (
-            <span className="hidden md:flex items-center gap-1 text-[10px] text-blue-400/70 bg-blue-500/10 border border-blue-500/20 px-2 py-1 rounded-lg">
-              <Shield className="w-3 h-3" />
-              {viewerAccounts.kamName}
+
+          {/* Live count */}
+          {countries.some(c => c.curConcurrent > 0) && (
+            <span className="flex items-center gap-1.5 text-[10px] text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+              {countries.reduce((s, c) => s + c.curConcurrent, 0)} live
             </span>
           )}
-          {dataUpdatedAt > 0 && (
-            <span className="hidden md:block text-[10px] text-muted-foreground/40 tabular-nums">
-              {new Date(dataUpdatedAt).toLocaleTimeString()}
-            </span>
-          )}
+
           <button
             data-testid="btn-refresh"
-            onClick={() => refetch()}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted/30 border border-border/40 hover:bg-muted/60 transition-colors text-xs text-muted-foreground hover:text-foreground"
+            onClick={doRefresh}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted/30 border border-border/40 hover:bg-muted/60 transition-colors text-xs text-muted-foreground hover:text-foreground"
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", isFetching && "animate-spin")} />
+            <RefreshCw className={cn("w-3.5 h-3.5", isFetchingAny && "animate-spin")} />
             Refresh
           </button>
         </div>
-      </div>
 
-      {/* ── Summary strip ───────────────────────────────────────────── */}
-      {!isLoading && entities.length > 0 && (
-        <SummaryStrip summary={summary} count={entities.length} label={pageTitle} />
-      )}
-
-      {/* ── Body ────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
-
-        {/* Left index panel */}
-        <aside className="hidden xl:flex flex-col w-44 flex-shrink-0 border-r border-border/25 bg-card/15 overflow-y-auto">
-          <div className="px-3 py-2 border-b border-border/20 sticky top-0 bg-card/80 backdrop-blur z-10">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/40">
-              {pageTitle} ({entities.length})
-            </p>
-          </div>
-          {isLoading ? (
-            <div className="p-2 space-y-1">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="h-6 rounded bg-muted/15 animate-pulse" />
-              ))}
+        {/* Content area */}
+        <div className="flex-1 overflow-y-auto p-5">
+          {nav.type === 'welcome' ? (
+            /* Welcome screen */
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 text-center">
+              <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl">
+                <BarChart3 className="w-10 h-10 text-amber-400" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold">BitsEye Analytics</h2>
+                <p className="text-sm text-muted-foreground/50 mt-2 max-w-xs">
+                  Select a country from the sidebar to drill into call traffic by KAM and destination.
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-4 text-center">
+                {[
+                  { label: 'Countries', value: countries.length, icon: <Globe className="w-4 h-4" /> },
+                  { label: 'KAMs', value: '-', icon: <Users className="w-4 h-4" /> },
+                  { label: 'Destinations', value: '-', icon: <Layers className="w-4 h-4" /> },
+                ].map(item => (
+                  <div key={item.label} className="bg-card border border-border/30 rounded-xl px-6 py-4 flex flex-col items-center gap-1">
+                    <span className="text-muted-foreground/40">{item.icon}</span>
+                    <span className="text-lg font-bold">{item.value}</span>
+                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground/40">{item.label}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          ) : (
-            <nav className="p-1.5 space-y-px">
-              {entities.map(e => (
-                <button
-                  key={e.name}
-                  data-testid={`link-entity-${e.name}`}
-                  onClick={() => scrollToEntity(e.name)}
-                  title={e.name}
-                  className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-lg text-left hover:bg-muted/35 transition-colors group"
-                >
-                  <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0",
-                    e.curConcurrent > 0 ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground/15")} />
-                  <span className="flex-1 truncate text-[10px] text-muted-foreground group-hover:text-foreground">{e.name}</span>
-                  <span className={cn("text-[9px] font-mono flex-shrink-0", trendColor(e.trendPct))}>
-                    {e.trendPct > 0 ? '↑' : e.trendPct < 0 ? '↓' : '→'}
-                  </span>
-                  <ChevronRight className="w-2.5 h-2.5 opacity-0 group-hover:opacity-30 flex-shrink-0" />
-                </button>
-              ))}
-            </nav>
-          )}
-        </aside>
-
-        {/* Card grid */}
-        <main className="flex-1 overflow-y-auto p-5">
-          {isLoading ? (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+          ) : isFetchingContent && contentEntities.length === 0 ? (
+            /* Loading */
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="h-80 rounded-xl bg-muted/15 animate-pulse border border-border/25" />
               ))}
             </div>
-          ) : entities.length === 0 ? (
-            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center">
+          ) : contentEntities.length === 0 ? (
+            /* Empty */
+            <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center">
               <AlertCircle className="w-12 h-12 text-muted-foreground/15" />
               <div>
-                <p className="text-base font-semibold text-muted-foreground/50">No data found</p>
-                <p className="text-sm text-muted-foreground/30 mt-1">
-                  No CDR or live-call data for {pageTitle}.
-                </p>
+                <p className="text-base font-semibold text-muted-foreground/40">No data found</p>
+                <p className="text-sm text-muted-foreground/25 mt-1">{contentTitle}</p>
+              </div>
+            </div>
+          ) : showGrid ? (
+            /* Grid of entity panels */
+            <div className="space-y-5">
+              {/* Summary bar */}
+              <div className="flex items-center gap-4 pb-3 border-b border-border/20">
+                <span className="text-xs text-muted-foreground/50">{contentEntities.length} entities</span>
+                <span className="text-xs text-muted-foreground/30">·</span>
+                <span className="text-xs text-muted-foreground/50">
+                  {contentEntities.reduce((s, e) => s + e.todayCalls, 0)} calls today
+                </span>
+                <span className="text-xs text-muted-foreground/30">·</span>
+                <span className={cn("text-xs", asrColor(
+                  Math.round(contentEntities.reduce((s, e) => s + e.todayCalls * e.asr, 0) /
+                    Math.max(contentEntities.reduce((s, e) => s + e.todayCalls, 0), 1))
+                ))}>
+                  ASR {Math.round(contentEntities.reduce((s, e) => s + e.todayCalls * e.asr, 0) /
+                    Math.max(contentEntities.reduce((s, e) => s + e.todayCalls, 0), 1))}%
+                </span>
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                {contentEntities.map(entity => (
+                  <EntityPanel key={entity.name} entity={entity} />
+                ))}
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-              {entities.map(entity => (
-                <EntityCard
-                  key={entity.name}
-                  entity={entity}
-                  cardRef={el => { cardRefs.current[entity.name] = el; }}
-                />
+            /* Single entity panel (or aggregated) */
+            <div className="max-w-5xl">
+              {contentEntities.map(entity => (
+                <EntityPanel key={entity.name} entity={entity} />
               ))}
             </div>
           )}
-        </main>
+        </div>
       </div>
     </div>
   );

@@ -8162,7 +8162,9 @@ export async function registerRoutes(
     const category  = (req.query.category as string) || 'clients';
     const aliveOnly = req.query.aliveOnly !== 'false';
     const orderBy   = (req.query.orderBy as string) || 'traffic';
-    const kamIdFilter = req.query.kamId ? Number(req.query.kamId) : null;
+    const kamIdFilter   = req.query.kamId ? Number(req.query.kamId) : null;
+    const countryFilter = (req.query.countryFilter as string) || '';
+    const kamFilter     = (req.query.kamFilter     as string) || '';
 
     const now      = Date.now();
     const DAY_MS   = 24 * 3600 * 1000;
@@ -8175,7 +8177,7 @@ export async function registerRoutes(
     const clientToKamId: Record<string, number> = {};
     const kamClients:   Record<string, Set<string>> = {};
     const kamIdToName:  Record<number, string> = {};
-    if (category === 'kam') {
+    if (category === 'kam' || kamFilter) {
       try {
         const kams = await storage.getKams();
         // getKams() does NOT join kamAccounts — fetch accounts separately (same as /api/kam)
@@ -8193,6 +8195,11 @@ export async function registerRoutes(
         }
       } catch (_) { /* storage unavailable */ }
     }
+
+    // Build set of clients belonging to kamFilter (for CDR pre-filtering)
+    const kamFilterClientSet: Set<string> | null = kamFilter
+      ? new Set(Array.from(kamClients[kamFilter] ?? []))
+      : null;
 
     // ── Time-series bucket labels ─────────────────────────────────────────────
     const hourlyLabels: string[] = [];
@@ -8223,6 +8230,11 @@ export async function registerRoutes(
       const raw = c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || null;
       if (category === 'vendors')      return (c as any).vendor || null;
       if (category === 'kam')          return raw ? (clientToKam[raw] ?? 'Unassigned') : null;
+      if (category === 'countries') {
+        const dialMatch = lookupDialCode((c as any).callee ?? '');
+        if (dialMatch) return dialMatch.country;
+        return (c as any).country || null;
+      }
       if (category === 'destinations') {
         // Use dial-code lookup to get "{Country} - {Breakout}" (e.g. "Pakistan - MOBILE JAZZ")
         // Falls back to Sippy's own country/areaName fields when lookup fails.
@@ -8236,7 +8248,21 @@ export async function registerRoutes(
       return raw;
     };
 
+    // Helper to resolve destination country of a CDR (for countryFilter)
+    const resolveCdrCountry = (c: any): string => {
+      const dialMatch = lookupDialCode((c as any).callee ?? '');
+      if (dialMatch) return dialMatch.country;
+      return (c as any).country || '';
+    };
+
     for (const c of cdrCache.values()) {
+      // ── countryFilter: only include CDRs going to the specified destination country ──
+      if (countryFilter && resolveCdrCountry(c) !== countryFilter) continue;
+      // ── kamFilter: only include CDRs from clients managed by the specified KAM ──
+      if (kamFilterClientSet) {
+        const cName = (c as any).clientName || accountNameCache.get(String((c as any).iAccount ?? '')) || '';
+        if (!kamFilterClientSet.has(cName)) continue;
+      }
       const ts = c.startTime
         ? new Date(c.startTime).getTime()
         : c.connectTime ? new Date(c.connectTime).getTime() : 0;
@@ -8290,8 +8316,9 @@ export async function registerRoutes(
       if (pt.ts < now - DAY_MS) continue;
       const t = new Date(pt.ts);
       const label = t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', hour12: true, timeZone: 'UTC' });
-      // Destinations have no concurrent-by-destination data — skip
-      const byKey = category === 'vendors' ? pt.byVendor : category === 'destinations' ? {} : pt.byClient;
+      // Destinations/countries have no concurrent-by-entity data — skip
+      const byKey = category === 'vendors' ? pt.byVendor
+        : (category === 'destinations' || category === 'countries') ? {} : pt.byClient;
       for (const [rawKey, cnt] of Object.entries(byKey)) {
         if (rawKey === 'Unknown') continue;
         const entityKey = category === 'kam' ? (clientToKam[rawKey] ?? 'Unassigned') : rawKey;
@@ -8307,8 +8334,8 @@ export async function registerRoutes(
     for (const k of Object.keys(concurrentPeaks))  allEntities.add(k);
     if (category === 'kam') {
       for (const k of Object.keys(kamClients)) allEntities.add(k);
-    } else if (category !== 'destinations') {
-      // For clients/vendors: supplement with live snapshot keys (not for destinations — those use CDR-only keys)
+    } else if (category !== 'destinations' && category !== 'countries') {
+      // For clients/vendors: supplement with live snapshot keys (not for destinations/countries — CDR-only keys)
       for (const k of Object.keys(latestByKey)) if (k !== 'Unknown') allEntities.add(k);
     }
 
