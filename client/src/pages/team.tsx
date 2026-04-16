@@ -10,10 +10,12 @@ import {
   Mail, Plus, Trash2, Edit2, X, TrendingUp, TrendingDown,
   UserPlus, PhoneCall, LinkIcon, Unlink, ShieldAlert, Check, Server, FileText,
   PieChart, CreditCard, GitBranch, Award, Zap, Layers, Settings2,
+  ToggleRight,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useState, useMemo } from "react";
 import type { Role } from "@shared/schema";
-import { MONITORING_ITEMS, type MonitoringItemId } from "@shared/schema";
+import { MONITORING_ITEMS, type MonitoringItemId, MGMT_CONFIGURABLE_FEATURES } from "@shared/schema";
 
 type TeamMember = AuthUser;
 
@@ -714,6 +716,18 @@ const PERMISSIONS: PermEntry[] = [
   { label: 'WhatsApp Push Alerts',      admin: 'full', mgmt: 'none', viewer: 'none'  },
   { label: 'API Keys',                  admin: 'full', mgmt: 'none', viewer: 'none'  },
 ];
+
+// Descriptions and icons for each configurable management feature
+const MGMT_FEATURE_META: Record<string, { desc: string; icon: React.ComponentType<{ className?: string }> }> = {
+  traffic_map:         { desc: 'Live geographic visualisation of call routing',               icon: MapPin       },
+  multi_switch:        { desc: 'Monitor and compare multiple softswitch instances side-by-side', icon: Layers    },
+  call_flow_simulator: { desc: 'Simulate and trace SIP call flows for debugging',             icon: GitBranch    },
+  analytics:           { desc: 'Revenue, margin and profitability analytics by client/vendor', icon: PieChart     },
+  lcr_analyser:        { desc: 'Least-cost routing analysis and route comparison',             icon: Route        },
+  rate_cards:          { desc: 'Create, edit and manage client and vendor rate cards',         icon: CreditCard   },
+  cost_optimisation:   { desc: 'AI-assisted cost reduction and optimisation recommendations',  icon: Zap          },
+  vendor_sla:          { desc: 'Track and enforce vendor service-level agreements',            icon: Award        },
+};
 
 // ─── Small reusable pieces ────────────────────────────────────────────────────
 
@@ -1771,6 +1785,67 @@ export default function TeamPage() {
 
       {/* Watcher Alert Members */}
       <WatcherRecipientsSection />
+
+      {/* Management Feature Access Controls */}
+      {isAdmin && (
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-border/50 bg-amber-500/5 flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <ToggleRight className="w-4 h-4 text-amber-400" />
+                <h3 className="font-semibold text-sm">Management Feature Access</h3>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5 max-w-xl">
+                Toggle which optional pages are accessible to the <span className="text-amber-400 font-medium">Management</span> role.
+                Admins retain access regardless. Changes take effect immediately.
+              </p>
+            </div>
+            <span className="text-xs text-muted-foreground bg-muted/40 border border-border/40 rounded-full px-2.5 py-0.5 whitespace-nowrap flex-shrink-0 mt-0.5">
+              {mgmtEnabled.size} / {MGMT_CONFIGURABLE_FEATURES.length} enabled
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2">
+            {MGMT_CONFIGURABLE_FEATURES.map((feat, idx) => {
+              const meta = MGMT_FEATURE_META[feat.key];
+              const Icon = meta?.icon ?? ToggleRight;
+              const enabled = mgmtEnabled.has(feat.key);
+              const total = MGMT_CONFIGURABLE_FEATURES.length;
+              const isBottomRow = idx >= total - (total % 2 === 0 ? 2 : 1);
+              return (
+                <div
+                  key={feat.key}
+                  className={`flex items-center gap-3 px-5 py-4 transition-colors hover:bg-muted/5 border-border/20 ${
+                    !isBottomRow ? 'border-b' : ''
+                  } ${idx % 2 === 0 ? 'sm:border-r' : ''}`}
+                  data-testid={`mgmt-access-row-${feat.key}`}
+                >
+                  <span className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                    enabled ? 'bg-amber-500/15 text-amber-400' : 'bg-muted/30 text-muted-foreground/40'
+                  }`}>
+                    <Icon className="w-4 h-4" />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm leading-snug">{feat.label}</div>
+                    <div className="text-xs text-muted-foreground leading-snug mt-0.5 truncate" title={meta?.desc}>{meta?.desc}</div>
+                  </div>
+                  <Switch
+                    data-testid={`mgmt-access-switch-${feat.key}`}
+                    checked={enabled}
+                    onCheckedChange={() => toggleMgmtFeature(feat.key)}
+                    disabled={mgmtPermsMutation.isPending}
+                    className="flex-shrink-0 data-[state=checked]:bg-amber-500"
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <div className="px-5 py-2.5 bg-muted/10 border-t border-border/30">
+            <p className="text-[11px] text-muted-foreground/60">
+              Viewer role is not affected by these toggles — use Monitoring Assignments for viewer access control.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Permissions Matrix */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
