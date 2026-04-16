@@ -412,6 +412,7 @@ export async function registerRoutes(
   // === IP PROBE ENGINE ===
   // Runs independently to measure real latency to the monitored IP(s)
   async function runIpProbe() {
+    try {
     const settings = await storage.getSettings();
     // ── Primary monitored IP ──────────────────────────────────────────────
     const raw = settings.monitoredIp;
@@ -436,6 +437,9 @@ export async function registerRoutes(
       } catch {
         // malformed portalUrl — skip
       }
+    }
+    } catch (e: any) {
+      console.warn('[ip-probe] error:', e.message);
     }
   }
   // Run probe immediately on startup, then every 10 seconds

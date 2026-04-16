@@ -5,6 +5,15 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
+// ── Global crash guards ───────────────────────────────────────────────────────
+// Prevent background timer errors from killing the production process.
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[process] Unhandled rejection (non-fatal):', reason?.message ?? reason);
+});
+process.on('uncaughtException', (err: Error) => {
+  console.error('[process] Uncaught exception (non-fatal):', err.message);
+});
+
 const app = express();
 const httpServer = createServer(app);
 
