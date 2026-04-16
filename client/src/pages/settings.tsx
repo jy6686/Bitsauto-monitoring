@@ -28,6 +28,7 @@ const formSchema = insertSettingsSchema.pick({
   portalPassword: true,
   apiAdminUsername: true,
   apiAdminPassword: true,
+  adminWebPassword: true,
   snmpEnabled: true,
   snmpHost: true,
   snmpPort: true,
@@ -1620,6 +1621,7 @@ export default function SettingsPage() {
       portalPassword: 'abcd@1234',
       apiAdminUsername: 'ssp-root',
       apiAdminPassword: '!chiaan1',
+      adminWebPassword: '',
       snmpEnabled: false,
       snmpHost: '',
       snmpPort: 161,
@@ -1862,7 +1864,22 @@ export default function SettingsPage() {
                     placeholder="••••••••"
                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   />
+                  <p className="text-xs text-muted-foreground">XML-RPC API password — set in <strong>My Preferences → Allow API Calls</strong> in Sippy Admin. May differ from web portal login password.</p>
                 </div>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Admin Web Portal Password <span className="text-muted-foreground font-normal">(optional)</span></label>
+                <input
+                  {...form.register("adminWebPassword")}
+                  data-testid="input-admin-web-password"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Web portal login password for the admin user — used for portal scraping (active calls, CDRs). Only needed if different from the API password above.
+                </p>
               </div>
               {form.watch('apiAdminUsername') && (
                 <div className="flex items-center gap-2 text-xs text-emerald-400">

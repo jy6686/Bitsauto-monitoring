@@ -378,20 +378,22 @@ export async function registerRoutes(
   async function smartSippyConnect(
     portalUrl: string,
     apiAdminUsername: string | null | undefined,
-    apiAdminPassword: string | null | undefined,
+    apiAdminPassword: string | null | undefined,     // XML-RPC API password (My Preferences → Allow API Calls)
     portalUsername: string | null | undefined,
     portalPassword: string | null | undefined,
+    adminWebPassword?: string | null,                // optional: separate web portal login password for admin
   ): Promise<{ success: boolean; message: string }> {
-    const pairs: [string, string][] = [];
-    if (apiAdminUsername && apiAdminPassword) pairs.push([apiAdminUsername, apiAdminPassword]);
+    const pairs: [string, string, string?][] = [];
+    // adminWebPassword is used for portal login when API password differs from web login password
+    if (apiAdminUsername && apiAdminPassword) pairs.push([apiAdminUsername, apiAdminPassword, adminWebPassword || undefined]);
     if (portalUsername && portalPassword) pairs.push([portalUsername, portalPassword]);
     if (!pairs.length) return { success: false, message: 'No credentials configured.' };
 
     let portalFallback: { success: boolean; message: string } | null = null;
 
     // Pass 1: try each credential pair — stop immediately if XML-RPC works
-    for (const [u, p] of pairs) {
-      const r = await sippy.connectSippy(portalUrl, u, p);
+    for (const [u, p, webPw] of pairs) {
+      const r = await sippy.connectSippy(portalUrl, u, p, webPw);
       if (r.success) {
         if (sippy.getSippySessionStatus().mode === 'xmlrpc') return r;
         if (!portalFallback) portalFallback = r;
@@ -401,8 +403,8 @@ export async function registerRoutes(
 
     // Pass 2: no XML-RPC found — reconnect in portal mode with first working credentials
     if (portalFallback) {
-      for (const [u, p] of pairs) {
-        const r = await sippy.connectSippy(portalUrl, u, p);
+      for (const [u, p, webPw] of pairs) {
+        const r = await sippy.connectSippy(portalUrl, u, p, webPw);
         if (r.success) return r;
       }
     }
@@ -590,10 +592,11 @@ export async function registerRoutes(
       // Always attempt — fall back to built-in defaults if settings not yet configured
       const url      = sippyPortalUrl(s);
       const { username, password } = sippyXmlCreds(s);
-      // apiAdminUsername (RTST1) is the XML-RPC capable credential — connect with it first.
-      // portalUsername (ssp-root) is portal-only (no XML-RPC) — used as fallback for portal mode.
+      // apiAdminUsername/apiAdminPassword = XML-RPC API credentials (Sippy API password, set in My Preferences)
+      // adminWebPassword = separate web portal login password (may differ from XML-RPC API password)
+      // portalUsername/portalPassword = customer portal account (e.g. RTST1) for CDR/portal scraping
       console.log('[startup] Sippy credentials found — attempting auto-connect...');
-      const result = await smartSippyConnect(url, username, password, s?.portalUsername, s?.portalPassword);
+      const result = await smartSippyConnect(url, username, password, s?.portalUsername, s?.portalPassword, s?.adminWebPassword);
       if (result.success) {
         console.log('[startup] Sippy auto-connected:', result.message);
       } else {

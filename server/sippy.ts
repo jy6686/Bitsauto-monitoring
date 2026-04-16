@@ -1116,11 +1116,12 @@ export async function testSippyConnection(
   portalUrl: string,
   username: string,
   password: string,
+  webPassword?: string,   // optional: separate web-portal login password (may differ from XML-RPC API password)
 ): Promise<{ reachable: boolean; authenticated: boolean; message: string; latencyMs?: number; mode?: 'xmlrpc' | 'portal'; cookies?: CookieJar }> {
   const base = sippyBase(portalUrl);
   const start = Date.now();
 
-  // Try standard XML-RPC path first
+  // Try standard XML-RPC path first (uses API password, NOT web portal password)
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const body = xmlRpcCall('i_version.listAvailableMethods');
   let xmlRpcReachable = false;
@@ -1151,9 +1152,11 @@ export async function testSippyConnection(
   }
 
   // ── Fallback: try web portal login ────────────────────────────────────────
+  // Use webPassword if provided (Sippy has separate API password vs web portal password).
   // Try account types in order: customer (RTST1 type), reseller, admin
+  const loginPass = webPassword || password;
   for (const acctType of ['customer', 'reseller'] as const) {
-    const loginResult = await portalLogin(base, username, password, acctType);
+    const loginResult = await portalLogin(base, username, loginPass, acctType);
     if (loginResult.success) {
       const latencyMs = Date.now() - start;
       return {
@@ -1205,8 +1208,9 @@ export async function connectSippy(
   portalUrl: string,
   username: string,
   password: string,
+  webPassword?: string,   // optional separate web-portal login password (Sippy API vs web login differ)
 ): Promise<{ success: boolean; message: string }> {
-  const result = await testSippyConnection(portalUrl, username, password);
+  const result = await testSippyConnection(portalUrl, username, password, webPassword);
   if (!result.reachable || !result.authenticated) {
     return { success: false, message: result.message };
   }
