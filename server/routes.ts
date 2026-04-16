@@ -1743,26 +1743,35 @@ export async function registerRoutes(
       if (!cli || !cld) return res.status(400).json({ success: false, message: 'cli and cld are required.' });
 
       const settings = await storage.getSettings();
-      // For makeCall: try ALL credential pairs (method availability differs per user level).
-      // Continue to next pair on method_not_found; stop on success or other errors.
+      // For makeCall: exhaust ALL credential pairs.
+      // Different Sippy user levels have different method permissions AND different API passwords,
+      // so we try every pair — only stop early on a clean success or a Sippy routing/credit error.
       const callOpts = { iAccount: iAccount ? Number(iAccount) : undefined, billingCode };
       const credPairs = sippyXmlCredsPairs(settings);
-      let result: Awaited<ReturnType<typeof sippy.makeCall>> = {
+      let result: { success: boolean; callId?: string; message: string; errorType?: string; apiUser?: string } = {
         success: false,
         message: 'No Sippy credentials configured.',
         errorType: 'not_connected',
       };
       for (const { username, password } of credPairs) {
-        result = await sippy.makeCall(cli, cld, callOpts, username, password);
-        if (result.success) break;
-        // If method not found for this user, try next credential pair
-        if (result.errorType === 'method_not_found') { continue; }
-        // Auth failure or call error — stop immediately
+        let r: typeof result;
+        try {
+          r = await sippy.makeCall(cli, cld, callOpts, username, password);
+        } catch (err: any) {
+          console.error(`[make-call] sippy.makeCall threw for user ${username}:`, err);
+          r = { success: false, message: err?.message || String(err), errorType: 'call_error', apiUser: username };
+        }
+        result = r;
+        if (r.success) break;
+        // Continue to next pair for auth failures (wrong creds for this user) and method-not-found
+        if (r.errorType === 'auth_failed' || r.errorType === 'method_not_found') continue;
+        // Sippy accepted the request but returned a routing/credit/permission fault — stop
         break;
       }
 
+      const safeUserId = userId ?? 'unknown';
       await storage.logTestCall({
-        userId,
+        userId: safeUserId,
         cli,
         cld,
         iAccount: iAccount ? Number(iAccount) : null,
