@@ -4,7 +4,7 @@ import {
   switches, fasEvents, callSnapshots, monitoringAssignments, outageLog, alertRules,
   monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts, sippySnapshots,
   watcherRecipients, irsfEvents, blacklistRules, rateCards, rateCardEntries, mosHourly,
-  apiKeys, dashboardWidgetPrefs, callTestLogs,
+  apiKeys, dashboardWidgetPrefs, callTestLogs, whatsappAlertLog,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -30,6 +30,7 @@ import {
   type ApiKey,
   type DashboardWidgetPrefs,
   type CallTestLog, type InsertCallTestLog,
+  type WhatsappAlertLog,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -179,6 +180,10 @@ export interface IStorage {
   // Call Test Logs (Vol 2 — #16)
   logTestCall(data: InsertCallTestLog): Promise<CallTestLog>;
   getTestCallLogs(userId: string, limit?: number): Promise<CallTestLog[]>;
+
+  // WhatsApp Alert Log
+  logWhatsappAlert(data: { alertType: string; recipient: string; message: string; status: string; errorMsg?: string | null }): Promise<void>;
+  getWhatsappAlertLogs(limit?: number): Promise<WhatsappAlertLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -973,6 +978,23 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(callTestLogs)
       .where(eq(callTestLogs.userId, userId))
       .orderBy(desc(callTestLogs.createdAt))
+      .limit(limit);
+  }
+
+  // ── WhatsApp Alert Log ────────────────────────────────────────────────────
+  async logWhatsappAlert(data: { alertType: string; recipient: string; message: string; status: string; errorMsg?: string | null }): Promise<void> {
+    await db.insert(whatsappAlertLog).values({
+      alertType: data.alertType,
+      recipient: data.recipient,
+      message:   data.message,
+      status:    data.status,
+      errorMsg:  data.errorMsg ?? null,
+    });
+  }
+
+  async getWhatsappAlertLogs(limit = 100): Promise<WhatsappAlertLog[]> {
+    return db.select().from(whatsappAlertLog)
+      .orderBy(desc(whatsappAlertLog.sentAt))
       .limit(limit);
   }
 }

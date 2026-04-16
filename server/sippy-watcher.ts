@@ -15,6 +15,7 @@
 import * as sippy from './sippy';
 import { storage } from './storage';
 import { sendAlertEmail } from './email';
+import { sendWhatsAppAlert, formatAuthAlert } from './whatsapp';
 
 const SNAPSHOT_KEY = 'sippy_state_v1';
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -520,6 +521,15 @@ async function runWatcherCycle(): Promise<void> {
     for (const ch of changes) {
       console.log(`[sippy-watcher]  • ${ch.subject}`);
       await sendAlertEmail({ subject: ch.subject, bodyHtml: ch.bodyHtml, includeWatcherRecipients: true });
+      // WhatsApp: fire for auth IP events (security-critical)
+      if (ch.type === 'ip_added' || ch.type === 'ip_removed' || ch.type === 'ip_changed') {
+        const m = ch.subject.match(/— (.+?) \(/);
+        const accountName = m?.[1] ?? 'Unknown Account';
+        const ipM = ch.subject.match(/\(([^)]+)\)/);
+        const ipAddress = ipM?.[1];
+        const action = ch.type === 'ip_added' ? 'added' : 'deleted';
+        sendWhatsAppAlert('auth', formatAuthAlert({ accountName, action, ipAddress })).catch(() => {});
+      }
     }
   } else {
     console.log('[sippy-watcher] No Sippy changes detected.');

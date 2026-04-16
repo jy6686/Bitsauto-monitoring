@@ -93,6 +93,13 @@ export const settings = pgTable("settings", {
   fasMaxBillSecs: integer("fas_max_bill_secs").default(5),       // billed < this but answered = FAS
   fasEarlyAnswerSecs: integer("fas_early_answer_secs").default(2), // PDD < this = suspiciously fast answer
   fasShortCallSecs: integer("fas_short_call_secs").default(10),   // billed < this = short call (not FAS by itself)
+  // WhatsApp Push Alerts
+  whatsappEnabled:     boolean("whatsapp_enabled").default(false),
+  whatsappProvider:    varchar("whatsapp_provider",     { length: 20 }).default('callmebot'), // callmebot | ultramsg
+  whatsappPhones:      text("whatsapp_phones"),           // comma-separated E.164 e.g. +923001234567,+441234567890
+  whatsappApiKey:      varchar("whatsapp_api_key",     { length: 255 }), // CallMeBot apikey OR UltraMsg token
+  whatsappInstanceId:  varchar("whatsapp_instance_id", { length: 128 }), // UltraMsg instance ID only
+  whatsappAlertTypes:  text("whatsapp_alert_types").default('fas,balance,traffic,outage,auth'), // CSV
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports
@@ -327,6 +334,19 @@ export const trafficAlerts = pgTable("traffic_alerts", {
 export type TrafficAlert = typeof trafficAlerts.$inferSelect;
 export type InsertTrafficAlert = typeof trafficAlerts.$inferInsert;
 export const insertTrafficAlertSchema = createInsertSchema(trafficAlerts).omit({ id: true, triggeredAt: true });
+
+// WhatsApp Alert Delivery Log
+export const whatsappAlertLog = pgTable("whatsapp_alert_log", {
+  id:         serial("id").primaryKey(),
+  alertType:  varchar("alert_type",  { length: 50 }).notNull(), // fas | balance | traffic | auth | outage | quality | test
+  recipient:  varchar("recipient",   { length: 32 }).notNull(), // E.164 phone number
+  message:    text("message").notNull(),
+  status:     varchar("status",      { length: 20 }).notNull().default('pending'), // sent | failed
+  errorMsg:   text("error_msg"),
+  sentAt:     timestamp("sent_at").defaultNow(),
+});
+export type WhatsappAlertLog = typeof whatsappAlertLog.$inferSelect;
+export type InsertWhatsappAlertLog = typeof whatsappAlertLog.$inferInsert;
 
 // Monitoring Items — canonical list shared between frontend and backend
 export const MONITORING_ITEMS = [

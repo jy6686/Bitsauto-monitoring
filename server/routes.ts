@@ -11,6 +11,7 @@ import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import * as sippy from "./sippy";
 import * as sippySnmp from "./snmp";
 import * as emailSvc from "./email";
+import * as waSvc from "./whatsapp";
 import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas, calcVendorFraudStats, detectIrsf } from "./cdr-enrichment";
 import { initSippyWatcher, notifyNewClientTraffic, getWatcherStatus, sendTestWatcherAlert } from "./sippy-watcher";
 import { lookupDialCode } from "./dial-lookup";
@@ -6298,6 +6299,12 @@ export async function registerRoutes(
             emailSvc.sendAlertEmail(emailPayload).then(sent => {
               if (sent) storage.markFasAlertSent(event.id);
             });
+            // WhatsApp alert (non-blocking)
+            waSvc.sendWhatsAppAlert('fas', waSvc.formatFasAlert({
+              callId: event.callId, caller: event.caller ?? '', callee: event.callee ?? '',
+              vendor: event.vendor ?? '', pddSecs: event.pddSecs ?? 0,
+              billSecs: event.billSecs ?? 0, reason: event.reason ?? '',
+            })).catch(() => {});
           } catch {
             // skip duplicate
           }
@@ -6342,6 +6349,8 @@ export async function registerRoutes(
         const profiles = await storage.getClientProfiles();
         const match = profiles.find(p => p.name?.toLowerCase() === accountName?.toLowerCase());
         await emailSvc.sendAlertEmail({ ...emailPayload, clientEmail: match?.alertEmail });
+        // WhatsApp alert (non-blocking)
+        waSvc.sendWhatsAppAlert('balance', waSvc.formatBalanceAlert({ accountName, balance, creditLimit, threshold })).catch(() => {});
       }
       res.json({ ok: true, balance, creditLimit, isLow, accountName });
     } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
@@ -9057,6 +9066,10 @@ export async function registerRoutes(
           clientName, alertType, prevCalls: prevMax, currCalls, svgChart, productionUrl,
         });
         await sendTrafficAlertEmail(settings, recipients, emailPayload, dbAlert.id, 'traffic-drop');
+        // WhatsApp alert (non-blocking)
+        waSvc.sendWhatsAppAlert('traffic', waSvc.formatTrafficAlert({
+          clientName, alertType, prevCalls: prevMax, currCalls,
+        })).catch(() => {});
       }
     } catch (err: any) {
       console.warn('[traffic-drop] Detector error:', err.message);
@@ -10556,6 +10569,35 @@ export async function registerRoutes(
         hours, generatedAt: new Date().toISOString(),
       });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── WhatsApp Push Alerts ──────────────────────────────────────────────────
+
+  // POST /api/whatsapp/test — send a test WhatsApp message
+  app.post('/api/whatsapp/test', (req: any, res, next) => requireRole(['admin'], req, res, next), async (_req, res) => {
+    try {
+      const msg = [
+        '✅ *VoIP Monitor — Test Alert*',
+        '━━━━━━━━━━━━━━━━━━',
+        '📡 WhatsApp push alerts are configured correctly.',
+        `🕒 ${new Date().toUTCString()}`,
+        '━━━━━━━━━━━━━━━━━━',
+        '_This is a test message. No action required._',
+      ].join('\n');
+      const result = await waSvc.sendWhatsAppAlert('test', msg);
+      if (result.sent === 0 && result.failed === 0) {
+        return res.json({ ok: false, error: 'WhatsApp not enabled or no phone numbers configured.' });
+      }
+      res.json({ ok: result.failed === 0, sent: result.sent, failed: result.failed });
+    } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  // GET /api/whatsapp/logs — delivery log
+  app.get('/api/whatsapp/logs', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (_req, res) => {
+    try {
+      const logs = await storage.getWhatsappAlertLogs(200);
+      res.json(logs);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // Start Sippy change-detection watcher (accounts, IPs, vendors)

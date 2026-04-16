@@ -12,7 +12,7 @@ import {
 import {
   LayoutDashboard, Phone, Bell, Settings, BarChart2, Users, Building2,
   ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, Server,
-  Eye, CreditCard, TrendingUp, LineChart, Search, Key, UserCog,
+  Eye, CreditCard, TrendingUp, LineChart, Search, Key, UserCog, MessageSquare,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -37,6 +37,7 @@ const NAV_ITEMS = [
   { href: "/account",           label: "My Account",           icon: UserCog,         roles: ['admin','management','viewer'] },
   { href: "/team",              label: "Team & KAM",           icon: Users,           roles: ['admin'] },
   { href: "/api-keys",          label: "API Key Management",   icon: Key,             roles: ['admin'] },
+  { href: "/whatsapp-alerts",   label: "WhatsApp Alerts",      icon: MessageSquare,   roles: ['admin'] },
 ] as const;
 
 export function CommandBar() {
