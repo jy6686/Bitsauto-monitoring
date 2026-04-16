@@ -152,9 +152,9 @@ export default function TestCallPage() {
             <ArrowRightLeft className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-xl font-bold">Test Call — 2-Way Callback</h1>
+            <h1 className="text-xl font-bold">Test Call Launcher</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Sippy calls your phone first, then bridges you to the destination via <code className="text-xs bg-muted px-1 rounded">make2WayCallback</code>
+              Originate a call from CLI to CLD via Sippy XML-RPC — uses direct call origination, falls back to 2-way callback
             </p>
           </div>
         </div>
@@ -165,7 +165,7 @@ export default function TestCallPage() {
           <div className="lg:col-span-3 space-y-4">
             <div className="bg-card border border-border rounded-xl p-6">
               <h2 className="text-sm font-semibold mb-5 flex items-center gap-2">
-                <Zap className="h-4 w-4 text-primary" /> Initiate Callback
+                <Zap className="h-4 w-4 text-primary" /> Launch Test Call
               </h2>
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -174,17 +174,17 @@ export default function TestCallPage() {
                   <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-4 py-3 border border-border">
                     <span className="flex items-center gap-1.5">
                       <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">1</span>
-                      Sippy calls <strong className="text-foreground/80">your phone</strong>
+                      Sippy routes <strong className="text-foreground/80">CLI</strong> as caller
                     </span>
                     <ArrowRight className="h-3 w-3 text-muted-foreground/60 shrink-0" />
                     <span className="flex items-center gap-1.5">
                       <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">2</span>
-                      You answer → Sippy dials <strong className="text-foreground/80">destination</strong>
+                      Dials <strong className="text-foreground/80">CLD</strong> via best route
                     </span>
                     <ArrowRight className="h-3 w-3 text-muted-foreground/60 shrink-0" />
                     <span className="flex items-center gap-1.5">
                       <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] flex items-center justify-center font-bold shrink-0">✓</span>
-                      Bridged
+                      Call live
                     </span>
                   </div>
 
@@ -192,7 +192,7 @@ export default function TestCallPage() {
                     <FormField control={form.control} name="cli" render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          Your Phone <span className="text-muted-foreground font-normal text-xs">(first leg / CLI)</span>
+                          Caller Number <span className="text-muted-foreground font-normal text-xs">(CLI)</span>
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -202,7 +202,7 @@ export default function TestCallPage() {
                             className="font-mono"
                           />
                         </FormControl>
-                        <p className="text-[11px] text-muted-foreground">Sippy will call this number first</p>
+                        <p className="text-[11px] text-muted-foreground">Presented as the caller ID</p>
                         <FormMessage />
                       </FormItem>
                     )} />
@@ -210,7 +210,7 @@ export default function TestCallPage() {
                     <FormField control={form.control} name="cld" render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          Destination <span className="text-muted-foreground font-normal text-xs">(second leg / CLD)</span>
+                          Destination <span className="text-muted-foreground font-normal text-xs">(CLD)</span>
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -220,7 +220,7 @@ export default function TestCallPage() {
                             className="font-mono"
                           />
                         </FormControl>
-                        <p className="text-[11px] text-muted-foreground">Dialled after you answer</p>
+                        <p className="text-[11px] text-muted-foreground">Number being tested / dialled</p>
                         <FormMessage />
                       </FormItem>
                     )} />
@@ -264,7 +264,7 @@ export default function TestCallPage() {
                       {makeMutation.isPending ? (
                         <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Initiating…</>
                       ) : (
-                        <><PhoneCall className="h-4 w-4 mr-2" /> Start Callback</>
+                        <><PhoneCall className="h-4 w-4 mr-2" /> Launch Test Call</>
                       )}
                     </Button>
                     <Button
@@ -292,7 +292,7 @@ export default function TestCallPage() {
                   : <XCircle className="h-5 w-5 text-rose-400 mt-0.5 shrink-0" />}
                 <div className="flex-1 min-w-0">
                   <p className={`font-semibold text-sm ${callResult.success ? "text-emerald-400" : "text-rose-400"}`}>
-                    {callResult.success ? "Callback Initiated — Check Your Phone" : "Call Failed"}
+                    {callResult.success ? "Test Call Initiated" : "Call Failed"}
                   </p>
                   <p className="text-sm text-muted-foreground mt-1">{callResult.message}</p>
                   {callResult.callId && (
@@ -305,29 +305,26 @@ export default function TestCallPage() {
                   )}
                   {callResult.success && (
                     <div className="mt-3 text-xs text-muted-foreground bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3 space-y-1">
-                      <p className="font-semibold text-emerald-400/80">What happens next:</p>
-                      <p>Your phone will ring in a few seconds. Answer it — Sippy will then dial the destination and bridge the two legs together.</p>
+                      <p className="font-semibold text-emerald-400/80">Call sent to Sippy</p>
+                      <p>The call has been routed. Check the Live Calls dashboard to see it appear — CDR will be generated on completion.</p>
                     </div>
                   )}
 
                   {!callResult.success && callResult.errorType === 'call_error' && isModuleError && (
                     <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
                       <p className="text-xs font-semibold text-amber-400 flex items-center gap-2">
-                        <WrenchIcon className="h-3.5 w-3.5" /> Callback module not enabled on this Sippy switch
+                        <WrenchIcon className="h-3.5 w-3.5" /> All call origination methods failed
                       </p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
                         Sippy returned: <em className="text-foreground/70">&ldquo;{callResult.message}&rdquo;</em>
                       </p>
-                      <p className="text-xs font-semibold text-foreground/60">To enable in Sippy Admin:</p>
+                      <p className="text-xs font-semibold text-foreground/60">To enable direct call origination in Sippy Admin:</p>
                       <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
                         <li>Log in to Sippy as a system administrator</li>
-                        <li>Go to <strong className="text-foreground/70">Applications → Callback</strong> (or <strong className="text-foreground/70">System → Applications</strong>)</li>
-                        <li>Enable the <strong className="text-foreground/70">Callback</strong> application / module</li>
-                        <li>Ensure the billing account selected has <strong className="text-foreground/70">Callback service</strong> enabled under its plan</li>
+                        <li>Go to <strong className="text-foreground/70">System → Administrators</strong> and open the API admin user</li>
+                        <li>Under <strong className="text-foreground/70">API Access</strong>, enable <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
+                        <li>Alternatively go to <strong className="text-foreground/70">Applications → Callback</strong> and enable the Callback module if you want 2-way callback</li>
                       </ol>
-                      <p className="text-xs text-muted-foreground">
-                        Alternatively, ask your Sippy reseller or Sippy support to activate the Callback module on this switch.
-                      </p>
                     </div>
                   )}
 
@@ -379,19 +376,19 @@ export default function TestCallPage() {
               <ul className="text-xs text-muted-foreground space-y-2.5">
                 <li className="flex items-start gap-2">
                   <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5">1</span>
-                  Enter your phone number in <strong className="text-foreground/70">Your Phone</strong>. Sippy will call this number first (first leg / CLI).
+                  Enter the <strong className="text-foreground/70">Caller Number (CLI)</strong> — this is presented as the calling party (can be any number).
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5">2</span>
-                  Enter the number you want to test in <strong className="text-foreground/70">Destination</strong>. Sippy dials this after you answer (second leg / CLD).
+                  Enter the <strong className="text-foreground/70">Destination (CLD)</strong> — the number you want to test routing for.
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5">3</span>
-                  Select a <strong className="text-foreground/70">Billing Account</strong> — its Sippy username is sent as <code className="bg-muted px-0.5 rounded">authname</code> to route and bill the call.
+                  Optionally select a <strong className="text-foreground/70">Billing Account</strong> to bill the call against — used if callback fallback is needed.
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] flex items-center justify-center shrink-0 mt-0.5">✓</span>
-                  Uses Sippy's official <code className="bg-muted px-0.5 rounded">make2WayCallback</code> XML-RPC method (docs 107448). Requires the API user to have callback origination permission.
+                  Tries <code className="bg-muted px-0.5 rounded">call_control.makeCall</code> first (no Callback module needed). Falls back to <code className="bg-muted px-0.5 rounded">make2WayCallback</code> if unavailable.
                 </li>
               </ul>
             </div>
@@ -401,11 +398,12 @@ export default function TestCallPage() {
                 <ShieldAlert className="h-4 w-4 text-amber-400" /> Permission needed
               </h3>
               <p className="text-xs text-muted-foreground leading-relaxed mb-3">
-                In <strong className="text-foreground/70">Sippy Admin</strong> the API user needs permission to call <code className="bg-muted px-0.5 rounded">make2WayCallback</code>:
+                In <strong className="text-foreground/70">Sippy Admin</strong> the API user needs call origination rights:
               </p>
               <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
                 <li>System → Administrators → <em>api-user</em></li>
                 <li>API Access → enable <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
+                <li>This enables <code className="bg-muted px-0.5 rounded">call_control.makeCall</code> — no Callback module required</li>
               </ol>
             </div>
 

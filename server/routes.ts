@@ -1756,70 +1756,96 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/sippy/make-call — initiates a 2-way callback via Sippy make2WayCallback XML-RPC (doc 107448)
+  // POST /api/sippy/make-call — initiates a test call via Sippy XML-RPC
+  // Strategy: try direct call origination (call_control.makeCall / makeCall / make_call / originate)
+  // first (no Callback module required). Fall back to make2WayCallback() only if every direct method
+  // returns "method not found" (i.e. the switch genuinely doesn't support any of those methods).
   // Body: { cli, cld, iAccount?, authname? }
-  // Sippy calls cld_first (CLI) first, bridges to cld_second (CLD) when answered.
-  // authname must be a valid VoIP account login on the Sippy switch.
   app.post('/api/sippy/make-call', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const userId = req.user?.claims?.sub;
       const { cli, cld, iAccount, authname: bodyAuthname } = req.body;
       if (!cli || !cld) return res.status(400).json({ success: false, message: 'cli and cld are required.' });
 
-      // Resolve authname: explicit > iAccount lookup > first cached account
-      let authname: string = bodyAuthname?.trim() || '';
-      if (!authname && iAccount) {
-        authname = accountNameCache.get(String(iAccount)) || '';
-      }
-      if (!authname) {
-        const firstEntry = [...accountNameCache.entries()][0];
-        authname = firstEntry?.[1] || '';
-      }
-      if (!authname) {
-        return res.status(400).json({
-          success: false,
-          message: 'No authname provided and no accounts cached. Please select a billing account or enter an authname.',
-          errorType: 'no_authname',
-        });
-      }
-
       const settings = await storage.getSettings();
       const credPairs = sippyXmlCredsPairs(settings);
-      let result: { success: boolean; callId?: string; message: string; errorType?: string; apiUser?: string } = {
+      const portalBase = sippyPortalUrl(settings);
+
+      let result: { success: boolean; callId?: string; message: string; errorType?: string; apiUser?: string; method?: string } = {
         success: false,
         message: 'No Sippy credentials configured.',
         errorType: 'not_connected',
       };
 
+      // ── Phase 1: direct call origination (does NOT need Callback module) ────
+      let allMethodsNotFound = true;
       for (const { username, password } of credPairs) {
-        let r: { success: boolean; iCallbackRequest?: number; message: string };
+        let r: { success: boolean; callId?: string; message: string; errorType?: string; apiUser?: string };
         try {
-          r = await sippy.make2WayCallback(username, password, {
-            authname,
-            cldFirst:  cli.trim(),
-            cldSecond: cld.trim(),
-          });
+          r = await sippy.makeCall(
+            cli.trim(), cld.trim(),
+            { iAccount: iAccount ? Number(iAccount) : undefined },
+            username, password, portalBase,
+          );
         } catch (err: any) {
-          console.error(`[make-call] make2WayCallback threw for user ${username}:`, err);
-          r = { success: false, message: err?.message || String(err) };
+          console.error(`[make-call] makeCall threw for user ${username}:`, err);
+          r = { success: false, message: err?.message || String(err), errorType: 'call_error', apiUser: username };
         }
-        result = {
-          success:  r.success,
-          callId:   r.iCallbackRequest != null ? String(r.iCallbackRequest) : undefined,
-          message:  r.message,
-          errorType: r.success ? undefined : 'call_error',
-          apiUser:  username,
-        };
-        if (r.success) break;
-        // For make2WayCallback, always exhaust all credential pairs:
-        // RTST1 often gets 401 (not authorised to initiate callbacks),
-        // while ssp-root may have the permission. Only stop on success.
-        continue;
+        if (r.success) {
+          result = { ...r, method: 'direct' };
+          allMethodsNotFound = false;
+          break;
+        }
+        if (r.errorType !== 'method_not_found') {
+          // Real error (auth failure, routing rejection, etc.) — stop trying, report it
+          result = { ...r, method: 'direct' };
+          allMethodsNotFound = false;
+          break;
+        }
+        // errorType === 'method_not_found' — continue to next credential pair
       }
 
-      const safeUserId = userId ?? 'unknown';
+      // ── Phase 2: fall back to make2WayCallback (requires Callback module) ───
+      if (!result.success && allMethodsNotFound) {
+        // Resolve authname for callback: explicit > iAccount lookup > first cached account
+        let authname: string = bodyAuthname?.trim() || '';
+        if (!authname && iAccount) authname = accountNameCache.get(String(iAccount)) || '';
+        if (!authname) { const fe = [...accountNameCache.entries()][0]; authname = fe?.[1] || ''; }
+
+        if (!authname) {
+          result = {
+            success: false,
+            message: 'No direct call origination method found on this switch, and no authname is available for 2-way callback. Select a billing account and try again.',
+            errorType: 'no_authname',
+          };
+        } else {
+          for (const { username, password } of credPairs) {
+            let r: { success: boolean; iCallbackRequest?: number; message: string };
+            try {
+              r = await sippy.make2WayCallback(username, password, {
+                authname,
+                cldFirst:  cli.trim(),
+                cldSecond: cld.trim(),
+              });
+            } catch (err: any) {
+              console.error(`[make-call] make2WayCallback threw for user ${username}:`, err);
+              r = { success: false, message: err?.message || String(err) };
+            }
+            result = {
+              success:   r.success,
+              callId:    r.iCallbackRequest != null ? String(r.iCallbackRequest) : undefined,
+              message:   r.message,
+              errorType: r.success ? undefined : 'call_error',
+              apiUser:   username,
+              method:    'callback',
+            };
+            if (r.success) break;
+          }
+        }
+      }
+
       await storage.logTestCall({
-        userId:   safeUserId,
+        userId:   userId ?? 'unknown',
         cli,
         cld,
         iAccount: iAccount ? Number(iAccount) : null,
