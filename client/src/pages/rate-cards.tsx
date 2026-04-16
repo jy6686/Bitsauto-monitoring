@@ -39,7 +39,7 @@ type RateCardEntry = {
 };
 
 type ClientProfile = { id: number; name: string; type: string };
-type SippyTariff   = { iTariff: number; name: string; currency?: string };
+type SippyTariff   = { iTariff: number; name: string; currency?: string; iTariffType?: number };
 
 type RateCardContextClient = {
   iCustomer: number;
@@ -676,11 +676,13 @@ export default function RateCardsPage() {
                 <Select value={pushTariffId} onValueChange={setPushTariffId}>
                   <SelectTrigger data-testid="select-push-tariff"><SelectValue placeholder="Select tariff…" /></SelectTrigger>
                   <SelectContent>
-                    {sippyTariffs.map(t => (
-                      <SelectItem key={t.iTariff} value={String(t.iTariff)}>
-                        {t.name} {t.currency ? `(${t.currency})` : ''}
-                      </SelectItem>
-                    ))}
+                    {sippyTariffs
+                      .filter(t => pushCard.cardType === 'vendor' ? t.iTariffType === 1 : t.iTariffType !== 1)
+                      .map(t => (
+                        <SelectItem key={t.iTariff} value={String(t.iTariff)}>
+                          {t.name} {t.currency ? `(${t.currency})` : ''}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -748,11 +750,13 @@ export default function RateCardsPage() {
                 <Select value={verifyTariffId} onValueChange={v => { setVerifyTariffId(v); setVerifyResult(null); }}>
                   <SelectTrigger data-testid="select-verify-tariff"><SelectValue placeholder="Select tariff…" /></SelectTrigger>
                   <SelectContent>
-                    {sippyTariffs.map(t => (
-                      <SelectItem key={t.iTariff} value={String(t.iTariff)}>
-                        {t.name} {t.currency ? `(${t.currency})` : ''}
-                      </SelectItem>
-                    ))}
+                    {sippyTariffs
+                      .filter(t => verifyCard.cardType === 'vendor' ? t.iTariffType === 1 : t.iTariffType !== 1)
+                      .map(t => (
+                        <SelectItem key={t.iTariff} value={String(t.iTariff)}>
+                          {t.name} {t.currency ? `(${t.currency})` : ''}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
