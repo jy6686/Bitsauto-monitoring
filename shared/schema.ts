@@ -94,6 +94,8 @@ export const settings = pgTable("settings", {
   fasMaxBillSecs: integer("fas_max_bill_secs").default(5),       // billed < this but answered = FAS
   fasEarlyAnswerSecs: integer("fas_early_answer_secs").default(2), // PDD < this = suspiciously fast answer
   fasShortCallSecs: integer("fas_short_call_secs").default(10),   // billed < this = short call (not FAS by itself)
+  // Management Feature Permissions (JSON array of enabled feature keys for management role)
+  mgmtFeaturePermissions: text("mgmt_feature_permissions").default('["call_flow_simulator","lcr_analyser","vendor_sla"]'),
   // WhatsApp Push Alerts
   whatsappEnabled:     boolean("whatsapp_enabled").default(false),
   whatsappProvider:    varchar("whatsapp_provider",     { length: 20 }).default('callmebot'), // callmebot | ultramsg
@@ -377,6 +379,21 @@ export const MONITORING_ITEMS = [
 ] as const;
 
 export type MonitoringItemId = typeof MONITORING_ITEMS[number]['id'];
+
+// Management Configurable Features — which features Admin can grant/revoke for Management role
+// featureKey maps to mgmtFeaturePermissions JSON array; route is enforced in ProtectedRoute
+export const MGMT_CONFIGURABLE_FEATURES = [
+  { key: 'traffic_map',        label: 'Traffic Map',                route: '/traffic-map'            },
+  { key: 'multi_switch',       label: 'Multi-Switch View',          route: '/multi-switch'           },
+  { key: 'analytics',          label: 'Revenue & Margin Analytics', route: '/analytics'              },
+  { key: 'rate_cards',         label: 'Rate Card Management',       route: '/rate-cards'             },
+  { key: 'cost_optimisation',  label: 'Cost Optimisation Engine',   route: '/cost-optimisation'      },
+  { key: 'call_flow_simulator',label: 'Call Flow Simulator',        route: '/call-flow-simulator'    },
+  { key: 'lcr_analyser',       label: 'LCR Analyser',               route: '/lcr-analyser'           },
+  { key: 'vendor_sla',         label: 'Vendor SLA Scorecard',       route: '/vendor-sla-scorecard'   },
+] as const;
+
+export type MgmtFeatureKey = typeof MGMT_CONFIGURABLE_FEATURES[number]['key'];
 
 // Monitoring Assignments: which monitoring items each team member is responsible for
 export const monitoringAssignments = pgTable("monitoring_assignments", {

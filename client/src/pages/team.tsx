@@ -663,7 +663,7 @@ const ROLE_META: Record<Role, {
 };
 
 type AccessLevel = 'full' | 'configurable' | 'none';
-type PermRow = { label: string; admin: AccessLevel; mgmt: AccessLevel; viewer: AccessLevel; note?: string };
+type PermRow = { label: string; featureKey?: string; admin: AccessLevel; mgmt: AccessLevel | 'checkbox'; viewer: AccessLevel; note?: string };
 type PermSection = { section: string };
 type PermEntry = PermRow | PermSection;
 
@@ -675,31 +675,31 @@ const PERMISSIONS: PermEntry[] = [
   { label: 'Account Profile',           admin: 'full', mgmt: 'full', viewer: 'full'  },
 
   { section: 'Operations' },
-  { label: 'Alerts',                    admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'Traffic Map',               admin: 'full', mgmt: 'none', viewer: 'configurable' },
-  { label: 'Server Monitoring',         admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'DID Management',            admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'Multi-Switch View',         admin: 'full', mgmt: 'none', viewer: 'none'  },
-  { label: 'Test Call / Click-to-Call', admin: 'full', mgmt: 'full', viewer: 'none'  },
-  { label: 'Call Flow Simulator',       admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'Alerts',                    admin: 'full', mgmt: 'full',      viewer: 'configurable' },
+  { label: 'Traffic Map',               admin: 'full', mgmt: 'checkbox',  viewer: 'configurable', featureKey: 'traffic_map'        },
+  { label: 'Server Monitoring',         admin: 'full', mgmt: 'full',      viewer: 'configurable' },
+  { label: 'DID Management',            admin: 'full', mgmt: 'full',      viewer: 'configurable' },
+  { label: 'Multi-Switch View',         admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'multi_switch'       },
+  { label: 'Test Call / Click-to-Call', admin: 'full', mgmt: 'full',      viewer: 'none'  },
+  { label: 'Call Flow Simulator',       admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'call_flow_simulator' },
 
   { section: 'Analytics & Reports' },
-  { label: 'Graphs',                    admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'BitsEye Live Graphs',       admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'ASR / ACD Reports',         admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'CDR Viewer',                admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'Revenue & Margin Analytics',admin: 'full', mgmt: 'none', viewer: 'none'  },
-  { label: 'Route Quality Analysis',    admin: 'full', mgmt: 'full', viewer: 'none'  },
-  { label: 'LCR Analyser',              admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'Graphs',                    admin: 'full', mgmt: 'full',      viewer: 'configurable' },
+  { label: 'BitsEye Live Graphs',       admin: 'full', mgmt: 'full',      viewer: 'configurable' },
+  { label: 'ASR / ACD Reports',         admin: 'full', mgmt: 'full',      viewer: 'configurable' },
+  { label: 'CDR Viewer',                admin: 'full', mgmt: 'full',      viewer: 'configurable' },
+  { label: 'Revenue & Margin Analytics',admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'analytics'          },
+  { label: 'Route Quality Analysis',    admin: 'full', mgmt: 'full',      viewer: 'none'  },
+  { label: 'LCR Analyser',              admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'lcr_analyser'       },
 
   { section: 'Finance' },
-  { label: 'Balance Monitor',           admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'Rate Card Management',      admin: 'full', mgmt: 'none', viewer: 'none'  },
-  { label: 'Cost Optimisation Engine',  admin: 'full', mgmt: 'none', viewer: 'none'  },
+  { label: 'Balance Monitor',           admin: 'full', mgmt: 'full',      viewer: 'configurable' },
+  { label: 'Rate Card Management',      admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'rate_cards'         },
+  { label: 'Cost Optimisation Engine',  admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'cost_optimisation'  },
 
   { section: 'Security & Fraud' },
-  { label: 'FAS / Fraud Detection',     admin: 'full', mgmt: 'full', viewer: 'configurable' },
-  { label: 'Vendor SLA Scorecard',      admin: 'full', mgmt: 'full', viewer: 'none'  },
+  { label: 'FAS / Fraud Detection',     admin: 'full', mgmt: 'full',      viewer: 'configurable' },
+  { label: 'Vendor SLA Scorecard',      admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'vendor_sla'         },
 
   { section: 'Client & Vendor Management' },
   { label: 'Client Profiles',           admin: 'full', mgmt: 'full', viewer: 'none'  },
@@ -1173,6 +1173,34 @@ export default function TeamPage() {
     queryKey: ['/api/traffic-alerts'],
     refetchInterval: 60_000,
   });
+
+  // Settings — for mgmt feature permissions (admin only)
+  const { data: settingsData } = useQuery<{ mgmtFeaturePermissions?: string | null }>({
+    queryKey: ['/api/settings'],
+    enabled: isAdmin,
+    staleTime: 30_000,
+  });
+
+  const mgmtEnabled = useMemo<Set<string>>(() => {
+    if (!settingsData?.mgmtFeaturePermissions) return new Set<string>();
+    try { return new Set(JSON.parse(settingsData.mgmtFeaturePermissions)); }
+    catch { return new Set<string>(); }
+  }, [settingsData]);
+
+  const mgmtPermsMutation = useMutation({
+    mutationFn: (enabledFeatures: string[]) =>
+      apiRequest('PATCH', '/api/settings', { mgmtFeaturePermissions: JSON.stringify(enabledFeatures) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/settings/mgmt-permissions'] });
+    },
+  });
+
+  function toggleMgmtFeature(key: string) {
+    const next = new Set(mgmtEnabled);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    mgmtPermsMutation.mutate(Array.from(next));
+  }
 
   const deleteKamMutation = useMutation({
     mutationFn: (id: number) => apiRequest('DELETE', `/api/kam/${id}`, {}),
@@ -1779,7 +1807,8 @@ export default function TeamPage() {
                     </tr>
                   );
                 }
-                const { label, admin, mgmt, viewer, note } = entry as PermRow;
+                const row = entry as PermRow;
+                const { label, admin, mgmt, viewer, note, featureKey } = row;
                 const renderCell = (level: AccessLevel) => {
                   if (level === 'full') return <CheckCircle2 className="w-4 h-4 text-emerald-400 mx-auto" />;
                   if (level === 'configurable') return (
@@ -1789,6 +1818,27 @@ export default function TeamPage() {
                   );
                   return <span className="block w-4 h-0.5 bg-muted-foreground/15 mx-auto rounded-full" />;
                 };
+                const renderMgmtCell = () => {
+                  if (mgmt === 'checkbox' && featureKey) {
+                    const checked = mgmtEnabled.has(featureKey);
+                    return (
+                      <button
+                        data-testid={`mgmt-feature-toggle-${featureKey}`}
+                        onClick={() => toggleMgmtFeature(featureKey)}
+                        disabled={mgmtPermsMutation.isPending}
+                        title={checked ? 'Management has access — click to revoke' : 'Management has no access — click to grant'}
+                        className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all mx-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 ${
+                          checked
+                            ? 'bg-amber-500/20 border-amber-500/60 text-amber-400 hover:bg-amber-500/30'
+                            : 'bg-transparent border-border/50 text-transparent hover:border-amber-500/30 hover:bg-amber-500/5'
+                        } ${mgmtPermsMutation.isPending ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                      >
+                        {checked && <Check className="w-3 h-3" />}
+                      </button>
+                    );
+                  }
+                  return renderCell(mgmt as AccessLevel);
+                };
                 return (
                   <tr key={label} className={`border-b border-border/20 last:border-0 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
                     <td className="px-5 py-2.5">
@@ -1796,7 +1846,7 @@ export default function TeamPage() {
                       {note && <p className="text-[10px] text-muted-foreground/60 mt-0.5 leading-relaxed">{note}</p>}
                     </td>
                     <td className="text-center px-4 py-2.5">{renderCell(admin)}</td>
-                    <td className="text-center px-4 py-2.5">{renderCell(mgmt)}</td>
+                    <td className="text-center px-4 py-2.5">{renderMgmtCell()}</td>
                     <td className="text-center px-4 py-2.5">{renderCell(viewer)}</td>
                   </tr>
                 );
@@ -1812,7 +1862,13 @@ export default function TeamPage() {
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Settings2 className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-            Accessible if assigned by Admin (Monitoring Assignments)
+            Viewer access if assigned by Admin
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="w-3.5 h-3.5 rounded border-2 border-amber-500/60 bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+              <Check className="w-2.5 h-2.5 text-amber-400" />
+            </span>
+            Admin-controlled — click to grant or revoke Management access
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className="w-3.5 h-0.5 bg-muted-foreground/30 rounded-full flex-shrink-0" />

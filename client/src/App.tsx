@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Loader2, ShieldOff } from "lucide-react";
 import type { Role } from "@shared/schema";
+import { MGMT_CONFIGURABLE_FEATURES } from "@shared/schema";
 
 class GlobalErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   constructor(props: { children: ReactNode }) {
@@ -77,14 +78,21 @@ const ROLE_PATHS: Record<Role, string[]> = {
   viewer:     ['/', '/calls'],
 };
 
+// Build a quick lookup: route → feature key (used by ProtectedRoute)
+const MGMT_FEATURE_BY_ROUTE: Record<string, string> = Object.fromEntries(
+  MGMT_CONFIGURABLE_FEATURES.map(f => [f.route, f.key])
+);
+
 function ProtectedRoute({
   component: Component,
   requiredRoles,
   viewerAssignment,
+  mgmtFeature,
 }: {
   component: React.ComponentType<any>;
   requiredRoles?: Role[];
   viewerAssignment?: string;
+  mgmtFeature?: string;
 }) {
   const { user, role, isLoading } = useAuth();
   const [, setLocation] = useLocation();
@@ -97,13 +105,21 @@ function ProtectedRoute({
     staleTime: 60_000,
   });
 
+  // For management users on mgmtFeature-gated routes: check if feature is enabled by admin
+  const needsMgmtCheck = !isLoading && !!user && role === 'management' && !!mgmtFeature;
+  const { data: mgmtPerms, isLoading: mgmtPermsLoading } = useQuery<{ enabledFeatures: string[] }>({
+    queryKey: ['/api/settings/mgmt-permissions'],
+    enabled: needsMgmtCheck,
+    staleTime: 30_000,
+  });
+
   useEffect(() => {
     if (!isLoading && !user) {
       setLocation("/login");
     }
   }, [user, isLoading, setLocation]);
 
-  if (isLoading || (needsAssignmentCheck && assignmentsLoading)) {
+  if (isLoading || (needsAssignmentCheck && assignmentsLoading) || (needsMgmtCheck && mgmtPermsLoading)) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -137,6 +153,25 @@ function ProtectedRoute({
         </div>
       </LayoutShell>
     );
+  }
+
+  // Management feature gate: admin controls which configurable features management can access
+  if (role === 'management' && mgmtFeature && mgmtPerms) {
+    const enabled = mgmtPerms.enabledFeatures ?? [];
+    if (!enabled.includes(mgmtFeature)) {
+      return (
+        <LayoutShell>
+          <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center">
+            <ShieldOff className="w-14 h-14 text-muted-foreground/30" />
+            <h2 className="text-2xl font-bold">Feature Not Enabled</h2>
+            <p className="text-muted-foreground max-w-sm">
+              Your Admin has not enabled this feature for the Management role.
+              Contact your Admin to request access.
+            </p>
+          </div>
+        </LayoutShell>
+      );
+    }
   }
 
   return (
@@ -185,7 +220,7 @@ function Router() {
         {() => <ProtectedRoute component={TeamPage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/traffic-map">
-        {() => <ProtectedRoute component={TrafficMapPage} requiredRoles={['admin','management']} viewerAssignment="traffic_map" />}
+        {() => <ProtectedRoute component={TrafficMapPage} requiredRoles={['admin','management']} viewerAssignment="traffic_map" mgmtFeature="traffic_map" />}
       </Route>
       <Route path="/balance">
         {() => <ProtectedRoute component={BalanceMonitorPage} requiredRoles={['admin','management']} viewerAssignment="balance_monitor" />}
@@ -206,10 +241,10 @@ function Router() {
         {() => <ProtectedRoute component={AccountPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
       <Route path="/rate-cards">
-        {() => <ProtectedRoute component={RateCardsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={RateCardsPage} requiredRoles={['admin','management']} mgmtFeature="rate_cards" />}
       </Route>
       <Route path="/analytics">
-        {() => <ProtectedRoute component={AnalyticsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={AnalyticsPage} requiredRoles={['admin','management']} mgmtFeature="analytics" />}
       </Route>
       <Route path="/api-keys">
         {() => <ProtectedRoute component={ApiKeysPage} requiredRoles={['admin']} />}
@@ -218,19 +253,19 @@ function Router() {
         {() => <ProtectedRoute component={TestCallPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/lcr-analyser">
-        {() => <ProtectedRoute component={LcrAnalyserPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={LcrAnalyserPage} requiredRoles={['admin','management']} mgmtFeature="lcr_analyser" />}
       </Route>
       <Route path="/call-flow-simulator">
-        {() => <ProtectedRoute component={CallFlowSimulatorPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={CallFlowSimulatorPage} requiredRoles={['admin','management']} mgmtFeature="call_flow_simulator" />}
       </Route>
       <Route path="/vendor-sla-scorecard">
-        {() => <ProtectedRoute component={VendorSlaScorecardPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={VendorSlaScorecardPage} requiredRoles={['admin','management']} mgmtFeature="vendor_sla" />}
       </Route>
       <Route path="/cost-optimisation">
-        {() => <ProtectedRoute component={CostOptimisationPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={CostOptimisationPage} requiredRoles={['admin','management']} mgmtFeature="cost_optimisation" />}
       </Route>
       <Route path="/multi-switch">
-        {() => <ProtectedRoute component={MultiSwitchPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={MultiSwitchPage} requiredRoles={['admin','management']} mgmtFeature="multi_switch" />}
       </Route>
       <Route path="/whatsapp-alerts">
         {() => <ProtectedRoute component={WhatsappAlertsPage} requiredRoles={['admin']} />}

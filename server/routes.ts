@@ -846,6 +846,17 @@ export async function registerRoutes(
     res.json({ message: "Simulation reset acknowledged" });
   });
 
+  // Management Feature Permissions — lightweight public-ish endpoint (any logged-in user)
+  // Returns which features are enabled for the management role so ProtectedRoute can enforce them.
+  app.get('/api/settings/mgmt-permissions', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    const s = await storage.getSettings();
+    let enabledFeatures: string[] = [];
+    try { enabledFeatures = JSON.parse(s.mgmtFeaturePermissions ?? '[]'); } catch { enabledFeatures = []; }
+    res.json({ enabledFeatures });
+  });
+
   // ── Team Management API ───────────────────────────────────────────────────
 
   // Middleware: require a minimum role
