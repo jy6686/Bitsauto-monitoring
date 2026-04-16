@@ -1796,13 +1796,14 @@ export async function registerRoutes(
           allMethodsNotFound = false;
           break;
         }
-        if (r.errorType !== 'method_not_found') {
-          // Real error (auth failure, routing rejection, etc.) — stop trying, report it
+        if (r.errorType === 'call_error') {
+          // Method was found but Sippy rejected the call (routing, credit, account, etc.) — stop and report
           result = { ...r, method: 'direct' };
           allMethodsNotFound = false;
           break;
         }
-        // errorType === 'method_not_found' — continue to next credential pair
+        // method_not_found OR auth_failed — save error but keep trying / allow callback fallback
+        result = { ...r, method: 'direct' };
       }
 
       // ── Phase 2: fall back to make2WayCallback (requires Callback module) ───
