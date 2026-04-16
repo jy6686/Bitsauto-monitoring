@@ -1,13 +1,13 @@
 import { useEffect, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from "recharts";
 import {
-  RefreshCw, ChevronRight, ChevronDown, BarChart3, WifiOff,
-  TrendingUp, TrendingDown, Minus, AlertCircle, Globe, Users,
-  Network, Layers, FolderOpen, Folder,
+  RefreshCw, ChevronRight, BarChart3, WifiOff,
+  TrendingUp, TrendingDown, Minus, AlertCircle, Globe, Users, Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -362,101 +362,34 @@ function EntityPanel({ entity, dimmed }: { entity: EntityData; dimmed?: boolean 
   );
 }
 
-// ── Sidebar tree items ────────────────────────────────────────────────────────
-function SidebarItem({
-  label, selected, active, indent = 0, icon, onClick,
-  hasChildren, expanded, badge, live,
-}: {
-  label: string;
-  selected?: boolean;
-  active?: boolean;
-  indent?: number;
-  icon?: React.ReactNode;
-  onClick?: () => void;
-  hasChildren?: boolean;
-  expanded?: boolean;
-  badge?: number;
-  live?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      data-testid={`nav-${label.replace(/\s+/g, '-').toLowerCase()}`}
-      className={cn(
-        "flex items-center gap-1.5 w-full text-left rounded-lg transition-colors py-1.5 pr-2 group",
-        indent === 0 ? "px-2" : indent === 1 ? "pl-5 pr-2" : indent === 2 ? "pl-8 pr-2" : "pl-11 pr-2",
-        selected
-          ? "bg-amber-500/15 text-amber-300 border border-amber-500/20"
-          : active
-            ? "bg-muted/30 text-foreground"
-            : "text-muted-foreground hover:bg-muted/20 hover:text-foreground",
-      )}
-    >
-      {live && (
-        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />
-      )}
-      {!live && icon && <span className="flex-shrink-0 opacity-50">{icon}</span>}
-      <span className="flex-1 truncate text-[11px] font-medium">{label}</span>
-      {badge !== undefined && badge > 0 && (
-        <span className="text-[8px] px-1 py-0.5 rounded bg-muted/40 text-muted-foreground/50 flex-shrink-0 font-mono">{badge}</span>
-      )}
-      {hasChildren && (
-        <span className="flex-shrink-0 opacity-30">
-          {expanded ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronRight className="w-2.5 h-2.5" />}
-        </span>
-      )}
-    </button>
-  );
-}
-
-// ── Sidebar category divider ──────────────────────────────────────────────────
-function SidebarSection({ label }: { label: string }) {
-  return (
-    <div className="px-2 pt-3 pb-0.5">
-      <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/30">{label}</p>
-    </div>
-  );
-}
-
-// ── Sub-category placeholder item ─────────────────────────────────────────────
-function SubCatItem({
-  label, selected, indent = 1, onClick, expandable, expanded, badge, icon,
-}: {
-  label: string; selected?: boolean; indent?: number; onClick?: () => void;
-  expandable?: boolean; expanded?: boolean; badge?: number; icon?: React.ReactNode;
-}) {
-  return (
-    <SidebarItem
-      label={label}
-      selected={selected}
-      indent={indent}
-      onClick={onClick}
-      hasChildren={expandable}
-      expanded={expanded}
-      badge={badge}
-      icon={icon}
-    />
-  );
-}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function BitsEyePage() {
   const { role } = useAuth();
   const isViewer = role === 'viewer';
 
+  // ── URL param → initial nav ────────────────────────────────────────────
+  const search = useSearch();
+  const urlView = new URLSearchParams(search).get('view') ?? '';
+
+  const initNav = useMemo<NavState>(() => {
+    if (urlView === 'countries') return { type: 'country-agg' };
+    return { type: 'welcome' };
+  }, [urlView]);
+
   // ── Nav state ─────────────────────────────────────────────────────────────
-  const [nav, setNav] = useState<NavState>({ type: 'welcome' });
-  // Sidebar expansion state
-  const [expandedCountry,     setExpandedCountry]     = useState<string | null>(null);
-  const [countryOpenCat,      setCountryOpenCat]      = useState<string | null>(null); // 'kam'|'destination'|null
-  const [expandedKam,         setExpandedKam]         = useState<string | null>(null);
-  const [kamOpenCat,          setKamOpenCat]          = useState<string | null>(null); // 'destination'|null
-  const [sidebarOpen,         setSidebarOpen]         = useState(true);
-  const [lastRefresh,         setLastRefresh]         = useState(Date.now());
+  const [nav, setNav] = useState<NavState>(initNav);
+  const [lastRefresh,  setLastRefresh]  = useState(Date.now());
+
+  // Sync nav when URL view changes (e.g. user clicks sidebar link)
+  useEffect(() => {
+    if (urlView === 'countries') setNav({ type: 'country-agg' });
+    else if (urlView === '' || urlView === 'welcome') setNav({ type: 'welcome' });
+  }, [urlView]);
 
   // ── Determine active country/KAM for data fetching ────────────────────────
-  const activeCountry = expandedCountry ?? nav.country ?? '';
-  const activeKam     = expandedKam ?? nav.kamName ?? '';
+  const activeCountry = nav.country ?? '';
+  const activeKam     = nav.kamName ?? '';
 
   // ── Data queries ─────────────────────────────────────────────────────────
   // Countries list (always fetched; used both for sidebar and country-level content)
@@ -507,9 +440,8 @@ export default function BitsEyePage() {
       refetchInterval: 60_000,
     });
 
-  // Clients under a KAM — shown when countryCategory='clients' or kamCategory='clients'
-  const fetchClients = (countryOpenCat === 'clients' || kamOpenCat === 'clients') ||
-    nav.type === 'country-clients' || nav.type === 'country-vendors';
+  // Clients — shown for country-level client/vendor views
+  const fetchClients = nav.type === 'country-clients' || nav.type === 'country-vendors';
   const { data: clientsData, isFetching: fetchingClients } =
     useQuery<PerEntityResponse>({
       queryKey: ['/api/bitseye/per-entity', 'clients', activeCountry, activeKam, lastRefresh],
@@ -579,41 +511,6 @@ export default function BitsEyePage() {
     nav.type === 'country-clients' || nav.type === 'country-vendors';
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-  function selectCountry(name: string) {
-    setExpandedCountry(prev => prev === name ? null : name);
-    setCountryOpenCat(null);
-    setExpandedKam(null);
-    setKamOpenCat(null);
-    setNav({ type: 'country', country: name });
-  }
-  function toggleCountryCat(cat: string, country: string) {
-    if (countryOpenCat === cat) {
-      setCountryOpenCat(null);
-    } else {
-      setCountryOpenCat(cat);
-      if (cat === 'kam') setNav({ type: 'kam-all', country });
-      else if (cat === 'clients') setNav({ type: 'country-clients', country });
-      else if (cat === 'vendors') setNav({ type: 'country-vendors', country });
-      else if (cat === 'destination') setNav({ type: 'dest-all', country });
-    }
-  }
-  function selectKam(name: string, country: string) {
-    setExpandedKam(prev => prev === name ? null : name);
-    setKamOpenCat(null);
-    setNav({ type: 'kam', country, kamName: name });
-  }
-  function toggleKamCat(cat: string, country: string, kamName: string) {
-    if (kamOpenCat === cat) {
-      setKamOpenCat(null);
-    } else {
-      setKamOpenCat(cat);
-      if (cat === 'destination') setNav({ type: 'dest-all', country, kamName });
-    }
-  }
-  function selectDest(name: string, country: string, kamName?: string) {
-    setNav({ type: 'dest', country, kamName, destName: name });
-  }
-
   function doRefresh() {
     setLastRefresh(Date.now());
   }
@@ -623,197 +520,12 @@ export default function BitsEyePage() {
   return (
     <div className="flex h-full min-h-screen bg-background overflow-hidden">
 
-      {/* ── Left Sidebar ─────────────────────────────────────────────── */}
-      <aside className={cn(
-        "flex-shrink-0 border-r border-border/30 bg-card/20 flex flex-col overflow-hidden transition-all duration-200",
-        sidebarOpen ? "w-56" : "w-0",
-      )}>
-        {/* Sidebar header */}
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/25 bg-card/40 flex-shrink-0">
-          <Globe className="w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0" />
-          <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 flex-1">Country</p>
-          {(fetchingCountries || fetchingKams || fetchingDests) && (
-            <RefreshCw className="w-2.5 h-2.5 text-muted-foreground/30 animate-spin flex-shrink-0" />
-          )}
-        </div>
-
-        {/* Tree */}
-        <div className="flex-1 overflow-y-auto p-1.5 space-y-px">
-          {/* All Aggregated */}
-          <SidebarItem
-            label="All Aggregated"
-            selected={nav.type === 'country-agg'}
-            indent={0}
-            badge={countries.length}
-            onClick={() => { setNav({ type: 'country-agg' }); }}
-          />
-          {/* All */}
-          <SidebarItem
-            label="All"
-            selected={nav.type === 'country-all'}
-            indent={0}
-            onClick={() => { setNav({ type: 'country-all' }); }}
-          />
-
-          {/* Country list */}
-          {countries.length === 0 && !fetchingCountries && (
-            <p className="text-[9px] text-muted-foreground/25 px-2 py-2">No data yet</p>
-          )}
-          {countries.map(country => {
-            const isExpanded = expandedCountry === country.name;
-            return (
-              <div key={country.name}>
-                <SidebarItem
-                  label={country.name}
-                  selected={nav.type === 'country' && nav.country === country.name}
-                  active={isExpanded}
-                  indent={0}
-                  live={country.curConcurrent > 0}
-                  hasChildren
-                  expanded={isExpanded}
-                  onClick={() => selectCountry(country.name)}
-                />
-                {isExpanded && (
-                  <div className="space-y-px mt-0.5">
-                    <SubCatItem
-                      label="Clients"
-                      indent={1}
-                      selected={nav.type === 'country-clients' && nav.country === country.name}
-                      icon={<Users className="w-3 h-3" />}
-                      onClick={() => toggleCountryCat('clients', country.name)}
-                    />
-                    <SubCatItem
-                      label="Vendors"
-                      indent={1}
-                      selected={nav.type === 'country-vendors' && nav.country === country.name}
-                      icon={<Network className="w-3 h-3" />}
-                      onClick={() => toggleCountryCat('vendors', country.name)}
-                    />
-                    {/* KAM sub-tree */}
-                    <SubCatItem
-                      label="KAM"
-                      indent={1}
-                      expandable
-                      expanded={countryOpenCat === 'kam'}
-                      icon={<Layers className="w-3 h-3" />}
-                      badge={kams.length || undefined}
-                      onClick={() => toggleCountryCat('kam', country.name)}
-                    />
-                    {countryOpenCat === 'kam' && (
-                      <div className="space-y-px">
-                        <SidebarItem label="All Aggregated" indent={2}
-                          selected={nav.type === 'kam-agg' && nav.country === country.name}
-                          onClick={() => setNav({ type: 'kam-agg', country: country.name })}
-                        />
-                        <SidebarItem label="All" indent={2}
-                          selected={nav.type === 'kam-all' && nav.country === country.name}
-                          onClick={() => setNav({ type: 'kam-all', country: country.name })}
-                        />
-                        {kams.map(kam => {
-                          const kamExpanded = expandedKam === kam.name;
-                          return (
-                            <div key={kam.name}>
-                              <SidebarItem
-                                label={kam.name}
-                                indent={2}
-                                live={kam.curConcurrent > 0}
-                                selected={nav.type === 'kam' && nav.kamName === kam.name}
-                                active={kamExpanded}
-                                hasChildren
-                                expanded={kamExpanded}
-                                onClick={() => selectKam(kam.name, country.name)}
-                              />
-                              {kamExpanded && (
-                                <div className="space-y-px">
-                                  <SubCatItem label="Destination" indent={3}
-                                    expandable
-                                    expanded={kamOpenCat === 'destination'}
-                                    icon={<FolderOpen className="w-3 h-3" />}
-                                    badge={dests.length || undefined}
-                                    onClick={() => toggleKamCat('destination', country.name, kam.name)}
-                                  />
-                                  {kamOpenCat === 'destination' && (
-                                    <div className="space-y-px">
-                                      <SidebarItem label="All Aggregated" indent={3}
-                                        selected={nav.type === 'dest-agg' && nav.kamName === kam.name}
-                                        onClick={() => setNav({ type: 'dest-agg', country: country.name, kamName: kam.name })}
-                                      />
-                                      <SidebarItem label="All" indent={3}
-                                        selected={nav.type === 'dest-all' && nav.kamName === kam.name}
-                                        onClick={() => setNav({ type: 'dest-all', country: country.name, kamName: kam.name })}
-                                      />
-                                      {dests.map(dest => (
-                                        <SidebarItem
-                                          key={dest.name}
-                                          label={dest.destBreakout || dest.name}
-                                          indent={3}
-                                          live={dest.curConcurrent > 0}
-                                          selected={nav.type === 'dest' && nav.destName === dest.name}
-                                          onClick={() => selectDest(dest.name, country.name, kam.name)}
-                                        />
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Destination sub-tree (direct under country) */}
-                    <SubCatItem
-                      label="Destination"
-                      indent={1}
-                      expandable
-                      expanded={countryOpenCat === 'destination'}
-                      icon={<Folder className="w-3 h-3" />}
-                      onClick={() => toggleCountryCat('destination', country.name)}
-                    />
-                    {countryOpenCat === 'destination' && (
-                      <div className="space-y-px">
-                        <SidebarItem label="All Aggregated" indent={2}
-                          selected={nav.type === 'dest-agg' && !nav.kamName && nav.country === country.name}
-                          onClick={() => setNav({ type: 'dest-agg', country: country.name })}
-                        />
-                        <SidebarItem label="All" indent={2}
-                          selected={nav.type === 'dest-all' && !nav.kamName && nav.country === country.name}
-                          onClick={() => setNav({ type: 'dest-all', country: country.name })}
-                        />
-                        {destsData?.entities.map(dest => (
-                          <SidebarItem
-                            key={dest.name}
-                            label={dest.destBreakout || dest.name}
-                            indent={2}
-                            live={dest.curConcurrent > 0}
-                            selected={nav.type === 'dest' && nav.destName === dest.name && !nav.kamName}
-                            onClick={() => selectDest(dest.name, country.name)}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </aside>
 
       {/* ── Main content ─────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* Top bar */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40 bg-card/60 backdrop-blur-xl flex-shrink-0">
-          <button
-            data-testid="btn-toggle-sidebar"
-            onClick={() => setSidebarOpen(v => !v)}
-            className="p-1.5 rounded-lg hover:bg-muted/40 text-muted-foreground/50 hover:text-foreground transition-colors"
-          >
-            {sidebarOpen ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4 rotate-90" />}
-          </button>
-
           <div className="flex items-center gap-2">
             <div className="bg-amber-500/15 border border-amber-500/20 p-1.5 rounded-lg">
               <BarChart3 className="w-4 h-4 text-amber-400" />

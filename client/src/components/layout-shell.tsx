@@ -15,6 +15,7 @@ const BITSEYE_FIXED = [
   { view: 'clients',      label: 'Clients',      iconColor: 'text-amber-400'  },
   { view: 'vendors',      label: 'Vendors',       iconColor: 'text-cyan-400'   },
   { view: 'destinations', label: 'Destinations',  iconColor: 'text-emerald-400'},
+  { view: 'countries',    label: 'Countries',     iconColor: 'text-sky-400'    },
 ] as const;
 
 interface LayoutShellProps {
