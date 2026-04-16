@@ -1743,12 +1743,23 @@ export async function registerRoutes(
       if (!cli || !cld) return res.status(400).json({ success: false, message: 'cli and cld are required.' });
 
       const settings = await storage.getSettings();
-      const result = await withSippyCreds(settings, (u, p) =>
-        sippy.makeCall(cli, cld, {
-          iAccount: iAccount ? Number(iAccount) : undefined,
-          billingCode,
-        }, u, p),
-      );
+      // For makeCall: try ALL credential pairs (method availability differs per user level).
+      // Continue to next pair on method_not_found; stop on success or other errors.
+      const callOpts = { iAccount: iAccount ? Number(iAccount) : undefined, billingCode };
+      const credPairs = sippyXmlCredsPairs(settings);
+      let result: Awaited<ReturnType<typeof sippy.makeCall>> = {
+        success: false,
+        message: 'No Sippy credentials configured.',
+        errorType: 'not_connected',
+      };
+      for (const { username, password } of credPairs) {
+        result = await sippy.makeCall(cli, cld, callOpts, username, password);
+        if (result.success) break;
+        // If method not found for this user, try next credential pair
+        if (result.errorType === 'method_not_found') { continue; }
+        // Auth failure or call error — stop immediately
+        break;
+      }
 
       await storage.logTestCall({
         userId,

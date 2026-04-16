@@ -1475,8 +1475,11 @@ export async function makeCall(
     success: false,
     errorType: 'method_not_found',
     apiUser: u,
-    message: `Call origination XML-RPC method is not enabled on this Sippy instance (tried ${methodsNotFound} method names, all returned "not found"). ` +
-      `Ask your Sippy administrator to enable the makeCall XML-RPC method for user "${u}" in Sippy Admin → System → XML-RPC API Settings.`,
+    message:
+      `makeCall is not enabled for API user "${u}" — the Sippy switch rejected all ${methodsNotFound} call origination method names. ` +
+      `In Sippy Admin go to: Customers → ${u} → Advanced Parameters → check "Allow makeCall via API", ` +
+      `OR go to System → Administrators → ssp-root → enable XML-RPC call origination. ` +
+      `The customer "${u}" already has "Allow API Calls" ticked — the next step is enabling the specific makeCall permission.`,
   };
 }
 
