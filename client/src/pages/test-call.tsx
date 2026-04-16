@@ -179,41 +179,63 @@ export default function TestCallPage() {
         </div>
 
         {/* ── Proactive setup banner ── always visible until call origination is confirmed working */}
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4">
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-5">
           <div className="flex items-start gap-3">
             <ShieldAlert className="h-5 w-5 text-amber-400 mt-0.5 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-amber-400">Sippy Admin configuration required before test calls will work</p>
-              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                This switch has no call origination method enabled. Enable <strong className="text-foreground/70">one</strong> of the following options, then try again:
-              </p>
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="rounded-lg bg-background/50 border border-border p-3 text-xs space-y-1">
+            <div className="flex-1 min-w-0 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-amber-400">Sippy Admin setup required — call origination not yet enabled</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Per the{" "}
+                  <a
+                    href="https://support.sippysoft.com/a/solutions/articles/106909"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-amber-300 underline underline-offset-2 hover:text-amber-200"
+                  >
+                    Sippy XML-RPC API guide
+                  </a>
+                  , the API uses <strong className="text-foreground/70">Web Login + a separate API Password</strong> (not the portal login password) with HTTP Digest auth.
+                  Two things need to be enabled for <code className="bg-background/60 px-1 rounded font-mono text-[11px]">call_control.makeCall</code> to work:
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-lg bg-background/50 border border-border p-3 text-xs space-y-1.5">
                   <p className="font-semibold text-foreground/80 flex items-center gap-1.5">
-                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">A</span>
-                    Direct call origination (recommended)
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">1</span>
+                    Enable API access for <code className="font-mono">{adminUser}</code>
                   </p>
-                  <ol className="text-muted-foreground space-y-0.5 list-decimal list-inside">
-                    <li>Open Sippy Admin (link below)</li>
-                    <li>System <span className="text-muted-foreground/60">→</span> Administrators</li>
-                    <li>Click <strong className="text-foreground/70">{adminUser}</strong></li>
-                    <li>API Access tab <span className="text-muted-foreground/60">→</span> tick <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
+                  <ol className="text-muted-foreground space-y-0.5 list-decimal list-inside leading-relaxed">
+                    <li>Log in to Sippy as <strong className="text-foreground/70">{adminUser}</strong></li>
+                    <li>Go to <strong className="text-foreground/70">My Preferences</strong></li>
+                    <li>Tick <strong className="text-foreground/70">Allow API Calls</strong></li>
+                    <li>Set an <strong className="text-foreground/70">API Password</strong> (separate from portal login password) and save it in Settings here</li>
                   </ol>
                 </div>
-                <div className="rounded-lg bg-background/50 border border-border p-3 text-xs space-y-1">
+                <div className="rounded-lg bg-background/50 border border-border p-3 text-xs space-y-1.5">
                   <p className="font-semibold text-foreground/80 flex items-center gap-1.5">
-                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">B</span>
-                    2-way callback (needs Callback module)
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">2</span>
+                    Enable call origination permission
                   </p>
-                  <ol className="text-muted-foreground space-y-0.5 list-decimal list-inside">
-                    <li>Open Sippy Admin (link below)</li>
-                    <li>Applications <span className="text-muted-foreground/60">→</span> Callback</li>
-                    <li>Enable the Callback application</li>
-                    <li>Assign to customer accounts</li>
+                  <ol className="text-muted-foreground space-y-0.5 list-decimal list-inside leading-relaxed">
+                    <li>Go to <strong className="text-foreground/70">System <span className="text-muted-foreground/50">→</span> Administrators</strong></li>
+                    <li>Open <code className="bg-background/60 px-0.5 rounded font-mono">{adminUser}</code></li>
+                    <li>API Access tab <span className="text-muted-foreground/50">→</span> tick <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
+                    <li>Save, then retry the test call</li>
                   </ol>
                 </div>
               </div>
-              <div className="mt-3 flex items-center gap-2 flex-wrap">
+
+              <div className="rounded-lg bg-background/50 border border-amber-500/20 p-3 text-xs">
+                <p className="font-semibold text-foreground/70 mb-1">Alternative: enable the Callback module (2-way callback)</p>
+                <p className="text-muted-foreground">
+                  Applications <span className="text-muted-foreground/50">→</span> Callback <span className="text-muted-foreground/50">→</span> Enable the Callback application and assign to customer accounts.
+                  This enables the fallback <code className="bg-background/60 px-1 rounded font-mono">make2WayCallback</code> method instead.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap pt-1">
                 <a
                   href={adminUrl}
                   target="_blank"
@@ -224,7 +246,17 @@ export default function TestCallPage() {
                   <ExternalLink className="h-3 w-3" />
                   Open Sippy Admin
                 </a>
-                <span className="text-xs text-muted-foreground/60 font-mono">{portalBase}</span>
+                <a
+                  href="https://support.sippysoft.com/a/solutions/articles/106909"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="link-sippy-docs"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background/50 border border-border text-muted-foreground text-xs font-medium hover:border-amber-500/30 hover:text-amber-300 transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Read Sippy XML-RPC API docs
+                </a>
+                <span className="text-xs text-muted-foreground/50 font-mono hidden sm:inline">{portalBase}</span>
               </div>
             </div>
           </div>
@@ -464,27 +496,46 @@ export default function TestCallPage() {
               </ul>
             </div>
 
-            <div className="bg-card border border-border rounded-xl p-5">
-              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                <ShieldAlert className="h-4 w-4 text-amber-400" /> Quick fix (Option A)
+            <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4 text-amber-400" /> Setup checklist
               </h3>
-              <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside mb-4">
-                <li>Log in to Sippy as system admin</li>
-                <li>System <span className="text-muted-foreground/50">→</span> Administrators</li>
-                <li>Open <code className="bg-muted px-0.5 rounded font-mono">{adminUser}</code></li>
-                <li>API Access tab <span className="text-muted-foreground/50">→</span> enable <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
-                <li>Save &amp; try again</li>
-              </ol>
-              <a
-                href={adminUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-testid="link-sippy-admin-side"
-                className="inline-flex w-full items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium hover:bg-amber-500/20 transition-colors"
-              >
-                <ExternalLink className="h-3 w-3" />
-                Open Sippy Admin Panel
-              </a>
+              <div className="space-y-2 text-xs text-muted-foreground">
+                <p className="font-semibold text-foreground/60">Step 1 — Enable API access</p>
+                <ol className="space-y-0.5 list-decimal list-inside">
+                  <li>Log in as <code className="bg-muted px-0.5 rounded font-mono">{adminUser}</code></li>
+                  <li>My Preferences <span className="text-muted-foreground/50">→</span> tick <strong className="text-foreground/70">Allow API Calls</strong></li>
+                  <li>Set an <strong className="text-foreground/70">API Password</strong></li>
+                  <li>Save &amp; update password in Settings</li>
+                </ol>
+                <p className="font-semibold text-foreground/60 pt-1">Step 2 — Grant makeCall permission</p>
+                <ol className="space-y-0.5 list-decimal list-inside">
+                  <li>System <span className="text-muted-foreground/50">→</span> Administrators <span className="text-muted-foreground/50">→</span> <code className="bg-muted px-0.5 rounded font-mono">{adminUser}</code></li>
+                  <li>API Access tab <span className="text-muted-foreground/50">→</span> <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
+                  <li>Save &amp; retry</li>
+                </ol>
+              </div>
+              <div className="space-y-2 pt-1">
+                <a
+                  href={adminUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="link-sippy-admin-side"
+                  className="inline-flex w-full items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium hover:bg-amber-500/20 transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Open Sippy Admin Panel
+                </a>
+                <a
+                  href="https://support.sippysoft.com/a/solutions/articles/106909"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex w-full items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-background border border-border text-muted-foreground text-xs font-medium hover:border-amber-500/30 hover:text-amber-300 transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Sippy XML-RPC API docs
+                </a>
+              </div>
             </div>
 
             {/* ── History */}
