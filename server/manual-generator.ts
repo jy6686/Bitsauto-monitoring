@@ -1,8 +1,8 @@
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel,
   Table, TableRow, TableCell, WidthType, AlignmentType,
-  BorderStyle, ShadingType, Header, Footer, PageNumberElement,
-  NumberFormat, PageBreak,
+  BorderStyle, ShadingType, Header, Footer,
+  NumberFormat, PageBreak, SimpleField,
 } from 'docx';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
@@ -287,7 +287,7 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
             border: { top: { color: DARK_GY, style: BorderStyle.SINGLE, size: 2 } },
             children: [
               new TextRun({ text: 'VoIP Watcher — Confidential  |  Page ', color: DARK_GY, size: 16 }),
-              new PageNumberElement(),
+              new SimpleField('PAGE'),
             ],
           })],
         }),
