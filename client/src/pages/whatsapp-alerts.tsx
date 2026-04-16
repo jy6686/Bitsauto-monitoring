@@ -55,7 +55,7 @@ export default function WhatsappAlertsPage() {
 
   // ── Plain state (no react-hook-form to avoid infinite-render issues) ──────
   const [enabled,    setEnabled]    = useState(false);
-  const [provider,   setProvider]   = useState<'callmebot' | 'ultramsg'>('callmebot');
+  const [provider,   setProvider]   = useState<'callmebot' | 'ultramsg'>('ultramsg');
   const [phones,     setPhones]     = useState('');
   const [apiKey,     setApiKey]     = useState('');
   const [instanceId, setInstanceId] = useState('');
@@ -75,7 +75,7 @@ export default function WhatsappAlertsPage() {
     if (settings && !loaded) {
       setLoaded(true);
       setEnabled(settings.whatsappEnabled ?? false);
-      setProvider((settings.whatsappProvider as 'callmebot' | 'ultramsg') ?? 'callmebot');
+      setProvider((settings.whatsappProvider as 'callmebot' | 'ultramsg') ?? 'ultramsg');
       setPhones(settings.whatsappPhones ?? '');
       setApiKey(settings.whatsappApiKey ?? '');
       setInstanceId(settings.whatsappInstanceId ?? '');
@@ -200,53 +200,55 @@ export default function WhatsappAlertsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="callmebot">CallMeBot (Free — personal use)</SelectItem>
-                  <SelectItem value="ultramsg">UltraMsg (Business — WhatsApp API)</SelectItem>
+                  <SelectItem value="ultramsg">✅ UltraMsg (Recommended — WhatsApp Business API)</SelectItem>
+                  <SelectItem value="callmebot">CallMeBot (Limited — bot number may be unavailable)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {/* Provider help */}
             {provider === 'callmebot' && (
-              <div className="rounded-lg bg-sky-500/5 border border-sky-500/20 p-4 space-y-3">
-                <p className="text-xs font-semibold text-sky-400 flex items-center gap-2">
-                  <ExternalLink className="h-3.5 w-3.5" /> How to activate CallMeBot (free, one-time per number)
+              <div className="rounded-lg bg-rose-500/5 border border-rose-500/30 p-4 space-y-2">
+                <p className="text-xs font-semibold text-rose-400 flex items-center gap-2">
+                  <XCircle className="h-3.5 w-3.5" /> CallMeBot WhatsApp bot is currently unavailable
                 </p>
-                <ol className="text-xs text-muted-foreground space-y-2 list-decimal list-inside leading-relaxed">
-                  <li>
-                    Tap the button below — it opens WhatsApp with the activation message pre-typed. Just hit <strong className="text-foreground/70">Send</strong>.
-                    <div className="mt-2 not-italic">
-                      <a
-                        href="https://wa.me/34644597302?text=I%20allow%20callmebot%20to%20send%20me%20messages"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 text-xs font-semibold hover:bg-emerald-500/25 transition-colors"
-                      >
-                        <ExternalLink className="h-3 w-3" /> Open WhatsApp to activate CallMeBot
-                      </a>
-                    </div>
-                  </li>
-                  <li>CallMeBot replies with your personal <strong className="text-foreground/70">API Key</strong> (a 6-digit number). Copy it.</li>
-                  <li>Enter your phone number in E.164 format (e.g. <code className="bg-background px-1 rounded font-mono text-foreground/80">+923001234567</code>) and paste the API key in the fields below.</li>
-                </ol>
-                <p className="text-xs text-muted-foreground/60 border-t border-border/30 pt-2">
-                  ⚠️ Each recipient must activate their own number individually before they can receive alerts.
-                  If the link doesn't work, visit{' '}
-                  <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener noreferrer" className="text-sky-400 underline underline-offset-2">callmebot.com</a>
-                  {' '}for the latest setup instructions.
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  The CallMeBot WhatsApp bot number (<code className="font-mono bg-background px-1 rounded">+34 644 597 302</code>) is reporting as
+                  "not on WhatsApp". This is a known issue — CallMeBot's bot is sometimes inactive or
+                  region-restricted.
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  <strong className="text-foreground/70">Recommendation:</strong> Switch to <button
+                    type="button"
+                    onClick={() => setProvider('ultramsg')}
+                    className="text-emerald-400 underline underline-offset-2 hover:text-emerald-300"
+                  >UltraMsg</button> — it is fully operational and uses the official WhatsApp Business API.
+                  UltraMsg offers a free trial with no credit card required.
                 </p>
               </div>
             )}
             {provider === 'ultramsg' && (
-              <div className="rounded-lg bg-sky-500/5 border border-sky-500/20 p-4 space-y-2">
-                <p className="text-xs font-semibold text-sky-400 flex items-center gap-2">
-                  <ExternalLink className="h-3.5 w-3.5" /> How to set up UltraMsg
+              <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-4 space-y-3">
+                <p className="text-xs font-semibold text-emerald-400 flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> How to set up UltraMsg (5 minutes, free trial available)
                 </p>
-                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-                  <li>Sign up at <strong className="text-foreground/70">ultramsg.com</strong> and create an instance</li>
-                  <li>Connect a WhatsApp number to the instance (scan QR code)</li>
-                  <li>Copy the <strong className="text-foreground/70">Instance ID</strong> and <strong className="text-foreground/70">Token</strong> from the dashboard</li>
+                <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside leading-relaxed">
+                  <li>
+                    Go to{' '}
+                    <a href="https://app.ultramsg.com/register" target="_blank" rel="noopener noreferrer" className="text-sky-400 underline underline-offset-2">
+                      app.ultramsg.com/register
+                    </a>
+                    {' '}and create a free account
+                  </li>
+                  <li>Create an <strong className="text-foreground/70">Instance</strong> — this is a WhatsApp session tied to a phone number</li>
+                  <li>Scan the QR code with the WhatsApp number you want to <strong className="text-foreground/70">send alerts from</strong></li>
+                  <li>From the instance dashboard, copy the <strong className="text-foreground/70">Instance ID</strong> (e.g. <code className="font-mono bg-background px-1 rounded">instance12345</code>) and the <strong className="text-foreground/70">Token</strong></li>
+                  <li>Enter the <strong className="text-foreground/70">recipient</strong> phone numbers below (the numbers that will <em>receive</em> alerts)</li>
                 </ol>
+                <p className="text-xs text-muted-foreground/60 border-t border-border/30 pt-2">
+                  The sending number (connected via QR) and receiving numbers can be different.
+                  Your team members just need to have WhatsApp — no setup needed on their side.
+                </p>
               </div>
             )}
 
