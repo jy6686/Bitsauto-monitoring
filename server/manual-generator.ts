@@ -99,12 +99,12 @@ function defTable(rows: [string, string][], headerLabel = '', keyPct = 30) {
         tableHeader: true,
         children: [
           new TableCell({
-            shading: { type: ShadingType.SOLID, color: DARK_BG },
+            shading: { type: ShadingType.SOLID, fill: DARK_BG, color: DARK_BG },
             width: { size: keyW, type: WidthType.DXA },
             children: [new Paragraph({ children: [new TextRun({ text: headerLabel, bold: true, color: ACCENT, size: 18 })] })],
           }),
           new TableCell({
-            shading: { type: ShadingType.SOLID, color: DARK_BG },
+            shading: { type: ShadingType.SOLID, fill: DARK_BG, color: DARK_BG },
             width: { size: valW, type: WidthType.DXA },
             children: [new Paragraph({ children: [] })],
           }),
@@ -115,7 +115,7 @@ function defTable(rows: [string, string][], headerLabel = '', keyPct = 30) {
     new TableRow({
       children: [
         new TableCell({
-          shading: { type: ShadingType.SOLID, color: PANEL_BG },
+          shading: { type: ShadingType.SOLID, fill: PANEL_BG, color: PANEL_BG },
           width: { size: keyW, type: WidthType.DXA },
           children: [new Paragraph({ children: [new TextRun({ text: k, bold: true, color: WHITE, size: 18 })] })],
         }),
@@ -139,7 +139,7 @@ function roleMatrix(rows: { feature: string; admin: string; mgmt: string; viewer
 
   function hdrCell(text: string, colWidth: number) {
     return new TableCell({
-      shading: { type: ShadingType.SOLID, color: DARK_BG },
+      shading: { type: ShadingType.SOLID, fill: DARK_BG, color: DARK_BG },
       width: { size: colWidth, type: WidthType.DXA },
       children: [new Paragraph({
         alignment: AlignmentType.CENTER,
@@ -196,7 +196,7 @@ function flowDiagram(steps: { label: string; detail?: string }[], title: string)
   steps.forEach((s, i) => {
     elems.push(new Paragraph({
       spacing: { before: 80, after: 4 },
-      shading: { type: ShadingType.SOLID, color: PANEL_BG },
+      shading: { type: ShadingType.SOLID, fill: PANEL_BG, color: PANEL_BG },
       indent: { left: 180, hanging: 180 },
       children: [
         new TextRun({ text: `Step ${i + 1}:  `, color: ACCENT, bold: true, size: 20 }),
@@ -224,12 +224,12 @@ function shortcutTable(shortcuts: [string, string][]) {
     tableHeader: true,
     children: [
       new TableCell({
-        shading: { type: ShadingType.SOLID, color: DARK_BG },
+        shading: { type: ShadingType.SOLID, fill: DARK_BG, color: DARK_BG },
         width: { size: keyW, type: WidthType.DXA },
         children: [new Paragraph({ children: [new TextRun({ text: 'Shortcut', bold: true, color: ACCENT, size: 18 })] })],
       }),
       new TableCell({
-        shading: { type: ShadingType.SOLID, color: DARK_BG },
+        shading: { type: ShadingType.SOLID, fill: DARK_BG, color: DARK_BG },
         width: { size: actW, type: WidthType.DXA },
         children: [new Paragraph({ children: [new TextRun({ text: 'Action', bold: true, color: ACCENT, size: 18 })] })],
       }),
@@ -238,7 +238,7 @@ function shortcutTable(shortcuts: [string, string][]) {
   const rows = shortcuts.map(([k, v]) => new TableRow({
     children: [
       new TableCell({
-        shading: { type: ShadingType.SOLID, color: PANEL_BG },
+        shading: { type: ShadingType.SOLID, fill: PANEL_BG, color: PANEL_BG },
         width: { size: keyW, type: WidthType.DXA },
         children: [new Paragraph({ children: [new TextRun({ text: k, color: WHITE, size: 18, bold: true })] })],
       }),
@@ -700,7 +700,7 @@ export async function generateUserManual(outputPath?: string): Promise<Buffer> {
         spacer(160),
         p('Usage: Include the key in the Authorization header:', { bold: true, color: WHITE }),
         new Paragraph({
-          shading: { type: ShadingType.SOLID, color: PANEL_BG },
+          shading: { type: ShadingType.SOLID, fill: PANEL_BG, color: PANEL_BG },
           spacing: { after: 100 },
           children: [new TextRun({ text: 'Authorization: Bearer YOUR_API_KEY_HERE', color: GREEN, size: 18 })],
         }),
