@@ -8,7 +8,7 @@ import {
 import {
   RefreshCw, ChevronRight, BarChart3,
   TrendingUp, TrendingDown, Minus, AlertCircle, Globe, Users, Layers,
-  ArrowRight, ArrowLeft, LayoutGrid, Maximize2,
+  ArrowRight, ArrowLeft, LayoutGrid, Maximize2, WifiOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
