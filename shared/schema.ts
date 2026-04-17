@@ -266,7 +266,7 @@ export const callSnapshots = pgTable("call_snapshots", {
   pddMs:           integer("pdd_ms").default(0),
   mediaIpCaller:   varchar("media_ip_caller",   { length: 64 }),
   mediaIpCallee:   varchar("media_ip_callee",   { length: 64 }),
-  connection:      varchar("connection",        { length: 32 }),
+  connection:      varchar("connection",        { length: 255 }),
   firstSeen:       timestamp("first_seen").defaultNow(),
   lastSeen:        timestamp("last_seen").defaultNow(),
 });

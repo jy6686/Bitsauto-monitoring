@@ -202,6 +202,15 @@ function sippyXmlCredsPairs(s: SippyCreds): Array<{ username: string; password: 
   const pairs: Array<{ username: string; password: string }> = [];
   if (s.apiAdminUsername && s.apiAdminPassword) pairs.push({ username: s.apiAdminUsername, password: s.apiAdminPassword });
   if (s.portalUsername && s.portalPassword)     pairs.push({ username: s.portalUsername,   password: s.portalPassword   });
+  // Cross-combo: portalUsername + apiAdminPassword — handles the common case where username
+  // and password were stored under different credential fields after a switch promotion.
+  if (s.portalUsername && s.apiAdminPassword && s.portalUsername !== s.apiAdminUsername) {
+    pairs.push({ username: s.portalUsername, password: s.apiAdminPassword });
+  }
+  // Cross-combo: apiAdminUsername + portalPassword — reverse case
+  if (s.apiAdminUsername && s.portalPassword && s.apiAdminUsername !== s.portalUsername) {
+    pairs.push({ username: s.apiAdminUsername, password: s.portalPassword });
+  }
   if (!pairs.length) pairs.push({ username: DEFAULT_SIPPY_USERNAME, password: DEFAULT_SIPPY_PASSWORD });
   return pairs;
 }

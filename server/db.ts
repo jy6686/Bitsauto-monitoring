@@ -32,11 +32,16 @@ export const db = drizzle(pool, { schema });
 export async function runSafeMigrations(): Promise<void> {
   const client = await pool.connect();
   try {
-    // Add admin_web_password to switches (added 2026-04-17 — web portal login password
-    // for secondary switches when it differs from the XML-RPC API password)
+    // Add admin_web_password to switches (added 2026-04-17)
     await client.query(`
       ALTER TABLE switches
         ADD COLUMN IF NOT EXISTS admin_web_password VARCHAR(255)
+    `);
+    // Widen call_snapshots.connection from varchar(32) to varchar(255) (added 2026-04-17 —
+    // SB1 connection names like "SKY-TELECOM-UK-PAK-PREFIX-7(ORTP)(MANOR)" exceed 32 chars)
+    await client.query(`
+      ALTER TABLE call_snapshots
+        ALTER COLUMN connection TYPE VARCHAR(255)
     `);
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
