@@ -1737,9 +1737,22 @@ export async function makeCall(
       const fault = extractFaultString(text);
       const faultMsg = fault?.replace(/<[^>]+>/g, '').trim() || '';
 
-      // If method not found, try the next one in the list
-      if (faultMsg.toLowerCase().includes('not found') || faultMsg.toLowerCase().includes('no such method') || faultMsg.toLowerCase().includes('unknown method')) {
-        console.log(`[Sippy] ${method} not available, trying next…`);
+      // If method not found, try the next one in the list.
+      // Sippy returns several different strings for "unknown method" depending on version:
+      //   "we do not have a method with that name" (Sippy 5.x portal response)
+      //   "No such method" / "Method not found" (XML-RPC spec)
+      //   "Unknown method"
+      const fm = faultMsg.toLowerCase();
+      if (
+        fm.includes('not found') ||
+        fm.includes('no such method') ||
+        fm.includes('unknown method') ||
+        fm.includes('do not have a method') ||
+        fm.includes('with that name') ||
+        fm.includes('method does not exist') ||
+        fm.includes('not implemented')
+      ) {
+        console.log(`[Sippy] ${method} not available (${faultMsg}), trying next…`);
         methodsNotFound++;
         continue;
       }
