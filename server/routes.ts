@@ -193,23 +193,37 @@ async function refreshConnectionVendorCache(): Promise<void> {
 const DEFAULT_SIPPY_URL      = 'https://191.101.30.107';
 const DEFAULT_SIPPY_USERNAME = 'ssp-root';
 const DEFAULT_SIPPY_PASSWORD = '!chiaan1';
-type SippyCreds = { portalUrl?: string | null; apiAdminUsername?: string | null; apiAdminPassword?: string | null; portalUsername?: string | null; portalPassword?: string | null };
+type SippyCreds = { portalUrl?: string | null; apiAdminUsername?: string | null; apiAdminPassword?: string | null; portalUsername?: string | null; portalPassword?: string | null; adminWebPassword?: string | null };
 
-// Returns [primary, fallback] credential pairs ordered so that the most likely
-// admin/XML-RPC pair comes first. When the user has the fields swapped, the
-// fallback pair lets callers retry without a 401 surfacing to the UI.
+// Returns credential pairs ordered so the most likely admin/XML-RPC pair comes first.
+// Tries cross-combos and adminWebPassword variants to handle:
+//   - swapped apiAdmin/portal fields after switch promotion
+//   - Sippy switches where API password equals the web login password (stored in adminWebPassword)
 function sippyXmlCredsPairs(s: SippyCreds): Array<{ username: string; password: string }> {
   const pairs: Array<{ username: string; password: string }> = [];
-  if (s.apiAdminUsername && s.apiAdminPassword) pairs.push({ username: s.apiAdminUsername, password: s.apiAdminPassword });
-  if (s.portalUsername && s.portalPassword)     pairs.push({ username: s.portalUsername,   password: s.portalPassword   });
-  // Cross-combo: portalUsername + apiAdminPassword — handles the common case where username
-  // and password were stored under different credential fields after a switch promotion.
-  if (s.portalUsername && s.apiAdminPassword && s.portalUsername !== s.apiAdminUsername) {
-    pairs.push({ username: s.portalUsername, password: s.apiAdminPassword });
+  const seen = new Set<string>();
+  const push = (u: string, p: string) => {
+    const k = `${u}\x00${p}`;
+    if (seen.has(k) || !u || !p) return;
+    seen.add(k);
+    pairs.push({ username: u, password: p });
+  };
+  // Primary pair: explicit admin credentials
+  push(s.apiAdminUsername ?? '', s.apiAdminPassword ?? '');
+  // Fallback: portal credentials (may contain swapped admin creds)
+  push(s.portalUsername ?? '', s.portalPassword ?? '');
+  // Cross-combo: portalUsername + apiAdminPassword
+  if (s.portalUsername !== s.apiAdminUsername) {
+    push(s.portalUsername ?? '', s.apiAdminPassword ?? '');
+    // Cross-combo: apiAdminUsername + portalPassword (reverse)
+    push(s.apiAdminUsername ?? '', s.portalPassword ?? '');
   }
-  // Cross-combo: apiAdminUsername + portalPassword — reverse case
-  if (s.apiAdminUsername && s.portalPassword && s.apiAdminUsername !== s.portalUsername) {
-    pairs.push({ username: s.apiAdminUsername, password: s.portalPassword });
+  // adminWebPassword combos — handles Sippy switches where the XML-RPC API password
+  // equals the web portal login password (stored separately as adminWebPassword).
+  // On some production switches ssp-root API password = HumJeet@y2018 (web password).
+  if (s.adminWebPassword) {
+    push(s.portalUsername ?? '',    s.adminWebPassword);
+    push(s.apiAdminUsername ?? '', s.adminWebPassword);
   }
   if (!pairs.length) pairs.push({ username: DEFAULT_SIPPY_USERNAME, password: DEFAULT_SIPPY_PASSWORD });
   return pairs;
