@@ -95,6 +95,50 @@ Full-stack VoIP monitoring dashboard with real-time metrics, alerting, team mana
 - **BitsEye-style chart unification (2026-04-16)**: All Recharts charts across the app now match the BitsEye visual language. Shared primitives extracted to `client/src/components/bse-chart.tsx`: `BseTooltip` (glassmorphic `bg-card/98 backdrop-blur-md` tooltip with monospace labels + colored square indicators), `BSE_GRID_PROPS` (horizontal-only, `rgba(255,255,255,0.05)` solid lines), `BSE_AXIS_PROPS` (8px monospace `rgba(148,163,184,0.5)` ticks, no lines), `BSE_CURSOR` (dashed `4 2` cursor line), `BseGradStops` (3-stop gradient 0.45→0.08→0.0), `bseActiveDot` (card-ringed hover dot). Applied to: `dashboard.tsx` (ASR/ACD area + FAS bar), `server-monitoring.tsx` (uptime bar, bandwidth area, metrics area, SLA bars, registration area), `analytics.tsx` (P&L area + client bar), `reports.tsx` (composed ASR/ACD line), `graphs.tsx` (trend line + HBar), `calls-list.tsx` (PDD line + volume bar), `call-detail.tsx` (quality line).
 - **Settings API password security (2026-04-16)**: `GET /api/settings` now requires authentication (401 for unauthenticated). Admin role returns full settings; non-admin roles receive the same object with `portalPassword`, `apiAdminPassword`, `adminWebPassword`, `alertGmailAppPass`, `whatsappApiKey`, and `portalSessionToken` nulled out. `PATCH /api/settings` and `POST /api/settings/simulation/reset` restricted to admin role only. WhatsApp alerts save mutation corrected from POST to PATCH. Frontend settings page already guarded by `requiredRoles={['admin']}` in router.
 
+## Data Safety & Read-Only Policy
+
+The platform is designed to be **read-only by default**. Every operation that runs automatically in the background is a pure read — nothing is written to the live Sippy switch without an explicit user action. This makes the platform safe to run 24/7 against a production Sippy instance.
+
+### Background auto-runs (reads only — fire continuously, never touch Sippy data)
+
+| Poll / Job | Sippy API Call | Interval |
+|---|---|---|
+| Live call monitor | `call_control.listActiveCalls` | Every 5 s |
+| Dashboard KPIs | `call_control.getCountersStats` | Every 5 s |
+| ASR/ACD trend charts | `monitoring.getMonitoringGraphData` | Every 5 s |
+| Vendor balance snapshots | `account.getAccountBalance` (per vendor) | Every 60 s |
+| CDR cache refresh | `account.getAccountCDRs` + `account.getCustomerCDRs` | Incremental on demand |
+| Sippy Change Watcher | `account.listAccounts`, `account.listVendors`, `account.listAuthRules` | Every 5 min |
+| Traffic Drop Detector | reads call snapshot cache (no Sippy call) | Every 5 min |
+| SIP OPTIONS probe | TCP socket connect to switch IPs | Every 60 s |
+| Multi-Switch consolidated poll | `call_control.getCountersStats` on each switch | Every 30 s (when page open) |
+| MOS hourly aggregation | reads local CDR cache (no Sippy call) | Every 60 min |
+| Account/vendor cache warm | `account.listAccounts`, `account.listVendors` | On startup + periodic |
+
+### Write operations (only on explicit user action — never automatic)
+
+| User Action | Sippy API Called | Where |
+|---|---|---|
+| Test Call — Phase 1 | `call_control.makeCall` (Trusted Mode) | Test Call Launcher |
+| Test Call — Phase 2 | `make2WayCallback` (Normal/Customer Mode) | Test Call Launcher |
+| Test Call — Phase 3 | `/simpleapi/callback.php` HTTP GET | Test Call Launcher |
+| Push Rate Card to Sippy | `tariff.setRateEntry` (per prefix, batched) | Rate Cards → Push to Sippy |
+| Delete rate from Sippy | `tariff.deleteRateEntry` | Rate Cards |
+| Add IP auth rule | `account.addAuthRule` | Clients → Auth Rules |
+| Edit IP auth rule | `account.updateAuthRule` | Clients → Auth Rules |
+| Delete IP auth rule | `account.deleteAuthRule` | Clients → Auth Rules |
+| Create Sippy account | `account.createAccount` + `account.addAuthRule` | Clients → New Account wizard |
+| Update Sippy account | `account.updateAccount` | Clients → Edit account |
+| Add DID | `account.addDID` | Clients → DID management |
+| Delete DID | `account.deleteDID` | Clients → DID management |
+| Add vendor connection | `vendor.createVendorConnection` | Clients → Vendors |
+| Update vendor connection | `vendor.updateVendorConnection` | Clients → Vendors |
+| Delete vendor connection | `vendor.deleteVendorConnection` | Clients → Vendors |
+| Create/Update/Delete tariff | `createTariff` / `updateTariff` / `deleteTariff` | Rate Cards (tariff management) |
+| Set low-balance threshold | `account.setLowBalance` | Clients → Balance alerts |
+
+**Local-DB-only writes (never touch Sippy):** Settings save, KAM CRUD, team/role changes, alert rules, blacklist rules, secondary switch config, API key management, dashboard widget prefs, MOS snapshots, CDR cache, all monitoring log tables.
+
 ## Important State
 - Simulation is **disabled** (`simulationEnabled = false` in DB)
 - Dashboard shows "Connect Softswitch" banner when simulation off and portal not connected

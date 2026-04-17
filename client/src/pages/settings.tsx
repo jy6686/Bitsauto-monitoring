@@ -2328,6 +2328,86 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Safety & Data Policy */}
+      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl overflow-hidden">
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-emerald-500/15">
+          <ShieldCheck className="h-5 w-5 text-emerald-400 shrink-0" />
+          <div>
+            <h3 className="font-semibold text-emerald-300 text-sm">Safety &amp; Data Policy</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              This platform is <span className="text-emerald-400 font-medium">read-only by default</span>. Every background process is a pure read — nothing is written to the live Sippy switch unless you explicitly trigger a write action.
+            </p>
+          </div>
+          <span className="ml-auto shrink-0 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-semibold border border-emerald-500/30">
+            Safe for production
+          </span>
+        </div>
+        <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-emerald-500/10">
+          {/* Left: background reads */}
+          <div className="px-6 py-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Activity className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="text-xs font-semibold text-emerald-300 uppercase tracking-wide">Background auto-runs — reads only</span>
+            </div>
+            <div className="space-y-2 text-xs">
+              {[
+                { label: "Live call monitor",         api: "listActiveCalls",                interval: "every 5 s" },
+                { label: "Dashboard KPIs",            api: "getCountersStats",               interval: "every 5 s" },
+                { label: "ASR/ACD trend charts",      api: "getMonitoringGraphData",          interval: "every 5 s" },
+                { label: "Vendor balance snapshots",  api: "getAccountBalance",              interval: "every 60 s" },
+                { label: "CDR cache refresh",         api: "getAccountCDRs",                 interval: "on demand" },
+                { label: "Sippy Change Watcher",      api: "listAccounts / listVendors",     interval: "every 5 min" },
+                { label: "Traffic Drop Detector",     api: "call snapshot cache (local)",    interval: "every 5 min" },
+                { label: "SIP OPTIONS probe",         api: "TCP socket connect",             interval: "every 60 s" },
+                { label: "Multi-Switch consolidated", api: "getCountersStats (per switch)",  interval: "every 30 s" },
+                { label: "MOS hourly aggregation",    api: "CDR cache (local only)",         interval: "every 60 min" },
+              ].map(row => (
+                <div key={row.label} className="flex items-start gap-2">
+                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-foreground font-medium">{row.label}</span>
+                    <span className="text-muted-foreground ml-1">— <span className="font-mono text-emerald-400/80">{row.api}</span></span>
+                  </div>
+                  <span className="text-muted-foreground/60 shrink-0 ml-2">{row.interval}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Right: explicit write actions */}
+          <div className="px-6 py-4">
+            <div className="flex items-center gap-2 mb-3">
+              <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />
+              <span className="text-xs font-semibold text-amber-300 uppercase tracking-wide">Writes — explicit user action only</span>
+            </div>
+            <div className="space-y-2 text-xs">
+              {[
+                { action: "Test Call (Phase 1)",         api: "call_control.makeCall",       where: "Test Call Launcher" },
+                { action: "Test Call (Phase 2)",         api: "make2WayCallback",            where: "Test Call Launcher" },
+                { action: "Test Call (Phase 3)",         api: "simpleapi/callback.php",      where: "Test Call Launcher" },
+                { action: "Push Rate Card to Sippy",     api: "tariff.setRateEntry",         where: "Rate Cards" },
+                { action: "Delete rate entry",           api: "tariff.deleteRateEntry",      where: "Rate Cards" },
+                { action: "Add / Edit / Delete IP rule", api: "account.addAuthRule etc.",    where: "Clients" },
+                { action: "Create Sippy account",        api: "account.createAccount",       where: "Clients wizard" },
+                { action: "Update Sippy account",        api: "account.updateAccount",       where: "Clients" },
+                { action: "Add / Delete DID",            api: "account.addDID / deleteDID",  where: "Clients" },
+                { action: "Create/Delete tariff",        api: "createTariff / deleteTariff", where: "Rate Cards" },
+              ].map(row => (
+                <div key={row.action} className="flex items-start gap-2">
+                  <div className="h-1.5 w-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-foreground font-medium">{row.action}</span>
+                    <span className="text-muted-foreground ml-1">— <span className="font-mono text-amber-400/80">{row.api}</span></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 pt-3 border-t border-amber-500/10 text-xs text-muted-foreground">
+              <span className="text-amber-300 font-medium">Local-DB-only writes</span> (never reach Sippy): Settings save, KAM management, team/role changes, alert rules, blacklist rules, switch config, API keys, widget prefs, MOS snapshots, monitoring logs.
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Danger Zone */}
       <div className="bg-destructive/5 border border-destructive/20 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
         <div>
