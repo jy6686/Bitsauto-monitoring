@@ -497,14 +497,15 @@ export const insertBlacklistRuleSchema = createInsertSchema(blacklistRules).omit
 
 // ── Rate Cards: carrier buy-rate sheets ──────────────────────────────────────
 export const rateCards = pgTable("rate_cards", {
-  id:            serial("id").primaryKey(),
-  vendorName:    varchar("vendor_name",  { length: 128 }).notNull(),
-  name:          varchar("name",         { length: 128 }).notNull(),
-  cardType:      varchar("card_type",    { length: 10  }).default('vendor').notNull(), // 'client' | 'vendor'
-  currency:      varchar("currency",     { length: 8   }).default('USD'),
-  effectiveDate: timestamp("effective_date"),
-  entryCount:    integer("entry_count").default(0),
-  createdAt:     timestamp("created_at").defaultNow(),
+  id:             serial("id").primaryKey(),
+  vendorName:     varchar("vendor_name",  { length: 128 }).notNull(),
+  name:           varchar("name",         { length: 128 }).notNull(),
+  cardType:       varchar("card_type",    { length: 10  }).default('vendor').notNull(), // 'client' | 'vendor'
+  currency:       varchar("currency",     { length: 8   }).default('USD'),
+  effectiveDate:  timestamp("effective_date"),
+  entryCount:     integer("entry_count").default(0),
+  createdAt:      timestamp("created_at").defaultNow(),
+  sippyTariffId:  integer("sippy_tariff_id"),  // linked Sippy tariff — populated when created from Sippy dropdown
 });
 export type RateCard = typeof rateCards.$inferSelect;
 export type InsertRateCard = typeof rateCards.$inferInsert;

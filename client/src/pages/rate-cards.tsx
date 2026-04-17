@@ -27,6 +27,7 @@ type RateCard = {
   effectiveDate: string | null;
   entryCount: number;
   createdAt: string;
+  sippyTariffId: number | null;
 };
 
 type RateCardEntry = {
@@ -92,11 +93,13 @@ export default function RateCardsPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   // Create form
-  const [selectedVendor, setSelectedVendor] = useState('');
-  const [customVendor, setCustomVendor]     = useState('');
-  const [newName, setNewName]               = useState('');
-  const [newCurrency, setNewCurrency]       = useState('USD');
-  const [newDate, setNewDate]               = useState('');
+  const [selectedVendor, setSelectedVendor]           = useState('');
+  const [customVendor, setCustomVendor]               = useState('');
+  const [newName, setNewName]                         = useState('');
+  const [newCurrency, setNewCurrency]                 = useState('USD');
+  const [newDate, setNewDate]                         = useState('');
+  const [selectedSippyTariff, setSelectedSippyTariff] = useState<SippyTariff | null>(null);
+  const [nameManual, setNameManual]                   = useState(false);
 
   // Upload
   const [uploadCardId, setUploadCardId] = useState<number | null>(null);
@@ -128,11 +131,11 @@ export default function RateCardsPage() {
     queryFn: () => fetch(`/api/rate-cards/${expandedCardId}/entries`).then(r => r.json()),
     enabled: expandedCardId !== null,
   });
-  const { data: sippyTariffs = [] } = useQuery<SippyTariff[]>({
+  const { data: sippyTariffs = [], isLoading: tariffsLoading } = useQuery<SippyTariff[]>({
     queryKey: ["/api/sippy/tariffs"],
     queryFn: () => fetch('/api/sippy/tariffs').then(r => r.json()).then(d => Array.isArray(d) ? d : Array.isArray(d?.tariffs) ? d.tariffs : []),
     refetchOnWindowFocus: false,
-    enabled: !!(pushCard || verifyCard),
+    enabled: !!(pushCard || verifyCard || createOpen),
   });
   const { data: rcCtx, isLoading: ctxLoading } = useQuery<RateCardContext>({
     queryKey: ["/api/sippy/rate-card-context"],
@@ -147,6 +150,7 @@ export default function RateCardsPage() {
     onSuccess: () => {
       setCreateOpen(false);
       setSelectedVendor(''); setCustomVendor(''); setNewName(''); setNewCurrency('USD'); setNewDate('');
+      setSelectedSippyTariff(null); setNameManual(false);
       queryClient.invalidateQueries({ queryKey: ["/api/rate-cards"] });
       toast({ title: "Rate card created" });
     },
@@ -218,6 +222,7 @@ export default function RateCardsPage() {
       cardType: activeType ?? 'vendor',
       currency: newCurrency || 'USD',
       effectiveDate: newDate || null,
+      sippyTariffId: selectedSippyTariff ? selectedSippyTariff.iTariff : null,
     });
   }
 
@@ -343,9 +348,53 @@ export default function RateCardsPage() {
                     </div>
                   </div>
                 )}
+                {/* Rate Card Name — picked from live Sippy tariffs */}
                 <div>
-                  <Label className="text-xs text-muted-foreground mb-1.5 block">Rate Card Name</Label>
-                  <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Q2 2026 Standard Rates" data-testid="input-card-name" />
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">Rate Card Name (Sippy Tariff)</Label>
+                  {tariffsLoading ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />Loading tariffs from Sippy…
+                    </div>
+                  ) : !nameManual ? (
+                    <>
+                      <Select
+                        value={selectedSippyTariff ? String(selectedSippyTariff.iTariff) : ''}
+                        onValueChange={val => {
+                          if (val === '__manual__') { setSelectedSippyTariff(null); setNameManual(true); return; }
+                          const t = sippyTariffs.find(x => String(x.iTariff) === val) ?? null;
+                          setSelectedSippyTariff(t);
+                          if (t) { setNewName(t.name); if (t.currency) setNewCurrency(t.currency); }
+                        }}
+                      >
+                        <SelectTrigger data-testid="select-sippy-tariff-create">
+                          <SelectValue placeholder={sippyTariffs.length ? "Select Sippy tariff…" : "No tariffs available"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sippyTariffs.map(t => (
+                            <SelectItem key={t.iTariff} value={String(t.iTariff)}>
+                              {t.name}{t.currency ? ` (${t.currency})` : ''}{t.iTariffType !== undefined ? ` · ID ${t.iTariff}` : ''}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="__manual__">
+                            <span className="flex items-center gap-1.5 text-muted-foreground"><PenLine className="h-3.5 w-3.5" />Enter name manually…</span>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {selectedSippyTariff && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-400">
+                          <CheckCircle className="h-3 w-3" />
+                          <span>Linked to Sippy tariff ID <span className="font-mono">{selectedSippyTariff.iTariff}</span> — name and currency auto-filled</span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Q2 2026 Standard Rates" data-testid="input-card-name" autoFocus />
+                      <button onClick={() => { setNameManual(false); setNewName(''); }} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
+                        Pick from Sippy instead
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -548,6 +597,11 @@ export default function RateCardsPage() {
                           Effective {new Date(card.effectiveDate).toLocaleDateString()}
                         </Badge>
                       )}
+                      {card.sippyTariffId && (
+                        <Badge className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 text-xs font-mono gap-1" data-testid={`sippy-tariff-badge-${card.id}`}>
+                          Sippy #{card.sippyTariffId}
+                        </Badge>
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
                       {card.entryCount} prefix entries · Created {new Date(card.createdAt).toLocaleDateString()}
@@ -562,13 +616,13 @@ export default function RateCardsPage() {
                     </a>
                     {/* Verify vs Sippy */}
                     <Button variant="outline" size="sm" className="gap-1.5 text-xs text-blue-400 border-blue-500/30 hover:bg-blue-500/10"
-                      onClick={() => { setVerifyCard(card); setVerifyTariffId(''); setVerifyResult(null); }}
+                      onClick={() => { setVerifyCard(card); setVerifyTariffId(card.sippyTariffId ? String(card.sippyTariffId) : ''); setVerifyResult(null); }}
                       data-testid={`button-verify-${card.id}`}>
                       <ShieldCheck className="h-3 w-3" />Verify vs Sippy
                     </Button>
                     {/* Push to Sippy */}
                     <Button variant="outline" size="sm" className="gap-1.5 text-xs text-purple-400 border-purple-500/30 hover:bg-purple-500/10"
-                      onClick={() => { setPushCard(card); setPushTariffId(''); setJobId(null); setJobData(null); setEffectiveFrom(''); }}
+                      onClick={() => { setPushCard(card); setPushTariffId(card.sippyTariffId ? String(card.sippyTariffId) : ''); setJobId(null); setJobData(null); setEffectiveFrom(''); }}
                       data-testid={`button-push-${card.id}`}>
                       <Send className="h-3 w-3" />Push to Sippy
                     </Button>
