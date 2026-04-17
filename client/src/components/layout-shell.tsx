@@ -245,10 +245,11 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const VIEWER_ALWAYS_SHOW = new Set(['/', '/account']);
 
   const isItemVisible = (item: NavItem): boolean => {
-    if (!item.roles.includes(role)) return false;
-    if (role !== 'viewer') return true;
-    if (VIEWER_ALWAYS_SHOW.has(item.href)) return true;
-    return [...assignedItemSet].some(id => ITEM_NAV_MAP[id] === item.href);
+    if (role === 'viewer') {
+      if (VIEWER_ALWAYS_SHOW.has(item.href)) return true;
+      return [...assignedItemSet].some(id => ITEM_NAV_MAP[id] === item.href);
+    }
+    return item.roles.includes(role);
   };
 
   const visibleCallsSubitems = role === 'viewer'
