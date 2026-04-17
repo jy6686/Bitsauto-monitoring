@@ -54,7 +54,18 @@ Full-stack VoIP monitoring dashboard with real-time metrics, alerting, team mana
   - Phase 2 — `make2WayCallback` XML-RPC Normal Mode (CUSTOMER creds). `cld_first`=CLI (your phone), `cld_second`=CLD (destination), `cli_first`/`cli_second`=CLI. Requires Callback service on customer account: Sippy Admin → Customers → Applications → Callback.
   - Phase 3 — `/simpleapi/callback.php` HTTP Basic Auth GET (article 107525). Admin must run `htpasswd /home/ssp/sippy_web/simpleapi/.htpassword <username>` on the switch. Customer account (authname) still needs Callback service active.
 - **Server Monitoring module**: `/server-monitoring` page with 6 tabs — Reachability/Outage Log (every 30s poller + multi-IP vendor/carrier monitoring), RTP Bandwidth, Disk & Memory, Carrier ASR drop detection, Email/Webhook Alert Rules, SIP Reg Storm Detection. DB tables: `outage_log`, `alert_rules`, `monitored_hosts`, `host_outage_log`. Routes: `GET /api/monitoring/status|bandwidth|disk-memory|carrier-asr|registrations` + CRUD `/api/monitoring/alert-rules` + CRUD `/api/monitoring/hosts` + `GET /api/monitoring/hosts/:id/outages` + `GET /api/monitoring/hosts/outages/all`. Background per-host poller every 60s using TCP probe with per-host outage tracking. Sidebar collapsible sub-menu with 6 entries.
-- Admin credentials: ssp-root (apiAdminUsername/apiAdminPassword). Portal credentials (RTST1) are customer-level — used for make2WayCallback Normal Mode + portal scraping. Vendor cost computed via balance-delta tracking.
+- **Primary switch credentials (https://191.101.30.107)**:
+  - Admin web portal: `ssp-root` / web password stored as `adminWebPassword` (year suffix 2019)
+  - XML-RPC Trusted Mode: `ssp-root` + `apiAdminPassword` (!chiaan1 stored in DB)
+  - XML-RPC secondary user: `RTST-1` (hyphen, NOT RTST1) + `portalPassword` (abcd@1234 stored in DB as portalUsername=RTST-1/portalPassword=abcd@1234)
+  - DB fields: `api_admin_username=ssp-root`, `api_admin_password=!chiaan1`, `portal_username=RTST-1`, `portal_password=abcd@1234`, `admin_web_password=HumJeet@y2019`
+- **SB-1 switch credentials (https://104.245.246.110)** — stored in `switches` table:
+  - Admin web portal: `ssp-root` / web password (year suffix 2018, different from primary)
+  - ssp-root API Password: `!chiaan1` (stored in `api_admin_password`)
+  - XML-RPC user: `RTST-1` (same hyphen convention), API Password: `abcd@1234`
+  - SB-1 `ssp-root` logs in as admin type — `HumJeet@y2018` is the correct portal password
+  - Portal scraping fallback active: when XML-RPC returns 0 (HTTP 200 empty), `scrapeActiveCallsPortal()` fires and uses portal scraping with orange-banner total padding
+- Vendor cost computed via balance-delta tracking.
 - **Vendor balance tracker**: `refreshVendorBalances()` polls `listSippyVendors` every 60 s, storing timestamped snapshots in `vendorBalanceHistory[]` (2-hour rolling window). `vendorCostFromHistory(tStart, tEnd)` computes cost from Callntalk balance decrease (positive delta only). Dashboard shows "Tracking…" for first 91 min after startup, then switches to real balance-delta vendor cost.
 - APIs implemented (see full coverage table below):
   - Accounts: listAccounts (107322), getRegistrationStatus (107366), listAuthRules / addAuthRule / updateAuthRule / deleteAuthRule (107336), getLowBalance / setLowBalance (107444), createAccount (107312+), listRoutingGroups
