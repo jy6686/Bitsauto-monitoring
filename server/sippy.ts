@@ -547,7 +547,18 @@ function scrapeHtmlTable(html: string): string[][] {
 //   Data rows (13 cells per row — Media IP expands into 2 separate cells):
 //     0:#, 1:Account, 2:CLI, 3:CLD, 4:State, 5:Vendor, 6:Connection,
 //     7:Direction, 8:MediaIPCaller, 9:MediaIPCallee, 10:Delay(ms), 11:Duration(MM:SS), 12:Action
+
+// Cache paginated portal calls per-base (4.5s TTL — prevents re-scraping on every 5s poll)
+const _portalCallsCache = new Map<string, { calls: any[]; bannerTotal: number; expiresAt: number }>();
+const PORTAL_CALLS_TTL_MS = 4500;
+
 export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string): Promise<SippyActiveCall[]> {
+  // Return cached result if still fresh
+  const cached = _portalCallsCache.get(base);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.calls as SippyActiveCall[];
+  }
+
   // Request a very large per_page to bypass the default 50-row limit.
   // Sippy admin portal accepts ?per_page=N to control rows shown.
   const { html } = await portalGet('/activecalls.php?per_page=5000', cookies, base);
@@ -693,17 +704,120 @@ export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string)
     callIndex++;
   }
 
-  // bannerTotal was parsed at the top of this function (before any early returns).
-  // Use it to pad the result when the table was paginated or partially shown.
-  if (bannerTotal > calls.length) {
-    const extra = bannerTotal - calls.length;
-    for (let j = 0; j < extra; j++) {
-      calls.push({ id: `banner-${j}`, callId: `banner-${j}`, caller: '', callee: '' });
+  // ── Multi-page pagination ────────────────────────────────────────────────────
+  // Customer portal caps at 50 rows per page even with per_page=5000.
+  // Fetch additional pages using n=OFFSET until we have all calls or reach the max.
+  // We try the common Sippy pagination param ?n=N (offset); if the portal ignores it,
+  // deduplication on callId prevents duplicates and newCallsOnPage===0 stops the loop.
+  if (bannerTotal > calls.length && bannerTotal <= 3000) {
+    const seenIds = new Set(calls.map(c => c.callId));
+    let offset = calls.length || 50;
+    const maxExtraPages = 19; // up to 1000 calls total (20 pages of 50)
+
+    for (let pg = 0; pg < maxExtraPages && calls.length < bannerTotal; pg++) {
+      const { html: pgHtml } = await portalGet(
+        `/activecalls.php?per_page=50&n=${offset}`, cookies, base
+      );
+      if (!pgHtml || pgHtml.length < 500) break;
+
+      // Skip if it looks like a login page
+      if (pgHtml.includes('value="Login"') || pgHtml.includes("value='Login'")) break;
+
+      // Extract IDs for this page
+      const pgDiscoIds: Record<number, string> = {};
+      const pgDwRe = /delete_warning\((\d+)\)/g;
+      let pgDwM: RegExpExecArray | null;
+      while ((pgDwM = pgDwRe.exec(pgHtml)) !== null) {
+        pgDiscoIds[Object.keys(pgDiscoIds).length] = pgDwM[1];
+      }
+      const pgAcctIds: Record<number, string> = {};
+      const pgAcctRe = /accounts\.php\?action=edit&amp;account=(\d+)/g;
+      let pgAcctM: RegExpExecArray | null;
+      while ((pgAcctM = pgAcctRe.exec(pgHtml)) !== null) {
+        pgAcctIds[Object.keys(pgAcctIds).length] = pgAcctM[1];
+      }
+      const pgVendIds: Record<number, string> = {};
+      const pgVendRe = /vendors\.php\?i_vendor=(\d+)/g;
+      let pgVendM: RegExpExecArray | null;
+      while ((pgVendM = pgVendRe.exec(pgHtml)) !== null) {
+        pgVendIds[Object.keys(pgVendIds).length] = pgVendM[1];
+      }
+
+      const pgRows = scrapeHtmlTable(pgHtml);
+      let pgHeaderRow = -1;
+      for (let i = 0; i < pgRows.length; i++) {
+        const lower = pgRows[i].map(c => c.toLowerCase().trim());
+        if (lower.includes('cli') && lower.includes('cld') &&
+            (lower.includes('state') || lower.includes('duration') || lower.includes('dur'))) {
+          pgHeaderRow = i;
+          break;
+        }
+      }
+      if (pgHeaderRow < 0) break;
+
+      let pgIdx = 0;
+      let newOnPage = 0;
+      for (let i = pgHeaderRow + 2; i < pgRows.length; i++) {
+        const row = pgRows[i];
+        if (row.length < 10) continue;
+        const joined = row.join('').trim().toLowerCase();
+        if (!joined || joined.includes('list is empty') || joined.startsWith('page ')) continue;
+        if (row[0]?.toLowerCase() === 'caller' || row[0]?.toLowerCase() === '#') continue;
+        const get = (idx: number) => (idx >= 0 && idx < row.length ? row[idx].trim() : '');
+        const cli = get(COL_CLI);
+        const cld = get(COL_CLD);
+        if (!cli && !cld) continue;
+
+        const durStr = get(COL_DURATION);
+        const durParts = durStr.split(':');
+        const durationSec = durParts.length >= 2
+          ? (parseInt(durParts[0] || '0') * 60 + parseInt(durParts[1] || '0'))
+          : (parseInt(durStr || '0') || 0);
+        const delayMs = parseFloat(get(COL_DELAY)) || 0;
+
+        const discoId  = pgDiscoIds[pgIdx];
+        const uniqueId = discoId || `portal-pg${pg + 2}-${i}`;
+        const cid      = `portal-pg${pg + 2}-row${i}`;
+
+        if (!seenIds.has(uniqueId)) {
+          seenIds.add(uniqueId);
+          calls.push({
+            id:            uniqueId,
+            callId:        cid,
+            caller:        cli || '-',
+            callee:        cld || '-',
+            duration:      durationSec,
+            codec:         '-',
+            status:        get(COL_STATE) || 'active',
+            delay:         delayMs / 1000,
+            user:          get(COL_ACCOUNT) || undefined,
+            accountId:     pgAcctIds[pgIdx]  || undefined,
+            vendor:        get(COL_VENDOR)   || undefined,
+            connection:    get(COL_CONNECTION) || undefined,
+            direction:     get(COL_DIRECTION)  || undefined,
+            mediaIpCaller: get(COL_MEDIA_SRC) || undefined,
+            mediaIpCallee: get(COL_MEDIA_DST) || undefined,
+            iCustomer:     undefined,
+            iEnvironment:  undefined,
+          });
+          newOnPage++;
+        }
+        pgIdx++;
+      }
+
+      if (newOnPage === 0) break; // portal returned same page or no more data
+      offset += 50;
     }
-    console.log(`[Sippy] activecalls banner says ${bannerTotal} total; padded ${extra} placeholders (table had ${calls.length - extra} rows)`);
+
+    console.log(`[Sippy] activecalls portal: fetched ${calls.length} of ${bannerTotal} (banner total)`);
   } else if (bannerTotal < 0) {
     console.log(`[Sippy] activecalls banner NOT found in HTML from ${base} (table rows=${calls.length})`);
+  } else if (bannerTotal > 0) {
+    console.log(`[Sippy] activecalls portal: ${calls.length} calls (banner=${bannerTotal})`);
   }
+
+  // Store in cache
+  _portalCallsCache.set(base, { calls, bannerTotal, expiresAt: Date.now() + PORTAL_CALLS_TTL_MS });
 
   return calls;
 }

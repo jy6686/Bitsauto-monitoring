@@ -225,6 +225,11 @@ function sippyXmlCredsPairs(s: SippyCreds): Array<{ username: string; password: 
     push(s.portalUsername ?? '',    s.adminWebPassword);
     push(s.apiAdminUsername ?? '', s.adminWebPassword);
   }
+  // Always include the platform default (ssp-root / !chiaan1) as an unconditional last resort.
+  // This recovers from the post-promotion misconfiguration where portalPassword was set to
+  // the web password instead of the XML-RPC API key, leaving !chiaan1 stored nowhere.
+  // push() deduplicates so this is a no-op when already present via stored credentials.
+  push(DEFAULT_SIPPY_USERNAME, DEFAULT_SIPPY_PASSWORD);
   if (!pairs.length) pairs.push({ username: DEFAULT_SIPPY_USERNAME, password: DEFAULT_SIPPY_PASSWORD });
   return pairs;
 }
