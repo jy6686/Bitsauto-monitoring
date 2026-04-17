@@ -1019,6 +1019,7 @@ export async function registerRoutes(
         ...sw,
         portalPassword:    sw.portalPassword    ? '••••••••' : null,
         apiAdminPassword:  sw.apiAdminPassword  ? '••••••••' : null,
+        adminWebPassword:  sw.adminWebPassword  ? '••••••••' : null,
       }));
       res.json(masked);
     }
@@ -1028,7 +1029,7 @@ export async function registerRoutes(
   app.post('/api/switches', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {
       const sw = await storage.createSwitch(req.body);
-      res.status(201).json({ ...sw, portalPassword: sw.portalPassword ? '••••••••' : null, apiAdminPassword: sw.apiAdminPassword ? '••••••••' : null });
+      res.status(201).json({ ...sw, portalPassword: sw.portalPassword ? '••••••••' : null, apiAdminPassword: sw.apiAdminPassword ? '••••••••' : null, adminWebPassword: sw.adminWebPassword ? '••••••••' : null });
     } catch { res.status(500).json({ message: 'Failed to create switch' }); }
   });
 
@@ -1038,8 +1039,9 @@ export async function registerRoutes(
       // Strip masked placeholder values so real passwords are never overwritten
       if (body.portalPassword   === '••••••••') delete body.portalPassword;
       if (body.apiAdminPassword === '••••••••') delete body.apiAdminPassword;
+      if (body.adminWebPassword === '••••••••') delete body.adminWebPassword;
       const sw = await storage.updateSwitch(Number(req.params.id), body);
-      res.json({ ...sw, portalPassword: sw.portalPassword ? '••••••••' : null, apiAdminPassword: sw.apiAdminPassword ? '••••••••' : null });
+      res.json({ ...sw, portalPassword: sw.portalPassword ? '••••••••' : null, apiAdminPassword: sw.apiAdminPassword ? '••••••••' : null, adminWebPassword: sw.adminWebPassword ? '••••••••' : null });
     } catch { res.status(500).json({ message: 'Failed to update switch' }); }
   });
 
@@ -1130,6 +1132,7 @@ export async function registerRoutes(
         enabled: boolean,
         adminUsername?: string | null,   // optional admin creds for listActiveCalls
         adminPassword?: string | null,
+        adminWebPassword?: string | null, // web portal login password (may differ from XML-RPC API password)
       ): Promise<SwitchResult> {
         const base: SwitchResult = {
           id, name, portalUrl: portalUrl || '', isPrimary, enabled,
@@ -1150,8 +1153,10 @@ export async function registerRoutes(
           // - getSippyDashboardMetrics → period counters for ASR, ACD, total, answered
           // Both use admin creds (liveUser/livePass) so secondary switches with a separate
           // apiAdminPassword use the correct XML-RPC API password (not the web portal password).
+          // For portal scraping fallback: prefer adminWebPassword (web login) over portalPassword
+          const scrapingPass = adminWebPassword || password;
           const [liveCalls, metrics] = await Promise.all([
-            sippy.getSippyActiveCalls(liveUser, livePass, portalUrl, undefined, username, password),
+            sippy.getSippyActiveCalls(liveUser, livePass, portalUrl, undefined, username, scrapingPass),
             sippy.getSippyDashboardMetrics(liveUser, livePass, portalUrl),
           ]);
           console.log(`[multi-switch] ${name}: listActiveCalls=${liveCalls.length} ASR=${metrics.asr}% ACD=${metrics.acd}s total=${metrics.totalCalls}`);
@@ -1192,6 +1197,7 @@ export async function registerRoutes(
           s.enabled ?? true,
           s.apiAdminUsername,   // pass admin creds if stored — used for listActiveCalls
           s.apiAdminPassword,
+          s.adminWebPassword,   // web portal login password for portal scraping fallback
         ));
 
       const results = await Promise.all([primaryTask, ...secondaryTasks]);

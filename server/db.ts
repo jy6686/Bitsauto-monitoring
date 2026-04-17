@@ -24,3 +24,24 @@ pool.on('error', (err) => {
 });
 
 export const db = drizzle(pool, { schema });
+
+// ── Safe column migrations ─────────────────────────────────────────────────────
+// These run once at startup and are idempotent (IF NOT EXISTS). They handle
+// schema changes that need to be applied to the production database without
+// requiring a full db:push run.
+export async function runSafeMigrations(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    // Add admin_web_password to switches (added 2026-04-17 — web portal login password
+    // for secondary switches when it differs from the XML-RPC API password)
+    await client.query(`
+      ALTER TABLE switches
+        ADD COLUMN IF NOT EXISTS admin_web_password VARCHAR(255)
+    `);
+    console.log('[db] Safe migrations applied.');
+  } catch (err: any) {
+    console.error('[db] Safe migration warning (non-fatal):', err.message);
+  } finally {
+    client.release();
+  }
+}

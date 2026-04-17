@@ -76,6 +76,7 @@ interface SwitchRecord {
   portalPassword: string | null;
   apiAdminUsername: string | null;
   apiAdminPassword: string | null;
+  adminWebPassword: string | null;
   enabled: boolean | null;
   lastSyncAt: string | null;
   lastSyncStatus: string | null;
@@ -88,9 +89,10 @@ const switchFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   portalUrl: z.string().url("Must be a valid URL (e.g. https://192.168.1.1:9000)"),
   portalUsername: z.string().min(1, "Username is required"),
-  portalPassword: z.string().min(1, "Password is required"),
+  portalPassword: z.string().optional(),
   apiAdminUsername: z.string().optional(),
   apiAdminPassword: z.string().optional(),
+  adminWebPassword: z.string().optional(),
   enabled: z.boolean(),
 });
 type SwitchFormValues = z.infer<typeof switchFormSchema>;
@@ -262,6 +264,17 @@ function SwitchCard({ sw, isAdmin, onEdit }: {
 
 // ── Add / Edit Dialog ─────────────────────────────────────────────────────────
 
+function PasswordInput({ field, testId, showPass }: { field: any; testId: string; showPass: boolean }) {
+  return (
+    <Input
+      type={showPass ? 'text' : 'password'}
+      placeholder="••••••••"
+      data-testid={testId}
+      {...field}
+    />
+  );
+}
+
 function SwitchFormDialog({
   open, onOpenChange, initialValues, switchId, onSuccess,
 }: {
@@ -278,22 +291,19 @@ function SwitchFormDialog({
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  const emptyDefaults: SwitchFormValues = {
+    name: '', portalUrl: '', portalUsername: '', portalPassword: '',
+    apiAdminUsername: '', apiAdminPassword: '', adminWebPassword: '', enabled: true,
+  };
+
   const form = useForm<SwitchFormValues>({
     resolver: zodResolver(switchFormSchema),
-    defaultValues: {
-      name: '', portalUrl: '', portalUsername: '', portalPassword: '',
-      apiAdminUsername: '', apiAdminPassword: '', enabled: true,
-      ...initialValues,
-    },
+    defaultValues: { ...emptyDefaults, ...initialValues },
   });
 
   useEffect(() => {
     if (open) {
-      form.reset({
-        name: '', portalUrl: '', portalUsername: '', portalPassword: '',
-        apiAdminUsername: '', apiAdminPassword: '', enabled: true,
-        ...initialValues,
-      });
+      form.reset({ ...emptyDefaults, ...initialValues });
       setTestResult(null);
     }
   }, [open]);
@@ -301,9 +311,7 @@ function SwitchFormDialog({
   const saveMutation = useMutation({
     mutationFn: async (values: SwitchFormValues) => {
       const payload = { ...values, type: 'sippy' };
-      if (isEdit) {
-        return apiRequest('PATCH', `/api/switches/${switchId}`, payload);
-      }
+      if (isEdit) return apiRequest('PATCH', `/api/switches/${switchId}`, payload);
       return apiRequest('POST', '/api/switches', payload);
     },
     onSuccess: () => {
@@ -333,93 +341,60 @@ function SwitchFormDialog({
     }
   }
 
+  const togglePass = (
+    <Button type="button" variant="ghost" size="sm" className="absolute right-1 top-1 h-7 w-7 p-0" onClick={() => setShowPass(v => !v)}>
+      {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+    </Button>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit Switch' : 'Add Switch'}</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(v => saveMutation.mutate(v))} className="space-y-4">
+
+            {/* ── Basic Info ── */}
             <FormField control={form.control} name="name" render={({ field }) => (
               <FormItem>
                 <FormLabel>Display Name</FormLabel>
-                <FormControl><Input placeholder="e.g. Secondary Switch EU" data-testid="input-switch-name" {...field} /></FormControl>
+                <FormControl><Input placeholder="e.g. SB1 — Singapore" data-testid="input-switch-name" {...field} /></FormControl>
                 <FormMessage />
               </FormItem>
             )} />
             <FormField control={form.control} name="portalUrl" render={({ field }) => (
               <FormItem>
                 <FormLabel>Portal URL</FormLabel>
-                <FormControl><Input placeholder="https://192.168.1.1:9000" data-testid="input-switch-url" {...field} /></FormControl>
+                <FormControl><Input placeholder="https://192.168.1.1" data-testid="input-switch-url" {...field} /></FormControl>
                 <FormMessage />
               </FormItem>
             )} />
-            <FormField control={form.control} name="portalUsername" render={({ field }) => (
-              <FormItem>
-                <FormLabel>Username</FormLabel>
-                <FormControl><Input placeholder="admin" data-testid="input-switch-user" {...field} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-            <FormField control={form.control} name="portalPassword" render={({ field }) => (
-              <FormItem>
-                <FormLabel>Password</FormLabel>
-                <FormControl>
-                  <div className="relative">
-                    <Input
-                      type={showPass ? 'text' : 'password'}
-                      placeholder="••••••••"
-                      data-testid="input-switch-pass"
-                      {...field}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-1 top-1 h-7 w-7 p-0"
-                      onClick={() => setShowPass(v => !v)}
-                    >
-                      {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </Button>
-                  </div>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-            {/* Optional API Admin credentials */}
-            <div className="rounded-lg border border-dashed border-border p-3 space-y-3">
-              <p className="text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">API Admin Credentials</span> — optional.
-                Set these if the portal user lacks XML-RPC admin access (e.g. for rate card push, call control).
-              </p>
-              <FormField control={form.control} name="apiAdminUsername" render={({ field }) => (
+
+            {/* ── Portal / Web Login Credentials ── */}
+            <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
+              <div>
+                <p className="text-sm font-medium">Portal Credentials</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Used for web portal login and portal scraping fallback (e.g. active calls page).
+                </p>
+              </div>
+              <FormField control={form.control} name="portalUsername" render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs">API Admin Username <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
-                  <FormControl><Input placeholder="e.g. ssp-root" data-testid="input-switch-api-user" {...field} /></FormControl>
+                  <FormLabel className="text-xs">Portal Username</FormLabel>
+                  <FormControl><Input placeholder="e.g. ssp-root" data-testid="input-switch-user" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
-              <FormField control={form.control} name="apiAdminPassword" render={({ field }) => (
+              <FormField control={form.control} name="portalPassword" render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs">API Admin Password <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                  <FormLabel className="text-xs">Web Portal Password</FormLabel>
+                  <p className="text-[11px] text-muted-foreground -mt-1">Browser login password — used for portal scraping fallback</p>
                   <FormControl>
                     <div className="relative">
-                      <Input
-                        type={showPass ? 'text' : 'password'}
-                        placeholder="••••••••"
-                        data-testid="input-switch-api-pass"
-                        {...field}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-1 top-1 h-7 w-7 p-0"
-                        onClick={() => setShowPass(v => !v)}
-                      >
-                        {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </Button>
+                      <PasswordInput field={field} testId="input-switch-pass" showPass={showPass} />
+                      {togglePass}
                     </div>
                   </FormControl>
                   <FormMessage />
@@ -427,26 +402,70 @@ function SwitchFormDialog({
               )} />
             </div>
 
-            <FormField control={form.control} name="enabled" render={({ field }) => (
-              <FormItem className="flex items-center gap-3">
-                <FormLabel className="mt-0">Enabled</FormLabel>
-                <FormControl>
-                  <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-enabled" />
-                </FormControl>
-              </FormItem>
-            )} />
+            {/* ── XML-RPC / API Credentials ── */}
+            <div className="rounded-lg border border-dashed border-border p-3 space-y-3">
+              <div>
+                <p className="text-sm font-medium">XML-RPC API Credentials</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Used for all data fetching: live calls, CDRs, accounts, vendors, statistics.
+                  Set under Sippy admin panel: <span className="font-mono">My Preferences &rarr; Allow API Calls &rarr; API Password</span>.
+                </p>
+              </div>
+              <FormField control={form.control} name="apiAdminUsername" render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">API Username <span className="text-muted-foreground font-normal">(leave blank to use Portal Username)</span></FormLabel>
+                  <FormControl><Input placeholder="e.g. ssp-root" data-testid="input-switch-api-user" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="apiAdminPassword" render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">API Password <span className="text-muted-foreground font-normal">(XML-RPC — set in My Preferences)</span></FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <PasswordInput field={field} testId="input-switch-api-pass" showPass={showPass} />
+                      {togglePass}
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="adminWebPassword" render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">Admin Web Password <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                  <p className="text-[11px] text-muted-foreground -mt-1">
+                    Only needed when the Sippy web login password differs from the API password above.
+                    Leave blank if they are the same.
+                  </p>
+                  <FormControl>
+                    <div className="relative">
+                      <PasswordInput field={field} testId="input-switch-web-pass" showPass={showPass} />
+                      {togglePass}
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <FormField control={form.control} name="enabled" render={({ field }) => (
+                <FormItem className="flex items-center gap-3">
+                  <FormLabel className="mt-0">Enabled</FormLabel>
+                  <FormControl>
+                    <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-enabled" />
+                  </FormControl>
+                </FormItem>
+              )} />
+              <Button type="button" variant="ghost" size="sm" className="text-xs gap-1 text-muted-foreground" onClick={() => setShowPass(v => !v)}>
+                {showPass ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                {showPass ? 'Hide passwords' : 'Show passwords'}
+              </Button>
+            </div>
 
             {isEdit && (
               <div className="space-y-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleTest}
-                  disabled={testing}
-                  data-testid="btn-test-connection"
-                  className="gap-2"
-                >
+                <Button type="button" variant="outline" size="sm" onClick={handleTest} disabled={testing} data-testid="btn-test-connection" className="gap-2">
                   <TestTube2 className="w-4 h-4" />
                   {testing ? 'Testing…' : 'Test Connection'}
                 </Button>
@@ -456,9 +475,7 @@ function SwitchFormDialog({
                       ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400'
                       : 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400'
                   }`}>
-                    {testResult.success
-                      ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                      : <XCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                    {testResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <XCircle className="w-4 h-4 shrink-0 mt-0.5" />}
                     {testResult.message}
                   </div>
                 )}
@@ -862,6 +879,7 @@ export default function MultiSwitchPage() {
               portalPassword: editSwitch.portalPassword || '',
               apiAdminUsername: editSwitch.apiAdminUsername || '',
               apiAdminPassword: editSwitch.apiAdminPassword || '',
+              adminWebPassword: editSwitch.adminWebPassword || '',
               enabled: editSwitch.enabled ?? true,
             }}
             onSuccess={() => {

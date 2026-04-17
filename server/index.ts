@@ -3,6 +3,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
+import { runSafeMigrations } from "./db";
 import { createServer } from "http";
 
 // ── Global crash guards ───────────────────────────────────────────────────────
@@ -149,6 +150,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Run safe idempotent DB column migrations before routes start
+  await runSafeMigrations();
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
