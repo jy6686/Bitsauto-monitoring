@@ -119,6 +119,25 @@ async function getAnyPortalSession(
   return null;
 }
 
+/**
+ * Exported helper: obtain a portal session for any switch URL + cred pairs, then
+ * scrape /activecalls.php (includes orange-banner total fallback).
+ * Used by pollSwitch as a last-resort when XML-RPC returns HTTP 200 with 0 calls.
+ */
+export async function scrapeActiveCallsPortal(
+  portalUrl: string,
+  ...pairs: Array<[string, string]>
+): Promise<SippyActiveCall[]> {
+  const base = sippyBase(portalUrl);
+  const cookies = await getAnyPortalSession(base, ...pairs);
+  if (!cookies) {
+    console.log(`[Sippy] scrapeActiveCallsPortal: all portal logins failed for ${base}`);
+    return [];
+  }
+  console.log(`[Sippy] scrapeActiveCallsPortal: scraping /activecalls.php for ${base}`);
+  return getPortalActiveCallsHtml(cookies, base);
+}
+
 // Get an admin-level portal session (used by getSippyPerAccountStats for vendor cost data)
 // Only accepts admin or reseller login — customer login shows wrong vendor data.
 // Tries ssp-root (apiAdminUsername) first, then portalUsername.

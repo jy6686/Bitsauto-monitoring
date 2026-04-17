@@ -1185,6 +1185,19 @@ export async function registerRoutes(
             liveCallCount = calls.length; // keep 0 from last tried pair
           }
 
+          // Last-resort for secondary switches: if all XML-RPC pairs returned 0
+          // (HTTP 200 with empty result — typical for customer-level accounts that
+          // can only see their own calls), fall back to portal scraping which also
+          // reads the orange system-wide banner total.
+          if (!isPrimary && liveCallCount === 0) {
+            const portalPairs = credPairs.map(c => [c.username, c.password] as [string, string]);
+            const scraped = await sippy.scrapeActiveCallsPortal(portalUrl!, ...portalPairs);
+            if (scraped.length > 0) {
+              liveCallCount = scraped.length;
+              console.log(`[multi-switch] ${name}: portal-scrape fallback returned ${liveCallCount} calls`);
+            }
+          }
+
           // For the PRIMARY switch: derive metrics from the existing CDR cache and concurrent history
           // rather than calling getCountersStats (which requires system-admin access that our
           // credentials do not have, causing silent all-zeros responses).
