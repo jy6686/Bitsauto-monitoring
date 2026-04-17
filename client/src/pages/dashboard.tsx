@@ -271,7 +271,7 @@ export default function DashboardPage() {
     refetchInterval: 30000,
   });
   // Sippy live calls — always polled; server uses hardcoded defaults so no session needed
-  const { data: sippyLiveCalls } = useQuery<{ calls: any[]; connected?: boolean; error?: string }>({
+  const { data: sippyLiveCalls } = useQuery<{ calls: any[]; connected?: boolean; stale?: boolean; error?: string }>({
     queryKey: ['/api/sippy/live-calls'],
     refetchInterval: 5000,
   });
@@ -362,6 +362,7 @@ export default function DashboardPage() {
   // activeCalls + PDD come from /api/sippy/live-calls (5-second poll) — NOT dashboard-stats,
   // to avoid concurrent XML-RPC requests that throttle Sippy and break the Live Calls page.
   const displayActiveCalls = anyPortalActive ? liveCalls.length : (stats?.activeCalls ?? 0);
+  const liveCallsStale = sippyLiveCalls?.stale === true;
 
   // Live connection-rate ASR: when CDR-based ASR is 0 but we have live calls,
   // estimate ASR from connected/(connected+routing) ratio as a proxy.
@@ -1004,10 +1005,13 @@ export default function DashboardPage() {
         {/* Inline key metrics strip */}
         {anyPortalActive && (
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/50">
-              <Radio className="w-3 h-3 text-blue-400" />
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border ${liveCallsStale ? 'border-amber-500/30' : 'border-border/50'}`}
+              title={liveCallsStale ? 'Refreshing — showing last known count' : undefined}>
+              <Radio className={`w-3 h-3 ${liveCallsStale ? 'text-amber-400' : 'text-blue-400'}`} />
               <span className="text-muted-foreground">Active:</span>
-              <span className="font-bold text-blue-400">{displayActiveCalls}</span>
+              <span className={`font-bold ${liveCallsStale ? 'text-amber-400' : 'text-blue-400'}`}>
+                {liveCallsStale ? '~' : ''}{displayActiveCalls}
+              </span>
             </div>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/50" title="Call attempts per minute — average over the last hour, computed from CDR records">
               <Zap className="w-3 h-3 text-violet-400" />
@@ -1114,7 +1118,12 @@ export default function DashboardPage() {
               <span className="text-3xl font-bold tracking-tight tabular-nums">
                 {notConnected ? '—' : displayActiveCalls}
               </span>
-              {anyPortalActive && callRatePerMin > 0 && (
+              {liveCallsStale && anyPortalActive && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20 cursor-help" title="Refreshing — showing last known count">
+                  ~cached
+                </span>
+              )}
+              {!liveCallsStale && anyPortalActive && callRatePerMin > 0 && (
                 <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-violet-400/10 text-violet-400 cursor-help" title={`Call rate: ${callRatePerMin} calls per minute — 1-hour CDR average`}>
                   {callRatePerMin}/min
                 </span>

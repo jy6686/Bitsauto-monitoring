@@ -1721,17 +1721,27 @@ export async function registerRoutes(
 
   // GET /api/sippy/live-calls — active calls from Sippy
   // Always passes portalUrl explicitly so it works even if activeSession is null
+  // Cache: preserve last known-good call list so the dashboard never flaps to 0
+  // when a single poll fails due to an expired session cookie.
+  // consecutiveZeros: require 2 consecutive empty polls before accepting "0 calls" as real.
+  let liveCallsCache: { calls: any[]; ts: number } = { calls: [], ts: 0 };
+  let consecutiveZeros = 0;
+  const LIVE_CALLS_STALE_MS = 30_000; // treat cache stale after 30 s
+  const ZERO_CONFIRM_COUNT  = 2;      // require this many consecutive zero polls to accept 0
+
   app.get('/api/sippy/live-calls', async (_req, res) => {
     try {
       const settings = await storage.getSettings();
       const portalUrl = sippyPortalUrl(settings);
 
-      // Use XML-RPC capable credential (apiAdminUsername = RTST1) as primary.
-      // Pass portalUsername/portalPassword as fallback for portal-scrape when XML-RPC returns 0.
+      // Use XML-RPC capable credential as primary.
+      // noNewLogin=true: never attempt a fresh portal login from this polling route —
+      // doing so blocks the response for 48+ seconds and triggers Sippy rate-limiting.
+      // The startup auto-connect (connectSippy) handles session establishment.
       const { username, password } = sippyXmlCreds(settings);
       const fallbackUser = settings?.portalUsername ?? '';
       const fallbackPass = settings?.portalPassword ?? '';
-      const raw = await sippy.getSippyActiveCalls(username, password, portalUrl, undefined, fallbackUser, fallbackPass);
+      const raw = await sippy.getSippyActiveCalls(username, password, portalUrl, undefined, fallbackUser, fallbackPass, true);
       // Map CC_STATE → callStatus; filter out terminated states
       const ccStateMap: Record<string, 'connected' | 'routing'> = {
         Connected:    'connected',
@@ -1756,10 +1766,30 @@ export async function registerRoutes(
             destFull:     dialMatch?.destination ?? null,
           };
         });
+
+      // Update cache logic:
+      //   - Non-zero result: always accept immediately, reset zero-counter.
+      //   - Zero result: only accept after ZERO_CONFIRM_COUNT consecutive zero polls
+      //     (guards against transient login failures that silently return []).
+      if (calls.length > 0) {
+        consecutiveZeros = 0;
+        liveCallsCache = { calls, ts: Date.now() };
+      } else {
+        consecutiveZeros++;
+        if (consecutiveZeros >= ZERO_CONFIRM_COUNT) {
+          liveCallsCache = { calls: [], ts: Date.now() };
+        }
+        // else: keep previous cache (could be a login-failure empty result)
+      }
+
       // connected=true tells the frontend that Sippy is reachable regardless of call count
-      res.json({ calls, connected: true });
+      const isStale = liveCallsCache.calls.length > 0 && calls.length === 0 && consecutiveZeros < ZERO_CONFIRM_COUNT;
+      res.json({ calls: liveCallsCache.calls, connected: true, stale: isStale });
     } catch (err: any) {
-      res.json({ calls: [], connected: false, error: err.message });
+      // Return cached data (with stale flag) so the dashboard keeps showing the
+      // last real count instead of dropping to 0 on a transient scrape failure.
+      const stale = Date.now() - liveCallsCache.ts > LIVE_CALLS_STALE_MS;
+      res.json({ calls: liveCallsCache.calls, connected: liveCallsCache.calls.length > 0, stale, error: err.message });
     }
   });
 

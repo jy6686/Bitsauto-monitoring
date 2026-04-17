@@ -305,6 +305,7 @@ async function sippyPost(
   body: string,
   username: string,
   password: string,
+  timeoutMs = 12000,
 ): Promise<{ statusCode: number; body: string }> {
   const parsed  = new URL(url);
   const uri     = parsed.pathname + (parsed.search || '');
@@ -325,7 +326,7 @@ async function sippyPost(
           'User-Agent':     'SippyAPI/1.0',
           ...extraHeaders,
         },
-        timeout: 12000,
+        timeout: timeoutMs,
         ...(isHttps ? { agent: lenientHttpsAgent, rejectUnauthorized: false } : {}),
       };
       let data = '';
@@ -1494,6 +1495,7 @@ export async function getSippyActiveCalls(
   filter?: SippyActiveCallsFilter,
   fallbackUsername?: string,   // alternate cred pair for admin portal login (handles DB swap)
   fallbackPassword?: string,
+  noNewLogin?: boolean,        // when true: never attempt a fresh portal login (avoids 48s timeout in polling routes)
 ): Promise<SippyActiveCall[]> {
   const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
   if (!base) return [];
@@ -1524,8 +1526,28 @@ export async function getSippyActiveCalls(
   if (filter?.node_id      !== undefined) reqParams.node_id      = filter.node_id;
 
   // ── Admin portal scrape — fallback when XML-RPC is auth-rejected ────────────
-  // Uses a cached portal session (5-min TTL) to avoid rate-limiting the portal.
+  // Priority: (1) reuse the already-established activeSession cookies so we never
+  // trigger a fresh login on every poll — Sippy rate-limits rapid logins.
+  // (2) fall back to getAnyPortalSession() (cached 5-min TTL) — but ONLY when
+  //     noNewLogin is false (e.g. one-off calls, not the high-frequency poll route).
   async function tryAdminPortalScrape(): Promise<SippyActiveCall[]> {
+    // Always prefer the established active-session cookies.
+    if (session?.cookies) {
+      console.log('[Sippy] listActiveCalls: XML-RPC restricted — scraping /activecalls.php (active session)');
+      const calls = await getPortalActiveCallsHtml(session.cookies, base);
+      if (calls.length > 0) return calls;
+      // If we got zero here AND noNewLogin is set, stop — never attempt a re-login.
+      if (noNewLogin) {
+        console.log('[Sippy] listActiveCalls: session returned 0 but noNewLogin set — returning empty');
+        return [];
+      }
+      // Otherwise fall through to re-login (session may have expired).
+    }
+    // Stop here if caller opted out of fresh logins (avoids 48s timeout in polling route).
+    if (noNewLogin) {
+      console.log('[Sippy] listActiveCalls: no active session + noNewLogin set — returning empty');
+      return [];
+    }
     const pairs: Array<[string, string]> = [];
     if (username && password) pairs.push([username, password]);
     if (fallbackUsername && fallbackPassword && fallbackUsername !== username)
@@ -1535,20 +1557,24 @@ export async function getSippyActiveCalls(
       console.log('[Sippy] listActiveCalls: admin portal login failed, returning empty list');
       return [];
     }
-    console.log(`[Sippy] listActiveCalls: XML-RPC restricted — scraping /activecalls.php (cached session)`);
+    console.log('[Sippy] listActiveCalls: XML-RPC restricted — scraping /activecalls.php (fresh session)');
     return getPortalActiveCallsHtml(cookies, base);
   }
 
   // Official methods: listActiveCalls (Connected/ARComplete/WaitRoute only) | listAllCalls (all states fallback)
   // Prefer listActiveCalls to avoid including Dead/Disconnecting/terminated calls in the live view.
+  // noNewLogin (polling) mode uses a 4-second timeout so the live-calls endpoint
+  // never blocks >5s between polls. Normal calls keep the 12-second default.
+  const xmlRpcTimeout = noNewLogin ? 4000 : 12000;
+
   for (const method of ['listActiveCalls', 'listAllCalls']) {
     try {
-      let resp = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), username, password);
+      let resp = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), username, password, xmlRpcTimeout);
 
       // HTTP auth rejection — try fallback credentials then portal scrape
       if (resp.statusCode === 401 || resp.statusCode === 403) {
         if (fallbackUsername && fallbackPassword && fallbackUsername !== username) {
-          const fb = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), fallbackUsername, fallbackPassword);
+          const fb = await sippyPost(apiUrl, xmlRpcCall(method, reqParams), fallbackUsername, fallbackPassword, xmlRpcTimeout);
           if (fb.statusCode === 200) {
             resp = fb;
           } else {
