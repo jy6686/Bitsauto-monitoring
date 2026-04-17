@@ -1165,6 +1165,23 @@ export async function registerRoutes(
 
       const results = await Promise.all([primaryTask, ...secondaryTasks]);
 
+      // Write lastSyncAt + lastSyncStatus back to each secondary switch record
+      const secondaryResults = results.filter(r => !r.isPrimary);
+      await Promise.all(
+        secondaryResults.map(r => {
+          const dbSwitch = secondarySwitches.find(s => String(s.id) === r.id);
+          if (!dbSwitch) return Promise.resolve();
+          return storage.updateSwitch(dbSwitch.id, {
+            lastSyncAt: new Date() as any,
+            lastSyncStatus: r.status === 'online'
+              ? `online · ${r.activeCalls} active calls · ASR ${r.asr}%`
+              : r.status === 'error'
+              ? `error: ${r.error ?? 'unknown'}`
+              : r.status === 'offline' ? 'offline (disabled)' : 'unconfigured',
+          });
+        })
+      );
+
       const online = results.filter(r => r.status === 'online');
       const aggregate = {
         totalActiveCalls: results.reduce((s, r) => s + r.activeCalls, 0),
@@ -1195,6 +1212,11 @@ export async function registerRoutes(
         return res.json({ success: false, message: 'Incomplete credentials — fill in URL, username, and password.' });
 
       const result = await sippy.connectSippy(sw.portalUrl, sw.portalUsername, sw.portalPassword);
+      // Write lastSyncAt + lastSyncStatus back so "Last Sync" column updates in the UI
+      await storage.updateSwitch(sw.id, {
+        lastSyncAt: new Date() as any,
+        lastSyncStatus: result.success ? 'test OK — connection verified' : `test failed: ${result.message}`,
+      });
       res.json(result);
     } catch (err: any) {
       res.json({ success: false, message: err.message });
