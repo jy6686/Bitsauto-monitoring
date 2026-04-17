@@ -283,3 +283,50 @@ export function countryLabel(number: string): string {
   const info = lookupCountry(number);
   return info ? `${info.flag} ${info.name}` : "Unknown";
 }
+
+// Routing class prefixes used in Sippy CLD (first digit = service class).
+const CLD_CLASS_MAP: Record<string, { label: string; color: string }> = {
+  '1': { label: 'First',    color: 'text-blue-400 bg-blue-500/10' },
+  '2': { label: 'Business', color: 'text-violet-400 bg-violet-500/10' },
+  '6': { label: 'Bravo',    color: 'text-amber-400 bg-amber-500/10' },
+  '7': { label: 'Charlie',  color: 'text-orange-400 bg-orange-500/10' },
+};
+
+export interface CLDInfo {
+  country: CountryInfo | null;
+  trunkClass: { label: string; color: string } | null;
+  trunkPrefix: string | null;
+}
+
+/**
+ * Lookup for Sippy CLD (Called Line ID).
+ * Strips the leading routing-class digit (1/2/6/7) from 11+ digit numbers
+ * before resolving the country, and returns the trunk class info separately.
+ */
+export function lookupCLD(number: string | null | undefined): CLDInfo {
+  const empty: CLDInfo = { country: null, trunkClass: null, trunkPrefix: null };
+  if (!number) return empty;
+  const digits = normalizeDigits(number);
+  if (!digits) return empty;
+
+  const lead = digits.charAt(0);
+  const cls = CLD_CLASS_MAP[lead] ?? null;
+
+  if (cls && digits.length >= 11) {
+    // Strip the class prefix and look up the real destination country
+    const stripped = digits.slice(1);
+    const country = doLookup(stripped);
+    return { country, trunkClass: cls, trunkPrefix: lead };
+  }
+
+  // No class prefix detected — do a normal lookup
+  return { country: lookupCountry(number), trunkClass: null, trunkPrefix: null };
+}
+
+function doLookup(digits: string): CountryInfo | null {
+  for (const len of [4, 3, 2, 1]) {
+    const prefix = digits.slice(0, len);
+    if (PREFIX_MAP[prefix]) return PREFIX_MAP[prefix];
+  }
+  return null;
+}

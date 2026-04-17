@@ -7,7 +7,18 @@ export interface DialMatch {
   country: string;
   breakout: string;
   destination: string;
+  trunkClass?: string;      // routing class label (First Class / Business Class / Bravo / Charlie)
+  trunkPrefix?: string;     // the leading class digit that was stripped ('1'|'2'|'6'|'7')
 }
+
+// Routing class prefixes: the first digit of the CLD encodes the service class.
+// Strip it to reveal the real E.164 country code.
+const TRUNK_CLASS_MAP: Record<string, string> = {
+  '1': 'First Class Wholesale',
+  '2': 'Business Class Wholesale',
+  '6': 'Special Bravo',
+  '7': 'Special Charlie',
+};
 
 interface RawEntry { c: string; k: string; b: string; }
 
@@ -35,15 +46,29 @@ export function lookupDialCode(number: string | number | null | undefined): Dial
   if (!digits) return null;
   const entries = getEntries();
 
+  // Try direct match first (handles genuine E.164 numbers without class prefix)
   const primary = searchEntries(digits, entries);
   if (primary) return primary;
 
-  // No direct match — Sippy may have prepended a route-prefix "1" (NANP-style) to any
-  // non-NANP destination. Since this lookup DB contains no NANP entries, strip the
-  // leading "1" for any 11+ digit number starting with "1" and retry.
-  if (digits.startsWith('1') && digits.length >= 11) {
-    const alt = searchEntries(digits.slice(1), entries);
-    if (alt) return alt;
+  // Class-prefix stripping:
+  // The first digit of the CLD encodes the Sippy routing/service class:
+  //   1 → First Class Wholesale
+  //   2 → Business Class Wholesale
+  //   6 → Special Bravo
+  //   7 → Special Charlie
+  // Numbers with these prefixes are 11+ digits; stripping the first digit reveals
+  // the real E.164 country code.  (e.g. "1923..." → strip → "923..." = Pakistan +92)
+  const leadDigit = digits.charAt(0);
+  if (leadDigit in TRUNK_CLASS_MAP && digits.length >= 11) {
+    const stripped = digits.slice(1);
+    const alt = searchEntries(stripped, entries);
+    if (alt) {
+      return {
+        ...alt,
+        trunkClass:  TRUNK_CLASS_MAP[leadDigit],
+        trunkPrefix: leadDigit,
+      };
+    }
   }
   return null;
 }

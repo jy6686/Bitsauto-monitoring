@@ -11,7 +11,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, Legend,
 } from 'recharts';
 import { BseTooltip, BSE_GRID_PROPS, BSE_AXIS_PROPS, BSE_CURSOR, bseActiveDot } from "@/components/bse-chart";
-import { lookupCountry } from "@/lib/country-lookup";
+import { lookupCountry, lookupCLD } from "@/lib/country-lookup";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation, useSearch } from "wouter";
@@ -57,6 +57,8 @@ interface LiveCall {
   destCountry?:  string | null;
   destBreakout?: string | null;
   destFull?:     string | null;
+  trunkClass?:   string | null;   // e.g. "First Class Wholesale"
+  trunkPrefix?:  string | null;   // '1' | '2' | '6' | '7'
 }
 
 // Direction display config
@@ -161,7 +163,8 @@ function buildSummary(calls: LiveCall[]): SummaryRow[] {
     if (!client && c.connection) client = c.connection;
     if (!client) client = c.callStatus === 'routing' ? 'Routing Traffic' : 'Unknown';
 
-    const dest = lookupCountry(c.callee);
+    const destInfo = lookupCLD(c.callee);
+    const dest = destInfo.country;
     const country = dest?.name ?? (c.callee && c.callee !== '-' ? 'Intl' : 'Unknown');
     const flag = dest?.flag ?? '🌐';
     const key = `${client}||${country}`;
@@ -728,13 +731,10 @@ function SwitchPanel({
                     <tbody className="divide-y divide-border/30">
                       {displayed.map((call, i) => {
                         const origCountry = call.caller ? lookupCountry(call.caller) : null;
-                        const destCountry = call.callee ? lookupCountry(call.callee) : null;
+                        const cldInfo    = lookupCLD(call.callee);
+                        const destCountry = cldInfo.country;
                         const serverDest = call.destFull || call.destCountry || null;
-                        const acctFirst = String(call.accountId || '').charAt(0);
-                        const trunkClass = acctFirst === '1' ? { label: 'First',    color: 'text-blue-400 bg-blue-500/10' }
-                          : acctFirst === '2' ? { label: 'Business', color: 'text-violet-400 bg-violet-500/10' }
-                          : acctFirst === '7' ? { label: 'Charlie',  color: 'text-orange-400 bg-orange-500/10' }
-                          : null;
+                        const trunkClass = cldInfo.trunkClass;
                         const rowKey = call.id || String(i);
                         const isExpanded = expandedCallId === rowKey;
                         const dirStyle = call.direction ? DIRECTION_STYLE[call.direction] : null;
@@ -774,13 +774,13 @@ function SwitchPanel({
                             ) : <span className="text-muted-foreground/30">—</span>}
                           </td>
                           <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-dest-country-${i}`}>
-                            {serverDest ? (
-                              <span className="text-cyan-300/80 font-medium text-[11px]">{call.destCountry || destCountry?.name || serverDest}</span>
-                            ) : destCountry ? (
-                              <span className="flex items-center gap-1">
+                            {destCountry ? (
+                              <span className="flex items-center gap-1 text-[11px]">
                                 <span>{destCountry.flag}</span>
-                                {destCountry.name}
+                                <span className="font-medium text-cyan-300/90">{destCountry.name}</span>
                               </span>
+                            ) : serverDest ? (
+                              <span className="text-cyan-300/80 font-medium text-[11px]">{call.destCountry || serverDest}</span>
                             ) : <span className="text-muted-foreground/30">—</span>}
                           </td>
                           <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-breakout-${i}`}>

@@ -1764,6 +1764,8 @@ export async function registerRoutes(
             destCountry:  dialMatch?.country  ?? null,
             destBreakout: dialMatch?.breakout ?? null,
             destFull:     dialMatch?.destination ?? null,
+            trunkClass:   dialMatch?.trunkClass  ?? null,
+            trunkPrefix:  dialMatch?.trunkPrefix ?? null,
           };
         });
 
