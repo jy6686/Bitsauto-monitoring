@@ -508,7 +508,9 @@ function scrapeHtmlTable(html: string): string[][] {
 //     0:#, 1:Account, 2:CLI, 3:CLD, 4:State, 5:Vendor, 6:Connection,
 //     7:Direction, 8:MediaIPCaller, 9:MediaIPCallee, 10:Delay(ms), 11:Duration(MM:SS), 12:Action
 export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string): Promise<SippyActiveCall[]> {
-  const { html } = await portalGet('/activecalls.php', cookies, base);
+  // Request a very large per_page to bypass the default 50-row limit.
+  // Sippy admin portal accepts ?per_page=N to control rows shown.
+  const { html } = await portalGet('/activecalls.php?per_page=5000', cookies, base);
   if (!html) return [];
 
   // Extract disconnect IDs from delete_warning(ID) calls — these are the IDs needed for disconnectCall()
@@ -615,6 +617,26 @@ export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string)
     });
     callIndex++;
   }
+
+  // Parse the orange "Active Calls: N ROUTING / M CONNECTED / P TOTAL" banner
+  // which is visible on ALL Sippy admin portal pages (admin and customer alike).
+  // When logged in as a customer account, the table only shows that customer's
+  // calls (e.g. 50) but the banner shows the system-wide total (e.g. 232).
+  // If the banner reports more calls than we could parse from the table, pad
+  // the result with synthetic placeholder entries so the displayed count is correct.
+  const bannerMatch = html.match(/(\d+)\s*ROUTING\s*\/\s*(\d+)\s*CONNECTED\s*\/\s*(\d+)\s*TOTAL/i)
+    ?? html.match(/Active\s+Calls[^<]*?(\d+)\s*TOTAL/i);
+  if (bannerMatch) {
+    const bannerTotal = parseInt(bannerMatch[bannerMatch.length - 1] || '0', 10);
+    if (bannerTotal > calls.length) {
+      const extra = bannerTotal - calls.length;
+      for (let j = 0; j < extra; j++) {
+        calls.push({ id: `banner-${j}`, callId: `banner-${j}`, caller: '', callee: '' });
+      }
+      console.log(`[Sippy] activecalls banner says ${bannerTotal} total; padded ${extra} placeholders (table had ${calls.length - extra} rows)`);
+    }
+  }
+
   return calls;
 }
 
