@@ -361,7 +361,15 @@ export default function DashboardPage() {
   // activeCalls + PDD come from /api/sippy/live-calls (5-second poll) — NOT dashboard-stats,
   // to avoid concurrent XML-RPC requests that throttle Sippy and break the Live Calls page.
   const displayActiveCalls = anyPortalActive ? liveCalls.length : (stats?.activeCalls ?? 0);
-  const displayAsr = anyPortalActive ? (sippyStats?.asr ?? 0) : (stats?.asr ?? 0);
+
+  // Live connection-rate ASR: when CDR-based ASR is 0 but we have live calls,
+  // estimate ASR from connected/(connected+routing) ratio as a proxy.
+  const liveConnected = liveCalls.filter((c: any) => c.callStatus === 'connected').length;
+  const liveTotal     = liveCalls.length;
+  const liveAsrEstimate = liveTotal > 0 ? Math.round(liveConnected / liveTotal * 1000) / 10 : 0;
+  const rawAsr = anyPortalActive ? (sippyStats?.asr ?? 0) : (stats?.asr ?? 0);
+  const displayAsr = rawAsr > 0 ? rawAsr : (anyPortalActive && liveAsrEstimate > 0 ? liveAsrEstimate : 0);
+  const asrIsLiveEstimate = rawAsr === 0 && anyPortalActive && liveAsrEstimate > 0;
   // ACD: Sippy returns seconds; format for display separately
   const displayAcd = anyPortalActive ? (sippyStats?.acd ?? 0) : (stats?.acd ?? 0);
   const displayPdd = anyPortalActive
@@ -542,7 +550,7 @@ export default function DashboardPage() {
               value={notConnected ? '—' : `${displayAsr.toFixed(1)}%`}
               icon={BarChart2}
               className={displayAsr >= 30 ? 'border-emerald-500/20' : displayAsr > 0 ? 'border-amber-500/20' : 'border-rose-500/20'}
-              description="Answer-Seizure Ratio"
+              description={asrIsLiveEstimate ? 'Live connection rate (CDR API pending)' : 'Answer-Seizure Ratio'}
             />
             {/* Traffic Score */}
             <div className={cn("bg-card border rounded-xl p-5 shadow-lg relative overflow-hidden group hover:border-opacity-60 transition-all duration-300", scoreBorder)}>
@@ -700,7 +708,11 @@ export default function DashboardPage() {
                 {chartData.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
                     <Activity className="w-8 h-8 opacity-30" />
-                    <p className="text-sm">{notConnected ? 'Connect to softswitch to see live trends.' : 'Loading trend data…'}</p>
+                    <p className="text-sm text-center">
+                      {notConnected
+                        ? 'Connect to softswitch to see live trends.'
+                        : 'CDR monitoring data unavailable — requires XML-RPC API access.'}
+                    </p>
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
@@ -910,7 +922,14 @@ export default function DashboardPage() {
             )}
           </div>
           <p className="text-muted-foreground text-sm mt-1">
-            Sippy Softswitch · iEnvironment=5 · <span className="font-mono text-xs">{sippySession?.username ?? 'not connected'}</span>
+            Sippy Softswitch · iEnvironment=5 ·{' '}
+            <span className="font-mono text-xs">
+              {sippySession?.username
+                ? sippySession.username
+                : anyPortalActive
+                  ? (sippySession?.mode === 'portal' ? 'portal session' : 'connected')
+                  : 'not connected'}
+            </span>
             {anyPortalActive && secsAgo < 60 && (
               <span className="ml-2 text-muted-foreground/60">· refreshed {secsAgo}s ago</span>
             )}
@@ -1444,7 +1463,16 @@ export default function DashboardPage() {
             {chartData.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
                 <Activity className="w-8 h-8 opacity-30" />
-                <p className="text-sm">{notConnected ? 'Connect to softswitch to see live trends.' : 'Loading trend data…'}</p>
+                <p className="text-sm text-center">
+                  {notConnected
+                    ? 'Connect to softswitch to see live trends.'
+                    : 'CDR monitoring data unavailable — requires XML-RPC API access.'}
+                </p>
+                {!notConnected && (
+                  <p className="text-xs text-muted-foreground/60 text-center max-w-xs">
+                    Set the correct API Password in Settings to enable historical trend charts.
+                  </p>
+                )}
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">

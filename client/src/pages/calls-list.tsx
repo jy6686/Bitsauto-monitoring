@@ -154,9 +154,15 @@ function IpInfoBadge({ ip, color = 'blue' }: { ip: string; color?: 'blue' | 'gre
 function buildSummary(calls: LiveCall[]): SummaryRow[] {
   const map = new Map<string, SummaryRow>();
   for (const c of calls) {
-    const client = c.clientName || c.caller || 'Unknown';
+    // Resolve client label — try multiple fallbacks before giving up
+    let client = c.clientName;
+    if (!client && c.caller && c.caller !== '-') client = c.caller;
+    if (!client && c.vendor) client = c.vendor;
+    if (!client && c.connection) client = c.connection;
+    if (!client) client = c.callStatus === 'routing' ? 'Routing Traffic' : 'Unknown';
+
     const dest = lookupCountry(c.callee);
-    const country = dest?.name ?? 'Unknown';
+    const country = dest?.name ?? (c.callee && c.callee !== '-' ? 'Intl' : 'Unknown');
     const flag = dest?.flag ?? '🌐';
     const key = `${client}||${country}`;
     if (!map.has(key)) {
