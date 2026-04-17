@@ -561,16 +561,39 @@ export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string)
   const rows = scrapeHtmlTable(html);
   const calls: SippyActiveCall[] = [];
 
+  // Parse the orange "Active Calls: N ROUTING / M CONNECTED / P TOTAL" banner FIRST,
+  // before any early returns, so we always have the system-wide total available.
+  const bannerMatch = html.match(/(\d+)\s*ROUTING\s*\/\s*(\d+)\s*CONNECTED\s*\/\s*(\d+)\s*TOTAL/i)
+    ?? html.match(/Active\s+Calls[^<]*?(\d+)\s*TOTAL/i);
+  const bannerTotal = bannerMatch ? parseInt(bannerMatch[bannerMatch.length - 1] || '0', 10) : -1;
+
   // Locate the main data table header row that contains 'Caller','CLI','CLD','State' all together
   let headerRow = -1;
   for (let i = 0; i < rows.length; i++) {
     const lower = rows[i].map(c => c.toLowerCase().trim());
-    if (lower.includes('cli') && lower.includes('cld') && lower.includes('state') && lower.includes('duration')) {
+    const hasCli = lower.includes('cli');
+    const hasCld = lower.includes('cld');
+    const hasState = lower.includes('state');
+    const hasDurOrTime = lower.includes('duration') || lower.includes('dur') || lower.includes('time');
+    if (hasCli && hasCld && hasState && hasDurOrTime) {
       headerRow = i;
       break;
     }
   }
-  if (headerRow < 0) return calls;
+
+  if (headerRow < 0) {
+    // Table header format not recognised. Log first row for diagnostics.
+    const firstRowPreview = JSON.stringify(rows[0] ?? []);
+    console.log(`[Sippy] activecalls table header not found at ${base} — html=${html.length}B rows=${rows.length} firstRow=${firstRowPreview}`);
+    if (bannerTotal > 0) {
+      // Banner is present and readable — use it as the authoritative call count.
+      console.log(`[Sippy] activecalls banner says ${bannerTotal} total at ${base} — returning synthetic entries`);
+      for (let j = 0; j < bannerTotal; j++) {
+        calls.push({ id: `banner-${j}`, callId: `banner-${j}`, caller: '', callee: '' });
+      }
+    }
+    return calls;
+  }
 
   // Known hardcoded column indices for Sippy admin activecalls.php (confirmed from live HTML).
   // Data rows have 13 cells; header has 12 (Media IP uses colspan=2 → shifts everything after index 8).
@@ -639,24 +662,15 @@ export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string)
     callIndex++;
   }
 
-  // Parse the orange "Active Calls: N ROUTING / M CONNECTED / P TOTAL" banner
-  // which is visible on ALL Sippy admin portal pages (admin and customer alike).
-  // When logged in as a customer account, the table only shows that customer's
-  // calls (e.g. 50) but the banner shows the system-wide total (e.g. 232).
-  // If the banner reports more calls than we could parse from the table, pad
-  // the result with synthetic placeholder entries so the displayed count is correct.
-  const bannerMatch = html.match(/(\d+)\s*ROUTING\s*\/\s*(\d+)\s*CONNECTED\s*\/\s*(\d+)\s*TOTAL/i)
-    ?? html.match(/Active\s+Calls[^<]*?(\d+)\s*TOTAL/i);
-  if (bannerMatch) {
-    const bannerTotal = parseInt(bannerMatch[bannerMatch.length - 1] || '0', 10);
-    if (bannerTotal > calls.length) {
-      const extra = bannerTotal - calls.length;
-      for (let j = 0; j < extra; j++) {
-        calls.push({ id: `banner-${j}`, callId: `banner-${j}`, caller: '', callee: '' });
-      }
-      console.log(`[Sippy] activecalls banner says ${bannerTotal} total; padded ${extra} placeholders (table had ${calls.length - extra} rows)`);
+  // bannerTotal was parsed at the top of this function (before any early returns).
+  // Use it to pad the result when the table was paginated or partially shown.
+  if (bannerTotal > calls.length) {
+    const extra = bannerTotal - calls.length;
+    for (let j = 0; j < extra; j++) {
+      calls.push({ id: `banner-${j}`, callId: `banner-${j}`, caller: '', callee: '' });
     }
-  } else {
+    console.log(`[Sippy] activecalls banner says ${bannerTotal} total; padded ${extra} placeholders (table had ${calls.length - extra} rows)`);
+  } else if (bannerTotal < 0) {
     console.log(`[Sippy] activecalls banner NOT found in HTML from ${base} (table rows=${calls.length})`);
   }
 
