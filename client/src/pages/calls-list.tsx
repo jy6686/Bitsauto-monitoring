@@ -1648,7 +1648,7 @@ function SwitchPanel({
                         <span className="text-xs text-muted-foreground">— average setup latency per route per hour</span>
                       </div>
                       <div className="h-52">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height={208}>
                           <LineChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 4 }}>
                             <CartesianGrid {...BSE_GRID_PROPS} />
                             <XAxis dataKey="hour" {...BSE_AXIS_PROPS} />
@@ -1678,7 +1678,7 @@ function SwitchPanel({
                         <span className="text-xs text-muted-foreground">— concurrent calls captured per hour per route</span>
                       </div>
                       <div className="h-44">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height={176}>
                           <BarChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 4 }} barGap={2}>
                             <CartesianGrid {...BSE_GRID_PROPS} />
                             <XAxis dataKey="hour" {...BSE_AXIS_PROPS} />

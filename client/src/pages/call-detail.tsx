@@ -80,7 +80,7 @@ export default function CallDetailPage() {
             Technical Metrics
           </h3>
           <div className="h-[350px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={350}>
               <LineChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
                 <CartesianGrid {...BSE_GRID_PROPS} />
                 <XAxis dataKey="time" {...BSE_AXIS_PROPS} />

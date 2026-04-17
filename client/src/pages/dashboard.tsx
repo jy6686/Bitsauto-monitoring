@@ -716,7 +716,7 @@ export default function DashboardPage() {
                     </p>
                   </div>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={260}>
                     <ComposedChart data={chartData} margin={{ top: 6, right: 40, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorAsrGV" x1="0" y1="0" x2="0" y2="1">
@@ -1501,7 +1501,7 @@ export default function DashboardPage() {
                 )}
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={260}>
                 <ComposedChart data={chartData} margin={{ top: 6, right: 40, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorAsrG" x1="0" y1="0" x2="0" y2="1">
@@ -1672,7 +1672,7 @@ export default function DashboardPage() {
             <div className="p-4">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Reason Breakdown</p>
               <div className="h-[140px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={140}>
                   <BarChart data={fasBarData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barCategoryGap="30%">
                     <CartesianGrid {...BSE_GRID_PROPS} />
                     <XAxis dataKey="name" {...BSE_AXIS_PROPS} />

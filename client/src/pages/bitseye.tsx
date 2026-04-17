@@ -209,7 +209,7 @@ function LargeChart({
       ) : (
         <div style={{ position: 'relative', width: '100%', height: 188 }}>
           <div style={{ position: 'absolute', inset: 0 }}>
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={188}>
               <AreaChart data={data} margin={{ top: 6, right: 4, left: -24, bottom: 0 }}>
                 <defs>
                   <linearGradient id={gradientA} x1="0" y1="0" x2="0" y2="1">
