@@ -202,16 +202,14 @@ function SippyClientBrowser() {
   const [search, setSearch] = useState('');
   const [rateSearch, setRateSearch] = useState('');
 
-  const { data, isLoading, refetch } = useQuery<{ tariffs: SippyTariffRow[] }>({
+  const { data: tariffRaw = [], isLoading, refetch } = useQuery<SippyTariff[]>({
     queryKey: ['/api/sippy/tariffs'],
-    queryFn: () => fetch('/api/sippy/tariffs').then(r => r.json()).then(d =>
-      Array.isArray(d?.tariffs) ? d : { tariffs: Array.isArray(d) ? d : [] }
-    ),
+    queryFn: () => fetch('/api/sippy/tariffs').then(r => r.json()).then(d => Array.isArray(d) ? d : Array.isArray(d?.tariffs) ? d.tariffs : []),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
-  const tariffs: SippyTariffRow[] = (data?.tariffs ?? []).map((t: any) => ({
+  const tariffs: SippyTariffRow[] = tariffRaw.map((t: any) => ({
     iTariff: t.iTariff ?? t.id,
     name: t.name,
     currency: t.currency ?? 'USD',
