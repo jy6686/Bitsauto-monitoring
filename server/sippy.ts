@@ -93,8 +93,9 @@ let activeSession: SippySession | null = null;
 //   adminPortalCache — used by getSippyPerAccountStats; accepts only admin/reseller (for vendor data)
 // TTL = 5 minutes each, to avoid rate-limiting the Sippy portal.
 const PORTAL_SESSION_TTL_MS = 5 * 60_000;
-let anyPortalCache:   { cookies: CookieJar; expiresAt: number } | null = null;
-let adminPortalCache: { cookies: CookieJar; expiresAt: number } | null = null;
+// Keyed by base URL so sessions for different switches never cross-contaminate.
+const anyPortalCacheByUrl   = new Map<string, { cookies: CookieJar; expiresAt: number }>();
+const adminPortalCacheByUrl = new Map<string, { cookies: CookieJar; expiresAt: number }>();
 
 // Get any valid portal session (used by listActiveCalls portal scraping fallback)
 async function getAnyPortalSession(
@@ -102,18 +103,19 @@ async function getAnyPortalSession(
   ...pairs: Array<[string, string]>
 ): Promise<CookieJar | null> {
   const now = Date.now();
-  if (anyPortalCache && anyPortalCache.expiresAt > now) return anyPortalCache.cookies;
+  const cached = anyPortalCacheByUrl.get(base);
+  if (cached && cached.expiresAt > now) return cached.cookies;
   for (const [u, p] of pairs) {
     for (const acctType of ['admin', 'reseller', 'customer'] as const) {
       const res = await portalLogin(base, u, p, acctType);
       if (res.success) {
-        anyPortalCache = { cookies: res.cookies, expiresAt: now + PORTAL_SESSION_TTL_MS };
-        console.log(`[Sippy] portal session cached (any) as ${u}/${acctType}`);
+        anyPortalCacheByUrl.set(base, { cookies: res.cookies, expiresAt: now + PORTAL_SESSION_TTL_MS });
+        console.log(`[Sippy] portal session cached (any) as ${u}/${acctType} @ ${base}`);
         return res.cookies;
       }
     }
   }
-  anyPortalCache = null;
+  anyPortalCacheByUrl.delete(base);
   return null;
 }
 
@@ -126,7 +128,8 @@ async function getAdminPortalSession(
   portalUser: string, portalPass: string,
 ): Promise<CookieJar | null> {
   const now = Date.now();
-  if (adminPortalCache && adminPortalCache.expiresAt > now) return adminPortalCache.cookies;
+  const cached = adminPortalCacheByUrl.get(base);
+  if (cached && cached.expiresAt > now) return cached.cookies;
   // Try admin+reseller types only — customer login gives wrong vendor amounts
   const pairs = [[adminUser, adminPass], [portalUser, portalPass]] as [string, string][];
   const failures: string[] = [];
@@ -135,15 +138,15 @@ async function getAdminPortalSession(
     for (const acctType of ['admin', 'reseller'] as const) {
       const res = await portalLogin(base, u, p, acctType);
       if (res.success) {
-        adminPortalCache = { cookies: res.cookies, expiresAt: now + PORTAL_SESSION_TTL_MS };
-        console.log(`[Sippy] admin portal session cached as ${u}/${acctType}`);
+        adminPortalCacheByUrl.set(base, { cookies: res.cookies, expiresAt: now + PORTAL_SESSION_TTL_MS });
+        console.log(`[Sippy] admin portal session cached as ${u}/${acctType} @ ${base}`);
         return res.cookies;
       }
       failures.push(`${u}/${acctType}: ${res.message}`);
     }
   }
   console.log('[Sippy] getAdminPortalSession: no admin/reseller login worked:', failures.slice(0,4).join(' | '));
-  adminPortalCache = null;
+  adminPortalCacheByUrl.delete(base);
   return null;
 }
 
