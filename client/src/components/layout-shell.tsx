@@ -596,7 +596,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
               {/* Collapsible groups */}
               {SIDEBAR_GROUPS.map(group => {
-                if (!group.roles.includes(role)) return null;
                 const visibleItems = group.items.filter(isItemVisible);
                 if (visibleItems.length === 0) return null;
                 const isOpen = isGroupOpen(group.key);
@@ -769,7 +768,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
                 {/* Mobile: groups with section labels */}
                 {SIDEBAR_GROUPS.map(group => {
-                  if (!group.roles.includes(role)) return null;
                   const visibleItems = group.items.filter(isItemVisible);
                   if (visibleItems.length === 0) return null;
                   return (
