@@ -10296,6 +10296,23 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/sippy/tariff-rates?iTariff=N — full rate list for a tariff
+  app.get('/api/sippy/tariff-rates', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.json({ rates: [] });
+      const portalUrl = sippyPortalUrl(settings);
+      const pairs = sippyXmlCredsPairs(settings);
+      const { username, password } = pairs[0];
+      const iTariff = Number(req.query.iTariff);
+      if (!iTariff) return res.status(400).json({ rates: [], error: 'iTariff required' });
+      const result = await sippy.getSippyRateList(username, password, String(iTariff), portalUrl);
+      res.json({ rates: result.rates ?? [], error: result.error });
+    } catch (e: any) {
+      res.status(500).json({ rates: [], error: e.message });
+    }
+  });
+
   app.get('/api/rate-cards/:id/entries', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (req, res) => {
     const entries = await storage.getRateCardEntries(Number(req.params.id));
     res.json(entries);

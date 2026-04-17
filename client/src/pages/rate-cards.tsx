@@ -6,7 +6,8 @@ import {
   CreditCard, Upload, Trash2, RefreshCw, Plus, FileText,
   ChevronDown, ChevronRight, PenLine, Download, Send,
   CheckCircle, XCircle, AlertTriangle, Loader2, ShieldCheck,
-  Building2, Wallet, Database, MapPin, ScanSearch,
+  Building2, Wallet, Database, MapPin, ScanSearch, Globe,
+  Search, ArrowUpDown, Ban, Package,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+
+// ── Types ──────────────────────────────────────────────────────────────────────
 
 type RateCard = {
   id: number;
@@ -43,27 +46,13 @@ type ClientProfile = { id: number; name: string; type: string };
 type SippyTariff   = { iTariff: number; name: string; currency?: string; iTariffType?: number };
 
 type RateCardContextClient = {
-  iCustomer: number;
-  name: string;
-  baseCurrency: string;
-  iTariff: number | null;
-  tariffName: string | null;
-  tariffCurrency: string | null;
+  iCustomer: number; name: string; baseCurrency: string;
+  iTariff: number | null; tariffName: string | null; tariffCurrency: string | null;
 };
-type RateCardContextDestSet = {
-  iDestinationSet: number;
-  name: string;
-  currency: string;
-};
-type RateCardContextVendor = {
-  iVendor: number;
-  name: string;
-  baseCurrency: string | null;
-};
+type RateCardContextDestSet = { iDestinationSet: number; name: string; currency: string };
+type RateCardContextVendor  = { iVendor: number; name: string; baseCurrency: string | null };
 type RateCardContext = {
-  clients: RateCardContextClient[];
-  destSets: RateCardContextDestSet[];
-  vendors: RateCardContextVendor[];
+  clients: RateCardContextClient[]; destSets: RateCardContextDestSet[]; vendors: RateCardContextVendor[];
 };
 
 type PushJob = {
@@ -71,28 +60,351 @@ type PushJob = {
   pushed: number; failed: number; total: number;
   startedAt: string; message?: string;
 };
-
 type VerifyResult = {
   localTotal: number; sippyFetched: number;
   matched: number; mismatched: number; localOnly: number; sippyOnly: number;
   mismatchSample: { prefix: string; local: number; sippy: number; match: boolean }[];
 };
 
+// Sippy live types
+type SippyTariffRow  = { iTariff: number; name: string; currency: string };
+type SippyDestSetRow = { iDestinationSet: number; name: string; currency: string };
+type SippyRate       = { prefix: string; destination: string; rate: number; effectiveFrom: string; effectiveTill: string };
+type SippyRoute      = {
+  prefix: string; price1: number | null; priceN: number | null;
+  interval1: number | null; intervalN: number | null; forbidden: boolean | null;
+  activationDate: string | null; expirationDate: string | null;
+};
+
 const CUSTOM_VENDOR = "__custom__";
 
-// ── Main Page ──────────────────────────────────────────────────────────────
+// ── Sippy Tariff Rate Row (lazy loaded) ───────────────────────────────────────
+function TariffRatesPanel({ iTariff, search }: { iTariff: number; search: string }) {
+  const { data, isLoading, error } = useQuery<{ rates: SippyRate[]; error?: string }>({
+    queryKey: ['/api/sippy/tariff-rates', iTariff],
+    queryFn: () => fetch(`/api/sippy/tariff-rates?iTariff=${iTariff}`).then(r => r.json()),
+    staleTime: 5 * 60 * 1000,
+  });
+  const q = search.trim().toLowerCase();
+  const rates = (data?.rates ?? []).filter(r =>
+    !q || r.prefix.startsWith(q) || r.destination.toLowerCase().includes(q)
+  );
+  if (isLoading) return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground py-4 px-4">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />Loading rates from Sippy…
+    </div>
+  );
+  if (data?.error) return (
+    <div className="px-4 py-3 text-xs text-red-400 flex items-center gap-2">
+      <XCircle className="h-3.5 w-3.5" />{data.error}
+    </div>
+  );
+  if (!rates.length) return (
+    <div className="px-4 py-3 text-xs text-muted-foreground">{q ? 'No rates match the search.' : 'No rates in this tariff.'}</div>
+  );
+  return (
+    <div className="overflow-x-auto max-h-72 overflow-y-auto">
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 bg-background/95 backdrop-blur-sm">
+          <tr className="text-muted-foreground border-b border-amber-500/10">
+            <th className="px-4 py-1.5 text-left font-medium">Prefix</th>
+            <th className="px-4 py-1.5 text-left font-medium">Destination</th>
+            <th className="px-4 py-1.5 text-right font-medium">Rate/min</th>
+            <th className="px-4 py-1.5 text-left font-medium">Effective From</th>
+            <th className="px-4 py-1.5 text-left font-medium">Effective Till</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rates.map((r, i) => (
+            <tr key={i} className="border-b border-amber-500/5 hover:bg-amber-500/5 transition-colors">
+              <td className="px-4 py-1.5 font-mono">{r.prefix}</td>
+              <td className="px-4 py-1.5 text-muted-foreground">{r.destination || '—'}</td>
+              <td className="px-4 py-1.5 text-right font-mono text-amber-300">{r.rate.toFixed(4)}</td>
+              <td className="px-4 py-1.5 text-muted-foreground">{r.effectiveFrom || '—'}</td>
+              <td className="px-4 py-1.5 text-muted-foreground">{r.effectiveTill || 'No expiry'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="px-4 py-1.5 text-xs text-muted-foreground border-t border-amber-500/10">
+        {rates.length} rate{rates.length !== 1 ? 's' : ''}{q ? ` matching "${q}"` : ''} {data && data.rates.length > rates.length ? `(filtered from ${data.rates.length})` : ''}
+      </div>
+    </div>
+  );
+}
+
+// ── Sippy Destination Set Routes Panel (lazy loaded) ─────────────────────────
+function DestSetRoutesPanel({ iDestinationSet, search }: { iDestinationSet: number; search: string }) {
+  const { data, isLoading } = useQuery<{ success: boolean; list: SippyRoute[]; message?: string }>({
+    queryKey: ['/api/sippy/destination-sets', iDestinationSet, 'routes'],
+    queryFn: () => fetch(`/api/sippy/destination-sets/${iDestinationSet}/routes`).then(r => r.json()),
+    staleTime: 5 * 60 * 1000,
+  });
+  const q = search.trim().toLowerCase();
+  const routes = (data?.list ?? []).filter(r => !q || r.prefix.startsWith(q));
+  if (isLoading) return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground py-4 px-4">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />Loading routes from Sippy…
+    </div>
+  );
+  if (data && !data.success && !data.list?.length) return (
+    <div className="px-4 py-3 text-xs text-red-400 flex items-center gap-2">
+      <XCircle className="h-3.5 w-3.5" />{data.message || 'Failed to load routes'}
+    </div>
+  );
+  if (!routes.length) return (
+    <div className="px-4 py-3 text-xs text-muted-foreground">{q ? 'No routes match the search.' : 'No routes in this destination set.'}</div>
+  );
+  return (
+    <div className="overflow-x-auto max-h-72 overflow-y-auto">
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 bg-background/95 backdrop-blur-sm">
+          <tr className="text-muted-foreground border-b border-cyan-500/10">
+            <th className="px-4 py-1.5 text-left font-medium">Prefix</th>
+            <th className="px-4 py-1.5 text-right font-medium">Rate/min</th>
+            <th className="px-4 py-1.5 text-right font-medium">Interval 1s</th>
+            <th className="px-4 py-1.5 text-right font-medium">Interval Ns</th>
+            <th className="px-4 py-1.5 text-center font-medium">Status</th>
+            <th className="px-4 py-1.5 text-left font-medium">Expires</th>
+          </tr>
+        </thead>
+        <tbody>
+          {routes.map((r, i) => (
+            <tr key={i} className="border-b border-cyan-500/5 hover:bg-cyan-500/5 transition-colors">
+              <td className="px-4 py-1.5 font-mono">{r.prefix}</td>
+              <td className="px-4 py-1.5 text-right font-mono text-cyan-300">
+                {r.price1 !== null && r.price1 !== undefined ? r.price1.toFixed(4) : '—'}
+              </td>
+              <td className="px-4 py-1.5 text-right text-muted-foreground">{r.interval1 ?? '—'}</td>
+              <td className="px-4 py-1.5 text-right text-muted-foreground">{r.intervalN ?? '—'}</td>
+              <td className="px-4 py-1.5 text-center">
+                {r.forbidden ? (
+                  <span className="inline-flex items-center gap-1 text-red-400"><Ban className="h-3 w-3" />Blocked</span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-emerald-400"><CheckCircle className="h-3 w-3" />Active</span>
+                )}
+              </td>
+              <td className="px-4 py-1.5 text-muted-foreground">{r.expirationDate || 'No expiry'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="px-4 py-1.5 text-xs text-muted-foreground border-t border-cyan-500/10">
+        {routes.length} route{routes.length !== 1 ? 's' : ''}{q ? ` matching "${q}"` : ''} {data && data.list.length > routes.length ? `(filtered from ${data.list.length})` : ''}
+      </div>
+    </div>
+  );
+}
+
+// ── Sippy Tariffs Live Browser (Client) ───────────────────────────────────────
+function SippyClientBrowser() {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [search, setSearch] = useState('');
+  const [rateSearch, setRateSearch] = useState('');
+
+  const { data, isLoading, refetch } = useQuery<{ tariffs: SippyTariffRow[] }>({
+    queryKey: ['/api/sippy/tariffs'],
+    queryFn: () => fetch('/api/sippy/tariffs').then(r => r.json()).then(d =>
+      Array.isArray(d?.tariffs) ? d : { tariffs: Array.isArray(d) ? d : [] }
+    ),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const tariffs: SippyTariffRow[] = (data?.tariffs ?? []).map((t: any) => ({
+    iTariff: t.iTariff ?? t.id,
+    name: t.name,
+    currency: t.currency ?? 'USD',
+  }));
+
+  const q = search.trim().toLowerCase();
+  const filtered = q ? tariffs.filter(t => t.name.toLowerCase().includes(q) || String(t.iTariff).includes(q)) : tariffs;
+
+  return (
+    <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-500/15 flex-wrap gap-y-2">
+        <Building2 className="h-4 w-4 text-amber-400 shrink-0" />
+        <span className="text-sm font-semibold text-amber-300">Sippy Client Tariffs</span>
+        {isLoading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground ml-1" />
+        ) : (
+          <Badge className="bg-amber-500/20 text-amber-400 border-0 text-xs">{filtered.length} tariff{filtered.length !== 1 ? 's' : ''}</Badge>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search tariffs…" className="h-7 pl-7 pr-2 text-xs w-44"
+              data-testid="input-tariff-search"
+            />
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => refetch()} className="h-7 gap-1.5 text-xs">
+            <RefreshCw className="h-3.5 w-3.5" />Refresh
+          </Button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground p-6 justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" />Loading tariffs from Sippy…
+        </div>
+      ) : !filtered.length ? (
+        <div className="text-sm text-muted-foreground p-6 text-center">
+          {q ? `No tariffs matching "${q}"` : 'No tariffs found in Sippy.'}
+        </div>
+      ) : (
+        <div className="divide-y divide-amber-500/10">
+          {filtered.map(t => {
+            const isOpen = expandedId === t.iTariff;
+            return (
+              <div key={t.iTariff}>
+                <button
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-500/5 transition-colors text-left"
+                  onClick={() => { setExpandedId(isOpen ? null : t.iTariff); setRateSearch(''); }}
+                  data-testid={`row-tariff-${t.iTariff}`}
+                >
+                  {isOpen ? <ChevronDown className="h-4 w-4 text-amber-400 shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium">{t.name}</span>
+                  </div>
+                  <div className="flex items-center gap-3 ml-auto shrink-0">
+                    <Badge variant="outline" className="text-xs font-mono border-amber-500/30 text-amber-400">{t.currency}</Badge>
+                    <span className="text-xs text-muted-foreground font-mono">ID {t.iTariff}</span>
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="border-t border-amber-500/10 bg-background/40">
+                    <div className="flex items-center gap-2 px-4 py-2 border-b border-amber-500/10">
+                      <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        value={rateSearch} onChange={e => setRateSearch(e.target.value)}
+                        placeholder="Filter by prefix or destination…" className="h-6 text-xs border-0 bg-transparent p-0 focus-visible:ring-0"
+                        data-testid="input-rate-search"
+                      />
+                    </div>
+                    <TariffRatesPanel iTariff={t.iTariff} search={rateSearch} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sippy Destination Sets Live Browser (Vendor) ──────────────────────────────
+function SippyVendorBrowser() {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [search, setSearch] = useState('');
+  const [routeSearch, setRouteSearch] = useState('');
+
+  const { data, isLoading, refetch } = useQuery<{ success: boolean; list: any[]; error?: string }>({
+    queryKey: ['/api/sippy/destination-sets'],
+    queryFn: () => fetch('/api/sippy/destination-sets?limit=500').then(r => r.json()),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const sets: SippyDestSetRow[] = (data?.list ?? []).map((d: any) => ({
+    iDestinationSet: d.iDestinationSet,
+    name: d.name,
+    currency: d.iso4217 ?? d.currency ?? 'USD',
+  }));
+  const q = search.trim().toLowerCase();
+  const filtered = q ? sets.filter(s => s.name.toLowerCase().includes(q) || String(s.iDestinationSet).includes(q)) : sets;
+
+  return (
+    <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-cyan-500/15 flex-wrap gap-y-2">
+        <Wallet className="h-4 w-4 text-cyan-400 shrink-0" />
+        <span className="text-sm font-semibold text-cyan-300">Sippy Vendor Destination Sets</span>
+        {isLoading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground ml-1" />
+        ) : (
+          <Badge className="bg-cyan-500/20 text-cyan-400 border-0 text-xs">{filtered.length} set{filtered.length !== 1 ? 's' : ''}</Badge>
+        )}
+        {data && !data.success && !sets.length && <span className="text-xs text-red-400 ml-2">{data.error ?? 'Failed to load'}</span>}
+        <div className="ml-auto flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search destination sets…" className="h-7 pl-7 pr-2 text-xs w-48"
+              data-testid="input-destset-search"
+            />
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => refetch()} className="h-7 gap-1.5 text-xs">
+            <RefreshCw className="h-3.5 w-3.5" />Refresh
+          </Button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground p-6 justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" />Loading destination sets from Sippy…
+        </div>
+      ) : !filtered.length ? (
+        <div className="text-sm text-muted-foreground p-6 text-center">
+          {q ? `No destination sets matching "${q}"` : 'No destination sets found in Sippy.'}
+        </div>
+      ) : (
+        <div className="divide-y divide-cyan-500/10">
+          {filtered.map(s => {
+            const isOpen = expandedId === s.iDestinationSet;
+            return (
+              <div key={s.iDestinationSet}>
+                <button
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-cyan-500/5 transition-colors text-left"
+                  onClick={() => { setExpandedId(isOpen ? null : s.iDestinationSet); setRouteSearch(''); }}
+                  data-testid={`row-destset-${s.iDestinationSet}`}
+                >
+                  {isOpen ? <ChevronDown className="h-4 w-4 text-cyan-400 shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium">{s.name}</span>
+                  </div>
+                  <div className="flex items-center gap-3 ml-auto shrink-0">
+                    <Badge variant="outline" className="text-xs font-mono border-cyan-500/30 text-cyan-400">{s.currency || 'USD'}</Badge>
+                    <span className="text-xs text-muted-foreground font-mono">ID {s.iDestinationSet}</span>
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="border-t border-cyan-500/10 bg-background/40">
+                    <div className="flex items-center gap-2 px-4 py-2 border-b border-cyan-500/10">
+                      <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        value={routeSearch} onChange={e => setRouteSearch(e.target.value)}
+                        placeholder="Filter by prefix…" className="h-6 text-xs border-0 bg-transparent p-0 focus-visible:ring-0"
+                        data-testid="input-route-search"
+                      />
+                    </div>
+                    <DestSetRoutesPanel iDestinationSet={s.iDestinationSet} search={routeSearch} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Page ──────────────────────────────────────────────────────────────────
 export default function RateCardsPage() {
   const { toast } = useToast();
   const search = useSearch();
-  const typeParam = new URLSearchParams(search).get('type'); // 'client' | 'vendor' | null (all)
+  const typeParam = new URLSearchParams(search).get('type');
   const activeType: 'client' | 'vendor' | null =
     typeParam === 'client' ? 'client' : typeParam === 'vendor' ? 'vendor' : null;
 
+  const [showLocal, setShowLocal] = useState(false);
   const [expandedCardId, setExpandedCardId] = useState<number | null>(null);
   const [entrySearch, setEntrySearch]       = useState('');
   const [createOpen, setCreateOpen] = useState(false);
 
-  // Create form
   const [selectedVendor, setSelectedVendor]           = useState('');
   const [customVendor, setCustomVendor]               = useState('');
   const [newName, setNewName]                         = useState('');
@@ -101,11 +413,9 @@ export default function RateCardsPage() {
   const [selectedSippyTariff, setSelectedSippyTariff] = useState<SippyTariff | null>(null);
   const [nameManual, setNameManual]                   = useState(false);
 
-  // Upload
   const [uploadCardId, setUploadCardId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Push to Sippy
   const [pushCard, setPushCard]         = useState<RateCard | null>(null);
   const [pushTariffId, setPushTariffId] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState('');
@@ -113,14 +423,13 @@ export default function RateCardsPage() {
   const [jobData, setJobData]           = useState<PushJob | null>(null);
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Verify
   const [verifyCard, setVerifyCard]         = useState<RateCard | null>(null);
   const [verifyTariffId, setVerifyTariffId] = useState('');
   const [verifyResult, setVerifyResult]     = useState<VerifyResult | null>(null);
   const [verifyLoading, setVerifyLoading]   = useState(false);
 
-  // ── Queries ────────────────────────────────────────────────────────────────
-  const { data: cards = [], isLoading, refetch } = useQuery<RateCard[]>({
+  // ── Queries ──────────────────────────────────────────────────────────────────
+  const { data: cards = [], isLoading: cardsLoading, refetch: refetchCards } = useQuery<RateCard[]>({
     queryKey: ["/api/rate-cards"], refetchOnWindowFocus: false,
   });
   const { data: clients = [] } = useQuery<ClientProfile[]>({
@@ -137,14 +446,14 @@ export default function RateCardsPage() {
     refetchOnWindowFocus: false,
     enabled: !!(pushCard || verifyCard || createOpen),
   });
-  const { data: rcCtx, isLoading: ctxLoading } = useQuery<RateCardContext>({
+  const { data: rcCtx } = useQuery<RateCardContext>({
     queryKey: ["/api/sippy/rate-card-context"],
     queryFn: () => fetch('/api/sippy/rate-card-context').then(r => r.json()),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
-  // ── Mutations ──────────────────────────────────────────────────────────────
+  // ── Mutations ────────────────────────────────────────────────────────────────
   const createMutation = useMutation({
     mutationFn: (data: object) => apiRequest("POST", "/api/rate-cards", data).then(r => r.json()),
     onSuccess: () => {
@@ -155,12 +464,10 @@ export default function RateCardsPage() {
       toast({ title: "Rate card created" });
     },
   });
-
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/rate-cards/${id}`).then(r => r.json()),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/rate-cards"] }); toast({ title: "Rate card deleted" }); },
   });
-
   const uploadMutation = useMutation({
     mutationFn: async ({ id, file }: { id: number; file: File }) => {
       const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.type.includes('spreadsheet') || file.type.includes('excel');
@@ -178,7 +485,7 @@ export default function RateCardsPage() {
     onError: (err: Error) => toast({ title: "Upload failed", description: err.message, variant: "destructive" }),
   });
 
-  // ── Job polling ────────────────────────────────────────────────────────────
+  // ── Job polling ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!jobId) return;
     jobPollRef.current = setInterval(async () => {
@@ -196,15 +503,11 @@ export default function RateCardsPage() {
     return () => clearInterval(jobPollRef.current!);
   }, [jobId]);
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+  // ── Helpers ──────────────────────────────────────────────────────────────────
   const vendorOptions = clients.map(c => c.name);
   const entryQ = entrySearch.trim().toLowerCase();
   const filteredEntries = entryQ
-    ? entries.filter(e =>
-        e.prefix.startsWith(entryQ) ||
-        (e.country ?? '').toLowerCase().includes(entryQ) ||
-        (e.breakout ?? '').toLowerCase().includes(entryQ)
-      )
+    ? entries.filter(e => e.prefix.startsWith(entryQ) || (e.country ?? '').toLowerCase().includes(entryQ) || (e.breakout ?? '').toLowerCase().includes(entryQ))
     : entries;
   const shownEntries = filteredEntries.slice(0, 500);
   const resolvedVendorName = vendorOptions.length === 0
@@ -217,16 +520,13 @@ export default function RateCardsPage() {
 
   function handleSubmitCreate() {
     createMutation.mutate({
-      vendorName: resolvedVendorName.trim(),
-      name: newName.trim(),
-      cardType: activeType ?? 'vendor',
-      currency: newCurrency || 'USD',
+      vendorName: resolvedVendorName.trim(), name: newName.trim(),
+      cardType: activeType ?? 'vendor', currency: newCurrency || 'USD',
       effectiveDate: newDate || null,
       sippyTariffId: selectedSippyTariff ? selectedSippyTariff.iTariff : null,
     });
   }
 
-  // Filter cards by the active type from the URL (or show all if no type selected)
   const visibleCards = activeType ? cards.filter(c => (c.cardType ?? 'vendor') === activeType) : cards;
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -239,8 +539,7 @@ export default function RateCardsPage() {
     if (!pushCard || !pushTariffId) return;
     setJobData(null); setJobId(null);
     const r = await fetch(`/api/rate-cards/${pushCard.id}/push-to-sippy`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tariffId: pushTariffId, effectiveFrom: effectiveFrom || undefined }),
     });
     const data = await r.json();
@@ -264,9 +563,9 @@ export default function RateCardsPage() {
   const pushProgress = jobData ? Math.round(((jobData.pushed + jobData.failed) / jobData.total) * 100) : 0;
 
   const typeConfig = {
-    client: { label: 'Client Rate Cards', icon: Building2, iconColor: 'text-amber-400', desc: 'Rates you charge clients — upload tariff sheets to compare and push to Sippy client tariffs' },
-    vendor: { label: 'Vendor Rate Cards', icon: Wallet,    iconColor: 'text-cyan-400',  desc: 'Buy-rates from your vendors — upload carrier rate sheets to compare and push to Sippy vendor tariffs' },
-    all:    { label: 'Rate Cards',        icon: CreditCard, iconColor: 'text-emerald-400', desc: 'Manage client and vendor rate sheets — upload CSV or Excel to import prefix rates' },
+    client: { label: 'Client Rate Cards', icon: Building2, iconColor: 'text-amber-400', desc: 'Rates charged to clients — fetched live from Sippy tariffs' },
+    vendor: { label: 'Vendor Rate Cards', icon: Wallet, iconColor: 'text-cyan-400', desc: 'Buy-rates from vendors — fetched live from Sippy destination sets' },
+    all:    { label: 'Rate Cards', icon: CreditCard, iconColor: 'text-emerald-400', desc: 'Live rates from Sippy tariffs and destination sets' },
   };
   const tc = activeType ? typeConfig[activeType] : typeConfig.all;
 
@@ -282,13 +581,17 @@ export default function RateCardsPage() {
           <p className="text-sm text-muted-foreground mt-1">{tc.desc}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-ratecards" className="gap-1.5">
-            <RefreshCw className="h-3.5 w-3.5" />Refresh
+          <Button
+            variant="outline" size="sm" onClick={() => setShowLocal(v => !v)}
+            data-testid="button-toggle-local" className="gap-1.5"
+          >
+            <Database className="h-3.5 w-3.5" />
+            {showLocal ? 'Hide Local Cards' : 'Local Rate Cards'}
           </Button>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" data-testid="button-create-ratecard" className="gap-1.5">
-                <Plus className="h-3.5 w-3.5" />New Rate Card
+              <Button size="sm" data-testid="button-create-ratecard" className="gap-1.5" onClick={() => setShowLocal(true)}>
+                <Plus className="h-3.5 w-3.5" />New Local Card
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -322,7 +625,6 @@ export default function RateCardsPage() {
                     <Input value={customVendor} onChange={e => setCustomVendor(e.target.value)} placeholder="e.g. Callntalk" data-testid="input-vendor-name" />
                   )}
                 </div>
-                {/* Sippy match hint */}
                 {matchedSippyClient && (
                   <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-xs flex items-start gap-2">
                     <Building2 className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
@@ -337,18 +639,6 @@ export default function RateCardsPage() {
                     </div>
                   </div>
                 )}
-                {activeType === 'vendor' && resolvedVendorName.trim() && rcCtx?.destSets && rcCtx.destSets.length > 0 && (
-                  <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg px-3 py-2 text-xs flex items-start gap-2">
-                    <MapPin className="h-3.5 w-3.5 text-cyan-400 mt-0.5 shrink-0" />
-                    <div>
-                      <span className="text-cyan-300 font-medium">{rcCtx.destSets.length} destination set{rcCtx.destSets.length !== 1 ? 's' : ''} available in Sippy</span>
-                      <div className="text-muted-foreground mt-0.5">
-                        {rcCtx.destSets.slice(0, 3).map(d => d.name).join(', ')}{rcCtx.destSets.length > 3 ? ` +${rcCtx.destSets.length - 3} more` : ''}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {/* Rate Card Name — picked from live Sippy tariffs */}
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1.5 block">Rate Card Name (Sippy Tariff)</Label>
                   {tariffsLoading ? (
@@ -383,7 +673,7 @@ export default function RateCardsPage() {
                       {selectedSippyTariff && (
                         <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-400">
                           <CheckCircle className="h-3 w-3" />
-                          <span>Linked to Sippy tariff ID <span className="font-mono">{selectedSippyTariff.iTariff}</span> — name and currency auto-filled</span>
+                          Linked to Sippy tariff ID <span className="font-mono">{selectedSippyTariff.iTariff}</span>
                         </div>
                       )}
                     </>
@@ -415,454 +705,231 @@ export default function RateCardsPage() {
         </div>
       </div>
 
-      {/* Info banner */}
-      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex gap-3 items-start">
-        <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
-        <div className="text-sm">
-          <div className="text-amber-300 font-medium mb-0.5">Local reference store — not auto-synced to Sippy</div>
-          <div className="text-muted-foreground text-xs">
-            Rate Cards store rates locally for analytics and comparison. Use <span className="text-amber-300 font-medium">Push to Sippy Tariff</span> to apply them in Sippy, or <span className="text-amber-300 font-medium">Verify vs Sippy</span> to check if rates already match.
-          </div>
-        </div>
-      </div>
+      {/* ── Sippy Live Browser ──────────────────────────────────────────────── */}
+      {(activeType === 'client' || activeType === null) && <SippyClientBrowser />}
+      {(activeType === 'vendor' || activeType === null) && <SippyVendorBrowser />}
 
-      {/* Upload Format Hint */}
-      <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex gap-3 items-start">
-        <FileText className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
-        <div className="text-sm">
-          <div className="text-blue-300 font-medium mb-1">CSV &amp; Excel Upload Format</div>
-          <div className="text-muted-foreground text-xs font-mono">prefix, country, breakout, rate</div>
-          <div className="text-muted-foreground text-xs font-mono mt-0.5">252, Somalia, Africa, 0.1250</div>
-          <div className="text-muted-foreground text-xs mt-1">
-            Accepts <span className="text-blue-300 font-medium">.csv</span> or <span className="text-blue-300 font-medium">.xlsx</span> — column names are auto-detected. Rate = per-minute cost in the card's currency.
+      {/* ── Local Rate Cards (toggle) ────────────────────────────────────────── */}
+      {showLocal && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Database className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Local Rate Cards</h2>
+            <span className="text-xs text-muted-foreground">(CSV uploads for push-to-Sippy and LCR analysis)</span>
           </div>
-        </div>
-      </div>
 
-      {/* Sippy Reference Panel */}
-      {(activeType === 'client' || activeType === null) && (rcCtx?.clients?.length ?? 0) > 0 && (
-        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-500/15">
-            <Building2 className="h-4 w-4 text-amber-400" />
-            <span className="text-sm font-medium text-amber-300">Sippy Clients &amp; Assigned Tariffs</span>
-            <Badge className="bg-amber-500/20 text-amber-400 border-0 text-xs ml-auto">{rcCtx?.clients?.length} clients</Badge>
+          {/* Format hint */}
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex gap-3 items-start">
+            <FileText className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <div className="text-blue-300 font-medium mb-1">CSV &amp; Excel Upload Format</div>
+              <div className="text-muted-foreground text-xs font-mono">prefix, country, breakout, rate</div>
+              <div className="text-muted-foreground text-xs font-mono mt-0.5">252, Somalia, Africa, 0.1250</div>
+              <div className="text-muted-foreground text-xs mt-1">
+                Accepts <span className="text-blue-300 font-medium">.csv</span> or <span className="text-blue-300 font-medium">.xlsx</span>
+              </div>
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-muted-foreground border-b border-amber-500/10">
-                  <th className="px-4 py-2 text-left font-medium">Client Name</th>
-                  <th className="px-4 py-2 text-left font-medium">Sippy Tariff</th>
-                  <th className="px-4 py-2 text-left font-medium">Tariff ID</th>
-                  <th className="px-4 py-2 text-left font-medium">Currency</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ctxLoading ? (
-                  <tr><td colSpan={4} className="px-4 py-3 text-center text-muted-foreground text-xs"><Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />Loading from Sippy…</td></tr>
-                ) : (rcCtx?.clients ?? []).map(c => (
-                  <tr key={c.iCustomer} className="border-b border-amber-500/5 hover:bg-amber-500/5 transition-colors" data-testid={`sippy-client-row-${c.iCustomer}`}>
-                    <td className="px-4 py-2.5">
-                      <span className="font-medium text-foreground text-xs">{c.name}</span>
-                      <span className="text-muted-foreground text-xs ml-2">#{c.iCustomer}</span>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {c.tariffName
-                        ? <span className="text-amber-300 text-xs font-medium">{c.tariffName}</span>
-                        : <span className="text-muted-foreground text-xs italic">No tariff assigned</span>
-                      }
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {c.iTariff
-                        ? <Badge className="bg-muted text-muted-foreground border-0 text-xs font-mono">{c.iTariff}</Badge>
-                        : <span className="text-muted-foreground text-xs">—</span>
-                      }
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{c.tariffCurrency || c.baseCurrency || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
-      {(activeType === 'vendor' || activeType === null) && (rcCtx?.destSets?.length ?? 0) > 0 && (
-        <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-cyan-500/15">
-            <MapPin className="h-4 w-4 text-cyan-400" />
-            <span className="text-sm font-medium text-cyan-300">Sippy Destination Sets</span>
-            <Badge className="bg-cyan-500/20 text-cyan-400 border-0 text-xs ml-auto">{rcCtx?.destSets?.length} sets</Badge>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-muted-foreground border-b border-cyan-500/10">
-                  <th className="px-4 py-2 text-left font-medium">Destination Set Name</th>
-                  <th className="px-4 py-2 text-left font-medium">Set ID</th>
-                  <th className="px-4 py-2 text-left font-medium">Currency</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ctxLoading ? (
-                  <tr><td colSpan={3} className="px-4 py-3 text-center text-muted-foreground text-xs"><Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />Loading from Sippy…</td></tr>
-                ) : (rcCtx?.destSets ?? []).map(d => (
-                  <tr key={d.iDestinationSet} className="border-b border-cyan-500/5 hover:bg-cyan-500/5 transition-colors" data-testid={`sippy-destset-row-${d.iDestinationSet}`}>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-1.5">
-                        <MapPin className="h-3 w-3 text-cyan-400 shrink-0" />
-                        <span className="font-medium text-foreground text-xs">{d.name}</span>
+          {/* Hidden file input */}
+          <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFileChange} data-testid="file-upload-input" />
+
+          {/* Cards list */}
+          {cardsLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <Loader2 className="h-4 w-4 animate-spin" />Loading local rate cards…
+            </div>
+          ) : visibleCards.length === 0 ? (
+            <div className="border border-dashed border-border rounded-xl p-8 text-center">
+              <Package className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">No local rate cards yet.</p>
+              <p className="text-xs text-muted-foreground mt-1">Create one to upload CSV rates and push them to Sippy.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {visibleCards.map(card => {
+                const isExpanded = expandedCardId === card.id;
+                return (
+                  <div key={card.id} className="border border-border rounded-xl overflow-hidden">
+                    <div className="flex items-center gap-3 px-4 py-3 bg-card">
+                      <button
+                        onClick={() => setExpandedCardId(isExpanded ? null : card.id)}
+                        className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                        data-testid={`row-local-card-${card.id}`}
+                      >
+                        {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+                        <span className="font-medium text-sm truncate">{card.vendorName} — {card.name}</span>
+                      </button>
+                      <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                        <Badge variant="outline" className="text-xs">{card.currency}</Badge>
+                        <Badge variant="outline" className="text-xs capitalize">{card.cardType}</Badge>
+                        <span className="text-xs text-muted-foreground">{card.entryCount} rates</span>
+                        <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs"
+                          onClick={() => { setUploadCardId(card.id); fileInputRef.current?.click(); }}
+                          data-testid={`button-upload-${card.id}`}>
+                          <Upload className="h-3 w-3" />Upload
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs"
+                          onClick={() => { setPushCard(card); setPushTariffId(''); setJobId(null); setJobData(null); }}
+                          data-testid={`button-push-${card.id}`}>
+                          <Send className="h-3 w-3" />Push
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs"
+                          onClick={() => { setVerifyCard(card); setVerifyTariffId(''); setVerifyResult(null); }}
+                          data-testid={`button-verify-${card.id}`}>
+                          <ShieldCheck className="h-3 w-3" />Verify
+                        </Button>
+                        <a href={`/api/rate-cards/${card.id}/export`} target="_blank" rel="noreferrer">
+                          <Button variant="ghost" size="sm" className="h-7 text-xs" data-testid={`button-export-${card.id}`}>
+                            <Download className="h-3 w-3" />
+                          </Button>
+                        </a>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs text-red-400 hover:text-red-300"
+                          onClick={() => deleteMutation.mutate(card.id)} disabled={deleteMutation.isPending}
+                          data-testid={`button-delete-${card.id}`}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
                       </div>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Badge className="bg-muted text-muted-foreground border-0 text-xs font-mono">{d.iDestinationSet}</Badge>
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{d.currency || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {(activeType === 'vendor' || activeType === null) && (rcCtx?.vendors?.length ?? 0) > 0 && (
-        <div className="bg-violet-500/5 border border-violet-500/20 rounded-xl overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-violet-500/15">
-            <Database className="h-4 w-4 text-violet-400" />
-            <span className="text-sm font-medium text-violet-300">Sippy Vendors</span>
-            <Badge className="bg-violet-500/20 text-violet-400 border-0 text-xs ml-auto">{rcCtx?.vendors?.length} vendors</Badge>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-muted-foreground border-b border-violet-500/10">
-                  <th className="px-4 py-2 text-left font-medium">Vendor Name</th>
-                  <th className="px-4 py-2 text-left font-medium">Vendor ID</th>
-                  <th className="px-4 py-2 text-left font-medium">Currency</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ctxLoading ? (
-                  <tr><td colSpan={3} className="px-4 py-3 text-center text-muted-foreground text-xs"><Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />Loading from Sippy…</td></tr>
-                ) : (rcCtx?.vendors ?? []).map(v => (
-                  <tr key={v.iVendor} className="border-b border-violet-500/5 hover:bg-violet-500/5 transition-colors" data-testid={`sippy-vendor-row-${v.iVendor}`}>
-                    <td className="px-4 py-2.5">
-                      <span className="font-medium text-foreground text-xs">{v.name}</span>
-                      <span className="text-muted-foreground text-xs ml-2">#{v.iVendor}</span>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Badge className="bg-muted text-muted-foreground border-0 text-xs font-mono">{v.iVendor}</Badge>
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{v.baseCurrency || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Rate Cards List */}
-      {isLoading ? (
-        <div className="text-center text-muted-foreground py-12">Loading rate cards…</div>
-      ) : visibleCards.length === 0 ? (
-        <div className="text-center text-muted-foreground py-12 bg-card border border-border rounded-xl">
-          <CreditCard className="h-10 w-10 mx-auto mb-3 opacity-30" />
-          <div className="font-medium mb-1">No {activeType ?? ''} rate cards yet</div>
-          <div className="text-sm">Create a rate card and upload a CSV or Excel file to get started</div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {visibleCards.map(card => {
-            const isExpanded = expandedCardId === card.id;
-            return (
-              <div key={card.id} className="bg-card border border-border rounded-xl overflow-hidden">
-                {/* Card header row */}
-                <div className="flex items-center gap-4 p-4">
-                  <button onClick={() => { setExpandedCardId(isExpanded ? null : card.id); setEntrySearch(''); }} className="text-muted-foreground hover:text-foreground transition-colors" data-testid={`toggle-card-${card.id}`}>
-                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                  </button>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-sm" data-testid={`card-name-${card.id}`}>{card.name}</span>
-                      <Badge className="bg-emerald-500/20 text-emerald-400 border-0 text-xs">{card.vendorName}</Badge>
-                      {(card.cardType ?? 'vendor') === 'client'
-                        ? <Badge className="bg-amber-500/20 text-amber-400 border-0 text-xs flex items-center gap-1"><Building2 className="h-2.5 w-2.5" />Client</Badge>
-                        : <Badge className="bg-cyan-500/20 text-cyan-400 border-0 text-xs flex items-center gap-1"><Wallet className="h-2.5 w-2.5" />Vendor</Badge>
-                      }
-                      <Badge className="bg-muted text-muted-foreground border-0 text-xs">{card.currency}</Badge>
-                      {card.effectiveDate && (
-                        <Badge className="bg-blue-500/20 text-blue-400 border-0 text-xs">
-                          Effective {new Date(card.effectiveDate).toLocaleDateString()}
-                        </Badge>
-                      )}
-                      {card.sippyTariffId && (
-                        <Badge className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 text-xs font-mono gap-1" data-testid={`sippy-tariff-badge-${card.id}`}>
-                          Sippy #{card.sippyTariffId}
-                        </Badge>
-                      )}
                     </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {card.entryCount} prefix entries · Created {new Date(card.createdAt).toLocaleDateString()}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap justify-end">
-                    {/* Export CSV */}
-                    <a href={`/api/rate-cards/${card.id}/export`} download data-testid={`button-export-${card.id}`}>
-                      <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-                        <Download className="h-3 w-3" />Export CSV
-                      </Button>
-                    </a>
-                    {/* Verify vs Sippy */}
-                    <Button variant="outline" size="sm" className="gap-1.5 text-xs text-blue-400 border-blue-500/30 hover:bg-blue-500/10"
-                      onClick={() => { setVerifyCard(card); setVerifyTariffId(card.sippyTariffId ? String(card.sippyTariffId) : ''); setVerifyResult(null); }}
-                      data-testid={`button-verify-${card.id}`}>
-                      <ShieldCheck className="h-3 w-3" />Verify vs Sippy
-                    </Button>
-                    {/* Push to Sippy */}
-                    <Button variant="outline" size="sm" className="gap-1.5 text-xs text-purple-400 border-purple-500/30 hover:bg-purple-500/10"
-                      onClick={() => { setPushCard(card); setPushTariffId(card.sippyTariffId ? String(card.sippyTariffId) : ''); setJobId(null); setJobData(null); setEffectiveFrom(''); }}
-                      data-testid={`button-push-${card.id}`}>
-                      <Send className="h-3 w-3" />Push to Sippy
-                    </Button>
-                    {/* Upload */}
-                    <Button variant="outline" size="sm"
-                      onClick={() => { setUploadCardId(card.id); fileInputRef.current?.click(); }}
-                      disabled={uploadMutation.isPending && uploadCardId === card.id}
-                      data-testid={`button-upload-${card.id}`} className="gap-1.5 text-xs">
-                      <Upload className="h-3 w-3" />
-                      {uploadMutation.isPending && uploadCardId === card.id ? "Uploading…" : "Upload CSV / Excel"}
-                    </Button>
-                    <button onClick={() => deleteMutation.mutate(card.id)} data-testid={`button-delete-card-${card.id}`}
-                      className="text-muted-foreground hover:text-red-400 transition-colors p-1.5 rounded">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Expanded entries */}
-                {isExpanded && (
-                  <div className="border-t border-border">
-                    {entriesLoading ? (
-                      <div className="p-6 text-center text-muted-foreground text-sm">Loading entries…</div>
-                    ) : entries.length === 0 ? (
-                      <div className="p-6 text-center text-muted-foreground text-sm">
-                        <Upload className="h-6 w-6 mx-auto mb-2 opacity-30" />
-                        No entries yet. Upload a CSV or Excel file to import prefix rates.
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        {/* Search bar */}
-                        <div className="px-4 py-2 border-b border-border/50 flex items-center gap-2">
-                          <ScanSearch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    {isExpanded && (
+                      <div className="border-t border-border">
+                        <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-muted/30">
                           <Input
-                            className="h-7 text-xs bg-transparent border-0 focus-visible:ring-0 px-0 placeholder:text-muted-foreground/50"
-                            placeholder="Search prefix, country, or breakout…"
-                            value={entrySearch}
-                            onChange={e => setEntrySearch(e.target.value)}
-                            data-testid="input-entry-search"
+                            value={entrySearch} onChange={e => setEntrySearch(e.target.value)}
+                            placeholder="Filter by prefix, country or breakout…"
+                            className="h-7 text-xs max-w-xs" data-testid="input-entry-search"
                           />
-                          {entryQ && (
-                            <button onClick={() => setEntrySearch('')} className="text-muted-foreground hover:text-foreground text-xs shrink-0">
-                              ✕ clear
-                            </button>
-                          )}
+                          <span className="text-xs text-muted-foreground ml-auto">{shownEntries.length} / {filteredEntries.length} shown</span>
                         </div>
-                        <div className="px-4 py-1.5 text-xs text-muted-foreground border-b border-border/50">
-                          {entryQ
-                            ? `${filteredEntries.length} match${filteredEntries.length !== 1 ? 'es' : ''} (showing ${shownEntries.length})`
-                            : `Showing ${shownEntries.length} of ${entries.length} entries`
-                          }
-                        </div>
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-border text-xs text-muted-foreground">
-                              <th className="px-4 py-2 text-left">Prefix</th>
-                              <th className="px-4 py-2 text-left">Country</th>
-                              <th className="px-4 py-2 text-left">Breakout</th>
-                              <th className="px-4 py-2 text-right">Rate/Min ({card.currency})</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {shownEntries.length === 0 ? (
-                              <tr><td colSpan={4} className="px-4 py-6 text-center text-xs text-muted-foreground">No entries match "{entrySearch}"</td></tr>
-                            ) : shownEntries.map(e => (
-                              <tr key={e.id} className="border-b border-border/30 hover:bg-muted/20">
-                                <td className="px-4 py-1.5 font-mono text-xs text-emerald-400">{e.prefix}</td>
-                                <td className="px-4 py-1.5 text-xs">{e.country ?? "—"}</td>
-                                <td className="px-4 py-1.5 text-xs text-muted-foreground">{e.breakout ?? "—"}</td>
-                                <td className="px-4 py-1.5 text-right font-mono text-xs">{e.ratePerMin.toFixed(4)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                        {entriesLoading ? (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground p-4">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />Loading…
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                            <table className="w-full text-xs">
+                              <thead className="sticky top-0 bg-background/95">
+                                <tr className="text-muted-foreground border-b border-border">
+                                  <th className="px-4 py-2 text-left font-medium">Prefix</th>
+                                  <th className="px-4 py-2 text-left font-medium">Country</th>
+                                  <th className="px-4 py-2 text-left font-medium">Breakout</th>
+                                  <th className="px-4 py-2 text-right font-medium">Rate/min</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {shownEntries.map(e => (
+                                  <tr key={e.id} className="border-b border-border/50 hover:bg-muted/30">
+                                    <td className="px-4 py-1.5 font-mono">{e.prefix}</td>
+                                    <td className="px-4 py-1.5 text-muted-foreground">{e.country ?? '—'}</td>
+                                    <td className="px-4 py-1.5 text-muted-foreground">{e.breakout ?? '—'}</td>
+                                    <td className="px-4 py-1.5 text-right font-mono">{e.ratePerMin.toFixed(4)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Hidden file input */}
-      <input ref={fileInputRef} type="file"
-        accept=".csv,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-        className="hidden" onChange={handleFileChange} data-testid="file-input-upload" />
-
-      {/* ── Push to Sippy Dialog ─────────────────────────────────────────────── */}
-      <Dialog open={!!pushCard} onOpenChange={open => { if (!open) { setPushCard(null); if (jobData?.status !== 'running') { setJobId(null); setJobData(null); } } }}>
-        <DialogContent className="max-w-md">
+      {/* ── Push to Sippy Dialog ────────────────────────────────────────────── */}
+      <Dialog open={!!pushCard} onOpenChange={o => { if (!o) { setPushCard(null); setJobId(null); setJobData(null); } }}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Send className="h-4 w-4 text-purple-400" />Push to Sippy Tariff</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-4 w-4 text-emerald-400" />Push to Sippy Tariff
+            </DialogTitle>
           </DialogHeader>
-          {pushCard && (
-            <div className="space-y-4 pt-1">
-              <div className="bg-muted/30 rounded-lg p-3 text-sm">
-                <span className="font-medium">{pushCard.name}</span>
-                <span className="text-muted-foreground ml-2">{pushCard.entryCount.toLocaleString()} prefix entries</span>
-              </div>
-
-              <div>
-                <Label className="text-xs text-muted-foreground mb-1.5 block">Target Sippy Tariff</Label>
-                <Select value={pushTariffId} onValueChange={setPushTariffId}>
-                  <SelectTrigger data-testid="select-push-tariff"><SelectValue placeholder="Select tariff…" /></SelectTrigger>
-                  <SelectContent>
-                    {sippyTariffs
-                      .filter(t => pushCard.cardType === 'vendor' ? t.iTariffType === 1 : t.iTariffType !== 1)
-                      .map(t => (
-                        <SelectItem key={t.iTariff} value={String(t.iTariff)}>
-                          {t.name} {t.currency ? `(${t.currency})` : ''}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label className="text-xs text-muted-foreground mb-1.5 block">Effective From (optional)</Label>
-                <Input type="date" value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} data-testid="input-effective-from" />
-              </div>
-
-              {/* Progress */}
-              {jobData && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{jobData.status === 'running' ? 'Pushing…' : jobData.status === 'done' ? 'Complete' : 'Failed'}</span>
-                    <span>{jobData.pushed + jobData.failed} / {jobData.total}</span>
-                  </div>
-                  <Progress value={pushProgress} className="h-2" />
-                  <div className="flex gap-3 text-xs">
-                    <span className="text-emerald-400 flex items-center gap-1"><CheckCircle className="h-3 w-3" />{jobData.pushed} pushed</span>
-                    {jobData.failed > 0 && <span className="text-red-400 flex items-center gap-1"><XCircle className="h-3 w-3" />{jobData.failed} failed</span>}
-                  </div>
-                  {jobData.status !== 'running' && jobData.message && (
-                    <div className={`text-xs p-2 rounded ${jobData.status === 'done' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}>
-                      {jobData.message}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {(!jobData || jobData.status !== 'running') && (
-                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-xs text-amber-300">
-                  This will write rates into the selected Sippy tariff one-by-one. For large sheets (10 000+ entries) this may take several minutes.
-                </div>
-              )}
-
-              <Button className="w-full gap-2" onClick={startPush}
-                disabled={!pushTariffId || jobData?.status === 'running'}
-                data-testid="button-start-push">
-                {jobData?.status === 'running'
-                  ? <><Loader2 className="h-4 w-4 animate-spin" />Pushing {pushProgress}%…</>
-                  : jobData?.status === 'done'
-                  ? <><CheckCircle className="h-4 w-4" />Push again</>
-                  : <><Send className="h-4 w-4" />Start Push ({pushCard.entryCount.toLocaleString()} rates)</>}
-              </Button>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              Push all <span className="font-medium text-foreground">{pushCard?.entryCount}</span> rates from <span className="font-medium text-foreground">{pushCard?.name}</span> to a Sippy tariff.
+            </p>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Target Sippy Tariff ID</Label>
+              <Input value={pushTariffId} onChange={e => setPushTariffId(e.target.value)} placeholder="e.g. 42" data-testid="input-push-tariff-id" />
             </div>
-          )}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Effective From (optional)</Label>
+              <Input type="datetime-local" value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} data-testid="input-push-effective-from" />
+            </div>
+            {jobData && (
+              <div className="space-y-2">
+                <Progress value={pushProgress} className="h-2" />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{jobData.pushed} pushed, {jobData.failed} failed</span>
+                  <span className="capitalize">{jobData.status === 'done' ? <span className="text-emerald-400">Complete</span> : jobData.status === 'error' ? <span className="text-red-400">Error</span> : `${pushProgress}%`}</span>
+                </div>
+                {jobData.message && <p className="text-xs text-red-400">{jobData.message}</p>}
+              </div>
+            )}
+            <Button className="w-full" onClick={startPush} disabled={!pushTariffId || (jobData?.status === 'running')} data-testid="button-confirm-push">
+              {jobData?.status === 'running' ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />Pushing…</> : 'Push Rates to Sippy'}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* ── Verify vs Sippy Dialog ───────────────────────────────────────────── */}
-      <Dialog open={!!verifyCard} onOpenChange={open => { if (!open) { setVerifyCard(null); setVerifyResult(null); } }}>
-        <DialogContent className="max-w-lg">
+      {/* ── Verify vs Sippy Dialog ──────────────────────────────────────────── */}
+      <Dialog open={!!verifyCard} onOpenChange={o => { if (!o) { setVerifyCard(null); setVerifyResult(null); } }}>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-blue-400" />Verify vs Sippy Tariff</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-blue-400" />Verify vs Sippy
+            </DialogTitle>
           </DialogHeader>
-          {verifyCard && (
-            <div className="space-y-4 pt-1">
-              <div className="bg-muted/30 rounded-lg p-3 text-sm">
-                <span className="font-medium">{verifyCard.name}</span>
-                <span className="text-muted-foreground ml-2">{verifyCard.entryCount.toLocaleString()} local entries</span>
-              </div>
-
-              <div>
-                <Label className="text-xs text-muted-foreground mb-1.5 block">Compare against Sippy Tariff</Label>
-                <Select value={verifyTariffId} onValueChange={v => { setVerifyTariffId(v); setVerifyResult(null); }}>
-                  <SelectTrigger data-testid="select-verify-tariff"><SelectValue placeholder="Select tariff…" /></SelectTrigger>
-                  <SelectContent>
-                    {sippyTariffs
-                      .filter(t => verifyCard.cardType === 'vendor' ? t.iTariffType === 1 : t.iTariffType !== 1)
-                      .map(t => (
-                        <SelectItem key={t.iTariff} value={String(t.iTariff)}>
-                          {t.name} {t.currency ? `(${t.currency})` : ''}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Button className="w-full gap-2" onClick={runVerify} disabled={!verifyTariffId || verifyLoading} data-testid="button-run-verify">
-                {verifyLoading ? <><Loader2 className="h-4 w-4 animate-spin" />Checking…</> : <><ShieldCheck className="h-4 w-4" />Run Verification</>}
-              </Button>
-
-              {verifyResult && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-center">
-                      <div className="text-2xl font-bold text-emerald-400">{verifyResult.matched}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Matched</div>
-                    </div>
-                    <div className={`border rounded-lg p-3 text-center ${verifyResult.mismatched > 0 ? 'bg-red-500/10 border-red-500/20' : 'bg-muted/20 border-border'}`}>
-                      <div className={`text-2xl font-bold ${verifyResult.mismatched > 0 ? 'text-red-400' : 'text-muted-foreground'}`}>{verifyResult.mismatched}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Rate mismatch</div>
-                    </div>
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-center">
-                      <div className="text-2xl font-bold text-amber-400">{verifyResult.localOnly}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Local only (not in Sippy)</div>
-                    </div>
-                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-center">
-                      <div className="text-2xl font-bold text-blue-400">{verifyResult.sippyOnly}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Sippy only (not local)</div>
-                    </div>
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Compared {verifyResult.localTotal.toLocaleString()} local rates against {verifyResult.sippyFetched} fetched from Sippy (max 1 000 shown).
-                  </div>
-                  {verifyResult.mismatchSample.length > 0 && (
-                    <div>
-                      <div className="text-xs font-medium mb-1 text-red-400">Rate mismatches (sample):</div>
-                      <table className="w-full text-xs">
-                        <thead><tr className="text-muted-foreground border-b border-border"><th className="text-left py-1">Prefix</th><th className="text-right py-1">Local</th><th className="text-right py-1">Sippy</th></tr></thead>
-                        <tbody>
-                          {verifyResult.mismatchSample.map(m => (
-                            <tr key={m.prefix} className="border-b border-border/30">
-                              <td className="py-1 font-mono text-emerald-400">{m.prefix}</td>
-                              <td className="py-1 text-right font-mono">{m.local?.toFixed(4)}</td>
-                              <td className="py-1 text-right font-mono text-amber-400">{m.sippy?.toFixed(4)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
+          <div className="space-y-4 pt-2">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Sippy Tariff ID to compare against</Label>
+              <Input value={verifyTariffId} onChange={e => setVerifyTariffId(e.target.value)} placeholder="e.g. 42" data-testid="input-verify-tariff-id" />
             </div>
-          )}
+            <Button onClick={runVerify} disabled={!verifyTariffId || verifyLoading} className="w-full" data-testid="button-run-verify">
+              {verifyLoading ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />Verifying…</> : 'Run Verification'}
+            </Button>
+            {verifyResult && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'Matched', value: verifyResult.matched, color: 'text-emerald-400' },
+                    { label: 'Mismatched', value: verifyResult.mismatched, color: 'text-amber-400' },
+                    { label: 'Local Only', value: verifyResult.localOnly, color: 'text-blue-400' },
+                  ].map(s => (
+                    <div key={s.label} className="bg-muted/30 rounded-lg px-3 py-2 text-center">
+                      <div className={`text-xl font-bold ${s.color}`}>{s.value}</div>
+                      <div className="text-xs text-muted-foreground">{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+                {verifyResult.mismatchSample.length > 0 && (
+                  <div className="border border-amber-500/20 rounded-lg overflow-hidden">
+                    <div className="px-3 py-2 text-xs font-medium bg-amber-500/10 text-amber-300">Rate Mismatches (sample)</div>
+                    <table className="w-full text-xs">
+                      <thead><tr className="text-muted-foreground border-b border-amber-500/10">
+                        <th className="px-3 py-1.5 text-left">Prefix</th>
+                        <th className="px-3 py-1.5 text-right">Local</th>
+                        <th className="px-3 py-1.5 text-right">Sippy</th>
+                      </tr></thead>
+                      <tbody>
+                        {verifyResult.mismatchSample.map((m, i) => (
+                          <tr key={i} className="border-b border-border/50">
+                            <td className="px-3 py-1.5 font-mono">{m.prefix}</td>
+                            <td className="px-3 py-1.5 text-right font-mono">{m.local.toFixed(4)}</td>
+                            <td className="px-3 py-1.5 text-right font-mono text-amber-400">{m.sippy.toFixed(4)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
