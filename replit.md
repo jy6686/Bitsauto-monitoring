@@ -55,13 +55,15 @@ Full-stack VoIP monitoring dashboard with real-time metrics, alerting, team mana
   - Phase 3 — `/simpleapi/callback.php` HTTP Basic Auth GET (article 107525). Admin must run `htpasswd /home/ssp/sippy_web/simpleapi/.htpassword <username>` on the switch. Customer account (authname) still needs Callback service active.
 - **Server Monitoring module**: `/server-monitoring` page with 6 tabs — Reachability/Outage Log (every 30s poller + multi-IP vendor/carrier monitoring), RTP Bandwidth, Disk & Memory, Carrier ASR drop detection, Email/Webhook Alert Rules, SIP Reg Storm Detection. DB tables: `outage_log`, `alert_rules`, `monitored_hosts`, `host_outage_log`. Routes: `GET /api/monitoring/status|bandwidth|disk-memory|carrier-asr|registrations` + CRUD `/api/monitoring/alert-rules` + CRUD `/api/monitoring/hosts` + `GET /api/monitoring/hosts/:id/outages` + `GET /api/monitoring/hosts/outages/all`. Background per-host poller every 60s using TCP probe with per-host outage tracking. Sidebar collapsible sub-menu with 6 entries.
 - **SB-1 is now the PRIMARY switch (https://104.245.246.110)** — promoted 2026-04-17:
-  - ssp-root web login password: `HumJeet@y2018` (year suffix 2018)
-  - ssp-root XML-RPC API key: `!chiaan1`
-  - XML-RPC secondary user: `RTST-1` / `abcd@1234`
-  - CORRECT production settings DB fields: `api_admin_username=ssp-root`, `api_admin_password=!chiaan1`, `portal_username=RTST-1`, `portal_password=abcd@1234`, `admin_web_password=HumJeet@y2018`
-  - ssp-root on SB-1 logs in as CUSTOMER type (not admin type) — portal scraping works but admin portal features need XML-RPC
-  - Portal scraping fallback active: when XML-RPC returns 0, `scrapeActiveCallsPortal()` fires; orange-banner gives authoritative total
-  - KNOWN ISSUE (needs manual fix in Settings): After promotion the production `portalPassword` was set to `HumJeet@y2018` (web password) instead of `!chiaan1` (XML-RPC key). Fix: Settings → API Password field → change to `!chiaan1`
+  - **DB Field Mapping (Settings table)**:
+    - `api_admin_username` = `ssp-root` (XML-RPC primary user)
+    - `api_admin_password` = `!chiaan1` (XML-RPC API password — set in Sippy My Preferences → Allow API Calls)
+    - `portal_username` = `RTST-1` (portal web login username for Normal Mode / customer CDRs)
+    - `portal_password` = `abcd@1234` (portal web login password for RTST-1)
+    - `admin_web_password` = `HumJeet@y2018` (ssp-root web portal login password, distinct from XML-RPC API key)
+  - **Connection Mode**: Portal session via `ssp-root`/`HumJeet@y2018` (customer account type) — XML-RPC is 401, portal scraping active
+  - **CDR Data**: Returns 401 when XML-RPC API key `!chiaan1` is tried — user needs to verify/reset the API password in Sippy → My Preferences → Allow API Calls → API Password
+  - Portal scraping fallback active: when XML-RPC returns 0/401, `scrapeActiveCallsPortal()` fires via active session cookies; orange-banner gives authoritative total
 - **Old primary switch (https://191.101.30.107)** — now secondary in multi-switch view:
   - Admin web portal: `ssp-root` / `HumJeet@y2019`
   - XML-RPC Trusted Mode: `ssp-root` / `!chiaan1`

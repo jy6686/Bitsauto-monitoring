@@ -111,6 +111,18 @@ async function getAnyPortalSession(
       if (res.success) {
         anyPortalCacheByUrl.set(base, { cookies: res.cookies, expiresAt: now + PORTAL_SESSION_TTL_MS });
         console.log(`[Sippy] portal session cached (any) as ${u}/${acctType} @ ${base}`);
+        // Also update activeSession so noNewLogin polling picks up these cookies immediately.
+        // Only do this when activeSession is absent or points to the same host.
+        if (!activeSession || activeSession.portalUrl === base) {
+          activeSession = {
+            portalUrl:   base,
+            username:    u,
+            connectedAt: new Date(),
+            mode:        'portal',
+            cookies:     res.cookies,
+          };
+          console.log(`[Sippy] activeSession promoted from getAnyPortalSession (${u}/${acctType})`);
+        }
         return res.cookies;
       }
     }
@@ -1384,9 +1396,9 @@ export async function testSippyConnection(
 
   // ── Fallback: try web portal login ────────────────────────────────────────
   // Use webPassword if provided (Sippy has separate API password vs web portal password).
-  // Try account types in order: customer (RTST1 type), reseller, admin
+  // Try all three account types — some Sippy installs only accept 'admin' login via HTTPS.
   const loginPass = webPassword || password;
-  for (const acctType of ['customer', 'reseller'] as const) {
+  for (const acctType of ['customer', 'reseller', 'admin'] as const) {
     const loginResult = await portalLogin(base, username, loginPass, acctType);
     if (loginResult.success) {
       const latencyMs = Date.now() - start;
