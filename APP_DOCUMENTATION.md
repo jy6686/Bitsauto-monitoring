@@ -3,7 +3,7 @@
 > **Platform:** Sippy Softswitch Only  
 > **Stack:** Node.js / Express (backend) · React + Vite (frontend) · PostgreSQL (Drizzle ORM) · Replit Auth  
 > **Deployment URL:** https://vo-ip-watcher--junaid70.replit.app  
-> **Last Updated:** April 2026
+> **Last Updated:** 17 April 2026
 
 ---
 
@@ -299,6 +299,7 @@ If the first round fails, the account creation route performs a fault-based prob
 | `/dids` | `dids.tsx` | Admin, Mgmt | DID number management from Sippy |
 | `/settings` | `settings.tsx` | Admin | System settings — switch connection, SNMP, email, thresholds |
 | `/account` | `account.tsx` | All | Personal user profile, timezone, notification email |
+| `/multi-switch` | `multi-switch.tsx` | Admin, Mgmt | Multi-Switch Consolidated View — aggregated NOC across all Sippy instances |
 
 ### Layout
 `client/src/components/layout-shell.tsx` — shared dark-mode sidebar layout wrapping all authenticated pages. Navigation items vary by role.
@@ -385,13 +386,16 @@ If the first round fails, the account creation route performs a fault-based prob
 | GET | `/api/user/config` | Get personal settings |
 | PATCH | `/api/user/config` | Update personal settings |
 
-### Switches
+### Switches (Multi-Switch)
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/switches` | List configured switches |
-| POST | `/api/switches` | Add switch |
-| PATCH | `/api/switches/:id` | Update switch |
-| DELETE | `/api/switches/:id` | Remove switch |
+| GET | `/api/switches` | List all configured secondary switches |
+| POST | `/api/switches` | Add a secondary switch |
+| PATCH | `/api/switches/:id` | Update a switch (name, URL, credentials, enabled) |
+| DELETE | `/api/switches/:id` | Remove a switch |
+| GET | `/api/switches/consolidated` | Poll all switches in parallel and return per-switch stats + global aggregate. Writes `lastSyncAt` + `lastSyncStatus` to each secondary switch DB record on every poll. |
+| POST | `/api/switches/:id/test` | Test connectivity of a specific switch (Sippy XML-RPC ping). Updates `lastSyncAt` + `lastSyncStatus` on success/failure. |
+| GET | `/api/switches/:id/session` | Check session/auth status for a specific switch |
 
 ---
 
@@ -473,6 +477,86 @@ Source: Sippy CDR data aggregated by terminating vendor/account.
 - Displays number, account, country, state, type
 - Search and filter by number or account
 
+### Multi-Switch Consolidated View (`/multi-switch`)
+
+Aggregated real-time NOC monitoring across the primary Sippy switch and any number of secondary Sippy instances.
+
+#### Architecture
+
+```
+Primary switch (from Settings)          Secondary switches (from `switches` table)
+       │                                        │ (type = 'sippy', enabled = true)
+       └─────────────── GET /api/switches/consolidated ──────────────┘
+                           pollSwitch() per switch in parallel
+                           (getSippyDashboardMetrics → getCountersStats XML-RPC)
+                                             │
+                            per-switch result + global aggregate
+                                             │
+                            writes lastSyncAt + lastSyncStatus to DB
+                            (for "Last Sync" column in the UI)
+```
+
+#### Global KPI Cards (top of page)
+| Card | Source |
+|------|--------|
+| Total Active Calls | Sum of `activeCalls` across all online switches |
+| Switches Online | Count of switches where `status === 'online'` |
+| Overall ASR | Average ASR across online switches |
+| Avg ACD | Average ACD across online switches |
+
+#### Per-Switch Status Cards
+Each switch renders an expandable card showing:
+- **Badge:** `Online` (green), `Offline` (gray), `Error` (red), or `Unconfigured` (yellow)
+- **Primary badge:** Star badge on the primary switch
+- **KPIs:** Active calls, ASR %, ACD (seconds)
+- **Expandable detail row:** URL, last sync timestamp, last sync status message
+
+#### Switch Management Table
+Columns: Name, URL, User, Type, Status, Last Sync, Actions
+
+**Last Sync behavior (as of April 2026 fix):**
+- `GET /api/switches/consolidated` writes `lastSyncAt` + a status summary to the DB for each secondary switch after every consolidated poll. Status examples:
+  - `online · 4 active calls · ASR 92%`
+  - `error: connection refused`
+  - `offline (disabled)`
+- `POST /api/switches/:id/test` (wifi icon in Actions column) writes `lastSyncAt` + `test OK — connection verified` or `test failed: <reason>` after each test.
+- Before the first poll or test, "Last Sync" shows `—`.
+
+#### Add / Edit Switch Dialog
+Fields:
+- **Display Name** — friendly label (e.g. `SB1`)
+- **Portal URL** — full Sippy web URL (e.g. `https://104.245.246.110/`)
+- **API Username** — Sippy admin/XML-RPC username (e.g. `RTST-SB1`)
+- **API Password** — stored in `portal_password` column; show/hide toggle
+- **Enabled** — checkbox to include/exclude from consolidated poll
+- **Test Connection** button — fires `POST /api/switches/:id/test` in-dialog before saving
+
+#### Auto-Refresh
+- 30-second auto-refresh toggle in the page header
+- Manual **Refresh** button fires `GET /api/switches/consolidated` immediately
+- Both actions update "Last Sync" for all secondary switches
+
+#### Navigation
+- Sidebar icon: `Layers`
+- Roles: `admin`, `management`
+
+#### Database Fields (`switches` table)
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | serial PK | Auto-increment |
+| `name` | varchar(128) | Display name |
+| `type` | varchar(20) | Always `sippy` for secondary switches |
+| `portal_url` | varchar(512) | Full switch URL |
+| `portal_username` | varchar(128) | XML-RPC username |
+| `portal_password` | varchar(255) | XML-RPC password (plaintext, stored in DB) |
+| `api_admin_username` | varchar(128) | Optional override admin username |
+| `api_admin_password` | varchar(255) | Optional override admin password |
+| `login_type` | integer | Default 1 |
+| `enabled` | boolean | Whether to include in consolidated poll |
+| `last_sync_at` | timestamp | Updated after every consolidated poll or test |
+| `last_sync_status` | varchar(512) | Human-readable result of last poll/test |
+| `created_at` | timestamp | Auto-set on INSERT |
+
 ---
 
 ## 10. Environment Variables & Secrets
@@ -511,6 +595,7 @@ Sippy credentials (`portalUrl`, `portalUsername`, `portalPassword`, `apiAdminUse
 │       │   ├── dids.tsx               # DID management
 │       │   ├── settings.tsx           # System settings
 │       │   ├── account.tsx            # Personal user account
+│       │   ├── multi-switch.tsx       # Multi-Switch Consolidated View
 │       │   ├── login.tsx              # Replit Auth login
 │       │   └── not-found.tsx          # 404 page
 │       ├── components/
