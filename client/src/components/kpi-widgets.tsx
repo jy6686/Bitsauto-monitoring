@@ -190,7 +190,7 @@ export function MOSTrendWidget() {
       <KpiSub>E-model Mean Opinion Score</KpiSub>
       {sparkData.length > 3 && (
         <div className="mt-2 h-8">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={32}>
             <AreaChart data={sparkData}>
               <Area type="monotone" dataKey="v" stroke="#10b981" strokeWidth={1.5} fill="#10b98115" dot={false} />
             </AreaChart>
@@ -257,7 +257,7 @@ export function BitsEyeGraphWidget() {
           <KpiValue className="text-cyan-400">{points[points.length - 1]?.v ?? 0}</KpiValue>
           <KpiSub>Calls in progress · last 6h</KpiSub>
           <div className="mt-2 h-10">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={40}>
               <AreaChart data={points}>
                 <Area type="monotone" dataKey="v" stroke="#06b6d4" strokeWidth={1.5} fill="#06b6d415" dot={false} />
                 <Tooltip content={() => null} />

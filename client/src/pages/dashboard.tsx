@@ -279,6 +279,7 @@ export default function DashboardPage() {
   const { data: sippyStats, isLoading: sippyStatsLoading, dataUpdatedAt: statsUpdatedAt } = useQuery<{
     asr: number; acd: number;
     connected: boolean;
+    monOk?: boolean;          // true when CDR/monitoring API is reachable
     // CK stats from CDRs
     ckRatio?: number;
     ckBreakdown?: { connected: number; wrongNumber: number; switchedOff: number; untraceable: number; total: number };
@@ -1045,6 +1046,31 @@ export default function DashboardPage() {
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors whitespace-nowrap flex-shrink-0">
             <Settings className="w-3.5 h-3.5" />
             Connect Softswitch
+          </Link>
+        </div>
+      )}
+
+      {/* CDR API unavailable warning — shown when portal is active but XML-RPC 401 */}
+      {!notConnected && anyPortalActive && sippyStats?.monOk === false && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 w-7 h-7 rounded-full bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-amber-200">XML-RPC API access not configured</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                CDR metrics, ASR trend, traffic charts, and call-back ratio require the XML-RPC API password.
+                Enter it in Settings under <span className="font-medium text-foreground/70">API Password (XML-RPC key)</span>.
+              </p>
+            </div>
+          </div>
+          <Link href="/settings"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600/80 text-white text-xs font-medium hover:bg-amber-500/80 transition-colors whitespace-nowrap flex-shrink-0"
+            data-testid="link-settings-cdr-fix"
+          >
+            <Settings className="w-3 h-3" />
+            Open Settings
           </Link>
         </div>
       )}
