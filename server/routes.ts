@@ -1115,6 +1115,8 @@ export async function registerRoutes(
         password: string | null | undefined,
         isPrimary: boolean,
         enabled: boolean,
+        adminUsername?: string | null,   // optional admin creds for listActiveCalls
+        adminPassword?: string | null,
       ): Promise<SwitchResult> {
         const base: SwitchResult = {
           id, name, portalUrl: portalUrl || '', isPrimary, enabled,
@@ -1125,11 +1127,23 @@ export async function registerRoutes(
         if (!portalUrl || !username || !password) return base;
         if (!enabled) return { ...base, status: 'offline' };
         try {
-          const metrics = await sippy.getSippyDashboardMetrics(username, password, portalUrl);
+          // For listActiveCalls prefer admin creds (full visibility); fall back to portal creds.
+          // For getCountersStats any valid cred pair works (read-only counters).
+          const liveUser = (adminUsername || username)!;
+          const livePass = (adminPassword || password)!;
+
+          // Run both in parallel:
+          // - getSippyActiveCalls  → real concurrent live call count via listActiveCalls XML-RPC
+          // - getSippyDashboardMetrics → period counters for ASR, ACD, total, answered
+          const [liveCalls, metrics] = await Promise.all([
+            sippy.getSippyActiveCalls(liveUser, livePass, portalUrl, undefined, username, password),
+            sippy.getSippyDashboardMetrics(username, password, portalUrl),
+          ]);
+          console.log(`[multi-switch] ${name}: listActiveCalls=${liveCalls.length} ASR=${metrics.asr}% ACD=${metrics.acd}s total=${metrics.totalCalls}`);
           return {
             ...base,
             status: 'online',
-            activeCalls: metrics.activeCalls,
+            activeCalls: liveCalls.length,   // real concurrent count from listActiveCalls
             totalCalls: metrics.totalCalls,
             answeredCalls: metrics.answeredCalls,
             asr: metrics.asr,
@@ -1161,6 +1175,8 @@ export async function registerRoutes(
           s.portalPassword,
           false,
           s.enabled ?? true,
+          s.apiAdminUsername,   // pass admin creds if stored — used for listActiveCalls
+          s.apiAdminPassword,
         ));
 
       const results = await Promise.all([primaryTask, ...secondaryTasks]);
