@@ -1153,9 +1153,9 @@ export async function registerRoutes(
         password: string | null | undefined,
         isPrimary: boolean,
         enabled: boolean,
-        adminUsername?: string | null,   // optional admin creds for listActiveCalls
+        adminUsername?: string | null,
         adminPassword?: string | null,
-        adminWebPassword?: string | null, // web portal login password (may differ from XML-RPC API password)
+        adminWebPassword?: string | null,
       ): Promise<SwitchResult> {
         const base: SwitchResult = {
           id, name, portalUrl: portalUrl || '', isPrimary, enabled,
@@ -1166,27 +1166,36 @@ export async function registerRoutes(
         if (!portalUrl || !username || !password) return base;
         if (!enabled) return { ...base, status: 'offline' };
         try {
-          // For listActiveCalls prefer admin creds (full visibility); fall back to portal creds.
-          // For getCountersStats any valid cred pair works (read-only counters).
-          const liveUser = (adminUsername || username)!;
-          const livePass = (adminPassword || password)!;
+          // Build all credential pairs to try (same logic as sippyXmlCredsPairs).
+          // This handles swapped fields on secondary switches — e.g. SB1 stores the
+          // XML-RPC password (ssp-root/!chiaan1) split across portalUsername + apiAdminPassword.
+          const swCreds: SippyCreds = {
+            apiAdminUsername: adminUsername, apiAdminPassword: adminPassword,
+            portalUsername: username,        portalPassword: password,
+            adminWebPassword,
+          };
+          const credPairs = sippyXmlCredsPairs(swCreds);
+          const [firstUser, firstPass] = [credPairs[0].username, credPairs[0].password];
 
-          // Run both in parallel:
-          // - getSippyActiveCalls  → real concurrent live call count via listActiveCalls XML-RPC
-          // - getSippyDashboardMetrics → period counters for ASR, ACD, total, answered
-          // Both use admin creds (liveUser/livePass) so secondary switches with a separate
-          // apiAdminPassword use the correct XML-RPC API password (not the web portal password).
-          // For portal scraping fallback: prefer adminWebPassword (web login) over portalPassword
+          // Try getSippyDashboardMetrics with each credential pair in order until one returns data.
+          // getSippyActiveCalls already has its own XML-RPC→portal fallback chain.
+          let metrics = await sippy.getSippyDashboardMetrics(firstUser, firstPass, portalUrl);
+          if (metrics.totalCalls === 0 && metrics.activeCalls === 0) {
+            for (let i = 1; i < credPairs.length; i++) {
+              const m = await sippy.getSippyDashboardMetrics(credPairs[i].username, credPairs[i].password, portalUrl);
+              if (m.totalCalls > 0 || m.activeCalls > 0) { metrics = m; break; }
+            }
+          }
+
+          // For portal scraping fallback on active calls: prefer adminWebPassword over portalPassword.
           const scrapingPass = adminWebPassword || password;
-          const [liveCalls, metrics] = await Promise.all([
-            sippy.getSippyActiveCalls(liveUser, livePass, portalUrl, undefined, username, scrapingPass),
-            sippy.getSippyDashboardMetrics(liveUser, livePass, portalUrl),
-          ]);
-          console.log(`[multi-switch] ${name}: listActiveCalls=${liveCalls.length} ASR=${metrics.asr}% ACD=${metrics.acd}s total=${metrics.totalCalls}`);
+          const liveCalls = await sippy.getSippyActiveCalls(firstUser, firstPass, portalUrl, undefined, username, scrapingPass);
+
+          console.log(`[multi-switch] ${name}: activeCalls=${liveCalls.length} ASR=${metrics.asr}% total=${metrics.totalCalls} (tried ${credPairs.length} cred pairs)`);
           return {
             ...base,
             status: 'online',
-            activeCalls: liveCalls.length,   // real concurrent count from listActiveCalls
+            activeCalls: liveCalls.length,
             totalCalls: metrics.totalCalls,
             answeredCalls: metrics.answeredCalls,
             asr: metrics.asr,
@@ -1202,10 +1211,13 @@ export async function registerRoutes(
         'primary',
         primarySettings.name || 'Primary Switch',
         primarySettings.portalUrl,
-        primarySettings.apiAdminUsername || primarySettings.portalUsername,
-        primarySettings.apiAdminPassword || primarySettings.portalPassword,
+        primarySettings.portalUsername,
+        primarySettings.portalPassword,
         true,
         true,
+        primarySettings.apiAdminUsername,
+        primarySettings.apiAdminPassword,
+        primarySettings.adminWebPassword,
       );
 
       const secondaryTasks = secondarySwitches
