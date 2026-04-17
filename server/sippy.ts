@@ -471,16 +471,18 @@ async function portalLogin(
     if (resp.statusCode === 401) {
       return { success: false, cookies: new Map(), message: 'Authentication failed (401).' };
     }
-    // Check if we ended up on the login page again (failed login = ShowErrorDialog with message)
-    const isLoginPage = resp.body.includes('ShowErrorDialog(') && !resp.body.includes('ShowErrorDialog(\'\')') && !resp.body.includes('ShowErrorDialog("")');
-    // Success indicators: customer portal uses my_calls/cdrs_customer; admin portal uses vendors.php/accounts.php/activecalls.php
-    const hasLogout = resp.body.includes('logout') || resp.body.includes('Logout') || resp.body.includes('Log Out')
-      || resp.body.includes('My Preferences') || resp.body.includes('my_calls') || resp.body.includes('cdrs_customer')
-      || resp.body.includes('vendors.php') || resp.body.includes('accounts.php') || resp.body.includes('activecalls.php')
-      || resp.body.includes('billing.php') || resp.body.includes('asr_acd.php') || resp.body.includes('i_customer=')
-      || resp.body.includes('reports.php') || resp.body.includes('subcustomers.php');
-    if (!hasLogout || isLoginPage) {
+    // Failure: login page comes back with a non-empty ShowErrorDialog() JS call.
+    // Sippy always uses this pattern on bad credentials regardless of portal version.
+    const isLoginPage = resp.body.includes('ShowErrorDialog(')
+      && !resp.body.includes('ShowErrorDialog(\'\')') && !resp.body.includes('ShowErrorDialog("")');
+    if (isLoginPage) {
       return { success: false, cookies: new Map(), message: `Login rejected — wrong username, password, or account type (${accountType}).` };
+    }
+    // Success: no error dialog and the response is a real page (not an empty body).
+    // We intentionally do NOT require specific markers like vendors.php or logout — different
+    // Sippy versions and account types can render different page structures on login.
+    if (resp.body.length < 200) {
+      return { success: false, cookies: new Map(), message: `Login returned empty/short body (${resp.body.length} bytes, type=${accountType}).` };
     }
     return { success: true, cookies: resp.cookies, message: `Authenticated via web portal as ${accountType}` };
   } catch (err: any) {
@@ -654,6 +656,8 @@ export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string)
       }
       console.log(`[Sippy] activecalls banner says ${bannerTotal} total; padded ${extra} placeholders (table had ${calls.length - extra} rows)`);
     }
+  } else {
+    console.log(`[Sippy] activecalls banner NOT found in HTML from ${base} (table rows=${calls.length})`);
   }
 
   return calls;
