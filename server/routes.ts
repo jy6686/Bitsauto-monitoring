@@ -1175,32 +1175,61 @@ export async function registerRoutes(
             adminWebPassword,
           };
           const credPairs = sippyXmlCredsPairs(swCreds);
-          const [firstUser, firstPass] = [credPairs[0].username, credPairs[0].password];
 
-          // Try getSippyDashboardMetrics with each credential pair in order until one returns data.
-          // getSippyActiveCalls already has its own XML-RPC→portal fallback chain.
-          let metrics = await sippy.getSippyDashboardMetrics(firstUser, firstPass, portalUrl);
-          if (metrics.totalCalls === 0 && metrics.activeCalls === 0) {
-            for (let i = 1; i < credPairs.length; i++) {
-              const m = await sippy.getSippyDashboardMetrics(credPairs[i].username, credPairs[i].password, portalUrl);
-              if (m.totalCalls > 0 || m.activeCalls > 0) { metrics = m; break; }
-            }
+          // Try each credential pair for getSippyActiveCalls — stop at first non-empty result.
+          // Same strategy as snapshotActiveCalls() which already works reliably.
+          let liveCallCount = 0;
+          for (const { username: u, password: p } of credPairs) {
+            const calls = await sippy.getSippyActiveCalls(u, p, portalUrl);
+            if (calls.length > 0) { liveCallCount = calls.length; break; }
+            liveCallCount = calls.length; // keep 0 from last tried pair
           }
 
-          // For portal scraping fallback on active calls: prefer adminWebPassword over portalPassword.
-          const scrapingPass = adminWebPassword || password;
-          const liveCalls = await sippy.getSippyActiveCalls(firstUser, firstPass, portalUrl, undefined, username, scrapingPass);
+          // For the PRIMARY switch: derive metrics from the existing CDR cache and concurrent history
+          // rather than calling getCountersStats (which requires system-admin access that our
+          // credentials do not have, causing silent all-zeros responses).
+          let totalCalls = 0, answeredCalls = 0, asr = 0, acd = 0, totalMinutes = 0;
+          if (isPrimary) {
+            // Use latest active call count from concurrent history if available (updated every 30s).
+            const latestSnap = concurrentHistory[concurrentHistory.length - 1];
+            if (latestSnap && liveCallCount === 0) liveCallCount = latestSnap.count;
 
-          console.log(`[multi-switch] ${name}: activeCalls=${liveCalls.length} ASR=${metrics.asr}% total=${metrics.totalCalls} (tried ${credPairs.length} cred pairs)`);
+            // Compute 24h CDR stats from cache (same source as main dashboard).
+            const cutoff24h = Date.now() - 24 * 3600 * 1000;
+            const recentCdrs = [...cdrCache.values()].filter(c => {
+              const ts = c.startTime ? new Date(c.startTime).getTime() : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+              return ts >= cutoff24h;
+            });
+            totalCalls   = recentCdrs.length;
+            answeredCalls = recentCdrs.filter(c => (c.duration ?? 0) > 0).length;
+            asr          = totalCalls > 0 ? Math.round((answeredCalls / totalCalls) * 100 * 10) / 10 : 0;
+            const totalSec = recentCdrs.reduce((s, c) => s + (c.duration ?? 0), 0);
+            acd          = answeredCalls > 0 ? Math.round(totalSec / answeredCalls) : 0;
+            totalMinutes = Math.round(totalSec / 60);
+          } else {
+            // For secondary switches: try getSippyDashboardMetrics with each cred pair.
+            let metrics = await sippy.getSippyDashboardMetrics(credPairs[0].username, credPairs[0].password, portalUrl);
+            for (let i = 1; i < credPairs.length; i++) {
+              if (metrics.totalCalls > 0 || metrics.activeCalls > 0) break;
+              metrics = await sippy.getSippyDashboardMetrics(credPairs[i].username, credPairs[i].password, portalUrl);
+            }
+            totalCalls    = metrics.totalCalls;
+            answeredCalls = metrics.answeredCalls;
+            asr           = metrics.asr;
+            acd           = metrics.acd;
+            totalMinutes  = metrics.totalMinutes;
+          }
+
+          console.log(`[multi-switch] ${name}: activeCalls=${liveCallCount} ASR=${asr}% total=${totalCalls} (tried ${credPairs.length} cred pairs)`);
           return {
             ...base,
             status: 'online',
-            activeCalls: liveCalls.length,
-            totalCalls: metrics.totalCalls,
-            answeredCalls: metrics.answeredCalls,
-            asr: metrics.asr,
-            acd: metrics.acd,
-            totalMinutes: metrics.totalMinutes,
+            activeCalls: liveCallCount,
+            totalCalls,
+            answeredCalls,
+            asr,
+            acd,
+            totalMinutes,
           };
         } catch (err: any) {
           return { ...base, status: 'error', error: err.message };
