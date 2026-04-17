@@ -471,18 +471,37 @@ async function portalLogin(
     if (resp.statusCode === 401) {
       return { success: false, cookies: new Map(), message: 'Authentication failed (401).' };
     }
-    // Failure: login page comes back with a non-empty ShowErrorDialog() JS call.
-    // Sippy always uses this pattern on bad credentials regardless of portal version.
-    const isLoginPage = resp.body.includes('ShowErrorDialog(')
+    // Definitive failure: login page returned with a non-empty ShowErrorDialog() JS call.
+    const hasErrorDialog = resp.body.includes('ShowErrorDialog(')
       && !resp.body.includes('ShowErrorDialog(\'\')') && !resp.body.includes('ShowErrorDialog("")');
-    if (isLoginPage) {
+    if (hasErrorDialog) {
       return { success: false, cookies: new Map(), message: `Login rejected — wrong username, password, or account type (${accountType}).` };
     }
-    // Success: no error dialog and the response is a real page (not an empty body).
-    // We intentionally do NOT require specific markers like vendors.php or logout — different
-    // Sippy versions and account types can render different page structures on login.
     if (resp.body.length < 200) {
       return { success: false, cookies: new Map(), message: `Login returned empty/short body (${resp.body.length} bytes, type=${accountType}).` };
+    }
+    // Definitive failure: still on the login page (form present, no session established).
+    // Sippy login pages always carry a hidden <input name="action" value="Login"> field.
+    const isStillLoginPage = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
+    if (isStillLoginPage) {
+      return { success: false, cookies: new Map(), message: `Login returned login form again — credentials rejected (${accountType}).` };
+    }
+    // Success validation: require at least ONE known Sippy portal marker.
+    // A successfully logged-in page always contains logout/portal-menu references.
+    // If NONE are present, the response is an unknown redirect target — treat as failure.
+    const hasSessionMarker = resp.body.includes('action=Logout')
+      || resp.body.toLowerCase().includes('logout')
+      || resp.body.includes('vendors.php')
+      || resp.body.includes('accounts.php')
+      || resp.body.includes('activecalls.php')
+      || resp.body.includes('subcustomers.php')
+      || resp.body.includes('reports.php')
+      || resp.body.includes('My Preferences')
+      || resp.body.includes('/c2/')
+      || resp.body.includes('i_customer')
+      || resp.body.includes('billing.php');
+    if (!hasSessionMarker) {
+      return { success: false, cookies: new Map(), message: `Login response has no portal session markers — likely a redirect/error page (${accountType}, ${resp.body.length}B).` };
     }
     return { success: true, cookies: resp.cookies, message: `Authenticated via web portal as ${accountType}` };
   } catch (err: any) {
@@ -533,6 +552,18 @@ export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string)
   // Sippy admin portal accepts ?per_page=N to control rows shown.
   const { html } = await portalGet('/activecalls.php?per_page=5000', cookies, base);
   if (!html) return [];
+
+  // Stale session detection: if the response looks like a login redirect page
+  // (small HTML, contains the login form), the cached session has expired.
+  // Evict it from both caches so the next call triggers a fresh login.
+  const looksLikeLoginPage = html.length < 8000
+    && (html.includes('value="Login"') || html.includes("value='Login'") || html.includes('action=Login'));
+  if (looksLikeLoginPage) {
+    console.log(`[Sippy] activecalls: stale/expired session detected at ${base} (${html.length}B login page) — evicting cache`);
+    anyPortalCacheByUrl.delete(base);
+    adminPortalCacheByUrl.delete(base);
+    return [];
+  }
 
   // Extract disconnect IDs from delete_warning(ID) calls — these are the IDs needed for disconnectCall()
   const disconnectIds: Record<number, string> = {};

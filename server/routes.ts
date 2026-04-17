@@ -1109,6 +1109,8 @@ export async function registerRoutes(
         // Use API admin creds from the switch if provided, otherwise clear them
         apiAdminUsername: target.apiAdminUsername || undefined,
         apiAdminPassword: target.apiAdminPassword || undefined,
+        // Copy admin web password so portal login works with the new primary
+        adminWebPassword: target.adminWebPassword || undefined,
       });
 
       // Remove the promoted switch from secondary list
