@@ -6794,22 +6794,38 @@ export async function registerRoutes(
 
   // ── Destination Sets Management (docs 107473) ───────────────────────────────
 
-  // GET /api/sippy/destination-sets — list destination sets
+  // GET /api/sippy/destination-sets — list destination sets (Sippy 2024+), falls back to vendor list
   app.get('/api/sippy/destination-sets', async (req: any, res) => {
     try {
       const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, list: [], error: 'Sippy not configured.' });
+      if (!settings) return res.status(503).json({ success: false, list: [], message: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const { namePattern, iDestinationSet, offset, limit } = req.query;
-      const result = await sippy.listDestinationSets(username, password, {
+      const dsResult = await sippy.listDestinationSets(username, password, {
         namePattern: namePattern as string | undefined,
         iDestinationSet: iDestinationSet ? parseInt(iDestinationSet as string, 10) : undefined,
         offset: offset ? parseInt(offset as string, 10) : undefined,
         limit:  limit  ? parseInt(limit  as string, 10) : undefined,
         portalUrl: sippyPortalUrl(settings),
       });
-      res.json(result);
-    } catch (e: any) { res.status(500).json({ success: false, list: [], error: e.message }); }
+      if (dsResult.success) return res.json(dsResult);
+      // Sippy 2024+ method not available — fall back to vendor list
+      const vendorResult = await sippy.listSippyVendors(username, password, {
+        namePattern: namePattern as string | undefined,
+        offset: offset ? parseInt(offset as string, 10) : undefined,
+        limit:  limit  ? parseInt(limit  as string, 10) : undefined,
+      }, sippyPortalUrl(settings));
+      if (vendorResult.error && !vendorResult.vendors.length) {
+        return res.json({ success: false, list: [], message: vendorResult.error });
+      }
+      const list = vendorResult.vendors.map((v: any) => ({
+        iDestinationSet:  v.iVendor,
+        name:             v.name,
+        iso4217:          v.baseCurrency ?? 'USD',
+        isVendorFallback: true,
+      }));
+      return res.json({ success: true, list, vendorFallback: true, message: 'OK' });
+    } catch (e: any) { res.status(500).json({ success: false, list: [], message: e.message }); }
   });
 
   // POST /api/sippy/destination-sets — create a destination set (admin+management)

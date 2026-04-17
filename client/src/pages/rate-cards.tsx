@@ -68,7 +68,7 @@ type VerifyResult = {
 
 // Sippy live types
 type SippyTariffRow  = { iTariff: number; name: string; currency: string };
-type SippyDestSetRow = { iDestinationSet: number; name: string; currency: string };
+type SippyDestSetRow = { iDestinationSet: number; name: string; currency: string; isVendorFallback?: boolean };
 type SippyRate       = { prefix: string; destination: string; rate: number; effectiveFrom: string; effectiveTill: string };
 type SippyRoute      = {
   prefix: string; price1: number | null; priceN: number | null;
@@ -134,12 +134,19 @@ function TariffRatesPanel({ iTariff, search }: { iTariff: number; search: string
 }
 
 // ── Sippy Destination Set Routes Panel (lazy loaded) ─────────────────────────
-function DestSetRoutesPanel({ iDestinationSet, search }: { iDestinationSet: number; search: string }) {
+function DestSetRoutesPanel({ iDestinationSet, search, isVendorFallback }: { iDestinationSet: number; search: string; isVendorFallback?: boolean }) {
   const { data, isLoading } = useQuery<{ success: boolean; list: SippyRoute[]; message?: string }>({
     queryKey: ['/api/sippy/destination-sets', iDestinationSet, 'routes'],
     queryFn: () => fetch(`/api/sippy/destination-sets/${iDestinationSet}/routes`).then(r => r.json()),
     staleTime: 5 * 60 * 1000,
+    enabled: !isVendorFallback,
   });
+  if (isVendorFallback) return (
+    <div className="px-4 py-4 text-xs text-muted-foreground flex items-center gap-2">
+      <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+      Per-prefix rates require Sippy Destination Sets (Sippy 2024+). This Sippy instance shows vendors only.
+    </div>
+  );
   const q = search.trim().toLowerCase();
   const routes = (data?.list ?? []).filter(r => !q || r.prefix.startsWith(q));
   if (isLoading) return (
@@ -299,17 +306,19 @@ function SippyVendorBrowser() {
   const [search, setSearch] = useState('');
   const [routeSearch, setRouteSearch] = useState('');
 
-  const { data, isLoading, refetch } = useQuery<{ success: boolean; list: any[]; error?: string }>({
+  const { data, isLoading, refetch } = useQuery<{ success: boolean; list: any[]; message?: string; vendorFallback?: boolean }>({
     queryKey: ['/api/sippy/destination-sets'],
     queryFn: () => fetch('/api/sippy/destination-sets?limit=500').then(r => r.json()),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
+  const isVendorFallback = data?.vendorFallback ?? false;
   const sets: SippyDestSetRow[] = (data?.list ?? []).map((d: any) => ({
-    iDestinationSet: d.iDestinationSet,
-    name: d.name,
-    currency: d.iso4217 ?? d.currency ?? 'USD',
+    iDestinationSet:  d.iDestinationSet,
+    name:             d.name,
+    currency:         d.iso4217 ?? d.currency ?? 'USD',
+    isVendorFallback: d.isVendorFallback ?? false,
   }));
   const q = search.trim().toLowerCase();
   const filtered = q ? sets.filter(s => s.name.toLowerCase().includes(q) || String(s.iDestinationSet).includes(q)) : sets;
@@ -318,19 +327,26 @@ function SippyVendorBrowser() {
     <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-cyan-500/15 flex-wrap gap-y-2">
         <Wallet className="h-4 w-4 text-cyan-400 shrink-0" />
-        <span className="text-sm font-semibold text-cyan-300">Sippy Vendor Destination Sets</span>
+        <span className="text-sm font-semibold text-cyan-300">
+          {isVendorFallback ? 'Sippy Vendors' : 'Sippy Vendor Destination Sets'}
+        </span>
         {isLoading ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground ml-1" />
         ) : (
-          <Badge className="bg-cyan-500/20 text-cyan-400 border-0 text-xs">{filtered.length} set{filtered.length !== 1 ? 's' : ''}</Badge>
+          <Badge className="bg-cyan-500/20 text-cyan-400 border-0 text-xs">{filtered.length} {isVendorFallback ? 'vendor' : 'set'}{filtered.length !== 1 ? 's' : ''}</Badge>
         )}
-        {data && !data.success && !sets.length && <span className="text-xs text-red-400 ml-2">{data.error ?? 'Failed to load'}</span>}
+        {isVendorFallback && !isLoading && (
+          <Badge variant="outline" className="text-xs text-amber-400 border-amber-400/30 gap-1">
+            <AlertTriangle className="h-3 w-3" />Sippy 2024+ not detected — showing vendors
+          </Badge>
+        )}
+        {data && !data.success && !sets.length && <span className="text-xs text-red-400 ml-2">{data.message ?? 'Failed to load'}</span>}
         <div className="ml-auto flex items-center gap-2">
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search destination sets…" className="h-7 pl-7 pr-2 text-xs w-48"
+              placeholder={isVendorFallback ? 'Search vendors…' : 'Search destination sets…'} className="h-7 pl-7 pr-2 text-xs w-48"
               data-testid="input-destset-search"
             />
           </div>
@@ -342,11 +358,11 @@ function SippyVendorBrowser() {
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground p-6 justify-center">
-          <Loader2 className="h-4 w-4 animate-spin" />Loading destination sets from Sippy…
+          <Loader2 className="h-4 w-4 animate-spin" />Loading from Sippy…
         </div>
       ) : !filtered.length ? (
         <div className="text-sm text-muted-foreground p-6 text-center">
-          {q ? `No destination sets matching "${q}"` : 'No destination sets found in Sippy.'}
+          {q ? `No ${isVendorFallback ? 'vendors' : 'destination sets'} matching "${q}"` : `No ${isVendorFallback ? 'vendors' : 'destination sets'} found in Sippy.`}
         </div>
       ) : (
         <div className="divide-y divide-cyan-500/10">
@@ -378,7 +394,7 @@ function SippyVendorBrowser() {
                         data-testid="input-route-search"
                       />
                     </div>
-                    <DestSetRoutesPanel iDestinationSet={s.iDestinationSet} search={routeSearch} />
+                    <DestSetRoutesPanel iDestinationSet={s.iDestinationSet} search={routeSearch} isVendorFallback={s.isVendorFallback} />
                   </div>
                 )}
               </div>
