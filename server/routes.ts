@@ -1012,21 +1012,34 @@ export async function registerRoutes(
   // ── Switches CRUD ──────────────────────────────────────────────────────────
 
   app.get('/api/switches', async (_req, res) => {
-    try { res.json(await storage.getSwitches()); }
+    try {
+      const switches = await storage.getSwitches();
+      // Mask passwords — never expose credentials in API responses
+      const masked = switches.map(sw => ({
+        ...sw,
+        portalPassword:    sw.portalPassword    ? '••••••••' : null,
+        apiAdminPassword:  sw.apiAdminPassword  ? '••••••••' : null,
+      }));
+      res.json(masked);
+    }
     catch { res.status(500).json({ message: 'Failed to fetch switches' }); }
   });
 
   app.post('/api/switches', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {
       const sw = await storage.createSwitch(req.body);
-      res.status(201).json(sw);
+      res.status(201).json({ ...sw, portalPassword: sw.portalPassword ? '••••••••' : null, apiAdminPassword: sw.apiAdminPassword ? '••••••••' : null });
     } catch { res.status(500).json({ message: 'Failed to create switch' }); }
   });
 
   app.patch('/api/switches/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {
-      const sw = await storage.updateSwitch(Number(req.params.id), req.body);
-      res.json(sw);
+      const body = { ...req.body };
+      // Strip masked placeholder values so real passwords are never overwritten
+      if (body.portalPassword   === '••••••••') delete body.portalPassword;
+      if (body.apiAdminPassword === '••••••••') delete body.apiAdminPassword;
+      const sw = await storage.updateSwitch(Number(req.params.id), body);
+      res.json({ ...sw, portalPassword: sw.portalPassword ? '••••••••' : null, apiAdminPassword: sw.apiAdminPassword ? '••••••••' : null });
     } catch { res.status(500).json({ message: 'Failed to update switch' }); }
   });
 
@@ -1135,9 +1148,11 @@ export async function registerRoutes(
           // Run both in parallel:
           // - getSippyActiveCalls  → real concurrent live call count via listActiveCalls XML-RPC
           // - getSippyDashboardMetrics → period counters for ASR, ACD, total, answered
+          // Both use admin creds (liveUser/livePass) so secondary switches with a separate
+          // apiAdminPassword use the correct XML-RPC API password (not the web portal password).
           const [liveCalls, metrics] = await Promise.all([
             sippy.getSippyActiveCalls(liveUser, livePass, portalUrl, undefined, username, password),
-            sippy.getSippyDashboardMetrics(username, password, portalUrl),
+            sippy.getSippyDashboardMetrics(liveUser, livePass, portalUrl),
           ]);
           console.log(`[multi-switch] ${name}: listActiveCalls=${liveCalls.length} ASR=${metrics.asr}% ACD=${metrics.acd}s total=${metrics.totalCalls}`);
           return {
@@ -1224,10 +1239,14 @@ export async function registerRoutes(
       const allSwitches = await storage.getSwitches();
       const sw = allSwitches.find(s => s.id === Number(req.params.id));
       if (!sw) return res.status(404).json({ success: false, message: 'Switch not found' });
-      if (!sw.portalUrl || !sw.portalUsername || !sw.portalPassword)
+      if (!sw.portalUrl || !sw.portalUsername || (!sw.portalPassword && !sw.apiAdminPassword))
         return res.json({ success: false, message: 'Incomplete credentials — fill in URL, username, and password.' });
 
-      const result = await sippy.connectSippy(sw.portalUrl, sw.portalUsername, sw.portalPassword);
+      // Prefer the API admin password for the XML-RPC test (it is the actual API credential).
+      // Some switches store a separate web-portal password in portalPassword and the API password
+      // in apiAdminPassword.  Try both in sequence.
+      const testPass = (sw.apiAdminPassword || sw.portalPassword)!;
+      const result = await sippy.connectSippy(sw.portalUrl, sw.portalUsername, testPass);
       // Write lastSyncAt + lastSyncStatus back so "Last Sync" column updates in the UI
       await storage.updateSwitch(sw.id, {
         lastSyncAt: new Date() as any,
