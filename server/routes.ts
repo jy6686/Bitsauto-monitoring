@@ -494,9 +494,10 @@ export async function registerRoutes(
       const startDate = sippy.toSippyDate(new Date(Date.now() - 30 * 60 * 1000)); // last 30 min
       const endDate   = sippy.toSippyDate(new Date());
 
+      const fasPortalUrl = sippyPortalUrl(settings);
       let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
       for (const { username, password } of credPairs) {
-        cdrs = await sippy.getSippyCDRs(username, password, 500, { startDate, endDate });
+        cdrs = await sippy.getSippyCDRs(username, password, 500, { startDate, endDate }, fasPortalUrl);
         if (cdrs.length > 0) break;
       }
 
@@ -1838,13 +1839,14 @@ export async function registerRoutes(
         const startMs  = startDate.getTime();
         const endMs    = Date.now();
 
+        const monPortalUrl = sippyPortalUrl(settings);
         let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
         for (const { username: u, password: p } of credPairs) {
           cdrs = await sippy.getSippyCDRs(u, p, 5000, {
             startDate: startDate.toISOString(),
             endDate:   new Date().toISOString(),
             type: 'all',
-          });
+          }, monPortalUrl);
           if (cdrs.length > 0) break;
         }
 
@@ -2352,10 +2354,11 @@ export async function registerRoutes(
       // Fetch CDRs — global (no i_account) so one call covers all accounts.
       // Try credential pairs in order: RTST1 first, then ssp-root.
       // RTST1 often gets 401 on getCustomerCDRs; ssp-root (admin) always has access.
+      const asrPortalUrl = sippyPortalUrl(settings!);
       let cdrs: any[] = [];
       for (const { username, password } of credPairs) {
         try {
-          const rows = await sippy.getSippyCDRs(username, password, 1000, { startDate, endDate });
+          const rows = await sippy.getSippyCDRs(username, password, 1000, { startDate, endDate }, asrPortalUrl);
           if (rows.length > 0) { cdrs = rows; break; }
         } catch { continue; }
       }
@@ -2431,10 +2434,11 @@ export async function registerRoutes(
       const endDate   = sippy.toSippyDate(now);
 
       // ── Fetch CDRs (up to 2000) ──────────────────────────────────────────────
+      const perAcctPortalUrl = sippyPortalUrl(settings!);
       let cdrs: any[] = [];
       for (const { username, password } of credPairs) {
         try {
-          const fetched = await sippy.getSippyCDRs(username, password, 2000, { startDate, endDate });
+          const fetched = await sippy.getSippyCDRs(username, password, 2000, { startDate, endDate }, perAcctPortalUrl);
           if (fetched && fetched.length > 0) { cdrs = fetched; break; }
         } catch { continue; }
       }
@@ -2567,8 +2571,9 @@ export async function registerRoutes(
       const credPairs = sippyXmlCredsPairs(settings);
       let batch: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
 
+      const pUrl = sippyPortalUrl(settings!);
       for (const { username, password } of credPairs) {
-        batch = await sippy.getSippyCDRs(username, password, 500, {});
+        batch = await sippy.getSippyCDRs(username, password, 500, {}, pUrl);
         if (batch.length > 0) break;
       }
 
@@ -2702,10 +2707,11 @@ export async function registerRoutes(
       if (req.query.cli)            opts.cli            = req.query.cli            as string;
       if (req.query.cld)            opts.cld            = req.query.cld            as string;
       if (offset !== undefined)     opts.offset         = offset;
+      const portalUrl = sippyPortalUrl(settings!);
       // Try each credential pair (handles cases where apiAdmin and portal creds are swapped in settings)
       let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
       for (const { username, password } of credPairs) {
-        cdrs = await sippy.getSippyCDRs(username, password, limit, opts);
+        cdrs = await sippy.getSippyCDRs(username, password, limit, opts, portalUrl);
         if (cdrs.length > 0) break;
       }
       // Enrich with clientName from account cache and vendorName from connection cache
@@ -2773,13 +2779,52 @@ export async function registerRoutes(
       const offset    = Number(req.query.offset) || 0;
       const type      = (req.query.type as string | undefined) || 'all';
 
+      const portalUrl = sippyPortalUrl(settings!);
+      const adminUser = settings?.apiAdminUsername ?? '';
+      const adminPass = settings?.apiAdminPassword ?? '';
+
       // Use the same standard CDR fetch as the client CDR endpoint
       let rawCdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
       for (const { username, password } of credPairs) {
         rawCdrs = await sippy.getSippyCDRs(username, password, limit + offset, {
           startDate, endDate, cli, cld, type,
-        });
+        }, portalUrl);
         if (rawCdrs.length > 0) break;
+      }
+
+      // Fallback: XML-RPC returned nothing → scrape admin portal HTML
+      // (mirrors the same fallback in /api/sippy/cdr)
+      if (rawCdrs.length === 0 && adminUser && adminPass) {
+        const portalUser = settings?.portalUsername ?? '';
+        const portalPass = settings?.portalPassword ?? '';
+        const sd = startDate || '1 day ago';
+        const ed = endDate   || 'now';
+        const typeMap: Record<string, string> = {
+          errors: '6', non_zero: '4', complete: '5', non_zero_and_errors: '3', incomplete: '2',
+        };
+        const callsSel = typeMap[type] || '1';
+        try {
+          const scraped = await sippy.scrapePortalCDRs(portalUser, portalPass, portalUrl, {
+            limit: limit + offset, startDate: sd, endDate: ed, callsSelect: callsSel,
+            fallbackUsername: adminUser, fallbackPassword: adminPass,
+          });
+          if (scraped.length > 0) rawCdrs = scraped;
+        } catch { /* ignore */ }
+
+        if (rawCdrs.length === 0) {
+          try {
+            const adminScraped = await sippy.scrapeAdminPortalCDRs(adminUser, adminPass, portalUrl, {
+              limit:       limit + offset,
+              startDate:   sd,
+              endDate:     ed,
+              callsSelect: callsSel,
+              source:      cli,
+              destination: cld,
+              offset:      0,
+            });
+            if (adminScraped.length > 0) rawCdrs = adminScraped;
+          } catch { /* ignore */ }
+        }
       }
 
       // Determine a single-vendor fallback: if all vendor connections share one vendor name, use it
@@ -9593,9 +9638,10 @@ export async function registerRoutes(
       if (!credPairs.length) return;
       const startDate = sippy.toSippyDate(new Date(Date.now() - 30 * 60 * 1000));
       const endDate   = sippy.toSippyDate(new Date());
+      const irsfPortalUrl = sippyPortalUrl(settings);
       let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
       for (const { username, password } of credPairs) {
-        cdrs = await sippy.getSippyCDRs(username, password, 500, { startDate, endDate });
+        cdrs = await sippy.getSippyCDRs(username, password, 500, { startDate, endDate }, irsfPortalUrl);
         if (cdrs.length > 0) break;
       }
       let saved = 0;
@@ -10660,7 +10706,7 @@ export async function registerRoutes(
       const startDate = sippy.toSippyDate(fromDate);
       const endDate   = sippy.toSippyDate(toDate);
       if (username && password) {
-        try { cdrs = await sippy.getSippyCDRs(username, password, 2000, { startDate, endDate }); } catch { /* ignore */ }
+        try { cdrs = await sippy.getSippyCDRs(username, password, 2000, { startDate, endDate }, portalBase); } catch { /* ignore */ }
       }
       if (!cdrs.length) {
         const pUser = settings.portalUsername || '';

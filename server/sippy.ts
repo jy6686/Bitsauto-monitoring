@@ -2614,9 +2614,13 @@ export async function getSippyCDRs(
     cld?: string;            // filter by CLD (after translation)
     offset?: number;
   } = {},
+  fallbackPortalUrl?: string,  // used when activeSession is not yet established (startup race)
 ): Promise<SippyCDR[]> {
-  if (!activeSession) return [];
-  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  // Use activeSession URL if available; fall back to the caller-supplied URL
+  // so CDR fetching works even during the startup window before auto-connect completes.
+  const portalBase = activeSession?.portalUrl ?? fallbackPortalUrl;
+  if (!portalBase) return [];
+  const apiUrl = `${portalBase}/xmlapi/xmlapi`;
 
   // Convert ISO dates to Sippy format if needed (Sippy requires '%H:%M:%S.000 GMT %a %b %d %Y')
   const formatDate = (d?: string) => {
