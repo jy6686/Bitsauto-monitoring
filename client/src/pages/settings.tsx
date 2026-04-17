@@ -1769,7 +1769,11 @@ export default function SettingsPage() {
 
             {/* Password */}
             <div className="grid gap-2">
-              <label className="text-sm font-medium">API Password</label>
+              <label className="text-sm font-medium">API Password <span className="text-muted-foreground font-normal text-xs">(XML-RPC key)</span></label>
+              <p className="text-xs text-muted-foreground -mt-1">
+                This is the <strong>XML-RPC API key</strong> — set separately under <strong>My Preferences &rarr; Allow API Calls &rarr; API Password</strong> in Sippy.
+                It is <em>not</em> your web portal login password.
+              </p>
               <div className="relative">
                 <input
                   {...form.register("portalPassword")}
@@ -1788,6 +1792,23 @@ export default function SettingsPage() {
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              {/* Misconfiguration detector: API Password == Admin Web Password → likely web password entered here */}
+              {(() => {
+                const pp = form.watch('portalPassword');
+                const wp = form.watch('adminWebPassword');
+                if (!pp || !wp || pp !== wp) return null;
+                return (
+                  <div className="flex items-start gap-2 rounded-lg border border-rose-500/40 bg-rose-500/[0.08] px-3 py-2.5 text-xs text-rose-300" data-testid="warn-api-password-mismatch">
+                    <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-rose-400" />
+                    <div className="space-y-0.5">
+                      <p className="font-semibold text-rose-200">API Password matches Admin Web Password</p>
+                      <p>This usually means the web login password was entered here by mistake.
+                        The <strong>API Password</strong> field must contain the <strong>XML-RPC API key</strong> (set under My Preferences &rarr; Allow API Calls in Sippy).
+                        If your web password and API key are genuinely the same, you can ignore this warning.</p>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Test connection */}
@@ -1878,7 +1899,8 @@ export default function SettingsPage() {
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Web portal login password for the admin user — used for portal scraping (active calls, CDRs). Only needed if different from the API password above.
+                  The <strong>browser login password</strong> for the admin user on the Sippy web portal — used only for portal scraping (active calls fallback).
+                  On most Sippy installs this differs from the XML-RPC API Password above.
                 </p>
               </div>
               {form.watch('apiAdminUsername') && (
