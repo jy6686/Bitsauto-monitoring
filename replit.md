@@ -108,6 +108,51 @@ Full-stack VoIP monitoring dashboard with real-time metrics, alerting, team mana
 - **BitsEye-style chart unification (2026-04-16)**: All Recharts charts across the app now match the BitsEye visual language. Shared primitives extracted to `client/src/components/bse-chart.tsx`: `BseTooltip` (glassmorphic `bg-card/98 backdrop-blur-md` tooltip with monospace labels + colored square indicators), `BSE_GRID_PROPS` (horizontal-only, `rgba(255,255,255,0.05)` solid lines), `BSE_AXIS_PROPS` (8px monospace `rgba(148,163,184,0.5)` ticks, no lines), `BSE_CURSOR` (dashed `4 2` cursor line), `BseGradStops` (3-stop gradient 0.45→0.08→0.0), `bseActiveDot` (card-ringed hover dot). Applied to: `dashboard.tsx` (ASR/ACD area + FAS bar), `server-monitoring.tsx` (uptime bar, bandwidth area, metrics area, SLA bars, registration area), `analytics.tsx` (P&L area + client bar), `reports.tsx` (composed ASR/ACD line), `graphs.tsx` (trend line + HBar), `calls-list.tsx` (PDD line + volume bar), `call-detail.tsx` (quality line).
 - **Settings API password security (2026-04-16)**: `GET /api/settings` now requires authentication (401 for unauthenticated). Admin role returns full settings; non-admin roles receive the same object with `portalPassword`, `apiAdminPassword`, `adminWebPassword`, `alertGmailAppPass`, `whatsappApiKey`, and `portalSessionToken` nulled out. `PATCH /api/settings` and `POST /api/settings/simulation/reset` restricted to admin role only. WhatsApp alerts save mutation corrected from POST to PATCH. Frontend settings page already guarded by `requiredRoles={['admin']}` in router.
 
+## Product / Trunk Class Schema
+
+The platform uses a **leading-digit prefix encoding** to identify both the **product class** and the **destination** from a single route prefix. The first digit of every routing prefix is the product class code; the remaining digits map to the destination dial-code (Pakistan country code = 92).
+
+### Product Classes
+
+| Code | Product Name | Prefix Pattern | Notes |
+|---|---|---|---|
+| **1** | First Class Wholesale | `1` + destination | e.g. `192` (Pakistan Fixed), `19230` (Pakistan Jazz) |
+| **2** | Business Class Wholesale | `2` + destination | e.g. `292` (Pakistan Fixed), `29233` (Pakistan Ufone) |
+| **6** | Special Bravo | `6` + destination | e.g. `692` (Pakistan Fixed), `69234` (Pakistan Telenor) |
+| **7** | Special Charlie | `7` + destination | e.g. `792` (Pakistan Fixed), `79231` (Pakistan Zong) |
+
+### Prefix Anatomy
+
+```
+[Product Code] [9] [Destination Digits]
+      1          9        2          →  192   (First Class / Pakistan Fixed)
+      1          9        230        →  19230 (First Class / Pakistan Jazz)
+      2          9        2          →  292   (Business Class / Pakistan Fixed)
+      2          9        233        →  29233 (Business Class / Pakistan Ufone)
+      6          9        2          →  692   (Special Bravo / Pakistan Fixed)
+      6          9        234        →  69234 (Special Bravo / Pakistan Telenor)
+      7          9        2          →  792   (Special Charlie / Pakistan Fixed)
+      7          9        231        →  79231 (Special Charlie / Pakistan Zong)
+```
+
+### Pakistan Destination Sub-codes (after product digit)
+
+| Sub-prefix | Operator / Destination |
+|---|---|
+| `92` | Pakistan Fixed (generic) |
+| `9230` | Pakistan Jazz |
+| `9231` | Pakistan Zong |
+| `9233` | Pakistan Ufone |
+| `9234` | Pakistan Telenor |
+
+### Usage in the Platform
+- **Rate Cards**: Each product class has its own vendor/client rate card. Prefix matching in LCR Analyser and Rate Card entries follows this schema.
+- **BitsEye drill-down**: Destination breakouts group by these sub-codes (Jazz, Zong, Ufone, Telenor, Fixed).
+- **CDR filtering**: `trunkClass` field on calls maps to the product code digit (`1`, `2`, `6`, `7`).
+- **Routing Groups**: Named per product class (e.g. "Pakistan First Class", "Pakistan Business Class").
+
+---
+
 ## Data Safety & Read-Only Policy
 
 The platform is designed to be **read-only by default**. Every operation that runs automatically in the background is a pure read — nothing is written to the live Sippy switch without an explicit user action. This makes the platform safe to run 24/7 against a production Sippy instance.
