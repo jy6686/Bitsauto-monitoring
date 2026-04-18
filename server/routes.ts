@@ -2128,7 +2128,15 @@ export async function registerRoutes(
       // HTTP Basic Auth GET — simplest integration per article 107525.
       // Requires: admin to run htpasswd on the switch server to add credentials,
       //           AND customer account (authname) must have Callback service active.
-      if (!result.success) {
+      // NOTE: Only attempt if Phase 2 did not already give a definitive "module
+      //       not enabled" error (HTTP 500 non-XML) — the Simple API has the same
+      //       prerequisite, so it will fail for the same reason and we should preserve
+      //       Phase 2's clearer error message.
+      const phase2ModuleNotEnabled = result.message?.toLowerCase().includes('callback module not enabled') ||
+        result.message?.toLowerCase().includes('module not enabled') ||
+        result.message?.toLowerCase().includes('module is not available');
+
+      if (!result.success && !phase2ModuleNotEnabled) {
         const authname =
           bodyAuthname?.trim() ||
           (iAccount ? accountNameCache.get(String(iAccount)) : '') ||
@@ -2154,8 +2162,17 @@ export async function registerRoutes(
               result = { ...r, errorType: undefined, apiUser: username, method: 'simple-api' };
               break;
             }
-            // Only update result if we haven't succeeded — keep last error for logging
-            result = { ...result, message: r.message, errorType: 'call_error', apiUser: username, method: 'simple-api' };
+            // Only overwrite result message if Phase 3 returns a meaningful error
+            // (not just an HTML 500 page — that just means Simple API isn't configured).
+            const simpleApiHtml = r.message.includes('<!DOCTYPE') || r.message.includes('<html') ||
+              r.message.toLowerCase().includes('http 500') || r.message.toLowerCase().includes('internal server error');
+            if (!simpleApiHtml) {
+              result = { ...result, message: r.message, errorType: 'call_error', apiUser: username, method: 'simple-api' };
+            } else {
+              // Simple API not configured — log but keep Phase 2 error message
+              console.log(`[make-call] Simple API not configured (HTTP 500 non-XML) — keeping Phase 2 error.`);
+              result = { ...result, method: 'simple-api' };
+            }
           }
         }
       }

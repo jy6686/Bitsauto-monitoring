@@ -162,7 +162,7 @@ export default function TestCallPage() {
   const swappedPortalUser = settings?.portalUsername || '';
 
   const callErrorMsg = callResult?.message?.toLowerCase() ?? '';
-  const isNotConfigured = !callResult?.success && (
+  const isCallbackModuleError = !callResult?.success && (
     callErrorMsg.includes('callback module') ||
     callErrorMsg.includes('module is not available') ||
     callErrorMsg.includes('module not enabled') ||
@@ -172,6 +172,7 @@ export default function TestCallPage() {
     callResult?.errorType === 'method_not_found' ||
     callResult?.errorType === 'not_connected'
   );
+  const isNotConfigured = isCallbackModuleError;
   const isModuleError = isNotConfigured;
 
   return (
@@ -186,7 +187,7 @@ export default function TestCallPage() {
           <div>
             <h1 className="text-xl font-bold">Test Call Launcher</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Originate a call from CLI to CLD via Sippy XML-RPC — uses direct call origination, falls back to 2-way callback
+              Originate a call from CLI to CLD via Sippy — uses <code className="bg-muted px-1 rounded text-xs">make2WayCallback</code> (Sippy Callback application)
             </p>
           </div>
         </div>
@@ -251,16 +252,16 @@ export default function TestCallPage() {
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
 
-                  {/* Flow diagram */}
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-4 py-3 border border-border">
+                  {/* Flow diagram — 2-way callback */}
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-4 py-3 border border-border">
                     <span className="flex items-center gap-1.5">
                       <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">1</span>
-                      Sippy routes <strong className="text-foreground/80">CLI</strong> as caller
+                      Sippy calls <strong className="text-foreground/80">CLI</strong> (your phone)
                     </span>
                     <ArrowRight className="h-3 w-3 text-muted-foreground/60 shrink-0" />
                     <span className="flex items-center gap-1.5">
                       <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center font-bold shrink-0">2</span>
-                      Dials <strong className="text-foreground/80">CLD</strong> via best route
+                      On answer, bridges to <strong className="text-foreground/80">CLD</strong>
                     </span>
                     <ArrowRight className="h-3 w-3 text-muted-foreground/60 shrink-0" />
                     <span className="flex items-center gap-1.5">
@@ -273,7 +274,7 @@ export default function TestCallPage() {
                     <FormField control={form.control} name="cli" render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          Caller Number <span className="text-muted-foreground font-normal text-xs">(CLI)</span>
+                          Your Phone Number <span className="text-muted-foreground font-normal text-xs">(CLI — first leg)</span>
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -283,7 +284,7 @@ export default function TestCallPage() {
                             className="font-mono"
                           />
                         </FormControl>
-                        <p className="text-[11px] text-muted-foreground">Presented as the caller ID</p>
+                        <p className="text-[11px] text-muted-foreground">Sippy calls <em>this</em> number first (answer it to be bridged)</p>
                         <FormMessage />
                       </FormItem>
                     )} />
@@ -394,17 +395,17 @@ export default function TestCallPage() {
                   {!callResult.success && isModuleError && (
                     <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
                       <p className="text-xs font-semibold text-amber-400 flex items-center gap-2">
-                        <WrenchIcon className="h-3.5 w-3.5" /> Call Origination module not enabled on this Sippy switch
+                        <WrenchIcon className="h-3.5 w-3.5" /> Callback application not enabled
                       </p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        The switch returned a server error (HTTP 500) for all call origination methods — this means the feature is not installed or not enabled at the system level.
+                        Sippy returned an error for <code className="bg-background px-1 rounded font-mono">make2WayCallback</code> — the Callback application is not enabled at the system level or not assigned to the selected account.
                       </p>
                       <p className="text-xs font-semibold text-foreground/60">Steps to enable in Sippy Admin:</p>
                       <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
                         <li>Log in to Sippy as a system administrator</li>
                         <li>Go to <strong className="text-foreground/70">System → Applications</strong> and enable the <strong className="text-foreground/70">Callback</strong> application</li>
-                        <li>Then go to <strong className="text-foreground/70">System → Administrators</strong>, open the API admin user, and under <strong className="text-foreground/70">API Access</strong> enable <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
-                        <li>If the above option does not appear, contact Sippy support to enable the Call Origination feature on your license</li>
+                        <li>Go to <strong className="text-foreground/70">Customers</strong>, open the billing account, then <strong className="text-foreground/70">Applications</strong> tab → enable <strong className="text-foreground/70">Callback</strong> and save</li>
+                        <li>Ensure the account has sufficient credit and a valid route for the destination</li>
                       </ol>
                     </div>
                   )}
@@ -465,11 +466,11 @@ export default function TestCallPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] flex items-center justify-center shrink-0 mt-0.5">3</span>
-                  Optionally select a <strong className="text-foreground/70">Billing Account</strong> to bill the call against — used if callback fallback is needed.
+                  Select a <strong className="text-foreground/70">Billing Account</strong> — its username becomes the <code className="bg-muted px-0.5 rounded">authname</code> that Sippy uses to originate the callback.
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] flex items-center justify-center shrink-0 mt-0.5">✓</span>
-                  Tries <code className="bg-muted px-0.5 rounded">call_control.makeCall</code> first (no Callback module needed). Falls back to <code className="bg-muted px-0.5 rounded">make2WayCallback</code> if unavailable.
+                  Calls Sippy's <code className="bg-muted px-0.5 rounded">make2WayCallback</code> API — Sippy first calls CLI (your phone), then bridges to CLD. Requires the <strong className="text-foreground/70">Callback</strong> application enabled on the account.
                 </li>
               </ul>
             </div>
@@ -486,11 +487,17 @@ export default function TestCallPage() {
                   <li>Set an <strong className="text-foreground/70">API Password</strong></li>
                   <li>Save &amp; update password in Settings</li>
                 </ol>
-                <p className="font-semibold text-foreground/60 pt-1">Step 2 — Grant makeCall permission</p>
+                <p className="font-semibold text-foreground/60 pt-1">Step 2 — Enable Callback application</p>
                 <ol className="space-y-0.5 list-decimal list-inside">
-                  <li>System <span className="text-muted-foreground/50">→</span> Administrators <span className="text-muted-foreground/50">→</span> <code className="bg-muted px-0.5 rounded font-mono">{adminUser}</code></li>
-                  <li>API Access tab <span className="text-muted-foreground/50">→</span> <strong className="text-foreground/70">Allow XML-RPC call origination</strong></li>
-                  <li>Save &amp; retry</li>
+                  <li>System <span className="text-muted-foreground/50">→</span> Applications <span className="text-muted-foreground/50">→</span> enable <strong className="text-foreground/70">Callback</strong></li>
+                  <li>Customers <span className="text-muted-foreground/50">→</span> open the billing account <span className="text-muted-foreground/50">→</span> Applications tab</li>
+                  <li>Enable <strong className="text-foreground/70">Callback</strong> for that account &amp; save</li>
+                </ol>
+                <p className="font-semibold text-foreground/60 pt-1">Step 3 — Ensure routing &amp; balance</p>
+                <ol className="space-y-0.5 list-decimal list-inside">
+                  <li>The selected account must have sufficient <strong className="text-foreground/70">credit</strong></li>
+                  <li>CLI must be a valid number reachable via your routes</li>
+                  <li>CLD must have an active route configured</li>
                 </ol>
               </div>
               <div className="space-y-2 pt-1">
