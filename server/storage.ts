@@ -190,6 +190,7 @@ export interface IStorage {
   // Fix History — Phase 3
   addFixHistoryEntry(entry: InsertFixHistory): Promise<FixHistory>;
   getFixHistory(limit?: number): Promise<FixHistory[]>;
+  getFixHistoryById(id: number): Promise<FixHistory | null>;
   findSimilarFix(issueType: string, component: string): Promise<FixHistory | null>;
 }
 
@@ -1015,6 +1016,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(fixHistory)
       .orderBy(desc(fixHistory.createdAt))
       .limit(limit);
+  }
+
+  async getFixHistoryById(id: number): Promise<FixHistory | null> {
+    const [row] = await db.select().from(fixHistory).where(eq(fixHistory.id, id)).limit(1);
+    return row ?? null;
   }
 
   async findSimilarFix(issueType: string, component: string): Promise<FixHistory | null> {

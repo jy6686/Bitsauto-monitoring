@@ -11991,7 +11991,7 @@ export async function registerRoutes(
 
   // POST /api/fix/attempt — attempt an automated fix action (records to fix_history)
   app.post('/api/fix/attempt', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
-    const { action, page, issueType, component } = req.body as { action: string; page?: string; issueType?: string; component?: string };
+    const { action, page, issueType, component, screenshot } = req.body as { action: string; page?: string; issueType?: string; component?: string; screenshot?: string };
     const t0 = Date.now();
     const performer = (req as any).user?.email || (req as any).user?.id || 'unknown';
 
@@ -12006,6 +12006,7 @@ export async function registerRoutes(
           outcomeMessage: message,
           triggeredBy:    'manual',
           performedBy:    performer,
+          screenshot:     screenshot || null,
         });
       } catch {} // Don't let history write failure break the fix
     };
@@ -12072,12 +12073,41 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/fix/history — last N fix events (admin + management)
+  // GET /api/fix/history — last N fix events (admin + management); screenshots excluded from list
   app.get('/api/fix/history', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string || '50', 10), 200);
       const rows = await storage.getFixHistory(limit);
-      res.json({ history: rows, total: rows.length });
+      // Strip screenshot blob from list — served individually via /api/fix/screenshot/:id
+      const sanitized = rows.map(r => ({
+        id: r.id, page: r.page, issueType: r.issueType, component: r.component,
+        fixAction: r.fixAction, outcome: r.outcome, outcomeMessage: r.outcomeMessage,
+        triggeredBy: r.triggeredBy, performedBy: r.performedBy,
+        hasScreenshot: !!r.screenshot,
+        createdAt: r.createdAt,
+      }));
+      res.json({ history: sanitized, total: sanitized.length });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/fix/screenshot/:id — serve the base64 screenshot captured at fix time
+  app.get('/api/fix/screenshot/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const row = await storage.getFixHistoryById(id);
+      if (!row?.screenshot) return res.status(404).json({ error: 'No screenshot found for this fix event' });
+      const dataUrl = row.screenshot;
+      // Detect format and serve as image
+      const mimeMatch = dataUrl.match(/^data:(image\/\w+);base64,/);
+      const mime      = mimeMatch?.[1] ?? 'image/jpeg';
+      const base64    = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+      const buf       = Buffer.from(base64, 'base64');
+      res.set('Content-Type', mime);
+      res.set('Cache-Control', 'private, max-age=86400');
+      res.send(buf);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Wrench, X, CheckCircle2, AlertTriangle, XCircle, Loader2, ChevronRight, RefreshCw, Database, Wifi, HardDrive, Shield, Zap, AlertCircle, Clock, History, Cpu, CheckCheck, Terminal } from "lucide-react";
+import { Wrench, X, CheckCircle2, AlertTriangle, XCircle, Loader2, ChevronRight, RefreshCw, Database, Wifi, HardDrive, Shield, Zap, AlertCircle, Clock, History, Cpu, CheckCheck, Terminal, Camera, Expand } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -93,6 +93,7 @@ interface HistoryRow {
   outcomeMessage: string | null;
   triggeredBy: string;
   performedBy: string | null;
+  hasScreenshot?: boolean;
   createdAt: string;
 }
 interface AutoRule {
@@ -192,10 +193,15 @@ export function FixButton() {
   const [activeStep, setActiveStep] = useState(0);
   const [appliedActions, setAppliedActions] = useState<Set<string>>(new Set());
   const [fixResults, setFixResults]         = useState<Record<string, FixResult>>({});
+  const [screenshotLoading, setScreenshotLoading] = useState(false);
+  const [screenshotExpanded, setScreenshotExpanded] = useState(false);
   const [location] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const pageName = getPageName(location);
+
+  // Stores the base64 JPEG captured when Fix button is clicked (before modal opens)
+  const screenshotRef = useRef<string | null>(null);
 
   // ── Frontend error capture (Step 2: Collect Logs) ───────────────────────
   const frontendErrorsRef = useRef<string[]>([]);
@@ -266,7 +272,10 @@ export function FixButton() {
   // ── Fix mutation ─────────────────────────────────────────────────────────
   const fixMutation = useMutation({
     mutationFn: async ({ action, issueType, component }: { action: string; issueType?: string; component?: string }) => {
-      const res = await apiRequest("POST", "/api/fix/attempt", { action, page: pageName, issueType, component });
+      const res = await apiRequest("POST", "/api/fix/attempt", {
+        action, page: pageName, issueType, component,
+        screenshot: screenshotRef.current ?? undefined,
+      });
       return res.json() as Promise<FixResult>;
     },
     onSuccess: (data, vars) => {
@@ -285,12 +294,33 @@ export function FixButton() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const handleOpen = useCallback(() => {
+  const handleOpen = useCallback(async () => {
+    // Capture page screenshot BEFORE opening modal (captures the broken/current UI state)
+    screenshotRef.current = null;
+    setScreenshotLoading(true);
+    setScreenshotExpanded(false);
     setOpen(true);
     setTab("diagnose");
     setActiveStep(1);
     setAppliedActions(new Set());
     setFixResults({});
+    // Non-blocking screenshot capture after modal opens
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(document.body, {
+        scale: 0.35,
+        useCORS: false,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: "#000",
+        ignoreElements: (el) => el.getAttribute("data-testid") === "dialog-fix-modal",
+      });
+      screenshotRef.current = canvas.toDataURL("image/jpeg", 0.55);
+    } catch {
+      screenshotRef.current = null;
+    } finally {
+      setScreenshotLoading(false);
+    }
   }, []);
 
   const handleClose = useCallback(() => {
@@ -403,6 +433,41 @@ export function FixButton() {
             {/* ══ DIAGNOSE TAB ══════════════════════════════════════════════════ */}
             {tab === "diagnose" && (
               <>
+                {/* Screenshot evidence strip */}
+                {(screenshotLoading || screenshotRef.current) && (
+                  <div className="px-6 pt-3 pb-0">
+                    <div className="flex items-center gap-2 bg-muted/20 border border-border/30 rounded-lg px-3 py-2">
+                      <Camera className={cn("h-3.5 w-3.5 flex-shrink-0", screenshotLoading ? "text-muted-foreground/50 animate-pulse" : "text-primary/70")} />
+                      <span className="text-[10px] text-muted-foreground/60 font-medium flex-1">
+                        {screenshotLoading ? "Capturing page evidence…" : "Page screenshot captured at click time"}
+                      </span>
+                      {!screenshotLoading && screenshotRef.current && (
+                        <>
+                          <button
+                            data-testid="button-screenshot-toggle"
+                            onClick={() => setScreenshotExpanded(v => !v)}
+                            className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-primary/10"
+                          >
+                            <Expand className="h-3 w-3" />
+                            {screenshotExpanded ? "Hide" : "View"}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {screenshotExpanded && screenshotRef.current && (
+                      <div className="mt-2 rounded-lg overflow-hidden border border-border/40 shadow-lg">
+                        <img
+                          src={screenshotRef.current}
+                          alt="Page state when Fix was clicked"
+                          data-testid="img-fix-screenshot"
+                          className="w-full object-cover"
+                          style={{ maxHeight: "220px", objectPosition: "top" }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* 10-step progress */}
                 <div className="px-6 pt-4 pb-3 border-b border-border/20">
                   <div className="flex items-center gap-0.5 overflow-x-auto pb-1">
@@ -707,6 +772,18 @@ export function FixButton() {
                               <span className="text-violet-400/70 flex items-center gap-0.5"><Cpu className="h-2.5 w-2.5" /> auto</span>
                             )}
                             {row.performedBy && <span>by {row.performedBy}</span>}
+                            {row.hasScreenshot && (
+                              <a
+                                href={`/api/fix/screenshot/${row.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                data-testid={`link-screenshot-${row.id}`}
+                                className="flex items-center gap-0.5 text-primary/60 hover:text-primary transition-colors"
+                                title="View captured screenshot"
+                              >
+                                <Camera className="h-2.5 w-2.5" />screenshot
+                              </a>
+                            )}
                             <span className="ml-auto">{new Date(row.createdAt).toLocaleString()}</span>
                           </div>
                         </div>

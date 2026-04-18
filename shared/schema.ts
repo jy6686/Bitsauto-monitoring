@@ -606,6 +606,7 @@ export const fixHistory = pgTable("fix_history", {
   outcomeMessage: text("outcome_message"),
   triggeredBy:    varchar("triggered_by",   { length: 20  }).notNull().default('manual'), // 'manual' | 'auto'
   performedBy:    varchar("performed_by",   { length: 200 }),
+  screenshot:     text("screenshot"),       // base64 JPEG captured at fix time (nullable)
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
 
