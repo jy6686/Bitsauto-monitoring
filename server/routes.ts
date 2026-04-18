@@ -10844,11 +10844,50 @@ export async function registerRoutes(
       }
 
       let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      let dataSource = 'sippy-direct';
       const startDate = sippy.toSippyDate(fromDate);
       const endDate   = sippy.toSippyDate(toDate);
+
+      // Attempt 1: direct Sippy fetch with date range
       if (username && password) {
-        try { cdrs = await sippy.getSippyCDRs(username, password, 2000, { startDate, endDate }, portalBase); } catch { /* ignore */ }
+        try {
+          cdrs = await sippy.getSippyCDRs(username, password, 2000, { startDate, endDate }, portalBase);
+        } catch (e: any) {
+          console.warn('[analytics/margin] getSippyCDRs with date range failed:', e.message);
+        }
       }
+
+      // Attempt 2: direct Sippy fetch WITHOUT date filter (old Sippy builds often ignore/reject date params)
+      // — we post-filter by date ourselves
+      if (!cdrs.length && username && password) {
+        try {
+          const batch = await sippy.getSippyCDRs(username, password, 2000, {}, portalBase);
+          if (batch.length > 0) {
+            cdrs = batch.filter(c => {
+              const ts = c.startTime ? new Date(c.startTime).getTime() : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+              return ts >= fromDate.getTime() && ts <= toDate.getTime();
+            });
+            if (cdrs.length === 0) cdrs = batch; // date filter produced nothing — use all records
+            dataSource = 'sippy-nodate';
+          }
+        } catch (e: any) {
+          console.warn('[analytics/margin] getSippyCDRs without date range failed:', e.message);
+        }
+      }
+
+      // Attempt 3: use in-memory CDR cache (covers last 72h) — always available
+      if (!cdrs.length && cdrCache.size > 0) {
+        const cacheAll = [...cdrCache.values()];
+        const inRange = cacheAll.filter(c => {
+          const ts = c.startTime ? new Date(c.startTime).getTime() : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+          return ts >= fromDate.getTime() && ts <= toDate.getTime();
+        });
+        cdrs = inRange.length > 0 ? inRange : cacheAll;
+        dataSource = 'cdr-cache';
+        console.log(`[analytics/margin] Using CDR cache fallback: ${cdrs.length} records`);
+      }
+
+      // Attempt 4: portal scrape fallback
       if (!cdrs.length) {
         const pUser = settings.portalUsername || '';
         const pPass = settings.portalPassword || '';
@@ -10857,7 +10896,10 @@ export async function registerRoutes(
             const pad = (n: number) => String(n).padStart(2, '0');
             const fmt = (d: Date) => `${pad(d.getMonth()+1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
             cdrs = await sippy.scrapePortalCDRs(pUser, pPass, portalBase, { limit: 2000, startDate: fmt(fromDate), endDate: fmt(toDate), callsSelect: '4' });
-          } catch { /* ignore */ }
+            if (cdrs.length > 0) dataSource = 'portal-scrape';
+          } catch (e: any) {
+            console.warn('[analytics/margin] scrapePortalCDRs fallback failed:', e.message);
+          }
         }
       }
 
@@ -10965,7 +11007,9 @@ export async function registerRoutes(
         rateCards: allCards,
         selectedVendorCardId: vendorCardId,
         vendorDataLimited: !useRateCard && totalVendorBalance === 0,
-        _source: `cdr-${useRateCard ? 'ratecard' : 'proportional'}`,
+        _source: `${dataSource}/${useRateCard ? 'ratecard' : 'proportional'}`,
+        _cdrCount: enriched.length,
+        _cacheSize: cdrCache.size,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

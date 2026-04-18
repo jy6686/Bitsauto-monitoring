@@ -31,6 +31,8 @@ type MarginData = {
   selectedVendorCardId: number | null;
   vendorDataLimited: boolean;
   _source: string;
+  _cdrCount?: number;
+  _cacheSize?: number;
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -244,6 +246,18 @@ export default function AnalyticsPage() {
           </Button>
         </div>
       </div>
+
+      {/* CDR cache data source notice — shown when analytics falls back to in-memory CDR cache */}
+      {data?._source?.includes('cdr-cache') && !error && (
+        <div className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-400 px-4 py-3 text-xs">
+          <Info className="h-4 w-4 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-medium">CDR cache data — </span>
+            live analytics based on the last 72 hours of cached CDRs ({data?._cdrCount ?? 0} records).
+            Sippy's date-filtered API returned no data for this period — the cache is used as a real-time fallback.
+          </div>
+        </div>
+      )}
 
       {/* Source + vendor data notice */}
       {data?.vendorDataLimited && !error && (
