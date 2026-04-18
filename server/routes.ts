@@ -3462,16 +3462,29 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // GET /api/sippy/tariffs — list tariffs (lightweight: iTariff, name, currency, iTariffType)
-  // Query params: namePattern?, offset?, limit?, iCustomer?
+  // GET /api/sippy/tariffs — list tariffs (unified handler)
+  // Query params: namePattern?, offset?, limit?, iCustomer?, switchId?, inlineUser?, inlinePass?, inlineUrl?
+  //   switchId: use a specific switch from the multi-switch list
+  //   inlineUser/Pass/Url: override credentials inline (rate-editor mode)
   //   namePattern: SQL ILIKE pattern (e.g. 'USD%')
-  // Returns: SippyTariffListEntry[]
+  // Returns: SippyTariffListEntry[] or { tariffs: [], error }
   app.get('/api/sippy/tariffs', async (req: any, res) => {
     try {
-      const settings = await storage.getSippySettings();
+      const settings = await storage.getSippySettings() ?? await storage.getSettings();
       if (!settings) return res.json([]);
-      const { username, password } = sippyXmlCreds(settings);
-      const portalUrl = sippyPortalUrl(settings);
+      let { username, password } = sippyXmlCreds(settings);
+      let portalUrl: string | undefined = sippyPortalUrl(settings);
+
+      // Inline credential override (used by rate-editor for inline switch testing)
+      if (req.query.inlineUser) username = req.query.inlineUser as string;
+      if (req.query.inlinePass) password = req.query.inlinePass as string;
+      if (req.query.inlineUrl)  portalUrl = req.query.inlineUrl as string;
+
+      // switchId override — pick credentials from a specific registered switch
+      if (req.query.switchId) {
+        const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
+        if (sw) { ({ username, password } = sippyXmlCreds(settings, sw)); portalUrl = sw.portalUrl ?? undefined; }
+      }
 
       // listSippyTariffs() tries 4 methods: getTariffsList (2020+), tariff.getTariffList,
       // tariff.getList, billing.getTariffList — covers all Sippy versions including old Python 2
@@ -3481,7 +3494,7 @@ export async function registerRoutes(
         return res.json(tariffs.map(t => ({ iTariff: (t as any).iTariff ?? t.id, name: t.name, currency: t.currency ?? 'USD' })));
       }
 
-      // Final fallback: strict getTariffsList with iCustomer filter support
+      // Final fallback: strict getTariffsList with iCustomer/namePattern filter support
       const strict = await sippy.getTariffsList(
         username, password,
         req.query.namePattern as string | undefined,
@@ -3630,24 +3643,6 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/sippy/tariffs — list tariffs from Sippy
-  app.get('/api/sippy/tariffs', async (req: any, res) => {
-    try {
-      const settings = await storage.getSettings();
-      let { username, password } = sippyXmlCreds(settings);
-      username = (req.query.inlineUser as string) || username;
-      password = (req.query.inlinePass as string) || password;
-      let portalUrl: string | undefined = (req.query.inlineUrl as string) || sippyPortalUrl(settings);
-      if (req.query.switchId) {
-        const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
-        if (sw) { ({ username, password } = sippyXmlCreds(settings, sw)); portalUrl = sw.portalUrl ?? undefined; }
-      }
-      const result = await sippy.listSippyTariffs(username, password, portalUrl);
-      res.json(result);
-    } catch (err: any) {
-      res.json({ tariffs: [], error: err.message });
-    }
-  });
 
   // GET /api/sippy/dictionaries/:name — fetch a Sippy system dictionary
   // Supports: currencies, timezones, protocols, tariff_types, media_relay_types,
@@ -4282,14 +4277,6 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
-  // GET /api/sippy/tariffs — list tariff plans (products)
-  app.get('/api/sippy/tariffs', async (_req, res) => {
-    try {
-      const settings = await storage.getSettings();
-      const tariffs = await sippy.getSippyTariffList(settings.portalUsername ?? '', settings.portalPassword ?? '');
-      res.json({ tariffs });
-    } catch (e: any) { res.status(500).json({ tariffs: [], error: e.message }); }
-  });
 
   // GET /api/sippy/carrier-list — list carriers/nodes
   app.get('/api/sippy/carrier-list', async (_req, res) => {
@@ -11803,8 +11790,8 @@ export async function registerRoutes(
       } catch {}
     }
 
-    // BILLING module
-    if (mod === 'billing') {
+    // BILLING / BALANCE MONITOR module
+    if (mod === 'billing' || mod === 'balance monitor') {
       const tsM = Date.now();
       try {
         const profiles = await storage.getClientProfiles();
