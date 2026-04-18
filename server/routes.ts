@@ -9270,6 +9270,44 @@ export async function registerRoutes(
   // ── KAM Management Routes ─────────────────────────────────────────────────────
 
   // List all KAMs (with their assigned accounts)
+  // ── GET /api/accounts-list ────────────────────────────────────────────────
+  // Returns the full account list from the in-memory cache merged with KAM assignments.
+  // Fast: no Sippy call required — cache is warmed at startup.
+  // Response: { accounts: Array<{ iAccount, username, kamId, kamName, assignmentId }> }
+  app.get('/api/accounts-list', async (_req, res) => {
+    try {
+      const allAssignments = await storage.getKamAccounts();
+      const kams = await storage.getKams();
+      const kamById = new Map(kams.map(k => [k.id, k]));
+
+      // Build assignment lookup by accountId string
+      const assignMap = new Map<string, { kamId: number; kamName: string; assignmentId: number }>();
+      for (const a of allAssignments) {
+        const kam = kamById.get(a.kamId);
+        if (kam) {
+          assignMap.set(String(a.accountId), { kamId: a.kamId, kamName: kam.name, assignmentId: a.id });
+        }
+      }
+
+      // Use accountNameCache as the source of truth (warmed at startup from listSippyAccounts)
+      const accounts = Array.from(accountNameCache.entries())
+        .map(([iAccountStr, username]) => {
+          const iAccount = parseInt(iAccountStr, 10);
+          const assign = assignMap.get(iAccountStr);
+          return {
+            iAccount,
+            username,
+            kamId:        assign?.kamId        ?? null,
+            kamName:      assign?.kamName      ?? null,
+            assignmentId: assign?.assignmentId ?? null,
+          };
+        })
+        .sort((a, b) => a.username.localeCompare(b.username));
+
+      res.json({ accounts, total: accounts.length });
+    } catch (e: any) { res.status(500).json({ accounts: [], error: e.message }); }
+  });
+
   app.get('/api/kam', async (_req, res) => {
     try {
       const kamList = await storage.getKams();

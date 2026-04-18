@@ -48,6 +48,7 @@ import VendorSlaScorecardPage from "@/pages/vendor-sla-scorecard";
 import CostOptimisationPage from "@/pages/cost-optimisation";
 import MultiSwitchPage from "@/pages/multi-switch";
 import WhatsappAlertsPage from "@/pages/whatsapp-alerts";
+import AccountNamesPage from "@/pages/account-names";
 import DashboardPage from "@/pages/dashboard";
 import CallsListPage from "@/pages/calls-list";
 import CallDetailPage from "@/pages/call-detail";
@@ -269,6 +270,9 @@ function Router() {
       </Route>
       <Route path="/whatsapp-alerts">
         {() => <ProtectedRoute component={WhatsappAlertsPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/account-names">
+        {() => <ProtectedRoute component={AccountNamesPage} requiredRoles={['admin']} />}
       </Route>
 
       <Route component={NotFound} />

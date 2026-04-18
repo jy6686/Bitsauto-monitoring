@@ -167,6 +167,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/settings",        label: "Settings",        icon: Settings,      roles: ['admin'], hasSubmenu: 'settings' },
       { href: "/whatsapp-alerts", label: "WhatsApp Alerts", icon: MessageSquare, roles: ['admin']                        },
       { href: "/team",            label: "Team & KAM",      icon: Users,         roles: ['admin']                        },
+      { href: "/account-names",   label: "Account Names",   icon: Building2,     roles: ['admin']                        },
       { href: "/api-keys",        label: "API Keys",        icon: Key,           roles: ['admin']                        },
     ],
   },
