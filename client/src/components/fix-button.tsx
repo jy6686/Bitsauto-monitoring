@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Wrench, X, CheckCircle2, AlertTriangle, XCircle, Loader2, ChevronRight, RefreshCw, Database, Wifi, HardDrive, Shield, Zap, AlertCircle, Clock, History, Cpu, CheckCheck, Terminal, Camera, Expand } from "lucide-react";
+import { Wrench, X, CheckCircle2, AlertTriangle, XCircle, Loader2, ChevronRight, RefreshCw, Database, Wifi, HardDrive, Shield, Zap, AlertCircle, Clock, History, Cpu, CheckCheck, Terminal, Camera, Expand, Copy, CopyCheck, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -184,6 +184,84 @@ const FIX_ACTION_LABELS: Record<string, string> = {
   refresh_vendors:  "Refresh Vendors",
 };
 
+// ── Build a structured AI-ready fix report ───────────────────────────────────
+function buildFixReport(
+  pageName: string,
+  url: string,
+  diag: DiagResult,
+  frontendErrors: string[],
+  hasScreenshot: boolean,
+  fixResults: Record<string, FixResult>,
+): string {
+  const ts = new Date().toLocaleString();
+  const status = diag.status.toUpperCase();
+  const issueLines = diag.issues.map((iss, i) =>
+    `  ${i + 1}. [${iss.type}] ${iss.description} — severity: ${iss.severity}${iss.suggestedFix ? `\n     Suggested fix: ${iss.suggestedFix}` : ""}`
+  ).join("\n");
+
+  const checkLines = diag.checks.map(c =>
+    `  ${c.status === "ok" ? "✓" : c.status === "warn" ? "⚠" : c.status === "skip" ? "–" : "✗"} ${c.name}${c.detail ? ": " + c.detail : ""}`
+  ).join("\n");
+
+  const fixResultLines = Object.entries(fixResults).map(([action, r]) =>
+    `  ${r.ok ? "✓" : "✗"} ${action}: ${r.message}`
+  ).join("\n");
+
+  const appliedFixes = Object.keys(fixResults).length;
+  const resolvedFixes = Object.values(fixResults).filter(r => r.ok).length;
+
+  let report = `🔧 Fix Report — ${pageName}
+${"─".repeat(50)}
+Page:    ${pageName}
+URL:     ${url}
+Time:    ${ts}
+Status:  ${status}  (${diag.issues.length} issue${diag.issues.length !== 1 ? "s" : ""} detected)
+
+`;
+
+  if (diag.issues.length > 0) {
+    report += `ISSUES DETECTED:\n${issueLines}\n\n`;
+  } else {
+    report += `No issues detected by automated checks.\n\n`;
+  }
+
+  report += `SYSTEM CHECKS:\n${checkLines || "  No checks recorded"}\n\n`;
+
+  report += `SYSTEM METRICS:\n`;
+  report += `  Active Calls:       ${diag.activeCalls ?? "unknown"}\n`;
+  report += `  CDR Cache:          ${diag.cdrCacheSize?.toLocaleString() ?? "?"} records`;
+  if (diag.cdrCacheAgeMs !== null && diag.cdrCacheAgeMs !== undefined) {
+    report += ` (${Math.round(diag.cdrCacheAgeMs / 1000)}s old)`;
+  }
+  report += `\n`;
+  report += `  JS Errors Captured: ${frontendErrors.length}\n`;
+  report += `  Auto Fixes Run:     ${diag.autoRecovery?.totalAutoFixes ?? 0}\n`;
+  report += `  Sippy Failures:     ${diag.autoRecovery?.consecutiveFailures ?? 0} consecutive\n`;
+  report += `  Screenshot:         ${hasScreenshot ? "Captured ✓" : "Not captured"}\n\n`;
+
+  if (frontendErrors.length > 0) {
+    report += `BROWSER ERRORS:\n${frontendErrors.slice(0, 5).map(e => `  • ${e}`).join("\n")}\n\n`;
+  }
+
+  if (appliedFixes > 0) {
+    report += `AUTO-FIX ATTEMPTS (${resolvedFixes}/${appliedFixes} resolved):\n${fixResultLines}\n\n`;
+  }
+
+  if (diag.module) {
+    report += `MODULE: ${diag.module}\n\n`;
+  }
+
+  if (diag.issues.length > 0 && resolvedFixes < diag.issues.length) {
+    report += `${"─".repeat(50)}
+⚠ Issues remain after automated fix attempts.
+Please analyze the ${pageName} page/module and fix the root cause.
+Focus on: ${diag.issues.filter(i => i.severity === "critical").map(i => i.type).join(", ") || diag.issues[0]?.type || "the issues listed above"}.
+`;
+  }
+
+  return report;
+}
+
 // ── Main component ───────────────────────────────────────────────────────────
 export function FixButton() {
   const { user } = useAuth();
@@ -195,6 +273,7 @@ export function FixButton() {
   const [fixResults, setFixResults]         = useState<Record<string, FixResult>>({});
   const [screenshotLoading, setScreenshotLoading] = useState(false);
   const [screenshotExpanded, setScreenshotExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [location] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -688,6 +767,55 @@ export function FixButton() {
                         </div>
                       )}
 
+                      {/* "Send to AI agent" callout — shown when issues remain unresolved */}
+                      {diag.issues.length > 0 && (() => {
+                        const resolved = Object.values(fixResults).filter(r => r.ok).length;
+                        const hasUnresolved = resolved < diag.issues.length;
+                        if (!hasUnresolved) return null;
+                        return (
+                          <div className="rounded-xl border border-violet-500/30 bg-violet-500/8 p-4 space-y-2.5">
+                            <div className="flex items-center gap-2">
+                              <Bot className="h-4 w-4 text-violet-400 flex-shrink-0" />
+                              <p className="text-sm font-semibold text-violet-200">Auto-fix could not resolve all issues</p>
+                            </div>
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                              Click <strong className="text-foreground">"Copy Report for AI"</strong> below, then paste it into the
+                              {" "}<strong className="text-foreground">Replit Agent chat</strong>. The agent will receive the full page context,
+                              issue list, checks, and system metrics — and will start working specifically on
+                              {" "}<strong className="text-foreground">{pageName}</strong> to diagnose and fix the root cause in the code.
+                            </p>
+                            <div className="flex flex-wrap gap-2 pt-0.5">
+                              <button
+                                data-testid="button-copy-report-inline"
+                                onClick={() => {
+                                  const report = buildFixReport(
+                                    pageName, window.location.href, diag,
+                                    frontendErrorsRef.current, !!screenshotRef.current, fixResults,
+                                  );
+                                  navigator.clipboard.writeText(report).then(() => {
+                                    setCopied(true);
+                                    toast({ title: "Report copied to clipboard", description: "Paste into Replit Agent chat." });
+                                    setTimeout(() => setCopied(false), 3000);
+                                  });
+                                }}
+                                className={cn(
+                                  "flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors",
+                                  copied
+                                    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                                    : "bg-violet-500/20 text-violet-200 border-violet-500/40 hover:bg-violet-500/30"
+                                )}
+                              >
+                                {copied ? <CopyCheck className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                                {copied ? "Report Copied!" : "Copy Report for AI"}
+                              </button>
+                              <span className="text-[10px] text-muted-foreground/50 self-center">
+                                Includes: page context · issue list · checks · metrics · browser errors{screenshotRef.current ? " · screenshot status" : ""}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {/* Step 10: Final validation */}
                       <div className="rounded-xl border border-border/40 bg-muted/10 p-3">
                         <div className="flex items-center gap-2 mb-2">
@@ -862,7 +990,7 @@ export function FixButton() {
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t border-border/50 flex items-center gap-2 flex-shrink-0 bg-background/50">
+          <div className="px-6 py-4 border-t border-border/50 flex items-center gap-2 flex-shrink-0 bg-background/50 flex-wrap">
             {tab === "diagnose" && (
               <>
                 <Button onClick={runDiagnosis} disabled={isLoading || isFetching} data-testid="button-run-diagnostics" className="gap-2" size="sm">
@@ -873,7 +1001,38 @@ export function FixButton() {
                   <Button variant="outline" size="sm" data-testid="button-invalidate-cache"
                     onClick={() => { queryClient.invalidateQueries(); toast({ title: "Query cache cleared", description: "All data will refresh on next navigation." }); }}
                     className="gap-2 text-xs">
-                    <RefreshCw className="h-3.5 w-3.5" /> Clear Frontend Cache
+                    <RefreshCw className="h-3.5 w-3.5" /> Clear Cache
+                  </Button>
+                )}
+                {diag && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="button-copy-fix-report"
+                    onClick={() => {
+                      const report = buildFixReport(
+                        pageName,
+                        window.location.href,
+                        diag,
+                        frontendErrorsRef.current,
+                        !!screenshotRef.current,
+                        fixResults,
+                      );
+                      navigator.clipboard.writeText(report).then(() => {
+                        setCopied(true);
+                        toast({ title: "Report copied", description: "Paste it into the Replit Agent chat to get code-level help." });
+                        setTimeout(() => setCopied(false), 3000);
+                      });
+                    }}
+                    className={cn(
+                      "gap-1.5 text-xs transition-colors",
+                      copied
+                        ? "border-emerald-500/50 text-emerald-400 bg-emerald-500/10"
+                        : "border-violet-500/40 text-violet-300 hover:bg-violet-500/10"
+                    )}
+                  >
+                    {copied ? <CopyCheck className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+                    {copied ? "Copied!" : "Copy Report for AI"}
                   </Button>
                 )}
               </>
