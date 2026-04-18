@@ -1569,6 +1569,7 @@ export default function SettingsPage() {
   const [regeneratedAt, setRegeneratedAt] = useState<string | null>(null);
   const [manualRegeneratedAt, setManualRegeneratedAt] = useState<string | null>(null);
   const [dataflowRegeneratedAt, setDataflowRegeneratedAt] = useState<string | null>(null);
+  const [troubleshootRegeneratedAt, setTroubleshootRegeneratedAt] = useState<string | null>(null);
   const { toast } = useToast();
 
   const regenMutation = useMutation({
@@ -1604,6 +1605,18 @@ export default function SettingsPage() {
     },
     onError: (err: any) => {
       toast({ title: 'Update failed', description: err.message ?? 'Could not regenerate the Sippy Dataflow document.', variant: 'destructive' });
+    },
+  });
+
+  const regenTroubleshootMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/download/regenerate-troubleshoot'),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setTroubleshootRegeneratedAt(data.regeneratedAt);
+      toast({ title: 'Troubleshooting Guide updated', description: 'The guide has been regenerated with all resolved issues and procedures. Download it now.' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Update failed', description: err.message ?? 'Could not regenerate the Troubleshooting Guide.', variant: 'destructive' });
     },
   });
 
@@ -2298,6 +2311,18 @@ export default function SettingsPage() {
               {regenDataflowMutation.isPending ? 'Building…' : 'Update Dataflow Doc'}
             </button>
             <button
+              data-testid="button-regenerate-troubleshoot"
+              onClick={() => regenTroubleshootMutation.mutate()}
+              disabled={regenTroubleshootMutation.isPending}
+              title="Regenerate Troubleshooting Guide"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {regenTroubleshootMutation.isPending
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <RefreshCcw className="h-3 w-3" />}
+              {regenTroubleshootMutation.isPending ? 'Building…' : 'Update Troubleshooting Guide'}
+            </button>
+            <button
               data-testid="button-regenerate-docs"
               onClick={() => regenMutation.mutate()}
               disabled={regenMutation.isPending}
@@ -2313,9 +2338,12 @@ export default function SettingsPage() {
         <p className="text-xs text-muted-foreground mb-4">
           {manualRegeneratedAt
             ? `User Manual last built: ${new Date(manualRegeneratedAt).toLocaleString()}  ·  `
-            : 'Click "Update Manual" or "Update Dataflow Doc" to regenerate documents. They also auto-update after key changes.  '}
+            : 'Click any "Update" button to regenerate documents on demand. They also auto-update after key changes.  '}
           {dataflowRegeneratedAt
             ? `Dataflow doc last built: ${new Date(dataflowRegeneratedAt).toLocaleString()}  ·  `
+            : ''}
+          {troubleshootRegeneratedAt
+            ? `Troubleshooting Guide last built: ${new Date(troubleshootRegeneratedAt).toLocaleString()}  ·  `
             : ''}
           {regeneratedAt
             ? `Status report last updated: ${new Date(regeneratedAt).toLocaleString()}`
@@ -2325,6 +2353,7 @@ export default function SettingsPage() {
           {[
             { label: "User Manual", desc: "Full operator guide — all features, process flows & diagrams", href: "/api/download/user-manual", color: "text-violet-400", bg: "bg-violet-500/10 border-violet-500/20" },
             { label: "Sippy Dataflow Reference", desc: "Per-page breakdown of every Sippy API fetch & write — auto-updates on key changes", href: "/api/download/sippy-dataflow", color: "text-cyan-400", bg: "bg-cyan-500/10 border-cyan-500/20" },
+            { label: "Troubleshooting Guide", desc: "All resolved issues, root-cause analyses, fix flowcharts & diagnostic procedures", href: "/api/download/troubleshooting-guide", color: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/20" },
             { label: "Volume 1 — Status Report", desc: "Completed features & pending items", href: "/api/download/status-report", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
             { label: "Feature Roadmap", desc: "Full platform feature roadmap", href: "/api/download/feature-roadmap", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
             { label: "Extended Features Vol II", desc: "Proposed Tier 2 & Tier 3 features", href: "/api/download/feature-roadmap-v2", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
