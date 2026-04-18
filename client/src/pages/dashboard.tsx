@@ -279,7 +279,9 @@ export default function DashboardPage() {
   const { data: sippyStats, isLoading: sippyStatsLoading, dataUpdatedAt: statsUpdatedAt } = useQuery<{
     asr: number; acd: number;
     connected: boolean;
-    monOk?: boolean;          // true when CDR/monitoring API is reachable
+    monOk?: boolean;          // true when getMonitoringGraphData XML-RPC is available
+    monError?: string;        // error string from monitoring graph API if monOk=false
+    credsMissing?: boolean;   // true only when api_admin_password is genuinely absent
     // CK stats from CDRs
     ckRatio?: number;
     ckBreakdown?: { connected: number; wrongNumber: number; switchedOff: number; untraceable: number; total: number };
@@ -1054,8 +1056,8 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* CDR API unavailable warning — shown when portal is active but XML-RPC 401 */}
-      {!notConnected && anyPortalActive && sippyStats?.monOk === false && (
+      {/* CDR API unavailable warning — shown ONLY when api_admin_password is genuinely absent */}
+      {!notConnected && anyPortalActive && sippyStats?.credsMissing === true && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 w-7 h-7 rounded-full bg-amber-500/15 flex items-center justify-center flex-shrink-0">
@@ -1501,11 +1503,13 @@ export default function DashboardPage() {
                 <p className="text-sm text-center">
                   {notConnected
                     ? 'Connect to softswitch to see live trends.'
-                    : 'CDR monitoring data unavailable — requires XML-RPC API access.'}
+                    : sippyStats?.credsMissing
+                      ? 'XML-RPC API password not set — enter it in Settings to enable trend charts.'
+                      : 'Trend data unavailable — monitoring graph API not supported on this Sippy build.'}
                 </p>
-                {!notConnected && (
+                {!notConnected && sippyStats?.credsMissing && (
                   <p className="text-xs text-muted-foreground/60 text-center max-w-xs">
-                    Set the correct API Password in Settings to enable historical trend charts.
+                    Set the API Password in Settings to enable historical trend charts.
                   </p>
                 )}
               </div>

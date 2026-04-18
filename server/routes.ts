@@ -2304,14 +2304,21 @@ export async function registerRoutes(
       // activeCalls / pdd / liveCount: NOT computed here — sourced from /api/sippy/live-calls
       // on the frontend (5-second poll, single XML-RPC source to avoid throttling Sippy).
 
+      // credsMissing: true only when api_admin_password is genuinely absent.
+      // monOk=false does NOT mean creds are missing — it means this Sippy build
+      // doesn't support getMonitoringGraphData (older versions).  CDRs still work.
+      const credsMissing = !settings.apiAdminUsername || !settings.apiAdminPassword;
+
       res.json({
         asr,
         acd,
         cps,
-        connected:   true,
-        monOk:       monResult.ok,
-        dataPoints:  monResult.points.length,
-        nonZeroPts:  nonZeroPts.length,
+        connected:    true,
+        monOk:        monResult.ok,
+        monError:     monResult.error,
+        credsMissing,
+        dataPoints:   monResult.points.length,
+        nonZeroPts:   nonZeroPts.length,
         // CK ratio from real CDR data
         ckRatio,
         ckBreakdown: { connected: ckConnected, wrongNumber: ckWrongNumber, switchedOff: ckSwitchedOff, untraceable: ckUntraceable, total: ckTotal },
