@@ -3455,19 +3455,30 @@ export async function registerRoutes(
   // Returns: SippyTariffListEntry[]
   app.get('/api/sippy/tariffs', async (req: any, res) => {
     try {
-      const settings = await storage.getSettings();
-      const result = await withSippyCredsRaw(
-        settings,
-        (u, p) => sippy.getTariffsList(
-          u, p,
-          req.query.namePattern as string | undefined,
-          req.query.offset      ? Number(req.query.offset)    : undefined,
-          req.query.limit       ? Number(req.query.limit)     : undefined,
-          req.query.iCustomer   ? Number(req.query.iCustomer) : undefined,
-        ),
-        [],
-      );
-      res.json(result);
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.json([]);
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+
+      // listSippyTariffs() tries 4 methods: getTariffsList (2020+), tariff.getTariffList,
+      // tariff.getList, billing.getTariffList — covers all Sippy versions including old Python 2
+      const { tariffs, error } = await sippy.listSippyTariffs(username, password, portalUrl);
+      if (tariffs.length) {
+        // Normalise to {iTariff, name, currency} so the frontend can use t.iTariff ?? t.id
+        return res.json(tariffs.map(t => ({ iTariff: (t as any).iTariff ?? t.id, name: t.name, currency: t.currency ?? 'USD' })));
+      }
+
+      // Final fallback: strict getTariffsList with iCustomer filter support
+      const strict = await sippy.getTariffsList(
+        username, password,
+        req.query.namePattern as string | undefined,
+        req.query.offset      ? Number(req.query.offset)    : undefined,
+        req.query.limit       ? Number(req.query.limit)     : undefined,
+        req.query.iCustomer   ? Number(req.query.iCustomer) : undefined,
+      ).catch(() => [] as any[]);
+      if (Array.isArray(strict) && strict.length) return res.json(strict);
+
+      res.json({ tariffs: [], error: error ?? 'No tariffs found' });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -6831,22 +6842,30 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, list: [], message: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
       const { namePattern, iDestinationSet, offset, limit } = req.query;
+      const portalUrl = sippyPortalUrl(settings);
+      const credPairs = sippyXmlCredsPairs(settings);
+      const { username, password } = credPairs[0];
       const dsResult = await sippy.listDestinationSets(username, password, {
         namePattern: namePattern as string | undefined,
         iDestinationSet: iDestinationSet ? parseInt(iDestinationSet as string, 10) : undefined,
         offset: offset ? parseInt(offset as string, 10) : undefined,
         limit:  limit  ? parseInt(limit  as string, 10) : undefined,
-        portalUrl: sippyPortalUrl(settings),
+        portalUrl,
       });
       if (dsResult.success) return res.json(dsResult);
-      // Sippy 2024+ method not available — fall back to vendor list
-      const vendorResult = await sippy.listSippyVendors(username, password, {
-        namePattern: namePattern as string | undefined,
-        offset: offset ? parseInt(offset as string, 10) : undefined,
-        limit:  limit  ? parseInt(limit  as string, 10) : undefined,
-      }, sippyPortalUrl(settings));
+      // Sippy 2024+ method not available — fall back to vendor list.
+      // Try all credential pairs (refreshConnectionVendorCache does the same and gets 120+ vendors).
+      let vendorResult = { vendors: [] as any[], error: 'No credentials configured.' };
+      for (const { username: u, password: p } of credPairs) {
+        const r = await sippy.listSippyVendors(u, p, {
+          namePattern: namePattern as string | undefined,
+          offset: offset ? parseInt(offset as string, 10) : undefined,
+          limit:  limit  ? parseInt(limit  as string, 10) : undefined,
+        }, portalUrl);
+        if (r.vendors.length || !r.error) { vendorResult = r; break; }
+        vendorResult = r;
+      }
       if (vendorResult.error && !vendorResult.vendors.length) {
         return res.json({ success: false, list: [], message: vendorResult.error });
       }

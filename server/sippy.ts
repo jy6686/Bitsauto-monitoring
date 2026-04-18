@@ -7512,33 +7512,54 @@ export async function listSippyVendors(
   if (!base) return { vendors: [], error: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
-  const params: Record<string, string | number> = { i_customer: 1 };
+  // Do NOT include i_customer here — passing it scopes the request to a specific customer
+  // and causes HTTP 401 on old Sippy builds that interpret it as customer-level auth.
+  const params: Record<string, string | number> = {};
   if (opts?.limit       !== undefined) params.limit        = opts.limit;
   if (opts?.offset      !== undefined) params.offset       = opts.offset;
   if (opts?.namePattern !== undefined) params.name_pattern = opts.namePattern;
 
-  for (const method of ['listVendors', 'getVendorsList']) {
+  // Try multiple method names — old Sippy Python 2 may use different names
+  const methods = ['listVendors', 'getVendorsList', 'vendor.getList', 'resellers.getList'];
+  let lastError = 'Could not fetch vendors from Sippy.';
+
+  for (const method of methods) {
     try {
       const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password);
+      // 401/403 on one method doesn't mean creds are wrong — try the next method name
       if (resp.statusCode === 401 || resp.statusCode === 403) {
-        return { vendors: [], error: `HTTP ${resp.statusCode}: Authentication failed for getVendorsList` };
+        lastError = `HTTP ${resp.statusCode}: Auth rejected for ${method} — trying other methods`;
+        continue;
       }
       const text = resp.body;
       if (text.includes('<fault>')) continue;
 
+      // Try vendors array (official listVendors response)
       const arrayMatch = /<name>vendors<\/name>\s*<value>\s*<array>([\s\S]*?)<\/array>\s*<\/value>/.exec(text);
-      if (!arrayMatch) return { vendors: [] };
-
-      const vendors: SippyVendor[] = [];
-      const re = /<struct>([\s\S]*?)<\/struct>/g;
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(arrayMatch[1])) !== null) {
-        vendors.push(parseVendorStruct(m[1]));
+      if (arrayMatch) {
+        const vendors: SippyVendor[] = [];
+        const re = /<struct>([\s\S]*?)<\/struct>/g;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(arrayMatch[1])) !== null) {
+          vendors.push(parseVendorStruct(m[1]));
+        }
+        if (vendors.length > 0) return { vendors };
       }
-      return { vendors };
+
+      // Try top-level struct list (older Sippy responses)
+      const allStructs = extractAllTags(text, 'struct');
+      if (allStructs.length > 0) {
+        const vendors: SippyVendor[] = [];
+        for (const s of allStructs) {
+          const m = extractStructMembers(s);
+          if (m['i_vendor'] || m['name']) vendors.push(parseVendorStruct(s));
+        }
+        if (vendors.length > 0) return { vendors };
+        return { vendors: [] };
+      }
     } catch { continue; }
   }
-  return { vendors: [], error: 'Could not fetch vendors from Sippy.' };
+  return { vendors: [], error: lastError };
 }
 
 // ── Vendor Connections (official Sippy docs 107435) ───────────────────────────
