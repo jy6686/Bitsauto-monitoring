@@ -285,16 +285,16 @@ export function countryLabel(number: string): string {
 }
 
 // Routing class prefixes used in Sippy CLD (first digit = service class).
-const CLD_CLASS_MAP: Record<string, { label: string; color: string }> = {
-  '1': { label: 'First',    color: 'text-blue-400 bg-blue-500/10' },
-  '2': { label: 'Business', color: 'text-violet-400 bg-violet-500/10' },
-  '6': { label: 'Bravo',    color: 'text-amber-400 bg-amber-500/10' },
-  '7': { label: 'Charlie',  color: 'text-orange-400 bg-orange-500/10' },
+const CLD_CLASS_MAP: Record<string, { label: string; short: string; color: string }> = {
+  '1': { label: 'First Class Wholesale',  short: 'First',    color: 'text-blue-400 bg-blue-500/10' },
+  '2': { label: 'Business Class Wholesale', short: 'Business', color: 'text-violet-400 bg-violet-500/10' },
+  '6': { label: 'Special Bravo',           short: 'Bravo',    color: 'text-amber-400 bg-amber-500/10' },
+  '7': { label: 'Special Charlie',         short: 'Charlie',  color: 'text-orange-400 bg-orange-500/10' },
 };
 
 export interface CLDInfo {
   country: CountryInfo | null;
-  trunkClass: { label: string; color: string } | null;
+  trunkClass: { label: string; short: string; color: string } | null;
   trunkPrefix: string | null;
 }
 

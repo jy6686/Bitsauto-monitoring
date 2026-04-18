@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
-import { lookupDialCode, preloadDialCodes } from "@/lib/dial-lookup";
+import { useState, useMemo } from "react";
+import { lookupCLD } from "@/lib/country-lookup";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, Link } from "wouter";
 import * as XLSX from "xlsx";
@@ -161,8 +161,6 @@ export default function CDRsPage() {
     start: defaultStart, end: defaultEnd, callType: 'non_zero', cli: '', cld: '',
   });
 
-  useEffect(() => { preloadDialCodes(); }, []);
-
   const offset = page * PAGE_SIZE;
 
   const queryKey = [
@@ -249,18 +247,20 @@ export default function CDRsPage() {
 
   const buildRows = () => {
     const firstColHeader = isVendor ? 'Vendor' : 'Client';
-    const headers = [firstColHeader, 'CLI', 'CLD', 'Country', 'Breakout', 'Description', 'Setup Time', 'Duration', 'Billed Duration', 'Charged (USD)', 'Result'];
+    const headers = [firstColHeader, 'CLI', 'CLD', 'Country', 'Product', 'Breakout', 'Description', 'Setup Time', 'Duration', 'Billed Duration', 'Charged (USD)', 'Result'];
     const rows = cdrs.map(c => {
-      const m = c.callee ? lookupDialCode(c.callee) : null;
+      const cldInfo = c.callee ? lookupCLD(c.callee) : null;
+      const countryName = cldInfo?.country ? `${cldInfo.country.flag} ${cldInfo.country.name}` : c.country || '';
       return [
         (isVendor
           ? [c.vendorName, c.remoteIp].filter(Boolean).join(' | ') || '-'
           : (c.clientName || c.caller || '-')),
         c.caller || '',
         c.callee || '',
-        m?.country || c.country || '',
-        m?.breakout || '',
-        c.areaName || c.description || '',
+        countryName,
+        cldInfo?.trunkClass?.label || '',
+        c.areaName || '',
+        c.description || '',
         fmtSetupTime(c.startTime, tz),
         fmtDurSec(c.totalDuration || 0),
         fmtDurSec(c.duration || 0),
@@ -504,6 +504,7 @@ export default function CDRsPage() {
                 <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">CLI</th>
                 <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">CLD</th>
                 <th className="px-3 py-2.5 text-center text-muted-foreground font-medium">Country</th>
+                <th className="px-3 py-2.5 text-center text-muted-foreground font-medium">Product</th>
                 <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">Breakout</th>
                 <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">Description</th>
                 <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Setup Time</th>
@@ -515,7 +516,7 @@ export default function CDRsPage() {
             <tbody>
               {isLoading && Array.from({ length: 12 }).map((_, i) => (
                 <tr key={i} className={cn("border-b border-border/20", i % 2 === 0 ? "bg-card/20" : "bg-muted/10")}>
-                  {Array.from({ length: 11 }).map((_, j) => (
+                  {Array.from({ length: 12 }).map((_, j) => (
                     <td key={j} className="px-3 py-2">
                       <Skeleton className="h-3 w-full" />
                     </td>
@@ -525,7 +526,7 @@ export default function CDRsPage() {
 
               {!isLoading && cdrs.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center">
+                  <td colSpan={12} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <PhoneOff className="h-8 w-8 opacity-30" />
                       <p className="text-sm font-medium">No CDR records found</p>
@@ -540,6 +541,7 @@ export default function CDRsPage() {
               {!isLoading && cdrs.map((cdr, i) => {
                 const status = getCdrStatus(cdr);
                 const isAnswered = status === 'answered';
+                const cldInfo = cdr.callee ? lookupCLD(cdr.callee) : null;
                 return (
                   <tr
                     key={`${cdr.callId}-${i}`}
@@ -604,26 +606,36 @@ export default function CDRsPage() {
                     </td>
                     <td className="px-3 py-2 text-center">
                       {(() => {
-                        const m = cdr.callee ? lookupDialCode(cdr.callee) : null;
-                        const country = m?.country || cdr.country;
-                        return country ? (
-                          <span className="flex items-center justify-center gap-1 text-foreground/60">
-                            <Globe className="h-3 w-3" />
-                            {country}
-                          </span>
-                        ) : <span className="text-muted-foreground/40">-</span>;
-                      })()}
-                    </td>
-                    <td className="px-3 py-2 text-foreground/60 max-w-[120px] truncate" data-testid={`text-breakout-${i}`}>
-                      {(() => {
-                        const m = cdr.callee ? lookupDialCode(cdr.callee) : null;
-                        return m?.breakout
-                          ? <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 border border-violet-500/20">{m.breakout}</span>
+                        const countryInfo = cldInfo?.country;
+                        const countryFallback = cdr.country;
+                        if (countryInfo) {
+                          return (
+                            <span className="flex items-center justify-center gap-1 text-foreground/60 whitespace-nowrap">
+                              <span>{countryInfo.flag}</span>
+                              <span>{countryInfo.name}</span>
+                            </span>
+                          );
+                        }
+                        return countryFallback
+                          ? <span className="flex items-center justify-center gap-1 text-foreground/60"><Globe className="h-3 w-3" />{countryFallback}</span>
                           : <span className="text-muted-foreground/40">-</span>;
                       })()}
                     </td>
-                    <td className="px-3 py-2 text-foreground/60 max-w-[160px] truncate" title={cdr.areaName || cdr.description || ''}>
-                      {cdr.areaName || cdr.description || '-'}
+                    <td className="px-3 py-2 text-center" data-testid={`text-product-${i}`}>
+                      {cldInfo?.trunkClass ? (
+                        <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cldInfo.trunkClass.color} border-current/20`}
+                          title={cldInfo.trunkClass.label}>
+                          {cldInfo.trunkClass.short}
+                        </span>
+                      ) : <span className="text-muted-foreground/40">-</span>}
+                    </td>
+                    <td className="px-3 py-2 text-foreground/60 max-w-[120px] truncate" data-testid={`text-breakout-${i}`}>
+                      {cdr.areaName
+                        ? <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 border border-violet-500/20">{cdr.areaName}</span>
+                        : <span className="text-muted-foreground/40">-</span>}
+                    </td>
+                    <td className="px-3 py-2 text-foreground/60 max-w-[160px] truncate" title={cdr.description || cdr.areaName || ''}>
+                      {cdr.description || '-'}
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-foreground/60 whitespace-nowrap">
                       {fmtSetupTime(cdr.startTime, tz)}

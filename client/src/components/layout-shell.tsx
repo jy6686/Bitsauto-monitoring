@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
@@ -129,6 +129,14 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/cdrs",         label: "CDR Viewer",        icon: FileText,   roles: ['admin','management'], hasSubmenu: 'cdr'             },
       { href: "/analytics",    label: "Revenue Analytics", icon: TrendingUp, roles: ['admin','management']                                 },
       { href: "/lcr-analyser", label: "LCR Analyser",      icon: GitBranch,  roles: ['admin','management']                                 },
+    ],
+  },
+  {
+    key: 'products',
+    label: 'Products',
+    roles: ['admin','management'],
+    items: [
+      { href: "/products", label: "Product Classification", icon: Package, roles: ['admin','management'] },
     ],
   },
   {

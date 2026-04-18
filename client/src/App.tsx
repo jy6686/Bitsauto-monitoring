@@ -70,6 +70,7 @@ import GraphsPage from "@/pages/graphs";
 import BitsEyePage from "@/pages/bitseye";
 import RateCardsPage from "@/pages/rate-cards";
 import AnalyticsPage from "@/pages/analytics";
+import ProductsPage from "@/pages/products";
 import NotFound from "@/pages/not-found";
 
 // Pages accessible to each role
@@ -273,6 +274,9 @@ function Router() {
       </Route>
       <Route path="/account-names">
         {() => <ProtectedRoute component={AccountNamesPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/products">
+        {() => <ProtectedRoute component={ProductsPage} requiredRoles={['admin','management']} mgmtFeature="analytics" />}
       </Route>
 
       <Route component={NotFound} />
