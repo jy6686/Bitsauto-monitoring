@@ -290,7 +290,7 @@ export default function AccountPage() {
             <Field label="Default Report Time Range" icon={Clock} hint="Pre-selected range when you open the ASR/ACD Reports page">
               <select
                 data-testid="select-default-report-range"
-                value={form.defaultReportRange || "Last 3 hr"}
+                value={form.defaultReportRange || "Last 1 hr"}
                 onChange={e => set("defaultReportRange", e.target.value)}
                 className={cn(inputCls, "max-w-xs")}
               >

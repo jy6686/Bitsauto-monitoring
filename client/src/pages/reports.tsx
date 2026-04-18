@@ -152,9 +152,9 @@ export default function ReportsPage() {
   const qc = useQueryClient();
   const { tz, tzAbbr } = useTimezone();
 
-  const [startTime, setStartTime] = useState(() => toInput(subHoursUTC(now, 3), tz));
+  const [startTime, setStartTime] = useState(() => toInput(subHoursUTC(now, 1), tz));
   const [endTime,   setEndTime]   = useState(() => toInput(now, tz));
-  const [activePreset, setActivePreset] = useState("Last 3 hr");
+  const [activePreset, setActivePreset] = useState("Last 1 hr");
   const [cliFilter, setCliFilter]  = useState("");
   const [cldFilter, setCldFilter]  = useState("");
   const [partyType, setPartyType]  = useState<'all' | 'client' | 'vendor'>('all');

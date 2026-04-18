@@ -147,7 +147,7 @@ export default function CDRsPage() {
   const isVendor = view === 'vendor';
   const { tz, tzAbbr } = useTimezone();
 
-  const defaultStart = subHoursUTC(new Date(), 24);
+  const defaultStart = subHoursUTC(new Date(), 1);
   const defaultEnd   = new Date();
   const [start, setStart]       = useState(defaultStart);
   const [end,   setEnd]         = useState(defaultEnd);
