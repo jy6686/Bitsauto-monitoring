@@ -628,6 +628,10 @@ export async function registerRoutes(
       const result = await smartSippyConnect(url, username, password, s?.portalUsername, s?.portalPassword, s?.adminWebPassword);
       if (result.success) {
         console.log('[startup] Sippy auto-connected:', result.message);
+        // Warm account + vendor caches immediately after a successful connect so that
+        // live-call client names are resolved from the very first poll.
+        refreshAccountCache().catch(() => {});
+        refreshConnectionVendorCache().catch(() => {});
       } else {
         console.warn('[startup] Sippy auto-connect failed:', result.message);
       }
@@ -1379,7 +1383,7 @@ export async function registerRoutes(
           gateway: '',
           duration: c.duration,
           callStatus: (c.status === 'connected' || c.duration > 0) ? 'connected' : 'routing',
-          clientName: c.user || accountNameCache.get(c.accountId ?? '') || c.accountId || undefined,
+          clientName: c.user || accountNameCache.get(c.accountId ?? '') || (c.accountId ? `Acct.${c.accountId}` : undefined),
           accountId: c.accountId || undefined,
           vendor: c.vendor || (c.connection ? connectionVendorCache.get(c.connection) : undefined),
           connection: c.connection,
@@ -1668,7 +1672,11 @@ export async function registerRoutes(
     const { username: adminUser, password: adminPass } = sippyXmlCreds(settings);
     const portalUrl = sippyPortalUrl(settings);
     const result = await smartSippyConnect(portalUrl, adminUser, adminPass, portalUsername, portalPassword);
-    if (result.success) return res.json(result);
+    if (result.success) {
+      refreshAccountCache().catch(() => {});
+      refreshConnectionVendorCache().catch(() => {});
+      return res.json(result);
+    }
     return res.status(400).json(result);
   });
 
@@ -1758,7 +1766,7 @@ export async function registerRoutes(
           const dialMatch = lookupDialCode(c.callee ?? '');
           return {
             ...c,
-            clientName:  c.user || accountNameCache.get(c.accountId ?? '') || c.accountId || undefined,
+            clientName:  c.user || accountNameCache.get(c.accountId ?? '') || (c.accountId ? `Acct.${c.accountId}` : undefined),
             vendor:      c.vendor || (c.connection ? connectionVendorCache.get(c.connection) : undefined),
             ccState:     c.status,
             callStatus:  ccStateMap[c.status ?? ''] ?? (c.status?.toLowerCase().includes('connect') ? 'connected' : 'routing'),
@@ -8323,9 +8331,11 @@ export async function registerRoutes(
   });
 
   // ── Boot-time caches + 30-min refresh ────────────────────────────────────────
-  // Stagger the two fetches slightly so they don't hit the switch simultaneously
-  setTimeout(() => refreshAccountCache(),           3000);
-  setTimeout(() => refreshConnectionVendorCache(),  6000);
+  // Stagger the two fetches slightly so they don't hit the switch simultaneously.
+  // Use a short delay so the DB is ready but still much faster than the previous 3s
+  // which caused numeric account IDs to appear in live-call client name fields.
+  setTimeout(() => refreshAccountCache(),           500);
+  setTimeout(() => refreshConnectionVendorCache(),  1500);
   setInterval(() => refreshAccountCache(),          30 * 60 * 1000);
   setInterval(() => refreshConnectionVendorCache(), 30 * 60 * 1000);
 
