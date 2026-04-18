@@ -3912,119 +3912,124 @@ export async function registerRoutes(
   app.get('/api/reports/asr-acd', async (req, res) => {
     try {
       const settings = await storage.getSettings();
-      const credPairs = sippyXmlCredsPairs(settings);
 
       const {
         cli, cld, startTime, endTime,
         groupBy = 'caller', sortBy = 'totalCalls', hideEmpty,
       } = req.query as Record<string, string>;
 
-      // Fetch a large CDR window from Sippy (type=all for true ASR: answered + unanswered)
-      const CDR_LIMIT = 5000;
-      const cdrOpts: Parameters<typeof sippy.getSippyCDRs>[3] = { type: 'all' };
-      if (startTime) cdrOpts.startDate = startTime;
-      if (endTime)   cdrOpts.endDate   = endTime;
-      if (cli)       cdrOpts.cli       = cli;
-      if (cld)       cdrOpts.cld       = cld;
+      const fromDate = startTime ? new Date(startTime) : new Date(Date.now() - 60 * 60_000);
+      const toDate   = endTime   ? new Date(endTime)   : new Date();
+      const periodMin = Math.round((toDate.getTime() - fromDate.getTime()) / 60_000);
 
-      // Credential-pair loop — handles swapped settings in production DB
-      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
-      let reportSource = 'sippy-api';
-      for (const { username, password } of credPairs) {
-        try {
-          const batch = await sippy.getSippyCDRs(username, password, CDR_LIMIT, cdrOpts);
-          if (batch.length > 0) { cdrs = batch; break; }
-        } catch { /* try next pair */ }
+      // ── Credential pairs (handles swapped settings) ──────────────────────────
+      const portalUser  = settings.apiAdminUsername || settings.portalUsername || '';
+      const portalPass  = settings.apiAdminPassword || settings.portalPassword || '';
+      const adminUser   = settings.portalUsername   || settings.apiAdminUsername || '';
+      const adminPass   = settings.portalPassword   || settings.apiAdminPassword || '';
+
+      // ── Strategy 1: Portal scrape of asr_acd.php (same source as Sippy UI) ──
+      let reportSource = 'sippy-portal';
+      let portalRows: Array<{
+        caller: string; totalCalls: number; billableCalls: number;
+        billedDurationSeconds: number; acdSeconds: number; asr: number;
+        avgPdd: number; revenueUsd: number;
+      }> = [];
+
+      try {
+        const stats = await sippy.getSippyPerAccountStats(
+          portalUser, portalPass,
+          periodMin,
+          adminUser, adminPass,
+          fromDate, toDate,
+          cli || undefined,
+          cld || undefined,
+        );
+
+        if (stats.ok) {
+          // groupBy=caller → origination rows (per customer account)
+          // groupBy=callee → termination rows (per vendor connection)
+          const sourceRows = groupBy === 'callee' ? stats.vendors : stats.clients;
+          const shouldHideEmpty = hideEmpty !== 'false';
+
+          portalRows = sourceRows
+            .filter(r => !shouldHideEmpty || r.totalCalls > 0)
+            .map(r => ({
+              caller:                r.name,
+              totalCalls:            r.totalCalls,
+              billableCalls:         r.billableCalls,
+              billedDurationSeconds: r.durationSec,
+              acdSeconds:            r.acdSec,
+              asr:                   r.asr,
+              avgPdd:                r.avgPdd,
+              revenueUsd:            r.amount,
+            }));
+
+          console.log(`[reports/asr-acd] portal scrape OK: ${portalRows.length} rows (${groupBy} view, ${stats.vendorDataLimited ? 'customer session' : 'admin session'})`);
+        } else {
+          console.warn(`[reports/asr-acd] portal scrape failed: ${stats.error}`);
+        }
+      } catch (pErr: any) {
+        console.warn(`[reports/asr-acd] portal scrape error: ${pErr.message}`);
       }
 
-      // Fallback: in-memory CDR cache — covers last 72h, always populated
-      // Used when Sippy's getCustomerCDRs / getAccountCDRs returns 401 on old Python 2 builds
-      if (!cdrs.length && cdrCache.size > 0) {
+      // ── Strategy 2: CDR cache fallback (72h window, always populated) ────────
+      // Used when portal login fails or Sippy not reachable
+      if (portalRows.length === 0 && cdrCache.size > 0) {
         let cacheRecords = [...cdrCache.values()];
-        // Apply date filter if provided
-        if (startTime || endTime) {
-          const from = startTime ? new Date(startTime).getTime() : 0;
-          const to   = endTime   ? new Date(endTime).getTime()   : Date.now();
-          cacheRecords = cacheRecords.filter(c => {
-            const ts = c.startTime   ? new Date(c.startTime).getTime()
-                     : c.connectTime ? new Date(c.connectTime).getTime() : 0;
-            return ts >= from && ts <= to;
-          });
-        }
-        // Apply CLI/CLD filters
+        const from = fromDate.getTime();
+        const to   = toDate.getTime();
+        cacheRecords = cacheRecords.filter(c => {
+          const ts = c.startTime   ? new Date(c.startTime).getTime()
+                   : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+          return ts >= from && ts <= to;
+        });
         if (cli) cacheRecords = cacheRecords.filter(c => c.caller?.includes(cli) || c.callee?.includes(cli));
         if (cld) cacheRecords = cacheRecords.filter(c => c.callee?.includes(cld) || c.caller?.includes(cld));
-        cdrs = cacheRecords;
-        reportSource = 'cdr-cache';
-        console.log(`[reports/asr-acd] CDR cache fallback: ${cdrs.length} records (cache size=${cdrCache.size})`);
-      }
 
-      // Aggregate by groupBy dimension
-      type G = {
-        totalCalls: number; answeredCalls: number; billedSecs: number;
-        pddSum: number; pddCount: number; totalCost: number;
-        clientNames: Map<string, number>; // name → frequency
-        countries: Map<string, number>;   // country → frequency
-      };
-      const grouped = new Map<string, G>();
-
-      for (const cdr of cdrs) {
-        const key = groupBy === 'callee' ? (cdr.callee || '-') : (cdr.caller || '-');
-        if (!grouped.has(key)) grouped.set(key, {
-          totalCalls: 0, answeredCalls: 0, billedSecs: 0,
-          pddSum: 0, pddCount: 0, totalCost: 0,
-          clientNames: new Map(), countries: new Map(),
-        });
-        const g = grouped.get(key)!;
-        g.totalCalls++;
-        // Answered = billed duration > 0 (Sippy result=0 means success)
-        const answered = (cdr.duration != null && cdr.duration > 0) ||
-          /^(0|200|ok|answered|success)/i.test(String(cdr.result ?? ''));
-        if (answered) {
-          g.answeredCalls++;
-          g.billedSecs += cdr.duration ?? 0;
+        type G = {
+          totalCalls: number; answeredCalls: number; billedSecs: number;
+          pddSum: number; pddCount: number;
+        };
+        const grouped = new Map<string, G>();
+        for (const cdr of cacheRecords) {
+          const key = groupBy === 'callee' ? (cdr.callee || '-') : (cdr.caller || '-');
+          if (!grouped.has(key)) grouped.set(key, { totalCalls: 0, answeredCalls: 0, billedSecs: 0, pddSum: 0, pddCount: 0 });
+          const g = grouped.get(key)!;
+          g.totalCalls++;
+          const answered = (cdr.duration != null && cdr.duration > 0) ||
+            /^(0|200|ok|answered|success)/i.test(String(cdr.result ?? ''));
+          if (answered) { g.answeredCalls++; g.billedSecs += cdr.duration ?? 0; }
+          if (cdr.pdd != null && cdr.pdd >= 0) { g.pddSum += cdr.pdd; g.pddCount++; }
         }
-        if (cdr.pdd != null && cdr.pdd >= 0) { g.pddSum += cdr.pdd; g.pddCount++; }
-        g.totalCost += cdr.cost ?? 0;
-        // Track client name: prefer accountNameCache lookup, fall back to CDR clientName
-        const acctName = cdr.iAccount ? accountNameCache.get(String(cdr.iAccount)) : undefined;
-        const cname = acctName || cdr.clientName;
-        if (cname) g.clientNames.set(cname, (g.clientNames.get(cname) ?? 0) + 1);
-        // Track origination country (Sippy CDR country field)
-        const ctry = cdr.country;
-        if (ctry) g.countries.set(ctry, (g.countries.get(ctry) ?? 0) + 1);
+        const shouldHideEmpty = hideEmpty !== 'false';
+        portalRows = Array.from(grouped.entries())
+          .filter(([, g]) => !shouldHideEmpty || g.totalCalls > 0)
+          .map(([label, g]) => ({
+            caller:                label,
+            totalCalls:            g.totalCalls,
+            billableCalls:         g.answeredCalls,
+            billedDurationSeconds: g.billedSecs,
+            acdSeconds:            g.answeredCalls > 0 ? g.billedSecs / g.answeredCalls : 0,
+            asr:                   g.totalCalls    > 0 ? (g.answeredCalls / g.totalCalls) * 100 : 0,
+            avgPdd:                g.pddCount      > 0 ? g.pddSum / g.pddCount : 0,
+            revenueUsd:            0,
+          }));
+        reportSource = 'cdr-cache';
+        console.log(`[reports/asr-acd] CDR cache fallback: ${portalRows.length} rows (cache size=${cdrCache.size})`);
       }
 
-      // Pick most frequent name/country from each group's frequency map
-      const topOf = (m: Map<string, number>) =>
-        m.size > 0 ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : undefined;
-
-      const shouldHideEmpty = hideEmpty !== 'false';
-      let rows = Array.from(grouped.entries())
-        .filter(([, g]) => !shouldHideEmpty || g.totalCalls > 0)
-        .map(([label, g]) => ({
-          caller:                label,
-          totalCalls:            g.totalCalls,
-          billableCalls:         g.answeredCalls,
-          billedDurationSeconds: g.billedSecs,
-          acdSeconds:            g.answeredCalls > 0 ? g.billedSecs / g.answeredCalls : 0,
-          asr:                   g.totalCalls   > 0 ? (g.answeredCalls / g.totalCalls) * 100 : 0,
-          avgPdd:                g.pddCount     > 0 ? g.pddSum / g.pddCount : 0,
-          revenueUsd:            0,
-          clientName:            topOf(g.clientNames),
-          country:               topOf(g.countries),
-        }));
-
-      // Sort
-      const sortFn: Record<string, (a: typeof rows[0], b: typeof rows[0]) => number> = {
+      // ── Sort ─────────────────────────────────────────────────────────────────
+      type Row = typeof portalRows[0];
+      const sortFn: Record<string, (a: Row, b: Row) => number> = {
         totalCalls:    (a, b) => b.totalCalls    - a.totalCalls,
         asr:           (a, b) => b.asr           - a.asr,
         billableCalls: (a, b) => b.billableCalls - a.billableCalls,
         revenueUsd:    (a, b) => b.revenueUsd    - a.revenueUsd,
       };
-      rows.sort(sortFn[sortBy] ?? sortFn.totalCalls);
+      portalRows.sort(sortFn[sortBy] ?? sortFn.totalCalls);
 
-      res.json({ rows, _source: reportSource, _cdrCount: cdrs.length });
+      res.json({ rows: portalRows, _source: reportSource, _cdrCount: portalRows.length });
     } catch (err) {
       console.error('ASR/ACD report error:', err);
       res.status(500).json({ message: 'Failed to generate report' });

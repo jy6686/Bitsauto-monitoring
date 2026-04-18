@@ -504,13 +504,25 @@ export default function ReportsPage() {
         </div>
       </div>
 
+      {/* Live portal data notice */}
+      {reportSource === 'sippy-portal' && !isLoading && rows.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 px-4 py-3 text-xs">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-emerald-400" />
+          <div>
+            <span className="font-medium">Live Sippy data — </span>
+            Report is fetched directly from the Sippy softswitch portal (asr_acd.php).
+            Rows are grouped by {groupBy === 'caller' ? 'customer account' : 'vendor connection'}.
+          </div>
+        </div>
+      )}
+
       {/* CDR cache source notice */}
-      {reportSource === 'cdr-cache' && !isLoading && rows.length > 0 && (
+      {reportSource === 'cdr-cache' && !isLoading && (
         <div className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-400 px-4 py-3 text-xs">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-blue-400" />
           <div>
             <span className="font-medium">CDR cache data — </span>
-            Sippy's direct API returned no data (HTTP 401 on this softswitch build).
+            Sippy portal scrape returned no data for this time window.
             Report is based on {reportCdrCount.toLocaleString()} CDRs from the last 72-hour in-memory cache.
             Date range filters are applied in-memory. For full historical data, use CDR Viewer.
           </div>

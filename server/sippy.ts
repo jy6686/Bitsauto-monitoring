@@ -1004,6 +1004,8 @@ export async function getSippyPerAccountStats(
   fallbackPassword?: string,
   fromDate?: Date,
   toDate?: Date,
+  cli?: string,
+  cld?: string,
 ): Promise<SippyPerAccountStats> {
   const FAIL = (error: string): SippyPerAccountStats => ({
     ok: false, period: `${periodMinutes} min`, fetchedAt: new Date().toISOString(),
@@ -1045,18 +1047,21 @@ export async function getSippyPerAccountStats(
     const postBody = encodeForm({
       startDate:        formatSippyPortalDate(start),
       endDate:          formatSippyPortalDate(now),
-      orig_disp:        '1',     // group origination by Caller
-      term_disp:        '2',     // group termination by Connection
+      orig_disp:        '1',     // group origination by Account (customer)
+      term_disp:        '2',     // group termination by Connection (vendor)
       orig_hide_zcalls: '0',     // show all (including 0-call entries)
       term_hide_zcalls: '0',
       from_form:        '1',
       action:           'update',
       cdr_currency:     'USD',
       vendor:           '0',     // all vendors
-      orig_sort_by:     '0',
-      term_sort_by:     '0',
+      caller:           '0',     // all callers
+      orig_sort_by:     '1',
+      term_sort_by:     '1',
       cli_clause:       '0',
       cld_clause:       '0',
+      source:           cli ?? '',   // CLI (caller) filter substring
+      destination:      cld ?? '',   // CLD (callee) filter substring
       hl_asr_below:     '10',
     });
 
