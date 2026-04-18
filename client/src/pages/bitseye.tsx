@@ -38,6 +38,7 @@ interface EntityData {
   stats: { total: EntityStats; connected: EntityStats };
   lastUpdatedAt:   string;
   lastUpdatedDate: string;
+  usedConcurrentProxy?: boolean;
 }
 interface Summary {
   totalConcurrent: number;
@@ -378,11 +379,12 @@ function EntityPanel({ entity, dimmed, onDrillDown, drillLabel }: {
       <div className="p-4 grid grid-cols-2 gap-6 border-b border-border/15">
         <LargeChart
           data={entity.daily}
-          title="Daily  ·  24 h"
+          title={entity.usedConcurrentProxy ? "Daily  ·  24 h  (concurrent proxy)" : "Daily  ·  24 h"}
           gradientA={`dT_${uid}`} gradientB={`dC_${uid}`}
           colorA="#8b5cf6" colorB="#38bdf8"
           keyA="total_calls" keyB="connected_calls"
-          labelA="Total Calls" labelB="Connected"
+          labelA={entity.usedConcurrentProxy ? "Peak Concurrent" : "Total Calls"}
+          labelB="Connected"
         />
         <LargeChart
           data={entity.weekly}

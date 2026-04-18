@@ -8750,7 +8750,17 @@ export async function registerRoutes(
 
     const resolveKey = (c: any): string | null => {
       const raw = c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || null;
-      if (category === 'vendors')      return (c as any).vendor || null;
+      if (category === 'vendors') {
+        // Sippy's old Python 2 getCDRs does not return vendor_name or i_connection,
+        // so c.vendor and c.iConnection are both null on this build.
+        // The CDR does carry remoteIp (the termination IP), which the connectionIpCache
+        // maps to a vendor name — the same fallback used by /api/sippy/cdr/vendor.
+        const remoteHost = ((c as any).remoteIp ?? '').split(':')[0].trim();
+        return (c as any).vendor
+          || (remoteHost ? connectionIpCache.get(remoteHost) : null)
+          || connectionVendorCache.get(String((c as any).iConnection ?? ''))
+          || null;
+      }
       if (category === 'kam')          return raw ? (clientToKam[raw] ?? 'Unassigned') : null;
       if (category === 'countries') {
         const dialMatch = lookupDialCode((c as any).callee ?? '');
@@ -8874,12 +8884,27 @@ export async function registerRoutes(
       // kamId filter: when a specific KAM is requested, skip all others
       if (filterToKamName && name !== filterToKamName) continue;
 
-      const daily = hourlyLabels.map(label => ({
-        label,
-        total_calls:      dailyData[name]?.[label]?.total     ?? 0,
-        connected_calls:  dailyData[name]?.[label]?.connected ?? 0,
-        concurrent_calls: concurrentPeaks[name]?.[label]      ?? 0,
-      }));
+      // For vendors: Sippy's old getCDRs does not carry vendor info, so CDR buckets are always
+      // zero. Fall back to concurrent-call peaks (tracked from live active calls) so the chart
+      // shows meaningful vendor traffic data even without CDR vendor attribution.
+      const vendorUseConcurrent = category === 'vendors'
+        && !Object.keys(dailyData).includes(name)
+        && Object.keys(concurrentPeaks).includes(name);
+
+      const daily = hourlyLabels.map(label => {
+        const cdrTotal  = dailyData[name]?.[label]?.total     ?? 0;
+        const cdrConn   = dailyData[name]?.[label]?.connected ?? 0;
+        const peak      = concurrentPeaks[name]?.[label]      ?? 0;
+        return {
+          label,
+          // When using concurrent fallback, show peak concurrent as "Total Calls"
+          // (best available proxy for vendor traffic on old Sippy builds without CDR vendor info).
+          // connected_calls stays as CDR data only — no concurrent proxy for it.
+          total_calls:      vendorUseConcurrent && cdrTotal === 0 ? peak : cdrTotal,
+          connected_calls:  cdrConn,
+          concurrent_calls: peak,
+        };
+      });
       const weekly = weeklyLabels.map(label => ({
         label,
         total_calls:     weeklyData[name]?.[label]?.total     ?? 0,
@@ -8888,7 +8913,11 @@ export async function registerRoutes(
 
       const allTotals = daily.map(d => d.total_calls);
       const allConns  = daily.map(d => d.connected_calls);
-      const todayCalls = allTotals.reduce((s, v) => s + v, 0);
+      // todayCalls should reflect CDR-sourced call counts only (not concurrent proxy values)
+      // so the "Today" KPI remains accurate for vendors using concurrent fallback.
+      const todayCalls = vendorUseConcurrent
+        ? 0
+        : allTotals.reduce((s, v) => s + v, 0);
 
       // Concurrent (live) count — for KAM: sum across all managed clients
       let curConcurrent = 0;
@@ -8944,6 +8973,7 @@ export async function registerRoutes(
         name, daily, weekly, curConcurrent, todayCalls,
         trendPct, asr, acdSecs: acd, weeklyAsr,
         clients, destCountry, destBreakout,
+        usedConcurrentProxy: vendorUseConcurrent,
         stats: {
           total:     { cur: allTotals[allTotals.length - 1] ?? 0, min: safeMin(allTotals), max: safeMax(allTotals), avg: safeAvg(allTotals) },
           connected: { cur: allConns[allConns.length - 1]   ?? 0, min: safeMin(allConns),  max: safeMax(allConns),  avg: safeAvg(allConns)  },
