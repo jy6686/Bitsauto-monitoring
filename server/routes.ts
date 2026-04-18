@@ -11515,13 +11515,25 @@ export async function registerRoutes(
 
   // ── Global Fix / Diagnostic System ─────────────────────────────────────────
 
+  // ── Phase 3: Auto-recovery state (shared across job + endpoints) ────────────
+  const autoRecovery = {
+    consecutiveSippyFailures: 0,
+    lastAutoFixAt:            null as Date | null,
+    cooldownMs:               5 * 60 * 1000, // 5-minute cooldown between auto-retries
+    rules: [
+      { id: 'sippy_retry',    name: 'Auto Retry Sippy API',    trigger: 'sippy_fail_3x',  enabled: true,  description: 'Triggers after 3 consecutive Sippy API failures. Logs auto-recovery event and retries connection.' },
+      { id: 'cdr_stale_log',  name: 'CDR Cache Stale Alert',   trigger: 'cdr_stale_15m',  enabled: true,  description: 'Logs a warning when CDR cache has not refreshed in 15+ minutes.' },
+    ],
+    stats: { totalAutoFixes: 0, lastEvent: null as string | null },
+  };
+
   // GET /api/fix/diagnose — full system health check (admin + management)
   app.get('/api/fix/diagnose', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res: any) => {
     const t0 = Date.now();
     type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
     type IssueSeverity = 'critical' | 'warning' | 'info';
     const checks: Array<{ id: string; name: string; status: CheckStatus; detail: string; durationMs: number }> = [];
-    const issues: Array<{ type: string; severity: IssueSeverity; component: string; message: string; suggestion: string; autoFix: string | null }> = [];
+    const issues: Array<{ type: string; severity: IssueSeverity; component: string; message: string; suggestion: string; autoFix: string | null; pastFix?: { action: string; outcome: string; performedBy: string | null; createdAt: string } | null }> = [];
 
     // ── 1. Settings configured? ──────────────────────────────────────────────
     let settings: any = null;
@@ -11558,11 +11570,13 @@ export async function registerRoutes(
     const ts3 = Date.now();
     if (settings?.portalUrl && settings?.apiAdminUsername && settings?.apiAdminPassword) {
       try {
-        const calls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
-        checks.push({ id: 'sippy_live', name: 'Sippy Live API Test', status: 'ok', detail: `listActiveCalls returned ${calls.length} active calls`, durationMs: Date.now() - ts3 });
+        const activeCalls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
+        autoRecovery.consecutiveSippyFailures = 0; // Reset on success
+        checks.push({ id: 'sippy_live', name: 'Sippy Live API Test', status: 'ok', detail: `listActiveCalls returned ${activeCalls.length} active calls`, durationMs: Date.now() - ts3 });
       } catch (e: any) {
+        autoRecovery.consecutiveSippyFailures++;
         const msg = (e.message || '').toLowerCase();
-        const isTimeout = msg.includes('timeout') || msg.includes('timed out') || msg.includes('ETIMEDOUT');
+        const isTimeout = msg.includes('timeout') || msg.includes('timed out') || msg.includes('etimedout');
         const isAuth    = msg.includes('auth') || msg.includes('401') || msg.includes('403') || msg.includes('unauthorized');
         checks.push({ id: 'sippy_live', name: 'Sippy Live API Test', status: 'fail', detail: e.message, durationMs: Date.now() - ts3 });
         if (isTimeout) {
@@ -11605,19 +11619,29 @@ export async function registerRoutes(
     // ── 6. FAS/IRSF engine health (check via storage) ────────────────────────
     const ts6 = Date.now();
     try {
-      const recent = await storage.getFasEvents(1);
+      await storage.getFasEvents(1);
       checks.push({ id: 'fas', name: 'FAS / IRSF Engine', status: 'ok', detail: `Engine active — events found in DB`, durationMs: Date.now() - ts6 });
     } catch (e: any) {
       checks.push({ id: 'fas', name: 'FAS / IRSF Engine', status: 'warn', detail: 'Cannot verify: ' + e.message, durationMs: Date.now() - ts6 });
     }
 
-    const hasCritical = issues.some(i => i.severity === 'critical');
-    const hasWarning  = issues.some(i => i.severity === 'warning');
+    // ── Phase 3: Look up past successful fixes for each issue ─────────────────
+    const issuesWithHistory = await Promise.all(
+      issues.map(async issue => {
+        try {
+          const past = await storage.findSimilarFix(issue.type, issue.component);
+          return { ...issue, pastFix: past ? { action: past.fixAction ?? 'unknown', outcome: past.outcome, performedBy: past.performedBy ?? null, createdAt: past.createdAt.toISOString() } : null };
+        } catch { return { ...issue, pastFix: null }; }
+      })
+    );
+
+    const hasCritical = issuesWithHistory.some(i => i.severity === 'critical');
+    const hasWarning  = issuesWithHistory.some(i => i.severity === 'warning');
 
     res.json({
       status: hasCritical ? 'critical' : hasWarning ? 'warning' : 'ok',
       checks,
-      issues,
+      issues: issuesWithHistory,
       summary: {
         total:    checks.length,
         passed:   checks.filter(c => c.status === 'ok').length,
@@ -11627,53 +11651,175 @@ export async function registerRoutes(
       },
       cdrCacheSize: cdrSz,
       cdrCacheAgeMs: cdrAge,
+      autoRecovery: {
+        consecutiveFailures: autoRecovery.consecutiveSippyFailures,
+        lastAutoFixAt: autoRecovery.lastAutoFixAt?.toISOString() ?? null,
+        totalAutoFixes: autoRecovery.stats.totalAutoFixes,
+      },
       diagnosedAt: new Date().toISOString(),
       durationMs: Date.now() - t0,
     });
   });
 
-  // POST /api/fix/attempt — attempt an automated fix action
+  // POST /api/fix/attempt — attempt an automated fix action (records to fix_history)
   app.post('/api/fix/attempt', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
-    const { action } = req.body as { action: string };
+    const { action, page, issueType, component } = req.body as { action: string; page?: string; issueType?: string; component?: string };
     const t0 = Date.now();
+    const performer = (req as any).user?.email || (req as any).user?.id || 'unknown';
+
+    const recordHistory = async (outcome: string, message: string) => {
+      try {
+        await storage.addFixHistoryEntry({
+          page:           page ?? 'system',
+          issueType:      issueType ?? 'UNKNOWN',
+          component:      component ?? action,
+          fixAction:      action,
+          outcome,
+          outcomeMessage: message,
+          triggeredBy:    'manual',
+          performedBy:    performer,
+        });
+      } catch {} // Don't let history write failure break the fix
+    };
+
     try {
       switch (action) {
         case 'retry_sippy': {
           const settings = await storage.getSippySettings();
-          if (!settings?.portalUrl) return res.json({ ok: false, message: 'Sippy settings not configured. Enter credentials in Settings first.' });
+          if (!settings?.portalUrl) {
+            await recordHistory('failure', 'Sippy settings not configured.');
+            return res.json({ ok: false, message: 'Sippy settings not configured. Enter credentials in Settings first.', durationMs: Date.now() - t0 });
+          }
           try {
-            const calls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
-            return res.json({ ok: true, message: `Sippy API reconnected. Found ${calls.length} active call(s).`, durationMs: Date.now() - t0 });
+            const activeCalls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
+            autoRecovery.consecutiveSippyFailures = 0;
+            const msg = `Sippy API reconnected. Found ${activeCalls.length} active call(s).`;
+            await recordHistory('success', msg);
+            return res.json({ ok: true, message: msg, durationMs: Date.now() - t0 });
           } catch (e: any) {
-            return res.json({ ok: false, message: `Retry failed: ${e.message}`, durationMs: Date.now() - t0 });
+            const msg = `Retry failed: ${e.message}`;
+            await recordHistory('failure', msg);
+            return res.json({ ok: false, message: msg, durationMs: Date.now() - t0 });
           }
         }
         case 'warm_cdr_cache': {
-          return res.json({ ok: true, message: `CDR cache holds ${cdrCache.size} records. The background warmer runs every 3 minutes automatically. If data is missing, ensure Sippy API is reachable.`, durationMs: Date.now() - t0 });
+          const msg = `CDR cache holds ${cdrCache.size} records. The background warmer runs every 3 minutes automatically. If data is missing, ensure Sippy API is reachable.`;
+          await recordHistory(cdrCache.size > 0 ? 'success' : 'skipped', msg);
+          return res.json({ ok: true, message: msg, durationMs: Date.now() - t0 });
         }
         case 'check_db': {
           await storage.getSippySettings();
-          return res.json({ ok: true, message: 'Database connection verified successfully.', durationMs: Date.now() - t0 });
+          const msg = 'Database connection verified successfully.';
+          await recordHistory('success', msg);
+          return res.json({ ok: true, message: msg, durationMs: Date.now() - t0 });
         }
         case 'refresh_accounts': {
           const settings = await storage.getSippySettings();
-          if (!settings?.portalUrl) return res.json({ ok: false, message: 'Sippy settings not configured.' });
+          if (!settings?.portalUrl) {
+            await recordHistory('failure', 'Sippy settings not configured.');
+            return res.json({ ok: false, message: 'Sippy settings not configured.', durationMs: Date.now() - t0 });
+          }
           const result = await sippy.listSippyAccounts(settings.apiAdminUsername, settings.apiAdminPassword, {}, settings.portalUrl);
-          return res.json({ ok: true, message: `Account list refreshed: ${result.accounts?.length || 0} accounts loaded.`, durationMs: Date.now() - t0 });
+          const msg = `Account list refreshed: ${result.accounts?.length || 0} accounts loaded.`;
+          await recordHistory('success', msg);
+          return res.json({ ok: true, message: msg, durationMs: Date.now() - t0 });
         }
         case 'refresh_vendors': {
           const settings = await storage.getSippySettings();
-          if (!settings?.portalUrl) return res.json({ ok: false, message: 'Sippy settings not configured.' });
+          if (!settings?.portalUrl) {
+            await recordHistory('failure', 'Sippy settings not configured.');
+            return res.json({ ok: false, message: 'Sippy settings not configured.', durationMs: Date.now() - t0 });
+          }
           const result = await sippy.listSippyVendors(settings.apiAdminUsername, settings.apiAdminPassword, {}, settings.portalUrl);
-          return res.json({ ok: true, message: `Vendor list refreshed: ${result.vendors?.length || 0} vendors found.`, durationMs: Date.now() - t0 });
+          const msg = `Vendor list refreshed: ${result.vendors?.length || 0} vendors found.`;
+          await recordHistory('success', msg);
+          return res.json({ ok: true, message: msg, durationMs: Date.now() - t0 });
         }
         default:
           return res.status(400).json({ ok: false, message: `Unknown action: ${action}` });
       }
     } catch (e: any) {
+      await recordHistory('failure', e.message);
       return res.status(500).json({ ok: false, message: e.message, durationMs: Date.now() - t0 });
     }
   });
+
+  // GET /api/fix/history — last N fix events (admin + management)
+  app.get('/api/fix/history', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string || '50', 10), 200);
+      const rows = await storage.getFixHistory(limit);
+      res.json({ history: rows, total: rows.length });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/fix/auto-rules — current auto-recovery rule state (admin + management)
+  app.get('/api/fix/auto-rules', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), (_req: any, res: any) => {
+    res.json({
+      rules: autoRecovery.rules,
+      consecutiveSippyFailures: autoRecovery.consecutiveSippyFailures,
+      lastAutoFixAt: autoRecovery.lastAutoFixAt?.toISOString() ?? null,
+      totalAutoFixes: autoRecovery.stats.totalAutoFixes,
+      lastEvent: autoRecovery.stats.lastEvent,
+    });
+  });
+
+  // ── Phase 4: Auto-recovery background job (runs every 2 minutes) ─────────────
+  setInterval(async () => {
+    try {
+      // Rule 1: sippy_retry — auto-retry if 3+ consecutive failures
+      if (autoRecovery.consecutiveSippyFailures >= 3 && autoRecovery.rules[0].enabled) {
+        const now = Date.now();
+        const sinceLastFix = autoRecovery.lastAutoFixAt ? now - autoRecovery.lastAutoFixAt.getTime() : Infinity;
+        if (sinceLastFix > autoRecovery.cooldownMs) {
+          autoRecovery.lastAutoFixAt = new Date();
+          autoRecovery.stats.totalAutoFixes++;
+          autoRecovery.stats.lastEvent = `Auto-retry after ${autoRecovery.consecutiveSippyFailures} Sippy failures`;
+          console.log(`[auto-recovery] Rule sippy_retry triggered after ${autoRecovery.consecutiveSippyFailures} consecutive failures.`);
+          const settings = await storage.getSippySettings();
+          let outcome = 'auto';
+          let msg = `Auto-triggered after ${autoRecovery.consecutiveSippyFailures} consecutive failures`;
+          if (settings?.portalUrl) {
+            try {
+              const liveCheck = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
+              autoRecovery.consecutiveSippyFailures = 0;
+              outcome = 'success';
+              msg = `Auto-recovery success: ${liveCheck.length} active calls confirmed`;
+              console.log('[auto-recovery] Sippy API auto-reconnected successfully.');
+            } catch (e: any) {
+              msg = `Auto-recovery attempt failed: ${e.message}`;
+              console.log('[auto-recovery] Sippy auto-retry still failing:', e.message);
+            }
+          }
+          await storage.addFixHistoryEntry({
+            page: 'system', issueType: 'API_FAILURE', component: 'Sippy API',
+            fixAction: 'retry_sippy', outcome, outcomeMessage: msg,
+            triggeredBy: 'auto', performedBy: 'system',
+          }).catch(() => {});
+        }
+      }
+
+      // Rule 2: cdr_stale_log — log when CDR cache is stale >15 min
+      if (autoRecovery.rules[1].enabled) {
+        const cdrAge = cdrCacheUpdatedAt ? Date.now() - cdrCacheUpdatedAt.getTime() : null;
+        if (cdrAge !== null && cdrAge > 15 * 60 * 1000 && cdrCache.size > 0) {
+          const ageMin = Math.round(cdrAge / 60000);
+          console.log(`[auto-recovery] CDR cache stale for ${ageMin}m — logging alert.`);
+          autoRecovery.stats.lastEvent = `CDR stale ${ageMin}m`;
+          await storage.addFixHistoryEntry({
+            page: 'system', issueType: 'DATA_MISMATCH', component: 'CDR Cache',
+            fixAction: 'warm_cdr_cache', outcome: 'auto',
+            outcomeMessage: `CDR cache stale for ${ageMin} minutes. Background warmer may have stalled.`,
+            triggeredBy: 'auto', performedBy: 'system',
+          }).catch(() => {});
+        }
+      }
+    } catch (e) {
+      // Never crash the main process on auto-recovery errors
+    }
+  }, 2 * 60 * 1000);
 
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();

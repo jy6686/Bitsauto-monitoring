@@ -31,6 +31,8 @@ import {
   type DashboardWidgetPrefs,
   type CallTestLog, type InsertCallTestLog,
   type WhatsappAlertLog,
+  fixHistory,
+  type FixHistory, type InsertFixHistory,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -184,6 +186,11 @@ export interface IStorage {
   // WhatsApp Alert Log
   logWhatsappAlert(data: { alertType: string; recipient: string; message: string; status: string; errorMsg?: string | null }): Promise<void>;
   getWhatsappAlertLogs(limit?: number): Promise<WhatsappAlertLog[]>;
+
+  // Fix History — Phase 3
+  addFixHistoryEntry(entry: InsertFixHistory): Promise<FixHistory>;
+  getFixHistory(limit?: number): Promise<FixHistory[]>;
+  findSimilarFix(issueType: string, component: string): Promise<FixHistory | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -996,6 +1003,31 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(whatsappAlertLog)
       .orderBy(desc(whatsappAlertLog.sentAt))
       .limit(limit);
+  }
+
+  // ── Fix History (Phase 3) ─────────────────────────────────────────────────
+  async addFixHistoryEntry(entry: InsertFixHistory): Promise<FixHistory> {
+    const [row] = await db.insert(fixHistory).values(entry).returning();
+    return row;
+  }
+
+  async getFixHistory(limit = 100): Promise<FixHistory[]> {
+    return db.select().from(fixHistory)
+      .orderBy(desc(fixHistory.createdAt))
+      .limit(limit);
+  }
+
+  async findSimilarFix(issueType: string, component: string): Promise<FixHistory | null> {
+    const [row] = await db.select().from(fixHistory)
+      .where(
+        and(
+          eq(fixHistory.issueType, issueType),
+          eq(fixHistory.outcome, 'success')
+        )
+      )
+      .orderBy(desc(fixHistory.createdAt))
+      .limit(1);
+    return row ?? null;
   }
 }
 

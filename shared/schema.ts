@@ -595,6 +595,24 @@ export const insertCallTestLogSchema = createInsertSchema(callTestLogs).omit({ i
 export type InsertCallTestLog = z.infer<typeof insertCallTestLogSchema>;
 export type CallTestLog = typeof callTestLogs.$inferSelect;
 
+// Fix History — Phase 3 (tracks every diagnostic run + fix attempt for learning)
+export const fixHistory = pgTable("fix_history", {
+  id:             serial("id").primaryKey(),
+  page:           varchar("page",           { length: 200 }),
+  issueType:      varchar("issue_type",     { length: 50  }).notNull(),
+  component:      varchar("component",      { length: 100 }),
+  fixAction:      varchar("fix_action",     { length: 100 }),
+  outcome:        varchar("outcome",        { length: 20  }).notNull(), // 'success' | 'failure' | 'auto' | 'skipped'
+  outcomeMessage: text("outcome_message"),
+  triggeredBy:    varchar("triggered_by",   { length: 20  }).notNull().default('manual'), // 'manual' | 'auto'
+  performedBy:    varchar("performed_by",   { length: 200 }),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertFixHistorySchema = createInsertSchema(fixHistory).omit({ id: true, createdAt: true });
+export type InsertFixHistory = z.infer<typeof insertFixHistorySchema>;
+export type FixHistory = typeof fixHistory.$inferSelect;
+
 // API Request Types
 export type UpdateSettingsRequest = Partial<InsertSettings>;
 
