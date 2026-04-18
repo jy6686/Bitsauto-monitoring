@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Role } from "@shared/schema";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { CommandBar } from "@/components/command-bar";
+import { FixButton } from "@/components/fix-button";
 
 interface Kam { id: number; name: string; active: boolean; }
 
@@ -885,6 +886,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
       {/* ── Global Command Palette (Cmd+K / Ctrl+K) ── */}
       <CommandBar />
+
+      {/* ── Global Fix Button (Admin + Management only — auto-hidden for Viewer) ── */}
+      <FixButton />
 
     </div>
   );

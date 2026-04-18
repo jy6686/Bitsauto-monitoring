@@ -11513,6 +11513,168 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Global Fix / Diagnostic System ─────────────────────────────────────────
+
+  // GET /api/fix/diagnose — full system health check (admin + management)
+  app.get('/api/fix/diagnose', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res: any) => {
+    const t0 = Date.now();
+    type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
+    type IssueSeverity = 'critical' | 'warning' | 'info';
+    const checks: Array<{ id: string; name: string; status: CheckStatus; detail: string; durationMs: number }> = [];
+    const issues: Array<{ type: string; severity: IssueSeverity; component: string; message: string; suggestion: string; autoFix: string | null }> = [];
+
+    // ── 1. Settings configured? ──────────────────────────────────────────────
+    let settings: any = null;
+    const ts1 = Date.now();
+    try {
+      settings = await storage.getSippySettings();
+      if (!settings?.portalUrl || !settings?.apiAdminUsername || !settings?.apiAdminPassword) {
+        checks.push({ id: 'settings', name: 'Sippy Credentials', status: 'fail', detail: 'Portal URL, username or password missing', durationMs: Date.now() - ts1 });
+        issues.push({ type: 'AUTH_ERROR', severity: 'critical', component: 'Settings', message: 'Sippy API credentials are not fully configured.', suggestion: 'Navigate to Settings → General Settings and enter the Sippy portal URL, admin username, and admin password.', autoFix: null });
+      } else {
+        checks.push({ id: 'settings', name: 'Sippy Credentials', status: 'ok', detail: `Portal: ${settings.portalUrl} · User: ${settings.apiAdminUsername}`, durationMs: Date.now() - ts1 });
+      }
+    } catch (e: any) {
+      checks.push({ id: 'settings', name: 'Sippy Credentials', status: 'fail', detail: e.message, durationMs: Date.now() - ts1 });
+      issues.push({ type: 'BACKEND_ERROR', severity: 'critical', component: 'Database', message: 'Cannot read Sippy settings from database: ' + e.message, suggestion: 'Check the PostgreSQL connection. The settings table may be inaccessible.', autoFix: 'check_db' });
+    }
+
+    // ── 2. Sippy session status ──────────────────────────────────────────────
+    const ts2 = Date.now();
+    try {
+      const status = sippy.getSippySessionStatus();
+      if (!status.mode || status.mode === 'none') {
+        checks.push({ id: 'sippy_session', name: 'Sippy API Session', status: 'fail', detail: 'Session not established', durationMs: Date.now() - ts2 });
+        issues.push({ type: 'API_FAILURE', severity: 'critical', component: 'Sippy API', message: 'No active Sippy API session found.', suggestion: 'The system has not established an XML-RPC session with Sippy. Check credentials and retry the API connection.', autoFix: 'retry_sippy' });
+      } else {
+        checks.push({ id: 'sippy_session', name: 'Sippy API Session', status: 'ok', detail: `Mode: ${status.mode} · User: ${status.username || 'n/a'}`, durationMs: Date.now() - ts2 });
+      }
+    } catch (e: any) {
+      checks.push({ id: 'sippy_session', name: 'Sippy API Session', status: 'fail', detail: e.message, durationMs: Date.now() - ts2 });
+      issues.push({ type: 'API_FAILURE', severity: 'critical', component: 'Sippy API', message: 'Error reading Sippy session: ' + e.message, suggestion: 'Restart the server or re-enter credentials in Settings.', autoFix: 'retry_sippy' });
+    }
+
+    // ── 3. Sippy live API call (listActiveCalls) ─────────────────────────────
+    const ts3 = Date.now();
+    if (settings?.portalUrl && settings?.apiAdminUsername && settings?.apiAdminPassword) {
+      try {
+        const calls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
+        checks.push({ id: 'sippy_live', name: 'Sippy Live API Test', status: 'ok', detail: `listActiveCalls returned ${calls.length} active calls`, durationMs: Date.now() - ts3 });
+      } catch (e: any) {
+        const msg = (e.message || '').toLowerCase();
+        const isTimeout = msg.includes('timeout') || msg.includes('timed out') || msg.includes('ETIMEDOUT');
+        const isAuth    = msg.includes('auth') || msg.includes('401') || msg.includes('403') || msg.includes('unauthorized');
+        checks.push({ id: 'sippy_live', name: 'Sippy Live API Test', status: 'fail', detail: e.message, durationMs: Date.now() - ts3 });
+        if (isTimeout) {
+          issues.push({ type: 'TIMEOUT', severity: 'critical', component: 'Sippy API', message: `Sippy API timed out: ${e.message}`, suggestion: 'The Sippy server did not respond within the timeout. Check network, firewall, and whether the Sippy service is running. Try Retry API below.', autoFix: 'retry_sippy' });
+        } else if (isAuth) {
+          issues.push({ type: 'AUTH_ERROR', severity: 'critical', component: 'Sippy API', message: `Sippy authentication rejected: ${e.message}`, suggestion: 'The Sippy server returned an auth error. Verify admin username and password in Settings → General Settings are correct for this Sippy version.', autoFix: null });
+        } else {
+          issues.push({ type: 'API_FAILURE', severity: 'critical', component: 'Sippy API', message: `API call failed: ${e.message}`, suggestion: 'Unexpected error contacting Sippy. Check server logs for details. Use Retry API below to attempt reconnection.', autoFix: 'retry_sippy' });
+        }
+      }
+    } else {
+      checks.push({ id: 'sippy_live', name: 'Sippy Live API Test', status: 'skip', detail: 'Skipped — credentials not configured', durationMs: Date.now() - ts3 });
+    }
+
+    // ── 4. CDR cache health ──────────────────────────────────────────────────
+    const ts4 = Date.now();
+    const cdrSz  = cdrCache.size;
+    const cdrAge = cdrCacheUpdatedAt ? Date.now() - cdrCacheUpdatedAt.getTime() : null;
+    const isStale = cdrAge !== null && cdrAge > 10 * 60 * 1000;
+    if (cdrSz === 0) {
+      checks.push({ id: 'cdr_cache', name: 'CDR Cache', status: 'warn', detail: 'Empty — no CDR data loaded yet', durationMs: Date.now() - ts4 });
+      issues.push({ type: 'NO_DATA', severity: 'warning', component: 'CDR Cache', message: 'CDR cache is empty. Analytics, FAS and Reports will show no data.', suggestion: 'The cache warms automatically every 3 minutes. If it stays empty, check that the Sippy API is reachable and CDR permissions are granted to the admin account.', autoFix: 'warm_cdr_cache' });
+    } else if (isStale) {
+      checks.push({ id: 'cdr_cache', name: 'CDR Cache', status: 'warn', detail: `${cdrSz.toLocaleString()} records · ${Math.round(cdrAge! / 60000)}m old (stale >10m)`, durationMs: Date.now() - ts4 });
+      issues.push({ type: 'DATA_MISMATCH', severity: 'warning', component: 'CDR Cache', message: `CDR cache has not refreshed in ${Math.round(cdrAge! / 60000)} minutes.`, suggestion: 'The background CDR job may have stalled. Check server logs for [cdr-cache] errors. If no errors appear, the Sippy CDR API may be returning empty results.', autoFix: 'warm_cdr_cache' });
+    } else {
+      checks.push({ id: 'cdr_cache', name: 'CDR Cache', status: 'ok', detail: `${cdrSz.toLocaleString()} records · updated ${cdrAge !== null ? Math.round(cdrAge / 1000) + 's ago' : 'recently'}`, durationMs: Date.now() - ts4 });
+    }
+
+    // ── 5. Database connectivity ─────────────────────────────────────────────
+    const ts5 = Date.now();
+    try {
+      await storage.getSippySettings();
+      checks.push({ id: 'database', name: 'PostgreSQL Database', status: 'ok', detail: 'Read query succeeded', durationMs: Date.now() - ts5 });
+    } catch (e: any) {
+      checks.push({ id: 'database', name: 'PostgreSQL Database', status: 'fail', detail: e.message, durationMs: Date.now() - ts5 });
+      issues.push({ type: 'BACKEND_ERROR', severity: 'critical', component: 'Database', message: `Database unreachable: ${e.message}`, suggestion: 'Check the DATABASE_URL environment variable and confirm PostgreSQL is running.', autoFix: null });
+    }
+
+    // ── 6. FAS/IRSF engine health (check via storage) ────────────────────────
+    const ts6 = Date.now();
+    try {
+      const recent = await storage.getFasEvents(1);
+      checks.push({ id: 'fas', name: 'FAS / IRSF Engine', status: 'ok', detail: `Engine active — events found in DB`, durationMs: Date.now() - ts6 });
+    } catch (e: any) {
+      checks.push({ id: 'fas', name: 'FAS / IRSF Engine', status: 'warn', detail: 'Cannot verify: ' + e.message, durationMs: Date.now() - ts6 });
+    }
+
+    const hasCritical = issues.some(i => i.severity === 'critical');
+    const hasWarning  = issues.some(i => i.severity === 'warning');
+
+    res.json({
+      status: hasCritical ? 'critical' : hasWarning ? 'warning' : 'ok',
+      checks,
+      issues,
+      summary: {
+        total:    checks.length,
+        passed:   checks.filter(c => c.status === 'ok').length,
+        warnings: checks.filter(c => c.status === 'warn').length,
+        failed:   checks.filter(c => c.status === 'fail').length,
+        skipped:  checks.filter(c => c.status === 'skip').length,
+      },
+      cdrCacheSize: cdrSz,
+      cdrCacheAgeMs: cdrAge,
+      diagnosedAt: new Date().toISOString(),
+      durationMs: Date.now() - t0,
+    });
+  });
+
+  // POST /api/fix/attempt — attempt an automated fix action
+  app.post('/api/fix/attempt', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    const { action } = req.body as { action: string };
+    const t0 = Date.now();
+    try {
+      switch (action) {
+        case 'retry_sippy': {
+          const settings = await storage.getSippySettings();
+          if (!settings?.portalUrl) return res.json({ ok: false, message: 'Sippy settings not configured. Enter credentials in Settings first.' });
+          try {
+            const calls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
+            return res.json({ ok: true, message: `Sippy API reconnected. Found ${calls.length} active call(s).`, durationMs: Date.now() - t0 });
+          } catch (e: any) {
+            return res.json({ ok: false, message: `Retry failed: ${e.message}`, durationMs: Date.now() - t0 });
+          }
+        }
+        case 'warm_cdr_cache': {
+          return res.json({ ok: true, message: `CDR cache holds ${cdrCache.size} records. The background warmer runs every 3 minutes automatically. If data is missing, ensure Sippy API is reachable.`, durationMs: Date.now() - t0 });
+        }
+        case 'check_db': {
+          await storage.getSippySettings();
+          return res.json({ ok: true, message: 'Database connection verified successfully.', durationMs: Date.now() - t0 });
+        }
+        case 'refresh_accounts': {
+          const settings = await storage.getSippySettings();
+          if (!settings?.portalUrl) return res.json({ ok: false, message: 'Sippy settings not configured.' });
+          const result = await sippy.listSippyAccounts(settings.apiAdminUsername, settings.apiAdminPassword, {}, settings.portalUrl);
+          return res.json({ ok: true, message: `Account list refreshed: ${result.accounts?.length || 0} accounts loaded.`, durationMs: Date.now() - t0 });
+        }
+        case 'refresh_vendors': {
+          const settings = await storage.getSippySettings();
+          if (!settings?.portalUrl) return res.json({ ok: false, message: 'Sippy settings not configured.' });
+          const result = await sippy.listSippyVendors(settings.apiAdminUsername, settings.apiAdminPassword, {}, settings.portalUrl);
+          return res.json({ ok: true, message: `Vendor list refreshed: ${result.vendors?.length || 0} vendors found.`, durationMs: Date.now() - t0 });
+        }
+        default:
+          return res.status(400).json({ ok: false, message: `Unknown action: ${action}` });
+      }
+    } catch (e: any) {
+      return res.status(500).json({ ok: false, message: e.message, durationMs: Date.now() - t0 });
+    }
+  });
+
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();
 

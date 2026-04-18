@@ -1,0 +1,107 @@
+TASK: Implement Global Fix Button System Across Entire Application
+
+Add a Fix button on EVERY page, tab, and feature of the application (CDR, P&L, Live Calls, ASR/ACD, Reports, Settings, APIs, etc.).
+
+This must be a unified system across the entire platform, not module-specific only.
+
+🧠 CORE BEHAVIOR
+
+When user clicks Fix on ANY page:
+
+System must:
+
+Detect current page/module automatically
+Collect logs + API status + errors
+Identify issue type
+Execute predefined fix actions
+Re-validate system status
+Show final result to user
+⚙️ FIX FLOW (MANDATORY FOR ALL PAGES)
+✅ Step 1 — Detect Context
+Page URL
+Module name
+Active API calls
+User action state
+✅ Step 2 — Collect Logs (ALWAYS FIRST)
+Server logs
+API logs (Sippy Soft + other vendors)
+Frontend console errors
+Network failures
+Background job status
+✅ Step 3 — Check API FIRST (CRITICAL)
+Validate Sippy API response
+Check authentication/session
+Detect timeout / failure
+✅ Step 4 — Classify Issue
+AUTH_ERROR
+NO_DATA
+API_FAILURE
+TIMEOUT
+DATA_MISMATCH
+UI_ERROR
+BACKEND_ERROR
+✅ Step 5 — Run Predefined Fix Actions
+Retry API
+Refresh session/login
+Reload data
+Clear cache
+Restart service connection
+Switch vendor/trunk (if applicable)
+✅ Step 6 — Recheck System
+Confirm data is loaded
+Ensure logs are clean
+Validate UI rendering
+🔐 RULES (STRICT)
+Never use mock data
+Always read logs before fixing
+Fix must be module-specific only
+Never apply partial fixes
+Always trace API → backend → UI flow
+Always ensure Sippy API integrity
+🖥️ FRONTEND REQUIREMENT
+
+Every page must include:
+
+<Button onClick={handleFix}>🔧 Fix</Button>
+📊 FIX RESULT MODAL MUST SHOW
+Page/module name
+Issue detected
+Logs summary
+Actions taken
+Final status (Fixed / Failed / Partial)
+🚀 FINAL SYSTEM FLOW
+
+Fix Button → Detect Page → Collect Logs → Classify Issue → Apply Fix → Validate → Show Result
+
+📘 🔴 IMPORTANT FINAL REQUIREMENT (DOCUMENTATION UPDATE)
+
+After implementing any Fix system feature or resolving any issue, Replit must also:
+
+✔ Automatically update system documentation including:
+What feature was implemented
+What issue was fixed
+Step-by-step fix process
+Flow chart of issue → detection → fix → validation
+Any API changes (Sippy or internal)
+Any new modules or logic added
+📁 DOCUMENTATION OUTPUT REQUIRED
+
+Maintain updated documents like:
+
+system_changes_log.md
+fix_history.md
+architecture_flow.md
+
+And ensure:
+
+Every fix is recorded
+Every new feature is documented
+Flow diagrams are updated regularly
+🎯 FINAL GOAL
+
+Create a global intelligent Fix Button system that:
+
+Works on every page
+Fixes API/data/session issues
+Tracks and logs all fixes
+Continuously updates system documentation and flow diagrams
