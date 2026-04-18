@@ -8044,33 +8044,39 @@ export async function registerRoutes(
       checks.push({ name: 'HTTP portal', ok: httpOk, detail: httpDetail });
 
       // ── Check 3: XML-RPC API ──────────────────────────────────────────────────
-      let xmlOk = false; let xmlDetail = '';
+      let xmlOk = false; let xmlDetail = ''; let xmlAuthFailed = false;
       try {
         const result = await Promise.race([
           sippy.connectSippy(portalUrl, username, password),
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
-        ]) as { ok?: boolean; success?: boolean; error?: string } | null;
+        ]) as { ok?: boolean; success?: boolean; error?: string; message?: string } | null;
         if (result && (result.ok || result.success)) {
           xmlOk = true;
           xmlDetail = 'XML-RPC authentication succeeded';
         } else {
-          xmlDetail = `XML-RPC responded but auth failed: ${(result as any)?.error ?? 'unknown'}`;
+          // Server responded (XML-RPC endpoint is up) but rejected our credentials
+          xmlAuthFailed = true;
+          const errMsg = (result as any)?.message || (result as any)?.error || '';
+          xmlDetail = errMsg
+            ? `XML-RPC responded — credentials rejected: ${errMsg}`
+            : 'XML-RPC responded — credentials rejected (check API Admin username/password in Settings)';
         }
       } catch (e: any) {
-        xmlDetail = e.message?.includes('timeout') ? 'XML-RPC request timed out (>8s)' : `XML-RPC error: ${e.message}`;
+        xmlDetail = e.message?.includes('timeout') ? 'XML-RPC request timed out (>8s)' : `XML-RPC unreachable: ${e.message}`;
       }
-      checks.push({ name: 'XML-RPC API', ok: xmlOk, detail: xmlDetail });
+      checks.push({ name: 'XML-RPC API', ok: xmlOk, authFailed: xmlAuthFailed, detail: xmlDetail });
 
       // ── Diagnosis summary ─────────────────────────────────────────────────────
       const anyTcpOpen = checks.filter(c => c.name.startsWith('TCP')).some(c => c.ok);
       let summary = '';
       if (xmlOk && httpOk) summary = 'All systems fully reachable — Sippy API and web portal are both responding normally.';
       else if (xmlOk && !httpOk) summary = 'XML-RPC API is fully operational — all monitoring functions are working normally. The web portal UI is not reachable from this network (this is expected if the portal uses a self-signed certificate, a private IP, or has IP-based access restrictions). No action required.';
-      else if (anyTcpOpen && !xmlOk) summary = 'Network path is open (TCP handshake OK) but the Sippy API is not responding — the softswitch process may be crashed, overloaded, or restarting. Check the server process and logs.';
+      else if (xmlAuthFailed) summary = 'Sippy switch is reachable and responding — but the API credentials were rejected. Update the Admin API username and password in Settings. All TCP ports and the HTTP portal are responding normally.';
+      else if (anyTcpOpen && !xmlOk) summary = 'Network path is open (TCP handshake OK) but the Sippy XML-RPC API is not responding — the softswitch process may be crashed, overloaded, or restarting. Check the server process and logs.';
       else if (!anyTcpOpen) summary = 'No TCP ports are reachable — this indicates a firewall block, full network outage, or the server is completely offline.';
       else summary = 'Partial reachability — some services responding, others not. Review individual check results above.';
 
-      res.json({ host, checks, summary, ts: new Date().toISOString() });
+      res.json({ host, checks, summary, xmlAuthFailed, ts: new Date().toISOString() });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

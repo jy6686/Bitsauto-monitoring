@@ -270,19 +270,21 @@ function ReachabilityTab() {
               {(() => {
                 const xmlOk = diagData.checks?.find((c: any) => c.name === 'XML-RPC API')?.ok;
                 const httpOk = diagData.checks?.find((c: any) => c.name === 'HTTP portal')?.ok;
+                const xmlAuthFailed = diagData.xmlAuthFailed;
                 const isOperational = xmlOk;
-                const isCritical = !xmlOk;
+                const isAuthWarn = !xmlOk && xmlAuthFailed;
+                const isCritical = !xmlOk && !xmlAuthFailed;
                 return (
                   <div className={cn(
                     "px-4 py-3 rounded-lg border",
                     isCritical ? "bg-rose-500/10 border-rose-500/30" :
-                    isOperational && !httpOk ? "bg-amber-500/10 border-amber-500/30" :
+                    isAuthWarn || (isOperational && !httpOk) ? "bg-amber-500/10 border-amber-500/30" :
                     "bg-emerald-500/10 border-emerald-500/30"
                   )}>
                     <p className={cn(
                       "text-sm font-medium",
                       isCritical ? "text-rose-300" :
-                      isOperational && !httpOk ? "text-amber-300" :
+                      isAuthWarn || (isOperational && !httpOk) ? "text-amber-300" :
                       "text-emerald-300"
                     )}>{diagData.summary}</p>
                     <p className="text-xs text-muted-foreground mt-1">Probed at {new Date(diagData.ts).toLocaleTimeString()}</p>
@@ -292,16 +294,22 @@ function ReachabilityTab() {
 
               {/* Per-check results */}
               <div className="space-y-2">
-                {diagData.checks.map((c, i) => (
+                {diagData.checks.map((c: any, i: number) => {
+                  const isAuthWarnRow = c.name === 'XML-RPC API' && diagData.xmlAuthFailed && !c.ok;
+                  return (
                   <div key={i} className={cn(
                     "flex items-start gap-3 px-4 py-3 rounded-lg border",
-                    c.ok ? "border-emerald-500/20 bg-emerald-500/5" : "border-rose-500/20 bg-rose-500/5"
+                    c.ok ? "border-emerald-500/20 bg-emerald-500/5" :
+                    isAuthWarnRow ? "border-amber-500/20 bg-amber-500/5" :
+                    "border-rose-500/20 bg-rose-500/5"
                   )} data-testid={`diag-check-${i}`}>
                     <div className={cn("mt-0.5 flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center",
-                      c.ok ? "bg-emerald-500/20" : "bg-rose-500/20")}>
+                      c.ok ? "bg-emerald-500/20" : isAuthWarnRow ? "bg-amber-500/20" : "bg-rose-500/20")}>
                       {c.ok
                         ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                        : <WifiOff className="w-3.5 h-3.5 text-rose-400" />}
+                        : isAuthWarnRow
+                          ? <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                          : <WifiOff className="w-3.5 h-3.5 text-rose-400" />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -313,14 +321,17 @@ function ReachabilityTab() {
                           </span>
                         )}
                         <span className={cn("ml-auto text-xs font-bold px-2 py-0.5 rounded-full",
-                          c.ok ? "bg-emerald-500/15 text-emerald-400" : "bg-rose-500/15 text-rose-400")}>
-                          {c.ok ? "PASS" : "FAIL"}
+                          c.ok ? "bg-emerald-500/15 text-emerald-400" :
+                          isAuthWarnRow ? "bg-amber-500/15 text-amber-400" :
+                          "bg-rose-500/15 text-rose-400")}>
+                          {c.ok ? "PASS" : isAuthWarnRow ? "WARN" : "FAIL"}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">{c.detail}</p>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : null}
