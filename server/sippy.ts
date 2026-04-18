@@ -1151,6 +1151,216 @@ export async function getSippyAsrAcdReport(
   };
 }
 
+// ── Profit & Loss Report scraper ──────────────────────────────────────────────
+// Scrapes /profit_loss_report.php (or /c1/profit_loss_report.php) from the
+// Sippy portal to return per-day P&L rows + summary totals.
+
+export interface PnlRow {
+  date:       string;   // e.g. "2026-04-18"
+  calls:      number;
+  durationSec:number;   // total billed duration in seconds
+  revenue:    number;   // USD
+  cost:       number;   // USD
+  profit:     number;   // USD
+  margin:     number;   // %
+}
+
+export interface PnlReport {
+  ok:       boolean;
+  period:   string;
+  fetchedAt:string;
+  rows:     PnlRow[];
+  totals:   PnlRow;
+  error?:   string;
+}
+
+const EMPTY_PNL_ROW: PnlRow = { date: 'Total', calls: 0, durationSec: 0, revenue: 0, cost: 0, profit: 0, margin: 0 };
+
+function parsePnlDuration(s: string): number {
+  // Accept hh:mm:ss, mm:ss, or plain seconds
+  if (!s) return 0;
+  const parts = s.trim().split(':').map(Number);
+  if (parts.length === 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+  if (parts.length === 2) return (parts[0] || 0) * 60 + (parts[1] || 0);
+  return parseInt(s) || 0;
+}
+
+export async function scrapeProfitLossReport(
+  portalUsername: string,
+  portalPassword: string,
+  fallbackUsername?: string,
+  fallbackPassword?: string,
+  fromDate?: Date,
+  toDate?: Date,
+): Promise<PnlReport> {
+  const now   = toDate   ?? new Date();
+  const start = fromDate ?? new Date(now.getTime() - 30 * 24 * 60 * 60_000);
+  const FAIL  = (error: string): PnlReport => ({
+    ok: false, period: '', fetchedAt: new Date().toISOString(),
+    rows: [], totals: { ...EMPTY_PNL_ROW }, error,
+  });
+
+  if (!activeSession) return FAIL('Not connected to Sippy.');
+  const base = activeSession.portalUrl;
+
+  // Try admin/reseller session first (more data), then any customer session
+  let cookies = await getAdminPortalSession(
+    base,
+    fallbackUsername ?? '', fallbackPassword ?? '',
+    portalUsername, portalPassword,
+  );
+  if (!cookies) {
+    cookies = await getAnyPortalSession(base, [portalUsername, portalPassword]);
+    if (!cookies) return FAIL('Portal login failed for P&L report.');
+  }
+
+  // Sippy portal date format: "HH:MM:SS.000 GMT Www Mmm DD YYYY"
+  const postBody = encodeForm({
+    startDate:    formatSippyPortalDate(start),
+    endDate:      formatSippyPortalDate(now),
+    from_form:    '1',
+    action:       'update',
+    cdr_currency: 'USD',
+    period:       'day',   // daily breakdown
+  });
+
+  // Try POST to both /profit_loss_report.php (admin path) and /c1/ (customer path)
+  let html = '';
+  const paths = ['/profit_loss_report.php', '/c1/profit_loss_report.php'];
+  for (const path of paths) {
+    try {
+      const { statusCode, body: candidate } = await rawRequest(
+        'POST',
+        `${base}${path}`,
+        postBody,
+        { 'Content-Type': 'application/x-www-form-urlencoded' },
+        cookies,
+      );
+      if (statusCode === 200 && candidate && candidate.length > 500) {
+        html = candidate;
+        break;
+      }
+    } catch { /* try next path */ }
+  }
+
+  if (!html) {
+    // Fallback: GET with query string (some Sippy builds use GET)
+    const qs = [
+      `startDate=${encodeURIComponent(formatSippyPortalDate(start))}`,
+      `endDate=${encodeURIComponent(formatSippyPortalDate(now))}`,
+      'from_form=1', 'action=update', 'cdr_currency=USD', 'period=day',
+    ].join('&');
+    for (const path of paths) {
+      try {
+        const { html: h } = await portalGet(`${path}?${qs}`, cookies, base);
+        if (h && h.length > 500) { html = h; break; }
+      } catch { /* try next path */ }
+    }
+  }
+
+  if (!html || html.length < 200) return FAIL('Empty response from Sippy P&L report page.');
+
+  // ── Parse the HTML table ───────────────────────────────────────────────────
+  // Expected columns (may vary): Date | Calls | Duration | Revenue | Cost | Profit | Margin%
+  const rows: PnlRow[] = [];
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let m: RegExpExecArray | null;
+
+  // Find column header row to determine indices
+  let colDate = 0, colCalls = 1, colDur = 2, colRev = 3, colCost = 4, colProfit = 5, colMargin = 6;
+  let headerFound = false;
+
+  while ((m = trRe.exec(html)) !== null) {
+    const rowHtml = m[1];
+    const tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+    const cells: string[] = [];
+    let td: RegExpExecArray | null;
+    while ((td = tdRe.exec(rowHtml)) !== null) {
+      cells.push(td[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim());
+    }
+    if (cells.length < 3) continue;
+
+    const joined = cells.join('|').toLowerCase();
+
+    // Detect header row to map column indices
+    if (!headerFound && (joined.includes('revenue') || joined.includes('profit') || joined.includes('calls'))) {
+      headerFound = true;
+      cells.forEach((c, i) => {
+        const lc = c.toLowerCase();
+        if (/^date|period|day/i.test(lc))      colDate   = i;
+        else if (/calls/i.test(lc))            colCalls  = i;
+        else if (/duration|minutes/i.test(lc)) colDur    = i;
+        else if (/revenue/i.test(lc))          colRev    = i;
+        else if (/cost/i.test(lc))             colCost   = i;
+        else if (/profit|net/i.test(lc))       colProfit = i;
+        else if (/margin|%/i.test(lc))         colMargin = i;
+      });
+      continue;
+    }
+
+    // Skip non-data rows
+    if (!headerFound) continue;
+    if (/number of calls|billable calls|header/i.test(joined)) continue;
+    if (cells.length <= colRev) continue;
+
+    const raw = (i: number) => cells[i] ?? '';
+    const num = (i: number) => parseFloat(raw(i).replace(/[,$%]/g, '')) || 0;
+
+    // Parse date — accept "MM/DD/YYYY", "YYYY-MM-DD", "Apr 18", etc.
+    let dateStr = raw(colDate).trim();
+    const mdyMatch = dateStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    const isoMatch = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (mdyMatch)      dateStr = `${mdyMatch[3]}-${mdyMatch[1]}-${mdyMatch[2]}`;
+    else if (isoMatch) dateStr = `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+
+    // Skip totals rows (they go into totals separately)
+    const isTotal = /^total|^grand/i.test(dateStr) || /^total|^grand/i.test(raw(0));
+
+    const revenue = num(colRev);
+    const cost    = num(colCost);
+    const profit  = colProfit < cells.length ? num(colProfit) : parseFloat((revenue - cost).toFixed(4));
+    const margin  = colMargin < cells.length ? num(colMargin) : (revenue > 0 ? parseFloat(((profit / revenue) * 100).toFixed(2)) : 0);
+
+    const row: PnlRow = {
+      date:        dateStr,
+      calls:       num(colCalls),
+      durationSec: parsePnlDuration(raw(colDur)),
+      revenue,
+      cost,
+      profit,
+      margin,
+    };
+
+    if (isTotal) continue; // totals computed from rows
+    if (row.calls === 0 && row.revenue === 0) continue; // skip empty rows
+    rows.push(row);
+  }
+
+  // Compute totals from rows
+  const totals: PnlRow = rows.length > 0 ? {
+    date:        'Total',
+    calls:       rows.reduce((s, r) => s + r.calls, 0),
+    durationSec: rows.reduce((s, r) => s + r.durationSec, 0),
+    revenue:     parseFloat(rows.reduce((s, r) => s + r.revenue, 0).toFixed(4)),
+    cost:        parseFloat(rows.reduce((s, r) => s + r.cost, 0).toFixed(4)),
+    profit:      parseFloat(rows.reduce((s, r) => s + r.profit, 0).toFixed(4)),
+    margin:      0,
+  } : { ...EMPTY_PNL_ROW };
+  if (totals.revenue > 0) totals.margin = parseFloat(((totals.profit / totals.revenue) * 100).toFixed(2));
+
+  if (rows.length === 0) return FAIL('P&L report parsed but no data rows found. The selected date range may have no traffic.');
+
+  console.log(`[Sippy] scrapeProfitLossReport: ${rows.length} rows, revenue=$${totals.revenue}, profit=$${totals.profit}`);
+
+  return {
+    ok:        true,
+    period:    `${start.toISOString().slice(0, 10)} → ${now.toISOString().slice(0, 10)}`,
+    fetchedAt: new Date().toISOString(),
+    rows,
+    totals,
+  };
+}
+
 export async function getPortalSubcustomers(cookies: CookieJar, base: string): Promise<Array<{ name: string; status: string; description: string; balance: string; creditLimit: string; tariff: string }>> {
   const { html } = await portalGet('/c2/subcustomers.php', cookies, base);
   if (!html) return [];

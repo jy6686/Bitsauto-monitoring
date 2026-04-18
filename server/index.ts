@@ -168,20 +168,12 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
-  } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
-  }
-
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
+  // NOTE: We listen BEFORE setupVite so the port opens immediately even if
+  // Vite's dev-server initialization takes a long time (e.g. plugin network calls).
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {
@@ -193,4 +185,21 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  // Setup frontend serving — after port is open so startup isn't blocked.
+  if (process.env.NODE_ENV === "production") {
+    serveStatic(app);
+  } else {
+    // Vite dev-server may take time to initialize (plugin warmup, dep optimisation,
+    // or Replit-specific plugin network calls). Fire-and-forget so the port stays open.
+    (async () => {
+      try {
+        const { setupVite } = await import("./vite");
+        await setupVite(httpServer, app);
+        log("Vite dev server ready");
+      } catch (err: any) {
+        console.error('[vite] setupVite failed (non-fatal):', err?.message ?? err);
+      }
+    })();
+  }
 })();

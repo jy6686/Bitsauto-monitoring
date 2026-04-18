@@ -396,7 +396,19 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   // Auth Setup
-  await setupAuth(app);
+  // Replit OIDC auth setup — run with a 6-second timeout so a slow or
+  // unreachable OIDC discovery endpoint never blocks server startup.
+  // The app uses its own requireRole auth; Replit OIDC is supplementary.
+  try {
+    await Promise.race([
+      setupAuth(app),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('OIDC discovery timed out')), 6000)
+      ),
+    ]);
+  } catch (err: any) {
+    console.warn('[auth] Replit OIDC setup skipped (non-fatal):', err?.message ?? err);
+  }
   registerAuthRoutes(app);
 
   // ── Smart Sippy Connect ────────────────────────────────────────────────────
@@ -11060,6 +11072,45 @@ export async function registerRoutes(
         _cdrCount: enriched.length,
         _cacheSize: cdrCache.size,
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── P&L Report (portal scrape) ────────────────────────────────────────────
+  // GET /api/analytics/pnl?days=30&from=YYYY-MM-DD&to=YYYY-MM-DD
+  app.get("/api/analytics/pnl", (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const cfg = await storage.getSettings();
+      if (!cfg) return res.status(503).json({ message: "Sippy not configured." });
+
+      // Resolve credentials (same swap-aware pattern as ASR/ACD route)
+      const pUser = (cfg as any).apiAdminUsername || (cfg as any).portalUsername || "";
+      const pPass = (cfg as any).apiAdminPassword || (cfg as any).portalPassword || "";
+      const fbUser = (cfg as any).portalUsername  || (cfg as any).apiAdminUsername || "";
+      const fbPass = (cfg as any).portalPassword  || (cfg as any).apiAdminPassword || "";
+
+      // Date range
+      const now   = new Date();
+      let toDate   = new Date(now);
+      let fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60_000);
+
+      if (req.query.to   && typeof req.query.to   === "string") {
+        const d = new Date(req.query.to as string + "T23:59:59Z");
+        if (!isNaN(d.getTime())) toDate = d;
+      }
+      if (req.query.from && typeof req.query.from === "string") {
+        const d = new Date(req.query.from as string + "T00:00:00Z");
+        if (!isNaN(d.getTime())) fromDate = d;
+      }
+      if (req.query.days && !req.query.from) {
+        const d = parseInt(req.query.days as string) || 30;
+        fromDate = new Date(now.getTime() - d * 24 * 60 * 60_000);
+      }
+
+      const report = await sippy.scrapeProfitLossReport(pUser, pPass, fbUser, fbPass, fromDate, toDate);
+      if (!report.ok) return res.status(502).json({ message: report.error ?? "P&L scrape failed." });
+      res.json(report);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

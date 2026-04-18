@@ -40,8 +40,25 @@ const fmt$ = (n: number) => `$${n.toFixed(2)}`;
 const fmtPct = (n: number) => `${n.toFixed(1)}%`;
 const fmtN = (n: number) => n.toLocaleString();
 const PERIOD_OPTS = [{ label: "7d", days: 7 }, { label: "30d", days: 30 }, { label: "60d", days: 60 }, { label: "90d", days: 90 }];
-const TABS = ["Overview", "By Client", "By Destination", "Worst Routes", "Rate Import"] as const;
+const TABS = ["Overview", "By Client", "By Destination", "Worst Routes", "Rate Import", "P&L Report"] as const;
 type Tab = typeof TABS[number];
+
+type PnlRow = {
+  date: string;
+  calls: number;
+  durationSec: number;
+  revenue: number;
+  cost: number;
+  profit: number;
+  margin: number;
+};
+type PnlReport = {
+  ok: boolean;
+  period: string;
+  fetchedAt: string;
+  rows: PnlRow[];
+  totals: PnlRow;
+};
 
 const CHART_COLORS = { revenue: "#10b981", cost: "#ef4444", profit: "#3b82f6" };
 const BAR_COLORS = ["#10b981","#3b82f6","#8b5cf6","#f59e0b","#ef4444","#06b6d4","#ec4899","#84cc16","#f97316","#a855f7"];
@@ -94,6 +111,27 @@ export default function AnalyticsPage() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importResult, setImportResult] = useState<{ inserted: number; skipped: number; cardId: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // P&L Report state
+  const today = new Date().toISOString().slice(0, 10);
+  const thirtyAgo = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+  const [pnlFrom, setPnlFrom] = useState(thirtyAgo);
+  const [pnlTo,   setPnlTo]   = useState(today);
+  const [pnlFetch, setPnlFetch] = useState(false);
+
+  const { data: pnlData, isLoading: pnlLoading, error: pnlError, refetch: pnlRefetch } = useQuery<PnlReport>({
+    queryKey: ["/api/analytics/pnl", pnlFrom, pnlTo],
+    queryFn: async () => {
+      const params = new URLSearchParams({ from: pnlFrom, to: pnlTo });
+      const r = await fetch(`/api/analytics/pnl?${params}`);
+      const json = await r.json();
+      if (!r.ok) throw new Error(json.message ?? "P&L fetch failed");
+      return json;
+    },
+    enabled: pnlFetch,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
   const queryKey = ["/api/analytics/margin", days, vendorCardId, threshold];
 
@@ -763,6 +801,210 @@ export default function AnalyticsPage() {
                 </table>
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ── P&L REPORT ────────────────────────────────────────────────────────── */}
+      {tab === "P&L Report" && (
+        <div className="space-y-5">
+          {/* Date range controls */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground font-medium">From</label>
+                <input
+                  type="date"
+                  value={pnlFrom}
+                  max={pnlTo}
+                  onChange={e => setPnlFrom(e.target.value)}
+                  data-testid="input-pnl-from"
+                  className="text-sm bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground font-medium">To</label>
+                <input
+                  type="date"
+                  value={pnlTo}
+                  min={pnlFrom}
+                  max={today}
+                  onChange={e => setPnlTo(e.target.value)}
+                  data-testid="input-pnl-to"
+                  className="text-sm bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              {/* Quick range presets */}
+              {([7, 14, 30, 60, 90] as const).map(d => (
+                <Button
+                  key={d}
+                  variant="outline"
+                  size="sm"
+                  data-testid={`button-pnl-preset-${d}`}
+                  onClick={() => {
+                    const t = new Date().toISOString().slice(0, 10);
+                    const f = new Date(Date.now() - d * 24 * 60 * 60_000).toISOString().slice(0, 10);
+                    setPnlFrom(f); setPnlTo(t);
+                  }}
+                  className="text-xs h-9"
+                >
+                  {d}d
+                </Button>
+              ))}
+              <Button
+                data-testid="button-pnl-fetch"
+                onClick={() => { setPnlFetch(true); pnlRefetch(); }}
+                disabled={pnlLoading}
+                className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white h-9"
+              >
+                {pnlLoading
+                  ? <><RefreshCw className="h-4 w-4 animate-spin" /> Fetching…</>
+                  : <><TrendingUp className="h-4 w-4" /> Fetch P&amp;L</>}
+              </Button>
+              {pnlData && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-testid="button-pnl-refresh"
+                  onClick={() => pnlRefetch()}
+                  disabled={pnlLoading}
+                  className="h-9 gap-2 text-muted-foreground"
+                >
+                  <RefreshCw className={`h-4 w-4 ${pnlLoading ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+              )}
+            </div>
+            {pnlData && (
+              <p className="text-xs text-muted-foreground mt-3">
+                Fetched from Sippy portal · Period: {pnlData.period} · as of {new Date(pnlData.fetchedAt).toLocaleTimeString()}
+              </p>
+            )}
+          </div>
+
+          {/* Error state */}
+          {pnlError && (
+            <div className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+              <AlertTriangle className="h-5 w-5 text-red-400 shrink-0" />
+              <div>
+                <div className="text-sm font-medium text-red-400">P&amp;L Report Error</div>
+                <div className="text-xs text-muted-foreground">{(pnlError as Error).message}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Prompt to fetch */}
+          {!pnlFetch && !pnlData && !pnlLoading && (
+            <div className="text-center text-muted-foreground py-16 bg-card border border-border rounded-xl">
+              <TrendingUp className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <div className="font-medium mb-1">P&amp;L Report</div>
+              <div className="text-sm">Select a date range and click <strong>Fetch P&amp;L</strong> to scrape live data from the Sippy portal.</div>
+            </div>
+          )}
+
+          {/* Loading skeleton */}
+          {pnlLoading && (
+            <div className="text-center text-muted-foreground py-16 bg-card border border-border rounded-xl">
+              <RefreshCw className="h-8 w-8 mx-auto mb-3 animate-spin opacity-40" />
+              <div className="text-sm">Scraping Sippy portal for P&amp;L data…</div>
+            </div>
+          )}
+
+          {/* Results */}
+          {pnlData && pnlData.rows.length > 0 && (
+            <>
+              {/* KPI summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <KpiCard label="Revenue"    value={fmt$(pnlData.totals.revenue)}    icon={<DollarSign className="h-5 w-5" />}    color="text-emerald-400" />
+                <KpiCard label="Cost"       value={fmt$(pnlData.totals.cost)}       icon={<TrendingDown className="h-5 w-5" />}  color="text-red-400" />
+                <KpiCard label="Profit"     value={fmt$(pnlData.totals.profit)}     icon={<Zap className="h-5 w-5" />}           color={pnlData.totals.profit >= 0 ? "text-blue-400" : "text-red-400"} />
+                <KpiCard label="Margin"     value={fmtPct(pnlData.totals.margin)}   icon={<Target className="h-5 w-5" />}        color={marginTextColor(pnlData.totals.margin)} />
+                <KpiCard label="Calls"      value={fmtN(pnlData.totals.calls)}      icon={<Phone className="h-5 w-5" />}         color="text-violet-400" />
+                <KpiCard label="Minutes"    value={fmtN(Math.round(pnlData.totals.durationSec / 60))} icon={<Clock className="h-5 w-5" />} color="text-cyan-400" />
+              </div>
+
+              {/* Area chart */}
+              <div className="bg-card border border-border rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <TrendingUp className="h-4 w-4 text-emerald-400" />
+                  <h2 className="font-semibold text-sm">Daily P&amp;L — {pnlData.period}</h2>
+                </div>
+                <ResponsiveContainer width="100%" height={260}>
+                  <AreaChart data={pnlData.rows.map(r => ({ date: r.date, Revenue: r.revenue, Cost: r.cost, Profit: r.profit }))} margin={{ top: 6, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gPnlRev" x1="0" y1="0" x2="0" y2="1">
+                        <BseGradStops color={CHART_COLORS.revenue} />
+                      </linearGradient>
+                      <linearGradient id="gPnlCost" x1="0" y1="0" x2="0" y2="1">
+                        <BseGradStops color={CHART_COLORS.cost} primaryOpacity={0.35} />
+                      </linearGradient>
+                      <linearGradient id="gPnlProfit" x1="0" y1="0" x2="0" y2="1">
+                        <BseGradStops color={CHART_COLORS.profit} primaryOpacity={0.35} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid {...BSE_GRID_PROPS} />
+                    <XAxis dataKey="date" {...BSE_AXIS_PROPS} interval="preserveStartEnd" />
+                    <YAxis {...BSE_AXIS_PROPS} tickFormatter={v => `$${v}`} width={56} />
+                    <Tooltip content={<BseTooltip formatter={(v: number, key) => [fmt$(v), key]} />} cursor={BSE_CURSOR} />
+                    <Legend wrapperStyle={{ fontSize: 10, color: 'rgba(148,163,184,0.7)' }} />
+                    <Area type="monotone" dataKey="Revenue" stroke={CHART_COLORS.revenue} fill="url(#gPnlRev)"    strokeWidth={2.5} dot={false} activeDot={bseActiveDot(CHART_COLORS.revenue)} strokeLinejoin="round" strokeLinecap="round" />
+                    <Area type="monotone" dataKey="Cost"    stroke={CHART_COLORS.cost}    fill="url(#gPnlCost)"   strokeWidth={2}   dot={false} activeDot={bseActiveDot(CHART_COLORS.cost)}    strokeLinejoin="round" strokeLinecap="round" />
+                    <Area type="monotone" dataKey="Profit"  stroke={CHART_COLORS.profit}  fill="url(#gPnlProfit)" strokeWidth={2}   dot={false} activeDot={bseActiveDot(CHART_COLORS.profit)}  strokeLinejoin="round" strokeLinecap="round" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Detailed table */}
+              <div className="bg-card border border-border rounded-xl overflow-hidden">
+                <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+                  <BarChart2 className="h-4 w-4 text-emerald-400" />
+                  <span className="font-semibold text-sm">Daily Breakdown</span>
+                  <span className="text-xs text-muted-foreground ml-auto">{pnlData.rows.length} days</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border text-muted-foreground">
+                        <th className="px-4 py-2 text-left">Date</th>
+                        <th className="px-4 py-2 text-right">Calls</th>
+                        <th className="px-4 py-2 text-right">Minutes</th>
+                        <th className="px-4 py-2 text-right">Revenue</th>
+                        <th className="px-4 py-2 text-right">Cost</th>
+                        <th className="px-4 py-2 text-right">Profit</th>
+                        <th className="px-4 py-2 text-right">Margin</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pnlData.rows.map((r, i) => (
+                        <tr key={r.date} className="border-b border-border/40 hover:bg-muted/20" data-testid={`row-pnl-${i}`}>
+                          <td className="px-4 py-2 font-mono text-xs">{r.date}</td>
+                          <td className="px-4 py-2 text-right text-muted-foreground">{fmtN(r.calls)}</td>
+                          <td className="px-4 py-2 text-right text-muted-foreground">{fmtN(Math.round(r.durationSec / 60))}</td>
+                          <td className="px-4 py-2 text-right text-emerald-400 font-medium">{fmt$(r.revenue)}</td>
+                          <td className="px-4 py-2 text-right text-red-400">{fmt$(r.cost)}</td>
+                          <td className={`px-4 py-2 text-right font-semibold ${r.profit >= 0 ? "text-blue-400" : "text-red-400"}`}>{fmt$(r.profit)}</td>
+                          <td className="px-4 py-2 text-right">
+                            <Badge className={`text-xs border-0 ${marginColor(r.margin)}`}>{fmtPct(r.margin)}</Badge>
+                          </td>
+                        </tr>
+                      ))}
+                      {/* Totals row */}
+                      <tr className="border-t-2 border-border bg-muted/30 font-semibold">
+                        <td className="px-4 py-2">Total</td>
+                        <td className="px-4 py-2 text-right">{fmtN(pnlData.totals.calls)}</td>
+                        <td className="px-4 py-2 text-right">{fmtN(Math.round(pnlData.totals.durationSec / 60))}</td>
+                        <td className="px-4 py-2 text-right text-emerald-400">{fmt$(pnlData.totals.revenue)}</td>
+                        <td className="px-4 py-2 text-right text-red-400">{fmt$(pnlData.totals.cost)}</td>
+                        <td className={`px-4 py-2 text-right ${pnlData.totals.profit >= 0 ? "text-blue-400" : "text-red-400"}`}>{fmt$(pnlData.totals.profit)}</td>
+                        <td className="px-4 py-2 text-right">
+                          <Badge className={`text-xs border-0 ${marginColor(pnlData.totals.margin)}`}>{fmtPct(pnlData.totals.margin)}</Badge>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}
