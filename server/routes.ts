@@ -11515,6 +11515,99 @@ export async function registerRoutes(
 
   // ── Global Fix / Diagnostic System ─────────────────────────────────────────
 
+  // ── Sippy API Health State (shared across health endpoint + bg job) ─────────
+  const sippyHealth = {
+    status:   'unknown' as 'healthy' | 'slow' | 'degraded' | 'unhealthy' | 'unconfigured' | 'unknown',
+    auth:     'unknown' as 'valid' | 'invalid' | 'unknown',
+    latencyMs:          null as number | null,
+    lastSuccessAt:      null as Date | null,
+    lastCheckedAt:      null as Date | null,
+    lastError:          null as string | null,
+    consecutiveFailures: 0,
+    totalChecks:         0,
+    recentChecks: [] as Array<{ at: string; ok: boolean; latencyMs: number; status: string }>,
+  };
+
+  // Helper — run one Sippy health probe (rate-limited to 30s unless forced)
+  const runSippyHealthCheck = async (force = false): Promise<void> => {
+    if (!force && sippyHealth.lastCheckedAt && Date.now() - sippyHealth.lastCheckedAt.getTime() < 30_000) return;
+    sippyHealth.totalChecks++;
+    sippyHealth.lastCheckedAt = new Date();
+    let settings: any = null;
+    try { settings = await storage.getSippySettings(); } catch {}
+    if (!settings?.portalUrl || !settings?.apiAdminUsername || !settings?.apiAdminPassword) {
+      sippyHealth.status = 'unconfigured';
+      sippyHealth.auth   = 'unknown';
+      return;
+    }
+    const t0 = Date.now();
+    try {
+      await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
+      const lat = Date.now() - t0;
+      sippyHealth.latencyMs           = lat;
+      sippyHealth.lastSuccessAt       = new Date();
+      sippyHealth.auth                = 'valid';
+      sippyHealth.consecutiveFailures = 0;
+      sippyHealth.lastError           = null;
+      sippyHealth.status              = lat > 2000 ? 'slow' : 'healthy';
+      sippyHealth.recentChecks.push({ at: new Date().toISOString(), ok: true,  latencyMs: lat, status: sippyHealth.status });
+    } catch (e: any) {
+      const lat = Date.now() - t0;
+      sippyHealth.latencyMs = lat;
+      sippyHealth.consecutiveFailures++;
+      sippyHealth.lastError = e.message;
+      const m = (e.message || '').toLowerCase();
+      if (m.includes('auth') || m.includes('401') || m.includes('403') || m.includes('unauthorized')) {
+        sippyHealth.auth   = 'invalid';
+        sippyHealth.status = 'unhealthy';
+      } else if (m.includes('timeout') || m.includes('etimedout') || m.includes('timed out')) {
+        sippyHealth.auth   = 'valid';
+        sippyHealth.status = 'degraded';
+      } else {
+        sippyHealth.status = 'unhealthy';
+      }
+      sippyHealth.recentChecks.push({ at: new Date().toISOString(), ok: false, latencyMs: lat, status: sippyHealth.status });
+    }
+    if (sippyHealth.recentChecks.length > 100) sippyHealth.recentChecks = sippyHealth.recentChecks.slice(-100);
+  };
+
+  // GET /api/sippy/health — real-time Sippy API health probe (all authenticated roles)
+  app.get('/api/sippy/health', async (req: any, res: any) => {
+    if (!req.isAuthenticated?.()) return res.status(401).json({ error: 'Unauthorized' });
+    await runSippyHealthCheck(true); // Force fresh check when explicitly requested
+    const last20    = sippyHealth.recentChecks.slice(-20);
+    const errorRate = last20.length > 0
+      ? ((last20.filter((c: any) => !c.ok).length / last20.length) * 100).toFixed(1) + '%'
+      : '0.0%';
+    const uptimeRate = last20.length > 0
+      ? ((last20.filter((c: any) => c.ok).length / last20.length) * 100).toFixed(1) + '%'
+      : '100.0%';
+    res.json({
+      status:               sippyHealth.status,
+      auth:                 sippyHealth.auth,
+      latency_ms:           sippyHealth.latencyMs,
+      last_success_call:    sippyHealth.lastSuccessAt?.toISOString() ?? null,
+      error:                sippyHealth.lastError,
+      error_rate:           errorRate,
+      uptime_rate:          uptimeRate,
+      total_checks:         sippyHealth.totalChecks,
+      consecutive_failures: sippyHealth.consecutiveFailures,
+      recent_checks:        sippyHealth.recentChecks.slice(-10),
+      checked_at:           sippyHealth.lastCheckedAt?.toISOString() ?? null,
+    });
+  });
+
+  // GET /api/sippy/health/history — last 100 health check records
+  app.get('/api/sippy/health/history', async (req: any, res: any) => {
+    if (!req.isAuthenticated?.()) return res.status(401).json({ error: 'Unauthorized' });
+    res.json({ history: sippyHealth.recentChecks.slice(-100) });
+  });
+
+  // Background Sippy health probe every 60 seconds
+  setInterval(async () => { try { await runSippyHealthCheck(true); } catch {} }, 60_000);
+  // Initial probe after server warms up (5s delay)
+  setTimeout(async () => { try { await runSippyHealthCheck(true); } catch {} }, 5_000);
+
   // ── Phase 3: Auto-recovery state (shared across job + endpoints) ────────────
   const autoRecovery = {
     consecutiveSippyFailures: 0,

@@ -9,6 +9,7 @@ import type { Role } from "@shared/schema";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { CommandBar } from "@/components/command-bar";
 import { FixButton } from "@/components/fix-button";
+import { SippyHealthBadge } from "@/components/sippy-health-badge";
 
 interface Kam { id: number; name: string; active: boolean; }
 
@@ -658,6 +659,11 @@ export function LayoutShell({ children }: LayoutShellProps) {
             </>
           )}
         </nav>
+
+        {/* Sippy API Health indicator — shown above user footer */}
+        <div className={cn("border-t border-border/30 flex-shrink-0", collapsed ? "px-2 py-1.5" : "px-3 py-1.5")}>
+          <SippyHealthBadge collapsed={collapsed} />
+        </div>
 
         {/* User footer */}
         <div className={cn("border-t border-border/50 flex-shrink-0", collapsed ? "p-2" : "p-3")}>
