@@ -1,7 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Wrench, X, CheckCircle2, AlertTriangle, XCircle, Loader2, ChevronRight, RefreshCw, Database, Wifi, HardDrive, Shield, Zap, AlertCircle, Clock, History, Cpu, CheckCheck } from "lucide-react";
+import { Wrench, X, CheckCircle2, AlertTriangle, XCircle, Loader2, ChevronRight, RefreshCw, Database, Wifi, HardDrive, Shield, Zap, AlertCircle, Clock, History, Cpu, CheckCheck, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -197,19 +197,50 @@ export function FixButton() {
   const queryClient = useQueryClient();
   const pageName = getPageName(location);
 
+  // ── Frontend error capture (Step 2: Collect Logs) ───────────────────────
+  const frontendErrorsRef = useRef<string[]>([]);
+  useEffect(() => {
+    const onError = (e: ErrorEvent) => {
+      const msg = `[JS] ${e.message} @ ${e.filename?.split("/").pop() ?? "?"}:${e.lineno}`;
+      frontendErrorsRef.current = [msg, ...frontendErrorsRef.current].slice(0, 20);
+    };
+    const onUnhandled = (e: PromiseRejectionEvent) => {
+      const msg = `[Promise] ${e.reason}`;
+      frontendErrorsRef.current = [msg, ...frontendErrorsRef.current].slice(0, 20);
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandled);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandled);
+    };
+  }, []);
+
   if (!role || role === "viewer") return null;
 
-  // ── Diagnose query ───────────────────────────────────────────────────────
+  const moduleParam  = encodeURIComponent(pageName);
+  const diagnoseBase = `/api/fix/diagnose?module=${moduleParam}`;
+
+  // ── Diagnose query (module-aware, errors injected at fetch time) ─────────
   const {
     data: diag,
     isLoading,
     refetch,
     isFetching,
   } = useQuery<DiagResult>({
-    queryKey: ["/api/fix/diagnose"],
+    queryKey: [diagnoseBase],
     enabled: open && tab === "diagnose",
     staleTime: 0,
     refetchOnMount: true,
+    queryFn: async () => {
+      const errs = frontendErrorsRef.current.slice(0, 10);
+      const url  = errs.length
+        ? `${diagnoseBase}&errors=${encodeURIComponent(JSON.stringify(errs))}`
+        : diagnoseBase;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json() as Promise<DiagResult>;
+    },
   });
 
   // ── History query ────────────────────────────────────────────────────────
@@ -243,7 +274,7 @@ export function FixButton() {
       setAppliedActions(prev => new Set(Array.from(prev).concat(vars.action)));
       if (data.ok) {
         toast({ title: "Fix applied", description: data.message });
-        queryClient.invalidateQueries({ queryKey: ["/api/fix/diagnose"] });
+        queryClient.invalidateQueries({ queryKey: [diagnoseBase] });
         queryClient.invalidateQueries({ queryKey: ["/api/fix/history"] });
         queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
         queryClient.invalidateQueries({ queryKey: ["/api/cdrs"] });
@@ -577,6 +608,21 @@ export function FixButton() {
                         </div>
                       )}
 
+                      {/* Frontend errors captured (Step 2) */}
+                      {frontendErrorsRef.current.length > 0 && (
+                        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Terminal className="h-4 w-4 text-amber-400 flex-shrink-0" />
+                            <p className="text-sm font-semibold text-amber-300">Step 2 — Browser Console Errors ({frontendErrorsRef.current.length})</p>
+                          </div>
+                          <div className="space-y-1 max-h-28 overflow-y-auto">
+                            {frontendErrorsRef.current.map((err, i) => (
+                              <p key={i} className="text-[10px] font-mono text-amber-300/80 bg-amber-500/10 rounded px-2 py-1 break-all">{err}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Step 10: Final validation */}
                       <div className="rounded-xl border border-border/40 bg-muted/10 p-3">
                         <div className="flex items-center gap-2 mb-2">
@@ -584,11 +630,17 @@ export function FixButton() {
                           <p className="text-[11px] font-semibold text-muted-foreground/70 uppercase tracking-wide">Step 10 — Final Status</p>
                         </div>
                         <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                          <span>Module:</span>
+                          <span className="font-mono text-foreground">{(diag as any).module || pageName}</span>
                           <span>CDR Cache:</span>
                           <span className="font-mono text-foreground">{diag.cdrCacheSize.toLocaleString()} records</span>
                           <span>Cache Age:</span>
                           <span className="font-mono text-foreground">
                             {diag.cdrCacheAgeMs !== null ? `${Math.round(diag.cdrCacheAgeMs / 1000)}s` : "unknown"}
+                          </span>
+                          <span>JS Errors Captured:</span>
+                          <span className={cn("font-mono", frontendErrorsRef.current.length > 0 ? "text-amber-400" : "text-foreground")}>
+                            {(diag as any).frontendErrorsReceived ?? 0}
                           </span>
                           <span>Auto Fixes:</span>
                           <span className="font-mono text-foreground">{diag.autoRecovery.totalAutoFixes} triggered</span>

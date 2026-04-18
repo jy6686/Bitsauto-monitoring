@@ -11528,8 +11528,14 @@ export async function registerRoutes(
   };
 
   // GET /api/fix/diagnose — full system health check (admin + management)
-  app.get('/api/fix/diagnose', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res: any) => {
+  // Optional query params: ?module=<page name> for module-specific additional checks
+  //                        ?errors=<JSON array of frontend error strings>
+  app.get('/api/fix/diagnose', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     const t0 = Date.now();
+    const moduleName: string = (req.query.module as string | undefined) ?? '';
+    let frontendErrors: string[] = [];
+    try { frontendErrors = JSON.parse(req.query.errors as string || '[]'); } catch {}
+
     type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
     type IssueSeverity = 'critical' | 'warning' | 'info';
     const checks: Array<{ id: string; name: string; status: CheckStatus; detail: string; durationMs: number }> = [];
@@ -11566,13 +11572,14 @@ export async function registerRoutes(
       issues.push({ type: 'API_FAILURE', severity: 'critical', component: 'Sippy API', message: 'Error reading Sippy session: ' + e.message, suggestion: 'Restart the server or re-enter credentials in Settings.', autoFix: 'retry_sippy' });
     }
 
-    // ── 3. Sippy live API call (listActiveCalls) ─────────────────────────────
+    // ── 3. Sippy live API call (listActiveCalls) — also caches result for module checks
+    let cachedActiveCalls: any[] | null = null;
     const ts3 = Date.now();
     if (settings?.portalUrl && settings?.apiAdminUsername && settings?.apiAdminPassword) {
       try {
-        const activeCalls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
-        autoRecovery.consecutiveSippyFailures = 0; // Reset on success
-        checks.push({ id: 'sippy_live', name: 'Sippy Live API Test', status: 'ok', detail: `listActiveCalls returned ${activeCalls.length} active calls`, durationMs: Date.now() - ts3 });
+        cachedActiveCalls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
+        autoRecovery.consecutiveSippyFailures = 0;
+        checks.push({ id: 'sippy_live', name: 'Sippy Live API Test', status: 'ok', detail: `listActiveCalls returned ${cachedActiveCalls.length} active calls`, durationMs: Date.now() - ts3 });
       } catch (e: any) {
         autoRecovery.consecutiveSippyFailures++;
         const msg = (e.message || '').toLowerCase();
@@ -11616,13 +11623,239 @@ export async function registerRoutes(
       issues.push({ type: 'BACKEND_ERROR', severity: 'critical', component: 'Database', message: `Database unreachable: ${e.message}`, suggestion: 'Check the DATABASE_URL environment variable and confirm PostgreSQL is running.', autoFix: null });
     }
 
-    // ── 6. FAS/IRSF engine health (check via storage) ────────────────────────
+    // ── 6. FAS/IRSF engine health ────────────────────────────────────────────
     const ts6 = Date.now();
     try {
       await storage.getFasEvents(1);
       checks.push({ id: 'fas', name: 'FAS / IRSF Engine', status: 'ok', detail: `Engine active — events found in DB`, durationMs: Date.now() - ts6 });
     } catch (e: any) {
       checks.push({ id: 'fas', name: 'FAS / IRSF Engine', status: 'warn', detail: 'Cannot verify: ' + e.message, durationMs: Date.now() - ts6 });
+    }
+
+    // ── Module-specific additional checks ────────────────────────────────────
+    const mod = moduleName.toLowerCase();
+
+    // LIVE CALLS module
+    if (mod === 'live calls') {
+      const tsM = Date.now();
+      if (cachedActiveCalls !== null) {
+        if (cachedActiveCalls.length === 0) {
+          checks.push({ id: 'mod_live_calls', name: 'Active Call Count', status: 'warn', detail: 'No active calls at this moment', durationMs: Date.now() - tsM });
+          issues.push({ type: 'NO_DATA', severity: 'info', component: 'Live Calls', message: 'There are currently no active calls on the Sippy switch.', suggestion: 'This may be normal during off-peak hours. If you expect traffic, verify that trunks are UP in Sippy and that the correct account is selected.', autoFix: 'refresh_accounts' });
+        } else {
+          checks.push({ id: 'mod_live_calls', name: 'Active Call Count', status: 'ok', detail: `${cachedActiveCalls.length} call(s) confirmed live`, durationMs: Date.now() - tsM });
+        }
+      }
+    }
+
+    // CDR VIEWER module
+    if (mod === 'cdr viewer') {
+      const tsM = Date.now();
+      if (cdrSz < 10) {
+        checks.push({ id: 'mod_cdr_volume', name: 'CDR Data Volume', status: 'warn', detail: `Only ${cdrSz} CDR records — very low for analysis`, durationMs: Date.now() - tsM });
+        issues.push({ type: 'NO_DATA', severity: 'warning', component: 'CDR Viewer', message: `CDR cache has only ${cdrSz} records. The viewer may show empty results.`, suggestion: 'Ensure the Sippy CDR API is accessible and the admin account has "showcdrs" permission. Try widening the date range filter in the CDR viewer.', autoFix: 'warm_cdr_cache' });
+      } else {
+        checks.push({ id: 'mod_cdr_volume', name: 'CDR Data Volume', status: 'ok', detail: `${cdrSz.toLocaleString()} CDRs available for viewing`, durationMs: Date.now() - tsM });
+      }
+    }
+
+    // ANALYTICS module
+    if (mod === 'analytics') {
+      const tsM = Date.now();
+      if (cdrSz < 100) {
+        checks.push({ id: 'mod_analytics_data', name: 'Analytics Data Volume', status: 'warn', detail: `${cdrSz} records — analytics charts may be incomplete`, durationMs: Date.now() - tsM });
+        issues.push({ type: 'NO_DATA', severity: 'warning', component: 'Analytics', message: `Analytics requires more CDR data. Currently ${cdrSz} records — charts and stats may be unreliable.`, suggestion: 'Analytics is most accurate with 1,000+ CDR records. Ensure the CDR cache is refreshing successfully and the time range covers a period with traffic.', autoFix: 'warm_cdr_cache' });
+      } else {
+        checks.push({ id: 'mod_analytics_data', name: 'Analytics Data Volume', status: 'ok', detail: `${cdrSz.toLocaleString()} CDRs available — analytics ready`, durationMs: Date.now() - tsM });
+      }
+      if (cdrAge !== null && cdrAge > 5 * 60 * 1000) {
+        const tsM2 = Date.now();
+        checks.push({ id: 'mod_analytics_age', name: 'Analytics Data Freshness', status: 'warn', detail: `Data is ${Math.round(cdrAge / 60000)}m old — charts show older state`, durationMs: Date.now() - tsM2 });
+      }
+    }
+
+    // FRAUD DETECTION module
+    if (mod === 'fraud detection') {
+      const tsM = Date.now();
+      try {
+        const fasEvents = await storage.getFasEvents(5);
+        checks.push({ id: 'mod_fraud_events', name: 'Fraud Engine Events', status: 'ok', detail: `FAS engine active — recent events visible`, durationMs: Date.now() - tsM });
+        if (fasEvents.length === 0) {
+          issues.push({ type: 'NO_DATA', severity: 'info', component: 'Fraud Detection', message: 'No fraud events detected yet. This is normal if traffic patterns are within expected thresholds.', suggestion: 'Run the FAS analysis on the Analytics page to trigger event generation. Ensure CDR cache is populated.', autoFix: 'warm_cdr_cache' });
+        }
+      } catch (e: any) {
+        checks.push({ id: 'mod_fraud_events', name: 'Fraud Engine Events', status: 'fail', detail: e.message, durationMs: Date.now() - tsM });
+        issues.push({ type: 'BACKEND_ERROR', severity: 'warning', component: 'Fraud Detection', message: `Cannot read FAS events: ${e.message}`, suggestion: 'Check the database connection and ensure the FAS events table exists.', autoFix: 'check_db' });
+      }
+    }
+
+    // P&L REPORT module
+    if (mod === 'p&l report') {
+      const tsM = Date.now();
+      if (cdrSz === 0) {
+        checks.push({ id: 'mod_pl_data', name: 'P&L Data Source', status: 'fail', detail: 'No CDR data — P&L report will be empty', durationMs: Date.now() - tsM });
+        issues.push({ type: 'NO_DATA', severity: 'critical', component: 'P&L Report', message: 'P&L report requires CDR data. The cache is empty — revenue and cost calculations cannot be performed.', suggestion: 'Warm the CDR cache first, then reload the P&L report. Ensure date range covers a period with completed calls.', autoFix: 'warm_cdr_cache' });
+      } else {
+        checks.push({ id: 'mod_pl_data', name: 'P&L Data Source', status: 'ok', detail: `${cdrSz.toLocaleString()} CDRs available for cost/revenue analysis`, durationMs: Date.now() - tsM });
+      }
+      const tsM2 = Date.now();
+      try {
+        const rateCards = await storage.getRateCards();
+        if (rateCards.length === 0) {
+          checks.push({ id: 'mod_pl_rates', name: 'Rate Cards (P&L)', status: 'warn', detail: 'No rate cards configured — cost calculations will be $0', durationMs: Date.now() - tsM2 });
+          issues.push({ type: 'NO_DATA', severity: 'warning', component: 'P&L Report', message: 'No rate cards found. P&L report will show $0 buy/sell costs.', suggestion: 'Upload rate cards in the Rate Cards section. Assign buy-rate cards to vendors and sell-rate cards to customers.', autoFix: null });
+        } else {
+          checks.push({ id: 'mod_pl_rates', name: 'Rate Cards (P&L)', status: 'ok', detail: `${rateCards.length} rate card(s) configured`, durationMs: Date.now() - tsM2 });
+        }
+      } catch {}
+    }
+
+    // BILLING module
+    if (mod === 'billing') {
+      const tsM = Date.now();
+      try {
+        const profiles = await storage.getClientProfiles();
+        if (profiles.length === 0) {
+          checks.push({ id: 'mod_billing_accounts', name: 'Customer Accounts (Billing)', status: 'warn', detail: 'No client profiles — billing will have nothing to invoice', durationMs: Date.now() - tsM });
+          issues.push({ type: 'NO_DATA', severity: 'warning', component: 'Billing', message: 'No client profiles found. Billing requires customer accounts synced from Sippy.', suggestion: 'Click "Refresh Accounts" to sync accounts from Sippy. Ensure the Sippy API is connected.', autoFix: 'refresh_accounts' });
+        } else {
+          checks.push({ id: 'mod_billing_accounts', name: 'Customer Accounts (Billing)', status: 'ok', detail: `${profiles.length} client profile(s) available`, durationMs: Date.now() - tsM });
+        }
+      } catch {}
+    }
+
+    // RATE CARDS module
+    if (mod === 'rate cards') {
+      const tsM = Date.now();
+      try {
+        const rateCards = await storage.getRateCards();
+        if (rateCards.length === 0) {
+          checks.push({ id: 'mod_rate_cards', name: 'Rate Card Data', status: 'warn', detail: 'No rate cards in database', durationMs: Date.now() - tsM });
+          issues.push({ type: 'NO_DATA', severity: 'warning', component: 'Rate Cards', message: 'No rate cards are configured. LCR and P&L analysis will not have pricing data.', suggestion: 'Upload a rate card CSV using the "Import" button. Ensure the file uses the correct column format (destination, rate, prefix).', autoFix: null });
+        } else {
+          const totalEntries = rateCards.reduce((s: number, rc: any) => s + (rc.entryCount || 0), 0);
+          checks.push({ id: 'mod_rate_cards', name: 'Rate Card Data', status: 'ok', detail: `${rateCards.length} rate card(s) · ${totalEntries.toLocaleString()} entries`, durationMs: Date.now() - tsM });
+        }
+      } catch (e: any) {
+        checks.push({ id: 'mod_rate_cards', name: 'Rate Card Data', status: 'fail', detail: e.message, durationMs: Date.now() - tsM });
+      }
+    }
+
+    // LCR ANALYSER module
+    if (mod === 'lcr analyser') {
+      const tsM = Date.now();
+      const vendorCount = connectionVendorCache.size;
+      if (vendorCount === 0) {
+        checks.push({ id: 'mod_lcr_vendors', name: 'LCR Vendor Data', status: 'warn', detail: 'No vendor connections loaded — LCR cannot compare routes', durationMs: Date.now() - tsM });
+        issues.push({ type: 'NO_DATA', severity: 'warning', component: 'LCR Analyser', message: 'No vendor connections loaded. LCR analysis requires vendor connections with rate cards assigned.', suggestion: 'Sync vendors from Sippy using "Refresh Vendors", then assign buy-rate cards to each vendor in the Rate Cards section.', autoFix: 'refresh_vendors' });
+      } else {
+        checks.push({ id: 'mod_lcr_vendors', name: 'LCR Vendor Data', status: 'ok', detail: `${vendorCount} vendor connection(s) available for LCR analysis`, durationMs: Date.now() - tsM });
+      }
+    }
+
+    // SETTINGS module — extra credential validation
+    if (mod === 'settings') {
+      const tsM = Date.now();
+      const sess = sippy.getSippySessionStatus();
+      if (sess.mode && sess.mode !== 'none') {
+        checks.push({ id: 'mod_settings_api', name: 'API Connectivity (Settings)', status: 'ok', detail: `Connected via ${sess.mode} · User: ${sess.username || 'n/a'}`, durationMs: Date.now() - tsM });
+      } else {
+        checks.push({ id: 'mod_settings_api', name: 'API Connectivity (Settings)', status: 'fail', detail: 'No active session — credentials may be wrong', durationMs: Date.now() - tsM });
+        issues.push({ type: 'AUTH_ERROR', severity: 'critical', component: 'Settings', message: 'Sippy API session is not established. Verify credentials on this page and save.', suggestion: 'Re-enter the Sippy portal URL, admin username and password. For old Python 2 Sippy builds, use HTTP not HTTPS and port 9900 for XML-RPC.', autoFix: 'retry_sippy' });
+      }
+    }
+
+    // SERVER MONITORING module
+    if (mod === 'server monitoring') {
+      const tsM = Date.now();
+      if (cachedActiveCalls !== null) {
+        checks.push({ id: 'mod_server_calls', name: 'Live Call Visibility', status: 'ok', detail: `Sippy API responsive — ${cachedActiveCalls.length} active calls`, durationMs: Date.now() - tsM });
+      }
+    }
+
+    // MULTI-SWITCH VIEW module
+    if (mod === 'multi-switch view') {
+      const tsM = Date.now();
+      if (cachedActiveCalls !== null) {
+        checks.push({ id: 'mod_multi_switch', name: 'Switch API Connectivity', status: 'ok', detail: `Primary switch responding — ${cachedActiveCalls.length} calls`, durationMs: Date.now() - tsM });
+      }
+    }
+
+    // BITSEYE module
+    if (mod === 'bitseye') {
+      const tsM = Date.now();
+      if (cdrSz > 0) {
+        checks.push({ id: 'mod_bitseye_data', name: 'BitsEye CDR Source', status: 'ok', detail: `${cdrSz.toLocaleString()} CDRs available for drill-down`, durationMs: Date.now() - tsM });
+      } else {
+        checks.push({ id: 'mod_bitseye_data', name: 'BitsEye CDR Source', status: 'warn', detail: 'No CDR data — BitsEye drill-down will be empty', durationMs: Date.now() - tsM });
+        issues.push({ type: 'NO_DATA', severity: 'warning', component: 'BitsEye', message: 'BitsEye requires CDR data to power drill-down analysis. Cache is empty.', suggestion: 'Ensure the CDR cache is populated. The background warmer runs every 3 minutes.', autoFix: 'warm_cdr_cache' });
+      }
+    }
+
+    // PRODUCT CLASSIFICATION module
+    if (mod === 'product classification') {
+      const tsM = Date.now();
+      if (cdrSz < 50) {
+        checks.push({ id: 'mod_products_data', name: 'Product Classification Data', status: 'warn', detail: `Only ${cdrSz} CDRs — product charts may be incomplete`, durationMs: Date.now() - tsM });
+        issues.push({ type: 'NO_DATA', severity: 'info', component: 'Product Classification', message: 'Product classification charts require CDR data grouped by CLD prefix. Insufficient data loaded.', suggestion: 'Warm the CDR cache. Ensure CDRs contain valid CLD numbers (not empty or malformed).', autoFix: 'warm_cdr_cache' });
+      } else {
+        checks.push({ id: 'mod_products_data', name: 'Product Classification Data', status: 'ok', detail: `${cdrSz.toLocaleString()} CDRs ready for classification`, durationMs: Date.now() - tsM });
+      }
+    }
+
+    // CLICK-TO-CALL module
+    if (mod === 'click-to-call') {
+      const tsM = Date.now();
+      if (cachedActiveCalls !== null) {
+        checks.push({ id: 'mod_ctc_api', name: 'Click-to-Call API', status: 'ok', detail: 'Sippy API reachable — calls can be initiated', durationMs: Date.now() - tsM });
+      } else {
+        checks.push({ id: 'mod_ctc_api', name: 'Click-to-Call API', status: 'fail', detail: 'Sippy API unreachable — call initiation will fail', durationMs: Date.now() - tsM });
+        issues.push({ type: 'API_FAILURE', severity: 'critical', component: 'Click-to-Call', message: 'Sippy API is not responding. Click-to-Call operations will fail.', suggestion: 'Restore the Sippy API connection before attempting to initiate calls. Use Retry Sippy API below.', autoFix: 'retry_sippy' });
+      }
+    }
+
+    // REPORTS module
+    if (mod === 'reports') {
+      const tsM = Date.now();
+      if (cdrSz === 0) {
+        checks.push({ id: 'mod_reports_data', name: 'Reports Data Source', status: 'warn', detail: 'No CDR data — all reports will show empty', durationMs: Date.now() - tsM });
+        issues.push({ type: 'NO_DATA', severity: 'warning', component: 'Reports', message: 'Reports module requires CDR data. All charts and tables will be empty.', suggestion: 'Warm the CDR cache. Reports are built from the same CDR dataset as Analytics.', autoFix: 'warm_cdr_cache' });
+      } else {
+        checks.push({ id: 'mod_reports_data', name: 'Reports Data Source', status: 'ok', detail: `${cdrSz.toLocaleString()} CDRs — reports ready`, durationMs: Date.now() - tsM });
+      }
+    }
+
+    // TEAM MANAGEMENT module
+    if (mod === 'team management') {
+      const tsM = Date.now();
+      try {
+        const kams = await storage.getKams();
+        checks.push({ id: 'mod_team_data', name: 'KAM / Team Data', status: 'ok', detail: `${kams.length} KAM(s) configured in database`, durationMs: Date.now() - tsM });
+        if (kams.length === 0) {
+          issues.push({ type: 'NO_DATA', severity: 'info', component: 'Team Management', message: 'No KAMs (Key Account Managers) are configured yet.', suggestion: 'Add KAMs from the Team Management page using the "Add KAM" button. Assign accounts to each KAM for tracking.', autoFix: null });
+        }
+      } catch (e: any) {
+        checks.push({ id: 'mod_team_data', name: 'KAM / Team Data', status: 'fail', detail: e.message, durationMs: Date.now() - tsM });
+      }
+    }
+
+    // DASHBOARD module
+    if (mod === 'dashboard' || mod === '') {
+      const tsM = Date.now();
+      const apiHealthy = checks.find(c => c.id === 'sippy_live')?.status === 'ok';
+      const dbHealthy  = checks.find(c => c.id === 'database')?.status === 'ok';
+      if (apiHealthy && dbHealthy && cdrSz > 0) {
+        checks.push({ id: 'mod_dashboard_readiness', name: 'Dashboard Data Readiness', status: 'ok', detail: 'All data sources healthy — dashboard fully operational', durationMs: Date.now() - tsM });
+      } else {
+        checks.push({ id: 'mod_dashboard_readiness', name: 'Dashboard Data Readiness', status: 'warn', detail: 'One or more data sources degraded — some widgets may be empty', durationMs: Date.now() - tsM });
+      }
+    }
+
+    // ── Frontend error injection (Step 2: Collect Logs) ───────────────────────
+    if (frontendErrors.length > 0) {
+      const tsF = Date.now();
+      checks.push({ id: 'frontend_errors', name: 'Frontend Console Errors', status: 'warn', detail: `${frontendErrors.length} error(s) captured in browser console`, durationMs: Date.now() - tsF });
+      issues.push({ type: 'UI_ERROR', severity: 'warning', component: 'Frontend', message: `${frontendErrors.length} JavaScript error(s) detected in the browser console.`, suggestion: `Errors: ${frontendErrors.slice(0, 3).join(' | ')}${frontendErrors.length > 3 ? ` … and ${frontendErrors.length - 3} more` : ''}. Open browser DevTools (F12 → Console) to see full details.`, autoFix: null });
     }
 
     // ── Phase 3: Look up past successful fixes for each issue ─────────────────
@@ -11642,6 +11875,8 @@ export async function registerRoutes(
       status: hasCritical ? 'critical' : hasWarning ? 'warning' : 'ok',
       checks,
       issues: issuesWithHistory,
+      module: moduleName,
+      frontendErrorsReceived: frontendErrors.length,
       summary: {
         total:    checks.length,
         passed:   checks.filter(c => c.status === 'ok').length,
