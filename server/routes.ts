@@ -3929,9 +3929,34 @@ export async function registerRoutes(
 
       // Credential-pair loop — handles swapped settings in production DB
       let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      let reportSource = 'sippy-api';
       for (const { username, password } of credPairs) {
-        cdrs = await sippy.getSippyCDRs(username, password, CDR_LIMIT, cdrOpts);
-        if (cdrs.length > 0) break;
+        try {
+          const batch = await sippy.getSippyCDRs(username, password, CDR_LIMIT, cdrOpts);
+          if (batch.length > 0) { cdrs = batch; break; }
+        } catch { /* try next pair */ }
+      }
+
+      // Fallback: in-memory CDR cache — covers last 72h, always populated
+      // Used when Sippy's getCustomerCDRs / getAccountCDRs returns 401 on old Python 2 builds
+      if (!cdrs.length && cdrCache.size > 0) {
+        let cacheRecords = [...cdrCache.values()];
+        // Apply date filter if provided
+        if (startTime || endTime) {
+          const from = startTime ? new Date(startTime).getTime() : 0;
+          const to   = endTime   ? new Date(endTime).getTime()   : Date.now();
+          cacheRecords = cacheRecords.filter(c => {
+            const ts = c.startTime   ? new Date(c.startTime).getTime()
+                     : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+            return ts >= from && ts <= to;
+          });
+        }
+        // Apply CLI/CLD filters
+        if (cli) cacheRecords = cacheRecords.filter(c => c.caller?.includes(cli) || c.callee?.includes(cli));
+        if (cld) cacheRecords = cacheRecords.filter(c => c.callee?.includes(cld) || c.caller?.includes(cld));
+        cdrs = cacheRecords;
+        reportSource = 'cdr-cache';
+        console.log(`[reports/asr-acd] CDR cache fallback: ${cdrs.length} records (cache size=${cdrCache.size})`);
       }
 
       // Aggregate by groupBy dimension
@@ -3999,7 +4024,7 @@ export async function registerRoutes(
       };
       rows.sort(sortFn[sortBy] ?? sortFn.totalCalls);
 
-      res.json(rows);
+      res.json({ rows, _source: reportSource, _cdrCount: cdrs.length });
     } catch (err) {
       console.error('ASR/ACD report error:', err);
       res.status(500).json({ message: 'Failed to generate report' });

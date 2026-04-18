@@ -188,7 +188,7 @@ export default function ReportsPage() {
     enabled: sippySession?.active === true,
   });
 
-  const { data: rows = [], isLoading, dataUpdatedAt } = useQuery<ReportRow[]>({
+  const { data: reportData, isLoading, dataUpdatedAt } = useQuery<{ rows: ReportRow[]; _source?: string; _cdrCount?: number } | ReportRow[]>({
     queryKey: ['/api/reports/asr-acd', applied],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -204,6 +204,10 @@ export default function ReportsPage() {
       return res.json();
     },
   });
+  // Handle both old format (plain array) and new format ({ rows, _source, _cdrCount })
+  const rows: ReportRow[] = Array.isArray(reportData) ? reportData : (reportData?.rows ?? []);
+  const reportSource: string = Array.isArray(reportData) ? 'sippy-api' : (reportData?._source ?? 'sippy-api');
+  const reportCdrCount: number = Array.isArray(reportData) ? rows.length : (reportData?._cdrCount ?? rows.length);
 
   // Filter rows by party type if selected
   const displayRows = useMemo(() => {
@@ -499,6 +503,19 @@ export default function ReportsPage() {
           </div>
         </div>
       </div>
+
+      {/* CDR cache source notice */}
+      {reportSource === 'cdr-cache' && !isLoading && rows.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-400 px-4 py-3 text-xs">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-blue-400" />
+          <div>
+            <span className="font-medium">CDR cache data — </span>
+            Sippy's direct API returned no data (HTTP 401 on this softswitch build).
+            Report is based on {reportCdrCount.toLocaleString()} CDRs from the last 72-hour in-memory cache.
+            Date range filters are applied in-memory. For full historical data, use CDR Viewer.
+          </div>
+        </div>
+      )}
 
       {/* ── Revenue / Cost / Profit Summary ─────────────────────────── */}
       {displayRows.length > 0 && (

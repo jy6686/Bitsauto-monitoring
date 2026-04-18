@@ -222,11 +222,29 @@ async function fetchCurrentState(creds: {
       name: a.name || a.username || String(a.iAccount),
     }));
 
-    // 2. Vendors
-    const { vendors: rawVendors = [], error: vErr } =
-      await sippy.listSippyVendors(username, password, {}, portalUrl);
-    if (vErr && rawVendors.length === 0) {
-      console.warn('[sippy-watcher] listSippyVendors error:', vErr);
+    // 2. Vendors — try both credential pairs (portalUsername may be the actual admin)
+    let rawVendors: Awaited<ReturnType<typeof sippy.listSippyVendors>>['vendors'] = [];
+    {
+      const vResult = await sippy.listSippyVendors(username, password, {}, portalUrl);
+      if (vResult.vendors.length > 0) {
+        rawVendors = vResult.vendors;
+      } else {
+        // Try the alternate credential pair stored in settings
+        const altSettings = await storage.getSippySettings();
+        if (altSettings) {
+          const altPairs = [
+            { u: altSettings.portalUsername, p: altSettings.portalPassword },
+            { u: altSettings.apiAdminUsername, p: altSettings.apiAdminPassword },
+          ].filter(x => x.u && x.p && x.u !== username);
+          for (const { u, p } of altPairs) {
+            const altResult = await sippy.listSippyVendors(u!, p!, {}, portalUrl);
+            if (altResult.vendors.length > 0) { rawVendors = altResult.vendors; break; }
+          }
+        }
+        if (rawVendors.length === 0 && vResult.error) {
+          console.warn('[sippy-watcher] listSippyVendors error:', vResult.error);
+        }
+      }
     }
     const vendors: VendorEntry[] = rawVendors.map(v => ({
       iVendor: Number(v.iVendor),
