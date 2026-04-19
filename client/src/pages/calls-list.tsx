@@ -3,7 +3,7 @@ import {
   ArrowRightLeft, Globe, Server, Loader2, AlertCircle,
   ChevronDown, ChevronRight, PhoneOff, ArrowUpRight, ArrowDownLeft, Network,
   Activity, Wifi, Info, HeartPulse, ShieldAlert, Timer, SignalHigh, History,
-  TrendingUp, BarChart2, ThumbsUp, ThumbsDown, Mic2,
+  TrendingUp, BarChart2, ThumbsUp, ThumbsDown, Mic2, Plus, Check, SlidersHorizontal,
 } from "lucide-react";
 import { useState, useRef, useEffect, Fragment } from "react";
 import {
@@ -284,6 +284,31 @@ function SwitchPanel({
   const [filterConnection, setFilterConnection] = useState('all');
   const [filterDirection, setFilterDirection] = useState('all');
   const [showLatestFirst, setShowLatestFirst] = useState(false);
+
+  // ── Column visibility (chip picker) ──────────────────────────────────────────
+  const COLUMN_CHIPS = [
+    { key: 'account',     label: 'Account'     },
+    { key: 'origCountry', label: 'Orig Country' },
+    { key: 'destCountry', label: 'Dest Country' },
+    { key: 'breakout',    label: 'Breakout'     },
+    { key: 'trunk',       label: 'Trunk'        },
+    { key: 'direction',   label: 'Direction'    },
+    { key: 'vendor',      label: 'Vendor'       },
+    { key: 'connection',  label: 'Connection'   },
+    { key: 'pdd',         label: 'PDD'          },
+  ] as const;
+  type ColKey = typeof COLUMN_CHIPS[number]['key'];
+  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(
+    new Set<ColKey>(['account', 'destCountry', 'breakout', 'trunk', 'direction', 'vendor', 'connection', 'pdd'])
+  );
+  function toggleCol(key: ColKey) {
+    setVisibleCols(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+  const col = (key: ColKey) => visibleCols.has(key);
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const [disconnectingCallId, setDisconnectingCallId] = useState<string | null>(null);
   const qc = useQueryClient();
@@ -604,6 +629,36 @@ function SwitchPanel({
 
             return (
               <div>
+                {/* ── Column Chip Picker ── */}
+                <div className="border-b border-border/50 bg-muted/5 px-5 py-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium shrink-0 mr-1">
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      Columns:
+                    </div>
+                    {COLUMN_CHIPS.map(chip => {
+                      const isOn = col(chip.key);
+                      return (
+                        <button
+                          key={chip.key}
+                          onClick={() => toggleCol(chip.key)}
+                          data-testid={`chip-col-${chip.key}`}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all select-none cursor-pointer ${
+                            isOn
+                              ? 'bg-primary/10 border-primary/40 text-primary'
+                              : 'bg-muted/40 border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                          }`}
+                        >
+                          {isOn
+                            ? <Check className="w-2.5 h-2.5" />
+                            : <Plus className="w-2.5 h-2.5" />}
+                          {chip.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* ── Filter Panel ── */}
                 <div className="border-b border-border/50 bg-muted/10 px-5 py-4 space-y-3">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filter</p>
@@ -712,18 +767,18 @@ function SwitchPanel({
                       <tr>
                         <th className="px-3 py-3 font-medium w-8 text-center"></th>
                         <th className="px-3 py-3 font-medium w-8 text-center">#</th>
-                        <th className="px-4 py-3 font-medium">Caller</th>
+                        {col('account')     && <th className="px-4 py-3 font-medium">Account</th>}
                         <th className="px-4 py-3 font-medium">CLI</th>
                         <th className="px-4 py-3 font-medium">CLD</th>
-                        <th className="px-4 py-3 font-medium">Orig Country</th>
-                        <th className="px-4 py-3 font-medium">Dest Country</th>
-                        <th className="px-4 py-3 font-medium">Breakout</th>
-                        <th className="px-4 py-3 font-medium">Trunk</th>
-                        <th className="px-4 py-3 font-medium">Direction</th>
+                        {col('origCountry') && <th className="px-4 py-3 font-medium">Orig Country</th>}
+                        {col('destCountry') && <th className="px-4 py-3 font-medium">Dest Country</th>}
+                        {col('breakout')    && <th className="px-4 py-3 font-medium">Breakout</th>}
+                        {col('trunk')       && <th className="px-4 py-3 font-medium">Trunk</th>}
+                        {col('direction')   && <th className="px-4 py-3 font-medium">Direction</th>}
                         <th className="px-4 py-3 font-medium">State</th>
-                        <th className="px-4 py-3 font-medium">Vendor</th>
-                        <th className="px-4 py-3 font-medium">Connection</th>
-                        <th className="px-4 py-3 font-medium text-right">PDD</th>
+                        {col('vendor')      && <th className="px-4 py-3 font-medium">Vendor</th>}
+                        {col('connection')  && <th className="px-4 py-3 font-medium">Connection</th>}
+                        {col('pdd')         && <th className="px-4 py-3 font-medium text-right">PDD</th>}
                         <th className="px-4 py-3 font-medium text-right">Duration</th>
                         {isPrimary && <th className="px-3 py-3 font-medium w-10"></th>}
                       </tr>
@@ -742,7 +797,7 @@ function SwitchPanel({
                         const pddDisplay = pddSec > 0
                           ? pddSec >= 1 ? `${pddSec.toFixed(1)}s` : `${Math.round(pddSec * 1000)}ms`
                           : null;
-                        const totalCols = isPrimary ? 16 : 15;
+                        const totalCols = 6 + visibleCols.size + (isPrimary ? 1 : 0);
                         return (
                         <Fragment key={rowKey}>
                         <tr
@@ -756,57 +811,69 @@ function SwitchPanel({
                               : <ChevronRight className="w-3.5 h-3.5 mx-auto" />}
                           </td>
                           <td className="px-3 py-3 text-center text-muted-foreground/50">{i + 1}</td>
-                          <td className="px-4 py-3">
-                            {call.clientName ? (
-                              <span className="font-medium text-foreground" data-testid={`cell-caller-${i}`}>{call.clientName}</span>
-                            ) : (
-                              <span className="text-muted-foreground/40">—</span>
-                            )}
-                          </td>
+                          {col('account') && (
+                            <td className="px-4 py-3">
+                              {call.clientName ? (
+                                <span className="font-medium text-foreground" data-testid={`cell-caller-${i}`}>{call.clientName}</span>
+                              ) : (
+                                <span className="text-muted-foreground/40">—</span>
+                              )}
+                            </td>
+                          )}
                           <td className="px-4 py-3 font-mono text-foreground/80" data-testid={`cell-cli-${i}`}>{call.caller || '—'}</td>
                           <td className="px-4 py-3 font-mono text-foreground/80" data-testid={`cell-cld-${i}`}>{call.callee || '—'}</td>
-                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-orig-country-${i}`}>
-                            {origCountry ? (
-                              <span className="flex items-center gap-1">
-                                <span>{origCountry.flag}</span>
-                                {origCountry.name}
-                              </span>
-                            ) : <span className="text-muted-foreground/30">—</span>}
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-dest-country-${i}`}>
-                            {destCountry ? (
-                              <span className="flex items-center gap-1 text-[11px]">
-                                <span>{destCountry.flag}</span>
-                                <span className="font-medium text-cyan-300/90">{destCountry.name}</span>
-                              </span>
-                            ) : serverDest ? (
-                              <span className="text-cyan-300/80 font-medium text-[11px]">{call.destCountry || serverDest}</span>
-                            ) : <span className="text-muted-foreground/30">—</span>}
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-breakout-${i}`}>
-                            {call.destBreakout ? (
-                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20 whitespace-nowrap">{call.destBreakout}</span>
-                            ) : <span className="text-muted-foreground/30">—</span>}
-                          </td>
-                          <td className="px-4 py-3" data-testid={`cell-trunk-${i}`}>
-                            {trunkClass ? (
-                              <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${trunkClass.color}`}>
-                                {trunkClass.label}
-                              </span>
-                            ) : <span className="text-muted-foreground/30">—</span>}
-                          </td>
-                          <td className="px-4 py-3" data-testid={`cell-direction-${i}`}>
-                            {dirStyle ? (
-                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-semibold ${dirStyle.color}`}>
-                                {dirStyle.icon === 'in'
-                                  ? <ArrowDownLeft className="w-2.5 h-2.5" />
-                                  : <ArrowUpRight className="w-2.5 h-2.5" />}
-                                {dirStyle.label}
-                              </span>
-                            ) : call.direction ? (
-                              <span className="text-[10px] text-muted-foreground">{call.direction}</span>
-                            ) : <span className="text-muted-foreground/30">—</span>}
-                          </td>
+                          {col('origCountry') && (
+                            <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-orig-country-${i}`}>
+                              {origCountry ? (
+                                <span className="flex items-center gap-1">
+                                  <span>{origCountry.flag}</span>
+                                  {origCountry.name}
+                                </span>
+                              ) : <span className="text-muted-foreground/30">—</span>}
+                            </td>
+                          )}
+                          {col('destCountry') && (
+                            <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-dest-country-${i}`}>
+                              {destCountry ? (
+                                <span className="flex items-center gap-1 text-[11px]">
+                                  <span>{destCountry.flag}</span>
+                                  <span className="font-medium text-cyan-300/90">{destCountry.name}</span>
+                                </span>
+                              ) : serverDest ? (
+                                <span className="text-cyan-300/80 font-medium text-[11px]">{call.destCountry || serverDest}</span>
+                              ) : <span className="text-muted-foreground/30">—</span>}
+                            </td>
+                          )}
+                          {col('breakout') && (
+                            <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-breakout-${i}`}>
+                              {call.destBreakout ? (
+                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20 whitespace-nowrap">{call.destBreakout}</span>
+                              ) : <span className="text-muted-foreground/30">—</span>}
+                            </td>
+                          )}
+                          {col('trunk') && (
+                            <td className="px-4 py-3" data-testid={`cell-trunk-${i}`}>
+                              {trunkClass ? (
+                                <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${trunkClass.color}`}>
+                                  {trunkClass.label}
+                                </span>
+                              ) : <span className="text-muted-foreground/30">—</span>}
+                            </td>
+                          )}
+                          {col('direction') && (
+                            <td className="px-4 py-3" data-testid={`cell-direction-${i}`}>
+                              {dirStyle ? (
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-semibold ${dirStyle.color}`}>
+                                  {dirStyle.icon === 'in'
+                                    ? <ArrowDownLeft className="w-2.5 h-2.5" />
+                                    : <ArrowUpRight className="w-2.5 h-2.5" />}
+                                  {dirStyle.label}
+                                </span>
+                              ) : call.direction ? (
+                                <span className="text-[10px] text-muted-foreground">{call.direction}</span>
+                              ) : <span className="text-muted-foreground/30">—</span>}
+                            </td>
+                          )}
                           <td className="px-4 py-3">
                             {(() => {
                               const st = CC_STATE_STYLE[call.ccState || ''] ?? (call.callStatus === 'connected'
@@ -820,11 +887,17 @@ function SwitchPanel({
                               );
                             })()}
                           </td>
-                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-vendor-${i}`}>{call.vendor || <span className="text-muted-foreground/30">—</span>}</td>
-                          <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-connection-${i}`}>{call.connection || <span className="text-muted-foreground/30">—</span>}</td>
-                          <td className="px-4 py-3 text-right text-muted-foreground font-mono" data-testid={`cell-pdd-${i}`}>
-                            {pddDisplay ?? <span className="text-muted-foreground/30">—</span>}
-                          </td>
+                          {col('vendor') && (
+                            <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-vendor-${i}`}>{call.vendor || <span className="text-muted-foreground/30">—</span>}</td>
+                          )}
+                          {col('connection') && (
+                            <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-connection-${i}`}>{call.connection || <span className="text-muted-foreground/30">—</span>}</td>
+                          )}
+                          {col('pdd') && (
+                            <td className="px-4 py-3 text-right text-muted-foreground font-mono" data-testid={`cell-pdd-${i}`}>
+                              {pddDisplay ?? <span className="text-muted-foreground/30">—</span>}
+                            </td>
+                          )}
                           <td className="px-4 py-3 text-right font-mono text-foreground/70" data-testid={`cell-duration-${i}`}>
                             <LiveDuration setupTime={call.setupTime} durationSecs={call.duration} />
                           </td>
@@ -1089,7 +1162,7 @@ function SwitchPanel({
                       })}
                       {displayed.length === 0 && (
                         <tr>
-                          <td colSpan={isPrimary ? 15 : 14} className="px-6 py-12 text-center text-muted-foreground">
+                          <td colSpan={6 + visibleCols.size + (isPrimary ? 1 : 0)} className="px-6 py-12 text-center text-muted-foreground">
                             No active calls match the current filters.
                           </td>
                         </tr>
