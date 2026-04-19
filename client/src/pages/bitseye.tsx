@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch } from "wouter";
+import { useOrgScope } from "@/context/org-scope-context";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
@@ -449,10 +450,17 @@ export default function BitsEyePage() {
     setNav(urlToNav(urlView, urlParams));
   }, [urlView, urlParams.get('kamId')]);
 
+  // ── Org scope — restrict data to user's hierarchy if they have one ────────
+  const orgScope = useOrgScope();
+  // If the user has a restricted org role (not HOD), force their kamId into the filter
+  // unless they've explicitly navigated to a different KAM already (URL takes precedence for HOD)
+  const scopedKamId = orgScope.isScoped ? orgScope.kamId : null;
+
   // ── Determine active filters for data fetching ────────────────────────────
   const activeCountry     = nav.country ?? '';
   const activeKam         = nav.kamName ?? '';
-  const activeKamId       = nav.kamId   ?? null;
+  // Scoped users always see their org subtree; HOD/admin see what the URL says
+  const activeKamId       = scopedKamId ?? nav.kamId ?? null;
   const activeDestCountry = nav.destCountryFilter ?? '';
 
   // ── Data queries ──────────────────────────────────────────────────────────

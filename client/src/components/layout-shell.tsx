@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { CommandBar } from "@/components/command-bar";
 import { FixButton } from "@/components/fix-button";
 import { SippyHealthBadge } from "@/components/sippy-health-badge";
+import { useOrgScope } from "@/context/org-scope-context";
 
 interface Kam { id: number; name: string; active: boolean; }
 
@@ -188,6 +189,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const search = useSearch();
   const { user, logout, role, isAdmin, isManagement } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const orgScope = useOrgScope();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -353,7 +355,20 @@ export function LayoutShell({ children }: LayoutShellProps) {
                 <ContactRound className="h-3 w-3 text-violet-400/60 flex-shrink-0" />
                 <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/35">KAM</span>
               </div>
-              {role === 'viewer' ? (
+              {/* Org-scoped users (SVP/VP/Manager/TeamLead/KAM) get a "My Portfolio" link */}
+              {orgScope.isScoped && orgScope.kamId ? (
+                <Link href={`/bitseye?view=kam&kamId=${orgScope.kamId}`}
+                  className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
+                    (isBitseyeActive && bsView === 'kam' && bsKamId === String(orgScope.kamId)) ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
+                  <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", (isBitseyeActive && bsView === 'kam' && bsKamId === String(orgScope.kamId)) ? "text-violet-300" : "text-violet-400/70")} />
+                  <span className="flex-1 truncate">
+                    {orgScope.kamName ?? 'My Portfolio'}
+                    {orgScope.orgRole && (
+                      <span className="ml-1.5 text-[9px] opacity-60">({orgScope.orgRole})</span>
+                    )}
+                  </span>
+                </Link>
+              ) : role === 'viewer' ? (
                 viewerKamData?.kamId ? (
                   <Link href={`/bitseye?view=kam&kamId=${viewerKamData.kamId}`}
                     className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",

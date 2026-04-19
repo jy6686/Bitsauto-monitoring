@@ -36,7 +36,7 @@ import {
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
-import { eq, desc, and, sql, gte, lt } from "drizzle-orm";
+import { eq, desc, and, sql, gte, lt, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // Calls
@@ -115,9 +115,13 @@ export interface IStorage {
   // KAM Management
   getKams(): Promise<Kam[]>;
   getKam(id: number): Promise<Kam | undefined>;
+  getKamByUserId(userId: string): Promise<Kam | undefined>;
   createKam(kam: InsertKam): Promise<Kam>;
   updateKam(id: number, updates: Partial<InsertKam>): Promise<Kam>;
   deleteKam(id: number): Promise<void>;
+  // Org hierarchy helpers
+  getKamSubtreeIds(kamId: number): Promise<number[]>;       // self + all subordinate KAM IDs
+  getAccountsForSubtree(kamId: number): Promise<string[]>;  // all account IDs visible to this user
 
   // KAM Account Assignments
   getKamAccounts(kamId?: number): Promise<KamAccount[]>;
@@ -719,6 +723,33 @@ export class DatabaseStorage implements IStorage {
   async getKam(id: number): Promise<Kam | undefined> {
     const [row] = await db.select().from(kams).where(eq(kams.id, id));
     return row;
+  }
+
+  async getKamByUserId(userId: string): Promise<Kam | undefined> {
+    const [row] = await db.select().from(kams).where(eq(kams.userId, userId));
+    return row;
+  }
+
+  // Returns the IDs of this KAM + all subordinates (BFS over reportsTo relationships)
+  async getKamSubtreeIds(kamId: number): Promise<number[]> {
+    const all = await db.select().from(kams);
+    const result: number[] = [];
+    const queue = [kamId];
+    while (queue.length) {
+      const current = queue.shift()!;
+      result.push(current);
+      all.filter(k => k.reportsTo === current).forEach(k => queue.push(k.id));
+    }
+    return result;
+  }
+
+  // Returns all Sippy account IDs visible to this KAM's subtree
+  async getAccountsForSubtree(kamId: number): Promise<string[]> {
+    const subtreeIds = await this.getKamSubtreeIds(kamId);
+    if (!subtreeIds.length) return [];
+    const rows = await db.select().from(kamAccounts)
+      .where(inArray(kamAccounts.kamId, subtreeIds));
+    return [...new Set(rows.map(r => r.accountId))];
   }
 
   async createKam(kam: InsertKam): Promise<Kam> {

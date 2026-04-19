@@ -291,6 +291,15 @@ export type UserConfig = typeof userConfig.$inferSelect;
 export type InsertUserConfig = typeof userConfig.$inferInsert;
 export const insertUserConfigSchema = createInsertSchema(userConfig).omit({ userId: true, updatedAt: true });
 
+// ── Organisational Hierarchy ──────────────────────────────────────────────────
+export const ORG_ROLES = ['HOD', 'SVP', 'VP', 'Manager', 'TeamLead', 'KAM'] as const;
+export type OrgRole = typeof ORG_ROLES[number];
+
+// Rank mapping — higher = more authority (used for hierarchy validation)
+export const ORG_ROLE_RANK: Record<OrgRole, number> = {
+  HOD: 6, SVP: 5, VP: 4, Manager: 3, TeamLead: 2, KAM: 1,
+};
+
 // ── KAM (Key Account Manager) Management ─────────────────────────────────────
 export const kams = pgTable("kams", {
   id:        serial("id").primaryKey(),
@@ -300,6 +309,10 @@ export const kams = pgTable("kams", {
   title:     varchar("title", { length: 128 }),
   active:    boolean("active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
+  // Org hierarchy fields
+  orgRole:   varchar("org_role",   { length: 20 }).default('KAM'),  // HOD|SVP|VP|Manager|TeamLead|KAM
+  reportsTo: integer("reports_to"),                                   // parent KAM id (null = top of tree)
+  userId:    varchar("user_id",    { length: 255 }),                  // links to auth users.id (optional)
 });
 
 export type Kam = typeof kams.$inferSelect;

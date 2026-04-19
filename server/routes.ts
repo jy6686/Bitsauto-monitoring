@@ -9418,6 +9418,56 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ accounts: [], error: e.message }); }
   });
 
+  // ── Org Hierarchy API ─────────────────────────────────────────────────────────
+
+  // GET /api/org/hierarchy — full tree with nested children (admin only)
+  app.get('/api/org/hierarchy', async (req: any, res) => {
+    try {
+      const kamList   = await storage.getKams();
+      const allAccts  = await storage.getKamAccounts();
+      const withAccts = kamList.map(k => ({
+        ...k,
+        accounts: allAccts.filter(a => a.kamId === k.id),
+        children: [] as any[],
+      }));
+      // Build tree: roots are nodes with no reportsTo
+      const map = new Map(withAccts.map(k => [k.id, k]));
+      const roots: any[] = [];
+      for (const k of withAccts) {
+        if (k.reportsTo && map.has(k.reportsTo)) {
+          map.get(k.reportsTo)!.children.push(k);
+        } else {
+          roots.push(k);
+        }
+      }
+      res.json(roots);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/org/my-scope — returns current user's org scope
+  // Returns: { kamId, orgRole, kamName, visibleAccountIds }
+  // If the user has no KAM record, they are treated as admin (full access)
+  app.get('/api/org/my-scope', async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+      const kam = await storage.getKamByUserId(userId);
+      if (!kam) {
+        // No KAM record → admin/full access
+        return res.json({ kamId: null, orgRole: null, kamName: null, visibleAccountIds: [] });
+      }
+
+      const visibleAccountIds = await storage.getAccountsForSubtree(kam.id);
+      return res.json({
+        kamId:            kam.id,
+        orgRole:          kam.orgRole ?? 'KAM',
+        kamName:          kam.name,
+        visibleAccountIds,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get('/api/kam', async (_req, res) => {
     try {
       const kamList = await storage.getKams();
@@ -9433,9 +9483,17 @@ export async function registerRoutes(
   // Create KAM
   app.post('/api/kam', async (req: any, res) => {
     try {
-      const { name, email, phone, title } = req.body;
+      const { name, email, phone, title, orgRole, reportsTo, userId } = req.body;
       if (!name || !email) return res.status(400).json({ error: 'name and email required' });
-      const kam = await storage.createKam({ name, email, phone: phone || null, title: title || null, active: true });
+      const kam = await storage.createKam({
+        name, email,
+        phone:     phone     || null,
+        title:     title     || null,
+        active:    true,
+        orgRole:   orgRole   || 'KAM',
+        reportsTo: reportsTo || null,
+        userId:    userId    || null,
+      });
       res.json(kam);
       regenDataflowDoc();
     } catch (e: any) { res.status(500).json({ error: e.message }); }

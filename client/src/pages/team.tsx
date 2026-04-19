@@ -14,8 +14,8 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useState, useMemo } from "react";
-import type { Role } from "@shared/schema";
-import { MONITORING_ITEMS, type MonitoringItemId, MGMT_CONFIGURABLE_FEATURES } from "@shared/schema";
+import type { Role, OrgRole } from "@shared/schema";
+import { MONITORING_ITEMS, type MonitoringItemId, MGMT_CONFIGURABLE_FEATURES, ORG_ROLES, ORG_ROLE_RANK } from "@shared/schema";
 
 type TeamMember = AuthUser;
 
@@ -37,7 +37,15 @@ interface Kam {
   title: string | null;
   active: boolean;
   createdAt: string;
+  orgRole:   string | null;   // HOD|SVP|VP|Manager|TeamLead|KAM
+  reportsTo: number | null;   // parent KAM id
+  userId:    string | null;   // linked auth user id
   accounts: KamAccount[];
+}
+
+// Hierarchy node (from /api/org/hierarchy — includes nested children)
+interface OrgNode extends Kam {
+  children: OrgNode[];
 }
 
 interface SippyAccount {
@@ -63,16 +71,20 @@ interface TrafficAlert {
 }
 
 // ─── KAM Form Dialog ──────────────────────────────────────────────────────────
-function KamFormDialog({ onClose, editKam }: {
+function KamFormDialog({ onClose, editKam, allKams }: {
   onClose: () => void;
   editKam?: Kam;
+  allKams?: Kam[];
 }) {
   const qc = useQueryClient();
-  const [name, setName]   = useState(editKam?.name  ?? '');
-  const [email, setEmail] = useState(editKam?.email ?? '');
-  const [phone, setPhone] = useState(editKam?.phone ?? '');
-  const [title, setTitle] = useState(editKam?.title ?? '');
-  const [err, setErr]     = useState('');
+  const [name, setName]       = useState(editKam?.name  ?? '');
+  const [email, setEmail]     = useState(editKam?.email ?? '');
+  const [phone, setPhone]     = useState(editKam?.phone ?? '');
+  const [title, setTitle]     = useState(editKam?.title ?? '');
+  const [orgRole, setOrgRole] = useState<OrgRole>((editKam?.orgRole as OrgRole) ?? 'KAM');
+  const [reportsTo, setReportsTo] = useState<string>(String(editKam?.reportsTo ?? ''));
+  const [linkedUserId, setLinkedUserId] = useState<string>(editKam?.userId ?? '');
+  const [err, setErr]         = useState('');
 
   // Pre-populate selected account IDs from existing assignments (edit mode)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
@@ -86,6 +98,12 @@ function KamFormDialog({ onClose, editKam }: {
   });
   const sippyAccounts = sippyData?.accounts ?? [];
 
+  // Fetch platform users so admin can link this KAM to a login account
+  const { data: platformUsers = [] } = useQuery<TeamMember[]>({
+    queryKey: ['/api/team'],
+    staleTime: 120_000,
+  });
+
   function toggleAccount(id: string) {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -97,9 +115,17 @@ function KamFormDialog({ onClose, editKam }: {
   const mutation = useMutation({
     mutationFn: async () => {
       // 1. Create or update KAM
+      const payload = {
+        name, email,
+        phone:     phone          || null,
+        title:     title          || null,
+        orgRole,
+        reportsTo: reportsTo      ? parseInt(reportsTo)   : null,
+        userId:    linkedUserId   || null,
+      };
       const res = editKam
-        ? await apiRequest('PATCH', `/api/kam/${editKam.id}`, { name, email, phone: phone || null, title: title || null })
-        : await apiRequest('POST',  '/api/kam',               { name, email, phone: phone || null, title: title || null });
+        ? await apiRequest('PATCH', `/api/kam/${editKam.id}`, payload)
+        : await apiRequest('POST',  '/api/kam',               payload);
       const kamData = await res.json();
       const kamId   = editKam?.id ?? kamData.id;
 
@@ -203,6 +229,71 @@ function KamFormDialog({ onClose, editKam }: {
                 className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50"
               />
             </div>
+          </div>
+
+          {/* ── Org Hierarchy ───────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block font-medium">Org Role *</label>
+              <select
+                data-testid="select-kam-org-role"
+                value={orgRole}
+                onChange={e => setOrgRole(e.target.value as OrgRole)}
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50"
+              >
+                {ORG_ROLES.map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block font-medium">Reports To</label>
+              <select
+                data-testid="select-kam-reports-to"
+                value={reportsTo}
+                onChange={e => setReportsTo(e.target.value)}
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50"
+              >
+                <option value="">— None (top level) —</option>
+                {(allKams ?? [])
+                  .filter(k => k.id !== editKam?.id)
+                  .filter(k => ORG_ROLE_RANK[k.orgRole as OrgRole] > ORG_ROLE_RANK[orgRole])
+                  .sort((a, b) => ORG_ROLE_RANK[b.orgRole as OrgRole] - ORG_ROLE_RANK[a.orgRole as OrgRole])
+                  .map(k => (
+                    <option key={k.id} value={String(k.id)}>
+                      {k.name} ({k.orgRole ?? 'KAM'})
+                    </option>
+                  ))
+                }
+              </select>
+            </div>
+          </div>
+
+          {/* ── Link Auth User ──────────────────────────────────────────────── */}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 flex items-center gap-1.5 font-medium">
+              <LinkIcon className="w-3.5 h-3.5" />
+              Link Login Account
+              <span className="text-[10px] text-muted-foreground/50">(activates scope on login)</span>
+            </label>
+            <select
+              data-testid="select-kam-user-link"
+              value={linkedUserId}
+              onChange={e => setLinkedUserId(e.target.value)}
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50"
+            >
+              <option value="">— No linked account —</option>
+              {platformUsers.map(u => {
+                const label = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || u.id;
+                return <option key={u.id} value={u.id}>{label} ({u.email})</option>;
+              })}
+            </select>
+            {linkedUserId && (
+              <p className="text-[10px] text-muted-foreground/60 mt-1 flex items-center gap-1">
+                <Check className="w-3 h-3 text-emerald-400" />
+                When this user logs in, they will only see data within their org scope.
+              </p>
+            )}
           </div>
 
           {/* ── Assign Clients ───────────────────────────────────────────────── */}
@@ -1154,6 +1245,147 @@ function WatcherRecipientsSection() {
   );
 }
 
+// ─── Org Hierarchy Tree ───────────────────────────────────────────────────────
+
+const ORG_ROLE_COLORS: Record<string, string> = {
+  HOD:      'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  SVP:      'bg-violet-500/20 text-violet-300 border-violet-500/30',
+  VP:       'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  Manager:  'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  TeamLead: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+  KAM:      'bg-rose-500/20 text-rose-300 border-rose-500/30',
+};
+
+function OrgTreeNode({ node, depth = 0, onEdit }: { node: OrgNode; depth?: number; onEdit: (k: Kam) => void }) {
+  const [open, setOpen] = useState(true);
+  const hasChildren = node.children.length > 0;
+  const roleColor   = ORG_ROLE_COLORS[node.orgRole ?? 'KAM'] ?? ORG_ROLE_COLORS['KAM'];
+
+  return (
+    <div>
+      <div
+        className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl transition-colors hover:bg-muted/30 cursor-default ${depth === 0 ? 'mt-1' : ''}`}
+        style={{ marginLeft: depth * 28 }}
+      >
+        {/* Expand toggle */}
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className={`w-5 h-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors ${!hasChildren ? 'opacity-0 pointer-events-none' : ''}`}
+        >
+          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-90' : ''}`} />
+        </button>
+
+        {/* Avatar */}
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500/40 to-purple-600/40 flex items-center justify-center flex-shrink-0 border border-violet-500/20 text-sm font-bold text-white">
+          {node.name.charAt(0).toUpperCase()}
+        </div>
+
+        {/* Name + role */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-sm truncate">{node.name}</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-semibold ${roleColor}`}>
+              {node.orgRole ?? 'KAM'}
+            </span>
+          </div>
+          <div className="text-xs text-muted-foreground truncate">{node.email}</div>
+        </div>
+
+        {/* Client count */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="text-right">
+            <div className="text-xs font-semibold text-foreground">{node.accounts.length}</div>
+            <div className="text-[10px] text-muted-foreground">clients</div>
+          </div>
+          {/* Edit button */}
+          <button
+            type="button"
+            data-testid={`btn-edit-org-node-${node.id}`}
+            onClick={() => onEdit(node)}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-violet-400 hover:bg-violet-500/10 transition-colors"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Children */}
+      {hasChildren && open && (
+        <div className="relative">
+          <div
+            className="absolute top-0 bottom-0 border-l border-dashed border-border/50"
+            style={{ left: depth * 28 + 22 }}
+          />
+          {node.children.map(child => (
+            <OrgTreeNode key={child.id} node={child} depth={depth + 1} onEdit={onEdit} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrgHierarchySection({ onEdit }: { onEdit: (k: Kam) => void }) {
+  const { data: roots = [], isLoading } = useQuery<OrgNode[]>({
+    queryKey: ['/api/org/hierarchy'],
+    staleTime: 30_000,
+  });
+
+  const totalMembers = useMemo(() => {
+    function count(nodes: OrgNode[]): number {
+      return nodes.reduce((s, n) => s + 1 + count(n.children), 0);
+    }
+    return count(roots);
+  }, [roots]);
+
+  return (
+    <div className="mb-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight flex items-center gap-2">
+            <GitBranch className="w-5 h-5 text-violet-400" />
+            Organisational Hierarchy
+          </h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Role-based access tree — each level sees their scope and below.
+          </p>
+        </div>
+        {totalMembers > 0 && (
+          <div className="flex items-center gap-2">
+            {Object.entries(ORG_ROLE_COLORS).map(([role, cls]) => (
+              <span key={role} className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${cls}`}>
+                {role}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-card border border-border rounded-2xl p-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground text-sm">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading hierarchy…
+          </div>
+        ) : roots.length === 0 ? (
+          <div className="text-center py-10 text-muted-foreground text-sm">
+            <GitBranch className="w-8 h-8 mx-auto mb-3 opacity-30" />
+            <p className="font-medium">No hierarchy configured yet.</p>
+            <p className="text-xs mt-1">Add team members in the KAM section below, then set their Org Role and Reports To fields.</p>
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {roots.map(node => (
+              <OrgTreeNode key={node.id} node={node} onEdit={onEdit} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TeamPage() {
@@ -1630,9 +1862,13 @@ export default function TeamPage() {
       {(showKamDialog || editKam) && (
         <KamFormDialog
           editKam={editKam}
+          allKams={kams}
           onClose={() => { setShowKamDialog(false); setEditKam(undefined); }}
         />
       )}
+
+      {/* ── Org Hierarchy ───────────────────────────────────────────────────────── */}
+      <OrgHierarchySection onEdit={k => { setEditKam(k); }} />
 
       {/* ── KAM Stat Cards ──────────────────────────────────────────────────────── */}
       <div>
