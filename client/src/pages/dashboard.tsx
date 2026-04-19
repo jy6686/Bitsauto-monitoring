@@ -63,6 +63,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { apiRequest, queryClient as qc } from "@/lib/queryClient";
 import { 
@@ -213,6 +215,14 @@ export default function DashboardPage() {
 
   // Dashboard widget preferences
   const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [ckDrillStatus, setCkDrillStatus] = useState<string | null>(null);
+
+  const ckDrillQuery = useQuery<{ status: string; total: number; records: any[] }>({
+    queryKey: ['/api/sippy/ck-drilldown', ckDrillStatus],
+    queryFn: () => fetch(`/api/sippy/ck-drilldown?status=${ckDrillStatus}`).then(r => r.json()),
+    enabled: !!ckDrillStatus,
+    staleTime: 30_000,
+  });
   const { data: widgetPrefs } = useQuery<{ hiddenWidgets: string[]; widgetOrder: string[] }>({
     queryKey: ['/api/user/dashboard-prefs'],
   });
@@ -1623,44 +1633,64 @@ export default function DashboardPage() {
             Connect to your softswitch to see call breakdown data
           </div>
         ) : (
-        <>{/* Breakdown columns */}
+        <>{/* Breakdown columns — each is clickable to open detail sheet */}
         <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/50">
           {/* Connected */}
-          <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+          <button
+            className="flex flex-col items-center gap-1.5 py-5 px-4 hover:bg-emerald-500/5 transition-colors group text-left w-full"
+            onClick={() => setCkDrillStatus('connected')}
+            data-testid="button-ck-drill-connected"
+            title="Click to view connected call records"
+          >
             <CheckCircle2 className="w-5 h-5 text-emerald-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Connected</span>
-            <span data-testid="text-ck-connected" className="text-2xl font-bold text-emerald-400 tabular-nums">
+            <span data-testid="text-ck-connected" className="text-2xl font-bold text-emerald-400 tabular-nums group-hover:underline decoration-emerald-400/40">
               {(displayCkBreakdown?.connected ?? 0).toLocaleString()}
             </span>
             <span className="text-xs text-center text-muted-foreground">Answered by user</span>
-          </div>
+          </button>
           {/* Wrong Number */}
-          <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+          <button
+            className="flex flex-col items-center gap-1.5 py-5 px-4 hover:bg-rose-500/5 transition-colors group text-left w-full"
+            onClick={() => setCkDrillStatus('wrongNumber')}
+            data-testid="button-ck-drill-wrong"
+            title="Click to view wrong number call records"
+          >
             <PhoneMissed className="w-5 h-5 text-rose-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Wrong Number</span>
-            <span data-testid="text-ck-wrong" className="text-2xl font-bold text-rose-400 tabular-nums">
+            <span data-testid="text-ck-wrong" className="text-2xl font-bold text-rose-400 tabular-nums group-hover:underline decoration-rose-400/40">
               {(displayCkBreakdown?.wrongNumber ?? 0).toLocaleString()}
             </span>
             <span className="text-xs text-center text-muted-foreground">Invalid / misrouted</span>
-          </div>
+          </button>
           {/* Switched Off */}
-          <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+          <button
+            className="flex flex-col items-center gap-1.5 py-5 px-4 hover:bg-orange-500/5 transition-colors group text-left w-full"
+            onClick={() => setCkDrillStatus('switchedOff')}
+            data-testid="button-ck-drill-off"
+            title="Click to view switched-off call records"
+          >
             <PhoneOff className="w-5 h-5 text-orange-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Switched Off</span>
-            <span data-testid="text-ck-off" className="text-2xl font-bold text-orange-400 tabular-nums">
+            <span data-testid="text-ck-off" className="text-2xl font-bold text-orange-400 tabular-nums group-hover:underline decoration-orange-400/40">
               {(displayCkBreakdown?.switchedOff ?? 0).toLocaleString()}
             </span>
             <span className="text-xs text-center text-muted-foreground">Device unreachable</span>
-          </div>
+          </button>
           {/* Untraceable */}
-          <div className="flex flex-col items-center gap-1.5 py-5 px-4">
+          <button
+            className="flex flex-col items-center gap-1.5 py-5 px-4 hover:bg-amber-500/5 transition-colors group text-left w-full"
+            onClick={() => setCkDrillStatus('untraceable')}
+            data-testid="button-ck-drill-untraceable"
+            title="Click to view untraceable call records"
+          >
             <Signal className="w-5 h-5 text-amber-400" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Untraceable</span>
-            <span data-testid="text-ck-untraceable" className="text-2xl font-bold text-amber-400 tabular-nums">
+            <span data-testid="text-ck-untraceable" className="text-2xl font-bold text-amber-400 tabular-nums group-hover:underline decoration-amber-400/40">
               {(displayCkBreakdown?.untraceable ?? 0).toLocaleString()}
             </span>
             <span className="text-xs text-center text-muted-foreground">No network / signal</span>
-          </div>
+          </button>
         </div>
 
         {/* Progress bar + legend */}
@@ -1799,6 +1829,143 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* ── CK Drill-down Sheet ─────────────────────────────────────────────── */}
+      {(() => {
+        const labelMap: Record<string, { label: string; color: string; icon: any; desc: string }> = {
+          connected:   { label: 'Connected',    color: 'emerald', icon: CheckCircle2, desc: 'Calls answered by the actual user' },
+          wrongNumber: { label: 'Wrong Number', color: 'rose',    icon: PhoneMissed,  desc: 'Invalid / misrouted calls' },
+          switchedOff: { label: 'Switched Off', color: 'orange',  icon: PhoneOff,     desc: 'Device unreachable / subscriber absent' },
+          untraceable: { label: 'Untraceable',  color: 'amber',   icon: Signal,       desc: 'No route / no network signal' },
+        };
+        const meta = ckDrillStatus ? labelMap[ckDrillStatus] : null;
+        const records = ckDrillQuery.data?.records ?? [];
+        const total   = ckDrillQuery.data?.total ?? 0;
+
+        const colorClass: Record<string, string> = {
+          emerald: 'text-emerald-400',
+          rose:    'text-rose-400',
+          orange:  'text-orange-400',
+          amber:   'text-amber-400',
+        };
+        const bgClass: Record<string, string> = {
+          emerald: 'bg-emerald-500/10 border-emerald-500/20',
+          rose:    'bg-rose-500/10 border-rose-500/20',
+          orange:  'bg-orange-500/10 border-orange-500/20',
+          amber:   'bg-amber-500/10 border-amber-500/20',
+        };
+
+        return (
+          <Sheet open={!!ckDrillStatus} onOpenChange={open => { if (!open) setCkDrillStatus(null); }}>
+            <SheetContent side="right" className="w-full sm:max-w-2xl md:max-w-3xl overflow-y-auto p-0">
+              <SheetHeader className="px-6 py-4 border-b border-border/50 sticky top-0 bg-background/95 backdrop-blur z-10">
+                <div className="flex items-center gap-3">
+                  {meta && (
+                    <span className={`p-2 rounded-lg border ${bgClass[meta.color]}`}>
+                      <meta.icon className={`w-4 h-4 ${colorClass[meta.color]}`} />
+                    </span>
+                  )}
+                  <div>
+                    <SheetTitle className="text-base">
+                      {meta?.label ?? 'Call Detail Records'}
+                      {!ckDrillQuery.isLoading && (
+                        <span className="ml-2 text-sm font-normal text-muted-foreground">
+                          ({total.toLocaleString()} record{total !== 1 ? 's' : ''} · last 2 hrs)
+                        </span>
+                      )}
+                    </SheetTitle>
+                    <SheetDescription className="text-xs mt-0.5">{meta?.desc}</SheetDescription>
+                  </div>
+                </div>
+              </SheetHeader>
+
+              <div className="px-6 py-4">
+                {ckDrillQuery.isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full rounded-lg" />
+                    ))}
+                  </div>
+                ) : records.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+                    {meta && <meta.icon className="w-10 h-10 opacity-20" />}
+                    <p className="text-sm">No records found for this status in the last 2 hours</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-border">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border/50 bg-muted/30">
+                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Mobile Number (CLD)</th>
+                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">CLI</th>
+                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Client</th>
+                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Vendor</th>
+                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Status</th>
+                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Call Time</th>
+                          <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Duration</th>
+                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Country</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {records.map((r: any, i: number) => {
+                          const dt = r.startTime ? new Date(r.startTime) : null;
+                          const timeStr = dt ? formatInTz(dt, tz, 'HH:mm:ss dd/MM') : '-';
+                          const durSec = Math.floor(Number(r.duration) || 0);
+                          const durStr = durSec > 0
+                            ? durSec >= 60
+                              ? `${Math.floor(durSec/60)}m ${durSec%60}s`
+                              : `${durSec}s`
+                            : '-';
+                          const statusBadge = meta ? (
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${bgClass[meta.color]} ${colorClass[meta.color]}`}>
+                              {meta.label}
+                            </span>
+                          ) : null;
+
+                          return (
+                            <tr
+                              key={r.callId ?? i}
+                              data-testid={`row-ck-drill-${i}`}
+                              className={cn("border-b border-border/20", i % 2 === 0 ? "bg-card/20" : "bg-muted/10")}
+                            >
+                              <td className="px-3 py-2 font-mono font-semibold text-foreground/90" data-testid={`text-cld-${i}`}>
+                                {r.cld || '-'}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-foreground/60" data-testid={`text-cli-${i}`}>
+                                {r.cli || '-'}
+                              </td>
+                              <td className="px-3 py-2 text-foreground/80 max-w-[120px] truncate" data-testid={`text-client-${i}`} title={r.clientName}>
+                                {r.clientName || <span className="text-muted-foreground/40">Unknown</span>}
+                              </td>
+                              <td className="px-3 py-2 text-foreground/60 max-w-[120px] truncate" data-testid={`text-vendor-${i}`} title={r.vendorName}>
+                                {r.vendorName || <span className="text-muted-foreground/40">-</span>}
+                              </td>
+                              <td className="px-3 py-2" data-testid={`text-status-${i}`}>
+                                {statusBadge}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-foreground/60 whitespace-nowrap" data-testid={`text-time-${i}`}>
+                                {timeStr}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-right whitespace-nowrap" data-testid={`text-dur-${i}`}>
+                                <span className={durSec > 0 ? 'text-emerald-400' : 'text-muted-foreground/40'}>
+                                  {durStr}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-foreground/60 whitespace-nowrap" data-testid={`text-country-${i}`}>
+                                {r.country !== '-' ? r.country : (r.areaName !== '-' ? r.areaName : '-')}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
+        );
+      })()}
 
     </div>
   );

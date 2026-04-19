@@ -2397,6 +2397,70 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/sippy/ck-drilldown?status=connected|wrongNumber|switchedOff|untraceable
+  // Returns the individual CDR records behind each call-back ratio bucket so the
+  // dashboard can show a detail sheet (mobile number, client, vendor, timestamp …).
+  app.get('/api/sippy/ck-drilldown', async (req, res) => {
+    try {
+      const status = (req.query.status as string) || 'all';
+      const settings = await storage.getSettings();
+      const credPairs = sippyXmlCredsPairs(settings);
+      const winStart = new Date(Date.now() - 2 * 60 * 60_000);
+      const winEnd   = new Date();
+      const cdrStartDate = sippy.toSippyDate(winStart);
+      const cdrEndDate   = sippy.toSippyDate(winEnd);
+
+      let recentCdrs: any[] = [];
+      for (const creds of credPairs) {
+        try {
+          const rows = await sippy.getSippyCDRs(creds.username, creds.password, 500, {
+            startDate: cdrStartDate, endDate: cdrEndDate,
+          });
+          if (rows.length > 0) { recentCdrs = rows; break; }
+        } catch { continue; }
+      }
+
+      // Filter to the requested status bucket
+      const resultCodeMap: Record<string, (c: any) => boolean> = {
+        connected:   c => String(c.result) === '0' && (Number(c.totalDuration ?? c.duration) || 0) > 0,
+        wrongNumber: c => ['-16', '-1', '-20'].includes(String(c.result)),
+        switchedOff: c => ['-17', '-18', '-19'].includes(String(c.result)),
+        untraceable: c => ['-23', '-24', '-21', '-22'].includes(String(c.result)),
+        all:         () => true,
+      };
+      const filterFn = resultCodeMap[status] ?? resultCodeMap.all;
+      const filtered = recentCdrs.filter(filterFn);
+
+      // Enrich with names from caches
+      const records = filtered.slice(0, 200).map((c: any) => {
+        const clientName = c.clientName
+          || accountNameCache.get(String(c.iAccount ?? ''))
+          || (c.iAccount ? `Acct.${c.iAccount}` : 'Unknown');
+        const vendorName = c.vendor
+          || c.description
+          || (c.iConnection ? connectionNameCache.get(String(c.iConnection)) : undefined)
+          || undefined;
+        return {
+          callId:      c.callId,
+          cli:         c.caller   || c.callerIn || '-',
+          cld:         c.callee   || c.calleeIn || '-',
+          clientName,
+          vendorName,
+          result:      c.result,
+          startTime:   c.startTime,
+          duration:    c.totalDuration ?? c.duration ?? 0,
+          country:     c.country  || '-',
+          areaName:    c.areaName || '-',
+          cost:        c.cost     ?? 0,
+        };
+      });
+
+      res.json({ status, total: filtered.length, records });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // GET /api/sippy/asr-acd-stats — CDR-based aggregate totals for the last 90 min.
   // Fetches live CDRs from Sippy XML-RPC (getCustomerCDRs) and computes:
   //   origination: totalCalls, billableCalls, ASR, ACD, avgPDD, revenue (sum of CDR cost field)
