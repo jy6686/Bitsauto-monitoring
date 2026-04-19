@@ -49,12 +49,18 @@ const FEATURES: { tier: number; id: number; name: string; status: 'COMPLETE' | '
   { tier: 4, id: 18, name: 'Sippy Client Verification',            status: 'COMPLETE', notes: 'Matches local client records against live Sippy account list; flags mismatches' },
   { tier: 4, id: 19, name: 'Vendor CDR Export — Mera Format',      status: 'COMPLETE', notes: 'Generates vendor-side CDR files in Telecom Italia Mera format via Sippy XML-RPC' },
 
-  // Tier 5 — UX & Workflow (previously missing from report)
+  // Tier 5 — UX & Workflow
   { tier: 5, id: 20, name: 'Customizable Dashboard Widgets',       status: 'COMPLETE', notes: 'Per-user drag-and-drop widget ordering; toggle visibility; prefs persisted in DB' },
   { tier: 5, id: 21, name: 'Dark / Light Mode Toggle',             status: 'COMPLETE', notes: 'System-aware default; localStorage persistence; full Tailwind dark-class theming' },
   { tier: 5, id: 22, name: 'Mobile-Responsive NOC View',           status: 'COMPLETE', notes: 'Hamburger drawer, responsive dashboard grid, push-notification opt-in' },
   { tier: 5, id: 23, name: 'Quick Actions Command Bar (Cmd+K)',    status: 'COMPLETE', notes: 'Global Cmd/Ctrl+K palette; navigate, dial-code lookup, CDR search, balance view' },
   { tier: 5, id: 24, name: 'API Key Management',                   status: 'COMPLETE', notes: 'Admin creates Bearer-token keys; external endpoints: live-calls, ASR/ACD, balances' },
+
+  // Tier 6 — Latest Enhancements
+  { tier: 6, id: 25, name: '4-Tab Reports Page',                   status: 'COMPLETE', notes: 'Client Report, Vendor Report, Connection, Revenue & Margin — each with KPI cards, charts, tables, and period chip selectors (1/7/14/30/60/90 days)' },
+  { tier: 6, id: 26, name: 'CK Drill-Down Enhancements',           status: 'COMPLETE', notes: 'Excel export (xlsx), status-filter chips (Connected/Wrong Number/Switched Off/Untraceable), time-window chips (1h–24h) on the dashboard CK drill-down sheet' },
+  { tier: 6, id: 27, name: 'Traffic Map — Country Drill-Down Panel', status: 'COMPLETE', notes: 'Clicking any country in the sidebar or on the map opens a detail panel with Total Calls, Answered, Total Minutes (h/m formatted), Avg Duration, ASR badge, and traffic-share bar' },
+  { tier: 6, id: 28, name: 'Traffic Map — Country Name Normalisation', status: 'COMPLETE', notes: 'Backend normaliseCountryName() strips operator suffixes ("Pakistan - Mobile" → "Pakistan"), merges sub-routes into one country bucket, fixes numeric-ID lookup so map polygons are correctly coloured' },
 ];
 
 const BUG_FIXES = [
@@ -65,6 +71,9 @@ const BUG_FIXES = [
   'Fixed: Dashboard widget toggles silent failure — req.user.id → req.user.claims.sub (Replit Auth user-id location)',
   'Fixed: API key admin check always 403 — req.user.role replaced with async storage.getUserRole()',
   'Added: Optimistic updates on dashboard widget toggle switches with rollback on error',
+  'Fixed: formatInTz RangeError "Invalid time zone" — arguments were swapped (tz passed as pattern, pattern as tz). Correct signature: formatInTz(date, pattern, tz).',
+  'Fixed: Traffic Map shows no coloured countries — Sippy CDRs return "Pakistan - Mobile" style names that never matched the exact-key lookup. normaliseCountryName() now strips operator suffix, performs longest-prefix match, and aggregates all sub-destinations into one bucket per country.',
+  'Fixed: CK drill-down hours param ignored — /api/sippy/ck-drilldown now accepts ?hours=1–24 query param; frontend time-window chips wired to query key so cache invalidates on chip change.',
 ];
 
 // ── Helper builders ───────────────────────────────────────────────────────────
@@ -167,9 +176,9 @@ export async function generateStatusReport(outputPath?: string): Promise<Buffer>
   const partial  = FEATURES.filter(f => f.status === 'PARTIAL').length;
   const pending  = FEATURES.filter(f => f.status === 'PENDING').length;
 
-  const tierGroups = [1, 2, 3, 4, 5].map(t => ({
+  const tierGroups = [1, 2, 3, 4, 5, 6].map(t => ({
     tier: t,
-    label: ['Core NOC Infrastructure', 'Analytics & Reporting', 'Operational Tools', 'Advanced Features', 'UX & Workflow'][t - 1],
+    label: ['Core NOC Infrastructure', 'Analytics & Reporting', 'Operational Tools', 'Advanced Features', 'UX & Workflow', 'Latest Enhancements'][t - 1],
     features: FEATURES.filter(f => f.tier === t),
   }));
 

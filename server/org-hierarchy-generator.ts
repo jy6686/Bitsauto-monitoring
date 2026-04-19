@@ -528,6 +528,27 @@ export async function generateOrgHierarchyDoc(outputPath: string) {
         note('Update this document after adding new team members or restructuring the hierarchy using the "Update Org Hierarchy Doc" button in Settings → Documentation Downloads.'),
         divider(),
 
+        // ── 7b. Recent Org/Scope Changes ─────────────────────────────────────────
+        h1('7b.  Recent Hierarchy & Access Changes'),
+        spacer(60),
+        h2('OrgScopeContext — Platform-Wide Scope Propagation'),
+        p('OrgScopeContext is a React context that fetches /api/org/my-scope once on user login and shares the result app-wide. Components that need to filter data by scope consume this context rather than making their own API calls.', { size: 20 }),
+        spacer(60),
+        bullet('isScoped: true when the logged-in user is a non-HOD KAM with a restricted subtree'),
+        bullet('visibleAccountIds: string[] of Sippy account IDs the user is allowed to see'),
+        bullet('orgRole: "HOD" | "SVP" | "VP" | "Manager" | "TeamLead" | "KAM"'),
+        bullet('kamId: the DB id of the user\'s own KAM record (null for HOD/admin-only users)'),
+        spacer(100),
+        h2('"My Portfolio" Sidebar Link'),
+        p('When orgScope.isScoped is true, the sidebar displays a "My Portfolio" link beneath the main nav with the user\'s orgRole badge. Clicking it opens BitsEye pre-filtered to the user\'s KAM subtree.', { size: 20 }),
+        spacer(100),
+        h2('BitsEye Auto-Filter Integration'),
+        p('When a non-HOD KAM visits /bitseye, the page automatically adds a hidden accountId filter derived from orgScope.visibleAccountIds before executing any API query. HOD users and admin users see all data unfiltered.', { size: 20 }),
+        spacer(60),
+        bullet('Filter is applied in the useQuery({ queryKey: [..., scope] }) dependency array — changes when orgRole changes'),
+        bullet('All five BitsEye views (Clients, Vendors, Destinations, Countries, KAMs) respect the scope filter'),
+        spacer(200),
+
         // ── 8. Security Notes ────────────────────────────────────────────────────
         h1('8.  Security & Compliance Notes'),
         spacer(60),

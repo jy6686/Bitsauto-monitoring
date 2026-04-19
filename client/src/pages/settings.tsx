@@ -1646,6 +1646,8 @@ export default function SettingsPage() {
   const [dataflowRegeneratedAt, setDataflowRegeneratedAt] = useState<string | null>(null);
   const [troubleshootRegeneratedAt, setTroubleshootRegeneratedAt] = useState<string | null>(null);
   const [orgHierarchyRegeneratedAt, setOrgHierarchyRegeneratedAt] = useState<string | null>(null);
+  const [allDocsUpdating, setAllDocsUpdating] = useState(false);
+  const [allDocsProgress, setAllDocsProgress] = useState<string | null>(null);
   const { toast } = useToast();
 
   const regenMutation = useMutation({
@@ -1707,6 +1709,39 @@ export default function SettingsPage() {
       toast({ title: 'Update failed', description: err.message ?? 'Could not regenerate the Org Hierarchy document.', variant: 'destructive' });
     },
   });
+
+  async function updateAllDocs() {
+    setAllDocsUpdating(true);
+    const steps: { label: string; endpoint: string; setter: (v: string) => void }[] = [
+      { label: 'User Manual',                endpoint: '/api/download/regenerate-manual',         setter: setManualRegeneratedAt },
+      { label: 'Sippy Dataflow Reference',   endpoint: '/api/download/regenerate-sippy-dataflow', setter: setDataflowRegeneratedAt },
+      { label: 'Troubleshooting Guide',      endpoint: '/api/download/regenerate-troubleshoot',   setter: setTroubleshootRegeneratedAt },
+      { label: 'Org Hierarchy',              endpoint: '/api/download/regenerate-org-hierarchy',  setter: setOrgHierarchyRegeneratedAt },
+      { label: 'Status Report',              endpoint: '/api/download/regenerate',                setter: setRegeneratedAt },
+    ];
+    let failed = 0;
+    for (const step of steps) {
+      setAllDocsProgress(`Updating ${step.label}…`);
+      try {
+        const res = await fetch(step.endpoint, { method: 'POST', credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          step.setter(data.regeneratedAt ?? new Date().toISOString());
+        } else {
+          failed++;
+        }
+      } catch {
+        failed++;
+      }
+    }
+    setAllDocsUpdating(false);
+    setAllDocsProgress(null);
+    if (failed === 0) {
+      toast({ title: 'All documents updated', description: 'All 5 documents have been regenerated with the latest platform data. Download them below.' });
+    } else {
+      toast({ title: `${steps.length - failed}/${steps.length} documents updated`, description: `${failed} document(s) failed to regenerate. Try updating them individually.`, variant: 'destructive' });
+    }
+  }
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -2368,87 +2403,106 @@ export default function SettingsPage() {
 
       {/* Downloads */}
       <div className="bg-card border border-border rounded-xl p-6">
-        <div className="flex items-center justify-between mb-1">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Download className="h-4 w-4 text-blue-400" />
             <h3 className="font-semibold">Documentation Downloads</h3>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              data-testid="button-regenerate-manual"
-              onClick={() => regenManualMutation.mutate()}
-              disabled={regenManualMutation.isPending}
-              title="Regenerate User Manual"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-500/10 border border-violet-500/20 text-violet-400 hover:bg-violet-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {regenManualMutation.isPending
-                ? <Loader2 className="h-3 w-3 animate-spin" />
-                : <RefreshCcw className="h-3 w-3" />}
-              {regenManualMutation.isPending ? 'Building…' : 'Update Manual'}
-            </button>
-            <button
-              data-testid="button-regenerate-dataflow"
-              onClick={() => regenDataflowMutation.mutate()}
-              disabled={regenDataflowMutation.isPending}
-              title="Regenerate Sippy Dataflow Reference"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 hover:bg-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {regenDataflowMutation.isPending
-                ? <Loader2 className="h-3 w-3 animate-spin" />
-                : <RefreshCcw className="h-3 w-3" />}
-              {regenDataflowMutation.isPending ? 'Building…' : 'Update Dataflow Doc'}
-            </button>
-            <button
-              data-testid="button-regenerate-troubleshoot"
-              onClick={() => regenTroubleshootMutation.mutate()}
-              disabled={regenTroubleshootMutation.isPending}
-              title="Regenerate Troubleshooting Guide"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {regenTroubleshootMutation.isPending
-                ? <Loader2 className="h-3 w-3 animate-spin" />
-                : <RefreshCcw className="h-3 w-3" />}
-              {regenTroubleshootMutation.isPending ? 'Building…' : 'Update Troubleshooting Guide'}
-            </button>
-            <button
-              data-testid="button-regenerate-org-hierarchy"
-              onClick={() => regenOrgHierarchyMutation.mutate()}
-              disabled={regenOrgHierarchyMutation.isPending}
-              title="Regenerate Org Hierarchy & Access Control Document"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {regenOrgHierarchyMutation.isPending
-                ? <Loader2 className="h-3 w-3 animate-spin" />
-                : <RefreshCcw className="h-3 w-3" />}
-              {regenOrgHierarchyMutation.isPending ? 'Building…' : 'Update Org Hierarchy Doc'}
-            </button>
-            <button
-              data-testid="button-regenerate-docs"
-              onClick={() => regenMutation.mutate()}
-              disabled={regenMutation.isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {regenMutation.isPending
-                ? <Loader2 className="h-3 w-3 animate-spin" />
-                : <RefreshCcw className="h-3 w-3" />}
-              {regenMutation.isPending ? 'Updating…' : 'Update Status Report'}
-            </button>
-          </div>
+          {/* Update All button — prominent primary action */}
+          <button
+            data-testid="button-update-all-docs"
+            onClick={updateAllDocs}
+            disabled={allDocsUpdating}
+            title="Regenerate all 5 documents in sequence"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500/20 to-blue-500/20 border border-violet-500/30 text-violet-300 hover:from-violet-500/30 hover:to-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+          >
+            {allDocsUpdating
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <RefreshCcw className="h-4 w-4" />}
+            {allDocsUpdating ? (allDocsProgress ?? 'Building…') : 'Update All Documents'}
+          </button>
         </div>
+
+        {/* Individual update buttons */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <button
+            data-testid="button-regenerate-manual"
+            onClick={() => regenManualMutation.mutate()}
+            disabled={regenManualMutation.isPending || allDocsUpdating}
+            title="Regenerate User Manual"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-500/10 border border-violet-500/20 text-violet-400 hover:bg-violet-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {regenManualMutation.isPending
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <RefreshCcw className="h-3 w-3" />}
+            {regenManualMutation.isPending ? 'Building…' : 'Update Manual'}
+          </button>
+          <button
+            data-testid="button-regenerate-dataflow"
+            onClick={() => regenDataflowMutation.mutate()}
+            disabled={regenDataflowMutation.isPending || allDocsUpdating}
+            title="Regenerate Sippy Dataflow Reference"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 hover:bg-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {regenDataflowMutation.isPending
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <RefreshCcw className="h-3 w-3" />}
+            {regenDataflowMutation.isPending ? 'Building…' : 'Update Dataflow Doc'}
+          </button>
+          <button
+            data-testid="button-regenerate-troubleshoot"
+            onClick={() => regenTroubleshootMutation.mutate()}
+            disabled={regenTroubleshootMutation.isPending || allDocsUpdating}
+            title="Regenerate Troubleshooting Guide"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {regenTroubleshootMutation.isPending
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <RefreshCcw className="h-3 w-3" />}
+            {regenTroubleshootMutation.isPending ? 'Building…' : 'Update Troubleshooting Guide'}
+          </button>
+          <button
+            data-testid="button-regenerate-org-hierarchy"
+            onClick={() => regenOrgHierarchyMutation.mutate()}
+            disabled={regenOrgHierarchyMutation.isPending || allDocsUpdating}
+            title="Regenerate Org Hierarchy & Access Control Document"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {regenOrgHierarchyMutation.isPending
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <RefreshCcw className="h-3 w-3" />}
+            {regenOrgHierarchyMutation.isPending ? 'Building…' : 'Update Org Hierarchy Doc'}
+          </button>
+          <button
+            data-testid="button-regenerate-docs"
+            onClick={() => regenMutation.mutate()}
+            disabled={regenMutation.isPending || allDocsUpdating}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {regenMutation.isPending
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <RefreshCcw className="h-3 w-3" />}
+            {regenMutation.isPending ? 'Updating…' : 'Update Status Report'}
+          </button>
+        </div>
+
         <p className="text-xs text-muted-foreground mb-4">
-          {manualRegeneratedAt
-            ? `User Manual last built: ${new Date(manualRegeneratedAt).toLocaleString()}  ·  `
-            : 'Click any "Update" button to regenerate documents on demand. They also auto-update after key changes.  '}
-          {dataflowRegeneratedAt
-            ? `Dataflow doc last built: ${new Date(dataflowRegeneratedAt).toLocaleString()}  ·  `
+          {allDocsUpdating
+            ? <span className="text-violet-400">{allDocsProgress ?? 'Updating documents…'}</span>
+            : manualRegeneratedAt
+              ? `User Manual last built: ${new Date(manualRegeneratedAt).toLocaleString()}  ·  `
+              : 'Click "Update All Documents" to rebuild everything, or use individual buttons for specific docs.  '}
+          {!allDocsUpdating && dataflowRegeneratedAt
+            ? `Dataflow last built: ${new Date(dataflowRegeneratedAt).toLocaleString()}  ·  `
             : ''}
-          {troubleshootRegeneratedAt
+          {!allDocsUpdating && troubleshootRegeneratedAt
             ? `Troubleshooting Guide last built: ${new Date(troubleshootRegeneratedAt).toLocaleString()}  ·  `
             : ''}
-          {orgHierarchyRegeneratedAt
-            ? `Org Hierarchy doc last built: ${new Date(orgHierarchyRegeneratedAt).toLocaleString()}  ·  `
+          {!allDocsUpdating && orgHierarchyRegeneratedAt
+            ? `Org Hierarchy last built: ${new Date(orgHierarchyRegeneratedAt).toLocaleString()}  ·  `
             : ''}
-          {regeneratedAt
+          {!allDocsUpdating && regeneratedAt
             ? `Status report last updated: ${new Date(regeneratedAt).toLocaleString()}`
             : ''}
         </p>
