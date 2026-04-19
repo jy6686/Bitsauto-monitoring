@@ -551,6 +551,23 @@ export default function BitsEyePage() {
       staleTime: 20_000,
     });
 
+  // KAM-specific client view — when a specific KAM is selected from sidebar, show only
+  // that KAM's clients as individual cards (not the aggregated KAM entity).
+  const { data: kamClientsData, isFetching: fetchingKamClients } =
+    useQuery<PerEntityResponse>({
+      queryKey: ['/api/bitseye/per-entity', 'clients-by-kam', activeKamId, lastRefresh],
+      queryFn: async () => {
+        const p = new URLSearchParams({ category: 'clients', aliveOnly: 'false', orderBy: 'name' });
+        if (activeKamId) p.set('kamId', String(activeKamId));
+        const r = await fetch(`/api/bitseye/per-entity?${p}`);
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      },
+      enabled: nav.type === 'kam' && !!activeKamId,
+      staleTime: 20_000,
+      refetchInterval: 60_000,
+    });
+
   // ── Entity lists ──────────────────────────────────────────────────────────
   const countries = useMemo(() => countriesData?.entities ?? [], [countriesData]);
   const kams      = useMemo(() => kamsData?.entities ?? [], [kamsData]);
@@ -590,8 +607,14 @@ export default function BitsEyePage() {
       case 'kam-all':
         return { contentEntities: kams, contentTitle: activeCountry ? `KAMs — ${activeCountry}` : 'All KAMs', isFetchingContent: fetchingKams };
       case 'kam': {
-        const title = nav.kamName ? nav.kamName : (kams[0]?.name ?? `KAM #${nav.kamId}`);
-        return { contentEntities: kams, contentTitle: title, isFetchingContent: fetchingKams };
+        // Show the KAM name as the page title; resolve from kams entity if not in nav state
+        const kamName = nav.kamName ?? kams[0]?.name ?? `KAM #${nav.kamId}`;
+        // Show individual CLIENT cards filtered to this KAM's accounts (not the aggregate KAM entity)
+        return {
+          contentEntities: kamClientsData?.entities ?? [],
+          contentTitle: kamName,
+          isFetchingContent: fetchingKamClients,
+        };
       }
       case 'dest-agg': {
         const agg = aggregateEntities(dests);
@@ -610,8 +633,8 @@ export default function BitsEyePage() {
       default:
         return { contentEntities: [], contentTitle: 'BitsEye', isFetchingContent: false };
     }
-  }, [nav, countries, kams, dests, clientsAllData, vendorsAllData, filteredClientsData,
-      fetchingCountries, fetchingKams, fetchingDests, fetchingClientsAll, fetchingVendorsAll, fetchingFilteredClients]);
+  }, [nav, countries, kams, dests, clientsAllData, vendorsAllData, filteredClientsData, kamClientsData,
+      fetchingCountries, fetchingKams, fetchingDests, fetchingClientsAll, fetchingVendorsAll, fetchingFilteredClients, fetchingKamClients]);
 
   // Show all="grid" or single="panel"
   const showGrid = nav.type === 'country-all' || nav.type === 'kam-all' || nav.type === 'dest-all' ||
@@ -626,14 +649,14 @@ export default function BitsEyePage() {
     if (nav.type === 'kam-all' || nav.type === 'kam-agg') {
       return () => setNav({ type: 'dest-all', country: nav.country, kamName: entityName });
     }
-    if (nav.type === 'kam') {
-      return () => setNav({ type: 'dest-all', country: nav.country, kamName: entityName });
-    }
+    // For nav.type === 'kam': we now show individual CLIENT cards — clicking them opens the
+    // detail panel (no further drill-down). Returning undefined lets the card handle its own
+    // expand/collapse behavior.
     return undefined;
   }
   function getDrillLabel(): string | undefined {
     if (nav.type === 'country-all' || nav.type === 'country-agg') return 'View KAMs';
-    if (nav.type === 'kam-all' || nav.type === 'kam-agg' || nav.type === 'kam') return 'View Destinations';
+    if (nav.type === 'kam-all' || nav.type === 'kam-agg') return 'View Destinations';
     return undefined;
   }
 
@@ -666,7 +689,7 @@ export default function BitsEyePage() {
   function doRefresh() { setLastRefresh(Date.now()); }
 
   const isFetchingAny = fetchingCountries || fetchingKams || fetchingDests ||
-    fetchingClientsAll || fetchingVendorsAll || fetchingFilteredClients;
+    fetchingClientsAll || fetchingVendorsAll || fetchingFilteredClients || fetchingKamClients;
 
   // ── Breadcrumb items ───────────────────────────────────────────────────────
   const breadcrumbs: { label: string; onClick?: () => void }[] = useMemo(() => {

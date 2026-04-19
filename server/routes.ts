@@ -8800,7 +8800,7 @@ export async function registerRoutes(
     const clientToKamId: Record<string, number> = {};
     const kamClients:   Record<string, Set<string>> = {};
     const kamIdToName:  Record<number, string> = {};
-    if (category === 'kam' || kamFilter) {
+    if (category === 'kam' || kamFilter || kamIdFilter) {
       try {
         const kams = await storage.getKams();
         // getKams() does NOT join kamAccounts — fetch accounts separately (same as /api/kam)
@@ -8819,9 +8819,14 @@ export async function registerRoutes(
       } catch (_) { /* storage unavailable */ }
     }
 
-    // Build set of clients belonging to kamFilter (for CDR pre-filtering)
-    const kamFilterClientSet: Set<string> | null = kamFilter
-      ? new Set(Array.from(kamClients[kamFilter] ?? []))
+    // Resolve effective KAM name for filtering — supports both name-based (kamFilter)
+    // and id-based (kamId) lookups. When kamId is passed with a non-kam category
+    // (e.g. category=clients&kamId=N), this restricts CDR input to that KAM's clients.
+    const effectiveKamFilter = kamFilter || (kamIdFilter && kamIdToName[kamIdFilter] ? kamIdToName[kamIdFilter] : '');
+
+    // Build set of clients belonging to effectiveKamFilter (for CDR pre-filtering)
+    const kamFilterClientSet: Set<string> | null = effectiveKamFilter
+      ? new Set(Array.from(kamClients[effectiveKamFilter] ?? []))
       : null;
 
     // ── Time-series bucket labels ─────────────────────────────────────────────
@@ -8972,8 +8977,12 @@ export async function registerRoutes(
       for (const k of Object.keys(latestByKey)) if (k !== 'Unknown') allEntities.add(k);
     }
 
-    // If filtering to a specific KAM, keep only that KAM name
-    const filterToKamName = (kamIdFilter && kamIdToName[kamIdFilter]) ? kamIdToName[kamIdFilter] : null;
+    // For category=kam: when a specific KAM id is requested, keep only that KAM's entity.
+    // For other categories (clients/vendors/etc.): CDR pre-filtering via kamFilterClientSet is
+    // sufficient — we do NOT filter by KAM name here, so individual client entities pass through.
+    const filterToKamName = (category === 'kam' && kamIdFilter && kamIdToName[kamIdFilter])
+      ? kamIdToName[kamIdFilter]
+      : null;
 
     const safeMin = (arr: number[]) => arr.length === 0 ? 0 : Math.min(...arr);
     const safeMax = (arr: number[]) => arr.length === 0 ? 0 : Math.max(...arr);
@@ -8982,7 +8991,7 @@ export async function registerRoutes(
     const entities: any[] = [];
 
     for (const name of allEntities) {
-      // kamId filter: when a specific KAM is requested, skip all others
+      // For category=kam with a specific kamId: skip all KAM entities that are not this KAM
       if (filterToKamName && name !== filterToKamName) continue;
 
       // For vendors: Sippy's old getCDRs does not carry vendor info, so CDR buckets are always
