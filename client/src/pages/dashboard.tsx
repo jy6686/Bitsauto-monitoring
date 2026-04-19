@@ -1909,7 +1909,7 @@ export default function DashboardPage() {
                       <tbody>
                         {records.map((r: any, i: number) => {
                           const dt = r.startTime ? new Date(r.startTime) : null;
-                          const timeStr = dt ? formatInTz(dt, tz, 'HH:mm:ss dd/MM') : '-';
+                          const timeStr = dt ? formatInTz(dt, 'HH:mm:ss dd/MM', tz) : '-';
                           const durSec = Math.floor(Number(r.duration) || 0);
                           const durStr = durSec > 0
                             ? durSec >= 60
