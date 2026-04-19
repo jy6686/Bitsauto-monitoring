@@ -2403,9 +2403,10 @@ export async function registerRoutes(
   app.get('/api/sippy/ck-drilldown', async (req, res) => {
     try {
       const status = (req.query.status as string) || 'all';
+      const hours  = Math.min(Math.max(Number(req.query.hours) || 2, 1), 24);
       const settings = await storage.getSettings();
       const credPairs = sippyXmlCredsPairs(settings);
-      const winStart = new Date(Date.now() - 2 * 60 * 60_000);
+      const winStart = new Date(Date.now() - hours * 60 * 60_000);
       const winEnd   = new Date();
       const cdrStartDate = sippy.toSippyDate(winStart);
       const cdrEndDate   = sippy.toSippyDate(winEnd);
@@ -2455,7 +2456,7 @@ export async function registerRoutes(
         };
       });
 
-      res.json({ status, total: filtered.length, records });
+      res.json({ status, hours, total: filtered.length, records });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

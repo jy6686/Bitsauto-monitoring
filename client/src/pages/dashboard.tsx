@@ -60,7 +60,10 @@ import {
   Plus,
   Check,
   LayoutGrid,
+  Download,
+  FileSpreadsheet,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { useToast } from "@/hooks/use-toast";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -216,10 +219,12 @@ export default function DashboardPage() {
   // Dashboard widget preferences
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [ckDrillStatus, setCkDrillStatus] = useState<string | null>(null);
+  const [ckDrillHours, setCkDrillHours]   = useState<number>(2);
+  const [ckDrillViewStatus, setCkDrillViewStatus] = useState<string | null>(null);
 
-  const ckDrillQuery = useQuery<{ status: string; total: number; records: any[] }>({
-    queryKey: ['/api/sippy/ck-drilldown', ckDrillStatus],
-    queryFn: () => fetch(`/api/sippy/ck-drilldown?status=${ckDrillStatus}`).then(r => r.json()),
+  const ckDrillQuery = useQuery<{ status: string; hours: number; total: number; records: any[] }>({
+    queryKey: ['/api/sippy/ck-drilldown', ckDrillViewStatus ?? ckDrillStatus, ckDrillHours],
+    queryFn: () => fetch(`/api/sippy/ck-drilldown?status=${ckDrillViewStatus ?? ckDrillStatus}&hours=${ckDrillHours}`).then(r => r.json()),
     enabled: !!ckDrillStatus,
     staleTime: 30_000,
   });
@@ -1838,7 +1843,9 @@ export default function DashboardPage() {
           switchedOff: { label: 'Switched Off', color: 'orange',  icon: PhoneOff,     desc: 'Device unreachable / subscriber absent' },
           untraceable: { label: 'Untraceable',  color: 'amber',   icon: Signal,       desc: 'No route / no network signal' },
         };
-        const meta = ckDrillStatus ? labelMap[ckDrillStatus] : null;
+
+        const activeStatus = ckDrillViewStatus ?? ckDrillStatus ?? 'connected';
+        const meta = labelMap[activeStatus] ?? labelMap.connected;
         const records = ckDrillQuery.data?.records ?? [];
         const total   = ckDrillQuery.data?.total ?? 0;
 
@@ -1855,30 +1862,108 @@ export default function DashboardPage() {
           amber:   'bg-amber-500/10 border-amber-500/20',
         };
 
+        function exportToExcel() {
+          const rows = records.map((r: any) => {
+            const dt = r.startTime ? new Date(r.startTime) : null;
+            const timeStr = dt ? formatInTz(dt, 'HH:mm:ss dd/MM/yyyy', tz) : '';
+            const durSec = Math.floor(Number(r.duration) || 0);
+            return {
+              'Mobile Number (CLD)': r.cld || '',
+              'CLI': r.cli || '',
+              'Client': r.clientName || '',
+              'Vendor': r.vendorName || '',
+              'Status': meta.label,
+              'Call Time': timeStr,
+              'Duration (sec)': durSec,
+              'Country': r.country !== '-' ? r.country : (r.areaName !== '-' ? r.areaName : ''),
+              'Cost': r.cost ?? 0,
+            };
+          });
+          const ws = XLSX.utils.json_to_sheet(rows);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, meta.label);
+          const filename = `CK_${meta.label.replace(/\s+/g, '_')}_${ckDrillHours}hr_${new Date().toISOString().slice(0,10)}.xlsx`;
+          XLSX.writeFile(wb, filename);
+        }
+
         return (
-          <Sheet open={!!ckDrillStatus} onOpenChange={open => { if (!open) setCkDrillStatus(null); }}>
+          <Sheet open={!!ckDrillStatus} onOpenChange={open => { if (!open) { setCkDrillStatus(null); setCkDrillViewStatus(null); } }}>
             <SheetContent side="right" className="w-full sm:max-w-2xl md:max-w-3xl overflow-y-auto p-0">
+
+              {/* ── Header ──────────────────────────────────────────────────── */}
               <SheetHeader className="px-6 py-4 border-b border-border/50 sticky top-0 bg-background/95 backdrop-blur z-10">
                 <div className="flex items-center gap-3">
-                  {meta && (
-                    <span className={`p-2 rounded-lg border ${bgClass[meta.color]}`}>
-                      <meta.icon className={`w-4 h-4 ${colorClass[meta.color]}`} />
-                    </span>
-                  )}
-                  <div>
-                    <SheetTitle className="text-base">
-                      {meta?.label ?? 'Call Detail Records'}
+                  <span className={`p-2 rounded-lg border ${bgClass[meta.color]}`}>
+                    <meta.icon className={`w-4 h-4 ${colorClass[meta.color]}`} />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <SheetTitle className="text-base flex items-center gap-2 flex-wrap">
+                      {meta.label}
                       {!ckDrillQuery.isLoading && (
-                        <span className="ml-2 text-sm font-normal text-muted-foreground">
-                          ({total.toLocaleString()} record{total !== 1 ? 's' : ''} · last 2 hrs)
+                        <span className="text-sm font-normal text-muted-foreground">
+                          ({total.toLocaleString()} record{total !== 1 ? 's' : ''} · last {ckDrillHours}h)
                         </span>
                       )}
                     </SheetTitle>
-                    <SheetDescription className="text-xs mt-0.5">{meta?.desc}</SheetDescription>
+                    <SheetDescription className="text-xs mt-0.5">{meta.desc}</SheetDescription>
                   </div>
+                  {/* Excel export */}
+                  <button
+                    data-testid="button-export-excel"
+                    onClick={exportToExcel}
+                    disabled={records.length === 0 || ckDrillQuery.isLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-medium hover:bg-emerald-500/20 transition-colors disabled:opacity-40"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    Excel
+                  </button>
+                </div>
+
+                {/* ── Status chip switcher ──────────────────────────────── */}
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {Object.entries(labelMap).map(([key, info]) => {
+                    const isActive = activeStatus === key;
+                    return (
+                      <button
+                        key={key}
+                        data-testid={`chip-status-${key}`}
+                        onClick={() => setCkDrillViewStatus(key)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors",
+                          isActive
+                            ? `${bgClass[info.color]} ${colorClass[info.color]}`
+                            : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border"
+                        )}
+                      >
+                        <info.icon className="w-3 h-3" />
+                        {info.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* ── Time filter chips ──────────────────────────────────── */}
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  <Clock className="w-3.5 h-3.5 text-muted-foreground/60 flex-shrink-0" />
+                  {[1, 2, 3, 6, 12, 24].map(h => (
+                    <button
+                      key={h}
+                      data-testid={`chip-hours-${h}`}
+                      onClick={() => setCkDrillHours(h)}
+                      className={cn(
+                        "px-2.5 py-0.5 rounded-full text-xs border transition-colors",
+                        ckDrillHours === h
+                          ? "bg-primary/10 border-primary/30 text-primary font-semibold"
+                          : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border"
+                      )}
+                    >
+                      {h}h
+                    </button>
+                  ))}
                 </div>
               </SheetHeader>
 
+              {/* ── Body ──────────────────────────────────────────────────── */}
               <div className="px-6 py-4">
                 {ckDrillQuery.isLoading ? (
                   <div className="space-y-2">
@@ -1888,8 +1973,9 @@ export default function DashboardPage() {
                   </div>
                 ) : records.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
-                    {meta && <meta.icon className="w-10 h-10 opacity-20" />}
-                    <p className="text-sm">No records found for this status in the last 2 hours</p>
+                    <meta.icon className="w-10 h-10 opacity-20" />
+                    <p className="text-sm">No {meta.label} records in the last {ckDrillHours} hour{ckDrillHours !== 1 ? 's' : ''}</p>
+                    <p className="text-xs opacity-60">Try a wider time window using the filters above</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto rounded-xl border border-border">
@@ -1916,11 +2002,12 @@ export default function DashboardPage() {
                               ? `${Math.floor(durSec/60)}m ${durSec%60}s`
                               : `${durSec}s`
                             : '-';
-                          const statusBadge = meta ? (
-                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${bgClass[meta.color]} ${colorClass[meta.color]}`}>
-                              {meta.label}
+                          const rowMeta = labelMap[activeStatus] ?? meta;
+                          const statusBadge = (
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${bgClass[rowMeta.color]} ${colorClass[rowMeta.color]}`}>
+                              {rowMeta.label}
                             </span>
-                          ) : null;
+                          );
 
                           return (
                             <tr
