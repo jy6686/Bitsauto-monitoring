@@ -57,6 +57,9 @@ import {
   SlidersHorizontal,
   Pencil,
   ChevronDown,
+  Plus,
+  Check,
+  LayoutGrid,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -263,6 +266,14 @@ export default function DashboardPage() {
     { id: 'live_calls_table',   label: 'Live Calls Table',         description: 'Real-time active call list with quality metrics' },
     { id: 'asr_trend',          label: 'ASR/ACD Trend & Call Back Ratio', description: 'Historical ASR/ACD charts and FAS deduction graph' },
     { id: 'fas_events',         label: 'FAS Events & Stats',       description: 'False Answer Supervision detection log and summary' },
+  ] as const;
+
+  const SECTION_CHIPS = [
+    { id: 'live_metrics',      label: 'Live Metrics' },
+    { id: 'live_calls_table',  label: 'Live Calls' },
+    { id: 'asr_trend',         label: 'ASR / ACD' },
+    { id: 'revenue_analytics', label: 'Revenue & P&L' },
+    { id: 'fas_events',        label: 'FAS Events' },
   ] as const;
 
   // Sippy session
@@ -1080,6 +1091,46 @@ export default function DashboardPage() {
           </Link>
         </div>
       )}
+
+      {/* ── Widget Section Chip Picker ──────────────────────────────────────── */}
+      <div className="flex items-center gap-2 flex-wrap border border-border/40 bg-muted/5 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium shrink-0 mr-1">
+          <LayoutGrid className="w-3.5 h-3.5" />
+          Sections:
+        </div>
+        {SECTION_CHIPS.map(chip => {
+          const isOn = showWidget(chip.id);
+          return (
+            <button
+              key={chip.id}
+              onClick={() => toggleWidget(chip.id)}
+              disabled={savePrefsMutation.isPending}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                isOn
+                  ? 'bg-primary/10 border-primary/30 text-primary hover:bg-primary/20'
+                  : 'bg-muted/20 border-border/30 text-muted-foreground/50 hover:border-border/60 hover:text-muted-foreground'
+              }`}
+              data-testid={`chip-section-${chip.id}`}
+              title={isOn ? `Hide ${chip.label}` : `Show ${chip.label}`}
+            >
+              {isOn
+                ? <Check className="w-3 h-3" />
+                : <Plus className="w-3 h-3" />}
+              {chip.label}
+            </button>
+          );
+        })}
+        {hiddenWidgets.size > 0 && (
+          <button
+            onClick={() => savePrefsMutation.mutate({ hidden: [], order: currentOrder })}
+            disabled={savePrefsMutation.isPending}
+            className="ml-auto text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors px-2 py-1 rounded-lg hover:bg-muted/30"
+            data-testid="button-show-all-sections"
+          >
+            Show all
+          </button>
+        )}
+      </div>
 
       {/* ── Draggable KPI Widget Grid ────────────────────────────────────────── */}
       {(() => {
