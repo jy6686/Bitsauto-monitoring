@@ -21,6 +21,7 @@ import { generateStatusReport, STATUS_REPORT_PATH } from "./doc-generator";
 import { generateUserManual, USER_MANUAL_PATH } from "./manual-generator";
 import { generateSippyDataflowDoc, SIPPY_DATAFLOW_PATH } from "./sippy-dataflow-generator";
 import { generateTroubleshootGuide, TROUBLESHOOT_GUIDE_PATH } from "./troubleshoot-generator";
+import { generateOrgHierarchyDoc, ORG_HIERARCHY_PATH } from "./org-hierarchy-generator";
 
 // ── /api/dial-codes handler — serves raw prefix JSON for client-side lookup ───
 // Uses process.cwd() so it works in both ESM dev (tsx) and CJS production build.
@@ -8774,6 +8775,35 @@ export async function registerRoutes(
       if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
       await generateTroubleshootGuide(TROUBLESHOOT_GUIDE_PATH);
       res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'VoIP_Watcher_Troubleshooting_Guide.docx' });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/download/org-hierarchy — serve the Org Hierarchy & RBAC .docx (auto-generates if missing)
+  app.get('/api/download/org-hierarchy', async (_req: any, res: any) => {
+    try {
+      const { existsSync } = await import('fs');
+      if (!existsSync(ORG_HIERARCHY_PATH)) {
+        await generateOrgHierarchyDoc(ORG_HIERARCHY_PATH);
+      }
+      res.download(ORG_HIERARCHY_PATH, 'VoIP_Watcher_Org_Hierarchy_Access_Control.docx', (err: any) => {
+        if (err && !res.headersSent) res.status(500).json({ message: 'Download error' });
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: `Failed to generate org hierarchy doc: ${e.message}` });
+    }
+  });
+
+  // POST /api/download/regenerate-org-hierarchy — rebuild on demand (admin)
+  app.post('/api/download/regenerate-org-hierarchy', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user.claims?.sub;
+      const role = await storage.getUserRole(userId);
+      if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+      await generateOrgHierarchyDoc(ORG_HIERARCHY_PATH);
+      res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'VoIP_Watcher_Org_Hierarchy_Access_Control.docx' });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

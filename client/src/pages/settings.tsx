@@ -1570,6 +1570,7 @@ export default function SettingsPage() {
   const [manualRegeneratedAt, setManualRegeneratedAt] = useState<string | null>(null);
   const [dataflowRegeneratedAt, setDataflowRegeneratedAt] = useState<string | null>(null);
   const [troubleshootRegeneratedAt, setTroubleshootRegeneratedAt] = useState<string | null>(null);
+  const [orgHierarchyRegeneratedAt, setOrgHierarchyRegeneratedAt] = useState<string | null>(null);
   const { toast } = useToast();
 
   const regenMutation = useMutation({
@@ -1617,6 +1618,18 @@ export default function SettingsPage() {
     },
     onError: (err: any) => {
       toast({ title: 'Update failed', description: err.message ?? 'Could not regenerate the Troubleshooting Guide.', variant: 'destructive' });
+    },
+  });
+
+  const regenOrgHierarchyMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/download/regenerate-org-hierarchy'),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setOrgHierarchyRegeneratedAt(data.regeneratedAt);
+      toast({ title: 'Org Hierarchy doc updated', description: 'The Organisational Hierarchy & Access Control document has been regenerated. Download it now.' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Update failed', description: err.message ?? 'Could not regenerate the Org Hierarchy document.', variant: 'destructive' });
     },
   });
 
@@ -2323,6 +2336,18 @@ export default function SettingsPage() {
               {regenTroubleshootMutation.isPending ? 'Building…' : 'Update Troubleshooting Guide'}
             </button>
             <button
+              data-testid="button-regenerate-org-hierarchy"
+              onClick={() => regenOrgHierarchyMutation.mutate()}
+              disabled={regenOrgHierarchyMutation.isPending}
+              title="Regenerate Org Hierarchy & Access Control Document"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {regenOrgHierarchyMutation.isPending
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <RefreshCcw className="h-3 w-3" />}
+              {regenOrgHierarchyMutation.isPending ? 'Building…' : 'Update Org Hierarchy Doc'}
+            </button>
+            <button
               data-testid="button-regenerate-docs"
               onClick={() => regenMutation.mutate()}
               disabled={regenMutation.isPending}
@@ -2345,6 +2370,9 @@ export default function SettingsPage() {
           {troubleshootRegeneratedAt
             ? `Troubleshooting Guide last built: ${new Date(troubleshootRegeneratedAt).toLocaleString()}  ·  `
             : ''}
+          {orgHierarchyRegeneratedAt
+            ? `Org Hierarchy doc last built: ${new Date(orgHierarchyRegeneratedAt).toLocaleString()}  ·  `
+            : ''}
           {regeneratedAt
             ? `Status report last updated: ${new Date(regeneratedAt).toLocaleString()}`
             : ''}
@@ -2354,6 +2382,7 @@ export default function SettingsPage() {
             { label: "User Manual", desc: "Full operator guide — all features, process flows & diagrams", href: "/api/download/user-manual", color: "text-violet-400", bg: "bg-violet-500/10 border-violet-500/20" },
             { label: "Sippy Dataflow Reference", desc: "Per-page breakdown of every Sippy API fetch & write — auto-updates on key changes", href: "/api/download/sippy-dataflow", color: "text-cyan-400", bg: "bg-cyan-500/10 border-cyan-500/20" },
             { label: "Troubleshooting Guide", desc: "All resolved issues, root-cause analyses, fix flowcharts & diagnostic procedures", href: "/api/download/troubleshooting-guide", color: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/20" },
+            { label: "Org Hierarchy & Access Control", desc: "Role definitions (HOD→KAM), access matrix, scope enforcement rules & configuration guide", href: "/api/download/org-hierarchy", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" },
             { label: "Volume 1 — Status Report", desc: "Completed features & pending items", href: "/api/download/status-report", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
             { label: "Feature Roadmap", desc: "Full platform feature roadmap", href: "/api/download/feature-roadmap", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
             { label: "Extended Features Vol II", desc: "Proposed Tier 2 & Tier 3 features", href: "/api/download/feature-roadmap-v2", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
