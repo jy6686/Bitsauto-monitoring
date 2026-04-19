@@ -9325,6 +9325,34 @@ export async function registerRoutes(
     'Macau': '446', 'Hong Kong': '344',
   };
 
+  // Normalize a raw Sippy country name to the canonical form used in COUNTRY_NAME_TO_NUMERIC.
+  // Sippy often returns "Pakistan - Mobile", "Bangladesh - BTCL", "India NLD", "UAE" etc.
+  function normalizeCountryName(raw: string): string {
+    if (!raw || raw === 'Unknown') return raw;
+    // Exact match wins immediately
+    if (COUNTRY_NAME_TO_NUMERIC[raw]) return raw;
+    // Strip everything after " - " separator  (e.g. "Pakistan - Mobile" → "Pakistan")
+    const dashIdx = raw.indexOf(' - ');
+    const stripped = dashIdx >= 0 ? raw.slice(0, dashIdx).trim() : raw;
+    if (COUNTRY_NAME_TO_NUMERIC[stripped]) return stripped;
+    // Strip after " (" (e.g. "Saudi Arabia (Mobile)" → "Saudi Arabia")
+    const parenIdx = stripped.indexOf(' (');
+    const parenStripped = parenIdx >= 0 ? stripped.slice(0, parenIdx).trim() : stripped;
+    if (COUNTRY_NAME_TO_NUMERIC[parenStripped]) return parenStripped;
+    // Longest-prefix match against all known keys
+    let best = '';
+    for (const key of Object.keys(COUNTRY_NAME_TO_NUMERIC)) {
+      const kl = key.toLowerCase();
+      const rl = raw.toLowerCase();
+      if ((rl.startsWith(kl + ' ') || rl.startsWith(kl + '-') || rl.startsWith(kl + ',') || rl === kl) && key.length > best.length) {
+        best = key;
+      }
+    }
+    if (best) return best;
+    // Return stripped form as fallback (keeps human-readable name even if no numeric ID)
+    return parenStripped || stripped || raw;
+  }
+
   // GET /api/traffic-map — CDR traffic aggregated by destination country
   app.get('/api/traffic-map', async (req: any, res) => {
     try {
@@ -9364,35 +9392,45 @@ export async function registerRoutes(
 
       // Debug: log how many CDRs fetched and sample country data
       console.log(`[traffic-map] Fetched ${cdrs.length} CDRs for last ${hours}h (${numChunks} chunks).`,
-        cdrs.slice(0, 2).map(c => ({ country: c.country, area: c.areaName }))
+        cdrs.slice(0, 3).map(c => ({ raw: c.country, area: c.areaName }))
       );
 
-      // Aggregate by country
-      type CountryStats = { calls: number; answered: number; totalSecs: number; };
+      // Aggregate by NORMALISED country name so "Pakistan - Mobile" + "Pakistan - PTCL"
+      // both contribute to the single "Pakistan" bucket.
+      type CountryStats = { calls: number; answered: number; totalSecs: number; rawNames: Set<string> };
       const byCountry = new Map<string, CountryStats>();
 
       for (const cdr of cdrs) {
-        const name = cdr.country || cdr.areaName || 'Unknown';
-        if (!byCountry.has(name)) byCountry.set(name, { calls: 0, answered: 0, totalSecs: 0 });
-        const g = byCountry.get(name)!;
+        const rawName  = cdr.country || cdr.areaName || 'Unknown';
+        const normName = normalizeCountryName(rawName);
+        if (!byCountry.has(normName)) byCountry.set(normName, { calls: 0, answered: 0, totalSecs: 0, rawNames: new Set() });
+        const g = byCountry.get(normName)!;
         g.calls++;
-        const answered = cdr.duration > 0 || /^(200|ok|answered|success)/i.test(cdr.result || '');
-        if (answered) { g.answered++; g.totalSecs += cdr.duration; }
+        g.rawNames.add(rawName);
+        // Sippy result=0 means connected; duration > 0 is the reliable answered indicator
+        const answered = Number(cdr.duration) > 0 || String(cdr.result) === '0';
+        if (answered) { g.answered++; g.totalSecs += Number(cdr.duration) || 0; }
       }
 
       const totalCalls = cdrs.length;
       const rows = Array.from(byCountry.entries())
         .map(([name, g]) => ({
           name,
-          numericId: COUNTRY_NAME_TO_NUMERIC[name] ?? null,
-          calls:     g.calls,
-          answered:  g.answered,
-          pct:       totalCalls > 0 ? Math.round((g.calls / totalCalls) * 1000) / 10 : 0,
-          asr:       g.calls > 0    ? Math.round((g.answered / g.calls) * 100) : 0,
+          numericId:  COUNTRY_NAME_TO_NUMERIC[name] ?? null,
+          calls:      g.calls,
+          answered:   g.answered,
+          pct:        totalCalls > 0 ? Math.round((g.calls / totalCalls) * 1000) / 10 : 0,
+          asr:        g.calls > 0    ? Math.round((g.answered / g.calls) * 100) : 0,
           avgDurSecs: g.answered > 0 ? Math.round(g.totalSecs / g.answered) : 0,
-          totalMins: Math.round(g.totalSecs / 60),
+          totalMins:  Math.round(g.totalSecs / 60),
         }))
+        .filter(r => r.calls > 0)
         .sort((a, b) => b.calls - a.calls);
+
+      // Log match stats for debugging
+      const matched   = rows.filter(r => r.numericId !== null).length;
+      const unmatched = rows.filter(r => r.numericId === null).map(r => r.name).slice(0, 10);
+      console.log(`[traffic-map] ${rows.length} countries, ${matched} map-matched, unmatched sample:`, unmatched);
 
       res.json({ countries: rows, total: totalCalls, hours });
     } catch (e: any) {

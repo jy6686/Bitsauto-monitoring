@@ -4,9 +4,10 @@ import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import * as topojson from 'topojson-client';
 import type { Topology, GeometryCollection } from 'topojson-client';
 import { useQuery } from '@tanstack/react-query';
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Globe, RefreshCw, Loader2, BarChart2, Clock, Phone, TrendingUp, AlertCircle, MapPin,
+  Activity, Timer, CheckCircle2, X, CalendarDays,
 } from 'lucide-react';
 
 // Fix Leaflet default icon paths broken by bundlers
@@ -93,11 +94,12 @@ interface CountryLayerProps {
   geoJson: GeoJSON.FeatureCollection;
   trafficMap: Map<string, CountryRow>;
   onHover: (row: CountryRow | null) => void;
+  onClick: (row: CountryRow) => void;
   flyToTarget: string | null;          // country name to fly to
   onFlyComplete: () => void;
 }
 
-function CountryLayer({ geoJson, trafficMap, onHover, flyToTarget, onFlyComplete }: CountryLayerProps) {
+function CountryLayer({ geoJson, trafficMap, onHover, onClick, flyToTarget, onFlyComplete }: CountryLayerProps) {
   const map = useMap();
   const layerRef = useRef<L.GeoJSON | null>(null);
   // name → bounds, also numericId → bounds
@@ -153,7 +155,10 @@ function CountryLayer({ geoJson, trafficMap, onHover, flyToTarget, onFlyComplete
             onHover(null);
           },
           click: () => {
-            if (row) onHover(row);
+            if (row) {
+              onHover(row);
+              onClick(row);
+            }
           },
         });
 
@@ -230,11 +235,113 @@ function HoverTooltip({ row }: { row: CountryRow | null }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+// ─── Period presets ───────────────────────────────────────────────────────────
+
+const PERIOD_PRESETS = [
+  { label: '3h',        hours: 3   },
+  { label: '6h',        hours: 6   },
+  { label: '12h',       hours: 12  },
+  { label: '24h',       hours: 24  },
+  { label: '48h',       hours: 48  },
+  { label: '72h',       hours: 72  },
+];
+
+// ─── Country Detail Panel ─────────────────────────────────────────────────────
+
+function CountryDetailPanel({ row, hours, onClose }: { row: CountryRow; hours: number; onClose: () => void }) {
+  const formatMins = (m: number) => {
+    if (m >= 60) return `${Math.floor(m / 60)}h ${m % 60}m`;
+    return `${m} min`;
+  };
+  const formatDur = (s: number) => {
+    if (s <= 0) return '—';
+    const m = Math.floor(s / 60), sec = s % 60;
+    return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+  };
+  const asrColor = row.asr >= 70 ? 'text-emerald-400' : row.asr >= 50 ? 'text-amber-400' : 'text-red-400';
+  const asrBg    = row.asr >= 70 ? 'bg-emerald-500/10 border-emerald-500/20' : row.asr >= 50 ? 'bg-amber-500/10 border-amber-500/20' : 'bg-red-500/10 border-red-500/20';
+
+  return (
+    <div className="bg-card border border-violet-500/30 rounded-xl overflow-hidden shadow-xl ring-1 ring-violet-500/10">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-violet-500/10 border-b border-violet-500/20">
+        <div className="flex items-center gap-2.5">
+          <MapPin className="w-4 h-4 text-violet-400 animate-pulse" />
+          <span className="font-bold text-base text-violet-200">{row.name}</span>
+          <span className="text-[10px] text-violet-400/60 bg-violet-500/10 border border-violet-500/20 px-2 py-0.5 rounded-full">
+            {hours}h window
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          data-testid="button-close-country-detail"
+          className="text-muted-foreground/50 hover:text-foreground transition-colors p-1 rounded"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4">
+        <div className="bg-muted/20 border border-border/40 rounded-lg p-3 space-y-1">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 uppercase tracking-wider">
+            <Phone className="w-3 h-3" /> Total Calls
+          </div>
+          <p className="text-xl font-bold">{row.calls.toLocaleString()}</p>
+          <p className="text-[10px] text-violet-400 font-medium">{row.pct.toFixed(1)}% of traffic</p>
+        </div>
+
+        <div className={`border rounded-lg p-3 space-y-1 ${asrBg}`}>
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 uppercase tracking-wider">
+            <CheckCircle2 className="w-3 h-3" /> Answered
+          </div>
+          <p className={`text-xl font-bold ${asrColor}`}>{row.answered.toLocaleString()}</p>
+          <p className={`text-[10px] font-semibold ${asrColor}`}>ASR: {row.asr}%</p>
+        </div>
+
+        <div className="bg-muted/20 border border-border/40 rounded-lg p-3 space-y-1">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 uppercase tracking-wider">
+            <Activity className="w-3 h-3 text-cyan-400" /> Total Minutes
+          </div>
+          <p className="text-xl font-bold text-cyan-300">{formatMins(row.totalMins)}</p>
+          <p className="text-[10px] text-muted-foreground/40">{row.totalMins.toLocaleString()} raw mins</p>
+        </div>
+
+        <div className="bg-muted/20 border border-border/40 rounded-lg p-3 space-y-1">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 uppercase tracking-wider">
+            <Timer className="w-3 h-3 text-amber-400" /> Avg Duration
+          </div>
+          <p className="text-xl font-bold text-amber-300">{formatDur(row.avgDurSecs)}</p>
+          <p className="text-[10px] text-muted-foreground/40">per answered call</p>
+        </div>
+      </div>
+
+      {/* Traffic share bar */}
+      <div className="px-4 pb-4">
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground/50 mb-1.5">
+          <span>Traffic share</span>
+          <span className="text-violet-400 font-bold">{row.pct.toFixed(1)}%</span>
+        </div>
+        <div className="h-2 rounded-full bg-muted/30 overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-700"
+            style={{
+              width: `${Math.min(100, row.pct * 3)}%`,
+              background: `linear-gradient(90deg, #7c3aed, #06b6d4)`,
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TrafficMapPage() {
   const [hours, setHours] = useState(24);
   const [hovered, setHovered] = useState<CountryRow | null>(null);
   const [flyToTarget, setFlyToTarget] = useState<string | null>(null);
   const [activeDestination, setActiveDestination] = useState<string | null>(null);
+  const [selectedRow, setSelectedRow] = useState<CountryRow | null>(null);
 
   const { data: traffic, isLoading: trafficLoading, refetch, dataUpdatedAt } = useQuery<TrafficData>({
     queryKey: ['/api/traffic-map', hours],
@@ -279,6 +386,7 @@ export default function TrafficMapPage() {
   function handleDestinationClick(row: CountryRow) {
     setActiveDestination(row.name);
     setFlyToTarget(row.name);
+    setSelectedRow(row);
   }
 
   return (
@@ -298,19 +406,21 @@ export default function TrafficMapPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-muted-foreground">Period:</span>
-          {[3, 6, 12, 24, 48, 72].map(h => (
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <CalendarDays className="w-3 h-3" /> Period:
+          </span>
+          {PERIOD_PRESETS.map(({ label, hours: h }) => (
             <button
-              key={h}
+              key={label}
               onClick={() => setHours(h)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                 hours === h
                   ? 'bg-violet-500/10 text-violet-400 border-violet-500/30'
                   : 'text-muted-foreground border-border/50 hover:border-border'
               }`}
-              data-testid={`button-map-${h}h`}
+              data-testid={`button-map-${label}`}
             >
-              {h}h
+              {label}
             </button>
           ))}
           <button
@@ -399,6 +509,7 @@ export default function TrafficMapPage() {
                 geoJson={geoJson}
                 trafficMap={trafficMap}
                 onHover={setHovered}
+                onClick={handleDestinationClick}
                 flyToTarget={flyToTarget}
                 onFlyComplete={() => setFlyToTarget(null)}
               />
@@ -491,6 +602,15 @@ export default function TrafficMapPage() {
           </div>
         </div>
       </div>
+
+      {/* Country detail drill-down panel — appears when a destination is selected */}
+      {selectedRow && (
+        <CountryDetailPanel
+          row={selectedRow}
+          hours={hours}
+          onClose={() => { setSelectedRow(null); setActiveDestination(null); }}
+        />
+      )}
     </div>
   );
 }
