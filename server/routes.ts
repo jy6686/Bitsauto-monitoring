@@ -138,6 +138,10 @@ async function refreshAccountCache(): Promise<void> {
 // Populated at startup and refreshed every 30 minutes.
 const connectionVendorCache: Map<string, string> = new Map();
 
+// ── Connection → Connection name cache ────────────────────────────────────────
+// Maps I_CONNECTION string → human-readable connection name (e.g. "25323" → "SKY-TELENOR-PAK").
+const connectionNameCache: Map<string, string> = new Map();
+
 // ── Connection IP → Vendor name cache ─────────────────────────────────────────
 // Maps termination IP (host without port) → vendor name.
 // Used to enrich client CDRs with vendor name from CDR.remoteIp.
@@ -159,6 +163,7 @@ async function refreshConnectionVendorCache(): Promise<void> {
     });
     if (!vendors?.length) return;
     connectionVendorCache.clear();
+    connectionNameCache.clear();
     connectionIpCache.clear();
     await Promise.all(vendors.map(async (v: any) => {
       if (!v.iVendor) return;
@@ -170,8 +175,16 @@ async function refreshConnectionVendorCache(): Promise<void> {
       try {
         const { connections } = await sippy.listVendorConnections(workingUser, workingPass, v.iVendor, portalUrl);
         for (const conn of connections ?? []) {
-          if (conn.iConnection) connectionVendorCache.set(String(conn.iConnection), vendorName);
-          if (conn.name)        connectionVendorCache.set(conn.name, vendorName);
+          if (conn.iConnection) {
+            connectionVendorCache.set(String(conn.iConnection), vendorName);
+            // Store connection name for display (human-readable)
+            if (conn.name) connectionNameCache.set(String(conn.iConnection), conn.name);
+          }
+          if (conn.name) {
+            connectionVendorCache.set(conn.name, vendorName);
+            // Map connection name → itself (identity lookup)
+            connectionNameCache.set(conn.name, conn.name);
+          }
           // Extract host IP from destination (format: "host:port" or "host")
           if (conn.destination) {
             const destHost = conn.destination.split(':')[0].trim();
@@ -180,7 +193,7 @@ async function refreshConnectionVendorCache(): Promise<void> {
         }
       } catch { /* skip per-vendor connection fetch failures */ }
     }));
-    console.log(`[routes] connectionVendorCache refreshed: ${connectionVendorCache.size} entries, ipCache: ${connectionIpCache.size} IPs`);
+    console.log(`[routes] connectionVendorCache refreshed: ${connectionVendorCache.size} entries, nameCache: ${connectionNameCache.size} names, ipCache: ${connectionIpCache.size} IPs`);
   } catch (e: any) {
     console.warn('[routes] connectionVendorCache refresh failed:', e.message);
   }
@@ -1399,8 +1412,12 @@ export async function registerRoutes(
           callStatus: (c.status === 'connected' || c.duration > 0) ? 'connected' : 'routing',
           clientName: c.user || accountNameCache.get(c.accountId ?? '') || (c.accountId ? `Acct.${c.accountId}` : undefined),
           accountId: c.accountId || undefined,
-          vendor: c.vendor || (c.connection ? connectionVendorCache.get(c.connection) : undefined),
-          connection: c.connection,
+          vendor: c.vendor
+            || (c.connection ? connectionVendorCache.get(c.connection) : undefined)
+            || (c.iVendorId  ? connectionVendorCache.get(c.iVendorId)  : undefined),
+          connection: c.connection
+            ? (connectionNameCache.get(c.connection) || c.connection)
+            : undefined,
           direction: c.direction,
           mediaIpCaller: c.mediaIpCaller,
           mediaIpCallee: c.mediaIpCallee,
@@ -1778,10 +1795,19 @@ export async function registerRoutes(
         .filter(c => !TERMINATED.has(c.status ?? ''))
         .map(c => {
           const dialMatch = lookupDialCode(c.callee ?? '');
+          // Resolve vendor name: direct → connection ID → vendor ID link (iVendorId from HTML scraping)
+          const resolvedVendor = c.vendor
+            || (c.connection ? connectionVendorCache.get(c.connection) : undefined)
+            || (c.iVendorId  ? connectionVendorCache.get(c.iVendorId)  : undefined);
+          // Resolve connection display name: prefer human-readable name → raw ID as fallback
+          const resolvedConnection = c.connection
+            ? (connectionNameCache.get(c.connection) || c.connection)
+            : undefined;
           return {
             ...c,
             clientName:  c.user || accountNameCache.get(c.accountId ?? '') || (c.accountId ? `Acct.${c.accountId}` : undefined),
-            vendor:      c.vendor || (c.connection ? connectionVendorCache.get(c.connection) : undefined),
+            vendor:      resolvedVendor,
+            connection:  resolvedConnection,
             ccState:     c.status,
             callStatus:  ccStateMap[c.status ?? ''] ?? (c.status?.toLowerCase().includes('connect') ? 'connected' : 'routing'),
             destCountry:  dialMatch?.country  ?? null,

@@ -708,6 +708,7 @@ export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string)
       accountId:    accountId || undefined,
       vendor:       get(COL_VENDOR) || undefined,
       connection:   get(COL_CONNECTION) || undefined,
+      iVendorId:    vendorId || undefined,
       direction:    get(COL_DIRECTION) || undefined,
       mediaIpCaller: get(COL_MEDIA_SRC) || undefined,
       mediaIpCallee: get(COL_MEDIA_DST) || undefined,
@@ -807,6 +808,7 @@ export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string)
             accountId:     pgAcctIds[pgIdx]  || undefined,
             vendor:        get(COL_VENDOR)   || undefined,
             connection:    get(COL_CONNECTION) || undefined,
+            iVendorId:     pgVendIds[pgIdx]   || undefined,
             direction:     get(COL_DIRECTION)  || undefined,
             mediaIpCaller: get(COL_MEDIA_SRC) || undefined,
             mediaIpCallee: get(COL_MEDIA_DST) || undefined,
@@ -1698,6 +1700,7 @@ export interface SippyActiveCall {
   iEnvironment?: string;  // I_ENVIRONMENT numeric ID
   vendor?: string;
   connection?: string;    // I_CONNECTION numeric ID
+  iVendorId?: string;     // i_vendor numeric ID (extracted from vendor link in HTML scraping)
   direction?: string;     // DIRECTION
   mediaIpCaller?: string; // CALLER_MEDIA_IP
   mediaIpCallee?: string; // CALLEE_MEDIA_IP
