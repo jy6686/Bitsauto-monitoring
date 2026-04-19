@@ -298,15 +298,27 @@ function KamFormDialog({ onClose, editKam, allKams }: {
 
           {/* ── Assign Clients ───────────────────────────────────────────────── */}
           <div>
-            <label className="text-xs text-muted-foreground mb-2 flex items-center gap-1.5 font-medium">
-              <LinkIcon className="w-3.5 h-3.5" />
-              Assign Clients (Sippy Accounts)
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+                <LinkIcon className="w-3.5 h-3.5" />
+                Assign Clients (Sippy Accounts)
+                {selectedIds.size > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 bg-violet-500/20 text-violet-300 rounded-full text-[10px] font-semibold border border-violet-500/30">
+                    {selectedIds.size} selected
+                  </span>
+                )}
+              </label>
               {selectedIds.size > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 bg-violet-500/20 text-violet-300 rounded-full text-[10px] font-semibold border border-violet-500/30">
-                  {selectedIds.size} selected
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(new Set())}
+                  className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                  data-testid="button-clear-accounts"
+                >
+                  Clear all
+                </button>
               )}
-            </label>
+            </div>
 
             {sippyLoading ? (
               <div className="flex items-center gap-2 py-4 text-muted-foreground text-xs">
@@ -318,47 +330,35 @@ function KamFormDialog({ onClose, editKam, allKams }: {
                 No Sippy accounts found
               </div>
             ) : (
-              <div className="border border-border rounded-xl overflow-hidden divide-y divide-border/40 max-h-48 overflow-y-auto">
-                {sippyAccounts.map(acct => {
-                  const id      = String(acct.iAccount);
-                  const checked = selectedIds.has(id);
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      data-testid={`checkbox-kam-acct-${id}`}
-                      onClick={() => toggleAccount(id)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
-                        checked ? 'bg-violet-500/10 hover:bg-violet-500/15' : 'hover:bg-muted/30'
-                      }`}
-                    >
-                      {/* Custom checkbox */}
-                      <div className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-all ${
-                        checked ? 'bg-violet-500 border-violet-500' : 'border-border bg-background'
-                      }`}>
-                        {checked && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
-                      </div>
-
-                      {/* Account info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold truncate">{acct.username}</div>
-                        {acct.description && (
-                          <div className="text-xs text-muted-foreground truncate">{acct.description}</div>
+              <div className="border border-border/50 rounded-xl bg-muted/5 p-3 max-h-52 overflow-y-auto">
+                <div className="flex flex-wrap gap-1.5">
+                  {sippyAccounts.map(acct => {
+                    const id      = String(acct.iAccount);
+                    const checked = selectedIds.has(id);
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        data-testid={`chip-kam-acct-${id}`}
+                        onClick={() => toggleAccount(id)}
+                        title={acct.description ? `${acct.username} — ${acct.description} | $${acct.balance.toFixed(0)}` : `${acct.username} | $${acct.balance.toFixed(0)}`}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all ${
+                          checked
+                            ? 'bg-violet-500/20 border-violet-500/40 text-violet-300'
+                            : acct.blocked
+                              ? 'bg-muted/20 border-border/20 text-muted-foreground/30 line-through'
+                              : 'bg-muted/20 border-border/30 text-muted-foreground/60 hover:border-violet-500/30 hover:text-violet-400'
+                        }`}
+                      >
+                        {checked && <Check className="w-2.5 h-2.5 flex-shrink-0" strokeWidth={3} />}
+                        <span className="truncate max-w-[140px]">{acct.username}</span>
+                        {checked && (
+                          <span className="text-[9px] text-violet-400/70 font-mono">${acct.balance.toFixed(0)}</span>
                         )}
-                      </div>
-
-                      {/* Status + balance */}
-                      <div className="flex-shrink-0 flex items-center gap-1.5">
-                        {acct.blocked ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/20 font-medium">BLOCKED</span>
-                        ) : (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-medium">ACTIVE</span>
-                        )}
-                        <span className="text-xs text-muted-foreground font-mono">${acct.balance.toFixed(0)}</span>
-                      </div>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

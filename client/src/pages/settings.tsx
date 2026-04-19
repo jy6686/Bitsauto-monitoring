@@ -10,7 +10,7 @@ import {
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
   Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp, Users, UserPlus, X, AlertCircle,
   Radio, Activity, Mail, Bell, Send, MailCheck, MailX, UserCheck, Download, FileText,
-  BellRing, BellOff, Smartphone, ShieldAlert,
+  BellRing, BellOff, Smartphone, ShieldAlert, Check,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -235,6 +235,27 @@ const TIMEZONES = ['Etc/UTC', 'America/New_York', 'America/Los_Angeles', 'Americ
 const START_PAGES = ['Monitoring', 'Dashboard', 'Customers', 'Accounts', 'CDRs', 'Reports'];
 const LANGUAGES = ['English', 'French', 'German', 'Spanish', 'Arabic', 'Russian', 'Chinese'];
 
+// ── Alert Event Subscription Chips ────────────────────────────────────────────
+const ALERT_EVENT_CHIPS = [
+  { id: 'traffic_drop', label: 'Traffic Drop',   color: 'bg-rose-500/15 text-rose-400' },
+  { id: 'fas_detection', label: 'FAS Detection', color: 'bg-amber-500/15 text-amber-400' },
+  { id: 'irsf_event',   label: 'IRSF Event',     color: 'bg-orange-500/15 text-orange-400' },
+  { id: 'low_balance',  label: 'Low Balance',     color: 'bg-red-500/15 text-red-400' },
+  { id: 'new_client',   label: 'New Client',      color: 'bg-emerald-500/15 text-emerald-400' },
+  { id: 'asr_drop',     label: 'ASR Drop',        color: 'bg-violet-500/15 text-violet-400' },
+] as const;
+
+const ALERT_SUB_KEY = 'noc_alert_subscriptions';
+const ALL_ALERT_IDS = ALERT_EVENT_CHIPS.map(c => c.id);
+
+function loadAlertSubs(): Set<string> {
+  try {
+    const raw = localStorage.getItem(ALERT_SUB_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set(ALL_ALERT_IDS); // default: all subscribed
+}
+
 // ── Email Alert Configuration Panel ──────────────────────────────────────────
 
 type AlertConfig = {
@@ -254,6 +275,16 @@ function EmailAlertPanel() {
   const [expanded, setExpanded] = useState(true);
   const [showPass, setShowPass] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [alertSubs, setAlertSubs] = useState<Set<string>>(loadAlertSubs);
+
+  function toggleAlertSub(id: string) {
+    setAlertSubs(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { localStorage.setItem(ALERT_SUB_KEY, JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }
 
   const { data: config, isLoading } = useQuery<AlertConfig>({
     queryKey: ['/api/alert-config'],
@@ -325,6 +356,50 @@ function EmailAlertPanel() {
                   onChange={e => setForm(f => ({ ...f, alertEnabled: e.target.checked }))}
                   className="h-5 w-5 rounded border-border"
                 />
+              </div>
+
+              {/* ── Alert Subscription Chips ── */}
+              <div className="rounded-xl border border-border/50 bg-muted/5 p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-medium">Alert Subscriptions</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Choose which event types trigger email alerts</p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {ALERT_EVENT_CHIPS.map(chip => {
+                    const isOn = alertSubs.has(chip.id);
+                    return (
+                      <button
+                        key={chip.id}
+                        type="button"
+                        onClick={() => toggleAlertSub(chip.id)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                          isOn
+                            ? `${chip.color} border-current/25`
+                            : 'bg-muted/20 border-border/30 text-muted-foreground/40 hover:border-border/60 hover:text-muted-foreground line-through'
+                        }`}
+                        data-testid={`chip-alert-${chip.id}`}
+                        title={isOn ? `Subscribed — click to mute ${chip.label}` : `Muted — click to subscribe to ${chip.label}`}
+                      >
+                        {isOn ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                        {chip.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {alertSubs.size < ALL_ALERT_IDS.length && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const all = new Set(ALL_ALERT_IDS as unknown as string[]);
+                      setAlertSubs(all);
+                      try { localStorage.setItem(ALERT_SUB_KEY, JSON.stringify([...all])); } catch {}
+                    }}
+                    className="text-[11px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                    data-testid="button-subscribe-all-alerts"
+                  >
+                    Subscribe to all
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -9,7 +9,7 @@ import {
 import {
   RefreshCw, ChevronRight, BarChart3,
   TrendingUp, TrendingDown, Minus, AlertCircle, Globe, Users, Layers,
-  ArrowRight, ArrowLeft, LayoutGrid, Maximize2, WifiOff,
+  ArrowRight, ArrowLeft, LayoutGrid, Maximize2, WifiOff, Plus, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -824,25 +824,36 @@ export default function BitsEyePage() {
               </div>
             )}
 
-            {/* Country filter dropdown — shown on Destinations view */}
+            {/* Country filter chip row — shown on Destinations view */}
             {nav.type === 'dest-all' && !nav.kamName && !nav.country && countryNames.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground/50 font-medium">Country</span>
-                <select
-                  data-testid="select-country-filter"
-                  value={nav.destCountryFilter ?? ''}
-                  onChange={e => setNav({ ...nav, destCountryFilter: e.target.value || undefined })}
-                  className="text-xs bg-muted/20 border border-border/40 rounded-lg px-2 py-1 text-foreground focus:outline-none focus:border-primary/50 transition-colors"
-                >
-                  <option value="">All Countries</option>
-                  {countryNames.map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <span className="text-[10px] text-muted-foreground/50 font-medium whitespace-nowrap shrink-0 flex items-center gap-1">
+                  <Globe className="w-3 h-3" /> Country:
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {countryNames.map(c => {
+                    const isOn = nav.destCountryFilter === c;
+                    return (
+                      <button
+                        key={c}
+                        data-testid={`chip-country-${c.replace(/\s+/g, '-')}`}
+                        onClick={() => setNav({ ...nav, destCountryFilter: isOn ? undefined : c })}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border transition-all ${
+                          isOn
+                            ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                            : 'bg-muted/20 border-border/25 text-muted-foreground/50 hover:border-amber-500/30 hover:text-amber-400'
+                        }`}
+                      >
+                        {isOn && <Check className="w-2.5 h-2.5 flex-shrink-0" />}
+                        {c}
+                      </button>
+                    );
+                  })}
+                </div>
                 {nav.destCountryFilter && (
                   <button
                     onClick={() => setNav({ ...nav, destCountryFilter: undefined })}
-                    className="text-[10px] text-muted-foreground/50 hover:text-foreground transition-colors"
+                    className="text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors whitespace-nowrap shrink-0"
                   >✕ Clear</button>
                 )}
               </div>

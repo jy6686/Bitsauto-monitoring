@@ -14,6 +14,7 @@ import {
   RefreshCw, Download, Phone, PhoneOff, PhoneMissed,
   ChevronLeft, ChevronRight, Filter, X, Clock,
   DollarSign, Globe, Activity, FileSpreadsheet, Users, Building2, PhoneCall,
+  SlidersHorizontal, Plus, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -141,11 +142,31 @@ function StatusIcon({ cdr }: { cdr: any }) {
 
 const PAGE_SIZE = 50;
 
+const CDR_COL_CHIPS = [
+  { id: 'country',   label: 'Country' },
+  { id: 'product',   label: 'Product' },
+  { id: 'breakout',  label: 'Breakout' },
+  { id: 'desc',      label: 'Description' },
+  { id: 'setupTime', label: 'Setup Time' },
+  { id: 'billed',    label: 'Billed' },
+] as const;
+type CdrColId = typeof CDR_COL_CHIPS[number]['id'];
+
 export default function CDRsPage() {
   const search = useSearch();
   const view = (new URLSearchParams(search).get('view') ?? 'client') as 'client' | 'vendor';
   const isVendor = view === 'vendor';
   const { tz, tzAbbr } = useTimezone();
+
+  const [visibleCols, setVisibleCols] = useState<Set<CdrColId>>(
+    () => new Set<CdrColId>(['country', 'product', 'breakout', 'desc', 'setupTime', 'billed'])
+  );
+  const col = (id: CdrColId) => visibleCols.has(id);
+  const toggleCol = (id: CdrColId) => setVisibleCols(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   const defaultStart = subHoursUTC(new Date(), 1);
   const defaultEnd   = new Date();
@@ -465,6 +486,42 @@ export default function CDRsPage() {
         </div>
       )}
 
+      {/* ── CDR Column Chip Picker ─────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 flex-wrap border border-border/40 bg-muted/5 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium shrink-0 mr-1">
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          Columns:
+        </div>
+        {CDR_COL_CHIPS.map(chip => {
+          const isOn = col(chip.id);
+          return (
+            <button
+              key={chip.id}
+              onClick={() => toggleCol(chip.id)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                isOn
+                  ? 'bg-primary/10 border-primary/30 text-primary hover:bg-primary/20'
+                  : 'bg-muted/20 border-border/30 text-muted-foreground/50 hover:border-border/60 hover:text-muted-foreground'
+              }`}
+              data-testid={`chip-cdr-col-${chip.id}`}
+              title={isOn ? `Hide ${chip.label} column` : `Show ${chip.label} column`}
+            >
+              {isOn ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+              {chip.label}
+            </button>
+          );
+        })}
+        {visibleCols.size < CDR_COL_CHIPS.length && (
+          <button
+            onClick={() => setVisibleCols(new Set(CDR_COL_CHIPS.map(c => c.id)))}
+            className="ml-auto text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors px-2 py-1 rounded-lg hover:bg-muted/30"
+            data-testid="button-show-all-cdr-cols"
+          >
+            Show all
+          </button>
+        )}
+      </div>
+
       {/* CDR Table */}
       <div className="rounded-xl border border-border bg-card/60 overflow-hidden">
         {/* Pagination header */}
@@ -503,20 +560,20 @@ export default function CDRsPage() {
                 <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">{isVendor ? 'Vendor' : 'Client'}</th>
                 <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">CLI</th>
                 <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">CLD</th>
-                <th className="px-3 py-2.5 text-center text-muted-foreground font-medium">Country</th>
-                <th className="px-3 py-2.5 text-center text-muted-foreground font-medium">Product</th>
-                <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">Breakout</th>
-                <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">Description</th>
-                <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Setup Time</th>
+                {col('country')   && <th className="px-3 py-2.5 text-center text-muted-foreground font-medium">Country</th>}
+                {col('product')   && <th className="px-3 py-2.5 text-center text-muted-foreground font-medium">Product</th>}
+                {col('breakout')  && <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">Breakout</th>}
+                {col('desc')      && <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">Description</th>}
+                {col('setupTime') && <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Setup Time</th>}
                 <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Duration</th>
-                <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Billed</th>
+                {col('billed')    && <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Billed</th>}
                 <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Charged (USD)</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && Array.from({ length: 12 }).map((_, i) => (
                 <tr key={i} className={cn("border-b border-border/20", i % 2 === 0 ? "bg-card/20" : "bg-muted/10")}>
-                  {Array.from({ length: 12 }).map((_, j) => (
+                  {Array.from({ length: 6 + visibleCols.size }).map((_, j) => (
                     <td key={j} className="px-3 py-2">
                       <Skeleton className="h-3 w-full" />
                     </td>
@@ -526,7 +583,7 @@ export default function CDRsPage() {
 
               {!isLoading && cdrs.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center">
+                  <td colSpan={6 + visibleCols.size} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <PhoneOff className="h-8 w-8 opacity-30" />
                       <p className="text-sm font-medium">No CDR records found</p>
@@ -604,52 +661,64 @@ export default function CDRsPage() {
                         )}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-center">
-                      {(() => {
-                        const countryInfo = cldInfo?.country;
-                        const countryFallback = cdr.country;
-                        if (countryInfo) {
-                          return (
-                            <span className="flex items-center justify-center gap-1 text-foreground/60 whitespace-nowrap">
-                              <span>{countryInfo.flag}</span>
-                              <span>{countryInfo.name}</span>
-                            </span>
-                          );
-                        }
-                        return countryFallback
-                          ? <span className="flex items-center justify-center gap-1 text-foreground/60"><Globe className="h-3 w-3" />{countryFallback}</span>
-                          : <span className="text-muted-foreground/40">-</span>;
-                      })()}
-                    </td>
-                    <td className="px-3 py-2 text-center" data-testid={`text-product-${i}`}>
-                      {cldInfo?.trunkClass ? (
-                        <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cldInfo.trunkClass.color} border-current/20`}
-                          title={cldInfo.trunkClass.label}>
-                          {cldInfo.trunkClass.short}
-                        </span>
-                      ) : <span className="text-muted-foreground/40">-</span>}
-                    </td>
-                    <td className="px-3 py-2 text-foreground/60 max-w-[120px] truncate" data-testid={`text-breakout-${i}`}>
-                      {cdr.areaName
-                        ? <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 border border-violet-500/20">{cdr.areaName}</span>
-                        : <span className="text-muted-foreground/40">-</span>}
-                    </td>
-                    <td className="px-3 py-2 text-foreground/60 max-w-[160px] truncate" title={cdr.description || cdr.areaName || ''}>
-                      {cdr.description || '-'}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-foreground/60 whitespace-nowrap">
-                      {fmtSetupTime(cdr.startTime, tz)}
-                    </td>
+                    {col('country') && (
+                      <td className="px-3 py-2 text-center">
+                        {(() => {
+                          const countryInfo = cldInfo?.country;
+                          const countryFallback = cdr.country;
+                          if (countryInfo) {
+                            return (
+                              <span className="flex items-center justify-center gap-1 text-foreground/60 whitespace-nowrap">
+                                <span>{countryInfo.flag}</span>
+                                <span>{countryInfo.name}</span>
+                              </span>
+                            );
+                          }
+                          return countryFallback
+                            ? <span className="flex items-center justify-center gap-1 text-foreground/60"><Globe className="h-3 w-3" />{countryFallback}</span>
+                            : <span className="text-muted-foreground/40">-</span>;
+                        })()}
+                      </td>
+                    )}
+                    {col('product') && (
+                      <td className="px-3 py-2 text-center" data-testid={`text-product-${i}`}>
+                        {cldInfo?.trunkClass ? (
+                          <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cldInfo.trunkClass.color} border-current/20`}
+                            title={cldInfo.trunkClass.label}>
+                            {cldInfo.trunkClass.short}
+                          </span>
+                        ) : <span className="text-muted-foreground/40">-</span>}
+                      </td>
+                    )}
+                    {col('breakout') && (
+                      <td className="px-3 py-2 text-foreground/60 max-w-[120px] truncate" data-testid={`text-breakout-${i}`}>
+                        {cdr.areaName
+                          ? <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 border border-violet-500/20">{cdr.areaName}</span>
+                          : <span className="text-muted-foreground/40">-</span>}
+                      </td>
+                    )}
+                    {col('desc') && (
+                      <td className="px-3 py-2 text-foreground/60 max-w-[160px] truncate" title={cdr.description || cdr.areaName || ''}>
+                        {cdr.description || '-'}
+                      </td>
+                    )}
+                    {col('setupTime') && (
+                      <td className="px-3 py-2 text-right font-mono text-foreground/60 whitespace-nowrap">
+                        {fmtSetupTime(cdr.startTime, tz)}
+                      </td>
+                    )}
                     <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
                       <span className={isAnswered ? "text-emerald-400" : "text-muted-foreground/50"}>
                         {fmtDurSec(cdr.totalDuration || 0)}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
-                      <span className={isAnswered ? "text-blue-400" : "text-muted-foreground/50"}>
-                        {fmtDurSec(cdr.duration || 0)}
-                      </span>
-                    </td>
+                    {col('billed') && (
+                      <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
+                        <span className={isAnswered ? "text-blue-400" : "text-muted-foreground/50"}>
+                          {fmtDurSec(cdr.duration || 0)}
+                        </span>
+                      </td>
+                    )}
                     <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
                       {(cdr.cost || 0) > 0 ? (
                         <span className="text-amber-400 font-semibold">{fmtCurrency(cdr.cost)}</span>

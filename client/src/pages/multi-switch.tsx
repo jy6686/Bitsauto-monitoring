@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   Layers, RefreshCw, Plus, Pencil, Trash2, TestTube2, CheckCircle2,
   XCircle, AlertTriangle, WifiOff, Wifi, Phone, Activity, Clock,
-  BarChart2, Server, ChevronDown, ChevronUp, Eye, EyeOff, Star, Crown,
+  BarChart2, Server, ChevronDown, ChevronUp, Eye, EyeOff, Star, Crown, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -555,6 +555,20 @@ export default function MultiSwitchPage() {
   const switchList = switchListQuery.data ?? [];
   const secondarySwitches = switchList.filter(s => s.type === 'sippy');
 
+  const [selectedSwitchIds, setSelectedSwitchIds] = useState<Set<string>>(new Set());
+  const visibleSwitches = switches.length === 0
+    ? switches
+    : selectedSwitchIds.size === 0
+      ? switches
+      : switches.filter(sw => selectedSwitchIds.has(sw.id));
+  function toggleSwitchId(id: string) {
+    setSelectedSwitchIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   return (
     <TooltipProvider>
       <div className="p-4 md:p-6 space-y-6 max-w-[1400px] mx-auto">
@@ -639,7 +653,43 @@ export default function MultiSwitchPage() {
 
         {/* ── Per-Switch Cards ── */}
         <div>
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Switch Status</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Switch Status</h2>
+            {switches.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {switches.map(sw => {
+                  const isOn = selectedSwitchIds.size === 0 || selectedSwitchIds.has(sw.id);
+                  return (
+                    <button
+                      key={sw.id}
+                      onClick={() => toggleSwitchId(sw.id)}
+                      data-testid={`chip-switch-${sw.id}`}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all ${
+                        selectedSwitchIds.size === 0
+                          ? 'bg-blue-500/15 border-blue-500/30 text-blue-300'
+                          : isOn
+                            ? 'bg-blue-500/15 border-blue-500/30 text-blue-300'
+                            : 'bg-muted/20 border-border/25 text-muted-foreground/40 hover:border-border/60 hover:text-muted-foreground'
+                      }`}
+                      title={isOn ? `Click to hide ${sw.name}` : `Click to show ${sw.name}`}
+                    >
+                      {(selectedSwitchIds.size > 0 && isOn) && <Check className="w-2.5 h-2.5 flex-shrink-0" />}
+                      {sw.name}
+                    </button>
+                  );
+                })}
+                {selectedSwitchIds.size > 0 && (
+                  <button
+                    onClick={() => setSelectedSwitchIds(new Set())}
+                    className="text-[10px] text-muted-foreground/50 hover:text-foreground transition-colors px-1"
+                    data-testid="button-show-all-switches"
+                  >
+                    Show all
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           {consolidatedQuery.isLoading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {[...Array(3)].map((_, i) => (
@@ -653,7 +703,7 @@ export default function MultiSwitchPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {switches.map(sw => (
+              {visibleSwitches.map(sw => (
                 <SwitchCard
                   key={sw.id}
                   sw={sw}
