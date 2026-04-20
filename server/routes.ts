@@ -4878,8 +4878,29 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const portalUrl = sippyPortalUrl(settings);
       // Use credential-pair retry so swapped apiAdmin/portal fields don't cause 401
-      const { accounts, error } = await withSippyCreds(settings, (u, p) =>
+      const { accounts: liveAccounts, error } = await withSippyCreds(settings, (u, p) =>
         sippy.listSippyAccounts(u, p, {}, portalUrl));
+
+      // Fall back to the in-memory accountNameCache when XML-RPC returns nothing (e.g. portal-only mode).
+      // The cache is warmed at startup from listSippyAccounts so it always has account IDs/names.
+      let accounts = liveAccounts;
+      let usedCache = false;
+      if ((!accounts || accounts.length === 0) && accountNameCache.size > 0) {
+        usedCache = true;
+        accounts = Array.from(accountNameCache.entries()).map(([iAccount, username]) => ({
+          iAccount,
+          username,
+          description: '',
+          blocked: false,
+          expired: false,
+          balance: 0,
+          creditLimit: 0,
+          baseCurrency: 'USD',
+          currency: 'USD',
+          registration: null,
+          maxSessions: null,
+        } as any));
+      }
       if (error && !accounts?.length) return res.status(502).json({ success: false, error });
       const credPairs = sippyXmlCredsPairs(settings);
 
@@ -4951,7 +4972,7 @@ export async function registerRoutes(
           maxSessions, prefix, allowedIps,
         };
       }));
-      res.json({ success: true, accounts: rows });
+      res.json({ success: true, accounts: rows, fromCache: usedCache });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
@@ -12195,12 +12216,25 @@ export async function registerRoutes(
     if (mod === 'billing' || mod === 'balance monitor') {
       const tsM = Date.now();
       try {
-        const profiles = await storage.getClientProfiles();
-        if (profiles.length === 0) {
-          checks.push({ id: 'mod_billing_accounts', name: 'Customer Accounts (Billing)', status: 'warn', detail: 'No client profiles — billing will have nothing to invoice', durationMs: Date.now() - tsM });
-          issues.push({ type: 'NO_DATA', severity: 'warning', component: 'Billing', message: 'No client profiles found. Billing requires customer accounts synced from Sippy.', suggestion: 'Click "Refresh Accounts" to sync accounts from Sippy. Ensure the Sippy API is connected.', autoFix: 'refresh_accounts' });
+        // Check live Sippy account reachability using the in-memory cache (populated at startup).
+        // clientProfiles are local billing profiles (optional), NOT the Balance Monitor's data source.
+        // The Balance Monitor fetches accounts directly from Sippy — so we check the accountNameCache.
+        const cachedAccountCount = accountNameCache.size;
+        if (cachedAccountCount > 0) {
+          checks.push({ id: 'mod_billing_accounts', name: 'Sippy Accounts (Balance Monitor)', status: 'ok', detail: `${cachedAccountCount} account(s) in cache — balance monitor data available`, durationMs: Date.now() - tsM });
         } else {
-          checks.push({ id: 'mod_billing_accounts', name: 'Customer Accounts (Billing)', status: 'ok', detail: `${profiles.length} client profile(s) available`, durationMs: Date.now() - tsM });
+          // Try a live fetch with credential retry
+          const bSettings = await storage.getSippySettings();
+          const bPortalUrl = bSettings ? sippyPortalUrl(bSettings) : '';
+          const { accounts: bAccounts } = bSettings
+            ? await withSippyCreds(bSettings, (u, p) => sippy.listSippyAccounts(u, p, {}, bPortalUrl))
+            : { accounts: [] };
+          if (bAccounts && bAccounts.length > 0) {
+            checks.push({ id: 'mod_billing_accounts', name: 'Sippy Accounts (Balance Monitor)', status: 'ok', detail: `${bAccounts.length} account(s) reachable from Sippy`, durationMs: Date.now() - tsM });
+          } else {
+            checks.push({ id: 'mod_billing_accounts', name: 'Sippy Accounts (Balance Monitor)', status: 'warn', detail: 'Account list is empty — Sippy may be unreachable or credentials need refresh', durationMs: Date.now() - tsM });
+            issues.push({ type: 'NO_DATA', severity: 'warning', component: 'Balance Monitor', message: 'Sippy account list returned empty. Balance Monitor may show no data.', suggestion: 'Click "Refresh Accounts" to re-sync accounts from Sippy. Verify Sippy API credentials in Settings.', autoFix: 'refresh_accounts' });
+          }
         }
       } catch {}
     }
@@ -12436,10 +12470,19 @@ export async function registerRoutes(
             await recordHistory('failure', 'Sippy settings not configured.');
             return res.json({ ok: false, message: 'Sippy settings not configured.', durationMs: Date.now() - t0 });
           }
-          const result = await sippy.listSippyAccounts(settings.apiAdminUsername, settings.apiAdminPassword, {}, settings.portalUrl);
-          const msg = `Account list refreshed: ${result.accounts?.length || 0} accounts loaded.`;
-          await recordHistory('success', msg);
-          return res.json({ ok: true, message: msg, durationMs: Date.now() - t0 });
+          const raPortalUrl = sippyPortalUrl(settings);
+          const { accounts: raAccounts, error: raError } = await withSippyCreds(settings, (u, p) =>
+            sippy.listSippyAccounts(u, p, {}, raPortalUrl));
+          const raCount = raAccounts?.length || 0;
+          if (raCount > 0) {
+            // Warm the in-memory cache so subsequent calls benefit immediately
+            for (const acc of raAccounts!) accountNameCache.set(acc.iAccount, acc.username || `Account ${acc.iAccount}`);
+          }
+          const msg = raError && raCount === 0
+            ? `Account refresh failed: ${raError}`
+            : `Account list refreshed: ${raCount} accounts loaded.`;
+          await recordHistory(raCount > 0 ? 'success' : 'failure', msg);
+          return res.json({ ok: raCount > 0, message: msg, durationMs: Date.now() - t0 });
         }
         case 'refresh_vendors': {
           const settings = await storage.getSippySettings();

@@ -36,6 +36,7 @@ interface BalanceMonitorResponse {
   success: boolean;
   accounts: BalanceAccount[];
   error?: string;
+  fromCache?: boolean;
 }
 
 function StatusBadge({ status }: { status: BalanceAccount["status"] }) {
@@ -583,6 +584,20 @@ export default function BalanceMonitorPage() {
           </Button>
         </div>
       </div>
+
+      {/* Cache-fallback notice — shown when live XML-RPC balance fetch failed */}
+      {data?.fromCache && (
+        <div className="flex items-start gap-3 p-3.5 rounded-xl border border-amber-500/25 bg-amber-500/8 text-amber-300 text-sm">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <div>
+            <span className="font-semibold">Live balance data unavailable — showing account list from cache</span>
+            <p className="text-xs mt-0.5 opacity-75">
+              The Sippy XML-RPC account endpoint did not respond. Balance figures may show as zero.
+              Refresh to retry, or check API credentials in Settings.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Alert Banner */}
       {(criticalCount > 0 || warningCount > 0) && (
