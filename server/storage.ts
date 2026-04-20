@@ -308,8 +308,8 @@ export class DatabaseStorage implements IStorage {
     // Known Sippy credentials — always seeded so the app works out of the box
     const SIPPY_DEFAULTS = {
       switchType:       'sippy'               as const,
-      portalUrl:        'https://191.101.30.107',
-      portalUsername:   'RTST1',
+      portalUrl:        'https://104.245.246.110',
+      portalUsername:   'RTST-1',
       portalPassword:   'abcd@1234',
       apiAdminUsername: 'ssp-root',
       apiAdminPassword: '!chiaan1',
