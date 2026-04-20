@@ -13427,6 +13427,47 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // WebSocket server for real-time messaging
   setupChatWebSocket(httpServer);
 
+  // REST: list team members available to DM (KAMs with linked userId + online guests)
+  app.get("/api/chat/members", async (_req, res) => {
+    try {
+      const { clients: wsClients, presenceList } = await import("./chat-ws");
+      const kams = await storage.getKams();
+      // Build a map of userId → KAM for KAMs who have a userId linked
+      const kamsByUserId = new Map(kams.filter(k => k.userId).map(k => [k.userId!, k]));
+
+      const onlineIds = new Set([...wsClients.keys()]);
+
+      // KAMs with linked userId
+      const kamMembers = kams
+        .filter(k => k.userId)
+        .map(k => ({
+          type: "kam" as const,
+          userId: k.userId!,
+          name: k.name,
+          email: k.email,
+          orgRole: k.orgRole ?? "KAM",
+          isOnline: onlineIds.has(k.userId!),
+        }));
+
+      // Online users NOT already in kamMembers
+      const kamUserIds = new Set(kams.map(k => k.userId).filter(Boolean));
+      const onlineGuests = presenceList()
+        .filter(u => !kamUserIds.has(u.userId))
+        .map(u => ({
+          type: "online" as const,
+          userId: u.userId,
+          name: u.userName,
+          email: "",
+          orgRole: u.userRole,
+          isOnline: true,
+        }));
+
+      res.json([...kamMembers, ...onlineGuests]);
+    } catch (e) {
+      res.status(500).json({ message: "Failed to load members" });
+    }
+  });
+
   // REST: list all chat rooms
   app.get("/api/chat/rooms", async (req, res) => {
     try {
