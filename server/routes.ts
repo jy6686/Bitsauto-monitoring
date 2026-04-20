@@ -227,15 +227,21 @@ function sippyXmlCredsPairs(s: SippyCreds): Array<{ username: string; password: 
   push(s.apiAdminUsername ?? '', s.apiAdminPassword ?? '');
   // Fallback: portal credentials (may contain swapped admin creds)
   push(s.portalUsername ?? '', s.portalPassword ?? '');
-  // Cross-combo: portalUsername + apiAdminPassword
+  // adminWebPassword combos — highest-priority fallback.
+  // On many production Sippy switches, the ssp-root XML-RPC API password equals
+  // the web portal login password (stored as adminWebPassword). Try these BEFORE
+  // cross-combos since adminWebPassword is the most authoritative admin credential.
+  if (s.adminWebPassword) {
+    push(s.apiAdminUsername ?? '', s.adminWebPassword);
+    push(s.portalUsername ?? '',    s.adminWebPassword);
+  }
+  // Cross-combo: portalUsername + apiAdminPassword (handles swapped DB fields)
   if (s.portalUsername !== s.apiAdminUsername) {
     push(s.portalUsername ?? '', s.apiAdminPassword ?? '');
     // Cross-combo: apiAdminUsername + portalPassword (reverse)
     push(s.apiAdminUsername ?? '', s.portalPassword ?? '');
   }
-  // adminWebPassword combos — handles Sippy switches where the XML-RPC API password
-  // equals the web portal login password (stored separately as adminWebPassword).
-  // On some production switches ssp-root API password = HumJeet@y2018 (web password).
+  // adminWebPassword + cross-password combos (exhaustive fallback)
   if (s.adminWebPassword) {
     push(s.portalUsername ?? '',    s.adminWebPassword);
     push(s.apiAdminUsername ?? '', s.adminWebPassword);
@@ -4901,6 +4907,46 @@ export async function registerRoutes(
           maxSessions: null,
         } as any));
       }
+
+      // Second fallback: if still no accounts (accountNameCache also empty, e.g. admin creds wrong),
+      // use unique accounts from the call_snapshots DB table (populated by CDR polling which works
+      // with customer-level credentials). This ensures the balance page shows something meaningful
+      // even when admin XML-RPC credentials are misconfigured.
+      if ((!accounts || accounts.length === 0)) {
+        try {
+          const { db: dbConn } = await import('./db');
+          const { callSnapshots: csTable } = await import('../shared/schema');
+          const { sql: sqlOp, ne } = await import('drizzle-orm');
+          const rows = await dbConn
+            .selectDistinctOn([csTable.accountId], {
+              accountId: csTable.accountId,
+              clientName: csTable.clientName,
+            })
+            .from(csTable)
+            .where(ne(csTable.accountId, ''))
+            .orderBy(csTable.accountId);
+
+          if (rows.length > 0) {
+            usedCache = true;
+            accounts = rows
+              .filter(r => r.accountId && !isNaN(Number(r.accountId)))
+              .map(r => ({
+                iAccount: Number(r.accountId),
+                username: r.clientName ?? r.accountId ?? 'Unknown',
+                description: '',
+                blocked: false,
+                expired: false,
+                balance: 0,
+                creditLimit: 0,
+                baseCurrency: 'USD',
+                currency: 'USD',
+                registration: null,
+                maxSessions: null,
+              } as any));
+          }
+        } catch { /* ignore — DB fallback is best-effort */ }
+      }
+
       if (error && !accounts?.length) return res.status(502).json({ success: false, error });
       const credPairs = sippyXmlCredsPairs(settings);
 
