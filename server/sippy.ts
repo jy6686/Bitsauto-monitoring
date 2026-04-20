@@ -1731,12 +1731,26 @@ export async function getSippyActiveCalls(
   if (!base) return [];
 
   // ── Portal session mode (web scraping fallback) ───────────────────────────
-  // Only used when no explicit credentials are provided. If the caller passed
-  // username/password, always attempt XML-RPC directly — the portal-mode flag
-  // only means the *connection-test* method (i_version.listAvailableMethods) was
-  // blocked; listActiveCalls may still work for the same credential pair.
   const session = activeSession;
-  if (session?.mode === 'portal' && session.cookies && !username) {
+
+  // Short-circuit: when credentials are intentionally omitted (e.g. circuit-breaker
+  // bypass from the live-calls polling route), skip XML-RPC entirely and go straight
+  // to portal scraping. This eliminates the 4-second timeout overhead.
+  if (!username) {
+    // Reuse existing session cookies when available — fastest path, no network overhead.
+    if (session?.cookies) {
+      console.log('[Sippy] listActiveCalls: circuit bypass — scraping /activecalls.php (active session)');
+      return getPortalActiveCallsHtml(session.cookies, base);
+    }
+    // No session: fall through to tryAdminPortalScrape() which handles
+    // getAnyPortalSession() with 5-min caching (noNewLogin controls fresh login).
+    return tryAdminPortalScrape();
+  }
+
+  // Explicit credentials were provided: try XML-RPC first; fall back to portal.
+  // Portal-mode flag means the *connection-test* (listAvailableMethods) was blocked;
+  // listActiveCalls may still work for the same credential pair.
+  if (session?.mode === 'portal' && session.cookies) {
     return getPortalActiveCallsHtml(session.cookies, base);
   }
 
@@ -1852,10 +1866,13 @@ export async function getSippyActiveCalls(
       console.log(`[Sippy] ${method} returned ${calls.length} active calls (XML-RPC, user=${username})`);
       return calls;
     } catch {
-      continue;
+      // Connection-level error (ECONNRESET, timeout) — stop XML-RPC attempts immediately
+      // and fall through to portal scraping rather than trying the next method.
+      break;
     }
   }
-  return [];
+  // XML-RPC failed entirely — try portal scraping as the reliable fallback
+  return tryAdminPortalScrape();
 }
 
 // ── disconnectCall() — docs 107462 ────────────────────────────────────────────

@@ -341,7 +341,7 @@ async function withSippyCredsRaw<T>(
 // rate-limits or blocks connections after too many failed attempts.
 let _xmlRpcFailStreak = 0;
 let _xmlRpcBlockedUntil = 0; // epoch ms
-const XML_RPC_FAIL_THRESHOLD = 2;            // open circuit after 2 consecutive full-sweep failures
+const XML_RPC_FAIL_THRESHOLD = 1;            // open circuit after 1 consecutive full-sweep failure
 const XML_RPC_COOLDOWN_MS   = 10 * 60 * 1000; // stay open for 10 minutes
 
 function xmlRpcIsBlocked(): boolean {
@@ -691,11 +691,12 @@ export async function registerRoutes(
   // Per-vendor alert cooldown map (in-memory)
   const fasVendorAlertCooldowns: Record<string, number> = {};
 
-  // Run once after 30s startup delay, then every 5 minutes
+  // Run once after 90s startup delay, then every 5 minutes
+  // (delay keeps early startup burst minimal so the portal auto-connect session succeeds)
   setTimeout(() => {
     runBackgroundFasAnalysis();
     setInterval(runBackgroundFasAnalysis, 5 * 60 * 1000);
-  }, 30000);
+  }, 90000);
 
   // === PRE-GENERATE documentation files if missing ===
   // Runs immediately in the background so files are ready before first download request.
@@ -1892,14 +1893,30 @@ export async function registerRoutes(
       const settings = await storage.getSettings();
       const portalUrl = sippyPortalUrl(settings);
 
-      // Use XML-RPC capable credential as primary.
-      // noNewLogin=true: never attempt a fresh portal login from this polling route —
-      // doing so blocks the response for 48+ seconds and triggers Sippy rate-limiting.
-      // The startup auto-connect (connectSippy) handles session establishment.
+      // When XML-RPC circuit is open (server blocking), pass empty username so
+      // getSippyActiveCalls skips straight to portal-session scraping without
+      // wasting 4 seconds on an XML-RPC attempt that will only fail.
       const { username, password } = sippyXmlCreds(settings);
       const fallbackUser = settings?.portalUsername ?? '';
       const fallbackPass = settings?.portalPassword ?? '';
-      const raw = await sippy.getSippyActiveCalls(username, password, portalUrl, undefined, fallbackUser, fallbackPass, true);
+      const circuitOpen = xmlRpcIsBlocked();
+      // When circuit is open: bypass XML-RPC credentials (pass empty strings)
+      // so getSippyActiveCalls jumps straight to portal scraping.
+      // Allow a fresh portal login only when the circuit is open AND there is
+      // no active session yet — getAnyPortalSession() caches the result for
+      // 5 min so subsequent 5-second polls reuse cookies without re-logging in.
+      const sessionActive = sippy.getSippySessionStatus().active;
+      // noNewLogin=false only when: circuit open + no session (allow one login)
+      // noNewLogin=true in all other cases (prevents repeated login hammering)
+      const noNewLogin = !circuitOpen || sessionActive;
+      const raw = await sippy.getSippyActiveCalls(
+        circuitOpen ? '' : username,
+        circuitOpen ? '' : password,
+        portalUrl, undefined,
+        fallbackUser,
+        fallbackPass,
+        noNewLogin,
+      );
       // Map CC_STATE → callStatus; filter out terminated states
       const ccStateMap: Record<string, 'connected' | 'routing'> = {
         Connected:    'connected',
@@ -2420,16 +2437,19 @@ export async function registerRoutes(
         }).catch(() => ({ ok: false, points: [] as any[] })),
       ]);
 
-      // Fetch CDRs — try all credential pairs (RTST1 often 401 on CDR methods, ssp-root succeeds)
-      // Use global (no i_account) CDR fetch so one call covers all accounts
+      // Fetch CDRs — circuit breaker skips XML-RPC when Sippy is blocking connections
       let recentCdrs: any[] = [];
-      for (const creds of credPairs) {
-        try {
-          const rows = await sippy.getSippyCDRs(creds.username, creds.password, 500, {
-            startDate: cdrStartDate, endDate: cdrEndDate,
-          });
-          if (rows.length > 0) { recentCdrs = rows; break; }
-        } catch { continue; }
+      if (!xmlRpcCircuitGuard()) {
+        let allFailed = true;
+        for (const creds of credPairs) {
+          try {
+            const rows = await sippy.getSippyCDRs(creds.username, creds.password, 500, {
+              startDate: cdrStartDate, endDate: cdrEndDate,
+            });
+            if (rows.length > 0) { recentCdrs = rows; xmlRpcRecordSuccess(); allFailed = false; break; }
+          } catch { continue; }
+        }
+        if (allFailed) xmlRpcRecordAllFailed('dashboard-stats: no CDRs from any pair');
       }
 
       // ── CK (Call-Back) Ratio from CDRs ─────────────────────────────────────
@@ -2876,8 +2896,9 @@ export async function registerRoutes(
     }
   }
 
-  // Seed cache immediately on startup, then every 5 minutes
-  setTimeout(() => refreshCdrCache(), 5000);
+  // Delay first CDR cache refresh by 60s so the portal auto-connect session can be
+  // established first. Early XML-RPC bursts (at 5s) were triggering ECONNRESET.
+  setTimeout(() => refreshCdrCache(), 60 * 1000);
   setInterval(() => refreshCdrCache(), 5 * 60 * 1000);
 
   // GET /api/sippy/cdr/graphs — pre-aggregated CDR data for charts
