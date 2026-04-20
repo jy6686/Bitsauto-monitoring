@@ -569,10 +569,58 @@ export async function registerRoutes(
         } catch { /* duplicate — ignore */ }
       }
       if (saved > 0) console.log(`[fas-bg] Saved ${saved} new FAS events from ${cdrs.length} CDRs`);
+
+      // ── Per-vendor threshold alerting ────────────────────────────────────
+      // After each batch, compute FAS rate per vendor from the past 60 min.
+      // If a vendor's rate exceeds their configured threshold, fire a WhatsApp alert (1h cooldown).
+      if (saved > 0) {
+        try {
+          const vendorSettings = await storage.listFasVendorSettings();
+          if (vendorSettings.length > 0) {
+            const since60m = new Date(Date.now() - 60 * 60 * 1000);
+            const recentEvents = await storage.getFasEvents(2000);
+            const recent = recentEvents.filter(e => new Date(e.detectedAt) >= since60m);
+            // Group events by vendor
+            const byVendor: Record<string, typeof recent> = {};
+            for (const e of recent) {
+              const v = e.vendor || 'Unknown';
+              (byVendor[v] ??= []).push(e);
+            }
+            // Total CDRs in the batch gives us denominator — use answered count from CDRs
+            const answeredCdrCount = cdrs.filter(c => {
+              const r = parseInt(String(c.result ?? '').trim()) || 0;
+              return r === 0 || c.duration > 0;
+            }).length;
+
+            for (const vs of vendorSettings) {
+              const threshold = vs.alertThreshold ?? 30;
+              const vendorEvents = byVendor[vs.vendor]?.length ?? 0;
+              if (vendorEvents === 0) continue;
+              // Rate = FAS events for this vendor / total answered CDRs (conservative estimate)
+              const rate = answeredCdrCount > 0 ? (vendorEvents / answeredCdrCount) * 100 : 100;
+              if (rate < threshold) continue;
+              // Cooldown: skip if we sent an alert for this vendor in the past 60 min
+              const cooldownKey = `fas_vendor_alert_${vs.vendor}`;
+              const lastSent = (fasVendorAlertCooldowns as Record<string, number>)[cooldownKey] ?? 0;
+              if (Date.now() - lastSent < 60 * 60 * 1000) continue;
+              (fasVendorAlertCooldowns as Record<string, number>)[cooldownKey] = Date.now();
+              const msg = `🚨 FAS Alert — ${vs.vendor}\nFAS rate: ${rate.toFixed(1)}% (threshold: ${threshold}%)\nEvents in last 60 min: ${vendorEvents}\nAutomatic detection via VoIP Watcher FAS engine.`;
+              waSvc.sendWhatsAppAlert('fas', msg).catch(() => {});
+              console.log(`[fas-bg] Threshold alert sent for vendor "${vs.vendor}" (rate=${rate.toFixed(1)}%, threshold=${threshold}%)`);
+            }
+          }
+        } catch (alertErr: any) {
+          console.error('[fas-bg] Vendor threshold alerting error:', alertErr.message);
+        }
+      }
     } catch (err: any) {
       console.error('[fas-bg] Background FAS analysis error:', err.message);
     }
   }
+
+  // Per-vendor alert cooldown map (in-memory)
+  const fasVendorAlertCooldowns: Record<string, number> = {};
+
   // Run once after 30s startup delay, then every 5 minutes
   setTimeout(() => {
     runBackgroundFasAnalysis();
@@ -6808,6 +6856,133 @@ export async function registerRoutes(
       ).sort((a, b) => b.fraudScore - a.fraudScore);
       res.json({ vendorScores });
     } catch (e: any) { res.status(500).json({ vendorScores: [], error: e.message }); }
+  });
+
+  // ── FAS VENDOR SETTINGS CRUD ──────────────────────────────────────────────
+
+  // GET /api/fas/vendor-settings — list all per-vendor suppression + alert threshold settings
+  app.get('/api/fas/vendor-settings', (req: any, res, next) => requireRole(['management'], req, res, next), async (_req, res) => {
+    try {
+      const rows = await storage.listFasVendorSettings();
+      res.json({ settings: rows });
+    } catch (e: any) { res.status(500).json({ settings: [], error: e.message }); }
+  });
+
+  // POST /api/fas/vendor-settings — upsert settings for a vendor
+  app.post('/api/fas/vendor-settings', (req: any, res, next) => requireRole(['management'], req, res, next), async (req: any, res) => {
+    try {
+      const { vendor, suppressed, alertThreshold } = req.body;
+      if (!vendor) return res.status(400).json({ error: 'vendor required' });
+      const row = await storage.upsertFasVendorSetting(vendor, {
+        suppressed: !!suppressed,
+        alertThreshold: alertThreshold != null ? Number(alertThreshold) : undefined,
+      });
+      res.json({ setting: row });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/fas/vendor-settings/:vendor — remove vendor settings
+  app.delete('/api/fas/vendor-settings/:vendor', (req: any, res, next) => requireRole(['management'], req, res, next), async (req: any, res) => {
+    try {
+      await storage.deleteFasVendorSetting(decodeURIComponent(req.params.vendor));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/fas/vendor-events?vendor=X — FAS events filtered by vendor name
+  app.get('/api/fas/vendor-events', (req: any, res, next) => requireRole(['management'], req, res, next), async (req: any, res) => {
+    try {
+      const vendor = req.query.vendor as string | undefined;
+      const limit = Math.min(500, Number(req.query.limit ?? 200));
+      const events = await storage.getFasEvents(limit, vendor);
+      const resolved = events.map(e => {
+        let clientName = e.clientName;
+        if (!clientName || clientName.match(/^Acct[#.]?\d+$/i)) {
+          const m = clientName?.match(/\d+/);
+          clientName = (m ? accountNameCache.get(m[0]) : undefined) ?? clientName ?? 'Unknown';
+        }
+        return { ...e, clientName };
+      });
+      res.json({ events: resolved, total: resolved.length });
+    } catch (e: any) { res.status(500).json({ events: [], error: e.message }); }
+  });
+
+  // GET /api/fas/vendor-trend?vendor=X — daily FAS count for the past 7 days per vendor
+  app.get('/api/fas/vendor-trend', (req: any, res, next) => requireRole(['management'], req, res, next), async (req: any, res) => {
+    try {
+      const vendor = req.query.vendor as string | undefined;
+      const days = Math.min(30, Number(req.query.days ?? 7));
+      const since = new Date(Date.now() - days * 86400000);
+      // Fetch a larger pool of events to compute daily buckets
+      const events = await storage.getFasEvents(2000, vendor);
+      const recent = events.filter(e => new Date(e.detectedAt) >= since);
+      // Group by day (UTC date string)
+      const byDay: Record<string, number> = {};
+      for (let d = 0; d < days; d++) {
+        const day = new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+        byDay[day] = 0;
+      }
+      for (const e of recent) {
+        const day = new Date(e.detectedAt).toISOString().slice(0, 10);
+        if (day in byDay) byDay[day]++;
+      }
+      const trend = Object.entries(byDay)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, count]) => ({ date, count }));
+      res.json({ trend, vendor: vendor ?? 'all', days });
+    } catch (e: any) { res.status(500).json({ trend: [], error: e.message }); }
+  });
+
+  // GET /api/sippy/recording-status — probe Sippy for call recording configuration
+  // Uses getSystemConfig XML-RPC to check if recording is enabled at system level.
+  app.get('/api/sippy/recording-status', (req: any, res, next) => requireRole(['management'], req, res, next), async (_req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      if (!settings?.apiAdminUsername || !settings?.apiAdminPassword) {
+        return res.json({ enabled: false, status: 'no_credentials', message: 'Sippy credentials not configured.' });
+      }
+      const apiUrl = sippyPortalUrl(settings);
+      const username = settings.apiAdminUsername;
+      const password = settings.apiAdminPassword;
+
+      const result = await sippy.getSystemConfig(username, password, { portalUrl: apiUrl });
+      if (!result.success) {
+        return res.json({ enabled: false, status: 'api_error', message: result.message });
+      }
+
+      // Look for call_recording or record_calls keys in the system config
+      const recordingKeys = ['call_recording', 'record_calls', 'recording_enabled',
+        'enable_recording', 'voice_recording', 'call_record'];
+      let recordingEntry: { key: string; currentValue: string | null } | null = null;
+      for (const entry of result.config) {
+        if (entry.key && recordingKeys.some(k => entry.key!.toLowerCase().includes(k.replace('_', '')))) {
+          recordingEntry = entry;
+          break;
+        }
+      }
+
+      if (!recordingEntry) {
+        // Key not found — recording is likely NOT configured at system level
+        return res.json({
+          enabled: false,
+          status: 'not_configured',
+          message: 'No call recording configuration key found in Sippy system config. Recording is likely not enabled on this switch.',
+          configKeysScanned: result.config.length,
+        });
+      }
+
+      const val = (recordingEntry.currentValue ?? '').toLowerCase();
+      const enabled = val === '1' || val === 'yes' || val === 'true' || val === 'enabled';
+      res.json({
+        enabled,
+        status: enabled ? 'active' : 'disabled',
+        configKey: recordingEntry.key,
+        configValue: recordingEntry.currentValue,
+        message: enabled
+          ? `Call recording is ACTIVE on this switch (${recordingEntry.key}=${recordingEntry.currentValue})`
+          : `Call recording key found but is disabled (${recordingEntry.key}=${recordingEntry.currentValue})`,
+      });
+    } catch (e: any) { res.status(500).json({ enabled: false, status: 'error', message: e.message }); }
   });
 
   // ── CDR ENRICHMENT ENDPOINT ───────────────────────────────────────────────

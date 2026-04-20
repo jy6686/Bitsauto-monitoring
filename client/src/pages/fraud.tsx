@@ -6,6 +6,7 @@ import {
   TrendingUp, Eye, Play, Calendar, Zap, Ban, PhoneOff, Activity,
   CheckCircle2, XCircle, MinusCircle, Satellite, Plus, Trash2,
   Globe, ToggleLeft, ToggleRight, ShieldBan, ScanSearch,
+  Settings2, Bell, Mic, MicOff, ChevronRight, VolumeX,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { toTzDateInput, toSippyDateTz, formatInTz } from "@/lib/date-utils";
 import { useTimezone } from "@/context/timezone-context";
@@ -87,6 +89,23 @@ type BlacklistRule = {
   hitCount: number;
   createdAt: string;
 };
+
+type FasVendorSetting = {
+  vendor: string;
+  suppressed: boolean;
+  alertThreshold: number;
+  updatedAt: string | null;
+};
+
+type RecordingStatus = {
+  enabled: boolean;
+  status: 'active' | 'disabled' | 'not_configured' | 'no_credentials' | 'api_error' | 'error';
+  message: string;
+  configKey?: string;
+  configValue?: string;
+};
+
+type FasTrendDay = { date: string; count: number };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -242,6 +261,47 @@ export default function FraudPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/blacklist-rules"] }),
   });
 
+  // ── Vendor Settings ────────────────────────────────────────────────────────
+  const { data: vsSettingsData, refetch: refetchVsSettings } = useQuery<{ settings: FasVendorSetting[] }>({
+    queryKey: ["/api/fas/vendor-settings"],
+    refetchInterval: 30000,
+  });
+  const vendorSettings = vsSettingsData?.settings ?? [];
+
+  const upsertVendorSettingMutation = useMutation({
+    mutationFn: (data: { vendor: string; suppressed?: boolean; alertThreshold?: number }) =>
+      apiRequest("POST", "/api/fas/vendor-settings", data).then(r => r.json()),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/fas/vendor-settings"] }); refetchVsSettings(); },
+  });
+  const deleteVendorSettingMutation = useMutation({
+    mutationFn: (vendor: string) => apiRequest("DELETE", `/api/fas/vendor-settings/${encodeURIComponent(vendor)}`).then(r => r.json()),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/fas/vendor-settings"] }); refetchVsSettings(); },
+  });
+
+  // ── Recording Status ────────────────────────────────────────────────────────
+  const { data: recordingStatus, isLoading: recordingLoading } = useQuery<RecordingStatus>({
+    queryKey: ["/api/sippy/recording-status"],
+    refetchInterval: 120000,
+    retry: 1,
+  });
+
+  // ── Vendor Drill-Down ───────────────────────────────────────────────────────
+  const [drillVendor, setDrillVendor] = useState<string | null>(null);
+  const { data: drillEventsData } = useQuery<{ events: FasEvent[] }>({
+    queryKey: ["/api/fas/vendor-events", drillVendor],
+    enabled: !!drillVendor,
+  });
+  const { data: drillTrendData } = useQuery<{ trend: FasTrendDay[] }>({
+    queryKey: ["/api/fas/vendor-trend", drillVendor],
+    enabled: !!drillVendor,
+  });
+  const drillEvents = drillEventsData?.events ?? [];
+  const drillTrend = drillTrendData?.trend ?? [];
+
+  // Vendor threshold quick-add state
+  const [vsVendorInput, setVsVendorInput] = useState('');
+  const [vsThreshold, setVsThreshold] = useState('30');
+
   // Risk level helper for IRSF
   function irsfRiskBadge(score: number | null) {
     const s = score ?? 0;
@@ -362,6 +422,28 @@ export default function FraudPage() {
           </div>
         )}
       </div>
+
+      {/* Recording Status Banner */}
+      {!recordingLoading && recordingStatus && (
+        <div className={`rounded-xl border px-4 py-3 flex items-start gap-3 text-sm ${
+          recordingStatus.enabled
+            ? "bg-green-500/10 border-green-500/20 text-green-400"
+            : recordingStatus.status === 'not_configured'
+              ? "bg-zinc-500/10 border-zinc-500/20 text-zinc-400"
+              : "bg-amber-500/10 border-amber-500/20 text-amber-400"
+        }`} data-testid="recording-status-banner">
+          {recordingStatus.enabled
+            ? <Mic className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            : <MicOff className="h-4 w-4 flex-shrink-0 mt-0.5" />}
+          <div>
+            <span className="font-semibold">Call Recording: </span>
+            {recordingStatus.message}
+            {recordingStatus.configKey && (
+              <span className="ml-2 font-mono text-xs opacity-60">[{recordingStatus.configKey}={recordingStatus.configValue}]</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
@@ -576,6 +658,7 @@ export default function FraudPage() {
                   <th className="px-4 py-3 text-right">Avg Bill</th>
                   <th className="px-4 py-3 text-right">Score</th>
                   <th className="px-4 py-3 text-center">Risk</th>
+                  <th className="px-4 py-3 text-center">Drill</th>
                 </tr>
               </thead>
               <tbody>
@@ -616,6 +699,13 @@ export default function FraudPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">{riskBadge(v.riskLevel)}</td>
+                    <td className="px-4 py-3 text-center">
+                      <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1 text-primary/70 hover:text-primary"
+                        data-testid={`button-drill-${v.vendor}`}
+                        onClick={() => setDrillVendor(v.vendor)}>
+                        <ChevronRight className="h-3 w-3" />Drill
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -623,6 +713,95 @@ export default function FraudPage() {
           </div>
         </div>
       )}
+
+      {/* ── Vendor Alert Controls ── */}
+      <div className="bg-card rounded-xl border border-border p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Settings2 className="h-4 w-4 text-primary" />
+          <h2 className="font-semibold text-sm">Vendor Alert Controls</h2>
+          <span className="text-xs text-muted-foreground ml-1">— per-vendor FAS alert thresholds &amp; suppression</span>
+        </div>
+
+        {/* Quick-add row */}
+        <div className="flex flex-wrap items-end gap-3 mb-4">
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1">Vendor Name</Label>
+            <Input value={vsVendorInput} onChange={e => setVsVendorInput(e.target.value)}
+              placeholder="e.g. Vendor-A" className="h-8 text-xs w-44" data-testid="input-vs-vendor" />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1">Alert Threshold (%)</Label>
+            <Input type="number" min="1" max="100" value={vsThreshold} onChange={e => setVsThreshold(e.target.value)}
+              className="h-8 text-xs w-28" data-testid="input-vs-threshold" />
+          </div>
+          <Button size="sm" className="h-8 gap-1.5" data-testid="button-vs-add"
+            disabled={!vsVendorInput.trim() || upsertVendorSettingMutation.isPending}
+            onClick={() => {
+              upsertVendorSettingMutation.mutate({
+                vendor: vsVendorInput.trim(),
+                alertThreshold: parseInt(vsThreshold) || 30,
+                suppressed: false,
+              });
+              setVsVendorInput('');
+            }}>
+            <Plus className="h-3.5 w-3.5" />Add / Update
+          </Button>
+        </div>
+
+        {vendorSettings.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-3">No vendor alert rules configured yet. Add a vendor above to set custom thresholds.</p>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-border/60">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/20 text-xs text-muted-foreground uppercase tracking-wider">
+                  <th className="px-4 py-2.5 text-left">Vendor</th>
+                  <th className="px-4 py-2.5 text-center">Alert Threshold</th>
+                  <th className="px-4 py-2.5 text-center">Suppressed</th>
+                  <th className="px-4 py-2.5 text-center">Updated</th>
+                  <th className="px-4 py-2.5 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vendorSettings.map(vs => (
+                  <tr key={vs.vendor} className="border-b border-border/40 hover:bg-muted/10" data-testid={`row-vs-${vs.vendor}`}>
+                    <td className="px-4 py-2.5 font-mono text-xs font-medium">{vs.vendor}</td>
+                    <td className="px-4 py-2.5 text-center">
+                      <Badge className="bg-blue-500/15 text-blue-400 border-blue-500/20 text-xs gap-1">
+                        <Bell className="h-3 w-3" />{vs.alertThreshold}%
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      <Button size="sm" variant="ghost" className="h-6 px-2 gap-1 text-xs"
+                        data-testid={`button-vs-suppress-${vs.vendor}`}
+                        onClick={() => upsertVendorSettingMutation.mutate({ vendor: vs.vendor, suppressed: !vs.suppressed, alertThreshold: vs.alertThreshold })}>
+                        {vs.suppressed
+                          ? <><VolumeX className="h-3 w-3 text-red-400" /><span className="text-red-400">Yes</span></>
+                          : <><Bell className="h-3 w-3 text-green-400" /><span className="text-green-400">No</span></>}
+                      </Button>
+                    </td>
+                    <td className="px-4 py-2.5 text-center text-xs text-muted-foreground">
+                      {vs.updatedAt ? formatInTz(new Date(vs.updatedAt), "dd MMM HH:mm", tz) : "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-center flex gap-1 justify-center">
+                      <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1 text-primary/70 hover:text-primary"
+                        data-testid={`button-vs-drill-${vs.vendor}`}
+                        onClick={() => setDrillVendor(vs.vendor)}>
+                        <Eye className="h-3 w-3" />View
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-6 px-2 text-red-400 hover:text-red-300"
+                        data-testid={`button-vs-delete-${vs.vendor}`}
+                        onClick={() => deleteVendorSettingMutation.mutate(vs.vendor)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
         </TabsContent>
 
         {/* ── IRSF Detection Tab ── */}
@@ -822,6 +1001,97 @@ export default function FraudPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* ── Vendor Drill-Down Sheet ── */}
+      <Sheet open={!!drillVendor} onOpenChange={open => { if (!open) setDrillVendor(null); }}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5 text-primary" />
+              FAS Drill-Down: {drillVendor}
+            </SheetTitle>
+          </SheetHeader>
+
+          {/* 7-day trend bar */}
+          {drillTrend.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">7-Day FAS Trend</p>
+              <div className="flex items-end gap-1 h-16">
+                {drillTrend.map(d => {
+                  const maxCount = Math.max(...drillTrend.map(x => x.count), 1);
+                  const h = Math.max(4, (d.count / maxCount) * 56);
+                  return (
+                    <div key={d.date} className="flex flex-col items-center gap-1 flex-1" title={`${d.date}: ${d.count}`}>
+                      <div className={`w-full rounded-t transition-all ${d.count > 0 ? "bg-red-500/60" : "bg-muted/30"}`}
+                        style={{ height: `${h}px` }} />
+                      <span className="text-[9px] text-muted-foreground rotate-45 origin-left whitespace-nowrap">
+                        {d.date.slice(5)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Vendor settings inline */}
+          {drillVendor && (() => {
+            const vs = vendorSettings.find(v => v.vendor === drillVendor);
+            return (
+              <div className="mt-5 p-3 rounded-lg bg-muted/30 border border-border/50 text-sm flex items-center gap-4 flex-wrap">
+                <span className="text-muted-foreground text-xs">Alert threshold:</span>
+                <Badge className="bg-blue-500/15 text-blue-400 border-blue-500/20 text-xs gap-1">
+                  <Bell className="h-3 w-3" />{vs?.alertThreshold ?? 30}%
+                </Badge>
+                <span className="text-muted-foreground text-xs">Suppressed:</span>
+                <Badge className={vs?.suppressed ? "bg-red-500/15 text-red-400 border-red-500/20 text-xs" : "bg-green-500/15 text-green-400 border-green-500/20 text-xs"}>
+                  {vs?.suppressed ? "Yes" : "No"}
+                </Badge>
+                {!vs && (
+                  <Button size="sm" variant="outline" className="h-6 text-xs gap-1 ml-auto"
+                    onClick={() => upsertVendorSettingMutation.mutate({ vendor: drillVendor, alertThreshold: 30, suppressed: false })}>
+                    <Bell className="h-3 w-3" />Set Alert Rule
+                  </Button>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Events list */}
+          <div className="mt-5">
+            <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">
+              Recent FAS Events ({drillEvents.length})
+            </p>
+            {drillEvents.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-6 text-center">No FAS events found for this vendor.</p>
+            ) : (
+              <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                {drillEvents.slice(0, 50).map(e => (
+                  <div key={e.id} className="bg-card border border-border/60 rounded-lg px-3 py-2.5 text-xs"
+                    data-testid={`drill-event-${e.id}`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-mono text-muted-foreground">{formatInTz(new Date(e.detectedAt), "dd MMM HH:mm:ss", tz)}</span>
+                      <span className="text-primary/60">|</span>
+                      <span className="font-medium">{e.caller ?? "?"} → {e.callee ?? "?"}</span>
+                      {e.fraudScore != null && (
+                        <Badge className={`ml-auto text-xs ${e.fraudScore >= 50 ? "bg-red-500/20 text-red-400 border-red-500/30" : e.fraudScore >= 20 ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/30" : "bg-green-500/20 text-green-400 border-green-500/30"}`}>
+                          Score: {e.fraudScore}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {reasonBadges(e.reason)}
+                      {e.pddSecs != null && <span className="text-muted-foreground">PDD: {secs(e.pddSecs)}</span>}
+                      {e.billSecs != null && <span className="text-muted-foreground">Bill: {secs(e.billSecs)}</span>}
+                      {e.sipCode != null && <span className="font-mono text-muted-foreground">SIP {e.sipCode}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -185,6 +185,16 @@ export type FasEvent = typeof fasEvents.$inferSelect;
 export type InsertFasEvent = typeof fasEvents.$inferInsert;
 export const insertFasEventSchema = createInsertSchema(fasEvents).omit({ id: true, detectedAt: true });
 
+// FAS Vendor Settings: per-vendor suppression + alert threshold
+export const fasVendorSettings = pgTable("fas_vendor_settings", {
+  vendor:         varchar("vendor", { length: 255 }).primaryKey(),
+  suppressed:     boolean("suppressed").default(false).notNull(),
+  alertThreshold: integer("alert_threshold").default(30),  // FAS% at which to send alert
+  updatedAt:      timestamp("updated_at").defaultNow(),
+});
+export type FasVendorSetting       = typeof fasVendorSettings.$inferSelect;
+export type InsertFasVendorSetting = typeof fasVendorSettings.$inferInsert;
+
 // Outage Log: records when the Sippy server goes down and recovers
 export const outageLog = pgTable("outage_log", {
   id:           serial("id").primaryKey(),

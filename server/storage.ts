@@ -1,7 +1,7 @@
 
 import { 
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
-  switches, fasEvents, callSnapshots, monitoringAssignments, outageLog, alertRules,
+  switches, fasEvents, fasVendorSettings, callSnapshots, monitoringAssignments, outageLog, alertRules,
   monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts, sippySnapshots,
   watcherRecipients, irsfEvents, blacklistRules, rateCards, rateCardEntries, mosHourly,
   apiKeys, dashboardWidgetPrefs, callTestLogs, whatsappAlertLog,
@@ -12,7 +12,7 @@ import {
   type Role, type ClientProfile, type InsertClientProfile,
   type UserConfig, type InsertUserConfig,
   type Switch, type InsertSwitch,
-  type FasEvent, type InsertFasEvent,
+  type FasEvent, type InsertFasEvent, type FasVendorSetting, type InsertFasVendorSetting,
   type CallSnapshot, type InsertCallSnapshot,
   type OutageEntry, type InsertOutageEntry,
   type AlertRule, type InsertAlertRule,
@@ -87,10 +87,16 @@ export interface IStorage {
   upsertUserConfig(userId: string, config: Partial<InsertUserConfig>): Promise<UserConfig>;
 
   // FAS Events
-  getFasEvents(limit?: number): Promise<FasEvent[]>;
+  getFasEvents(limit?: number, vendor?: string): Promise<FasEvent[]>;
   createFasEvent(event: InsertFasEvent): Promise<FasEvent>;
   markFasAlertSent(id: number): Promise<void>;
   backfillFasEventVendors(vendorName: string): Promise<number>;
+
+  // FAS Vendor Settings
+  listFasVendorSettings(): Promise<FasVendorSetting[]>;
+  getFasVendorSetting(vendor: string): Promise<FasVendorSetting | null>;
+  upsertFasVendorSetting(vendor: string, data: Partial<InsertFasVendorSetting>): Promise<FasVendorSetting>;
+  deleteFasVendorSetting(vendor: string): Promise<void>;
 
   // Call Snapshots (24-hour live call history)
   upsertCallSnapshot(snapshot: InsertCallSnapshot): Promise<void>;
@@ -567,8 +573,12 @@ export class DatabaseStorage implements IStorage {
 
   // ── FAS Events ─────────────────────────────────────────────────────────────
 
-  async getFasEvents(limit: number = 100): Promise<FasEvent[]> {
-    return db.select().from(fasEvents).orderBy(desc(fasEvents.detectedAt)).limit(limit);
+  async getFasEvents(limit: number = 100, vendor?: string): Promise<FasEvent[]> {
+    const q = db.select().from(fasEvents);
+    if (vendor) {
+      return q.where(eq(fasEvents.vendor, vendor)).orderBy(desc(fasEvents.detectedAt)).limit(limit);
+    }
+    return q.orderBy(desc(fasEvents.detectedAt)).limit(limit);
   }
 
   async createFasEvent(event: InsertFasEvent): Promise<FasEvent> {
@@ -586,6 +596,32 @@ export class DatabaseStorage implements IStorage {
       .where(sql`(vendor IS NULL OR vendor = '')`)
       .returning({ id: fasEvents.id });
     return rows.length;
+  }
+
+  // ── FAS Vendor Settings ────────────────────────────────────────────────────
+
+  async listFasVendorSettings(): Promise<FasVendorSetting[]> {
+    return db.select().from(fasVendorSettings).orderBy(fasVendorSettings.vendor);
+  }
+
+  async getFasVendorSetting(vendor: string): Promise<FasVendorSetting | null> {
+    const [row] = await db.select().from(fasVendorSettings).where(eq(fasVendorSettings.vendor, vendor));
+    return row ?? null;
+  }
+
+  async upsertFasVendorSetting(vendor: string, data: Partial<InsertFasVendorSetting>): Promise<FasVendorSetting> {
+    const [row] = await db.insert(fasVendorSettings)
+      .values({ vendor, ...data })
+      .onConflictDoUpdate({
+        target: fasVendorSettings.vendor,
+        set: { ...data, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+
+  async deleteFasVendorSetting(vendor: string): Promise<void> {
+    await db.delete(fasVendorSettings).where(eq(fasVendorSettings.vendor, vendor));
   }
 
   // ── Call Snapshots ─────────────────────────────────────────────────────────
