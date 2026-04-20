@@ -5,6 +5,7 @@ import {
   monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts, sippySnapshots,
   watcherRecipients, irsfEvents, blacklistRules, rateCards, rateCardEntries, mosHourly,
   apiKeys, dashboardWidgetPrefs, callTestLogs, whatsappAlertLog,
+  simboxScores, billingDisputes, slaBreachLog, testCampaigns, testCampaignResults, scheduledReports,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -33,6 +34,12 @@ import {
   type WhatsappAlertLog,
   fixHistory,
   type FixHistory, type InsertFixHistory,
+  type SimboxScore, type InsertSimboxScore,
+  type BillingDispute, type InsertBillingDispute,
+  type SlaBreachEntry, type InsertSlaBreachEntry,
+  type TestCampaign, type InsertTestCampaign,
+  type TestCampaignResult, type InsertTestCampaignResult,
+  type ScheduledReport, type InsertScheduledReport,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -202,6 +209,40 @@ export interface IStorage {
   getFixHistory(limit?: number): Promise<FixHistory[]>;
   getFixHistoryById(id: number): Promise<FixHistory | null>;
   findSimilarFix(issueType: string, component: string): Promise<FixHistory | null>;
+
+  // SIMbox Scores
+  getLatestSimboxScores(limit?: number): Promise<SimboxScore[]>;
+  upsertSimboxScore(score: InsertSimboxScore): Promise<SimboxScore>;
+  getSimboxScoresByVendor(vendorId: string, limit?: number): Promise<SimboxScore[]>;
+
+  // Billing Disputes
+  getBillingDisputes(): Promise<BillingDispute[]>;
+  createBillingDispute(dispute: InsertBillingDispute): Promise<BillingDispute>;
+  updateBillingDispute(id: number, updates: Partial<InsertBillingDispute>): Promise<BillingDispute | undefined>;
+  deleteBillingDispute(id: number): Promise<void>;
+
+  // SLA Breach Log
+  getSlaBreaches(limit?: number, vendorId?: string): Promise<SlaBreachEntry[]>;
+  addSlaBreachEntry(entry: InsertSlaBreachEntry): Promise<SlaBreachEntry>;
+  resolveSlaBreachEntry(id: number, breachEnd: Date, durationMinutes: number): Promise<void>;
+  getOpenSlaBreach(vendorId: string, metric: string): Promise<SlaBreachEntry | null>;
+
+  // Test Campaigns
+  getTestCampaigns(): Promise<TestCampaign[]>;
+  getTestCampaign(id: number): Promise<TestCampaign | undefined>;
+  createTestCampaign(campaign: InsertTestCampaign): Promise<TestCampaign>;
+  updateTestCampaign(id: number, updates: Partial<InsertTestCampaign>): Promise<TestCampaign | undefined>;
+  deleteTestCampaign(id: number): Promise<void>;
+  addCampaignResult(result: InsertTestCampaignResult): Promise<TestCampaignResult>;
+  getCampaignResults(campaignId: number, limit?: number): Promise<TestCampaignResult[]>;
+
+  // Scheduled Reports
+  getScheduledReports(): Promise<ScheduledReport[]>;
+  createScheduledReport(report: InsertScheduledReport): Promise<ScheduledReport>;
+  updateScheduledReport(id: number, updates: Partial<InsertScheduledReport>): Promise<ScheduledReport | undefined>;
+  deleteScheduledReport(id: number): Promise<void>;
+  markReportSent(id: number, sentAt: Date, nextDueAt: Date): Promise<void>;
+  getDueScheduledReports(): Promise<ScheduledReport[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1101,6 +1142,166 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(fixHistory.createdAt))
       .limit(1);
     return row ?? null;
+  }
+
+  // ── SIMbox Scores ─────────────────────────────────────────────────────────
+  async getLatestSimboxScores(limit = 50): Promise<SimboxScore[]> {
+    return db.select().from(simboxScores).orderBy(desc(simboxScores.createdAt)).limit(limit);
+  }
+
+  async upsertSimboxScore(score: InsertSimboxScore): Promise<SimboxScore> {
+    const [row] = await db.insert(simboxScores).values(score).returning();
+    return row;
+  }
+
+  async getSimboxScoresByVendor(vendorId: string, limit = 30): Promise<SimboxScore[]> {
+    return db.select().from(simboxScores)
+      .where(eq(simboxScores.vendorId, vendorId))
+      .orderBy(desc(simboxScores.createdAt))
+      .limit(limit);
+  }
+
+  // ── Billing Disputes ──────────────────────────────────────────────────────
+  async getBillingDisputes(): Promise<BillingDispute[]> {
+    return db.select().from(billingDisputes).orderBy(desc(billingDisputes.createdAt));
+  }
+
+  async createBillingDispute(dispute: InsertBillingDispute): Promise<BillingDispute> {
+    const [row] = await db.insert(billingDisputes).values(dispute).returning();
+    return row;
+  }
+
+  async updateBillingDispute(id: number, updates: Partial<InsertBillingDispute>): Promise<BillingDispute | undefined> {
+    const [row] = await db.update(billingDisputes)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(billingDisputes.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteBillingDispute(id: number): Promise<void> {
+    await db.delete(billingDisputes).where(eq(billingDisputes.id, id));
+  }
+
+  // ── SLA Breach Log ────────────────────────────────────────────────────────
+  async getSlaBreaches(limit = 200, vendorId?: string): Promise<SlaBreachEntry[]> {
+    if (vendorId) {
+      return db.select().from(slaBreachLog)
+        .where(eq(slaBreachLog.vendorId, vendorId))
+        .orderBy(desc(slaBreachLog.breachStart))
+        .limit(limit);
+    }
+    return db.select().from(slaBreachLog).orderBy(desc(slaBreachLog.breachStart)).limit(limit);
+  }
+
+  async addSlaBreachEntry(entry: InsertSlaBreachEntry): Promise<SlaBreachEntry> {
+    const [row] = await db.insert(slaBreachLog).values(entry).returning();
+    return row;
+  }
+
+  async resolveSlaBreachEntry(id: number, breachEnd: Date, durationMinutes: number): Promise<void> {
+    await db.update(slaBreachLog)
+      .set({ resolved: true, breachEnd, durationMinutes })
+      .where(eq(slaBreachLog.id, id));
+  }
+
+  async getOpenSlaBreach(vendorId: string, metric: string): Promise<SlaBreachEntry | null> {
+    const [row] = await db.select().from(slaBreachLog)
+      .where(and(eq(slaBreachLog.vendorId, vendorId), eq(slaBreachLog.metric, metric), eq(slaBreachLog.resolved, false)))
+      .orderBy(desc(slaBreachLog.breachStart))
+      .limit(1);
+    return row ?? null;
+  }
+
+  // ── Test Campaigns ────────────────────────────────────────────────────────
+  async getTestCampaigns(): Promise<TestCampaign[]> {
+    return db.select().from(testCampaigns).orderBy(desc(testCampaigns.createdAt));
+  }
+
+  async getTestCampaign(id: number): Promise<TestCampaign | undefined> {
+    const [row] = await db.select().from(testCampaigns).where(eq(testCampaigns.id, id)).limit(1);
+    return row;
+  }
+
+  async createTestCampaign(campaign: InsertTestCampaign): Promise<TestCampaign> {
+    const [row] = await db.insert(testCampaigns).values(campaign).returning();
+    return row;
+  }
+
+  async updateTestCampaign(id: number, updates: Partial<InsertTestCampaign>): Promise<TestCampaign | undefined> {
+    const [row] = await db.update(testCampaigns).set(updates).where(eq(testCampaigns.id, id)).returning();
+    return row;
+  }
+
+  async deleteTestCampaign(id: number): Promise<void> {
+    await db.delete(testCampaignResults).where(eq(testCampaignResults.campaignId, id));
+    await db.delete(testCampaigns).where(eq(testCampaigns.id, id));
+  }
+
+  async addCampaignResult(result: InsertTestCampaignResult): Promise<TestCampaignResult> {
+    const [row] = await db.insert(testCampaignResults).values(result).returning();
+    return row;
+  }
+
+  async getCampaignResults(campaignId: number, limit = 100): Promise<TestCampaignResult[]> {
+    return db.select().from(testCampaignResults)
+      .where(eq(testCampaignResults.campaignId, campaignId))
+      .orderBy(desc(testCampaignResults.runAt))
+      .limit(limit);
+  }
+
+  // ── Scheduled Reports ─────────────────────────────────────────────────────
+  async getScheduledReports(): Promise<ScheduledReport[]> {
+    return db.select().from(scheduledReports).orderBy(desc(scheduledReports.createdAt));
+  }
+
+  async createScheduledReport(report: InsertScheduledReport): Promise<ScheduledReport> {
+    const nextDueAt = computeNextDueAt(report.frequency, report.cronHour as any);
+    const [row] = await db.insert(scheduledReports).values({ ...report, nextDueAt }).returning();
+    return row;
+  }
+
+  async updateScheduledReport(id: number, updates: Partial<InsertScheduledReport>): Promise<ScheduledReport | undefined> {
+    const [row] = await db.update(scheduledReports).set(updates).where(eq(scheduledReports.id, id)).returning();
+    return row;
+  }
+
+  async deleteScheduledReport(id: number): Promise<void> {
+    await db.delete(scheduledReports).where(eq(scheduledReports.id, id));
+  }
+
+  async markReportSent(id: number, sentAt: Date, nextDueAt: Date): Promise<void> {
+    await db.update(scheduledReports).set({ lastSentAt: sentAt, nextDueAt }).where(eq(scheduledReports.id, id));
+  }
+
+  async getDueScheduledReports(): Promise<ScheduledReport[]> {
+    const now = new Date();
+    return db.select().from(scheduledReports)
+      .where(and(eq(scheduledReports.enabled, true), lt(scheduledReports.nextDueAt, now)));
+  }
+}
+
+function computeNextDueAt(frequency: string, cronHour?: number): Date {
+  const now = new Date();
+  switch (frequency) {
+    case 'hourly': {
+      const next = new Date(now);
+      next.setMinutes(0, 0, 0);
+      next.setHours(next.getHours() + 1);
+      return next;
+    }
+    case 'weekly': {
+      const next = new Date(now);
+      next.setDate(next.getDate() + 7);
+      next.setHours(cronHour ?? 8, 0, 0, 0);
+      return next;
+    }
+    default: { // daily
+      const next = new Date(now);
+      next.setDate(next.getDate() + 1);
+      next.setHours(cronHour ?? 8, 0, 0, 0);
+      return next;
+    }
   }
 }
 

@@ -12610,6 +12610,647 @@ export async function registerRoutes(
     }
   }, 2 * 60 * 1000);
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE GROUP A: NER — Network Effectiveness Ratio
+  // GET /api/stats/ner?hours=24&vendorId=xxx
+  // NER = (answered + busy + rejected + ring-no-answer) / total (excludes subscriber-unavailable)
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/stats/ner', async (req: any, res) => {
+    try {
+      const hours  = parseInt(req.query.hours as string || '24', 10);
+      const vendor = req.query.vendorId as string | undefined;
+      const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+      const cdrs = [...cdrCache.values()].filter(c => {
+        const ts = c.startTime ? new Date(c.startTime) : null;
+        if (!ts || ts < cutoff) return false;
+        if (vendor) {
+          const vName = c.vendor || (c.iConnection ? connectionVendorCache.get(c.iConnection) : '') || '';
+          if (vName !== vendor && c.iConnection !== vendor) return false;
+        }
+        return true;
+      });
+
+      // NER: exclude "subscriber unavailable" from denominator (SIP 480, 503, 604)
+      const SUBSCRIBER_UNAVAIL = new Set(['480', '503', '604', 'no answer']);
+      let total = 0, nerEligible = 0, answered = 0;
+      const byVendor: Record<string, { total: number; nerEligible: number; answered: number }> = {};
+
+      for (const c of cdrs) {
+        const vid = c.vendor || (c.iConnection ? connectionVendorCache.get(c.iConnection) : '') || 'unknown';
+        if (!byVendor[vid]) byVendor[vid] = { total: 0, nerEligible: 0, answered: 0 };
+        total++;
+        byVendor[vid].total++;
+        const result = (c.result || '').toLowerCase();
+        const isUnavail = SUBSCRIBER_UNAVAIL.has(result) || result.includes('unavail') || result === '480' || result === '503';
+        if (!isUnavail) { nerEligible++; byVendor[vid].nerEligible++; }
+        if (c.duration > 0) { answered++; byVendor[vid].answered++; }
+      }
+
+      const ner = nerEligible > 0 ? Math.round((answered / nerEligible) * 10000) / 100 : null;
+      const asr = total > 0 ? Math.round((answered / total) * 10000) / 100 : null;
+
+      const vendorNer = Object.entries(byVendor).map(([vendorId, v]) => ({
+        vendorId,
+        total: v.total,
+        nerEligible: v.nerEligible,
+        answered: v.answered,
+        ner: v.nerEligible > 0 ? Math.round((v.answered / v.nerEligible) * 10000) / 100 : null,
+        asr: v.total > 0 ? Math.round((v.answered / v.total) * 10000) / 100 : null,
+      }));
+
+      res.json({ ner, asr, total, nerEligible, answered, hours, vendorNer });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE GROUP B: Route QoS Heatmap
+  // GET /api/stats/heatmap?vendorId=xxx&metric=asr&prefixLen=3
+  // Returns destination × hour-of-day matrix with ASR/ACD colour values
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/stats/heatmap', async (req: any, res) => {
+    try {
+      const vendor    = req.query.vendorId as string | undefined;
+      const metric    = (req.query.metric as string) || 'asr';   // asr|acd
+      const prefixLen = parseInt(req.query.prefixLen as string || '3', 10);
+      const hours     = parseInt(req.query.hours as string || '168', 10); // default 7 days
+      const cutoff    = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+      const cdrs = [...cdrCache.values()].filter(c => {
+        const ts = c.startTime ? new Date(c.startTime) : null;
+        if (!ts || ts < cutoff) return false;
+        if (vendor) {
+          const vName = c.vendor || (c.iConnection ? connectionVendorCache.get(c.iConnection) : '') || '';
+          if (vName !== vendor && c.iConnection !== vendor) return false;
+        }
+        return true;
+      });
+
+      // Build dest × hour matrix
+      const matrix: Record<string, Record<number, { calls: number; answered: number; totalDur: number }>> = {};
+      for (const c of cdrs) {
+        const dest   = (c.callee || '').replace(/\D/g, '').slice(0, prefixLen) || 'unknown';
+        const hour   = new Date(c.startTime).getUTCHours();
+        if (!matrix[dest]) matrix[dest] = {};
+        if (!matrix[dest][hour]) matrix[dest][hour] = { calls: 0, answered: 0, totalDur: 0 };
+        matrix[dest][hour].calls++;
+        if (c.duration > 0) { matrix[dest][hour].answered++; matrix[dest][hour].totalDur += c.duration; }
+      }
+
+      // Convert to flat rows for frontend
+      const rows: Array<{ dest: string; hour: number; calls: number; value: number }> = [];
+      for (const [dest, hours2] of Object.entries(matrix)) {
+        for (const [h, v] of Object.entries(hours2)) {
+          const val = metric === 'acd'
+            ? (v.answered > 0 ? Math.round(v.totalDur / v.answered) : 0)
+            : (v.calls > 0 ? Math.round((v.answered / v.calls) * 10000) / 100 : 0);
+          rows.push({ dest, hour: Number(h), calls: v.calls, value: val });
+        }
+      }
+
+      // Top destinations by call volume
+      const destTotals: Record<string, number> = {};
+      for (const r of rows) destTotals[r.dest] = (destTotals[r.dest] || 0) + r.calls;
+      const topDests = Object.entries(destTotals)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 30)
+        .map(([d]) => d);
+
+      res.json({ rows: rows.filter(r => topDests.includes(r.dest)), topDests, metric, hours });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE GROUP C: CLI Delivery Verification
+  // GET /api/stats/cli-flags?hours=24 — CDRs where PAI ≠ caller (CLI stripping)
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/stats/cli-flags', async (req: any, res) => {
+    try {
+      const hours  = parseInt(req.query.hours as string || '24', 10);
+      const limit  = Math.min(parseInt(req.query.limit as string || '200', 10), 1000);
+      const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+      const flagged = [...cdrCache.values()].filter(c => {
+        const ts = c.startTime ? new Date(c.startTime) : null;
+        if (!ts || ts < cutoff) return false;
+        if (!c.pAssertedId) return false;
+        const pai   = c.pAssertedId.replace(/[^0-9+]/g, '');
+        const caller = (c.caller || '').replace(/[^0-9+]/g, '');
+        return pai && caller && pai !== caller && !pai.endsWith(caller) && !caller.endsWith(pai);
+      }).slice(0, limit).map(c => ({
+        callId:       c.callId,
+        startTime:    c.startTime,
+        caller:       c.caller,
+        pAssertedId:  c.pAssertedId,
+        callee:       c.callee,
+        vendorName:   c.vendor || (c.iConnection ? connectionVendorCache.get(c.iConnection) : '') || undefined,
+        duration:     c.duration,
+        result:       c.result,
+      }));
+
+      res.json({ flagged, total: flagged.length, hours });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE GROUP D: SIMbox Detection — scoring + routes
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/simbox/scores', async (req: any, res) => {
+    try {
+      const scores = await storage.getLatestSimboxScores(100);
+      res.json({ scores });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/simbox/scores/:vendorId', async (req: any, res) => {
+    try {
+      const scores = await storage.getSimboxScoresByVendor(req.params.vendorId, 30);
+      res.json({ scores });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/simbox/run-analysis', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const count = await runSimboxAnalysis();
+      res.json({ ok: true, vendorsAnalysed: count });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE GROUP E: Billing Dispute Tracker
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/disputes', async (req: any, res) => {
+    try { res.json(await storage.getBillingDisputes()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/disputes', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const body = req.body;
+      const dispute = await storage.createBillingDispute({
+        vendorName:   body.vendorName,
+        periodStart:  new Date(body.periodStart),
+        periodEnd:    new Date(body.periodEnd),
+        ourAmount:    Number(body.ourAmount || 0),
+        vendorAmount: Number(body.vendorAmount || 0),
+        discrepancy:  Number(body.ourAmount || 0) - Number(body.vendorAmount || 0),
+        currency:     body.currency || 'USD',
+        status:       body.status || 'open',
+        resolution:   body.resolution ? Number(body.resolution) : null,
+        notes:        body.notes || null,
+      });
+      res.json(dispute);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.patch('/api/disputes/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const updates: any = { ...req.body };
+      if (updates.periodStart) updates.periodStart = new Date(updates.periodStart);
+      if (updates.periodEnd)   updates.periodEnd   = new Date(updates.periodEnd);
+      if (updates.ourAmount !== undefined || updates.vendorAmount !== undefined) {
+        const current = (await storage.getBillingDisputes()).find(d => d.id === Number(req.params.id));
+        const our = updates.ourAmount !== undefined ? Number(updates.ourAmount) : (current?.ourAmount ?? 0);
+        const vendor = updates.vendorAmount !== undefined ? Number(updates.vendorAmount) : (current?.vendorAmount ?? 0);
+        updates.discrepancy = our - vendor;
+      }
+      const updated = await storage.updateBillingDispute(Number(req.params.id), updates);
+      if (!updated) return res.status(404).json({ error: 'Not found' });
+      res.json(updated);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.delete('/api/disputes/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      await storage.deleteBillingDispute(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE GROUP F: SLA Breach Log
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/sla-breaches', async (req: any, res) => {
+    try {
+      const vendorId = req.query.vendorId as string | undefined;
+      const limit    = Math.min(parseInt(req.query.limit as string || '200', 10), 500);
+      res.json(await storage.getSlaBreaches(limit, vendorId));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE GROUP G: Test Campaigns
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/campaigns', async (req: any, res) => {
+    try { res.json(await storage.getTestCampaigns()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/campaigns', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const body = req.body;
+      const campaign = await storage.createTestCampaign({
+        name:          body.name,
+        destinations:  JSON.stringify(body.destinations || []),
+        scheduleType:  body.scheduleType || 'once',
+        scheduledAt:   body.scheduledAt ? new Date(body.scheduledAt) : null,
+        cronHour:      body.cronHour != null ? Number(body.cronHour) : null,
+        status:        'pending',
+      });
+      res.json(campaign);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.patch('/api/campaigns/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const updates: any = { ...req.body };
+      if (updates.destinations && typeof updates.destinations !== 'string')
+        updates.destinations = JSON.stringify(updates.destinations);
+      if (updates.scheduledAt) updates.scheduledAt = new Date(updates.scheduledAt);
+      const updated = await storage.updateTestCampaign(Number(req.params.id), updates);
+      if (!updated) return res.status(404).json({ error: 'Not found' });
+      res.json(updated);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.delete('/api/campaigns/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      await storage.deleteTestCampaign(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/campaigns/:id/results', async (req: any, res) => {
+    try {
+      const results = await storage.getCampaignResults(Number(req.params.id), 100);
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/campaigns/:id/run — trigger a campaign run immediately using Click-to-Call infrastructure
+  app.post('/api/campaigns/:id/run', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const campaign = await storage.getTestCampaign(Number(req.params.id));
+      if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+      const destinations: Array<{ cld: string; cli?: string; label?: string }> = JSON.parse(campaign.destinations || '[]');
+      if (!destinations.length) return res.status(400).json({ error: 'Campaign has no destinations' });
+
+      await storage.updateTestCampaign(campaign.id, { status: 'running', lastRunAt: new Date() });
+
+      // Fire all test calls in background; return immediately
+      res.json({ ok: true, message: `Campaign "${campaign.name}" started — ${destinations.length} calls queued.`, campaignId: campaign.id });
+
+      const sSettings = await storage.getSippySettings();
+      const portalUrl = sSettings ? sippyPortalUrl(sSettings) : '';
+
+      for (const dest of destinations) {
+        try {
+          let outcome = 'failed', sipCode: number | undefined, durationSec = 0, pddMs = 0;
+          if (sSettings?.portalUrl) {
+            const ctcResult = await sippy.makeTestCall(
+              sSettings.apiAdminUsername, sSettings.apiAdminPassword,
+              { cld: dest.cld, cli: dest.cli || '100', maxDuration: 10 },
+              portalUrl
+            ).catch(() => null);
+            if (ctcResult) {
+              outcome    = ctcResult.connected ? 'connected' : 'failed';
+              sipCode    = ctcResult.sipCode;
+              durationSec = ctcResult.duration ?? 0;
+              pddMs      = ctcResult.pdd ?? 0;
+            }
+          }
+          await storage.addCampaignResult({
+            campaignId:  campaign.id,
+            cld:         dest.cld,
+            cli:         dest.cli,
+            label:       dest.label,
+            outcome,
+            sipCode,
+            durationSec,
+            pddMs,
+            fasDetected: durationSec > 0 && durationSec < 4,
+          });
+        } catch { /* continue with next destination */ }
+        await new Promise(r => setTimeout(r, 300)); // small delay between calls
+      }
+      await storage.updateTestCampaign(campaign.id, { status: 'done' });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE GROUP H: Scheduled Reports
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/scheduled-reports', async (req: any, res) => {
+    try { res.json(await storage.getScheduledReports()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/scheduled-reports', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const body = req.body;
+      const report = await storage.createScheduledReport({
+        name:       body.name,
+        metrics:    JSON.stringify(body.metrics || ['asr', 'acd', 'ner']),
+        timeWindow: body.timeWindow || '24h',
+        frequency:  body.frequency  || 'daily',
+        recipients: body.recipients,
+        enabled:    body.enabled !== false,
+      });
+      res.json(report);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.patch('/api/scheduled-reports/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const updates: any = { ...req.body };
+      if (updates.metrics && Array.isArray(updates.metrics)) updates.metrics = JSON.stringify(updates.metrics);
+      const updated = await storage.updateScheduledReport(Number(req.params.id), updates);
+      if (!updated) return res.status(404).json({ error: 'Not found' });
+      res.json(updated);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.delete('/api/scheduled-reports/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      await storage.deleteScheduledReport(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/scheduled-reports/:id/send-now — manual trigger
+  app.post('/api/scheduled-reports/:id/send-now', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const reports = await storage.getScheduledReports();
+      const report  = reports.find(r => r.id === Number(req.params.id));
+      if (!report) return res.status(404).json({ error: 'Not found' });
+      await sendScheduledReport(report);
+      res.json({ ok: true, message: 'Report sent.' });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE GROUP I: Rate Card diff (for auto-import change detection)
+  // POST /api/rate-cards/:id/diff — compare uploaded CSV data vs existing entries
+  // Body: { entries: [{prefix, country, breakout, ratePerMin, originPrefix?}] }
+  // ─────────────────────────────────────────────────────────────────────────
+  app.post('/api/rate-cards/:id/diff', async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const incoming: Array<{ prefix: string; country?: string; breakout?: string; ratePerMin: number; originPrefix?: string }> = req.body.entries || [];
+      const existing = await storage.getRateCardEntries(id);
+      const existingMap = new Map(existing.map(e => [`${e.prefix}|${e.originPrefix ?? ''}`, e]));
+      const incomingMap = new Map(incoming.map(e => [`${e.prefix}|${e.originPrefix ?? ''}`, e]));
+
+      const added:    typeof incoming = [];
+      const removed:  typeof existing = [];
+      const changed:  Array<{ prefix: string; originPrefix?: string; oldRate: number; newRate: number; country?: string }> = [];
+      const unchanged: number[] = [];
+
+      for (const [key, inc] of incomingMap) {
+        const ex = existingMap.get(key);
+        if (!ex) { added.push(inc); }
+        else if (Math.abs(ex.ratePerMin - inc.ratePerMin) > 0.000001) {
+          changed.push({ prefix: inc.prefix, originPrefix: inc.originPrefix, oldRate: ex.ratePerMin, newRate: inc.ratePerMin, country: inc.country });
+        } else { unchanged.push(ex.id); }
+      }
+      for (const [key, ex] of existingMap) {
+        if (!incomingMap.has(key)) removed.push(ex);
+      }
+
+      res.json({ added: added.length, removed: removed.length, changed: changed.length, unchanged: unchanged.length, changes: { added, removed, changed } });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SIMbox Analysis helper function
+  // ─────────────────────────────────────────────────────────────────────────
+  async function runSimboxAnalysis(): Promise<number> {
+    const windowHours = 6;
+    const windowStart = new Date(Date.now() - windowHours * 60 * 60 * 1000);
+    const windowEnd   = new Date();
+    const cdrs        = [...cdrCache.values()].filter(c => {
+      const ts = c.startTime ? new Date(c.startTime) : null;
+      return ts && ts >= windowStart;
+    });
+
+    // Group by vendor
+    const byVendor: Record<string, typeof cdrs> = {};
+    for (const c of cdrs) {
+      const vid = c.vendor || (c.iConnection ? connectionVendorCache.get(c.iConnection) : '') || c.iConnection || 'unknown';
+      if (!byVendor[vid]) byVendor[vid] = [];
+      byVendor[vid].push(c);
+    }
+
+    let analysed = 0;
+    for (const [vendorId, vCdrs] of Object.entries(byVendor)) {
+      if (vCdrs.length < 10) continue;
+
+      const SHORT_CALL_SECS  = 8;
+      const EARLY_DISC_SECS  = 4;
+
+      const shortCalls     = vCdrs.filter(c => c.duration > 0 && c.duration < SHORT_CALL_SECS).length;
+      const earlyDisconnect = vCdrs.filter(c => c.duration > 0 && c.duration < EARLY_DISC_SECS).length;
+      const totalDur        = vCdrs.reduce((s, c) => s + (c.duration || 0), 0);
+      const answeredCalls   = vCdrs.filter(c => c.duration > 0);
+      const avgDurationSec  = answeredCalls.length > 0 ? totalDur / answeredCalls.length : 0;
+
+      // Count CLI → CLD repeated pairs
+      const pairs = new Map<string, number>();
+      for (const c of vCdrs) {
+        const key = `${c.caller}→${c.callee}`;
+        pairs.set(key, (pairs.get(key) || 0) + 1);
+      }
+      const repeatedRoutes = [...pairs.values()].filter(v => v >= 3).length;
+
+      const uniqueCli = new Set(vCdrs.map(c => c.caller)).size;
+      const uniqueCld = new Set(vCdrs.map(c => c.callee)).size;
+
+      const signals: string[] = [];
+      if (shortCalls / vCdrs.length > 0.3)    signals.push(`${Math.round(shortCalls/vCdrs.length*100)}% short calls (<8s)`);
+      if (earlyDisconnect / vCdrs.length > 0.15) signals.push(`${Math.round(earlyDisconnect/vCdrs.length*100)}% early disconnect (<4s)`);
+      if (repeatedRoutes > 5)                  signals.push(`${repeatedRoutes} repeated CLI→CLD pairs`);
+      if (avgDurationSec < 15 && avgDurationSec > 0) signals.push(`avg duration ${avgDurationSec.toFixed(1)}s`);
+      if (uniqueCli < 3 && vCdrs.length > 20) signals.push(`only ${uniqueCli} unique CLIs (bypass pattern)`);
+
+      // Score 0–100
+      let score = 0;
+      score += Math.min(40, (shortCalls / vCdrs.length) * 100);
+      score += Math.min(20, (earlyDisconnect / vCdrs.length) * 80);
+      score += Math.min(20, repeatedRoutes * 2);
+      score += Math.min(20, avgDurationSec < 10 && avgDurationSec > 0 ? (10 - avgDurationSec) * 3 : 0);
+      score = Math.min(100, Math.round(score));
+
+      const riskLevel = score >= 75 ? 'critical' : score >= 50 ? 'high' : score >= 25 ? 'medium' : 'low';
+      const vendorName = connectionVendorCache.get(vendorId) || vCdrs[0]?.vendor || vendorId;
+
+      await storage.upsertSimboxScore({
+        vendorId, vendorName, windowStart, windowEnd,
+        riskScore: score, riskLevel,
+        totalCalls: vCdrs.length,
+        shortCalls, earlyDisconnect, repeatedRoutes,
+        uniqueCli, uniqueCld,
+        avgDurationSec,
+        signalDetails: JSON.stringify(signals),
+      });
+      analysed++;
+    }
+    return analysed;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Scheduled Report sender helper function
+  // ─────────────────────────────────────────────────────────────────────────
+  async function sendScheduledReport(report: Awaited<ReturnType<typeof storage.getScheduledReports>>[number]): Promise<void> {
+    const settings2 = await storage.getSippySettings();
+    if (!settings2?.alertGmailUser || !settings2?.alertGmailAppPass) {
+      throw new Error('Gmail credentials not configured in Settings');
+    }
+
+    const metrics2: string[] = JSON.parse(report.metrics || '["asr","acd"]');
+    const windowH  = report.timeWindow === '1h' ? 1 : report.timeWindow === '7d' ? 168 : report.timeWindow === '30d' ? 720 : 24;
+    const cutoff   = new Date(Date.now() - windowH * 60 * 60 * 1000);
+
+    const cdrs = [...cdrCache.values()].filter(c => {
+      const ts = c.startTime ? new Date(c.startTime) : null;
+      return ts && ts >= cutoff;
+    });
+
+    const total    = cdrs.length;
+    const answered = cdrs.filter(c => c.duration > 0).length;
+    const asr      = total > 0 ? Math.round((answered / total) * 10000) / 100 : 0;
+    const totalDur = cdrs.reduce((s, c) => s + (c.duration || 0), 0);
+    const acd      = answered > 0 ? Math.round(totalDur / answered) : 0;
+
+    const UNAVAIL  = new Set(['480', '503', '604']);
+    const nerElig  = cdrs.filter(c => !UNAVAIL.has((c.result || '').replace(/[^0-9]/g, ''))).length;
+    const ner      = nerElig > 0 ? Math.round((answered / nerElig) * 10000) / 100 : 0;
+
+    const metricLines: string[] = [];
+    if (metrics2.includes('asr'))   metricLines.push(`ASR:  ${asr}%`);
+    if (metrics2.includes('acd'))   metricLines.push(`ACD:  ${acd}s`);
+    if (metrics2.includes('ner'))   metricLines.push(`NER:  ${ner}%`);
+    if (metrics2.includes('calls')) metricLines.push(`Calls: ${total.toLocaleString()} total / ${answered.toLocaleString()} answered`);
+
+    const subject = `VoIP Watcher Report: ${report.name} — ${new Date().toUTCString()}`;
+    const html = `<html><body style="font-family:Arial,sans-serif;background:#0f1117;color:#e0e0e0;padding:24px">
+<h2 style="color:#60a5fa">📊 ${report.name}</h2>
+<p style="color:#9ca3af">Period: last ${report.timeWindow} · Generated: ${new Date().toUTCString()}</p>
+<table style="border-collapse:collapse;width:100%;max-width:400px">
+${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151;color:#d1d5db">${l}</td></tr>`).join('')}
+</table>
+<p style="color:#6b7280;font-size:12px;margin-top:24px">Sent automatically by VoIP Watcher · To unsubscribe, remove yourself from the recipient list in Settings → Scheduled Reports.</p>
+</body></html>`;
+
+    const nodemailer = await import('nodemailer');
+    const transporter = nodemailer.default.createTransport({
+      service: 'gmail',
+      auth: { user: settings2.alertGmailUser, pass: settings2.alertGmailAppPass },
+    });
+
+    const recipients = report.recipients.split(',').map((r: string) => r.trim()).filter(Boolean);
+    await transporter.sendMail({ from: `"VoIP Watcher" <${settings2.alertGmailUser}>`, to: recipients.join(', '), subject, html });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Background jobs — SIMbox analysis (every 1h) + SLA breach watcher (every 5m) + scheduled reports (every 15m)
+  // ─────────────────────────────────────────────────────────────────────────
+  setInterval(async () => {
+    try { await runSimboxAnalysis(); }
+    catch (e) { console.warn('[simbox] analysis error:', (e as any).message); }
+  }, 60 * 60 * 1000);
+
+  // SLA Breach Watcher — checks vendor stats against thresholds every 5 minutes
+  setInterval(async () => {
+    try {
+      const slaSettings = await storage.getSippySettings().catch(() => null);
+      if (!slaSettings?.portalUrl) return;
+
+      // Pull per-vendor ASR/ACD from CDR cache (last 30 minutes)
+      const WINDOW_MS = 30 * 60 * 1000;
+      const cutoff    = new Date(Date.now() - WINDOW_MS);
+      const byVendor: Record<string, { total: number; answered: number; totalDur: number; pdds: number[] }> = {};
+
+      for (const c of cdrCache.values()) {
+        const ts = c.startTime ? new Date(c.startTime) : null;
+        if (!ts || ts < cutoff) continue;
+        const vid = c.vendor || (c.iConnection ? connectionVendorCache.get(c.iConnection) : '') || c.iConnection || 'unknown';
+        if (!byVendor[vid]) byVendor[vid] = { total: 0, answered: 0, totalDur: 0, pdds: [] };
+        byVendor[vid].total++;
+        if (c.duration > 0) { byVendor[vid].answered++; byVendor[vid].totalDur += c.duration; }
+        if (c.pdd != null)  byVendor[vid].pdds.push(c.pdd);
+      }
+
+      // Hard-coded SLA thresholds (future: make configurable per vendor)
+      const ASR_THRESHOLD = 40;  // %
+      const ACD_THRESHOLD = 30;  // seconds
+      const PDD_THRESHOLD = 10;  // seconds
+
+      for (const [vid, v] of Object.entries(byVendor)) {
+        if (v.total < 5) continue; // skip low-traffic vendors
+        const asr = v.total > 0 ? (v.answered / v.total) * 100 : 100;
+        const acd = v.answered > 0 ? v.totalDur / v.answered : 0;
+        const pdd = v.pdds.length > 0 ? v.pdds.reduce((s, p) => s + p, 0) / v.pdds.length : 0;
+        const vName = connectionVendorCache.get(vid) || vid;
+        const now = new Date();
+
+        // ASR breach check
+        if (asr < ASR_THRESHOLD) {
+          const open = await storage.getOpenSlaBreach(vid, 'asr').catch(() => null);
+          if (!open) await storage.addSlaBreachEntry({ vendorId: vid, vendorName: vName, metric: 'asr', threshold: ASR_THRESHOLD, actualValue: asr, breachStart: now }).catch(() => {});
+        } else {
+          const open = await storage.getOpenSlaBreach(vid, 'asr').catch(() => null);
+          if (open) {
+            const durMin = (now.getTime() - open.breachStart.getTime()) / 60000;
+            await storage.resolveSlaBreachEntry(open.id, now, durMin).catch(() => {});
+          }
+        }
+
+        // ACD breach check
+        if (acd < ACD_THRESHOLD && acd > 0) {
+          const open = await storage.getOpenSlaBreach(vid, 'acd').catch(() => null);
+          if (!open) await storage.addSlaBreachEntry({ vendorId: vid, vendorName: vName, metric: 'acd', threshold: ACD_THRESHOLD, actualValue: acd, breachStart: now }).catch(() => {});
+        } else {
+          const open = await storage.getOpenSlaBreach(vid, 'acd').catch(() => null);
+          if (open) {
+            const durMin = (now.getTime() - open.breachStart.getTime()) / 60000;
+            await storage.resolveSlaBreachEntry(open.id, now, durMin).catch(() => {});
+          }
+        }
+
+        // PDD breach check
+        if (pdd > PDD_THRESHOLD) {
+          const open = await storage.getOpenSlaBreach(vid, 'pdd').catch(() => null);
+          if (!open) await storage.addSlaBreachEntry({ vendorId: vid, vendorName: vName, metric: 'pdd', threshold: PDD_THRESHOLD, actualValue: pdd, breachStart: now }).catch(() => {});
+        } else {
+          const open = await storage.getOpenSlaBreach(vid, 'pdd').catch(() => null);
+          if (open) {
+            const durMin = (now.getTime() - open.breachStart.getTime()) / 60000;
+            await storage.resolveSlaBreachEntry(open.id, now, durMin).catch(() => {});
+          }
+        }
+      }
+    } catch (e) { console.warn('[sla-watcher] error:', (e as any).message); }
+  }, 5 * 60 * 1000);
+
+  // Scheduled Reports background job — checks every 15 minutes
+  setInterval(async () => {
+    try {
+      const due = await storage.getDueScheduledReports();
+      for (const report of due) {
+        try {
+          await sendScheduledReport(report);
+          const now      = new Date();
+          const nextDue  = new Date(now);
+          if (report.frequency === 'hourly') nextDue.setHours(nextDue.getHours() + 1);
+          else if (report.frequency === 'weekly') nextDue.setDate(nextDue.getDate() + 7);
+          else nextDue.setDate(nextDue.getDate() + 1);
+          await storage.markReportSent(report.id, now, nextDue);
+          console.log(`[scheduled-reports] Sent "${report.name}" to ${report.recipients}`);
+        } catch (e) { console.warn(`[scheduled-reports] Failed to send "${report.name}":`, (e as any).message); }
+      }
+    } catch (e) { console.warn('[scheduled-reports] scheduler error:', (e as any).message); }
+  }, 15 * 60 * 1000);
+
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();
 

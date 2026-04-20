@@ -73,6 +73,10 @@ import RateCardsPage from "@/pages/rate-cards";
 import AnalyticsPage from "@/pages/analytics";
 import ProductsPage from "@/pages/products";
 import NotFound from "@/pages/not-found";
+import QosHeatmapPage from "@/pages/qos-heatmap";
+import SlaBreachesPage from "@/pages/sla-breaches";
+import BillingDisputesPage from "@/pages/billing-disputes";
+import TestCampaignsPage from "@/pages/test-campaigns";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -280,6 +284,18 @@ function Router() {
         {() => <ProtectedRoute component={ProductsPage} requiredRoles={['admin','management']} mgmtFeature="analytics" />}
       </Route>
 
+      <Route path="/qos-heatmap">
+        {() => <ProtectedRoute component={QosHeatmapPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/sla-breaches">
+        {() => <ProtectedRoute component={SlaBreachesPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/billing-disputes">
+        {() => <ProtectedRoute component={BillingDisputesPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/test-campaigns">
+        {() => <ProtectedRoute component={TestCampaignsPage} requiredRoles={['admin','management']} />}
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );

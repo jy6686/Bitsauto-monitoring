@@ -1359,6 +1359,180 @@ function PushNotificationPanel() {
   );
 }
 
+function ScheduledReportsPanel() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  interface ScheduledReport { id: number; name: string; reportType: string; scheduleType: string; cronHour: number | null; recipients: string; format: string; enabled: boolean; lastSentAt: string | null; createdAt: string; }
+
+  const { data: reports = [], isLoading } = useQuery<ScheduledReport[]>({
+    queryKey: ["/api/scheduled-reports"],
+    refetchInterval: 60_000,
+  });
+
+  const [showForm, setShowForm] = useState(false);
+  const [name, setName]           = useState("");
+  const [reportType, setReportType] = useState("daily_summary");
+  const [scheduleType, setSched]  = useState("daily");
+  const [cronHour, setCronHour]   = useState("8");
+  const [recipients, setRecipients] = useState("");
+  const [format, setFormat]       = useState("csv");
+
+  const createMut = useMutation({
+    mutationFn: (body: any) => apiRequest("POST", "/api/scheduled-reports", body),
+    onSuccess: () => { toast({ title: "Report scheduled" }); qc.invalidateQueries({ queryKey: ["/api/scheduled-reports"] }); setShowForm(false); setName(""); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) => apiRequest("PATCH", `/api/scheduled-reports/${id}`, { enabled }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/scheduled-reports"] }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/scheduled-reports/${id}`),
+    onSuccess: () => { toast({ title: "Report deleted" }); qc.invalidateQueries({ queryKey: ["/api/scheduled-reports"] }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  function handleCreate() {
+    if (!name.trim() || !recipients.trim()) {
+      toast({ title: "Name and recipients required", variant: "destructive" }); return;
+    }
+    createMut.mutate({
+      name: name.trim(),
+      reportType,
+      scheduleType,
+      cronHour: (scheduleType === "daily" || scheduleType === "weekly") ? Number(cronHour) : null,
+      recipients: recipients.trim(),
+      format,
+      enabled: true,
+    });
+  }
+
+  const REPORT_TYPE_LABELS: Record<string, string> = {
+    daily_summary:  "Daily Summary",
+    vendor_sla:     "Vendor SLA Report",
+    billing:        "Billing Report",
+    fraud_summary:  "Fraud Summary",
+    cdr_export:     "CDR Export",
+  };
+
+  const SCHED_LABELS: Record<string, string> = {
+    daily: "Daily", weekly: "Weekly", hourly: "Hourly",
+  };
+
+  return (
+    <div className="bg-card rounded-xl border border-border overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
+        <div className="flex items-center gap-2">
+          <Bell className="h-4 w-4 text-violet-400" />
+          <h3 className="font-semibold text-sm">Scheduled Reports</h3>
+        </div>
+        <button
+          onClick={() => setShowForm(s => !s)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-colors"
+          data-testid="button-add-report"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add Report
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="px-6 py-4 border-b border-border/50 bg-muted/5 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Report Name</label>
+              <input className="w-full rounded-lg border border-border/50 bg-card px-3 py-2 text-sm" placeholder="e.g. Daily NOC summary" value={name} onChange={e => setName(e.target.value)} data-testid="input-report-name" />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Report Type</label>
+              <select className="w-full rounded-lg border border-border/50 bg-card px-3 py-2 text-sm" value={reportType} onChange={e => setReportType(e.target.value)} data-testid="select-report-type">
+                {Object.entries(REPORT_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Schedule</label>
+              <select className="w-full rounded-lg border border-border/50 bg-card px-3 py-2 text-sm" value={scheduleType} onChange={e => setSched(e.target.value)} data-testid="select-report-schedule">
+                <option value="hourly">Hourly</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </div>
+            {(scheduleType === "daily" || scheduleType === "weekly") && (
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Hour (UTC)</label>
+                <input type="number" min="0" max="23" className="w-full rounded-lg border border-border/50 bg-card px-3 py-2 text-sm" value={cronHour} onChange={e => setCronHour(e.target.value)} data-testid="input-report-hour" />
+              </div>
+            )}
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Format</label>
+              <select className="w-full rounded-lg border border-border/50 bg-card px-3 py-2 text-sm" value={format} onChange={e => setFormat(e.target.value)} data-testid="select-report-format">
+                <option value="csv">CSV</option>
+                <option value="pdf">PDF (text)</option>
+                <option value="json">JSON</option>
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs text-muted-foreground block mb-1">Recipients (comma-separated emails)</label>
+              <input className="w-full rounded-lg border border-border/50 bg-card px-3 py-2 text-sm" placeholder="noc@company.com, team@company.com" value={recipients} onChange={e => setRecipients(e.target.value)} data-testid="input-report-recipients" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 pt-1">
+            <button onClick={handleCreate} disabled={createMut.isPending} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50" data-testid="button-create-report">
+              {createMut.isPending ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Create
+            </button>
+            <button onClick={() => setShowForm(false)} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium border border-border/50 hover:bg-muted/20 transition-colors">
+              <X className="h-3 w-3" /> Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="px-6 py-4">
+        {isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
+        {!isLoading && reports.length === 0 && (
+          <p className="text-xs text-muted-foreground">No scheduled reports yet. Add one above to start receiving automated email reports.</p>
+        )}
+        {!isLoading && reports.length > 0 && (
+          <div className="space-y-2">
+            {reports.map(r => (
+              <div key={r.id} className="flex items-center justify-between p-3 rounded-lg border border-border/40 bg-muted/5" data-testid={`row-report-${r.id}`}>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-sm">{r.name}</span>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400">{REPORT_TYPE_LABELS[r.reportType] ?? r.reportType}</span>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted/20 text-muted-foreground">{SCHED_LABELS[r.scheduleType] ?? r.scheduleType}{r.cronHour != null ? ` ${r.cronHour}:00 UTC` : ""}</span>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted/20 text-muted-foreground uppercase">{r.format}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">{r.recipients}</p>
+                  {r.lastSentAt && <p className="text-[10px] text-muted-foreground/60 mt-0.5">Last sent: {new Date(r.lastSentAt).toLocaleString()}</p>}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                  <button
+                    onClick={() => toggleMut.mutate({ id: r.id, enabled: !r.enabled })}
+                    className={`text-xs px-2 py-1 rounded font-medium border transition-colors ${r.enabled ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-muted/20 text-muted-foreground border-border/30"}`}
+                    data-testid={`button-toggle-report-${r.id}`}
+                  >
+                    {r.enabled ? "Active" : "Paused"}
+                  </button>
+                  <button
+                    onClick={() => { if (confirm("Delete this report?")) deleteMut.mutate(r.id); }}
+                    className="text-muted-foreground hover:text-rose-400 transition-colors p-1"
+                    data-testid={`button-delete-report-${r.id}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SwitchesPanel() {
   const qc = useQueryClient();
   const { data: switches = [], isLoading } = useQuery<SwitchRow[]>({ queryKey: ['/api/switches'] });
@@ -2400,6 +2574,7 @@ export default function SettingsPage() {
 
       {/* Push Notifications */}
       <PushNotificationPanel />
+      <ScheduledReportsPanel />
 
       {/* Downloads */}
       <div className="bg-card border border-border rounded-xl p-6">

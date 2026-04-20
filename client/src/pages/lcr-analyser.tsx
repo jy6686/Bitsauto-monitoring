@@ -46,6 +46,7 @@ interface LcrResult {
 const schema = z.object({
   number:           z.string().min(3, "Enter at least a country code + area code"),
   clientRateCardId: z.string().optional(),
+  originPrefix:     z.string().optional(),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -95,7 +96,7 @@ export default function LcrAnalyserPage() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { number: "", clientRateCardId: "__none__" },
+    defaultValues: { number: "", clientRateCardId: "__none__", originPrefix: "" },
   });
 
   const analyse = useMutation({
@@ -105,6 +106,7 @@ export default function LcrAnalyserPage() {
         clientRateCardId: values.clientRateCardId && values.clientRateCardId !== "__none__"
           ? Number(values.clientRateCardId)
           : undefined,
+        originPrefix:     values.originPrefix?.trim() || undefined,
       }),
     onSuccess: async (res) => {
       const data: LcrResult = await res.json();
@@ -160,6 +162,31 @@ export default function LcrAnalyserPage() {
                         {...field}
                         data-testid="input-lcr-number"
                         placeholder="e.g. 447911123456 or +44 7911 123456"
+                        autoComplete="off"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                <FormField control={form.control} name="originPrefix" render={({ field }) => (
+                  <FormItem className="w-44">
+                    <FormLabel className="flex items-center gap-1">
+                      Origin Prefix
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-56">
+                          Optional. Enter caller origin prefix (e.g. 44 for UK) to filter origin-based vendor rates.
+                        </TooltipContent>
+                      </Tooltip>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        data-testid="input-lcr-origin"
+                        placeholder="e.g. 44 (UK)"
                         autoComplete="off"
                       />
                     </FormControl>

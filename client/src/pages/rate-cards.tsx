@@ -430,6 +430,12 @@ export default function RateCardsPage() {
   const [uploadCardId, setUploadCardId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [diffCardId, setDiffCardId]     = useState<number | null>(null);
+  const [diffFile, setDiffFile]         = useState<File | null>(null);
+  const [diffData, setDiffData]         = useState<{ added: number; removed: number; changed: number; unchanged: number; changes: any } | null>(null);
+  const [diffLoading, setDiffLoading]   = useState(false);
+  const diffInputRef = useRef<HTMLInputElement>(null);
+
   const [pushCard, setPushCard]         = useState<RateCard | null>(null);
   const [pushTariffId, setPushTariffId] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState('');
@@ -547,6 +553,51 @@ export default function RateCardsPage() {
     const file = e.target.files?.[0];
     if (file && uploadCardId !== null) uploadMutation.mutate({ id: uploadCardId, file });
     e.target.value = '';
+  }
+
+  async function handleDiffPreview(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || diffCardId === null) return;
+    e.target.value = '';
+    setDiffFile(file);
+    setDiffLoading(true);
+    setDiffData(null);
+    try {
+      const text = await file.text();
+      const lines = text.split('\n').filter(l => l.trim() && !l.startsWith('#'));
+      const entries: Array<{ prefix: string; ratePerMin: number; country?: string; breakout?: string; originPrefix?: string }> = [];
+      const headerLine = lines[0]?.toLowerCase() ?? '';
+      const hasHeader = /prefix|destination|country/.test(headerLine);
+      for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
+        const cols = lines[i].split(/[,\t;]/).map(c => c.trim().replace(/^["']|["']$/g, ''));
+        if (cols.length < 2) continue;
+        const prefix = cols[0].replace(/\D/g, '');
+        const rateRaw = parseFloat(cols[1]);
+        if (!prefix || isNaN(rateRaw)) continue;
+        entries.push({ prefix, ratePerMin: rateRaw, country: cols[2] ?? undefined, breakout: cols[3] ?? undefined, originPrefix: cols[4] ?? undefined });
+      }
+      const res = await fetch(`/api/rate-cards/${diffCardId}/diff`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries }),
+      });
+      if (!res.ok) throw new Error('Diff failed');
+      const data = await res.json();
+      setDiffData(data);
+    } catch (err: any) {
+      toast({ title: "Preview failed", description: err.message, variant: "destructive" });
+      setDiffCardId(null);
+    } finally {
+      setDiffLoading(false);
+    }
+  }
+
+  function confirmDiffUpload() {
+    if (diffFile && diffCardId !== null) {
+      uploadMutation.mutate({ id: diffCardId, file: diffFile });
+      setDiffData(null);
+      setDiffCardId(null);
+      setDiffFile(null);
+    }
   }
 
   async function startPush() {
@@ -745,8 +796,80 @@ export default function RateCardsPage() {
             </div>
           </div>
 
-          {/* Hidden file input */}
+          {/* Hidden file inputs */}
           <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFileChange} data-testid="file-upload-input" />
+          <input ref={diffInputRef} type="file" accept=".csv" className="hidden" onChange={handleDiffPreview} data-testid="diff-preview-input" />
+
+          {/* Rate Card Diff Preview Modal */}
+          {(diffData || diffLoading) && (
+            <Dialog open onOpenChange={() => { setDiffData(null); setDiffCardId(null); setDiffFile(null); }}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader><DialogTitle className="flex items-center gap-2"><ScanSearch className="h-4 w-4 text-cyan-400" />Rate Sheet Change Preview</DialogTitle></DialogHeader>
+                {diffLoading && <div className="flex items-center justify-center py-8 text-muted-foreground"><RefreshCw className="h-5 w-5 animate-spin mr-2" />Analysing changes…</div>}
+                {diffData && (
+                  <div className="space-y-4 py-2">
+                    <div className="grid grid-cols-4 gap-3">
+                      <div className="rounded-lg p-3 bg-emerald-500/10 border border-emerald-500/20 text-center">
+                        <p className="text-xs text-muted-foreground">New</p>
+                        <p className="text-2xl font-bold text-emerald-400" data-testid="text-diff-added">{diffData.added}</p>
+                      </div>
+                      <div className="rounded-lg p-3 bg-amber-500/10 border border-amber-500/20 text-center">
+                        <p className="text-xs text-muted-foreground">Changed</p>
+                        <p className="text-2xl font-bold text-amber-400" data-testid="text-diff-changed">{diffData.changed}</p>
+                      </div>
+                      <div className="rounded-lg p-3 bg-rose-500/10 border border-rose-500/20 text-center">
+                        <p className="text-xs text-muted-foreground">Removed</p>
+                        <p className="text-2xl font-bold text-rose-400" data-testid="text-diff-removed">{diffData.removed}</p>
+                      </div>
+                      <div className="rounded-lg p-3 bg-muted/10 border border-border/50 text-center">
+                        <p className="text-xs text-muted-foreground">Same</p>
+                        <p className="text-2xl font-bold text-muted-foreground" data-testid="text-diff-same">{diffData.unchanged}</p>
+                      </div>
+                    </div>
+                    {diffData.changes?.changed?.slice(0, 10).length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Rate Changes (first 10)</p>
+                        <div className="rounded-lg border border-border/50 overflow-hidden">
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted/10 border-b border-border/30">
+                              <tr>
+                                <th className="px-3 py-2 text-left text-muted-foreground">Prefix</th>
+                                <th className="px-3 py-2 text-right text-muted-foreground">Old Rate</th>
+                                <th className="px-3 py-2 text-right text-muted-foreground">New Rate</th>
+                                <th className="px-3 py-2 text-right text-muted-foreground">Δ</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/20">
+                              {diffData.changes.changed.slice(0, 10).map((c: any, i: number) => {
+                                const delta = c.newRate - c.oldRate;
+                                return (
+                                  <tr key={i}>
+                                    <td className="px-3 py-1.5 font-mono">+{c.prefix}</td>
+                                    <td className="px-3 py-1.5 text-right font-mono">{c.oldRate.toFixed(6)}</td>
+                                    <td className="px-3 py-1.5 text-right font-mono">{c.newRate.toFixed(6)}</td>
+                                    <td className={`px-3 py-1.5 text-right font-mono font-semibold ${delta > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                      {delta > 0 ? '+' : ''}{delta.toFixed(6)}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button variant="outline" size="sm" onClick={() => { setDiffData(null); setDiffCardId(null); setDiffFile(null); }}>Cancel</Button>
+                      <Button size="sm" onClick={confirmDiffUpload} disabled={uploadMutation.isPending} data-testid="button-confirm-import">
+                        {uploadMutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
+                        Import Rate Sheet
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
+          )}
 
           {/* Cards list */}
           {cardsLoading ? (
@@ -782,6 +905,12 @@ export default function RateCardsPage() {
                           onClick={() => { setUploadCardId(card.id); fileInputRef.current?.click(); }}
                           data-testid={`button-upload-${card.id}`}>
                           <Upload className="h-3 w-3" />Upload
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-cyan-400"
+                          onClick={() => { setDiffCardId(card.id); diffInputRef.current?.click(); }}
+                          data-testid={`button-preview-${card.id}`}
+                          title="Preview what will change before importing">
+                          <ScanSearch className="h-3 w-3" />Preview
                         </Button>
                         <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs"
                           onClick={() => { setPushCard(card); setPushTariffId(''); setJobId(null); setJobData(null); }}

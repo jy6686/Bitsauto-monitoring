@@ -158,6 +158,145 @@ function scoreBar(score: number) {
 function pct(n: number) { return `${n.toFixed(1)}%`; }
 function secs(n: number) { return `${n.toFixed(1)}s`; }
 
+// ── SIMbox Tab ─────────────────────────────────────────────────────────────
+
+interface SimboxScore {
+  id: number; vendorId: string; vendorName: string;
+  riskScore: number; riskLevel: string;
+  windowStart: string; windowEnd: string;
+  shortCallRatio: number; earlyDiscRatio: number;
+  callConcurrency: number; uniqueCallerRatio: number;
+  avgCallDurationSec: number; totalCalls: number;
+  createdAt: string;
+}
+
+function SimboxRiskBadge({ level }: { level: string }) {
+  const cfg: Record<string, string> = {
+    critical: "bg-rose-600/20 text-rose-400 border-rose-500/30",
+    high:     "bg-orange-500/15 text-orange-400 border-orange-500/25",
+    medium:   "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
+    low:      "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+  };
+  return (
+    <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold border ${cfg[level] ?? cfg.low}`}>
+      {level.toUpperCase()}
+    </span>
+  );
+}
+
+function ScoreBar({ score }: { score: number }) {
+  const color = score >= 75 ? "bg-rose-500" : score >= 50 ? "bg-orange-500" : score >= 25 ? "bg-yellow-500" : "bg-emerald-500";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 rounded-full bg-muted/30 overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${score}%` }} />
+      </div>
+      <span className="font-mono text-xs tabular-nums w-8 text-right">{score}</span>
+    </div>
+  );
+}
+
+function SimboxTab() {
+  const { data: scores = [], isLoading, refetch, isFetching } = useQuery<SimboxScore[]>({
+    queryKey: ["/api/simbox"],
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  const critCount = scores.filter(s => s.riskLevel === "critical").length;
+  const highCount = scores.filter(s => s.riskLevel === "high").length;
+
+  return (
+    <TabsContent value="simbox" className="mt-0 space-y-4">
+      <div className="bg-card rounded-xl border border-border p-5">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-orange-500/15 p-2.5">
+              <ScanSearch className="h-5 w-5 text-orange-400" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-base">SIMbox Detection</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Automated analysis of vendor traffic patterns · runs hourly from CDR cache
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} data-testid="button-simbox-refresh">
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />Refresh
+          </Button>
+        </div>
+
+        {(critCount > 0 || highCount > 0) && (
+          <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20">
+            <AlertTriangle className="h-4 w-4 text-rose-400 flex-shrink-0" />
+            <p className="text-sm text-rose-400">
+              {critCount > 0 && <strong>{critCount} CRITICAL</strong>}
+              {critCount > 0 && highCount > 0 && " and "}
+              {highCount > 0 && <strong>{highCount} HIGH</strong>} risk vendor{(critCount + highCount) > 1 ? "s" : ""} detected.
+              Review immediately.
+            </p>
+          </div>
+        )}
+
+        {isLoading && (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
+            <RefreshCw className="h-5 w-5 animate-spin mr-2" />Loading SIMbox scores…
+          </div>
+        )}
+
+        {!isLoading && scores.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
+            <ScanSearch className="h-10 w-10 opacity-30" />
+            <p className="text-sm">No SIMbox scores yet.</p>
+            <p className="text-xs opacity-70">The analysis engine needs at least 10 calls per vendor. Scores are generated hourly.</p>
+          </div>
+        )}
+
+        {!isLoading && scores.length > 0 && (
+          <div className="overflow-x-auto rounded-xl border border-border/50">
+            <table className="w-full text-sm">
+              <thead className="border-b border-border/40 bg-muted/10">
+                <tr>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase">Vendor</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase">Risk</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase w-36">Score</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase">Short Calls</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase">Early Disc.</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase">Unique CLI %</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase">Avg Dur.</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase">Total Calls</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase">Window</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/30">
+                {scores.map((s, i) => (
+                  <tr key={s.id} className={`hover:bg-muted/10 transition-colors ${i % 2 === 0 ? "" : "bg-muted/5"}`} data-testid={`row-simbox-${s.id}`}>
+                    <td className="px-4 py-3 font-medium">{s.vendorName}</td>
+                    <td className="px-4 py-3"><SimboxRiskBadge level={s.riskLevel} /></td>
+                    <td className="px-4 py-3 w-36"><ScoreBar score={s.riskScore} /></td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{(s.shortCallRatio * 100).toFixed(1)}%</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{(s.earlyDiscRatio * 100).toFixed(1)}%</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{(s.uniqueCallerRatio * 100).toFixed(1)}%</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{s.avgCallDurationSec.toFixed(1)}s</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{s.totalCalls.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                      {new Date(s.windowStart).toLocaleDateString()} – {new Date(s.windowEnd).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="mt-3 text-xs text-muted-foreground space-y-0.5">
+          <p>Score 0–100 · ≥75 = Critical · ≥50 = High · ≥25 = Medium · &lt;25 = Low</p>
+          <p>Indicators: short-call ratio, early disconnection, unique CLI diversity, call duration patterns</p>
+        </div>
+      </div>
+    </TabsContent>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export default function FraudPage() {
@@ -352,6 +491,9 @@ export default function FraudPage() {
           </TabsTrigger>
           <TabsTrigger value="blacklist" data-testid="tab-blacklist" className="gap-1.5">
             <ShieldBan className="h-3.5 w-3.5" />Blacklist
+          </TabsTrigger>
+          <TabsTrigger value="simbox" data-testid="tab-simbox" className="gap-1.5">
+            <ScanSearch className="h-3.5 w-3.5" />SIMbox
           </TabsTrigger>
         </TabsList>
 
@@ -1000,6 +1142,10 @@ export default function FraudPage() {
             )}
           </div>
         </TabsContent>
+
+        {/* ── SIMbox Detection Tab ── */}
+        <SimboxTab />
+
       </Tabs>
 
       {/* ── Vendor Drill-Down Sheet ── */}

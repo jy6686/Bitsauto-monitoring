@@ -26,6 +26,9 @@ interface VendorRow {
   topCountries: { country: string; count: number }[];
 }
 
+interface NerEntry { vendor: string; ner: number; total: number; answered: number; }
+interface NerResponse { ner: NerEntry[]; hours: number; }
+
 interface ScorecardResponse {
   rows: VendorRow[];
   total: number;
@@ -173,6 +176,17 @@ export default function VendorSlaScorecardPage() {
     queryFn: () => fetch(`/api/vendor-sla/scorecard?hours=${hours}`).then(r => r.json()),
     refetchInterval: 5 * 60 * 1000,
   });
+
+  const { data: nerData } = useQuery<NerResponse>({
+    queryKey: ["/api/stats/ner", hours],
+    queryFn: () => fetch(`/api/stats/ner?hours=${hours}`).then(r => r.json()),
+    refetchInterval: 5 * 60 * 1000,
+  });
+  const nerMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of (nerData?.ner ?? [])) m.set(e.vendor, e.ner);
+    return m;
+  }, [nerData]);
 
   const sorted = useMemo(() => {
     if (!data?.rows) return [];
@@ -335,6 +349,7 @@ export default function VendorSlaScorecardPage() {
                 <th className={thCls} onClick={() => handleSort("vendor")}>Vendor <SortIcon k="vendor" /></th>
                 <th className={thRCls} onClick={() => handleSort("totalCalls")}>Calls <SortIcon k="totalCalls" /></th>
                 <th className={thRCls} onClick={() => handleSort("asr")}>ASR % <SortIcon k="asr" /></th>
+                <th className={thRCls}>NER %</th>
                 <th className={thRCls} onClick={() => handleSort("acdSec")}>ACD <SortIcon k="acdSec" /></th>
                 <th className={thRCls} onClick={() => handleSort("avgPddSec")}>PDD <SortIcon k="avgPddSec" /></th>
                 <th className={thRCls} onClick={() => handleSort("mos")}>Est. MOS <SortIcon k="mos" /></th>
@@ -378,6 +393,15 @@ export default function VendorSlaScorecardPage() {
                           </div>
                         </div>
                       </td>
+                      {/* NER */}
+                      <td className="px-3 py-3 text-right font-mono tabular-nums" data-testid={`text-ner-${row.vendor}`}>
+                        {(() => {
+                          const ner = nerMap.get(row.vendor);
+                          if (ner == null) return <span className="text-muted-foreground/40">—</span>;
+                          const cls = ner >= 65 ? "text-emerald-400" : ner >= 45 ? "text-yellow-400" : "text-rose-400";
+                          return <span className={cls}>{ner.toFixed(1)}%</span>;
+                        })()}
+                      </td>
                       {/* ACD */}
                       <td className="px-3 py-3 text-right">
                         <MetricCell value={row.acdSec > 0 ? fmtSec(row.acdSec) : null} grade={row.acdGrade} />
@@ -413,7 +437,7 @@ export default function VendorSlaScorecardPage() {
                     {/* Expanded detail row */}
                     {isExpanded && (
                       <tr key={`${row.vendor}-detail`} className="bg-muted/10">
-                        <td colSpan={10} className="px-6 py-4">
+                        <td colSpan={11} className="px-6 py-4">
                           <div className="flex flex-wrap gap-8">
                             {/* Metric breakdown */}
                             <div>

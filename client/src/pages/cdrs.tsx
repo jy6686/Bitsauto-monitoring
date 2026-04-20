@@ -632,8 +632,17 @@ export default function CDRsPage() {
                       )}
                     </td>
                     <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cli-${i}`}>
-                      <span className="flex items-center gap-1.5 group/cli">
+                      <span className="flex items-center gap-1.5 group/cli flex-wrap">
                         {cdr.caller || '-'}
+                        {cdr.pAssertedId && cdr.pAssertedId !== cdr.caller && (
+                          <span
+                            className="inline-flex items-center gap-0.5 px-1 py-0 rounded text-[9px] font-bold bg-orange-500/15 text-orange-400 border border-orange-500/25"
+                            title={`P-Asserted-Identity: ${cdr.pAssertedId} — CLI may be manipulated`}
+                            data-testid={`badge-cli-modified-${i}`}
+                          >
+                            ⚠ CLI MOD
+                          </span>
+                        )}
                         {cdr.caller && cdr.callee && (
                           <Link
                             href={`/test-call?cli=${encodeURIComponent(cdr.caller)}&cld=${encodeURIComponent(cdr.callee)}`}

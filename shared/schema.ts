@@ -429,6 +429,13 @@ export const MGMT_CONFIGURABLE_FEATURES = [
   // Security & Fraud
   { key: 'fraud_fas',          label: 'FAS / Fraud Detection',      route: '/fraud'                  },
   { key: 'vendor_sla',         label: 'Vendor SLA Scorecard',       route: '/vendor-sla-scorecard'   },
+  { key: 'sla_breaches',       label: 'SLA Breach Log',             route: '/sla-breaches'           },
+  // Finance
+  { key: 'billing_disputes',   label: 'Billing Dispute Tracker',    route: '/billing-disputes'       },
+  // Analytics
+  { key: 'qos_heatmap',        label: 'Route QoS Heatmap',         route: '/qos-heatmap'            },
+  // Operations
+  { key: 'test_campaigns',     label: 'Test Call Campaigns',        route: '/test-campaigns'         },
   // Client & Vendor
   { key: 'clients',            label: 'Client & Vendor Profiles',   route: '/clients'                },
   { key: 'tools',              label: 'Tools / Calculators',        route: '/tools'                  },
@@ -537,12 +544,13 @@ export const insertRateCardSchema = createInsertSchema(rateCards).omit({ id: tru
 
 // ── Rate Card Entries: individual prefix → rate mappings ─────────────────────
 export const rateCardEntries = pgTable("rate_card_entries", {
-  id:          serial("id").primaryKey(),
-  rateCardId:  integer("rate_card_id").notNull(),
-  prefix:      varchar("prefix",   { length: 20  }).notNull(),
-  country:     varchar("country",  { length: 255 }),
-  breakout:    varchar("breakout", { length: 255 }),
-  ratePerMin:  real("rate_per_min").notNull(),
+  id:            serial("id").primaryKey(),
+  rateCardId:    integer("rate_card_id").notNull(),
+  prefix:        varchar("prefix",        { length: 20  }).notNull(),
+  country:       varchar("country",       { length: 255 }),
+  breakout:      varchar("breakout",      { length: 255 }),
+  ratePerMin:    real("rate_per_min").notNull(),
+  originPrefix:  varchar("origin_prefix", { length: 20  }),  // origin-based rate: originating prefix (optional)
 });
 export type RateCardEntry = typeof rateCardEntries.$inferSelect;
 export type InsertRateCardEntry = typeof rateCardEntries.$inferInsert;
@@ -636,6 +644,116 @@ export const fixHistory = pgTable("fix_history", {
 export const insertFixHistorySchema = createInsertSchema(fixHistory).omit({ id: true, createdAt: true });
 export type InsertFixHistory = z.infer<typeof insertFixHistorySchema>;
 export type FixHistory = typeof fixHistory.$inferSelect;
+
+// ── SIMbox Risk Scores — per-vendor detection window scores ──────────────────
+export const simboxScores = pgTable("simbox_scores", {
+  id:              serial("id").primaryKey(),
+  vendorId:        varchar("vendor_id",   { length: 64 }).notNull(),
+  vendorName:      varchar("vendor_name", { length: 128 }).notNull(),
+  windowStart:     timestamp("window_start").notNull(),
+  windowEnd:       timestamp("window_end").notNull(),
+  riskScore:       real("risk_score").notNull().default(0),   // 0–100
+  riskLevel:       varchar("risk_level",  { length: 10 }).notNull().default('low'), // low|medium|high|critical
+  totalCalls:      integer("total_calls").notNull().default(0),
+  shortCalls:      integer("short_calls").notNull().default(0),        // < 8s
+  earlyDisconnect: integer("early_disconnect").notNull().default(0),   // < 4s
+  repeatedRoutes:  integer("repeated_routes").notNull().default(0),    // same CLI→CLD combos
+  uniqueCli:       integer("unique_cli").notNull().default(0),
+  uniqueCld:       integer("unique_cld").notNull().default(0),
+  avgDurationSec:  real("avg_duration_sec").notNull().default(0),
+  signalDetails:   text("signal_details"),                            // JSON array of triggered signals
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+});
+export type SimboxScore = typeof simboxScores.$inferSelect;
+export type InsertSimboxScore = typeof simboxScores.$inferInsert;
+
+// ── Billing Disputes — carrier CDR mismatch tracker ─────────────────────────
+export const billingDisputes = pgTable("billing_disputes", {
+  id:             serial("id").primaryKey(),
+  vendorName:     varchar("vendor_name",    { length: 128 }).notNull(),
+  periodStart:    timestamp("period_start").notNull(),
+  periodEnd:      timestamp("period_end").notNull(),
+  ourAmount:      real("our_amount").notNull().default(0),       // USD — what our Sippy says
+  vendorAmount:   real("vendor_amount").notNull().default(0),    // USD — what vendor invoice says
+  discrepancy:    real("discrepancy").notNull().default(0),       // ourAmount - vendorAmount
+  currency:       varchar("currency",       { length: 8  }).default('USD'),
+  status:         varchar("status",         { length: 20 }).notNull().default('open'), // open|under_review|resolved
+  resolution:     real("resolution"),           // agreed settlement amount
+  notes:          text("notes"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+  updatedAt:      timestamp("updated_at").defaultNow().notNull(),
+});
+export type BillingDispute = typeof billingDisputes.$inferSelect;
+export type InsertBillingDispute = typeof billingDisputes.$inferInsert;
+export const insertBillingDisputeSchema = createInsertSchema(billingDisputes).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ── SLA Breach Log — automatic threshold violation events ────────────────────
+export const slaBreachLog = pgTable("sla_breach_log", {
+  id:              serial("id").primaryKey(),
+  vendorId:        varchar("vendor_id",   { length: 64 }).notNull(),
+  vendorName:      varchar("vendor_name", { length: 128 }).notNull(),
+  metric:          varchar("metric",      { length: 20 }).notNull(), // asr|acd|pdd|ner
+  threshold:       real("threshold").notNull(),
+  actualValue:     real("actual_value").notNull(),
+  breachStart:     timestamp("breach_start").notNull(),
+  breachEnd:       timestamp("breach_end"),   // null = still ongoing
+  durationMinutes: real("duration_minutes"),
+  resolved:        boolean("resolved").default(false),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+});
+export type SlaBreachEntry = typeof slaBreachLog.$inferSelect;
+export type InsertSlaBreachEntry = typeof slaBreachLog.$inferInsert;
+
+// ── Test Campaigns — scheduled test call batches ─────────────────────────────
+export const testCampaigns = pgTable("test_campaigns", {
+  id:             serial("id").primaryKey(),
+  name:           varchar("name",        { length: 128 }).notNull(),
+  destinations:   text("destinations").notNull(),   // JSON: [{cld, cli, label}]
+  scheduleType:   varchar("schedule_type", { length: 20 }).notNull().default('once'), // once|daily|hourly
+  scheduledAt:    timestamp("scheduled_at"),   // for 'once' — when to run
+  cronHour:       integer("cron_hour"),         // for 'daily' — hour UTC (0-23)
+  status:         varchar("status",      { length: 20 }).notNull().default('pending'), // pending|running|done|failed
+  lastRunAt:      timestamp("last_run_at"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+});
+export type TestCampaign = typeof testCampaigns.$inferSelect;
+export type InsertTestCampaign = typeof testCampaigns.$inferInsert;
+export const insertTestCampaignSchema = createInsertSchema(testCampaigns).omit({ id: true, createdAt: true, lastRunAt: true });
+
+// ── Test Campaign Results — individual call outcomes per campaign run ─────────
+export const testCampaignResults = pgTable("test_campaign_results", {
+  id:           serial("id").primaryKey(),
+  campaignId:   integer("campaign_id").notNull(),
+  runAt:        timestamp("run_at").defaultNow().notNull(),
+  cld:          varchar("cld", { length: 64 }).notNull(),
+  cli:          varchar("cli", { length: 64 }),
+  label:        varchar("label", { length: 128 }),
+  outcome:      varchar("outcome",  { length: 20 }).notNull().default('pending'), // pending|connected|failed|timeout
+  sipCode:      integer("sip_code"),
+  durationSec:  real("duration_sec"),
+  pddMs:        real("pdd_ms"),
+  fasDetected:  boolean("fas_detected").default(false),
+  notes:        text("notes"),
+});
+export type TestCampaignResult = typeof testCampaignResults.$inferSelect;
+export type InsertTestCampaignResult = typeof testCampaignResults.$inferInsert;
+
+// ── Scheduled Reports — auto-email report configurations ─────────────────────
+export const scheduledReports = pgTable("scheduled_reports", {
+  id:          serial("id").primaryKey(),
+  name:        varchar("name",       { length: 128 }).notNull(),
+  metrics:     text("metrics").notNull().default('["asr","acd","ner"]'), // JSON array of metric keys
+  timeWindow:  varchar("time_window", { length: 20 }).notNull().default('24h'), // 1h|24h|7d|30d
+  frequency:   varchar("frequency",  { length: 20 }).notNull().default('daily'), // hourly|daily|weekly
+  recipients:  text("recipients").notNull(),    // comma-separated emails
+  enabled:     boolean("enabled").notNull().default(true),
+  lastSentAt:  timestamp("last_sent_at"),
+  nextDueAt:   timestamp("next_due_at"),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+export type ScheduledReport = typeof scheduledReports.$inferSelect;
+export type InsertScheduledReport = typeof scheduledReports.$inferInsert;
+export const insertScheduledReportSchema = createInsertSchema(scheduledReports).omit({ id: true, createdAt: true, lastSentAt: true, nextDueAt: true });
 
 // API Request Types
 export type UpdateSettingsRequest = Partial<InsertSettings>;
