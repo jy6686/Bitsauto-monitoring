@@ -14,6 +14,7 @@ import * as emailSvc from "./email";
 import * as waSvc from "./whatsapp";
 import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas, calcVendorFraudStats, detectIrsf } from "./cdr-enrichment";
 import { initSippyWatcher, notifyNewClientTraffic, getWatcherStatus, sendTestWatcherAlert } from "./sippy-watcher";
+import { setupChatWebSocket } from "./chat-ws";
 import { lookupDialCode } from "./dial-lookup";
 import { readFileSync } from "fs";
 import { join as _pathJoin } from "path";
@@ -13416,6 +13417,45 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();
+
+  // ── Internal Team Chat ──────────────────────────────────────────────────────
+  // Create default rooms on startup (idempotent)
+  storage.ensureDefaultChatRooms().catch(e =>
+    console.warn('[chat] ensureDefaultChatRooms failed:', e?.message)
+  );
+
+  // WebSocket server for real-time messaging
+  setupChatWebSocket(httpServer);
+
+  // REST: list all chat rooms
+  app.get("/api/chat/rooms", async (req, res) => {
+    try {
+      const rooms = await storage.getChatRooms();
+      res.json(rooms);
+    } catch (e) { res.status(500).json({ message: 'Failed to load rooms' }); }
+  });
+
+  // REST: create a new room (admin only)
+  app.post("/api/chat/rooms", async (req: any, res) => {
+    try {
+      const { name, type = 'group', slug } = req.body as { name: string; type?: string; slug?: string };
+      if (!name) return res.status(400).json({ message: 'name required' });
+      const safeSlug = slug ?? name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const room = await storage.createChatRoom({ name, type, slug: safeSlug });
+      res.json(room);
+    } catch (e) { res.status(500).json({ message: 'Failed to create room' }); }
+  });
+
+  // REST: fetch message history for a room
+  app.get("/api/chat/rooms/:id/messages", async (req, res) => {
+    try {
+      const roomId = parseInt(req.params.id, 10);
+      if (isNaN(roomId)) return res.status(400).json({ message: 'Invalid room id' });
+      const limit = Math.min(parseInt(req.query.limit as string || '100', 10), 200);
+      const messages = await storage.getChatMessages(roomId, limit);
+      res.json(messages);
+    } catch (e) { res.status(500).json({ message: 'Failed to load messages' }); }
+  });
 
   return httpServer;
 }

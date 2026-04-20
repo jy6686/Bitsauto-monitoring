@@ -6,6 +6,7 @@ import {
   watcherRecipients, irsfEvents, blacklistRules, rateCards, rateCardEntries, mosHourly,
   apiKeys, dashboardWidgetPrefs, callTestLogs, whatsappAlertLog,
   simboxScores, billingDisputes, slaBreachLog, testCampaigns, testCampaignResults, scheduledReports,
+  chatRooms, chatMessages,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -40,6 +41,8 @@ import {
   type TestCampaign, type InsertTestCampaign,
   type TestCampaignResult, type InsertTestCampaignResult,
   type ScheduledReport, type InsertScheduledReport,
+  type ChatRoom, type InsertChatRoom,
+  type ChatMessage, type InsertChatMessage,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -243,6 +246,14 @@ export interface IStorage {
   deleteScheduledReport(id: number): Promise<void>;
   markReportSent(id: number, sentAt: Date, nextDueAt: Date): Promise<void>;
   getDueScheduledReports(): Promise<ScheduledReport[]>;
+
+  // Chat
+  getChatRooms(): Promise<ChatRoom[]>;
+  getChatRoom(slug: string): Promise<ChatRoom | undefined>;
+  createChatRoom(room: InsertChatRoom): Promise<ChatRoom>;
+  getChatMessages(roomId: number, limit?: number): Promise<ChatMessage[]>;
+  createChatMessage(msg: InsertChatMessage): Promise<ChatMessage>;
+  ensureDefaultChatRooms(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1278,6 +1289,46 @@ export class DatabaseStorage implements IStorage {
     const now = new Date();
     return db.select().from(scheduledReports)
       .where(and(eq(scheduledReports.enabled, true), lt(scheduledReports.nextDueAt, now)));
+  }
+
+  // ── Chat ────────────────────────────────────────────────────────────────────
+  async getChatRooms(): Promise<ChatRoom[]> {
+    return db.select().from(chatRooms).orderBy(chatRooms.id);
+  }
+
+  async getChatRoom(slug: string): Promise<ChatRoom | undefined> {
+    const [row] = await db.select().from(chatRooms).where(eq(chatRooms.slug, slug));
+    return row;
+  }
+
+  async createChatRoom(room: InsertChatRoom): Promise<ChatRoom> {
+    const [row] = await db.insert(chatRooms).values(room).returning();
+    return row;
+  }
+
+  async getChatMessages(roomId: number, limit = 100): Promise<ChatMessage[]> {
+    const rows = await db.select().from(chatMessages)
+      .where(eq(chatMessages.roomId, roomId))
+      .orderBy(desc(chatMessages.createdAt))
+      .limit(limit);
+    return rows.reverse();
+  }
+
+  async createChatMessage(msg: InsertChatMessage): Promise<ChatMessage> {
+    const [row] = await db.insert(chatMessages).values(msg).returning();
+    return row;
+  }
+
+  async ensureDefaultChatRooms(): Promise<void> {
+    const defaults: InsertChatRoom[] = [
+      { name: 'General',       type: 'group', slug: 'general'       },
+      { name: 'NOC Team',      type: 'group', slug: 'noc-team'      },
+      { name: 'Announcements', type: 'group', slug: 'announcements' },
+    ];
+    for (const room of defaults) {
+      const existing = await this.getChatRoom(room.slug);
+      if (!existing) await this.createChatRoom(room);
+    }
   }
 }
 

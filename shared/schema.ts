@@ -794,12 +794,40 @@ export type AsrAcdReportRow = {
 };
 
 export type AsrAcdReportFilters = {
-  cliFilter?: string;     // substring match on caller
-  cldFilter?: string;     // substring match on callee
-  startTime?: string;     // ISO date string
-  endTime?: string;       // ISO date string
+  cliFilter?: string;
+  cldFilter?: string;
+  startTime?: string;
+  endTime?: string;
   highlightAsrBelow?: number;
   groupBy?: 'caller' | 'callee';
   sortBy?: 'totalCalls' | 'asr' | 'billableCalls' | 'revenueUsd';
   hideEmpty?: boolean;
 };
+
+// ── Internal Team Chat ─────────────────────────────────────────────────────────
+
+export const chatRooms = pgTable("chat_rooms", {
+  id:        serial("id").primaryKey(),
+  name:      varchar("name",   { length: 128 }).notNull(),
+  type:      varchar("type",   { length: 16 }).notNull().default('group'), // 'group' | 'direct'
+  slug:      varchar("slug",   { length: 128 }).notNull().unique(), // e.g. 'general', 'dm_uid1_uid2'
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type ChatRoom = typeof chatRooms.$inferSelect;
+export type InsertChatRoom = typeof chatRooms.$inferInsert;
+export const insertChatRoomSchema = createInsertSchema(chatRooms).omit({ id: true, createdAt: true });
+
+export const chatMessages = pgTable("chat_messages", {
+  id:          serial("id").primaryKey(),
+  roomId:      integer("room_id").notNull(),
+  senderId:    varchar("sender_id",   { length: 255 }).notNull(),
+  senderName:  varchar("sender_name", { length: 128 }).notNull(),
+  senderRole:  varchar("sender_role", { length: 32 }).notNull().default('viewer'),
+  content:     text("content").notNull(),
+  createdAt:   timestamp("created_at").defaultNow(),
+});
+
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type InsertChatMessage = typeof chatMessages.$inferInsert;
+export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({ id: true, createdAt: true });

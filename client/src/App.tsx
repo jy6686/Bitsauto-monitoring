@@ -77,6 +77,7 @@ import QosHeatmapPage from "@/pages/qos-heatmap";
 import SlaBreachesPage from "@/pages/sla-breaches";
 import BillingDisputesPage from "@/pages/billing-disputes";
 import TestCampaignsPage from "@/pages/test-campaigns";
+import ChatPage from "@/pages/chat";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -295,6 +296,9 @@ function Router() {
       </Route>
       <Route path="/test-campaigns">
         {() => <ProtectedRoute component={TestCampaignsPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/chat">
+        {() => <ProtectedRoute component={ChatPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
       <Route component={NotFound} />
     </Switch>

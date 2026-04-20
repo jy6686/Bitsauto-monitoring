@@ -91,7 +91,8 @@ interface NavGroup {
 }
 
 const NAV_PINNED_TOP: NavItem[] = [
-  { href: "/",        label: "Dashboard", icon: LayoutDashboard, roles: ['admin','management','viewer'] },
+  { href: "/",      label: "Dashboard",  icon: LayoutDashboard, roles: ['admin','management','viewer'] },
+  { href: "/chat",  label: "Team Chat",  icon: MessageSquare,   roles: ['admin','management','viewer'] },
 ];
 
 const NAV_PINNED_BOTTOM: NavItem[] = [
