@@ -46,18 +46,17 @@ export function lookupDialCode(number: string | number | null | undefined): Dial
   if (!digits) return null;
   const entries = getEntries();
 
-  // Try direct match first (handles genuine E.164 numbers without class prefix)
-  const primary = searchEntries(digits, entries);
-  if (primary) return primary;
-
-  // Class-prefix stripping:
+  // Class-prefix stripping FIRST for Sippy CLD numbers:
   // The first digit of the CLD encodes the Sippy routing/service class:
   //   1 → First Class Wholesale
   //   2 → Business Class Wholesale
   //   6 → Special Bravo
   //   7 → Special Charlie
   // Numbers with these prefixes are 11+ digits; stripping the first digit reveals
-  // the real E.164 country code.  (e.g. "1923..." → strip → "923..." = Pakistan +92)
+  // the real E.164 country code.  (e.g. "7923364335326" → strip "7" → "923364335326" = Pakistan +92)
+  // We MUST try this before the direct match because the class digit (e.g. "7") is also a
+  // valid E.164 country code (Russia/Kazakhstan), so a direct match on "7923..." would
+  // incorrectly resolve to a Russian breakout instead of the real Pakistani destination.
   const leadDigit = digits.charAt(0);
   if (leadDigit in TRUNK_CLASS_MAP && digits.length >= 11) {
     const stripped = digits.slice(1);
@@ -70,7 +69,10 @@ export function lookupDialCode(number: string | number | null | undefined): Dial
       };
     }
   }
-  return null;
+
+  // Fall back to direct match (handles genuine E.164 numbers without a class prefix,
+  // or numbers starting with 1/2/6/7 that are shorter than 11 digits)
+  return searchEntries(digits, entries);
 }
 
 export function lookupMany(numbers: (string | number | null | undefined)[]): (DialMatch | null)[] {

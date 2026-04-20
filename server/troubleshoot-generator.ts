@@ -411,6 +411,13 @@ export async function generateTroubleshootGuide(outputPath?: string): Promise<Bu
             status: 'Resolved',
             fix: '/api/sippy/ck-drilldown was not reading the ?hours= query parameter. Added hours param (1–24) to the backend. Frontend query key updated to ["/api/sippy/ck-drilldown", viewStatus ?? status, hours] so TanStack Query re-fetches when the chip changes.',
           },
+          {
+            id: 'ISS-016',
+            title: 'Live Calls breakout shows "MOBILE MEGAFON" for Pakistani Ufone numbers (e.g. 7923364335326)',
+            severity: 'High',
+            status: 'Resolved',
+            fix: 'lookupDialCode() in server/dial-lookup.ts was trying a direct prefix match FIRST. For CLD 7923364335326, the direct match found prefix "792" = Russia/Kazakhstan MOBILE MEGAFON before ever trying to strip the Sippy trunk class digit "7". Since both "7" (Russia country code) and "7" (Sippy Special Charlie trunk class) share the same digit, the direct match always won. Fix: when the leading digit is a Sippy trunk class digit (1/2/6/7) and the number is 11+ digits, try the class-prefix-stripped match FIRST. If "923364335326" matches (Pakistan MOBILE UFONE via prefix 9233), return that with trunkClass populated. Only fall back to the direct match if the stripped number produces no result.',
+          },
         ]),
         spacer(200),
         pageBreak(),
