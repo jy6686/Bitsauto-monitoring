@@ -96,6 +96,10 @@ const PORTAL_SESSION_TTL_MS = 5 * 60_000;
 // Keyed by base URL so sessions for different switches never cross-contaminate.
 const anyPortalCacheByUrl   = new Map<string, { cookies: CookieJar; expiresAt: number }>();
 const adminPortalCacheByUrl = new Map<string, { cookies: CookieJar; expiresAt: number }>();
+// Negative cache: when admin/reseller portal login fails for ALL credential pairs,
+// remember the failure for 5 minutes so we stop hammering Sippy with repeated login attempts.
+const adminPortalNegCacheByUrl = new Map<string, number>(); // url → expiresAt epoch ms
+const ADMIN_NEG_CACHE_TTL_MS = 5 * 60_000;
 
 // Get any valid portal session (used by listActiveCalls portal scraping fallback)
 async function getAnyPortalSession(
@@ -161,6 +165,11 @@ async function getAdminPortalSession(
   const now = Date.now();
   const cached = adminPortalCacheByUrl.get(base);
   if (cached && cached.expiresAt > now) return cached.cookies;
+  // Negative cache: if all logins failed recently, don't hammer Sippy again — wait 5 minutes.
+  const negExp = adminPortalNegCacheByUrl.get(base);
+  if (negExp && negExp > now) {
+    return null;
+  }
   // Try admin+reseller types only — customer login gives wrong vendor amounts
   const pairs = [[adminUser, adminPass], [portalUser, portalPass]] as [string, string][];
   const failures: string[] = [];
@@ -170,6 +179,7 @@ async function getAdminPortalSession(
       const res = await portalLogin(base, u, p, acctType);
       if (res.success) {
         adminPortalCacheByUrl.set(base, { cookies: res.cookies, expiresAt: now + PORTAL_SESSION_TTL_MS });
+        adminPortalNegCacheByUrl.delete(base); // clear any negative entry
         console.log(`[Sippy] admin portal session cached as ${u}/${acctType} @ ${base}`);
         return res.cookies;
       }
@@ -178,6 +188,8 @@ async function getAdminPortalSession(
   }
   console.log('[Sippy] getAdminPortalSession: no admin/reseller login worked:', failures.slice(0,4).join(' | '));
   adminPortalCacheByUrl.delete(base);
+  // Store negative result for 5 minutes to stop hammering the Sippy portal with doomed logins.
+  adminPortalNegCacheByUrl.set(base, now + ADMIN_NEG_CACHE_TTL_MS);
   return null;
 }
 
@@ -561,9 +573,11 @@ function scrapeHtmlTable(html: string): string[][] {
 //     0:#, 1:Account, 2:CLI, 3:CLD, 4:State, 5:Vendor, 6:Connection,
 //     7:Direction, 8:MediaIPCaller, 9:MediaIPCallee, 10:Delay(ms), 11:Duration(MM:SS), 12:Action
 
-// Cache paginated portal calls per-base (4.5s TTL — prevents re-scraping on every 5s poll)
+// Cache paginated portal calls per-base (9s TTL — prevents re-scraping on every 5s poll).
+// 9 seconds gives two polls a cache hit before forcing a fresh scrape, dramatically
+// reducing load on the Sippy portal web server.
 const _portalCallsCache = new Map<string, { calls: any[]; bannerTotal: number; expiresAt: number }>();
-const PORTAL_CALLS_TTL_MS = 4500;
+const PORTAL_CALLS_TTL_MS = 9000;
 
 export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string): Promise<SippyActiveCall[]> {
   // Return cached result if still fresh
@@ -726,7 +740,10 @@ export async function getPortalActiveCallsHtml(cookies: CookieJar, base: string)
   if (bannerTotal > calls.length && bannerTotal <= 3000) {
     const seenIds = new Set(calls.map(c => c.callId));
     let offset = calls.length || 50;
-    const maxExtraPages = 19; // up to 1000 calls total (20 pages of 50)
+    // Cap at 2 extra pages (150 calls total = 3 pages × 50).
+    // The NOC live-calls view never needs more than ~150 simultaneous calls to be useful,
+    // and fetching 19 pages per poll was adding 9-10 seconds of load on the Sippy web server.
+    const maxExtraPages = 2;
 
     for (let pg = 0; pg < maxExtraPages && calls.length < bannerTotal; pg++) {
       const { html: pgHtml } = await portalGet(
@@ -2837,6 +2854,12 @@ export async function scrapeAdminPortalCDRs(
   }
 }
 
+// CDR 401 negative cache — key = `${username}@${apiUrl}`, value = epoch ms when the block expires.
+// When a credential pair consistently gets 401 from CDR methods, block it for 5 minutes so we
+// don't flood the Sippy server with repeated failing auth requests (30+ per minute observed).
+const _cdrAuthFailCache = new Map<string, number>();
+const CDR_AUTH_FAIL_TTL_MS = 5 * 60_000; // 5 minutes
+
 // getSippyCDRs — uses official getAccountCDRs() (docs 107367) or
 //               getCustomerCDRs() (docs 107429) with documented field names.
 // CDR response fields: call_id, cli, cld, connect_time, billed_duration,
@@ -2869,6 +2892,13 @@ export async function getSippyCDRs(
   const portalBase = activeSession?.portalUrl ?? fallbackPortalUrl;
   if (!portalBase) return [];
   const apiUrl = `${portalBase}/xmlapi/xmlapi`;
+
+  // CDR 401 negative cache — skip this credential if it recently got 401 from both CDR methods.
+  const cdrCacheKey = `${username}@${apiUrl}`;
+  const cdrBlocked = _cdrAuthFailCache.get(cdrCacheKey);
+  if (cdrBlocked && cdrBlocked > Date.now()) {
+    return []; // silently return empty — no log spam
+  }
 
   // Convert ISO dates to Sippy format if needed (Sippy requires '%H:%M:%S.000 GMT %a %b %d %Y')
   const formatDate = (d?: string) => {
@@ -2903,6 +2933,7 @@ export async function getSippyCDRs(
     ? ['getAccountCDRs', 'getCustomerCDRs']
     : ['getCustomerCDRs', 'getAccountCDRs'];
 
+  let cdrAuthFailCount = 0; // how many methods returned 401/403 for this credential
   for (const method of methods) {
     try {
       // Set the correct trusted-mode field per method
@@ -2913,6 +2944,11 @@ export async function getSippyCDRs(
       // getAccountCDRs: do NOT default i_customer — omitting it returns ALL accounts' CDRs
 
       const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password);
+      if (resp.statusCode === 401 || resp.statusCode === 403) {
+        console.log(`[getSippyCDRs] ${method} HTTP ${resp.statusCode}`);
+        cdrAuthFailCount++;
+        continue;
+      }
       if (resp.statusCode !== 200) { console.log(`[getSippyCDRs] ${method} HTTP ${resp.statusCode}`); continue; }
       const text = resp.body.toString?.() ?? resp.body;
       if (text.includes('faultCode')) {
@@ -2995,6 +3031,12 @@ export async function getSippyCDRs(
       console.log(`[getSippyCDRs] ${method} error: ${err?.message ?? err}`);
       continue;
     }
+  }
+
+  // Both methods returned 401/403 — cache this auth failure for 5 minutes.
+  // This is the key throttle: without it the server floods Sippy with 30+ 401s/minute.
+  if (cdrAuthFailCount >= methods.length) {
+    _cdrAuthFailCache.set(cdrCacheKey, Date.now() + CDR_AUTH_FAIL_TTL_MS);
   }
 
   return [];

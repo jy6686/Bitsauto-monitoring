@@ -12103,45 +12103,40 @@ export async function registerRoutes(
     recentChecks: [] as Array<{ at: string; ok: boolean; latencyMs: number; status: string }>,
   };
 
-  // Helper — run one Sippy health probe (rate-limited to 30s unless forced)
+  // Helper — run one Sippy health probe (rate-limited to 60s unless forced)
   const runSippyHealthCheck = async (force = false): Promise<void> => {
-    if (!force && sippyHealth.lastCheckedAt && Date.now() - sippyHealth.lastCheckedAt.getTime() < 30_000) return;
+    if (!force && sippyHealth.lastCheckedAt && Date.now() - sippyHealth.lastCheckedAt.getTime() < 60_000) return;
     sippyHealth.totalChecks++;
     sippyHealth.lastCheckedAt = new Date();
     let settings: any = null;
     try { settings = await storage.getSippySettings(); } catch {}
-    if (!settings?.portalUrl || !settings?.apiAdminUsername || !settings?.apiAdminPassword) {
+    if (!settings?.portalUrl) {
       sippyHealth.status = 'unconfigured';
       sippyHealth.auth   = 'unknown';
       return;
     }
-    const t0 = Date.now();
-    try {
-      await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
-      const lat = Date.now() - t0;
+    // Health is determined from the live session status + IP probe latency.
+    // We do NOT call getSippyActiveCalls() here — that triggers an extra portal scrape every
+    // 60 seconds on top of the live-calls polling (which already scrapes every 5s).
+    const sess = sippy.getSippySessionStatus();
+    const probeLatency = lastProbeResult?.latency ?? lastSwitchProbeResult?.latency ?? null;
+    const lat = probeLatency ?? 0;
+
+    if (sess.active) {
       sippyHealth.latencyMs           = lat;
       sippyHealth.lastSuccessAt       = new Date();
       sippyHealth.auth                = 'valid';
       sippyHealth.consecutiveFailures = 0;
       sippyHealth.lastError           = null;
-      sippyHealth.status              = lat > 2000 ? 'slow' : 'healthy';
-      sippyHealth.recentChecks.push({ at: new Date().toISOString(), ok: true,  latencyMs: lat, status: sippyHealth.status });
-    } catch (e: any) {
-      const lat = Date.now() - t0;
-      sippyHealth.latencyMs = lat;
+      sippyHealth.status              = lat > 5000 ? 'slow' : lat > 2000 ? 'slow' : 'healthy';
+      sippyHealth.recentChecks.push({ at: new Date().toISOString(), ok: true, latencyMs: lat, status: sippyHealth.status });
+    } else {
       sippyHealth.consecutiveFailures++;
-      sippyHealth.lastError = e.message;
-      const m = (e.message || '').toLowerCase();
-      if (m.includes('auth') || m.includes('401') || m.includes('403') || m.includes('unauthorized')) {
-        sippyHealth.auth   = 'invalid';
-        sippyHealth.status = 'unhealthy';
-      } else if (m.includes('timeout') || m.includes('etimedout') || m.includes('timed out')) {
-        sippyHealth.auth   = 'valid';
-        sippyHealth.status = 'degraded';
-      } else {
-        sippyHealth.status = 'unhealthy';
-      }
-      sippyHealth.recentChecks.push({ at: new Date().toISOString(), ok: false, latencyMs: lat, status: sippyHealth.status });
+      sippyHealth.lastError  = 'No active Sippy session — portal login failed or not yet completed.';
+      sippyHealth.auth       = 'invalid';
+      sippyHealth.status     = 'unhealthy';
+      sippyHealth.latencyMs  = null;
+      sippyHealth.recentChecks.push({ at: new Date().toISOString(), ok: false, latencyMs: 0, status: sippyHealth.status });
     }
     if (sippyHealth.recentChecks.length > 100) sippyHealth.recentChecks = sippyHealth.recentChecks.slice(-100);
   };
@@ -12149,7 +12144,9 @@ export async function registerRoutes(
   // GET /api/sippy/health — real-time Sippy API health probe (all authenticated roles)
   app.get('/api/sippy/health', async (req: any, res: any) => {
     if (!req.isAuthenticated?.()) return res.status(401).json({ error: 'Unauthorized' });
-    await runSippyHealthCheck(true); // Force fresh check when explicitly requested
+    // Use cached health data (rate-limited to 60s) — avoids triggering an extra portal scrape
+    // on every frontend poll. The background health probe already runs every 60 seconds.
+    await runSippyHealthCheck(false);
     const last20    = sippyHealth.recentChecks.slice(-20);
     const errorRate = last20.length > 0
       ? ((last20.filter((c: any) => !c.ok).length / last20.length) * 100).toFixed(1) + '%'
