@@ -57,6 +57,7 @@ const VENDOR_BALANCE_HISTORY_MS = 2 * 60 * 60_000; // keep 2 hours
 
 async function refreshVendorBalances(): Promise<void> {
   try {
+    if (xmlRpcIsBlocked()) return; // skip while circuit is open
     const settings = await storage.getSippySettings();
     if (!settings) return;
     const { username, password } = sippyXmlCreds(settings);
@@ -272,13 +273,17 @@ async function withSippyCreds<T extends { error?: string; success?: boolean; mes
   settings: SippyCreds,
   fn: (username: string, password: string) => Promise<T>,
 ): Promise<T> {
+  if (xmlRpcIsBlocked()) {
+    // Return a sentinel indicating blocked state so callers can fall back
+    return { success: false, error: 'xml-rpc-circuit-open' } as unknown as T;
+  }
   const pairs = sippyXmlCredsPairs(settings);
   let last!: T;
   for (let i = 0; i < pairs.length; i++) {
     const { username, password } = pairs[i];
     last = await fn(username, password);
     // Stop immediately on success
-    if (last.success === true) return last;
+    if (last.success === true) { xmlRpcRecordSuccess(); return last; }
     // If not the last pair, check whether to retry
     if (i < pairs.length - 1) {
       const errStr = (last.error ?? last.message ?? '').toLowerCase();
@@ -289,8 +294,10 @@ async function withSippyCreds<T extends { error?: string; success?: boolean; mes
       if (isAuthError) continue; // try next credential pair
     }
     // Either last pair, or a non-auth error — return what we have
+    xmlRpcRecordAllFailed(last.error ?? last.message ?? 'withSippyCreds');
     return last;
   }
+  xmlRpcRecordAllFailed('withSippyCreds exhausted');
   return last;
 }
 
@@ -301,23 +308,76 @@ async function withSippyCredsRaw<T>(
   fn: (username: string, password: string) => Promise<T>,
   fallback: T,
 ): Promise<T> {
+  if (xmlRpcIsBlocked()) return fallback;
   const pairs = sippyXmlCredsPairs(settings);
   let lastErr: Error | null = null;
   for (const { username, password } of pairs) {
     try {
-      return await fn(username, password);
+      const result = await fn(username, password);
+      xmlRpcRecordSuccess();
+      return result;
     } catch (err: any) {
       lastErr = err;
       const msg = (err.message ?? '').toLowerCase();
       if (msg.includes('401') || msg.includes('403') || msg.includes('unauthorized') || msg.includes('not authorized')) {
         continue; // try next credential pair
       }
-      throw err; // non-auth error — re-throw immediately
+      // Non-auth error (ECONNRESET etc.) — record failure and stop immediately
+      xmlRpcRecordAllFailed(err.message);
+      return fallback;
     }
   }
   // All pairs exhausted
   if (lastErr) console.warn('[withSippyCredsRaw] all credential pairs failed:', lastErr.message);
+  xmlRpcRecordAllFailed(lastErr?.message ?? 'all pairs failed');
   return fallback;
+}
+
+// ── XML-RPC Circuit Breaker ─────────────────────────────────────────────────
+// Prevents hammering the Sippy server after repeated auth/connection failures.
+// When all credential pairs are exhausted without success, the circuit "opens"
+// and all subsequent XML-RPC calls are skipped for a cooldown period.
+// This stops the cascade of ECONNRESET errors that occur when the Sippy server
+// rate-limits or blocks connections after too many failed attempts.
+let _xmlRpcFailStreak = 0;
+let _xmlRpcBlockedUntil = 0; // epoch ms
+const XML_RPC_FAIL_THRESHOLD = 2;            // open circuit after 2 consecutive full-sweep failures
+const XML_RPC_COOLDOWN_MS   = 10 * 60 * 1000; // stay open for 10 minutes
+
+function xmlRpcIsBlocked(): boolean {
+  if (_xmlRpcBlockedUntil === 0) return false;
+  if (Date.now() >= _xmlRpcBlockedUntil) {
+    _xmlRpcFailStreak   = 0;
+    _xmlRpcBlockedUntil = 0;
+    console.log('[xml-rpc] Circuit breaker reset — retrying XML-RPC');
+    return false;
+  }
+  return true;
+}
+
+function xmlRpcRecordSuccess() {
+  if (_xmlRpcFailStreak > 0) console.log('[xml-rpc] Successful call — resetting failure streak');
+  _xmlRpcFailStreak   = 0;
+  _xmlRpcBlockedUntil = 0;
+}
+
+function xmlRpcRecordAllFailed(reason: string) {
+  _xmlRpcFailStreak++;
+  if (_xmlRpcFailStreak >= XML_RPC_FAIL_THRESHOLD && _xmlRpcBlockedUntil === 0) {
+    _xmlRpcBlockedUntil = Date.now() + XML_RPC_COOLDOWN_MS;
+    const resetAt = new Date(_xmlRpcBlockedUntil).toLocaleTimeString();
+    console.warn(`[xml-rpc] Circuit breaker OPEN after ${_xmlRpcFailStreak} sweep(s) (${reason}) — pausing until ${resetAt}`);
+  }
+}
+
+// Wraps a raw credential-pair loop with circuit-breaker awareness.
+// Call at the START of any background job that loops over credPairs.
+// Returns true if the circuit is open and the caller should skip XML-RPC entirely.
+function xmlRpcCircuitGuard(): boolean {
+  if (xmlRpcIsBlocked()) {
+    return true; // caller should skip and use portal fallback instead
+  }
+  return false;
 }
 
 // Simulation Constants
@@ -529,9 +589,13 @@ export async function registerRoutes(
 
       const fasPortalUrl = sippyPortalUrl(settings);
       let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
-      for (const { username, password } of credPairs) {
-        cdrs = await sippy.getSippyCDRs(username, password, 500, { startDate, endDate }, fasPortalUrl);
-        if (cdrs.length > 0) break;
+      if (!xmlRpcCircuitGuard()) {
+        let allFailed = true;
+        for (const { username, password } of credPairs) {
+          cdrs = await sippy.getSippyCDRs(username, password, 500, { startDate, endDate }, fasPortalUrl);
+          if (cdrs.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
+        }
+        if (allFailed && cdrs.length === 0) xmlRpcRecordAllFailed('fas-analysis: no CDRs from any pair');
       }
 
       let saved = 0;
@@ -2547,11 +2611,15 @@ export async function registerRoutes(
       // RTST1 often gets 401 on getCustomerCDRs; ssp-root (admin) always has access.
       const asrPortalUrl = sippyPortalUrl(settings!);
       let cdrs: any[] = [];
-      for (const { username, password } of credPairs) {
-        try {
-          const rows = await sippy.getSippyCDRs(username, password, 1000, { startDate, endDate }, asrPortalUrl);
-          if (rows.length > 0) { cdrs = rows; break; }
-        } catch { continue; }
+      if (!xmlRpcCircuitGuard()) {
+        let allFailed = true;
+        for (const { username, password } of credPairs) {
+          try {
+            const rows = await sippy.getSippyCDRs(username, password, 1000, { startDate, endDate }, asrPortalUrl);
+            if (rows.length > 0) { cdrs = rows; xmlRpcRecordSuccess(); allFailed = false; break; }
+          } catch { continue; }
+        }
+        if (allFailed) xmlRpcRecordAllFailed('asr-report: no CDRs from any pair');
       }
 
       // If still empty, fall back to portal scraping
@@ -2627,11 +2695,15 @@ export async function registerRoutes(
       // ── Fetch CDRs (up to 2000) ──────────────────────────────────────────────
       const perAcctPortalUrl = sippyPortalUrl(settings!);
       let cdrs: any[] = [];
-      for (const { username, password } of credPairs) {
-        try {
-          const fetched = await sippy.getSippyCDRs(username, password, 2000, { startDate, endDate }, perAcctPortalUrl);
-          if (fetched && fetched.length > 0) { cdrs = fetched; break; }
-        } catch { continue; }
+      if (!xmlRpcCircuitGuard()) {
+        let allFailed = true;
+        for (const { username, password } of credPairs) {
+          try {
+            const fetched = await sippy.getSippyCDRs(username, password, 2000, { startDate, endDate }, perAcctPortalUrl);
+            if (fetched && fetched.length > 0) { cdrs = fetched; xmlRpcRecordSuccess(); allFailed = false; break; }
+          } catch { continue; }
+        }
+        if (allFailed) xmlRpcRecordAllFailed('per-acct-stats: no CDRs from any pair');
       }
 
       // Helper: compute a stat row from a CDR slice
@@ -2763,9 +2835,13 @@ export async function registerRoutes(
       let batch: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
 
       const pUrl = sippyPortalUrl(settings!);
-      for (const { username, password } of credPairs) {
-        batch = await sippy.getSippyCDRs(username, password, 500, {}, pUrl);
-        if (batch.length > 0) break;
+      if (!xmlRpcCircuitGuard()) {
+        let allFailed = true;
+        for (const { username, password } of credPairs) {
+          batch = await sippy.getSippyCDRs(username, password, 500, {}, pUrl);
+          if (batch.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
+        }
+        if (allFailed && batch.length === 0) xmlRpcRecordAllFailed('cdr-cache: no CDRs from any pair');
       }
 
       // Fallback: portal scrape
@@ -2899,11 +2975,15 @@ export async function registerRoutes(
       if (req.query.cld)            opts.cld            = req.query.cld            as string;
       if (offset !== undefined)     opts.offset         = offset;
       const portalUrl = sippyPortalUrl(settings!);
-      // Try each credential pair (handles cases where apiAdmin and portal creds are swapped in settings)
+      // Try each credential pair (circuit breaker skips XML-RPC when Sippy is blocking us)
       let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
-      for (const { username, password } of credPairs) {
-        cdrs = await sippy.getSippyCDRs(username, password, limit, opts, portalUrl);
-        if (cdrs.length > 0) break;
+      if (!xmlRpcCircuitGuard()) {
+        let allFailed = true;
+        for (const { username, password } of credPairs) {
+          cdrs = await sippy.getSippyCDRs(username, password, limit, opts, portalUrl);
+          if (cdrs.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
+        }
+        if (allFailed) xmlRpcRecordAllFailed('cdr-route: no CDRs from any pair');
       }
       // Enrich with clientName from account cache and vendorName from connection cache
       cdrs = cdrs.map(c => ({
@@ -2976,11 +3056,15 @@ export async function registerRoutes(
 
       // Use the same standard CDR fetch as the client CDR endpoint
       let rawCdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
-      for (const { username, password } of credPairs) {
-        rawCdrs = await sippy.getSippyCDRs(username, password, limit + offset, {
-          startDate, endDate, cli, cld, type,
-        }, portalUrl);
-        if (rawCdrs.length > 0) break;
+      if (!xmlRpcCircuitGuard()) {
+        let allFailed = true;
+        for (const { username, password } of credPairs) {
+          rawCdrs = await sippy.getSippyCDRs(username, password, limit + offset, {
+            startDate, endDate, cli, cld, type,
+          }, portalUrl);
+          if (rawCdrs.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
+        }
+        if (allFailed) xmlRpcRecordAllFailed('vendor-cdr-route: no CDRs from any pair');
       }
 
       // Fallback: XML-RPC returned nothing → scrape admin portal HTML
@@ -3708,11 +3792,15 @@ export async function registerRoutes(
       if (req.query.endDate)   opts.endDate   = req.query.endDate   as string;
       if (req.query.cli)       opts.cli       = req.query.cli as string;
       if (req.query.cld)       opts.cld       = req.query.cld as string;
-      // Try each credential pair (handles swapped settings in DB)
+      // Try each credential pair — circuit breaker skips XML-RPC when Sippy is blocking
       let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
-      for (const { username, password } of credPairs) {
-        cdrs = await sippy.getSippyCDRs(username, password, limit, { ...opts });
-        if (cdrs.length > 0) break;
+      if (!xmlRpcCircuitGuard()) {
+        let allFailed = true;
+        for (const { username, password } of credPairs) {
+          cdrs = await sippy.getSippyCDRs(username, password, limit, { ...opts });
+          if (cdrs.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
+        }
+        if (allFailed) xmlRpcRecordAllFailed('asr-report-route: no CDRs from any pair');
       }
       if (cdrs.length === 0) return res.json({ rows: [], source: 'sippy-cdr', count: 0 });
 
@@ -4809,14 +4897,23 @@ export async function registerRoutes(
       if (req.query.offset)    opts.offset    = parseInt(req.query.offset    as string, 10);
       if (req.query.limit)     opts.limit     = parseInt(req.query.limit     as string, 10);
       // Try each credential pair in order — stop at first non-401 result
+      // Circuit breaker skips XML-RPC entirely when Sippy is blocking connections
       const credPairs = sippyXmlCredsPairs(settings);
       let result = { accounts: [] as any[], error: 'No credentials configured.' };
-      for (const { username, password } of credPairs) {
-        result = await sippy.listSippyAccounts(username, password, opts, portalUrl);
-        if (!result.error || (!result.error.includes('401') && !result.error.includes('403'))) break;
-        // 401 → try with iCustomer=1 scope before moving to next pair
-        const r2 = await sippy.listSippyAccounts(username, password, { ...opts, iCustomer: 1 }, portalUrl);
-        if (!r2.error || (!r2.error.includes('401') && !r2.error.includes('403'))) { result = r2; break; }
+      if (!xmlRpcCircuitGuard()) {
+        let allFailed = true;
+        for (const { username, password } of credPairs) {
+          result = await sippy.listSippyAccounts(username, password, opts, portalUrl);
+          if (!result.error || (!result.error.includes('401') && !result.error.includes('403'))) {
+            xmlRpcRecordSuccess(); allFailed = false; break;
+          }
+          // 401 → try with iCustomer=1 scope before moving to next pair
+          const r2 = await sippy.listSippyAccounts(username, password, { ...opts, iCustomer: 1 }, portalUrl);
+          if (!r2.error || (!r2.error.includes('401') && !r2.error.includes('403'))) {
+            result = r2; xmlRpcRecordSuccess(); allFailed = false; break;
+          }
+        }
+        if (allFailed) xmlRpcRecordAllFailed(result.error ?? 'accounts: all pairs failed');
       }
       // Update account name cache from fresh results
       if (result.accounts?.length) {
@@ -4952,10 +5049,11 @@ export async function registerRoutes(
 
       // Helper: try each credential pair for auth rules (returns object with authRules array)
       async function tryAllCredsAuthRules(iAccount: number) {
+        if (xmlRpcCircuitGuard()) return null;
         for (const { username, password } of credPairs) {
           try {
             const r = await sippy.listSippyAuthRules(username, password, { iAccount }, portalUrl);
-            if (r?.authRules?.length) return r;
+            if (r?.authRules?.length) { xmlRpcRecordSuccess(); return r; }
           } catch { /* ignore per-pair errors, try next */ }
         }
         return null;
@@ -4963,10 +5061,11 @@ export async function registerRoutes(
 
       // Helper: try each credential pair for getAccountInfo (internally tries both XML-RPC methods)
       async function tryAllCredsAccountInfo(iAccount: number) {
+        if (xmlRpcCircuitGuard()) return null;
         for (const { username, password } of credPairs) {
           try {
             const r = await sippy.getAccountInfo(username, password, portalUrl, iAccount);
-            if (r !== null && r !== undefined) return r;
+            if (r !== null && r !== undefined) { xmlRpcRecordSuccess(); return r; }
           } catch { /* ignore per-pair errors, try next */ }
         }
         return null;
