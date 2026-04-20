@@ -260,7 +260,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   });
   const assignedItemSet = new Set(viewerAssignmentsData?.items ?? []);
 
-  const VIEWER_ALWAYS_SHOW = new Set(['/', '/account']);
+  const VIEWER_ALWAYS_SHOW = new Set(['/', '/account', '/chat']);
 
   const isItemVisible = (item: NavItem): boolean => {
     if (role === 'viewer') {
