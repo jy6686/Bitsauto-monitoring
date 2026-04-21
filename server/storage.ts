@@ -332,6 +332,19 @@ export class DatabaseStorage implements IStorage {
       for (const [k, v] of Object.entries(SIPPY_DEFAULTS)) {
         if (!existingSettings[k as keyof typeof existingSettings]) patch[k] = v;
       }
+      // Self-healing: detect swapped portal/admin credentials and auto-correct.
+      // Sippy admin usernames conventionally start with "ssp-" (e.g. "ssp-root"),
+      // and customer portal usernames never do. If they're flipped, swap them back.
+      const pUser = existingSettings.portalUsername || '';
+      const aUser = existingSettings.apiAdminUsername || '';
+      const looksAdmin = (u: string) => /^ssp[-_]/i.test(u);
+      if (pUser && aUser && looksAdmin(pUser) && !looksAdmin(aUser)) {
+        console.warn(`[settings] Detected swapped Sippy creds — auto-correcting (portal="${pUser}" ↔ admin="${aUser}").`);
+        patch.portalUsername    = aUser;
+        patch.apiAdminUsername  = pUser;
+        patch.portalPassword    = existingSettings.apiAdminPassword || existingSettings.portalPassword;
+        patch.apiAdminPassword  = existingSettings.portalPassword   || existingSettings.apiAdminPassword;
+      }
       if (Object.keys(patch).length > 0) {
         const [patched] = await db.update(settings)
           .set(patch)
