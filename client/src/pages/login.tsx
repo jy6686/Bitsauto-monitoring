@@ -23,7 +23,7 @@ export default function LoginPage() {
           </div>
           <div className="space-y-2">
             <h1 className="text-3xl font-bold tracking-tight">Welcome Back</h1>
-            <p className="text-muted-foreground text-sm">Sign in to access the VoIP Monitoring Dashboard</p>
+            <p className="text-muted-foreground text-sm">Sign in to access the Bitsauto Monitoring Dashboard</p>
           </div>
         </div>
 

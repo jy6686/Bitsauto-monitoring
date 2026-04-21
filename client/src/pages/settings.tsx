@@ -1429,7 +1429,7 @@ function PushNotificationPanel() {
       const result = await Notification.requestPermission();
       setPermission(result);
       if (result === 'granted') {
-        new Notification('VoIP Monitor', {
+        new Notification('Bitsauto Monitoring', {
           body: 'Push notifications enabled! You\'ll now receive alerts.',
           icon: '/favicon.ico',
         });

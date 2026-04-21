@@ -8509,7 +8509,7 @@ export async function registerRoutes(
 
       const settings = await storage.getSettings();
       for (const rule of matched) {
-        const subject = `[VoIP Monitor] Alert: ${rule.label ?? rule.metric}`;
+        const subject = `[Bitsauto Monitoring] Alert: ${rule.label ?? rule.metric}`;
         const body = `Metric: ${rule.metric}\nValue: ${value}\nThreshold: ${rule.comparison} ${rule.threshold}\nContext: ${JSON.stringify(context)}\nTime: ${new Date().toISOString()}`;
 
         // Email
@@ -10240,7 +10240,7 @@ export async function registerRoutes(
 <div style="max-width:600px;margin:32px auto;background:#1e293b;border-radius:12px;overflow:hidden;border:1px solid #334155">
   <div style="background:${headerBg};padding:20px 24px;border-bottom:1px solid #334155">
     <h1 style="margin:0;font-size:20px;font-weight:700;color:#fff">${headerTitle}</h1>
-    <p style="margin:6px 0 0;font-size:13px;color:#fca5a5">VoIP Monitoring Alert · ${new Date().toUTCString()}</p>
+    <p style="margin:6px 0 0;font-size:13px;color:#fca5a5">Bitsauto Monitoring Alert · ${new Date().toUTCString()}</p>
   </div>
   <div style="padding:24px">
     <p style="margin:0 0 16px;font-size:15px">Hi <strong>${kamName}</strong>,</p>
@@ -12156,7 +12156,7 @@ export async function registerRoutes(
   app.post('/api/whatsapp/test', (req: any, res, next) => requireRole(['admin'], req, res, next), async (_req, res) => {
     try {
       const msg = [
-        '✅ *VoIP Monitor — Test Alert*',
+        '✅ *Bitsauto Monitoring — Test Alert*',
         '━━━━━━━━━━━━━━━━━━',
         '📡 WhatsApp push alerts are configured correctly.',
         `🕒 ${new Date().toUTCString()}`,

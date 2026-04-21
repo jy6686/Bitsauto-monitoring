@@ -53,7 +53,7 @@ export async function sendAlertEmail(payload: AlertEmailPayload): Promise<boolea
     if (recipients.size === 0) return false;
 
     await conn.transporter.sendMail({
-      from: `"VoIP Monitor" <${conn.from}>`,
+      from: `"Bitsauto Monitoring" <${conn.from}>`,
       to: Array.from(recipients).join(', '),
       subject: payload.subject,
       html: payload.bodyHtml,
@@ -86,13 +86,13 @@ function baseTemplate(title: string, content: string): string {
 <body style="font-family:Arial,sans-serif;background:#0f0f0f;color:#e0e0e0;padding:24px">
   <div style="max-width:600px;margin:0 auto;background:#1a1a2e;border-radius:12px;overflow:hidden">
     <div style="background:#4f46e5;padding:20px 24px">
-      <h1 style="margin:0;font-size:18px;color:#fff">📡 VoIP Monitor — ${title}</h1>
+      <h1 style="margin:0;font-size:18px;color:#fff">📡 Bitsauto Monitoring — ${title}</h1>
     </div>
     <div style="padding:24px">
       ${content}
     </div>
     <div style="padding:12px 24px;background:#111;font-size:12px;color:#666">
-      VoIP Monitor &bull; Alert generated at ${new Date().toUTCString()}
+      Bitsauto Monitoring &bull; Alert generated at ${new Date().toUTCString()}
     </div>
   </div>
 </body>

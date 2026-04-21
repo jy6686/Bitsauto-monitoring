@@ -581,7 +581,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
                 <Activity className="h-5 w-5 text-blue-500" />
               </div>
               <div className="flex-1 min-w-0">
-                <h1 className="font-bold text-base tracking-tight leading-tight">VoIP Monitor</h1>
+                <h1 className="font-bold text-base tracking-tight leading-tight">Bitsauto Monitoring</h1>
                 <p className="text-[10px] text-muted-foreground font-mono">v2.5.0-stable</p>
               </div>
               <button
@@ -784,7 +784,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
                   <Activity className="h-5 w-5 text-blue-500" />
                 </div>
                 <div className="flex-1">
-                  <h1 className="font-bold text-base tracking-tight">VoIP Monitor</h1>
+                  <h1 className="font-bold text-base tracking-tight">Bitsauto Monitoring</h1>
                   <p className="text-[10px] text-muted-foreground font-mono">v2.5.0-stable</p>
                 </div>
               </div>
@@ -884,7 +884,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
           </Sheet>
 
           <Activity className="h-5 w-5 text-primary" />
-          <span className="font-bold flex-1">VoIP Monitor</span>
+          <span className="font-bold flex-1">Bitsauto Monitoring</span>
 
           <button
             onClick={toggleTheme}

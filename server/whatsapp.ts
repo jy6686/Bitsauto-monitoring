@@ -40,7 +40,7 @@ export function formatFasAlert(opts: {
   return [
     '🚨 *FAS Fraud Detected* 🚨',
     '━━━━━━━━━━━━━━━━━━',
-    `📡 *Platform:* VoIP Monitor`,
+    `📡 *Platform:* Bitsauto Monitoring`,
     `🏢 *Vendor:* ${opts.vendor}`,
     `📞 *Caller:* ${opts.caller}`,
     `📲 *Callee:* ${opts.callee}`,
@@ -60,7 +60,7 @@ export function formatBalanceAlert(opts: {
   return [
     '⚠️ *Low Balance Alert* ⚠️',
     '━━━━━━━━━━━━━━━━━━',
-    `📡 *Platform:* VoIP Monitor`,
+    `📡 *Platform:* Bitsauto Monitoring`,
     `🏦 *Account:* ${opts.accountName}`,
     `💰 *Balance:* $${opts.balance.toFixed(2)}`,
     `📊 *Credit Used:* ${pct}%`,
@@ -81,7 +81,7 @@ export function formatTrafficAlert(opts: {
   return [
     `${icon} *${typeLabel}* ${icon}`,
     '━━━━━━━━━━━━━━━━━━',
-    `📡 *Platform:* VoIP Monitor`,
+    `📡 *Platform:* Bitsauto Monitoring`,
     `👤 *Client:* ${opts.clientName}`,
     `📉 *Previous:* ${opts.prevCalls} calls`,
     `📊 *Current:* ${opts.currCalls} calls`,
@@ -98,7 +98,7 @@ export function formatAuthAlert(opts: {
   return [
     `${icon} *Auth Rule ${opts.action === 'added' ? 'Added' : 'Deleted'}*`,
     '━━━━━━━━━━━━━━━━━━',
-    `📡 *Platform:* VoIP Monitor`,
+    `📡 *Platform:* Bitsauto Monitoring`,
     `👤 *Account:* ${opts.accountName}`,
     `🔧 *Action:* ${opts.action.toUpperCase()}`,
     opts.ipAddress ? `🌐 *IP:* ${opts.ipAddress}` : '',
@@ -114,7 +114,7 @@ export function formatOutageAlert(opts: { event: 'down' | 'recovered'; host: str
   return [
     `${icon} *${label}* ${icon}`,
     '━━━━━━━━━━━━━━━━━━',
-    `📡 *Platform:* VoIP Monitor`,
+    `📡 *Platform:* Bitsauto Monitoring`,
     `🖥 *Host:* ${opts.host}`,
     `🕒 ${new Date().toUTCString()}`,
     '━━━━━━━━━━━━━━━━━━',
