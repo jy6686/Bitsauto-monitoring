@@ -9151,10 +9151,31 @@ export async function registerRoutes(
     const toArr = (m: Record<string, number>, top = 15) =>
       Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, top).map(([name, calls]) => ({ name, calls }));
 
+    // Filter Client Traffic Pulse to ONLY known customer accounts of the
+    // currently configured primary switch. The accountNameCache is populated
+    // from the primary switch's listSippyAccounts call, so any client name
+    // that isn't in this set (carrier connections, vendor names, stale entries
+    // from a previously primary switch) is hidden. When the user swaps a
+    // secondary switch into primary, the cache repopulates and that switch's
+    // accounts will start appearing automatically.
+    const knownClientNames = new Set(
+      Array.from(accountNameCache.values()).map(n => n.toLowerCase())
+    );
+    const filteredAggClient: Record<string, number> = {};
+    if (knownClientNames.size > 0) {
+      for (const [name, calls] of Object.entries(aggClient)) {
+        if (knownClientNames.has(name.toLowerCase())) filteredAggClient[name] = calls;
+      }
+    } else {
+      // Cache is empty (e.g. server just started and Sippy hasn't synced) —
+      // fall back to showing everything so the page isn't blank.
+      Object.assign(filteredAggClient, aggClient);
+    }
+
     const last = concurrentHistory[concurrentHistory.length - 1];
     res.json({
       trend,
-      byClient:            toArr(aggClient),
+      byClient:            toArr(filteredAggClient),
       byVendor:            toArr(aggVendor),
       byCodec:             toArr(aggCodec),
       byDirection:         toArr(aggDir),
