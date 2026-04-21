@@ -4935,8 +4935,14 @@ export async function registerRoutes(
       // Try each credential pair in order — stop at first non-401 result
       // Circuit breaker skips XML-RPC entirely when Sippy is blocking connections
       const credPairs = sippyXmlCredsPairs(settings);
-      let result = { accounts: [] as any[], error: 'No credentials configured.' };
-      if (!xmlRpcCircuitGuard()) {
+      const credsPresent = credPairs.some(p => p.username && p.password);
+      let result: { accounts: any[]; error?: string } = {
+        accounts: [],
+        error: credsPresent ? undefined : 'No credentials configured.',
+      };
+      if (xmlRpcIsBlocked()) {
+        result = { accounts: [], error: 'Sippy temporarily unavailable — paused after repeated failures. Retrying automatically.' };
+      } else if (credsPresent) {
         let allFailed = true;
         for (const { username, password } of credPairs) {
           result = await sippy.listSippyAccounts(username, password, opts, portalUrl);
@@ -5852,10 +5858,18 @@ export async function registerRoutes(
       if (req.query.namePattern) opts.namePattern = req.query.namePattern as string;
       // Try each credential pair — swap automatically if primary returns 401
       const credPairs = sippyXmlCredsPairs(settings);
-      let result = { vendors: [] as any[], error: 'No credentials configured.' };
-      for (const { username, password } of credPairs) {
-        result = await sippy.listSippyVendors(username, password, opts, sippyPortalUrl(settings));
-        if (!result.error || (!result.error.includes('401') && !result.error.includes('403'))) break;
+      const credsPresent = credPairs.some(p => p.username && p.password);
+      let result: { vendors: any[]; error?: string } = {
+        vendors: [],
+        error: credsPresent ? undefined : 'No credentials configured.',
+      };
+      if (xmlRpcIsBlocked()) {
+        result = { vendors: [], error: 'Sippy temporarily unavailable — paused after repeated failures. Retrying automatically.' };
+      } else if (credsPresent) {
+        for (const { username, password } of credPairs) {
+          result = await sippy.listSippyVendors(username, password, opts, sippyPortalUrl(settings));
+          if (!result.error || (!result.error.includes('401') && !result.error.includes('403'))) break;
+        }
       }
       res.json(result);
     } catch (e: any) { res.status(500).json({ vendors: [], error: e.message }); }
