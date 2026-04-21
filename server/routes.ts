@@ -4999,10 +4999,18 @@ export async function registerRoutes(
       // successful sweep, surface those so the UI dropdown still works. We
       // preserve the original error so the client can show a "stale data" hint.
       if ((!result.accounts || result.accounts.length === 0) && accountNameCache.size > 0) {
+        // Include zero defaults for numeric fields so frontend formatters
+        // (e.g. .toFixed(2)) don't produce NaN. The "cached: true" flag and the
+        // preserved error message tell the UI these are stale/limited entries.
         const cached = Array.from(accountNameCache.entries()).map(([id, username]) => ({
-          iAccount: parseInt(id, 10),
+          iAccount:    parseInt(id, 10),
           username,
-          cached: true,
+          balance:     0,
+          creditLimit: 0,
+          maxCredit:   0,
+          baseCurrency:'USD',
+          blocked:     0,
+          cached:      true,
         }));
         result = {
           accounts: cached,

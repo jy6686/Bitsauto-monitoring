@@ -102,16 +102,14 @@ export default function TestCallPage() {
   const adminUser  = settings?.apiAdminUsername || 'ssp-root';
   const adminUrl   = `${portalBase}/main.php`;
 
-  const { data: accounts = [] } = useQuery<SippyAccount[]>({
+  // NOTE: queryKey is shared across many pages — must keep the same response
+  // shape ({accounts: SippyAccount[]}) so cache hits from other pages don't
+  // break this component (calling .some on an object causes a runtime crash).
+  const { data: accountsData } = useQuery<{ accounts: SippyAccount[]; error?: string }>({
     queryKey: ["/api/sippy/accounts"],
-    queryFn: async () => {
-      const res = await fetch("/api/sippy/accounts?iCustomer=1", { credentials: "include" });
-      if (!res.ok) return [];
-      const d = await res.json();
-      return Array.isArray(d) ? d : Array.isArray(d?.accounts) ? d.accounts : [];
-    },
     staleTime: 60000,
   });
+  const accounts: SippyAccount[] = Array.isArray(accountsData?.accounts) ? accountsData!.accounts : [];
 
   const { data: logs = [], isLoading: logsLoading } = useQuery<TestCallLog[]>({
     queryKey: ["/api/sippy/test-call-logs"],
