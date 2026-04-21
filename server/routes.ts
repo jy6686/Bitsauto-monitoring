@@ -2287,20 +2287,51 @@ export async function registerRoutes(
             errorType: 'no_customer_creds',
           };
         } else {
+          // Per Sippy support's confirmed-working example (ticket reply, Apr 2026):
+          //   make2WayCallback only requires authname, cld_first, cld_second
+          //   (and optionally credit_time). cli_first / cli_second are optional
+          //   and many customer accounts reject calls that try to override CLI.
+          // Strategy: first attempt with the minimal payload (matches support's
+          // tested signature exactly). If that faults with anything other than
+          // an auth failure, retry once WITH cli_first/cli_second so callers who
+          // do have CLI-override permission still benefit from caller-ID spoofing.
+          const cliTrim = cli.trim();
+          const cldTrim = cld.trim();
+          const cliDiffersFromCld = cliTrim && cliTrim !== cldTrim;
+
           for (const { username, password } of phase2Pairs) {
             let r: { success: boolean; iCallbackRequest?: number; message: string };
+            // Attempt 1: minimal payload (matches Sippy support's known-good call)
             try {
               r = await sippy.make2WayCallback(username, password, {
                 authname,
-                cldFirst:  cli.trim(),
-                cliFirst:  cli.trim(),
-                cldSecond: cld.trim(),
-                cliSecond: cli.trim(),
+                cldFirst:  cliTrim,
+                cldSecond: cldTrim,
               }, portalBase);
             } catch (err: any) {
-              console.error(`[make-call] make2WayCallback threw for user ${username}:`, err);
+              console.error(`[make-call] make2WayCallback (minimal) threw for user ${username}:`, err);
               r = { success: false, message: err?.message || String(err) };
             }
+
+            // Attempt 2 (only if first failed and not an auth issue, and a
+            // distinct CLI was supplied): retry WITH cli_first/cli_second.
+            const isAuthFail = /auth_failed|HTTP 401|HTTP 403/i.test(r.message || '');
+            if (!r.success && !isAuthFail && cliDiffersFromCld) {
+              try {
+                console.log(`[make-call] make2WayCallback minimal failed (${r.message}); retrying with cli_first/cli_second`);
+                r = await sippy.make2WayCallback(username, password, {
+                  authname,
+                  cldFirst:  cliTrim,
+                  cliFirst:  cliTrim,
+                  cldSecond: cldTrim,
+                  cliSecond: cliTrim,
+                }, portalBase);
+              } catch (err: any) {
+                console.error(`[make-call] make2WayCallback (with CLI) threw for user ${username}:`, err);
+                r = { success: false, message: err?.message || String(err) };
+              }
+            }
+
             result = {
               success:   r.success,
               callId:    r.iCallbackRequest != null ? String(r.iCallbackRequest) : undefined,
