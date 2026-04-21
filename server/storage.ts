@@ -332,9 +332,10 @@ export class DatabaseStorage implements IStorage {
       for (const [k, v] of Object.entries(SIPPY_DEFAULTS)) {
         if (!existingSettings[k as keyof typeof existingSettings]) patch[k] = v;
       }
-      // Self-healing: detect swapped portal/admin credentials and auto-correct.
+      // Self-healing: detect swapped portal/admin USERNAMES and auto-correct.
       // Sippy admin usernames conventionally start with "ssp-" (e.g. "ssp-root"),
-      // and customer portal usernames never do. If they're flipped, swap them back.
+      // and customer portal usernames never do. If they're flipped, swap them back
+      // (along with their passwords, which were entered with the now-swapped names).
       const pUser = existingSettings.portalUsername || '';
       const aUser = existingSettings.apiAdminUsername || '';
       const looksAdmin = (u: string) => /^ssp[-_]/i.test(u);
@@ -344,6 +345,25 @@ export class DatabaseStorage implements IStorage {
         patch.apiAdminUsername  = pUser;
         patch.portalPassword    = existingSettings.apiAdminPassword || existingSettings.portalPassword;
         patch.apiAdminPassword  = existingSettings.portalPassword   || existingSettings.apiAdminPassword;
+      }
+
+      // Self-healing #2: if usernames are correct (RTST1 / ssp-root) but the
+      // passwords ended up swapped (a side-effect of the previous self-heal
+      // running on a DB that only had the usernames swapped), swap them back.
+      // The admin password convention starts with "!" (e.g. "!chiaan1") and
+      // customer portal passwords do not. This is a safe heuristic.
+      const finalPUser = (patch.portalUsername   as string) || pUser;
+      const finalAUser = (patch.apiAdminUsername as string) || aUser;
+      const finalPPass = (patch.portalPassword   as string) || existingSettings.portalPassword   || '';
+      const finalAPass = (patch.apiAdminPassword as string) || existingSettings.apiAdminPassword || '';
+      if (
+        finalPUser && finalAUser && !looksAdmin(finalPUser) && looksAdmin(finalAUser) &&
+        finalPPass.startsWith('!') && !finalAPass.startsWith('!') &&
+        finalPPass && finalAPass
+      ) {
+        console.warn(`[settings] Detected swapped Sippy passwords — auto-correcting.`);
+        patch.portalPassword   = finalAPass;
+        patch.apiAdminPassword = finalPPass;
       }
       if (Object.keys(patch).length > 0) {
         const [patched] = await db.update(settings)
