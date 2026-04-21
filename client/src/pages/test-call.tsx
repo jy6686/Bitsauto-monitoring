@@ -284,7 +284,7 @@ export default function TestCallPage() {
                             className="font-mono"
                           />
                         </FormControl>
-                        <p className="text-[11px] text-muted-foreground">Sippy calls <em>this</em> number first (answer it to be bridged)</p>
+                        <p className="text-[11px] text-muted-foreground">Sippy calls <em>this</em> number first (answer it to be bridged). Use the same number as the destination unless your account has caller-ID override enabled.</p>
                         <FormMessage />
                       </FormItem>
                     )} />
