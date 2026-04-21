@@ -2210,7 +2210,14 @@ export async function registerRoutes(
       // Fallback: if one set is missing, fill from credPairs so we always have at least something
       const allPairs = sippyXmlCredsPairs(settings);
       const phase1Pairs = adminPairs.length   ? adminPairs   : allPairs;
-      const phase2Pairs = customerPairs.length ? customerPairs : allPairs;
+      // Phase 2 (make2WayCallback) MUST use customer credentials in Normal Mode.
+      // Using admin (ssp-root) credentials always produces HTTP 401 — Sippy rejects
+      // admin auth for this method. We strictly only use customer credentials here,
+      // and we filter OUT any pair whose username matches the admin username to avoid
+      // accidental admin-cred attempts even when allPairs is used as a last resort.
+      const adminUserNames = new Set(adminPairs.map(p => p.username.toLowerCase()));
+      const phase2PairsRaw = customerPairs.length ? customerPairs : allPairs;
+      const phase2Pairs    = phase2PairsRaw.filter(p => !adminUserNames.has(p.username.toLowerCase()));
       // Phase 3: try customer first (most likely .htpassword entry), then admin
       const phase3Pairs = [...customerPairs, ...adminPairs].length ? [...customerPairs, ...adminPairs] : allPairs;
 
@@ -2271,6 +2278,12 @@ export async function registerRoutes(
             success: false,
             message: 'No direct call origination method found on this switch, and no authname is available for 2-way callback. Select a billing account and try again.',
             errorType: 'no_authname',
+          };
+        } else if (phase2Pairs.length === 0) {
+          result = {
+            success: false,
+            message: `Phase 2 (make2WayCallback) requires CUSTOMER credentials in Normal Mode — admin credentials cannot be used for this method. Configure "Portal Username" and "Portal Password" in Settings → Sippy Connection with a customer account that has the Callback application enabled.`,
+            errorType: 'no_customer_creds',
           };
         } else {
           for (const { username, password } of phase2Pairs) {
