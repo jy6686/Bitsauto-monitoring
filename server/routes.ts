@@ -2218,9 +2218,9 @@ export async function registerRoutes(
       const adminUserNames = new Set(adminPairs.map(p => p.username.toLowerCase()));
       const phase2PairsRaw = customerPairs.length ? customerPairs : allPairs;
       const phase2Pairs    = phase2PairsRaw.filter(p => !adminUserNames.has(p.username.toLowerCase()));
-      console.log(`[make-call] phase1=${phase1Pairs.map(p=>p.username).join(',')} | phase2=${phase2Pairs.map(p=>p.username).join(',') || '(empty)'} | phase3=${phase3Pairs.map(p=>p.username).join(',')}`);
       // Phase 3: try customer first (most likely .htpassword entry), then admin
       const phase3Pairs = [...customerPairs, ...adminPairs].length ? [...customerPairs, ...adminPairs] : allPairs;
+      console.log(`[make-call] phase1=${phase1Pairs.map(p=>p.username).join(',')} | phase2=${phase2Pairs.map(p=>p.username).join(',') || '(empty)'} | phase3=${phase3Pairs.map(p=>p.username).join(',')}`);
 
       let result: { success: boolean; callId?: string; message: string; errorType?: string; apiUser?: string; method?: string } = {
         success: false,
