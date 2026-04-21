@@ -4994,6 +4994,21 @@ export async function registerRoutes(
           if (acct.iAccount && acct.username) accountNameCache.set(String(acct.iAccount), acct.username);
         }
       }
+      // Fallback: if Sippy returned no accounts (e.g. circuit breaker open or
+      // transient auth fault) but we have cached account names from a previous
+      // successful sweep, surface those so the UI dropdown still works. We
+      // preserve the original error so the client can show a "stale data" hint.
+      if ((!result.accounts || result.accounts.length === 0) && accountNameCache.size > 0) {
+        const cached = Array.from(accountNameCache.entries()).map(([id, username]) => ({
+          iAccount: parseInt(id, 10),
+          username,
+          cached: true,
+        }));
+        result = {
+          accounts: cached,
+          error: result.error ? `${result.error} (showing ${cached.length} cached accounts)` : undefined,
+        };
+      }
       res.json(result);
     } catch (e: any) { res.status(500).json({ accounts: [], error: e.message }); }
   });
