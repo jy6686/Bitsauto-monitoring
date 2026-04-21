@@ -124,6 +124,16 @@ export function notifyNewClientTraffic(clientName: string): void {
 
 async function fireNewTrafficAlert(clientName: string): Promise<void> {
   console.log(`[sippy-watcher] 🆕 New client traffic detected: ${clientName}`);
+  storage.recordSippyChangeEvents([{
+    category: 'seenClients',
+    changeType: 'new_traffic',
+    subject: `🆕 New Client Traffic — ${clientName}`,
+    clientName,
+    vendorName: null,
+    oldValue: null,
+    newValue: 'First calls observed',
+    meta: null,
+  }]).catch(e => console.warn('[sippy-watcher] persist new-traffic error:', e.message));
   await sendAlertEmail({
     subject: `🆕 New Client Traffic — ${clientName}`,
     includeWatcherRecipients: true,
@@ -308,8 +318,14 @@ interface Change {
       | 'vendor_added' | 'vendor_removed'
       | 'connection_added' | 'connection_removed'
       | 'ip_added' | 'ip_removed' | 'ip_changed';
+  category: 'accounts' | 'vendors' | 'connections' | 'authRules';
   subject: string;
   bodyHtml: string;
+  clientName?: string;
+  vendorName?: string;
+  oldValue?: string;
+  newValue?: string;
+  meta?: Record<string, any>;
 }
 
 function diffStates(prev: SippyState, curr: SippyState): Change[] {
@@ -323,6 +339,10 @@ function diffStates(prev: SippyState, curr: SippyState): Change[] {
     if (!prevAccIds.has(a.iAccount)) {
       changes.push({
         type: 'account_added',
+        category: 'accounts',
+        clientName: a.name || a.username,
+        oldValue: null as any, newValue: `iAccount ${a.iAccount} (${a.username})`,
+        meta: { iAccount: a.iAccount, username: a.username },
         subject: `🆕 New Client Account — ${a.name || a.username}`,
         bodyHtml: buildSippyChangeEmail('New Client Account Added', [
           { icon: '👤', label: 'Account',  value: a.name || a.username },
@@ -338,6 +358,10 @@ function diffStates(prev: SippyState, curr: SippyState): Change[] {
     if (!currAccIds.has(a.iAccount)) {
       changes.push({
         type: 'account_removed',
+        category: 'accounts',
+        clientName: a.name || a.username,
+        oldValue: `iAccount ${a.iAccount} (${a.username})`, newValue: null as any,
+        meta: { iAccount: a.iAccount, username: a.username },
         subject: `🗑️ Client Account Removed — ${a.name || a.username}`,
         bodyHtml: buildSippyChangeEmail('Client Account Removed', [
           { icon: '👤', label: 'Account',  value: a.name || a.username },
@@ -357,6 +381,10 @@ function diffStates(prev: SippyState, curr: SippyState): Change[] {
     if (!prevVenIds.has(v.iVendor)) {
       changes.push({
         type: 'vendor_added',
+        category: 'vendors',
+        vendorName: v.name,
+        oldValue: null as any, newValue: `iVendor ${v.iVendor} (${v.name})`,
+        meta: { iVendor: v.iVendor },
         subject: `🆕 New Vendor Added — ${v.name}`,
         bodyHtml: buildSippyChangeEmail('New Vendor Added', [
           { icon: '🏢', label: 'Vendor',  value: v.name },
@@ -371,6 +399,10 @@ function diffStates(prev: SippyState, curr: SippyState): Change[] {
     if (!currVenIds.has(v.iVendor)) {
       changes.push({
         type: 'vendor_removed',
+        category: 'vendors',
+        vendorName: v.name,
+        oldValue: `iVendor ${v.iVendor} (${v.name})`, newValue: null as any,
+        meta: { iVendor: v.iVendor },
         subject: `🗑️ Vendor Removed — ${v.name}`,
         bodyHtml: buildSippyChangeEmail('Vendor Removed', [
           { icon: '🏢', label: 'Vendor',  value: v.name },
@@ -390,6 +422,10 @@ function diffStates(prev: SippyState, curr: SippyState): Change[] {
     if (!prevConnKeys.has(k)) {
       changes.push({
         type: 'connection_added',
+        category: 'connections',
+        vendorName: c.vendorName,
+        oldValue: null as any, newValue: `${c.name || c.iConnection} → ${c.destination || 'N/A'}`,
+        meta: { iVendor: c.iVendor, iConnection: c.iConnection, destination: c.destination },
         subject: `🔌 New Connection — ${c.vendorName} / ${c.name || c.iConnection}`,
         bodyHtml: buildSippyChangeEmail('Vendor Connection Added', [
           { icon: '🏢', label: 'Vendor',      value: c.vendorName },
@@ -406,6 +442,10 @@ function diffStates(prev: SippyState, curr: SippyState): Change[] {
     if (!currConnKeys.has(k)) {
       changes.push({
         type: 'connection_removed',
+        category: 'connections',
+        vendorName: c.vendorName,
+        oldValue: `${c.name || c.iConnection} → ${c.destination || 'N/A'}`, newValue: null as any,
+        meta: { iVendor: c.iVendor, iConnection: c.iConnection, destination: c.destination },
         subject: `🗑️ Connection Removed — ${c.vendorName} / ${c.name || c.iConnection}`,
         bodyHtml: buildSippyChangeEmail('Vendor Connection Removed', [
           { icon: '🏢', label: 'Vendor',      value: c.vendorName },
@@ -435,6 +475,10 @@ function diffStates(prev: SippyState, curr: SippyState): Change[] {
         currRule.remoteIp !== prevRule.remoteIp) {
       changes.push({
         type: 'ip_changed',
+        category: 'authRules',
+        clientName: currRule.accountName,
+        oldValue: prevRule.remoteIp, newValue: currRule.remoteIp,
+        meta: { iAuthentication: id, iAccount: currRule.iAccount },
         subject: `⚠️ IP Changed — ${currRule.accountName} (${prevRule.remoteIp} → ${currRule.remoteIp})`,
         bodyHtml: buildSippyChangeEmail('Auth IP Address Changed', [
           { icon: '👤', label: 'Account',   value: currRule.accountName },
@@ -456,6 +500,10 @@ function diffStates(prev: SippyState, curr: SippyState): Change[] {
       if (existing) continue;
       changes.push({
         type: 'ip_added',
+        category: 'authRules',
+        clientName: r.accountName,
+        oldValue: null as any, newValue: r.remoteIp || r.username || 'N/A',
+        meta: { iAuthentication: r.iAuthentication, iAccount: r.iAccount, username: r.username },
         subject: `🔐 IP Added — ${r.accountName} (${r.remoteIp || r.username || 'N/A'})`,
         bodyHtml: buildSippyChangeEmail('Auth IP Added', [
           { icon: '👤', label: 'Account',   value: r.accountName },
@@ -476,6 +524,10 @@ function diffStates(prev: SippyState, curr: SippyState): Change[] {
       if (isByChange) continue;
       changes.push({
         type: 'ip_removed',
+        category: 'authRules',
+        clientName: r.accountName,
+        oldValue: r.remoteIp || r.username || 'N/A', newValue: null as any,
+        meta: { iAuthentication: r.iAuthentication, iAccount: r.iAccount, username: r.username },
         subject: `🗑️ IP Removed — ${r.accountName} (${r.remoteIp || r.username || 'N/A'})`,
         bodyHtml: buildSippyChangeEmail('Auth IP Removed', [
           { icon: '👤', label: 'Account',   value: r.accountName },
@@ -536,6 +588,18 @@ async function runWatcherCycle(): Promise<void> {
   const changes = diffStates(prev, curr);
   if (changes.length > 0) {
     console.log(`[sippy-watcher] Detected ${changes.length} change(s) — sending alerts.`);
+    // Persist to audit trail (fire-and-forget — don't block alerts on DB)
+    storage.recordSippyChangeEvents(changes.map(ch => ({
+      category:   ch.category,
+      changeType: ch.type,
+      subject:    ch.subject,
+      clientName: ch.clientName ?? null,
+      vendorName: ch.vendorName ?? null,
+      oldValue:   ch.oldValue ?? null,
+      newValue:   ch.newValue ?? null,
+      meta:       ch.meta ?? null,
+    }))).catch(e => console.warn('[sippy-watcher] persist events error:', e.message));
+
     for (const ch of changes) {
       console.log(`[sippy-watcher]  • ${ch.subject}`);
       await sendAlertEmail({ subject: ch.subject, bodyHtml: ch.bodyHtml, includeWatcherRecipients: true });

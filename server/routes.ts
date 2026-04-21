@@ -10419,6 +10419,22 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // ── Sippy Change Audit Log ─────────────────────────────────────────────────
+  // GET /api/sippy/change-events?category=accounts|vendors|connections|authRules|seenClients
+  app.get('/api/sippy/change-events', async (req, res) => {
+    try {
+      if (!req.isAuthenticated?.()) return res.status(401).json({ error: 'Unauthorized' });
+      const allowed = new Set(['accounts','vendors','connections','authRules','seenClients']);
+      const cat = typeof req.query.category === 'string' && allowed.has(req.query.category)
+        ? req.query.category : undefined;
+      const limit = req.query.limit ? Math.min(parseInt(req.query.limit as string, 10) || 200, 1000) : 200;
+      const events = await storage.listSippyChangeEvents({ category: cat, limit });
+      res.json(events);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── Watcher Recipients CRUD ────────────────────────────────────────────────
   app.get('/api/watcher-recipients', (req, res, next) => requireRole(['admin','management'], req, res, next), async (_req, res) => {
     const list = await storage.getWatcherRecipients();

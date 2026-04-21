@@ -491,6 +491,23 @@ export const sippySnapshots = pgTable("sippy_snapshots", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Sippy change events — persistent audit trail for the watcher
+// One row per detected change; surfaced as a click-through audit log in Settings
+export const sippyChangeEvents = pgTable("sippy_change_events", {
+  id:          serial("id").primaryKey(),
+  category:    varchar("category",    { length: 32 }).notNull(),  // accounts | vendors | connections | authRules | seenClients
+  changeType:  varchar("change_type", { length: 32 }).notNull(),  // account_added | ip_changed | new_traffic | …
+  subject:     text("subject").notNull(),
+  clientName:  varchar("client_name", { length: 255 }),
+  vendorName:  varchar("vendor_name", { length: 255 }),
+  oldValue:    text("old_value"),
+  newValue:    text("new_value"),
+  meta:        json("meta"),
+  detectedAt:  timestamp("detected_at").defaultNow().notNull(),
+});
+export type SippyChangeEvent = typeof sippyChangeEvents.$inferSelect;
+export type InsertSippyChangeEvent = typeof sippyChangeEvents.$inferInsert;
+
 // ── IRSF Events: International Revenue Share Fraud detections ─────────────────
 export const irsfEvents = pgTable("irsf_events", {
   id:          serial("id").primaryKey(),

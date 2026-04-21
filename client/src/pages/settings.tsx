@@ -10,8 +10,9 @@ import {
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
   Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp, Users, UserPlus, X, AlertCircle,
   Radio, Activity, Mail, Bell, Send, MailCheck, MailX, UserCheck, Download, FileText,
-  BellRing, BellOff, Smartphone, ShieldAlert, Check,
+  BellRing, BellOff, Smartphone, ShieldAlert, Check, History, ArrowRight,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -605,6 +606,7 @@ function SippyWatcherPanel() {
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
   const [addEmail, setAddEmail] = useState('');
   const [addName, setAddName] = useState('');
+  const [auditCategory, setAuditCategory] = useState<null | { key: string; label: string }>(null);
 
   // Auto-expand & scroll when ?section=watcher
   useEffect(() => {
@@ -752,19 +754,31 @@ function SippyWatcherPanel() {
               {/* Snapshot summary */}
               {snap && (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Current Sippy Snapshot</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Current Sippy Snapshot</p>
+                    <p className="text-[10px] text-muted-foreground/70 italic">Click any card to view change history</p>
+                  </div>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                     {[
-                      { label: 'Client Accounts', value: snap.accounts, color: 'text-violet-400' },
-                      { label: 'Vendors', value: snap.vendors, color: 'text-cyan-400' },
-                      { label: 'Connections', value: snap.connections, color: 'text-blue-400' },
-                      { label: 'Auth IP Rules', value: snap.authRules, color: 'text-emerald-400' },
-                      { label: 'Traffic Clients', value: snap.seenClients, color: 'text-amber-400' },
-                    ].map(({ label, value, color }) => (
-                      <div key={label} className="bg-muted/20 border border-border/50 rounded-lg p-3 text-center">
+                      { key: 'accounts',    label: 'Client Accounts', value: snap.accounts,    color: 'text-violet-400',  hover: 'hover:border-violet-400/50  hover:bg-violet-500/5'  },
+                      { key: 'vendors',     label: 'Vendors',         value: snap.vendors,     color: 'text-cyan-400',    hover: 'hover:border-cyan-400/50    hover:bg-cyan-500/5'    },
+                      { key: 'connections', label: 'Connections',     value: snap.connections, color: 'text-blue-400',    hover: 'hover:border-blue-400/50    hover:bg-blue-500/5'    },
+                      { key: 'authRules',   label: 'Auth IP Rules',   value: snap.authRules,   color: 'text-emerald-400', hover: 'hover:border-emerald-400/50 hover:bg-emerald-500/5' },
+                      { key: 'seenClients', label: 'Traffic Clients', value: snap.seenClients, color: 'text-amber-400',   hover: 'hover:border-amber-400/50   hover:bg-amber-500/5'   },
+                    ].map(({ key, label, value, color, hover }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        data-testid={`btn-audit-${key}`}
+                        onClick={() => setAuditCategory({ key, label })}
+                        className={`group bg-muted/20 border border-border/50 rounded-lg p-3 text-center transition-all cursor-pointer ${hover}`}
+                      >
                         <p className={`text-2xl font-bold ${color}`}>{value}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{label}</p>
-                      </div>
+                        <p className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
+                          {label}
+                          <History className="h-3 w-3 opacity-0 group-hover:opacity-70 transition-opacity" />
+                        </p>
+                      </button>
                     ))}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
@@ -920,7 +934,144 @@ function SippyWatcherPanel() {
           )}
         </div>
       )}
+
+      <SippyAuditDialog
+        open={!!auditCategory}
+        category={auditCategory?.key ?? null}
+        label={auditCategory?.label ?? ''}
+        onClose={() => setAuditCategory(null)}
+      />
     </div>
+  );
+}
+
+interface SippyChangeEventRow {
+  id: number;
+  category: string;
+  changeType: string;
+  subject: string;
+  clientName: string | null;
+  vendorName: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  meta: any;
+  detectedAt: string;
+}
+
+function SippyAuditDialog({ open, category, label, onClose }: {
+  open: boolean; category: string | null; label: string; onClose: () => void;
+}) {
+  const { data: events = [], isLoading } = useQuery<SippyChangeEventRow[]>({
+    queryKey: ['/api/sippy/change-events', category],
+    queryFn: async () => {
+      const res = await fetch(`/api/sippy/change-events?category=${category}&limit=200`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load audit log');
+      return res.json();
+    },
+    enabled: open && !!category,
+  });
+
+  const changeTypeColor = (t: string) => {
+    if (t.endsWith('_added') || t === 'new_traffic') return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+    if (t.endsWith('_removed')) return 'text-red-400 bg-red-500/10 border-red-500/20';
+    if (t === 'ip_changed') return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+    return 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20';
+  };
+
+  const changeTypeLabel = (t: string) => ({
+    account_added:     'Account Added',
+    account_removed:   'Account Removed',
+    vendor_added:      'Vendor Added',
+    vendor_removed:    'Vendor Removed',
+    connection_added:  'Connection Added',
+    connection_removed:'Connection Removed',
+    ip_added:          'IP Added',
+    ip_removed:        'IP Removed',
+    ip_changed:        'IP Changed',
+    new_traffic:       'New Traffic',
+  }[t] ?? t);
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col" data-testid="dialog-sippy-audit">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <History className="h-5 w-5 text-cyan-400" />
+            {label} — Change History
+          </DialogTitle>
+          <DialogDescription>
+            All changes detected by the Sippy watcher. Most recent first.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto -mx-6 px-6">
+          {isLoading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading audit trail…
+            </div>
+          ) : events.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <History className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">No changes recorded yet for {label.toLowerCase()}.</p>
+              <p className="text-xs mt-1 opacity-70">
+                The watcher will log here on its next 5-minute cycle when something changes.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2 pb-2">
+              {events.map(ev => (
+                <div
+                  key={ev.id}
+                  data-testid={`row-audit-${ev.id}`}
+                  className="border border-border/60 rounded-lg p-3 bg-muted/10 hover:bg-muted/20 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${changeTypeColor(ev.changeType)}`}>
+                      {changeTypeLabel(ev.changeType)}
+                    </span>
+                    <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
+                      {new Date(ev.detectedAt).toLocaleString()}
+                    </span>
+                  </div>
+
+                  {/* Old → New value diff */}
+                  {(ev.oldValue || ev.newValue) && (
+                    <div className="flex items-center gap-2 text-sm mb-2 flex-wrap">
+                      {ev.oldValue && (
+                        <span className="px-2 py-1 rounded bg-red-500/10 border border-red-500/20 text-red-300 font-mono text-xs">
+                          🔄 {ev.oldValue}
+                        </span>
+                      )}
+                      {ev.oldValue && ev.newValue && <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                      {ev.newValue && (
+                        <span className="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-mono text-xs">
+                          ✨ {ev.newValue}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                    {ev.clientName && (
+                      <span className="flex items-center gap-1">
+                        <span>👤</span>
+                        <span className="text-foreground font-medium">{ev.clientName}</span>
+                      </span>
+                    )}
+                    {ev.vendorName && (
+                      <span className="flex items-center gap-1">
+                        <span>🏢</span>
+                        <span className="text-foreground font-medium">{ev.vendorName}</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

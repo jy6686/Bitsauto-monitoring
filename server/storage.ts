@@ -3,6 +3,7 @@ import {
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
   switches, fasEvents, fasVendorSettings, callSnapshots, monitoringAssignments, outageLog, alertRules,
   monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts, sippySnapshots,
+  sippyChangeEvents,
   watcherRecipients, irsfEvents, blacklistRules, rateCards, rateCardEntries, mosHourly,
   apiKeys, dashboardWidgetPrefs, callTestLogs, whatsappAlertLog,
   simboxScores, billingDisputes, slaBreachLog, testCampaigns, testCampaignResults, scheduledReports,
@@ -24,6 +25,7 @@ import {
   type KamAccount, type InsertKamAccount,
   type TrafficAlert, type InsertTrafficAlert,
   type WatcherRecipient, type InsertWatcherRecipient,
+  type SippyChangeEvent, type InsertSippyChangeEvent,
   type IrsfEvent, type InsertIrsfEvent,
   type BlacklistRule, type InsertBlacklistRule,
   type RateCard, type InsertRateCard,
@@ -153,6 +155,8 @@ export interface IStorage {
   // Sippy Snapshots (key-value store for change detection)
   getSippySnapshot(key: string): Promise<any | null>;
   setSippySnapshot(key: string, data: any): Promise<void>;
+  recordSippyChangeEvents(events: InsertSippyChangeEvent[]): Promise<void>;
+  listSippyChangeEvents(opts?: { category?: string; limit?: number }): Promise<SippyChangeEvent[]>;
 
   // Watcher Recipients
   getWatcherRecipients(): Promise<WatcherRecipient[]>;
@@ -942,6 +946,24 @@ export class DatabaseStorage implements IStorage {
   async setSippySnapshot(key: string, data: any): Promise<void> {
     await db.insert(sippySnapshots).values({ key, data, updatedAt: new Date() })
       .onConflictDoUpdate({ target: sippySnapshots.key, set: { data, updatedAt: new Date() } });
+  }
+
+  async recordSippyChangeEvents(events: InsertSippyChangeEvent[]): Promise<void> {
+    if (!events.length) return;
+    await db.insert(sippyChangeEvents).values(events);
+  }
+
+  async listSippyChangeEvents(opts: { category?: string; limit?: number } = {}): Promise<SippyChangeEvent[]> {
+    const limit = Math.min(opts.limit ?? 200, 1000);
+    if (opts.category) {
+      return db.select().from(sippyChangeEvents)
+        .where(eq(sippyChangeEvents.category, opts.category))
+        .orderBy(desc(sippyChangeEvents.detectedAt))
+        .limit(limit);
+    }
+    return db.select().from(sippyChangeEvents)
+      .orderBy(desc(sippyChangeEvents.detectedAt))
+      .limit(limit);
   }
 
   // ── Watcher Recipients ────────────────────────────────────────────────────────
