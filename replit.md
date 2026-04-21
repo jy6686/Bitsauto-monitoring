@@ -1,4 +1,4 @@
-# VoIP Monitoring Platform
+# Bitsauto Monitoring Platform
 
 ## Overview
 Full-stack VoIP monitoring dashboard with real-time metrics, alerting, team management, and live softswitch integration. Supports light/dark theme, command palette, API key management, customizable dashboard widgets, and mobile-responsive NOC view.

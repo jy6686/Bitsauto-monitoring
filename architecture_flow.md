@@ -1,4 +1,4 @@
-# Architecture Flow — VoIP Monitoring Platform
+# Architecture Flow — Bitsauto Monitoring Platform
 Sippy Softswitch (Python 2 Build) Integration
 
 ---
