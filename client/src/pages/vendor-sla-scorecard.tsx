@@ -26,8 +26,8 @@ interface VendorRow {
   topCountries: { country: string; count: number }[];
 }
 
-interface NerEntry { vendor: string; ner: number; total: number; answered: number; }
-interface NerResponse { ner: NerEntry[]; hours: number; }
+interface NerEntry { vendorId: string; ner: number | null; asr: number | null; total: number; answered: number; nerEligible: number; }
+interface NerResponse { ner: number | null; asr: number | null; total: number; nerEligible: number; answered: number; hours: number; vendorNer: NerEntry[]; }
 
 interface ScorecardResponse {
   rows: VendorRow[];
@@ -184,7 +184,10 @@ export default function VendorSlaScorecardPage() {
   });
   const nerMap = useMemo(() => {
     const m = new Map<string, number>();
-    for (const e of (nerData?.ner ?? [])) m.set(e.vendor, e.ner);
+    const list = Array.isArray(nerData?.vendorNer) ? nerData!.vendorNer : [];
+    for (const e of list) {
+      if (e && e.vendorId && typeof e.ner === 'number') m.set(e.vendorId, e.ner);
+    }
     return m;
   }, [nerData]);
 
