@@ -12339,21 +12339,15 @@ export async function registerRoutes(
     if (!force && sippyHealth.lastCheckedAt && Date.now() - sippyHealth.lastCheckedAt.getTime() < 60_000) return;
     sippyHealth.totalChecks++;
     sippyHealth.lastCheckedAt = new Date();
-    let settings: any = null;
-    try { settings = await storage.getSippySettings(); } catch {}
-    if (!settings?.portalUrl) {
-      sippyHealth.status = 'unconfigured';
-      sippyHealth.auth   = 'unknown';
-      return;
-    }
-    // Health is determined from the live session status + IP probe latency.
-    // We do NOT call getSippyActiveCalls() here — that triggers an extra portal scrape every
-    // 60 seconds on top of the live-calls polling (which already scrapes every 5s).
+
+    // Check live session first — this is the authoritative source of connectivity.
+    // We only read settings as a fallback to detect "truly unconfigured" state.
     const sess = sippy.getSippySessionStatus();
     const probeLatency = lastProbeResult?.latency ?? lastSwitchProbeResult?.latency ?? null;
     const lat = probeLatency ?? 0;
 
     if (sess.active) {
+      // Session is live — definitely healthy regardless of settings read outcome.
       sippyHealth.latencyMs           = lat;
       sippyHealth.lastSuccessAt       = new Date();
       sippyHealth.auth                = 'valid';
@@ -12362,8 +12356,19 @@ export async function registerRoutes(
       sippyHealth.status              = lat > 5000 ? 'slow' : lat > 2000 ? 'slow' : 'healthy';
       sippyHealth.recentChecks.push({ at: new Date().toISOString(), ok: true, latencyMs: lat, status: sippyHealth.status });
     } else {
+      // Session not active — check whether Sippy is configured at all.
+      let settings: any = null;
+      try { settings = await storage.getSippySettings(); } catch {}
+      if (!settings?.portalUrl && !settings?.apiAdminUsername) {
+        // No settings saved — genuinely unconfigured.
+        sippyHealth.status = 'unconfigured';
+        sippyHealth.auth   = 'unknown';
+        // Don't push to recentChecks or count as a failure — just no config yet.
+        return;
+      }
+      // Settings exist but session is inactive — connection failure.
       sippyHealth.consecutiveFailures++;
-      sippyHealth.lastError  = 'No active Sippy session — portal login failed or not yet completed.';
+      sippyHealth.lastError  = 'No active Sippy session — portal login failed or credentials rejected.';
       sippyHealth.auth       = 'invalid';
       sippyHealth.status     = 'unhealthy';
       sippyHealth.latencyMs  = null;
