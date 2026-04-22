@@ -112,6 +112,9 @@ async function getAnyPortalSession(
   for (const [u, p] of pairs) {
     for (const acctType of ['admin', 'reseller', 'customer'] as const) {
       const res = await portalLogin(base, u, p, acctType);
+      if (!res.success) {
+        console.log(`[Sippy] portal login failed (${u}/${acctType}): ${res.message}`);
+      }
       if (res.success) {
         anyPortalCacheByUrl.set(base, { cookies: res.cookies, expiresAt: now + PORTAL_SESSION_TTL_MS });
         console.log(`[Sippy] portal session cached (any) as ${u}/${acctType} @ ${base}`);
