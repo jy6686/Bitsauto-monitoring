@@ -1,10 +1,10 @@
 
-import { useState, useMemo } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useMemo, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Mail, Users, Filter, Send, CheckSquare, Square, AlertTriangle,
   CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp, Eye,
-  RefreshCw, Info, DollarSign, MinusCircle,
+  RefreshCw, Info, DollarSign, MinusCircle, Pencil, Check, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +50,7 @@ type Recipient = {
   creditLimit: number;
   kamName: string;
   kamId: number | null;
+  kamAssignmentId: number | null;
 };
 
 type SendResult = {
@@ -160,6 +161,7 @@ function meetsFilter(r: Recipient, filter: BalanceFilter): boolean {
 
 export default function EmailCentrePage() {
   const { toast } = useToast();
+  const qc = useQueryClient();
 
   // Data fetching
   const { data: kams = [], isLoading: kamsLoading } = useQuery<Kam[]>({
@@ -186,6 +188,40 @@ export default function EmailCentrePage() {
   // Send results
   const [sendResults, setSendResults] = useState<SendResult[] | null>(null);
 
+  // Inline email editing
+  const [editingAssignmentId, setEditingAssignmentId] = useState<number | null>(null);
+  const [editEmailValue, setEditEmailValue] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  const updateEmailMutation = useMutation({
+    mutationFn: ({ assignmentId, email }: { assignmentId: number; email: string }) =>
+      apiRequest("PATCH", `/api/kam/accounts/${assignmentId}`, { alertEmail: email }),
+    onSuccess: async (_res, vars) => {
+      await qc.invalidateQueries({ queryKey: ["/api/kam"] });
+      setEditingAssignmentId(null);
+      toast({ title: "Email saved", description: vars.email || "Cleared" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to save email", description: err.message, variant: "destructive" });
+    },
+  });
+
+  function startEditEmail(r: Recipient, e: React.MouseEvent) {
+    e.stopPropagation();
+    setEditingAssignmentId(r.kamAssignmentId);
+    setEditEmailValue(r.email);
+    setTimeout(() => editInputRef.current?.focus(), 50);
+  }
+
+  function commitEmailEdit(assignmentId: number) {
+    updateEmailMutation.mutate({ assignmentId, email: editEmailValue.trim() });
+  }
+
+  function cancelEmailEdit(e?: React.MouseEvent) {
+    e?.stopPropagation();
+    setEditingAssignmentId(null);
+  }
+
   // Build combined recipient list
   const allRecipients = useMemo<Recipient[]>(() => {
     const sippyMap = new Map<string, SippyAccount>();
@@ -196,13 +232,14 @@ export default function EmailCentrePage() {
       for (const ka of kam.accounts) {
         const sippy = sippyMap.get(ka.accountId);
         out.push({
-          accountId:   ka.accountId,
-          name:        ka.clientName || sippy?.description || sippy?.username || ka.accountId,
-          email:       ka.alertEmail ?? "",
-          balance:     sippy?.balance     ?? 0,
-          creditLimit: sippy?.creditLimit ?? 0,
-          kamName:     kam.name,
-          kamId:       kam.id,
+          accountId:       ka.accountId,
+          name:            ka.clientName || sippy?.description || sippy?.username || ka.accountId,
+          email:           ka.alertEmail ?? "",
+          balance:         sippy?.balance     ?? 0,
+          creditLimit:     sippy?.creditLimit ?? 0,
+          kamName:         kam.name,
+          kamId:           kam.id,
+          kamAssignmentId: ka.id,
         });
       }
     }
@@ -213,13 +250,14 @@ export default function EmailCentrePage() {
       const id = String(sippy.iAccount);
       if (!assignedIds.has(id)) {
         out.push({
-          accountId:   id,
-          name:        sippy.description || sippy.username || id,
-          email:       "",
-          balance:     sippy.balance,
-          creditLimit: sippy.creditLimit,
-          kamName:     "",
-          kamId:       null,
+          accountId:       id,
+          name:            sippy.description || sippy.username || id,
+          email:           "",
+          balance:         sippy.balance,
+          creditLimit:     sippy.creditLimit,
+          kamName:         "",
+          kamId:           null,
+          kamAssignmentId: null,
         });
       }
     }
@@ -398,39 +436,99 @@ export default function EmailCentrePage() {
               <div className="divide-y divide-border/30 max-h-[420px] overflow-y-auto">
                 {filteredRecipients.map(r => {
                   const checked = checkedIds.has(r.accountId);
+                  const isEditingThis = editingAssignmentId === r.kamAssignmentId && r.kamAssignmentId !== null;
+                  const isSaving = updateEmailMutation.isPending && editingAssignmentId === r.kamAssignmentId;
                   return (
-                    <button
+                    <div
                       key={r.accountId}
                       data-testid={`account-row-${r.accountId}`}
-                      onClick={() => toggleOne(r.accountId)}
-                      className={`w-full text-left px-4 py-2.5 flex items-start gap-3 transition-colors hover:bg-muted/30 ${
+                      className={`w-full px-4 py-2.5 flex items-start gap-3 transition-colors hover:bg-muted/30 ${
                         checked ? "bg-primary/5" : ""
                       }`}>
-                      <div className="mt-0.5 shrink-0 text-primary">
+                      <button
+                        onClick={() => toggleOne(r.accountId)}
+                        className="mt-0.5 shrink-0 text-primary"
+                        data-testid={`checkbox-${r.accountId}`}
+                      >
                         {checked
                           ? <CheckSquare className="h-4 w-4" />
                           : <Square className="h-4 w-4 text-muted-foreground" />}
-                      </div>
+                      </button>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium truncate">{r.name}</span>
-                          {!r.email && (
-                            <span className="text-xs text-amber-500 shrink-0">(no email)</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className={`text-xs font-mono ${balanceColor(r.balance, r.creditLimit)}`}>
-                            ${r.balance.toFixed(2)}
-                          </span>
-                          {r.kamName && (
-                            <span className="text-xs text-muted-foreground truncate">· {r.kamName}</span>
-                          )}
-                        </div>
-                        {r.email && (
-                          <p className="text-xs text-muted-foreground truncate mt-0.5">{r.email}</p>
+                        <button
+                          onClick={() => toggleOne(r.accountId)}
+                          className="w-full text-left"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium truncate">{r.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-xs font-mono ${balanceColor(r.balance, r.creditLimit)}`}>
+                              ${r.balance.toFixed(2)}
+                            </span>
+                            {r.kamName && (
+                              <span className="text-xs text-muted-foreground truncate">· {r.kamName}</span>
+                            )}
+                          </div>
+                        </button>
+
+                        {/* Email row */}
+                        {isEditingThis ? (
+                          <div
+                            className="flex items-center gap-1.5 mt-1.5"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <Input
+                              ref={editInputRef}
+                              value={editEmailValue}
+                              onChange={e => setEditEmailValue(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter") commitEmailEdit(r.kamAssignmentId!);
+                                if (e.key === "Escape") cancelEmailEdit();
+                              }}
+                              placeholder="email@example.com"
+                              className="h-6 text-xs font-mono px-2 py-0 flex-1"
+                              data-testid={`input-email-inline-${r.accountId}`}
+                              type="email"
+                            />
+                            <button
+                              onClick={() => commitEmailEdit(r.kamAssignmentId!)}
+                              disabled={isSaving}
+                              data-testid={`btn-save-email-${r.accountId}`}
+                              className="p-1 rounded hover:bg-emerald-500/20 text-emerald-400 disabled:opacity-50"
+                            >
+                              {isSaving
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <Check className="h-3 w-3" />}
+                            </button>
+                            <button
+                              onClick={cancelEmailEdit}
+                              data-testid={`btn-cancel-email-${r.accountId}`}
+                              className="p-1 rounded hover:bg-rose-500/20 text-rose-400"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 mt-0.5 group/email">
+                            {r.email
+                              ? <span className="text-xs text-muted-foreground font-mono truncate">{r.email}</span>
+                              : <span className="text-xs text-amber-500/80 italic">no email</span>
+                            }
+                            {r.kamAssignmentId !== null && (
+                              <button
+                                onClick={e => startEditEmail(r, e)}
+                                data-testid={`btn-edit-email-${r.accountId}`}
+                                className="opacity-0 group-hover/email:opacity-100 transition-opacity p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary shrink-0"
+                                title="Edit email address"
+                              >
+                                <Pencil className="h-2.5 w-2.5" />
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>

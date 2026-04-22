@@ -144,6 +144,7 @@ export interface IStorage {
   // KAM Account Assignments
   getKamAccounts(kamId?: number): Promise<KamAccount[]>;
   createKamAccount(ka: InsertKamAccount): Promise<KamAccount>;
+  updateKamAccount(id: number, patch: Partial<Pick<KamAccount, 'alertEmail' | 'clientName' | 'dropThreshold'>>): Promise<KamAccount>;
   deleteKamAccount(id: number): Promise<void>;
 
   // Traffic Alerts
@@ -902,6 +903,11 @@ export class DatabaseStorage implements IStorage {
 
   async createKamAccount(ka: InsertKamAccount): Promise<KamAccount> {
     const [row] = await db.insert(kamAccounts).values(ka).returning();
+    return row;
+  }
+
+  async updateKamAccount(id: number, patch: Partial<Pick<KamAccount, 'alertEmail' | 'clientName' | 'dropThreshold'>>): Promise<KamAccount> {
+    const [row] = await db.update(kamAccounts).set(patch).where(eq(kamAccounts.id, id)).returning();
     return row;
   }
 

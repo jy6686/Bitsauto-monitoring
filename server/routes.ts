@@ -10248,6 +10248,21 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // Update a KAM account assignment (e.g. alertEmail, clientName, dropThreshold)
+  app.patch('/api/kam/accounts/:assignmentId', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.assignmentId);
+      const { alertEmail, clientName, dropThreshold } = req.body;
+      const patch: Record<string, any> = {};
+      if (alertEmail  !== undefined) patch.alertEmail  = alertEmail  || null;
+      if (clientName  !== undefined) patch.clientName  = clientName  || null;
+      if (dropThreshold !== undefined) patch.dropThreshold = dropThreshold ?? 0;
+      if (Object.keys(patch).length === 0) return res.status(400).json({ error: 'Nothing to update' });
+      const updated = await storage.updateKamAccount(id, patch);
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // Remove an account assignment
   app.delete('/api/kam/accounts/:assignmentId', async (req: any, res) => {
     try {
