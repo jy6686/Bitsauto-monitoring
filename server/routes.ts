@@ -1898,27 +1898,19 @@ export async function registerRoutes(
       // getSippyActiveCalls skips straight to portal-session scraping without
       // wasting 4 seconds on an XML-RPC attempt that will only fail.
       const { username, password } = sippyXmlCreds(settings);
-      const fallbackUser = settings?.portalUsername ?? '';
-      const fallbackPass = settings?.portalPassword ?? '';
-      const webPassword  = settings?.adminWebPassword ?? undefined;
       const circuitOpen = xmlRpcIsBlocked();
-      // When circuit is open: bypass XML-RPC credentials (pass empty strings)
-      // so getSippyActiveCalls jumps straight to portal scraping.
-      // Allow a fresh portal login only when the circuit is open AND there is
-      // no active session yet — getAnyPortalSession() caches the result for
-      // 5 min so subsequent 5-second polls reuse cookies without re-logging in.
-      const sessionActive = sippy.getSippySessionStatus().active;
-      // noNewLogin=false only when: circuit open + no session (allow one login)
-      // noNewLogin=true in all other cases (prevents repeated login hammering)
-      const noNewLogin = !circuitOpen || sessionActive;
+      // XML-RPC is the primary and reliable path (ssp-root works fine).
+      // Portal web-scrape is disabled in background polls — it requires valid
+      // browser-session credentials which may differ from the XML-RPC API
+      // password. Disabling it eliminates login-failure log spam with zero
+      // functional impact since XML-RPC already returns accurate live-call data.
       const raw = await sippy.getSippyActiveCalls(
         circuitOpen ? '' : username,
         circuitOpen ? '' : password,
         portalUrl, undefined,
-        fallbackUser,
-        fallbackPass,
-        noNewLogin,
-        webPassword,
+        undefined,
+        undefined,
+        true,  // noNewLogin=true — never attempt fresh portal login in polls
       );
       // Map CC_STATE → callStatus; filter out terminated states
       const ccStateMap: Record<string, 'connected' | 'routing'> = {
@@ -9041,7 +9033,7 @@ export async function registerRoutes(
       // Try each credential pair — RTST1 first (XML-RPC capable), ssp-root as fallback
       let raw: Awaited<ReturnType<typeof sippy.getSippyActiveCalls>> = [];
       for (const { username, password } of credPairs) {
-        raw = await sippy.getSippyActiveCalls(username, password, portalUrl, undefined, undefined, undefined, undefined, webPassword);
+        raw = await sippy.getSippyActiveCalls(username, password, portalUrl, undefined, undefined, undefined, true);
         if (raw.length > 0) break;
       }
 
@@ -12365,7 +12357,7 @@ export async function registerRoutes(
     const ts3 = Date.now();
     if (settings?.portalUrl && settings?.apiAdminUsername && settings?.apiAdminPassword) {
       try {
-        cachedActiveCalls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
+        cachedActiveCalls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl, undefined, undefined, undefined, true);
         autoRecovery.consecutiveSippyFailures = 0;
         checks.push({ id: 'sippy_live', name: 'Sippy Live API Test', status: 'ok', detail: `listActiveCalls returned ${cachedActiveCalls.length} active calls`, durationMs: Date.now() - ts3 });
       } catch (e: any) {
@@ -12728,7 +12720,7 @@ export async function registerRoutes(
             return res.json({ ok: false, message: 'Sippy settings not configured. Enter credentials in Settings first.', durationMs: Date.now() - t0 });
           }
           try {
-            const activeCalls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
+            const activeCalls = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl, undefined, undefined, undefined, true);
             autoRecovery.consecutiveSippyFailures = 0;
             const msg = `Sippy API reconnected. Found ${activeCalls.length} active call(s).`;
             await recordHistory('success', msg);
@@ -12858,7 +12850,7 @@ export async function registerRoutes(
           let msg = `Auto-triggered after ${autoRecovery.consecutiveSippyFailures} consecutive failures`;
           if (settings?.portalUrl) {
             try {
-              const liveCheck = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl);
+              const liveCheck = await sippy.getSippyActiveCalls(settings.apiAdminUsername, settings.apiAdminPassword, settings.portalUrl, undefined, undefined, undefined, true);
               autoRecovery.consecutiveSippyFailures = 0;
               outcome = 'success';
               msg = `Auto-recovery success: ${liveCheck.length} active calls confirmed`;
