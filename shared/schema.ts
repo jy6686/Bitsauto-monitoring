@@ -103,6 +103,10 @@ export const settings = pgTable("settings", {
   whatsappApiKey:      varchar("whatsapp_api_key",     { length: 255 }), // CallMeBot apikey OR UltraMsg token
   whatsappInstanceId:  varchar("whatsapp_instance_id", { length: 128 }), // UltraMsg instance ID only
   whatsappAlertTypes:  text("whatsapp_alert_types").default('fas,balance,traffic,outage,auth'), // CSV
+  // Grafana embed
+  grafanaUrl:          varchar("grafana_url",           { length: 1024 }),  // panel or dashboard embed URL
+  grafanaDefaultRange: varchar("grafana_default_range", { length: 20  }).default('1h'), // 1h|6h|24h|7d|30d
+  grafanaPanelHeight:  integer("grafana_panel_height").default(480),        // iframe height in px
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports

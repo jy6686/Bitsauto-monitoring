@@ -5,7 +5,8 @@ import {
   Server, Wifi, WifiOff, AlertTriangle, CheckCircle, Clock, RefreshCw,
   Activity, HardDrive, Cpu, MemoryStick, Radio, Bell, Trash2, Plus,
   TrendingDown, Shield, ShieldAlert, Database, ArrowUp, ArrowDown, Minus,
-  BarChart2 as BarChartIcon, Table2, PlusCircle, Pencil, Mail
+  BarChart2 as BarChartIcon, Table2, PlusCircle, Pencil, Mail,
+  LayoutDashboard, ExternalLink, Settings2, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
@@ -18,13 +19,14 @@ import { BseTooltip, BSE_GRID_PROPS, BSE_AXIS_PROPS, BSE_CURSOR, BseGradStops } 
 import type { AlertRule } from "@shared/schema";
 
 const TABS = [
-  { id: "reachability",  label: "Reachability",  icon: Wifi },
-  { id: "bandwidth",     label: "Bandwidth",      icon: Activity },
-  { id: "disk-memory",   label: "Disk & Memory",  icon: HardDrive },
-  { id: "carrier-asr",   label: "Carrier ASR",    icon: TrendingDown },
-  { id: "alert-rules",   label: "Alert Rules",    icon: Bell },
-  { id: "registrations", label: "Reg Storm",      icon: Radio },
+  { id: "reachability",  label: "Reachability",    icon: Wifi },
+  { id: "bandwidth",     label: "Bandwidth",        icon: Activity },
+  { id: "disk-memory",   label: "Disk & Memory",    icon: HardDrive },
+  { id: "carrier-asr",   label: "Carrier ASR",      icon: TrendingDown },
+  { id: "alert-rules",   label: "Alert Rules",      icon: Bell },
+  { id: "registrations", label: "Reg Storm",        icon: Radio },
   { id: "sip-options",   label: "SIP Trunk Health", icon: Shield },
+  { id: "grafana",       label: "Grafana Graphs",   icon: LayoutDashboard },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -1636,6 +1638,164 @@ function SipOptionsTab() {
   );
 }
 
+// ── Grafana Embed Tab ──────────────────────────────────────────────────────────
+type TimeRange = { value: string; label: string; from: string };
+const TIME_RANGES: TimeRange[] = [
+  { value: "1h",  label: "Last 1 hour",   from: "now-1h"  },
+  { value: "3h",  label: "Last 3 hours",  from: "now-3h"  },
+  { value: "6h",  label: "Last 6 hours",  from: "now-6h"  },
+  { value: "24h", label: "Last 24 hours", from: "now-24h" },
+  { value: "7d",  label: "Last 7 days",   from: "now-7d"  },
+  { value: "30d", label: "Last 30 days",  from: "now-30d" },
+];
+
+function buildGrafanaUrl(base: string, from: string, height: number): string {
+  try {
+    const url = new URL(base);
+    url.searchParams.set("from", from);
+    url.searchParams.set("to", "now");
+    url.searchParams.set("theme", "dark");
+    // Ensure panel-only render if it's a d-solo link
+    if (!url.pathname.includes("d-solo") && !url.searchParams.has("panelId")) {
+      url.searchParams.set("kiosk", "tv"); // hides nav bars for full-dashboard links
+    }
+    return url.toString();
+  } catch {
+    return base;
+  }
+}
+
+function GrafanaTab() {
+  const { data: settings, isLoading } = useQuery<any>({
+    queryKey: ["/api/settings"],
+  });
+
+  const grafanaUrl: string      = settings?.grafanaUrl          ?? "";
+  const defaultRange: string    = settings?.grafanaDefaultRange ?? "1h";
+  const panelHeight: number     = settings?.grafanaPanelHeight  ?? 480;
+
+  const [range, setRange] = useState<string>(defaultRange);
+  const [iframeKey, setIframeKey] = useState(0); // force-reload the iframe
+
+  const selectedRange = TIME_RANGES.find(r => r.value === range) ?? TIME_RANGES[0];
+  const embedUrl = grafanaUrl ? buildGrafanaUrl(grafanaUrl, selectedRange.from, panelHeight) : "";
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20 text-muted-foreground gap-2">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span className="text-sm">Loading settings…</span>
+      </div>
+    );
+  }
+
+  if (!grafanaUrl) {
+    return (
+      <div className="rounded-xl border border-border/50 bg-card p-8 flex flex-col items-center text-center gap-4 max-w-xl mx-auto mt-6">
+        <div className="p-4 rounded-full bg-primary/10">
+          <LayoutDashboard className="h-8 w-8 text-primary" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-lg">Grafana not configured</h3>
+          <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+            Paste a Grafana panel or dashboard URL in Settings to embed live call graphs directly here.
+            Supports both single-panel embed URLs (<code className="font-mono text-xs bg-muted px-1 rounded">d-solo/…?panelId=N</code>) and full dashboard URLs.
+          </p>
+        </div>
+        <div className="w-full rounded-lg bg-muted/30 border border-border/40 p-4 text-xs text-left space-y-2 text-muted-foreground">
+          <p className="font-semibold text-foreground/70">How to get a Grafana embed URL:</p>
+          <ol className="list-decimal list-inside space-y-1">
+            <li>Open your Grafana dashboard</li>
+            <li>Click the panel title → <strong>Share</strong> → <strong>Embed</strong></li>
+            <li>Copy the <code className="font-mono bg-muted px-1 rounded">src</code> URL from the iframe snippet</li>
+            <li>Paste it into <strong>Settings → Grafana</strong> below</li>
+          </ol>
+          <p className="mt-2 text-amber-400">
+            ⚠️ The panel must be accessible without login (anonymous access or a public snapshot).
+          </p>
+        </div>
+        <a
+          href="/settings?tab=integrations"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
+          <Settings2 className="h-4 w-4" />
+          Open Settings to configure
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Controls bar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <LayoutDashboard className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium">Grafana Panel</span>
+          <span className="text-xs text-muted-foreground font-mono truncate max-w-[300px]" title={grafanaUrl}>
+            {grafanaUrl.length > 60 ? grafanaUrl.slice(0, 60) + "…" : grafanaUrl}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Time range picker */}
+          <div className="flex gap-1 bg-muted/40 rounded-lg p-0.5">
+            {TIME_RANGES.map(r => (
+              <button
+                key={r.value}
+                data-testid={`grafana-range-${r.value}`}
+                onClick={() => { setRange(r.value); setIframeKey(k => k + 1); }}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors",
+                  range === r.value
+                    ? "bg-card text-foreground shadow-sm border border-border/50"
+                    : "text-muted-foreground hover:text-foreground"
+                )}>
+                {r.label.replace("Last ", "")}
+              </button>
+            ))}
+          </div>
+          <button
+            data-testid="btn-grafana-refresh"
+            onClick={() => setIframeKey(k => k + 1)}
+            title="Reload panel"
+            className="p-1.5 rounded-md hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors">
+            <RefreshCw className="h-4 w-4" />
+          </button>
+          <a
+            href={embedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="btn-grafana-open"
+            title="Open in Grafana"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-muted/40 hover:bg-muted/70 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open full
+          </a>
+        </div>
+      </div>
+
+      {/* iframe */}
+      <div
+        className="rounded-xl border border-border/50 overflow-hidden bg-[#161719]"
+        style={{ height: `${panelHeight}px` }}>
+        <iframe
+          key={iframeKey}
+          src={embedUrl}
+          data-testid="grafana-iframe"
+          className="w-full h-full border-0"
+          title="Grafana Dashboard"
+          allowFullScreen
+        />
+      </div>
+
+      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+        If the panel shows a login screen, enable anonymous access on your Grafana instance or use a public snapshot URL.
+        Panel URL and height can be changed in <a href="/settings" className="text-primary hover:underline">Settings</a>.
+      </p>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function ServerMonitoringPage() {
   const [, navigate] = useLocation();
@@ -1680,6 +1840,7 @@ export default function ServerMonitoringPage() {
         {activeTab === "alert-rules"   && <AlertRulesTab />}
         {activeTab === "registrations" && <RegistrationsTab />}
         {activeTab === "sip-options"   && <SipOptionsTab />}
+        {activeTab === "grafana"       && <GrafanaTab />}
       </div>
     </div>
   );

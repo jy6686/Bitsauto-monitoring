@@ -10,7 +10,7 @@ import {
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
   Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp, Users, UserPlus, X, AlertCircle,
   Radio, Activity, Mail, Bell, Send, MailCheck, MailX, UserCheck, Download, FileText,
-  BellRing, BellOff, Smartphone, ShieldAlert, Check, History, ArrowRight,
+  BellRing, BellOff, Smartphone, ShieldAlert, Check, History, ArrowRight, BarChart2,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,6 +35,9 @@ const formSchema = insertSettingsSchema.pick({
   snmpPort: true,
   snmpCommunity: true,
   snmpEnvironments: true,
+  grafanaUrl: true,
+  grafanaDefaultRange: true,
+  grafanaPanelHeight: true,
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -2088,6 +2091,9 @@ export default function SettingsPage() {
       snmpPort: 161,
       snmpCommunity: 'public',
       snmpEnvironments: '1',
+      grafanaUrl: '',
+      grafanaDefaultRange: '1h',
+      grafanaPanelHeight: 480,
     },
   });
 
@@ -2688,6 +2694,74 @@ export default function SettingsPage() {
                 type="checkbox"
                 className="h-5 w-5 rounded border-border bg-background text-primary focus:ring-primary/20"
               />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Grafana Embed ── */}
+        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-border/50 bg-muted/20 flex items-center gap-3">
+            <BarChart2 className="w-4 h-4 text-orange-400" />
+            <div>
+              <h3 className="font-semibold text-sm">Grafana Dashboard Embed</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Embed a Grafana panel directly inside Server Monitoring → Grafana Graphs.
+              </p>
+            </div>
+          </div>
+          <div className="p-6 space-y-5">
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Grafana Panel URL</label>
+              <p className="text-xs text-muted-foreground">
+                Paste the embed URL from Grafana (panel title → Share → Embed → copy <code className="font-mono bg-muted px-1 rounded">src</code>).
+                Use a <strong>d-solo</strong> URL for a single panel, or a full dashboard URL with <code className="font-mono bg-muted px-1 rounded">?kiosk=tv</code> for the whole dashboard.
+              </p>
+              <input
+                {...form.register("grafanaUrl")}
+                data-testid="input-grafana-url"
+                type="url"
+                placeholder="https://grafana.example.com/d-solo/abc123?panelId=5&orgId=1"
+                className="bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Default Time Range</label>
+                <p className="text-xs text-muted-foreground">
+                  Pre-selected range when the panel first loads.
+                </p>
+                <select
+                  {...form.register("grafanaDefaultRange")}
+                  data-testid="select-grafana-range"
+                  className="bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all">
+                  <option value="1h">Last 1 hour</option>
+                  <option value="3h">Last 3 hours</option>
+                  <option value="6h">Last 6 hours</option>
+                  <option value="24h">Last 24 hours</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Panel Height (px)</label>
+                <p className="text-xs text-muted-foreground">
+                  Height of the embedded iframe in pixels.
+                </p>
+                <input
+                  {...form.register("grafanaPanelHeight", { valueAsNumber: true })}
+                  data-testid="input-grafana-height"
+                  type="number"
+                  min={200}
+                  max={1200}
+                  step={40}
+                  placeholder="480"
+                  className="bg-background border border-border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                />
+              </div>
+            </div>
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-4 py-3 text-xs text-amber-300 space-y-1">
+              <p className="font-semibold">⚠️ Anonymous access required</p>
+              <p>The iframe embed only works if the Grafana panel is publicly accessible (anonymous viewer access enabled, or a public snapshot URL). If Grafana is behind login, the iframe will display a login page.</p>
             </div>
           </div>
         </div>
