@@ -32,6 +32,32 @@ async function getTransporter(): Promise<{ transporter: nodemailer.Transporter; 
   return { transporter: _transporter!, from: settings.alertGmailUser };
 }
 
+/**
+ * Send a single email directly to a specific address.
+ * Used by the Email Centre bulk-send feature.
+ */
+export async function sendDirectEmail(opts: {
+  to: string;
+  subject: string;
+  html: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const conn = await getTransporter();
+    if (!conn) return { ok: false, error: 'Email not configured — enable alerts in Settings first.' };
+    await conn.transporter.sendMail({
+      from: `"Bitsauto Monitoring" <${conn.from}>`,
+      to: opts.to,
+      subject: opts.subject,
+      html: opts.html,
+    });
+    console.log(`[email] Direct send: ${opts.subject} → ${opts.to}`);
+    return { ok: true };
+  } catch (err: any) {
+    console.error(`[email] Direct send failed → ${opts.to}: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
 export async function sendAlertEmail(payload: AlertEmailPayload): Promise<boolean> {
   try {
     const conn = await getTransporter();

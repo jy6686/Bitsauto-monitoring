@@ -6953,6 +6953,72 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // ── EMAIL CENTRE ──────────────────────────────────────────────────────────
+
+  // POST /api/email/bulk-send — send a composed email to a list of recipients
+  // Body: { recipients: [{accountId, name, email, balance, creditLimit, kamName}], subject, body }
+  // Uses the same Gmail transport as the alert system.
+  app.post('/api/email/bulk-send', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const { recipients, subject, body } = req.body ?? {};
+      if (!subject?.trim()) return res.status(400).json({ error: 'subject is required' });
+      if (!body?.trim())    return res.status(400).json({ error: 'body is required' });
+      if (!Array.isArray(recipients) || recipients.length === 0) {
+        return res.status(400).json({ error: 'recipients list is required' });
+      }
+
+      const results: { accountId: string; name: string; email: string; status: 'sent' | 'no_email' | 'error'; error?: string }[] = [];
+      let sent = 0, skipped = 0, failed = 0;
+
+      for (const r of recipients) {
+        if (!r.email?.trim()) {
+          results.push({ accountId: r.accountId, name: r.name, email: '', status: 'no_email' });
+          skipped++;
+          continue;
+        }
+
+        // Personalise subject and body with account-level tokens
+        const personalSubject = subject
+          .replace(/\{name\}/gi, r.name || r.accountId)
+          .replace(/\{account\}/gi, r.accountId)
+          .replace(/\{kam\}/gi, r.kamName || '');
+        const personalBody = body
+          .replace(/\{name\}/gi, r.name || r.accountId)
+          .replace(/\{account\}/gi, r.accountId)
+          .replace(/\{balance\}/gi, typeof r.balance === 'number' ? `$${r.balance.toFixed(2)}` : r.balance ?? '')
+          .replace(/\{credit_limit\}/gi, typeof r.creditLimit === 'number' ? `$${r.creditLimit.toFixed(2)}` : r.creditLimit ?? '')
+          .replace(/\{kam\}/gi, r.kamName || '');
+
+        // Wrap in the branded email template (plain-text body → HTML)
+        const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#0f0f0f;color:#e0e0e0;padding:24px">
+<div style="max-width:600px;margin:0 auto;background:#1a1a2e;border-radius:12px;overflow:hidden">
+  <div style="background:#4f46e5;padding:20px 24px">
+    <h1 style="margin:0;font-size:18px;color:#fff">📡 Bitsauto Monitoring</h1>
+  </div>
+  <div style="padding:24px;white-space:pre-wrap;line-height:1.6">${personalBody.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+  <div style="padding:12px 24px;background:#111;font-size:12px;color:#666">
+    Sent via Bitsauto Monitoring &bull; ${new Date().toUTCString()}
+  </div>
+</div></body></html>`;
+
+        const result = await emailSvc.sendDirectEmail({ to: r.email.trim(), subject: personalSubject, html });
+        if (result.ok) {
+          results.push({ accountId: r.accountId, name: r.name, email: r.email, status: 'sent' });
+          sent++;
+        } else {
+          results.push({ accountId: r.accountId, name: r.name, email: r.email, status: 'error', error: result.error });
+          failed++;
+        }
+
+        // Small delay between sends to avoid overwhelming the mail server
+        await new Promise(ok => setTimeout(ok, 120));
+      }
+
+      console.log(`[email-centre] Bulk send complete: ${sent} sent, ${failed} failed, ${skipped} skipped`);
+      res.json({ results, sent, failed, skipped });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── FAS EVENTS ────────────────────────────────────────────────────────────
 
   // GET /api/fas-events — list recorded FAS events
