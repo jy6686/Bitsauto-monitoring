@@ -342,8 +342,8 @@ async function withSippyCredsRaw<T>(
 // rate-limits or blocks connections after too many failed attempts.
 let _xmlRpcFailStreak = 0;
 let _xmlRpcBlockedUntil = 0; // epoch ms
-const XML_RPC_FAIL_THRESHOLD = 1;            // open circuit after 1 consecutive full-sweep failure
-const XML_RPC_COOLDOWN_MS   = 10 * 60 * 1000; // stay open for 10 minutes
+const XML_RPC_FAIL_THRESHOLD = 3;            // open circuit after 3 consecutive full-sweep failures
+const XML_RPC_COOLDOWN_MS   = 2 * 60 * 1000; // stay open for 2 minutes then auto-retry
 
 function xmlRpcIsBlocked(): boolean {
   if (_xmlRpcBlockedUntil === 0) return false;

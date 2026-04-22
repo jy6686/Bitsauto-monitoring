@@ -590,10 +590,10 @@ export default function BalanceMonitorPage() {
         <div className="flex items-start gap-3 p-3.5 rounded-xl border border-amber-500/25 bg-amber-500/8 text-amber-300 text-sm">
           <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <div>
-            <span className="font-semibold">Limited mode — Sippy XML-RPC API authentication failed</span>
+            <span className="font-semibold">Limited mode — live balance fetch unavailable</span>
             <p className="text-xs mt-0.5 opacity-75">
-              Account list is sourced from cached call data. Balance figures show as zero because the Sippy admin API password is incorrect.
-              To fix: go to <strong>Settings → Sippy Connection</strong>, update the <strong>XML-RPC API Password</strong> (found in Sippy Admin → My Preferences → API Password), then refresh.
+              Account list is sourced from cached data. Balance figures may show as zero.
+              This usually resolves on its own — try <strong>refreshing the page</strong>. If it persists, verify the XML-RPC API Password in <strong>Settings → Sippy Connection</strong>.
             </p>
           </div>
         </div>
