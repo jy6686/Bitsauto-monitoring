@@ -390,35 +390,13 @@ export default function TestCallPage() {
                     </div>
                   )}
 
-                  {!callResult.success && isModuleError && (
-                    <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
-                      <p className="text-xs font-semibold text-amber-400 flex items-center gap-2">
-                        <WrenchIcon className="h-3.5 w-3.5" /> Callback application not enabled
-                      </p>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        Sippy returned an error for <code className="bg-background px-1 rounded font-mono">make2WayCallback</code> — the Callback application is not enabled at the system level or not assigned to the selected account.
-                      </p>
-                      <p className="text-xs font-semibold text-foreground/60">Steps to enable in Sippy Admin:</p>
-                      <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
-                        <li>Log in to Sippy as a system administrator</li>
-                        <li>Go to <strong className="text-foreground/70">System → Applications</strong> and enable the <strong className="text-foreground/70">Callback</strong> application</li>
-                        <li>Go to <strong className="text-foreground/70">Customers</strong>, open the billing account, then <strong className="text-foreground/70">Applications</strong> tab → enable <strong className="text-foreground/70">Callback</strong> and save</li>
-                        <li>Ensure the account has sufficient credit and a valid route for the destination</li>
-                      </ol>
-                    </div>
-                  )}
-
-                  {!callResult.success && !isModuleError && callResult.errorType === 'call_error' && (
+                  {!callResult.success && !['no_authname', 'no_customer_creds', 'not_connected'].includes(callResult.errorType ?? '') && (
                     <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/5 p-4 space-y-2">
                       <p className="text-xs font-semibold text-rose-400 flex items-center gap-2">
-                        <ShieldAlert className="h-3.5 w-3.5" /> Sippy rejected the callback request
+                        <ShieldAlert className="h-3.5 w-3.5" /> Call failed — Sippy response
                       </p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        Sippy fault: <em className="text-foreground/70">&ldquo;{callResult.message}&rdquo;</em>
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Common reasons: the <code className="bg-background px-1 rounded font-mono">authname</code> account doesn't exist or has no credit,
-                        no route for this destination, the CLI/CLD is blocked, or the account has call limits.
+                        <em className="text-foreground/70 break-all">&ldquo;{callResult.message}&rdquo;</em>
                       </p>
                     </div>
                   )}

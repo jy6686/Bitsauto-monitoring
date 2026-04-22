@@ -14966,7 +14966,8 @@ export async function make2WayCallback(
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('make2WayCallback', params as any), username, password);
     const text = resp.body;
-    console.log(`[Sippy] make2WayCallback(${opts.authname}) HTTP ${resp.statusCode}: ${text.slice(0, 600)}`);
+    // Log the FULL raw response so we can see exactly what Sippy returns
+    console.log(`[Sippy] make2WayCallback(${opts.authname}) HTTP ${resp.statusCode} body: ${text.slice(0, 1200)}`);
 
     if (resp.statusCode === 401 || resp.statusCode === 403) {
       return {
@@ -14982,17 +14983,21 @@ export async function make2WayCallback(
         message:          'Callback initiated.',
       };
     }
-    // HTTP 500 with non-XML body = Callback module not enabled/installed on this Sippy switch
-    if (resp.statusCode >= 500 && !text.includes('<?xml') && !text.includes('<methodResponse>')) {
-      return {
-        success: false,
-        message: `Callback module not enabled on this Sippy switch (HTTP ${resp.statusCode}). Enable the Callback Application in Sippy Admin: System → Applications → Callback → Enable.`,
-      };
-    }
-    // Extract and clean the Sippy fault string
+    // Extract and clean the Sippy fault string first — if present, use it regardless of status code
     const rawFault = extractFaultString(text) || '';
     const cleanFault = rawFault.replace(/<[^>]+>/g, '').trim();
-    return { success: false, message: cleanFault || `make2WayCallback fault (HTTP ${resp.statusCode})` };
+    if (cleanFault) {
+      return { success: false, message: cleanFault };
+    }
+    // Non-XML body (could be HTML error page or plain text from Sippy)
+    if (!text.includes('<?xml') && !text.includes('<methodResponse>')) {
+      const bodySnippet = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+      return {
+        success: false,
+        message: `Sippy HTTP ${resp.statusCode} — ${bodySnippet || '(empty response body)'}`,
+      };
+    }
+    return { success: false, message: `make2WayCallback fault (HTTP ${resp.statusCode}): ${text.slice(0, 300)}` };
   } catch (e: any) { return { success: false, message: e.message }; }
 }
 
