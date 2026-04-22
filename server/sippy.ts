@@ -368,6 +368,14 @@ async function sippyPost(
 
   // ── Step 1: probe for auth challenge ──────────────────────────────────────
   const probe = await makeReq({});
+  // Some Sippy endpoints (e.g. make2WayCallback) return HTTP 5xx instead of 401
+  // on unauthenticated requests — so we never get the Digest challenge. If the
+  // probe returned a server error, retry immediately with Basic Auth so the
+  // request is actually authenticated before we give up.
+  if (probe.statusCode >= 500 && !probe.wwwAuth && username && password) {
+    const basic = await makeReq({ Authorization: basicAuth(username, password) });
+    return { statusCode: basic.statusCode, body: basic.body };
+  }
   if (probe.statusCode !== 401 || !probe.wwwAuth) {
     return { statusCode: probe.statusCode, body: probe.body };
   }

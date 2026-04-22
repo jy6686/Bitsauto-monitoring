@@ -2196,19 +2196,34 @@ export async function registerRoutes(
       if (settings.apiAdminUsername && settings.apiAdminPassword)
         adminPairs.push({ username: settings.apiAdminUsername, password: settings.apiAdminPassword });
 
-      // Customer credentials for Phase 2 (XML-RPC Normal Mode) — customer auth scopes to their account
+      // Customer credentials for Phase 2 (XML-RPC Normal Mode) — customer auth scopes to their account.
+      // Sippy distinguishes web-password (portal login) from API password (XML-RPC calls).
+      // We try the customer username with ALL available passwords in order so we cover both cases.
       const customerPairs: Array<{ username: string; password: string }> = [];
-      if (settings.portalUsername && settings.portalPassword)
-        customerPairs.push({ username: settings.portalUsername, password: settings.portalPassword });
+      const seen2 = new Set<string>();
+      const pushCustomer = (u: string, p: string) => {
+        const k = `${u}:${p}`;
+        if (!u || !p || seen2.has(k)) return;
+        seen2.add(k);
+        customerPairs.push({ username: u, password: p });
+      };
+      if (settings.portalUsername) {
+        // 1. portalPassword — the stored customer password (may be web OR API password)
+        pushCustomer(settings.portalUsername, settings.portalPassword ?? '');
+        // 2. apiAdminPassword — try with the global API password in case the customer
+        //    account shares the same API password (common on single-tenant Sippy installs)
+        pushCustomer(settings.portalUsername, settings.apiAdminPassword ?? '');
+        // 3. adminWebPassword — last resort
+        if (settings.adminWebPassword)
+          pushCustomer(settings.portalUsername, settings.adminWebPassword);
+      }
 
       // Fallback: if one set is missing, fill from credPairs so we always have at least something
       const allPairs = sippyXmlCredsPairs(settings);
       const phase1Pairs = adminPairs.length   ? adminPairs   : allPairs;
       // Phase 2 (make2WayCallback) MUST use customer credentials in Normal Mode.
       // Using admin (ssp-root) credentials always produces HTTP 401 — Sippy rejects
-      // admin auth for this method. We strictly only use customer credentials here,
-      // and we filter OUT any pair whose username matches the admin username to avoid
-      // accidental admin-cred attempts even when allPairs is used as a last resort.
+      // admin auth for this method. We strictly only use customer credentials here.
       const adminUserNames = new Set(adminPairs.map(p => p.username.toLowerCase()));
       const phase2PairsRaw = customerPairs.length ? customerPairs : allPairs;
       const phase2Pairs    = phase2PairsRaw.filter(p => !adminUserNames.has(p.username.toLowerCase()));
