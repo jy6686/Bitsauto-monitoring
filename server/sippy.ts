@@ -375,16 +375,22 @@ async function sippyPost(
 
   // ── Step 1: probe for auth challenge ──────────────────────────────────────
   let probe = await makeReq({});
+  const methodHint = body.match(/<methodName>([^<]+)<\/methodName>/)?.[1] || '?';
+  console.log(`[sippyPost] ${methodHint} probe → HTTP ${probe.statusCode} wwwAuth=${probe.wwwAuth ? probe.wwwAuth.slice(0, 60) : 'none'}`);
+
   // Some Sippy endpoints (e.g. make2WayCallback) return HTTP 5xx on unauthenticated
   // requests instead of 401 + Digest challenge. Send a lightweight challenge probe
   // to get the Digest parameters, then use them with the real request body.
   if (probe.statusCode >= 500 && !probe.wwwAuth && username && password) {
     const challengeProbe = await makeReq({}, challengeProbeBody);
+    console.log(`[sippyPost] ${methodHint} challengeProbe → HTTP ${challengeProbe.statusCode} wwwAuth=${challengeProbe.wwwAuth ? challengeProbe.wwwAuth.slice(0, 60) : 'none'}`);
     if (challengeProbe.statusCode === 401 && challengeProbe.wwwAuth) {
       probe = challengeProbe; // use the Digest challenge from this probe below
     } else {
       // Last resort: try Basic Auth with the actual request body
+      console.log(`[sippyPost] ${methodHint} falling back to Basic Auth (user=${username})`);
       const basic = await makeReq({ Authorization: basicAuth(username, password) });
+      console.log(`[sippyPost] ${methodHint} Basic Auth → HTTP ${basic.statusCode}`);
       return { statusCode: basic.statusCode, body: basic.body };
     }
   }
@@ -406,6 +412,7 @@ async function sippyPost(
     let response: string;
     let authValue: string;
     const effectiveQop = (qop === 'auth' || qop === 'auth-int') ? qop : '';
+    console.log(`[sippyPost] ${methodHint} Digest auth (user=${username}, realm=${realm}, qop=${effectiveQop || 'none'})`);
 
     if (effectiveQop) {
       const nc     = '00000001';
@@ -419,10 +426,12 @@ async function sippyPost(
     }
 
     const final = await makeReq({ Authorization: authValue });
+    console.log(`[sippyPost] ${methodHint} Digest final → HTTP ${final.statusCode}`);
     return { statusCode: final.statusCode, body: final.body };
   }
 
   // ── Fallback: Basic auth ───────────────────────────────────────────────────
+  console.log(`[sippyPost] ${methodHint} falling back to Basic Auth (no Digest in WWW-Authenticate, user=${username})`);
   const basic = await makeReq({ Authorization: basicAuth(username, password) });
   return { statusCode: basic.statusCode, body: basic.body };
 }
