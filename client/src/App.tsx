@@ -78,6 +78,8 @@ import SlaBreachesPage from "@/pages/sla-breaches";
 import BillingDisputesPage from "@/pages/billing-disputes";
 import TestCampaignsPage from "@/pages/test-campaigns";
 import ChatPage from "@/pages/chat";
+import FirewallPage from "@/pages/firewall";
+import VpnConfigPage from "@/pages/vpn-config";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -299,6 +301,12 @@ function Router() {
       </Route>
       <Route path="/chat">
         {() => <ProtectedRoute component={ChatPage} requiredRoles={['admin','management','viewer']} />}
+      </Route>
+      <Route path="/firewall">
+        {() => <ProtectedRoute component={FirewallPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/vpn-config">
+        {() => <ProtectedRoute component={VpnConfigPage} requiredRoles={['admin']} />}
       </Route>
       <Route component={NotFound} />
     </Switch>

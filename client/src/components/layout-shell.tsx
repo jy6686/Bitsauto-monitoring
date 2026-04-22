@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
@@ -164,6 +164,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/fraud",                label: "Fraud / FAS",  icon: ShieldAlert, roles: ['admin','management'] },
       { href: "/vendor-sla-scorecard", label: "Vendor SLA",   icon: ShieldCheck, roles: ['admin','management'] },
       { href: "/sla-breaches",         label: "SLA Breaches", icon: Bell,         roles: ['admin','management'] },
+      { href: "/firewall",             label: "Firewall Mgr", icon: Shield,       roles: ['admin','management'] },
     ],
   },
   {
@@ -185,6 +186,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/team",            label: "Team & KAM",      icon: Users,         roles: ['admin']                        },
       { href: "/account-names",   label: "Account Names",   icon: Building2,     roles: ['admin']                        },
       { href: "/api-keys",        label: "API Keys",        icon: Key,           roles: ['admin']                        },
+      { href: "/vpn-config",      label: "VPN Config",      icon: Lock,          roles: ['admin']                        },
     ],
   },
 ];

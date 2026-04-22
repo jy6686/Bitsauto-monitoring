@@ -1,0 +1,31 @@
+19. OpenVPN Configuration Helper
+What it would look like:
+A page under Settings (admin only) called "VPN Access". It shows a form with fields:
+
+Team member name / email
+Their device OS (Windows / macOS / Linux)
+The switch server IP (pre-filled from Settings)
+On submit, it generates a ready-to-use .ovpn config file download with the correct server IP, port, protocol, and standard Sippy-compatible settings pre-filled.
+
+How it would work:
+This is entirely frontend logic — no Sippy API call needed. The .ovpn file is just a text template with the server details injected. The file is built in the browser and downloaded directly.
+
+Why it's useful:
+New NOC engineers or remote team members often struggle with VPN setup. This removes the manual "copy these settings into your OpenVPN client" step and produces a working config file in one click.
+
+20. Firewall Rule Manager
+What it would look like:
+A dedicated page under Server Monitoring (or Operations) called "Firewall". It has two sections:
+
+Section A — Switch-Level Rules:
+A table showing all IPs currently whitelisted at the Sippy system level (from Sippy's network services / firewall API). Each row shows the IP, description, and a delete button. A form at the top lets you add a new IP or CIDR range with a label.
+
+Section B — Account-Level IP Whitelists:
+Reusing the allowed-IPs data already shown on the Balance Monitor cards, but presented as a proper management table. You pick an account from a dropdown, see its current allowed IPs, and add/remove entries — calling Sippy's updateAccount with the new ip_auth list.
+
+How it would work:
+
+Switch-level rules: uses Sippy's Network Services XML-RPC API (listNetworkServices, addNetworkService, deleteNetworkService)
+Account-level: uses updateAccount with the ip_auth field
+Why it's useful:
+Currently adding an IP to an account means logging into Sippy admin, finding the account, editing it, and saving. This surfaces it directly in the NOC portal — critical when a client calls saying their calls are failing due to an IP change.
