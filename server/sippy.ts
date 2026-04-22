@@ -1743,6 +1743,7 @@ export async function getSippyActiveCalls(
   fallbackUsername?: string,   // alternate cred pair for admin portal login (handles DB swap)
   fallbackPassword?: string,
   noNewLogin?: boolean,        // when true: never attempt a fresh portal login (avoids 48s timeout in polling routes)
+  adminWebPassword?: string,   // separate web-UI password when it differs from the XML-RPC API password
 ): Promise<SippyActiveCall[]> {
   const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
   if (!base) return [];
@@ -1811,8 +1812,14 @@ export async function getSippyActiveCalls(
     }
     const pairs: Array<[string, string]> = [];
     if (username && password) pairs.push([username, password]);
+    // If adminWebPassword is provided and differs from the XML-RPC password,
+    // add it as a credential pair — web-UI login often uses a different password.
+    if (username && adminWebPassword && adminWebPassword !== password)
+      pairs.push([username, adminWebPassword]);
     if (fallbackUsername && fallbackPassword && fallbackUsername !== username)
       pairs.push([fallbackUsername, fallbackPassword]);
+    if (fallbackUsername && adminWebPassword && adminWebPassword !== fallbackPassword)
+      pairs.push([fallbackUsername, adminWebPassword]);
     const cookies = await getAnyPortalSession(base, ...pairs);
     if (!cookies) {
       console.log('[Sippy] listActiveCalls: admin portal login failed, returning empty list');

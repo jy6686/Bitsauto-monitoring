@@ -1900,6 +1900,7 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const fallbackUser = settings?.portalUsername ?? '';
       const fallbackPass = settings?.portalPassword ?? '';
+      const webPassword  = settings?.adminWebPassword ?? undefined;
       const circuitOpen = xmlRpcIsBlocked();
       // When circuit is open: bypass XML-RPC credentials (pass empty strings)
       // so getSippyActiveCalls jumps straight to portal scraping.
@@ -1917,6 +1918,7 @@ export async function registerRoutes(
         fallbackUser,
         fallbackPass,
         noNewLogin,
+        webPassword,
       );
       // Map CC_STATE → callStatus; filter out terminated states
       const ccStateMap: Record<string, 'connected' | 'routing'> = {
@@ -9035,10 +9037,11 @@ export async function registerRoutes(
       if (!settings) return;
       const credPairs = sippyXmlCredsPairs(settings);
       const portalUrl = sippyPortalUrl(settings);
+      const webPassword = settings.adminWebPassword ?? undefined;
       // Try each credential pair — RTST1 first (XML-RPC capable), ssp-root as fallback
       let raw: Awaited<ReturnType<typeof sippy.getSippyActiveCalls>> = [];
       for (const { username, password } of credPairs) {
-        raw = await sippy.getSippyActiveCalls(username, password, portalUrl);
+        raw = await sippy.getSippyActiveCalls(username, password, portalUrl, undefined, undefined, undefined, undefined, webPassword);
         if (raw.length > 0) break;
       }
 
