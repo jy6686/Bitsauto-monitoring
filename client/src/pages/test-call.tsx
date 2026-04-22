@@ -25,6 +25,7 @@ const formSchema = z.object({
   cli: z.string().min(1, "Your phone number (first leg) is required").max(64),
   cld: z.string().min(1, "Destination number is required").max(64),
   iAccount: z.string().optional(),
+  authname: z.string().max(64).optional(),
 });
 type FormValues = z.infer<typeof formSchema>;
 
@@ -85,6 +86,7 @@ export default function TestCallPage() {
       cli: prefilledCli,
       cld: prefilledCld,
       iAccount: "__none__",
+      authname: "",
     },
   });
 
@@ -122,6 +124,7 @@ export default function TestCallPage() {
         cli: values.cli.trim(),
         cld: values.cld.trim(),
         iAccount: values.iAccount && values.iAccount !== "__none__" ? Number(values.iAccount) : undefined,
+        authname: values.authname?.trim() || undefined,
       }),
     onSuccess: async (res) => {
       const data: CallResult = await res.json();
@@ -334,6 +337,42 @@ export default function TestCallPage() {
                     </FormItem>
                   )} />
 
+                  <FormField control={form.control} name="authname" render={({ field }) => {
+                    const selectedId = form.watch("iAccount");
+                    const selectedAcc = accounts.find(a => String(a.iAccount) === selectedId);
+                    const derivedAuthname = selectedAcc?.username || settings?.portalUsername || "(auto)";
+                    return (
+                      <FormItem>
+                        <FormLabel>
+                          SIP Authname Override{" "}
+                          <span className="text-muted-foreground font-normal text-xs">(optional)</span>
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder={`Leave blank to use: ${derivedAuthname}`}
+                            data-testid="input-authname"
+                            className="font-mono"
+                          />
+                        </FormControl>
+                        <p className="text-[11px] text-muted-foreground">
+                          Override the VoIP/SIP login sent to Sippy as <code className="bg-muted px-0.5 rounded">authname</code>.
+                          Must match an account with the{" "}
+                          <a
+                            href="https://support.sippysoft.com/support/solutions/articles/79065-2-way-callback-application"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                          >
+                            Callback application
+                          </a>
+                          {" "}enabled in Sippy Admin.
+                        </p>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }} />
+
                   <div className="pt-2 flex gap-3">
                     <Button
                       type="submit"
@@ -465,9 +504,10 @@ export default function TestCallPage() {
                 </ol>
                 <p className="font-semibold text-foreground/60 pt-1">Step 2 — Enable Callback application</p>
                 <ol className="space-y-0.5 list-decimal list-inside">
-                  <li>System <span className="text-muted-foreground/50">→</span> Applications <span className="text-muted-foreground/50">→</span> enable <strong className="text-foreground/70">Callback</strong></li>
+                  <li>Confirm the <strong className="text-foreground/70">Web Callback module</strong> is installed/licensed on the switch (required by Sippy)</li>
                   <li>Customers <span className="text-muted-foreground/50">→</span> open the billing account <span className="text-muted-foreground/50">→</span> Applications tab</li>
-                  <li>Enable <strong className="text-foreground/70">Callback</strong> for that account &amp; save</li>
+                  <li>Enable <strong className="text-foreground/70">2 Way Callback</strong> for that account &amp; save</li>
+                  <li>The <code className="bg-muted px-0.5 rounded font-mono">authname</code> field must match the VoIP login of the account with Callback enabled</li>
                 </ol>
                 <p className="font-semibold text-foreground/60 pt-1">Step 3 — Ensure routing &amp; balance</p>
                 <ol className="space-y-0.5 list-decimal list-inside">
@@ -488,13 +528,31 @@ export default function TestCallPage() {
                   Open Sippy Admin Panel
                 </a>
                 <a
-                  href="https://support.sippysoft.com/a/solutions/articles/106909"
+                  href="https://support.sippysoft.com/support/solutions/articles/79065-2-way-callback-application"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex w-full items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-background border border-border text-muted-foreground text-xs font-medium hover:border-amber-500/30 hover:text-amber-300 transition-colors"
                 >
                   <ExternalLink className="h-3 w-3" />
-                  Sippy XML-RPC API docs
+                  Sippy: 2 Way Callback Application
+                </a>
+                <a
+                  href="https://support.sippysoft.com/support/solutions/articles/107448-xml-rpc-api-manage-call-back-calls"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex w-full items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-background border border-border text-muted-foreground text-xs font-medium hover:border-amber-500/30 hover:text-amber-300 transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Sippy: XML-RPC make2WayCallback API
+                </a>
+                <a
+                  href="https://support.sippysoft.com/support/solutions/articles/107525-simple-api"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex w-full items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-background border border-border text-muted-foreground text-xs font-medium hover:border-amber-500/30 hover:text-amber-300 transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Sippy: Simple API (callback.php)
                 </a>
               </div>
             </div>
