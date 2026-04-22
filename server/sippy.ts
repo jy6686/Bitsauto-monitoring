@@ -337,7 +337,9 @@ async function sippyPost(
 
   function makeReq(
     extraHeaders: Record<string, string | number>,
+    overrideBody?: string,
   ): Promise<{ statusCode: number; body: string; wwwAuth?: string }> {
+    const reqBody = overrideBody ?? body;
     return new Promise((resolve, reject) => {
       const opts: http.RequestOptions = {
         hostname: parsed.hostname,
@@ -346,7 +348,7 @@ async function sippyPost(
         method:   'POST',
         headers:  {
           'Content-Type':   'text/xml',
-          'Content-Length': Buffer.byteLength(body),
+          'Content-Length': Buffer.byteLength(reqBody),
           'User-Agent':     'SippyAPI/1.0',
           ...extraHeaders,
         },
@@ -361,20 +363,30 @@ async function sippyPost(
       });
       req.on('error',   reject);
       req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
-      req.write(body);
+      req.write(reqBody);
       req.end();
     });
   }
 
+  // Minimal XML body used ONLY to solicit a Digest auth challenge (407/401 + WWW-Authenticate).
+  // We send a lightweight listMethods call so Sippy responds with its auth challenge without
+  // executing any real method — the result is discarded, we only need the challenge headers.
+  const challengeProbeBody = xmlRpcCall('system.listMethods', {});
+
   // ── Step 1: probe for auth challenge ──────────────────────────────────────
-  const probe = await makeReq({});
-  // Some Sippy endpoints (e.g. make2WayCallback) return HTTP 5xx instead of 401
-  // on unauthenticated requests — so we never get the Digest challenge. If the
-  // probe returned a server error, retry immediately with Basic Auth so the
-  // request is actually authenticated before we give up.
+  let probe = await makeReq({});
+  // Some Sippy endpoints (e.g. make2WayCallback) return HTTP 5xx on unauthenticated
+  // requests instead of 401 + Digest challenge. Send a lightweight challenge probe
+  // to get the Digest parameters, then use them with the real request body.
   if (probe.statusCode >= 500 && !probe.wwwAuth && username && password) {
-    const basic = await makeReq({ Authorization: basicAuth(username, password) });
-    return { statusCode: basic.statusCode, body: basic.body };
+    const challengeProbe = await makeReq({}, challengeProbeBody);
+    if (challengeProbe.statusCode === 401 && challengeProbe.wwwAuth) {
+      probe = challengeProbe; // use the Digest challenge from this probe below
+    } else {
+      // Last resort: try Basic Auth with the actual request body
+      const basic = await makeReq({ Authorization: basicAuth(username, password) });
+      return { statusCode: basic.statusCode, body: basic.body };
+    }
   }
   if (probe.statusCode !== 401 || !probe.wwwAuth) {
     return { statusCode: probe.statusCode, body: probe.body };
