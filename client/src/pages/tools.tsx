@@ -8,6 +8,7 @@ import {
   Phone, PhoneMissed, PhoneOff, Activity, Server, Calendar,
   BarChart3, ArrowRight, Info, Route, AlertTriangle, ChevronRight,
   Loader2, DollarSign, Network, ShieldCheck, ShieldAlert, ArrowDownUp,
+  Regex, ArrowRightLeft, History, Trash2, Copy, FlipHorizontal2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -86,14 +87,15 @@ const INDUSTRIES = [
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
 
-type Tab = "carrier" | "capacity" | "bandwidth" | "burst" | "route";
+type Tab = "carrier" | "capacity" | "bandwidth" | "burst" | "route" | "translation";
 
 const TABS: { id: Tab; label: string; icon: typeof Wrench }[] = [
-  { id: "carrier",   label: "Carrier Quality",    icon: Star },
-  { id: "capacity",  label: "SIP Capacity",       icon: Calculator },
-  { id: "bandwidth", label: "Bandwidth Planner",  icon: Wifi },
-  { id: "burst",     label: "Burst Simulator",    icon: Zap },
-  { id: "route",     label: "Route Tester",       icon: Route },
+  { id: "carrier",     label: "Carrier Quality",    icon: Star },
+  { id: "capacity",    label: "SIP Capacity",       icon: Calculator },
+  { id: "bandwidth",   label: "Bandwidth Planner",  icon: Wifi },
+  { id: "burst",       label: "Burst Simulator",    icon: Zap },
+  { id: "route",       label: "Route Tester",       icon: Route },
+  { id: "translation", label: "Translation Tester", icon: ArrowRightLeft },
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1048,6 +1050,322 @@ function RouteTestTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Translation Tester Tab
+// ═══════════════════════════════════════════════════════════════════════════
+
+type TranslationMode = "translate" | "match";
+
+type HistoryEntry = {
+  id: number;
+  mode: TranslationMode;
+  rule: string;
+  number: string;
+  result: string;
+  success: boolean;
+  ts: Date;
+};
+
+const TRANSLATION_PRESETS = [
+  { label: "Strip leading 00",         rule: "s/^00/+/" },
+  { label: "Add +1 to 10-digit US",    rule: "s/^([2-9][0-9]{9})$/+1\\1/" },
+  { label: "E.164 from 0-prefix (UK)", rule: "s/^0([0-9]{10})$/+44\\1/" },
+  { label: "Strip +",                  rule: "s/^\\+/00/" },
+  { label: "Add country code +7 (RU)", rule: "s/^8([0-9]{10})$/+7\\1/" },
+  { label: "Remove all spaces",        rule: "s/ //g" },
+];
+
+const MATCH_PRESETS = [
+  { label: "Any E.164",          rule: "^\\+[1-9][0-9]{6,14}$" },
+  { label: "US/Canada +1",       rule: "^\\+1[2-9][0-9]{9}$" },
+  { label: "UK +44",             rule: "^\\+44[0-9]{10}$" },
+  { label: "10-digit US (bare)", rule: "^[2-9][0-9]{9}$" },
+  { label: "Starts with 00",     rule: "^00[0-9]+" },
+  { label: "Any numeric",        rule: "^[0-9]+$" },
+];
+
+let _histId = 0;
+
+function TranslationTesterTab() {
+  const [mode, setMode]       = useState<TranslationMode>("translate");
+  const [rule, setRule]       = useState("");
+  const [number, setNumber]   = useState("");
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+
+  const translateMut = useMutation({
+    mutationFn: (body: { rule: string; number: string }) =>
+      apiRequest("POST", "/api/sippy/apply-translation-rule", body).then(r => r.json()),
+  });
+
+  const matchMut = useMutation({
+    mutationFn: (body: { rule: string; number: string }) =>
+      apiRequest("POST", "/api/sippy/check-match-rule", body).then(r => r.json()),
+  });
+
+  const isPending = translateMut.isPending || matchMut.isPending;
+
+  const lastTranslate = translateMut.data as { success: boolean; number?: string; error?: string } | undefined;
+  const lastMatch     = matchMut.data    as { success: boolean; match?: boolean;  error?: string } | undefined;
+  const lastResult    = mode === "translate" ? lastTranslate : lastMatch;
+
+  function handleTest() {
+    if (!rule.trim() || !number.trim()) return;
+    const body = { rule: rule.trim(), number: number.trim() };
+
+    if (mode === "translate") {
+      translateMut.mutate(body, {
+        onSettled: (data: any) => {
+          const resultStr = data?.success
+            ? `→ ${data.number ?? "(empty)"}`
+            : `Error: ${data?.error ?? "Unknown error"}`;
+          setHistory(h => [{ id: ++_histId, mode, rule: body.rule, number: body.number, result: resultStr, success: !!data?.success, ts: new Date() }, ...h].slice(0, 50));
+        },
+      });
+    } else {
+      matchMut.mutate(body, {
+        onSettled: (data: any) => {
+          const resultStr = data?.success
+            ? (data.match ? "MATCH" : "NO MATCH")
+            : `Error: ${data?.error ?? "Unknown error"}`;
+          setHistory(h => [{ id: ++_histId, mode, rule: body.rule, number: body.number, result: resultStr, success: !!data?.success, ts: new Date() }, ...h].slice(0, 50));
+        },
+      });
+    }
+  }
+
+  const presets = mode === "translate" ? TRANSLATION_PRESETS : MATCH_PRESETS;
+
+  return (
+    <div className="space-y-6">
+      {/* Mode toggle */}
+      <div className="flex gap-1 bg-muted/40 rounded-xl p-1 w-fit">
+        <button
+          data-testid="translation-mode-translate"
+          onClick={() => { setMode("translate"); translateMut.reset(); matchMut.reset(); }}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            mode === "translate"
+              ? "bg-card text-foreground shadow-sm border border-border/50"
+              : "text-muted-foreground hover:text-foreground"
+          }`}>
+          <ArrowRightLeft className="h-4 w-4" />
+          Translation Rule
+        </button>
+        <button
+          data-testid="translation-mode-match"
+          onClick={() => { setMode("match"); translateMut.reset(); matchMut.reset(); }}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            mode === "match"
+              ? "bg-card text-foreground shadow-sm border border-border/50"
+              : "text-muted-foreground hover:text-foreground"
+          }`}>
+          <Regex className="h-4 w-4" />
+          Match Rule
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Input panel */}
+        <div className="bg-card rounded-xl border border-border/50 p-5 space-y-4">
+          <h3 className="font-semibold text-sm flex items-center gap-2">
+            {mode === "translate" ? <ArrowRightLeft className="h-4 w-4 text-primary" /> : <Regex className="h-4 w-4 text-primary" />}
+            {mode === "translate" ? "Apply Translation Rule" : "Check Match Rule"}
+          </h3>
+
+          {/* Rule input */}
+          <div className="space-y-1.5">
+            <Label htmlFor="trans-rule" className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {mode === "translate" ? "Translation Rule (sed-style)" : "Match Rule (regex)"}
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="trans-rule"
+                data-testid="input-translation-rule"
+                value={rule}
+                onChange={e => setRule(e.target.value)}
+                placeholder={mode === "translate" ? "s/^00/+/" : "^\\+1[0-9]{10}$"}
+                className="font-mono text-sm"
+              />
+              {rule && (
+                <button
+                  data-testid="btn-copy-rule"
+                  onClick={() => navigator.clipboard.writeText(rule)}
+                  className="p-2 rounded-md hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                  title="Copy rule">
+                  <Copy className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Number input */}
+          <div className="space-y-1.5">
+            <Label htmlFor="trans-number" className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Phone Number
+            </Label>
+            <Input
+              id="trans-number"
+              data-testid="input-translation-number"
+              value={number}
+              onChange={e => setNumber(e.target.value)}
+              placeholder="+12125551234"
+              className="font-mono text-sm"
+              onKeyDown={e => e.key === "Enter" && handleTest()}
+            />
+          </div>
+
+          <Button
+            data-testid="btn-translation-test"
+            onClick={handleTest}
+            disabled={isPending || !rule.trim() || !number.trim()}
+            className="w-full">
+            {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />}
+            {isPending ? "Testing…" : "Test Rule"}
+          </Button>
+
+          {/* Result display */}
+          {lastResult && (
+            <div className={`rounded-lg p-4 border ${
+              lastResult.success
+                ? mode === "match"
+                  ? (lastMatch?.match ? "border-green-500/30 bg-green-500/10" : "border-amber-500/30 bg-amber-500/10")
+                  : "border-green-500/30 bg-green-500/10"
+                : "border-rose-500/30 bg-rose-500/10"
+            }`}>
+              {mode === "translate" && lastTranslate?.success && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Input</p>
+                  <p className="font-mono text-sm text-muted-foreground">{number}</p>
+                  <div className="flex items-center gap-2 my-1">
+                    <ArrowRightLeft className="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Output</p>
+                  <p className="font-mono text-lg font-bold text-green-400">{lastTranslate.number || "(empty string)"}</p>
+                </div>
+              )}
+              {mode === "match" && lastMatch?.success && (
+                <div className="flex items-center gap-3">
+                  {lastMatch.match
+                    ? <CheckCircle2 className="h-6 w-6 text-green-400 shrink-0" />
+                    : <XCircle className="h-6 w-6 text-amber-400 shrink-0" />}
+                  <div>
+                    <p className={`font-bold text-lg ${lastMatch.match ? "text-green-400" : "text-amber-400"}`}>
+                      {lastMatch.match ? "MATCH" : "NO MATCH"}
+                    </p>
+                    <p className="text-xs text-muted-foreground font-mono">{number}</p>
+                  </div>
+                </div>
+              )}
+              {!lastResult.success && (
+                <div className="flex items-start gap-2 text-rose-400">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold">Rule error</p>
+                    <p className="text-xs mt-0.5 font-mono">{(lastResult as any).error}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Presets panel */}
+        <div className="bg-card rounded-xl border border-border/50 p-5 space-y-4">
+          <h3 className="font-semibold text-sm flex items-center gap-2">
+            <FlipHorizontal2 className="h-4 w-4 text-primary" />
+            Common {mode === "translate" ? "Translation" : "Match"} Patterns
+          </h3>
+          <p className="text-xs text-muted-foreground">Click a preset to load it into the rule field.</p>
+          <div className="space-y-2">
+            {presets.map(p => (
+              <button
+                key={p.rule}
+                data-testid={`preset-${p.label.replace(/\s+/g, "-").toLowerCase()}`}
+                onClick={() => setRule(p.rule)}
+                className={`w-full text-left px-3 py-2.5 rounded-lg border transition-colors hover:bg-muted/40 ${
+                  rule === p.rule ? "border-primary/50 bg-primary/5" : "border-border/40"
+                }`}>
+                <p className="text-sm font-medium">{p.label}</p>
+                <p className="text-xs font-mono text-muted-foreground mt-0.5">{p.rule}</p>
+              </button>
+            ))}
+          </div>
+          {mode === "translate" && (
+            <div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground space-y-1 border border-border/30">
+              <p className="font-semibold text-foreground/70">Translation rule syntax</p>
+              <p><span className="font-mono text-primary">s/pattern/replacement/flags</span></p>
+              <p>Use <span className="font-mono">g</span> flag for global replace, <span className="font-mono">i</span> for case-insensitive.</p>
+              <p>Capture groups: <span className="font-mono">\1 \2</span> etc.</p>
+            </div>
+          )}
+          {mode === "match" && (
+            <div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground space-y-1 border border-border/30">
+              <p className="font-semibold text-foreground/70">Match rule syntax</p>
+              <p>Standard POSIX/PCRE regular expression.</p>
+              <p>Anchors <span className="font-mono">^ $</span> are recommended for exact matches.</p>
+              <p>Escape special chars: <span className="font-mono">\. \+ \(</span> etc.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* History */}
+      {history.length > 0 && (
+        <div className="bg-card rounded-xl border border-border/50 p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-sm flex items-center gap-2">
+              <History className="h-4 w-4 text-primary" />
+              Session History
+              <Badge variant="secondary" className="text-xs">{history.length}</Badge>
+            </h3>
+            <button
+              data-testid="btn-clear-history"
+              onClick={() => setHistory([])}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-rose-400 transition-colors">
+              <Trash2 className="h-3.5 w-3.5" />
+              Clear
+            </button>
+          </div>
+          <div className="overflow-auto max-h-64">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border/40 text-muted-foreground">
+                  <th className="text-left py-1.5 pr-3 font-medium">Mode</th>
+                  <th className="text-left py-1.5 pr-3 font-medium">Number</th>
+                  <th className="text-left py-1.5 pr-3 font-medium">Rule</th>
+                  <th className="text-left py-1.5 pr-3 font-medium">Result</th>
+                  <th className="text-left py-1.5 font-medium">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map(h => (
+                  <tr key={h.id} className="border-b border-border/20 hover:bg-muted/20 transition-colors">
+                    <td className="py-1.5 pr-3">
+                      <Badge variant="outline" className={`text-xs ${h.mode === "translate" ? "border-blue-500/40 text-blue-400" : "border-purple-500/40 text-purple-400"}`}>
+                        {h.mode === "translate" ? "Trans" : "Match"}
+                      </Badge>
+                    </td>
+                    <td className="py-1.5 pr-3 font-mono text-muted-foreground">{h.number}</td>
+                    <td className="py-1.5 pr-3 font-mono max-w-[180px] truncate text-muted-foreground" title={h.rule}>{h.rule}</td>
+                    <td className={`py-1.5 pr-3 font-mono font-semibold ${
+                      !h.success ? "text-rose-400"
+                      : h.result === "MATCH" ? "text-green-400"
+                      : h.result === "NO MATCH" ? "text-amber-400"
+                      : "text-green-400"
+                    }`}>{h.result}</td>
+                    <td className="py-1.5 text-muted-foreground whitespace-nowrap">
+                      {h.ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Error Boundary — catches any render crash and shows a helpful message
 // instead of a blank page
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1103,7 +1421,7 @@ function ToolsPageInner() {
           Telecom Tools &amp; Calculators
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Carrier quality scoring, SIP capacity planning, bandwidth estimation, and burst simulation
+          Carrier quality scoring, SIP capacity planning, bandwidth estimation, burst simulation, and number translation testing
         </p>
       </div>
 
@@ -1126,11 +1444,12 @@ function ToolsPageInner() {
       </div>
 
       {/* Tab content */}
-      {activeTab === "carrier"   && <CarrierQualityTab />}
-      {activeTab === "capacity"  && <CapacityCalculatorTab />}
-      {activeTab === "bandwidth" && <BandwidthPlannerTab />}
-      {activeTab === "burst"     && <BurstSimulatorTab />}
-      {activeTab === "route"     && <RouteTestTab />}
+      {activeTab === "carrier"     && <CarrierQualityTab />}
+      {activeTab === "capacity"    && <CapacityCalculatorTab />}
+      {activeTab === "bandwidth"   && <BandwidthPlannerTab />}
+      {activeTab === "burst"       && <BurstSimulatorTab />}
+      {activeTab === "route"       && <RouteTestTab />}
+      {activeTab === "translation" && <TranslationTesterTab />}
     </div>
   );
 }
