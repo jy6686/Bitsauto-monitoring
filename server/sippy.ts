@@ -7039,6 +7039,7 @@ export async function updateAccountSettings(
     maxCreditTime?: number;
     blocked?: boolean;
     iCustomer?: number;
+    creditLimit?: number;
   },
 ): Promise<{ success: boolean; message: string; method?: string }> {
   const apiUrl = `${sippyBase(portalUrl)}/xmlapi/xmlapi`;
@@ -7049,6 +7050,7 @@ export async function updateAccountSettings(
   if (opts.maxCreditTime      !== undefined) params.max_credit_time       = opts.maxCreditTime;
   if (opts.blocked            !== undefined) params.blocked               = opts.blocked ? 1 : 0;
   if (opts.iCustomer          !== undefined) params.i_customer            = opts.iCustomer;
+  if (opts.creditLimit        !== undefined) params.credit_limit          = opts.creditLimit;
 
   const lastErrors: string[] = [];
 

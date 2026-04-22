@@ -5255,6 +5255,26 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // PATCH /api/sippy/accounts/:id/credit-limit — update the account's credit limit
+  // Body: { creditLimit: number } — the new absolute credit limit value.
+  app.patch('/api/sippy/accounts/:id/credit-limit', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const { creditLimit } = req.body as { creditLimit?: number };
+      if (creditLimit === undefined || isNaN(Number(creditLimit)) || Number(creditLimit) < 0) {
+        return res.status(400).json({ success: false, message: 'creditLimit must be a non-negative number.' });
+      }
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+      if (!portalUrl) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+      const result = await sippy.updateAccountSettings(username, password, portalUrl, iAccount, { creditLimit: Number(creditLimit) });
+      if (!result.success) return res.status(422).json(result);
+      res.json({ success: true, message: `Credit limit updated to ${creditLimit} for account ${iAccount}.` });
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // PATCH /api/sippy/accounts/:id/low-balance — set low balance / auto-recharge config (docs 107444)
   // Body accepts any subset of: threshold (null = disabled), notifyByEmail, chargeCard,
   // chargeAmount, iDebitCreditCard (null = primary), notificationRetryCount,

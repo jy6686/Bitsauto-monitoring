@@ -6,7 +6,7 @@ import {
   Wallet, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
   TrendingUp, Plus, Settings2, Loader2, Bell, BellOff,
   CreditCard, ShieldAlert, Minus, Server, Hash, Shield,
-  Network,
+  Network, SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -244,6 +244,171 @@ function TopUpModal({
   );
 }
 
+// ─── Credit Adjustment Modal ──────────────────────────────────────────────────
+
+function CreditAdjustModal({
+  account,
+  open,
+  onClose,
+}: {
+  account: BalanceAccount;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [mode, setMode] = useState<"set" | "increase" | "decrease">("set");
+  const [amount, setAmount] = useState("");
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const computedNewLimit = (): number | null => {
+    const n = parseFloat(amount);
+    if (isNaN(n) || n < 0) return null;
+    if (mode === "set") return n;
+    if (mode === "increase") return Math.max(0, account.creditLimit + n);
+    if (mode === "decrease") return Math.max(0, account.creditLimit - n);
+    return null;
+  };
+
+  const newLimit = computedNewLimit();
+
+  const adjustMut = useMutation({
+    mutationFn: (body: { creditLimit: number }) =>
+      apiRequest("PATCH", `/api/sippy/accounts/${account.iAccount}/credit-limit`, body),
+    onSuccess: () => {
+      toast({
+        title: "Credit limit updated",
+        description: `Credit limit for ${account.username} set to ${account.currency ?? "USD"} ${newLimit?.toFixed(2)}.`,
+      });
+      qc.invalidateQueries({ queryKey: ["/api/sippy/balance-monitor"] });
+      setAmount("");
+      onClose();
+    },
+    onError: (e: any) => {
+      toast({ title: "Update failed", description: e.message ?? "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const handleSubmit = () => {
+    if (newLimit === null || newLimit < 0) {
+      toast({ title: "Invalid amount", description: "Enter a valid non-negative number.", variant: "destructive" });
+      return;
+    }
+    adjustMut.mutate({ creditLimit: newLimit });
+  };
+
+  const modeClass = (m: typeof mode) =>
+    cn(
+      "flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-colors",
+      mode === m
+        ? m === "set"
+          ? "bg-blue-600/20 text-blue-300 border-r border-blue-500/30"
+          : m === "increase"
+            ? "bg-emerald-600/20 text-emerald-300 border-r border-emerald-500/30"
+            : "bg-rose-600/20 text-rose-300"
+        : "bg-muted/20 text-muted-foreground hover:bg-muted/40 border-r border-border"
+    );
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) { onClose(); setAmount(""); setMode("set"); } }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4 text-blue-400" />
+            Credit Adjustment — {account.username}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Mode toggle */}
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button data-testid="credit-mode-set" onClick={() => setMode("set")} className={modeClass("set")}>
+              Set
+            </button>
+            <button data-testid="credit-mode-increase" onClick={() => setMode("increase")} className={modeClass("increase")}>
+              <Plus className="w-3.5 h-3.5" /> Increase
+            </button>
+            <button data-testid="credit-mode-decrease" onClick={() => setMode("decrease")} className={cn(modeClass("decrease"), "border-r-0")}>
+              <Minus className="w-3.5 h-3.5" /> Decrease
+            </button>
+          </div>
+
+          {/* Current values */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-col gap-0.5 p-3 rounded-lg bg-muted/30 border border-border/50">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Current Balance</span>
+              <span className={cn("text-sm font-bold font-mono", account.balance <= 0 ? "text-rose-400" : "text-emerald-400")}>
+                {account.currency ?? "USD"} {account.balance.toFixed(4)}
+              </span>
+            </div>
+            <div className="flex flex-col gap-0.5 p-3 rounded-lg bg-muted/30 border border-border/50">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Current Limit</span>
+              <span className="text-sm font-bold font-mono text-blue-400">
+                {account.currency ?? "USD"} {account.creditLimit.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          {/* Amount input */}
+          <div className="space-y-1.5">
+            <Label htmlFor="credit-amount">
+              {mode === "set" ? "New credit limit" : mode === "increase" ? "Increase by" : "Decrease by"} ({account.currency ?? "USD"})
+            </Label>
+            <Input
+              id="credit-amount"
+              data-testid="input-credit-amount"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder={mode === "set" ? `e.g. ${account.creditLimit.toFixed(2)}` : "e.g. 50.00"}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </div>
+
+          {/* Preview */}
+          {newLimit !== null && (
+            <div className={cn(
+              "flex items-center justify-between p-3 rounded-lg border text-sm",
+              mode === "decrease" && newLimit < account.creditLimit
+                ? "bg-rose-500/8 border-rose-500/20 text-rose-300"
+                : "bg-emerald-500/8 border-emerald-500/20 text-emerald-300"
+            )}>
+              <span className="text-muted-foreground text-xs">New credit limit will be</span>
+              <span className="font-bold font-mono">
+                {account.currency ?? "USD"} {newLimit.toFixed(2)}
+              </span>
+            </div>
+          )}
+
+          {mode === "decrease" && newLimit !== null && newLimit === 0 && account.creditLimit > 0 && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/8 border border-amber-500/20 text-amber-300 text-xs">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+              <span>Reducing to zero removes all prepaid credit from this account.</span>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { onClose(); setAmount(""); setMode("set"); }} disabled={adjustMut.isPending}>
+            Cancel
+          </Button>
+          <Button
+            data-testid="button-confirm-credit-adjust"
+            onClick={handleSubmit}
+            disabled={adjustMut.isPending || newLimit === null}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            {adjustMut.isPending
+              ? <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              : <SlidersHorizontal className="w-4 h-4 mr-2" />}
+            Apply Adjustment
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Alert Config Modal ───────────────────────────────────────────────────────
 
 function ThresholdModal({
@@ -344,8 +509,9 @@ function ThresholdModal({
 // ─── Account Card ─────────────────────────────────────────────────────────────
 
 function AccountCard({ account }: { account: BalanceAccount }) {
-  const [showTopUp, setShowTopUp]       = useState(false);
-  const [showThreshold, setShowThreshold] = useState(false);
+  const [showTopUp, setShowTopUp]           = useState(false);
+  const [showThreshold, setShowThreshold]   = useState(false);
+  const [showCreditAdj, setShowCreditAdj]   = useState(false);
   const { role } = useAuth();
   const canEdit = role === "admin" || role === "management";
 
@@ -469,23 +635,34 @@ function AccountCard({ account }: { account: BalanceAccount }) {
 
         {/* Actions */}
         {canEdit && (
-          <div className="flex gap-2 pt-0.5">
+          <div className="space-y-2 pt-0.5">
+            <div className="flex gap-2">
+              <Button
+                data-testid={`button-topup-${account.iAccount}`}
+                size="sm"
+                className="flex-1 bg-emerald-600/90 hover:bg-emerald-600 text-white text-xs h-8"
+                onClick={() => setShowTopUp(true)}
+              >
+                <Plus className="w-3 h-3 mr-1" /> Top-Up / Debit
+              </Button>
+              <Button
+                data-testid={`button-configure-${account.iAccount}`}
+                size="sm"
+                variant="outline"
+                className="flex-1 text-xs h-8"
+                onClick={() => setShowThreshold(true)}
+              >
+                <Settings2 className="w-3 h-3 mr-1" /> Alert Config
+              </Button>
+            </div>
             <Button
-              data-testid={`button-topup-${account.iAccount}`}
-              size="sm"
-              className="flex-1 bg-emerald-600/90 hover:bg-emerald-600 text-white text-xs h-8"
-              onClick={() => setShowTopUp(true)}
-            >
-              <Plus className="w-3 h-3 mr-1" /> Top-Up / Debit
-            </Button>
-            <Button
-              data-testid={`button-configure-${account.iAccount}`}
+              data-testid={`button-credit-adjust-${account.iAccount}`}
               size="sm"
               variant="outline"
-              className="flex-1 text-xs h-8"
-              onClick={() => setShowThreshold(true)}
+              className="w-full text-xs h-8 border-blue-500/30 text-blue-400 hover:bg-blue-500/10 hover:text-blue-300"
+              onClick={() => setShowCreditAdj(true)}
             >
-              <Settings2 className="w-3 h-3 mr-1" /> Alert Config
+              <SlidersHorizontal className="w-3 h-3 mr-1" /> Credit Adjustment
             </Button>
           </div>
         )}
@@ -493,6 +670,7 @@ function AccountCard({ account }: { account: BalanceAccount }) {
 
       <TopUpModal account={account} open={showTopUp} onClose={() => setShowTopUp(false)} />
       <ThresholdModal account={account} open={showThreshold} onClose={() => setShowThreshold(false)} />
+      <CreditAdjustModal account={account} open={showCreditAdj} onClose={() => setShowCreditAdj(false)} />
     </>
   );
 }
