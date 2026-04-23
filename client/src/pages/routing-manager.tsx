@@ -5,7 +5,7 @@ import {
   Route, RefreshCw, Database, Server, Network, CheckCircle2,
   AlertCircle, Clock, Layers, Wifi, ChevronRight, Search, Filter,
   Loader2, GitBranch, BarChart3, Eye, Settings2, Construction,
-  ArrowRight,
+  ArrowRight, Activity, Timer, AlertTriangle, Zap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -85,6 +85,34 @@ type DsRoute = {
   expirationDate:  string | null;
 };
 type DsRoutesData = { success: boolean; list: DsRoute[]; message: string };
+
+type QbrVendor = {
+  vendor:         string;
+  connectionName?: string;
+  host?:          string;
+  protocol?:      string;
+  blocked:        boolean;
+  totalCalls:     number;
+  answeredCalls:  number;
+  asr:            number;
+  acd:            number;
+  pdd:            number;
+  qbrScore:       number;
+  status:         'excellent' | 'good' | 'degraded' | 'critical';
+  totalMinutes:   number;
+  totalCost:      number;
+};
+type QbrSummary = {
+  totalCalls:     number;
+  answeredCalls:  number;
+  asr:            number;
+  acd:            number;
+  pdd:            number;
+  activeRoutes:   number;
+  degradedRoutes: number;
+};
+type QbrMeta = { hours: number; cdrsAnalyzed: number; updatedAt: string | null };
+type QbrData  = { vendors: QbrVendor[]; summary: QbrSummary; meta: QbrMeta };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -637,6 +665,361 @@ const TABS: { id: TabId; label: string; icon: typeof Route; countKey?: keyof Cac
   { id: "policy-sim",      label: "Policy Simulator", icon: Settings2                          },
 ];
 
+// ── QbrTab ─────────────────────────────────────────────────────────────────────
+
+function qbrStatusBg(status: QbrVendor['status']) {
+  return {
+    excellent: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    good:      'bg-blue-500/10 text-blue-400 border-blue-500/30',
+    degraded:  'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    critical:  'bg-red-500/10 text-red-400 border-red-500/30',
+  }[status];
+}
+function qbrStatusText(status: QbrVendor['status']) {
+  return {
+    excellent: 'text-emerald-400',
+    good:      'text-blue-400',
+    degraded:  'text-amber-400',
+    critical:  'text-red-400',
+  }[status];
+}
+function qbrBar(score: number) {
+  if (score >= 80) return 'bg-emerald-500';
+  if (score >= 60) return 'bg-blue-500';
+  if (score >= 40) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+function asrBar(asr: number) {
+  if (asr >= 70) return 'bg-emerald-500';
+  if (asr >= 50) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+function asrText(asr: number) {
+  if (asr >= 70) return 'text-emerald-400';
+  if (asr >= 50) return 'text-amber-400';
+  return 'text-red-400';
+}
+
+const QBR_WINDOWS = [
+  { h: 1,   label: '1h'  },
+  { h: 4,   label: '4h'  },
+  { h: 12,  label: '12h' },
+  { h: 24,  label: '24h' },
+  { h: 72,  label: '3d'  },
+  { h: 168, label: '7d'  },
+];
+
+function QbrTab() {
+  const [hours, setHours] = useState(24);
+
+  const { data, isLoading, refetch, isFetching } = useQuery<QbrData>({
+    queryKey: [`/api/qbr/metrics?hours=${hours}`],
+    refetchInterval: 60_000,
+  });
+
+  const s = data?.summary;
+
+  return (
+    <div className="space-y-4">
+      {/* ── Toolbar ──────────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-1 bg-muted/40 border border-border/40 rounded-lg p-1">
+          {QBR_WINDOWS.map(w => (
+            <button
+              key={w.h}
+              onClick={() => setHours(w.h)}
+              data-testid={`btn-qbr-window-${w.h}`}
+              className={cn(
+                "px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                hours === w.h
+                  ? "bg-background text-foreground shadow-sm border border-border/60"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {data?.meta.updatedAt && (
+            <span>Cache {relTime(data.meta.updatedAt)}</span>
+          )}
+          <Button
+            size="sm" variant="outline"
+            className="h-7 gap-1.5 text-xs"
+            onClick={() => refetch()}
+            data-testid="btn-qbr-refresh"
+            disabled={isFetching}
+          >
+            <RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Loading ───────────────────────────────────────────────────────────── */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Analysing CDR cache…</span>
+        </div>
+      )}
+
+      {!isLoading && data && (
+        <>
+          {/* ── KPI Cards ─────────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {/* ASR */}
+            <div className="bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2" data-testid="card-qbr-asr">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Network ASR</span>
+                <Activity className="h-3.5 w-3.5 text-muted-foreground/50" />
+              </div>
+              <p className={cn("text-2xl font-bold tabular-nums", asrText(s!.asr))}>
+                {s!.asr}%
+              </p>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className={cn("h-full rounded-full", asrBar(s!.asr))} style={{ width: `${Math.min(s!.asr, 100)}%` }} />
+              </div>
+              <p className="text-[10px] text-muted-foreground">{s!.answeredCalls.toLocaleString()} / {s!.totalCalls.toLocaleString()} answered</p>
+            </div>
+
+            {/* ACD */}
+            <div className="bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2" data-testid="card-qbr-acd">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Avg ACD</span>
+                <Clock className="h-3.5 w-3.5 text-muted-foreground/50" />
+              </div>
+              <p className="text-2xl font-bold tabular-nums text-foreground">
+                {s!.acd > 0 ? `${s!.acd}s` : '—'}
+              </p>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(s!.acd / 120 * 100, 100)}%` }} />
+              </div>
+              <p className="text-[10px] text-muted-foreground">average call duration (answered)</p>
+            </div>
+
+            {/* PDD */}
+            <div className="bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2" data-testid="card-qbr-pdd">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Avg PDD</span>
+                <Timer className="h-3.5 w-3.5 text-muted-foreground/50" />
+              </div>
+              <p className={cn("text-2xl font-bold tabular-nums",
+                s!.pdd === 0 ? "text-muted-foreground"
+                : s!.pdd <= 2000 ? "text-emerald-400"
+                : s!.pdd <= 3500 ? "text-amber-400" : "text-red-400"
+              )}>
+                {s!.pdd > 0 ? `${(s!.pdd / 1000).toFixed(2)}s` : '—'}
+              </p>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={cn("h-full rounded-full",
+                    s!.pdd <= 2000 ? "bg-emerald-500" : s!.pdd <= 3500 ? "bg-amber-500" : "bg-red-500"
+                  )}
+                  style={{ width: `${Math.max(0, 100 - (s!.pdd / 4000 * 100))}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">post-dial delay (lower is better)</p>
+            </div>
+
+            {/* Routes status */}
+            <div className="bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2" data-testid="card-qbr-routes">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Routes</span>
+                <Zap className="h-3.5 w-3.5 text-muted-foreground/50" />
+              </div>
+              <p className="text-2xl font-bold tabular-nums text-foreground">
+                {s!.activeRoutes}
+                {s!.degradedRoutes > 0 && (
+                  <span className="text-sm font-normal text-red-400 ml-1.5">
+                    {s!.degradedRoutes} alert{s!.degradedRoutes > 1 ? 's' : ''}
+                  </span>
+                )}
+              </p>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={cn("h-full rounded-full", s!.degradedRoutes === 0 ? "bg-emerald-500" : "bg-amber-500")}
+                  style={{ width: s!.activeRoutes > 0 ? `${Math.round((s!.activeRoutes - s!.degradedRoutes) / s!.activeRoutes * 100)}%` : '0%' }}
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">{s!.totalCalls.toLocaleString()} calls in window</p>
+            </div>
+          </div>
+
+          {/* ── Alert banner ──────────────────────────────────────────────────── */}
+          {s!.degradedRoutes > 0 && (
+            <div className="flex items-center gap-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-2.5 text-sm text-amber-400" data-testid="banner-qbr-alert">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>
+                <strong>{s!.degradedRoutes}</strong> route{s!.degradedRoutes > 1 ? 's are' : ' is'} degraded or critical — check quality metrics below and consider route adjustments
+              </span>
+            </div>
+          )}
+
+          {/* ── Empty state ──────────────────────────────────────────────────── */}
+          {data.vendors.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+              <div className="bg-muted/40 p-5 rounded-2xl border border-border/40">
+                <BarChart3 className="h-10 w-10 text-muted-foreground/40" />
+              </div>
+              <p className="text-sm font-medium">No CDR data in this window</p>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                No calls were recorded in the last {hours}h window. Expand the time window or wait for the CDR cache to populate.
+              </p>
+            </div>
+          ) : (
+            /* ── Route quality table ─────────────────────────────────────────── */
+            <div className="border border-border/40 rounded-xl overflow-hidden">
+              {/* Column headers */}
+              <div className="hidden md:grid text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 px-4 py-2.5 gap-3 items-center"
+                style={{ gridTemplateColumns: '28px 1fr 70px 90px 130px 72px 80px 120px 90px' }}>
+                <span>#</span>
+                <span>Vendor / Connection</span>
+                <span>Proto</span>
+                <span className="text-right">Calls</span>
+                <span>ASR</span>
+                <span className="text-right">ACD</span>
+                <span className="text-right">PDD</span>
+                <span>QBR Score</span>
+                <span className="text-center">Status</span>
+              </div>
+
+              {/* Rows */}
+              <div className="divide-y divide-border/30">
+                {data.vendors.map((v, i) => (
+                  <div
+                    key={v.vendor}
+                    data-testid={`row-qbr-${i}`}
+                    className="hidden md:grid px-4 py-3 gap-3 items-center hover:bg-muted/20 transition-colors"
+                    style={{ gridTemplateColumns: '28px 1fr 70px 90px 130px 72px 80px 120px 90px' }}
+                  >
+                    {/* Rank */}
+                    <span className="text-xs text-muted-foreground tabular-nums font-mono">{i + 1}</span>
+
+                    {/* Vendor + connection */}
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate" data-testid={`text-qbr-vendor-${i}`}>{v.vendor}</p>
+                      {v.connectionName && v.connectionName !== v.vendor && (
+                        <p className="text-[10px] text-muted-foreground truncate">{v.connectionName}</p>
+                      )}
+                      {v.host && (
+                        <p className="text-[10px] text-muted-foreground/60 truncate font-mono">{v.host}</p>
+                      )}
+                    </div>
+
+                    {/* Protocol */}
+                    <span className="text-xs text-muted-foreground uppercase">{v.protocol ?? '—'}</span>
+
+                    {/* Calls */}
+                    <div className="text-right">
+                      <p className="text-xs tabular-nums font-medium">{v.totalCalls.toLocaleString()}</p>
+                      <p className="text-[10px] text-muted-foreground">{v.answeredCalls.toLocaleString()} ans</p>
+                    </div>
+
+                    {/* ASR bar */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className={cn("font-bold tabular-nums", asrText(v.asr))}>{v.asr}%</span>
+                        <span className="text-muted-foreground/60">{v.answeredCalls}/{v.totalCalls}</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className={cn("h-full rounded-full", asrBar(v.asr))} style={{ width: `${Math.min(v.asr, 100)}%` }} />
+                      </div>
+                    </div>
+
+                    {/* ACD */}
+                    <div className="text-right">
+                      <span className="text-xs tabular-nums">{v.acd > 0 ? `${v.acd}s` : '—'}</span>
+                    </div>
+
+                    {/* PDD */}
+                    <div className="text-right">
+                      <span className={cn("text-xs tabular-nums",
+                        v.pdd === 0 ? "text-muted-foreground"
+                        : v.pdd <= 2000 ? "text-emerald-400"
+                        : v.pdd <= 3500 ? "text-amber-400" : "text-red-400"
+                      )}>
+                        {v.pdd > 0 ? `${v.pdd}ms` : '—'}
+                      </span>
+                    </div>
+
+                    {/* QBR Score bar */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className={cn("font-bold tabular-nums", qbrStatusText(v.status))}>{v.qbrScore}</span>
+                        <span className="text-muted-foreground/60">/100</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className={cn("h-full rounded-full", qbrBar(v.qbrScore))} style={{ width: `${v.qbrScore}%` }} />
+                      </div>
+                    </div>
+
+                    {/* Status badge */}
+                    <div className="flex justify-center">
+                      <Badge variant="outline" className={cn("text-[10px] px-2 py-0.5 capitalize", qbrStatusBg(v.status))}>
+                        {v.status}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Mobile card view */}
+                {data.vendors.map((v, i) => (
+                  <div
+                    key={`m-${v.vendor}`}
+                    className="md:hidden px-4 py-3 space-y-2"
+                    data-testid={`card-qbr-mobile-${i}`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="text-xs text-muted-foreground mr-1.5">#{i + 1}</span>
+                        <span className="text-sm font-medium">{v.vendor}</span>
+                        {v.host && <p className="text-[10px] text-muted-foreground/60 font-mono mt-0.5">{v.host}</p>}
+                      </div>
+                      <Badge variant="outline" className={cn("text-[10px] px-2 py-0.5 capitalize shrink-0", qbrStatusBg(v.status))}>
+                        {v.status}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      <div>
+                        <p className={cn("text-xs font-bold", asrText(v.asr))}>{v.asr}%</p>
+                        <p className="text-[10px] text-muted-foreground">ASR</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold">{v.acd > 0 ? `${v.acd}s` : '—'}</p>
+                        <p className="text-[10px] text-muted-foreground">ACD</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold">{v.pdd > 0 ? `${v.pdd}ms` : '—'}</p>
+                        <p className="text-[10px] text-muted-foreground">PDD</p>
+                      </div>
+                      <div>
+                        <p className={cn("text-xs font-bold", qbrStatusText(v.status))}>{v.qbrScore}</p>
+                        <p className="text-[10px] text-muted-foreground">QBR</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Table footer */}
+              <div className="bg-muted/20 px-4 py-2 border-t border-border/30 flex items-center justify-between flex-wrap gap-2">
+                <span className="text-[10px] text-muted-foreground">
+                  {data.meta.cdrsAnalyzed.toLocaleString()} CDRs analysed · last {hours}h window
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  Score = 40% ASR + 30% ACD + 30% PDD
+                </span>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function PlaceholderTab({ title, description }: { title: string; description: string; icon?: typeof Construction }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
@@ -756,7 +1139,7 @@ export default function RoutingManagerPage() {
       {activeTab === "routing-groups"   && <RoutingGroupsTab />}
       {activeTab === "destination-sets" && <DestinationSetsTab />}
       {activeTab === "connections"      && <ConnectionsTab />}
-      {activeTab === "qbr"       && <PlaceholderTab title="QBR Dashboard" description="Quarterly Business Review dashboard with per-customer traffic summaries, trend graphs, and exportable report cards. Coming in next release." />}
+      {activeTab === "qbr"       && <QbrTab />}
       {activeTab === "on-net"    && <PlaceholderTab title="On-Net Routing Viewer" description="Visualise all on-net routing groups and their member connections, overlaid on a live traffic heatmap." />}
       {activeTab === "policy-sim"&& <PlaceholderTab title="Routing Policy Simulator" description="Simulate LCR, prefix-priority, and weighted routing decisions against a test call leg before committing changes to the switch." />}
     </div>

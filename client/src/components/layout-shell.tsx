@@ -142,7 +142,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       // ── 9 tracked routing features ────────────────────────────────────────────
       { href: "/routing-manager?tab=routing-groups",   label: "Routing Group Manager",   icon: Database,      roles: ['admin','management'], status: 'live'     },
       { href: "/routing-manager?tab=destination-sets", label: "Destination Set Explorer",icon: Layers,        roles: ['admin','management'], status: 'live'     },
-      { href: "/routing-manager?tab=qbr",              label: "QBR Dashboard",           icon: ShieldCheck,   roles: ['admin','management'], status: 'planned'  },
+      { href: "/routing-manager?tab=qbr",              label: "QBR Dashboard",           icon: ShieldCheck,   roles: ['admin','management'] },
       { href: "/call-flow-simulator",                  label: "Routing Audit Trail",     icon: History,       roles: ['admin','management'], status: 'live'     },
       { href: "/routing-manager?tab=connections",      label: "Connection Coverage Map", icon: Network,       roles: ['admin','management'], status: 'planned'  },
       { href: "/rate-cards",                           label: "Bulk Rate / Route Upload",icon: Upload,        roles: ['admin','management'], status: 'planned'  },

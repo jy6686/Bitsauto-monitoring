@@ -8367,6 +8367,112 @@ export async function registerRoutes(
     }
   );
 
+  // ── QBR Dashboard ─────────────────────────────────────────────────────────
+  // GET /api/qbr/metrics?hours=N — per-vendor quality metrics from CDR cache
+  // Computes ASR, ACD, PDD and a composite QBR score per vendor/connection.
+  app.get('/api/qbr/metrics',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const hours = Math.min(Math.max(parseInt(String(req.query.hours ?? '24')) || 24, 1), 168);
+        const cutoff = Date.now() - hours * 3600 * 1000;
+
+        // Filter CDR cache to the requested time window
+        const windowCdrs = [...cdrCache.values()].filter(c => {
+          const ts = c.startTime  ? new Date(c.startTime).getTime()
+                   : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+          return ts >= cutoff;
+        });
+
+        // Enrich from connection cache (vendor name / host / protocol)
+        const cachedConns = await getCachedConnections();
+
+        type VGroup = {
+          vendor: string; connName?: string; host?: string; protocol?: string; blocked: boolean;
+          total: number; answered: number; totalDur: number; totalPdd: number; pddN: number; totalCost: number;
+        };
+        const groups = new Map<string, VGroup>();
+
+        for (const cdr of windowCdrs) {
+          // Resolve vendor label
+          let vendor = cdr.vendor;
+          if (!vendor && cdr.iConnection) {
+            const conn = (cachedConns as any[]).find(
+              (c: any) => String(c.i_connection ?? c.iConnection) === String(cdr.iConnection)
+            );
+            vendor = conn?.vendorName ?? conn?.name;
+          }
+          vendor = vendor || 'Unknown';
+
+          if (!groups.has(vendor)) {
+            const conn = (cachedConns as any[]).find(
+              (c: any) => c.vendorName === vendor || c.name === vendor
+            );
+            groups.set(vendor, {
+              vendor, connName: conn?.name, host: conn?.host,
+              protocol: conn?.protocol, blocked: conn?.blocked ?? false,
+              total: 0, answered: 0, totalDur: 0, totalPdd: 0, pddN: 0, totalCost: 0,
+            });
+          }
+
+          const g = groups.get(vendor)!;
+          g.total++;
+          const rc  = parseInt(String(cdr.result ?? '').trim()) || 0;
+          const dur = cdr.totalDuration ?? cdr.duration ?? 0;
+          if (rc === 0 && dur > 0) { g.answered++; g.totalDur += dur; }
+          if (cdr.pdd != null && cdr.pdd >= 0) { g.totalPdd += cdr.pdd; g.pddN++; }
+          g.totalCost += cdr.cost ?? 0;
+        }
+
+        // Compute per-vendor QBR metrics and score
+        const vendors = [...groups.values()].map(g => {
+          const asr = g.total > 0 ? Math.round(g.answered / g.total * 1000) / 10 : 0;
+          const acd = g.answered > 0 ? Math.round(g.totalDur / g.answered * 10) / 10 : 0;
+          const pdd = g.pddN > 0 ? Math.round(g.totalPdd / g.pddN * 10) / 10 : 0;
+
+          // QBR composite score: 40% ASR + 30% ACD (capped 120 s) + 30% PDD (0-4000 ms inverted)
+          const asrS = Math.min(asr, 100);
+          const acdS = Math.min(acd / 120 * 100, 100);
+          const pddS = Math.max(0, 100 - (pdd / 4000 * 100));
+          const qbr  = Math.round((asrS * 0.40 + acdS * 0.30 + pddS * 0.30) * 10) / 10;
+
+          const status: 'excellent' | 'good' | 'degraded' | 'critical' =
+            qbr >= 80 ? 'excellent' : qbr >= 60 ? 'good' : qbr >= 40 ? 'degraded' : 'critical';
+
+          return {
+            vendor: g.vendor, connectionName: g.connName, host: g.host,
+            protocol: g.protocol, blocked: g.blocked,
+            totalCalls: g.total, answeredCalls: g.answered,
+            asr, acd, pdd, qbrScore: qbr, status,
+            totalMinutes: Math.round(g.totalDur / 60 * 10) / 10,
+            totalCost: Math.round(g.totalCost * 100) / 100,
+          };
+        }).sort((a, b) => b.qbrScore - a.qbrScore);
+
+        // Network-level summary
+        const totCalls    = vendors.reduce((s, v) => s + v.totalCalls, 0);
+        const totAnswered = vendors.reduce((s, v) => s + v.answeredCalls, 0);
+        const netAsr      = totCalls > 0 ? Math.round(totAnswered / totCalls * 1000) / 10 : 0;
+        const wAcd        = totAnswered > 0
+          ? Math.round(vendors.reduce((s, v) => s + v.acd * v.answeredCalls, 0) / totAnswered * 10) / 10 : 0;
+        const pddSets     = vendors.filter(v => v.pdd > 0);
+        const netPdd      = pddSets.length > 0
+          ? Math.round(pddSets.reduce((s, v) => s + v.pdd, 0) / pddSets.length * 10) / 10 : 0;
+
+        res.json({
+          vendors,
+          summary: {
+            totalCalls: totCalls, answeredCalls: totAnswered,
+            asr: netAsr, acd: wAcd, pdd: netPdd,
+            activeRoutes: vendors.length,
+            degradedRoutes: vendors.filter(v => v.status === 'degraded' || v.status === 'critical').length,
+          },
+          meta: { hours, cdrsAnalyzed: windowCdrs.length, updatedAt: cdrCacheUpdatedAt },
+        });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
   // PUT /api/sippy/routing-groups/:id — updateRoutingGroup()
   // Body: any subset of addRoutingGroup params (all optional).
   app.put('/api/sippy/routing-groups/:id', async (req: any, res) => {
