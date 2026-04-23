@@ -702,9 +702,15 @@ export default function BalanceMonitorPage() {
     ? allAccounts.filter(a => assignedIds.includes(String(a.iAccount)))
     : allAccounts;
 
+  const [statusFilter, setStatusFilter] = useState<"critical" | "warning" | "healthy" | null>(null);
+
   const criticalCount = accounts.filter((a) => a.status === "critical").length;
   const warningCount  = accounts.filter((a) => a.status === "warning").length;
   const healthyCount  = accounts.filter((a) => a.status === "healthy").length;
+
+  const displayedAccounts = statusFilter
+    ? accounts.filter((a) => a.status === statusFilter)
+    : accounts;
 
   const lastUpdated = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
@@ -734,19 +740,46 @@ export default function BalanceMonitorPage() {
           {!isLoading && accounts.length > 0 && (
             <div className="flex items-center gap-2 text-xs">
               {criticalCount > 0 && (
-                <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-400 font-semibold">
+                <button
+                  data-testid="badge-filter-critical"
+                  onClick={() => setStatusFilter(f => f === "critical" ? null : "critical")}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 rounded-lg border font-semibold transition-all",
+                    statusFilter === "critical"
+                      ? "bg-rose-500/25 border-rose-500/60 text-rose-300 ring-1 ring-rose-500/40"
+                      : "bg-rose-500/10 border-rose-500/25 text-rose-400 hover:bg-rose-500/20"
+                  )}
+                >
                   <XCircle className="w-3 h-3" /> {criticalCount} Critical
-                </span>
+                </button>
               )}
               {warningCount > 0 && (
-                <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-400 font-semibold">
+                <button
+                  data-testid="badge-filter-warning"
+                  onClick={() => setStatusFilter(f => f === "warning" ? null : "warning")}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 rounded-lg border font-semibold transition-all",
+                    statusFilter === "warning"
+                      ? "bg-amber-500/25 border-amber-500/60 text-amber-300 ring-1 ring-amber-500/40"
+                      : "bg-amber-500/10 border-amber-500/25 text-amber-400 hover:bg-amber-500/20"
+                  )}
+                >
                   <AlertTriangle className="w-3 h-3" /> {warningCount} Warning
-                </span>
+                </button>
               )}
               {healthyCount > 0 && (
-                <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 font-semibold">
+                <button
+                  data-testid="badge-filter-healthy"
+                  onClick={() => setStatusFilter(f => f === "healthy" ? null : "healthy")}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 rounded-lg border font-semibold transition-all",
+                    statusFilter === "healthy"
+                      ? "bg-emerald-500/25 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/40"
+                      : "bg-emerald-500/10 border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20"
+                  )}
+                >
                   <CheckCircle2 className="w-3 h-3" /> {healthyCount} Healthy
-                </span>
+                </button>
               )}
             </div>
           )}
@@ -779,22 +812,36 @@ export default function BalanceMonitorPage() {
 
       {/* Alert Banner */}
       {(criticalCount > 0 || warningCount > 0) && (
-        <div className={cn(
-          "flex items-start gap-3 p-4 rounded-xl border text-sm",
-          criticalCount > 0
-            ? "bg-rose-500/8 border-rose-500/25 text-rose-300"
-            : "bg-amber-500/8 border-amber-500/25 text-amber-300"
-        )}>
+        <button
+          data-testid="banner-alert-accounts"
+          onClick={() => {
+            const target = criticalCount > 0 ? "critical" : "warning";
+            setStatusFilter(f => f === target ? null : target);
+          }}
+          className={cn(
+            "w-full flex items-start gap-3 p-4 rounded-xl border text-sm text-left transition-all",
+            criticalCount > 0
+              ? "bg-rose-500/8 border-rose-500/25 text-rose-300 hover:bg-rose-500/15 hover:border-rose-500/40"
+              : "bg-amber-500/8 border-amber-500/25 text-amber-300 hover:bg-amber-500/15 hover:border-amber-500/40"
+          )}
+        >
           <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-          <div>
+          <div className="flex-1">
             <span className="font-semibold">
               {criticalCount > 0
                 ? `${criticalCount} account${criticalCount > 1 ? "s" : ""} at zero balance — calls may be failing`
                 : `${warningCount} account${warningCount > 1 ? "s" : ""} below alert threshold`}
             </span>
-            <p className="text-xs mt-0.5 opacity-75">Top-up immediately to restore service continuity.</p>
+            <p className="text-xs mt-0.5 opacity-75">
+              {statusFilter === (criticalCount > 0 ? "critical" : "warning")
+                ? "Click to show all accounts"
+                : "Click to view affected accounts"}
+            </p>
           </div>
-        </div>
+          <span className="text-xs opacity-60 mt-0.5 flex-shrink-0">
+            {statusFilter === (criticalCount > 0 ? "critical" : "warning") ? "← clear" : "view →"}
+          </span>
+        </button>
       )}
 
       {/* Loading */}
@@ -823,11 +870,27 @@ export default function BalanceMonitorPage() {
 
       {/* Account Cards Grid */}
       {accounts.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {accounts.map((a) => (
-            <AccountCard key={a.iAccount} account={a} />
-          ))}
-        </div>
+        <>
+          {statusFilter && (
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                Showing <span className="font-semibold text-foreground">{displayedAccounts.length}</span> {statusFilter} account{displayedAccounts.length !== 1 ? "s" : ""}
+              </span>
+              <button
+                data-testid="button-clear-filter"
+                onClick={() => setStatusFilter(null)}
+                className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+              >
+                Show all {accounts.length}
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {displayedAccounts.map((a) => (
+              <AccountCard key={a.iAccount} account={a} />
+            ))}
+          </div>
+        </>
       )}
 
       {/* Legend */}
