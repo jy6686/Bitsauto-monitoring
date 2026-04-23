@@ -1,6 +1,7 @@
 
 import { useState, useMemo, Component } from "react";
 import type { ReactNode } from "react";
+import { useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Wrench, Calculator, Wifi, Zap, Star, TrendingUp, TrendingDown,
@@ -1410,7 +1411,10 @@ class ToolsErrorBoundary extends Component<{ children: ReactNode }, { error: Err
 // ═══════════════════════════════════════════════════════════════════════════
 
 function ToolsPageInner() {
-  const [activeTab, setActiveTab] = useState<Tab>("carrier");
+  const search   = useSearch();
+  const activeTab = ((new URLSearchParams(search)).get("tab") ?? "carrier") as Tab;
+
+  const activeTabMeta = TABS.find(t => t.id === activeTab) ?? TABS[0];
 
   return (
     <div className="space-y-5">
@@ -1420,30 +1424,13 @@ function ToolsPageInner() {
           <Wrench className="h-6 w-6 text-primary" />
           Telecom Tools &amp; Calculators
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Carrier quality scoring, SIP capacity planning, bandwidth estimation, burst simulation, and number translation testing
+        <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
+          <activeTabMeta.icon className="h-3.5 w-3.5 text-muted-foreground" />
+          {activeTabMeta.label}
         </p>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 bg-muted/40 rounded-xl p-1 w-fit">
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTab(t.id)}
-            data-testid={`tab-${t.id}`}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === t.id
-                ? "bg-card text-foreground shadow-sm border border-border/50"
-                : "text-muted-foreground hover:text-foreground"
-            }`}>
-            <t.icon className="h-4 w-4" />
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab content */}
+      {/* Tab content — navigation is via sidebar dropdown */}
       {activeTab === "carrier"     && <CarrierQualityTab />}
       {activeTab === "capacity"    && <CapacityCalculatorTab />}
       {activeTab === "bandwidth"   && <BandwidthPlannerTab />}

@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
@@ -52,6 +52,15 @@ const MONITORING_SUBITEMS = [
   { tab: 'registrations', label: 'Reg Storm Detection',   icon: Radio,       iconColor: 'text-rose-400'    },
 ] as const;
 
+const TOOLS_SUBITEMS = [
+  { tab: 'carrier',     label: 'Carrier Quality',   icon: Star,          iconColor: 'text-amber-400'   },
+  { tab: 'capacity',    label: 'SIP Capacity',       icon: Calculator,    iconColor: 'text-cyan-400'    },
+  { tab: 'bandwidth',   label: 'Bandwidth Planner',  icon: Wifi,          iconColor: 'text-emerald-400' },
+  { tab: 'burst',       label: 'Burst Simulator',    icon: Zap,           iconColor: 'text-yellow-400'  },
+  { tab: 'route',       label: 'Route Tester',       icon: Route,         iconColor: 'text-violet-400'  },
+  { tab: 'translation', label: 'Translation Tester', icon: ArrowRightLeft,iconColor: 'text-blue-400'    },
+] as const;
+
 const ITEM_NAV_MAP: Record<string, string> = {
   live_summary:      '/calls',
   live_details:      '/calls',
@@ -73,7 +82,7 @@ const ITEM_NAV_MAP: Record<string, string> = {
 const SIDEBAR_KEY    = 'voip-sidebar-collapsed';
 const GROUPS_LS_KEY  = 'voip-sidebar-groups';
 
-type SubmenuType = 'calls' | 'bitseye' | 'cdr' | 'monitoring' | 'ratecards' | 'settings';
+type SubmenuType = 'calls' | 'bitseye' | 'cdr' | 'monitoring' | 'ratecards' | 'settings' | 'tools';
 
 interface NavItem {
   href: string;
@@ -173,7 +182,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     roles: ['admin','management'],
     items: [
       { href: "/clients", label: "Client / Vendor", icon: Building2, roles: ['admin','management'] },
-      { href: "/tools",   label: "Tools",           icon: Wrench,    roles: ['admin','management'] },
+      { href: "/tools",   label: "Tools",           icon: Wrench,    roles: ['admin','management'], hasSubmenu: 'tools' as SubmenuType },
     ],
   },
   {
@@ -229,6 +238,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const isCdrActive          = location.startsWith('/cdrs');
   const isSettingsActive     = location.startsWith('/settings');
   const isRateCardsActive    = location.startsWith('/rate-cards');
+  const isToolsActive        = location.startsWith('/tools');
 
   const [callsExpanded,      setCallsExpanded]      = useState(isCallsActive);
   const [monitoringExpanded, setMonitoringExpanded] = useState(isMonitoringActive);
@@ -236,6 +246,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const [cdrExpanded,        setCdrExpanded]        = useState(isCdrActive);
   const [settingsExpanded,   setSettingsExpanded]   = useState(isSettingsActive);
   const [rateCardsExpanded,  setRateCardsExpanded]  = useState(isRateCardsActive);
+  const [toolsExpanded,      setToolsExpanded]      = useState(isToolsActive);
 
   useEffect(() => { if (isCallsActive)      setCallsExpanded(true);      }, [isCallsActive]);
   useEffect(() => { if (isMonitoringActive) setMonitoringExpanded(true);  }, [isMonitoringActive]);
@@ -243,6 +254,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   useEffect(() => { if (isCdrActive)        setCdrExpanded(true);         }, [isCdrActive]);
   useEffect(() => { if (isSettingsActive)   setSettingsExpanded(true);    }, [isSettingsActive]);
   useEffect(() => { if (isRateCardsActive)  setRateCardsExpanded(true);   }, [isRateCardsActive]);
+  useEffect(() => { if (isToolsActive)      setToolsExpanded(true);       }, [isToolsActive]);
 
   const { data: kamList = [] } = useQuery<Kam[]>({
     queryKey: ['/api/kam'],
@@ -528,6 +540,35 @@ export function LayoutShell({ children }: LayoutShellProps) {
                 return (
                   <Link key={sub.href} href={sub.href} className={subItemClass(subActive)}>
                     <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.color)} />
+                    {sub.label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── Tools submenu ── */
+    if (item.hasSubmenu === 'tools') {
+      const toolsTab = isToolsActive ? (new URLSearchParams(search).get('tab') ?? 'carrier') : null;
+      return (
+        <div key={item.href}>
+          <button onClick={() => setToolsExpanded(o => !o)} className={navItemClass(isToolsActive)}>
+            <item.icon className={navIconClass(isToolsActive)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
+              toolsExpanded ? "rotate-180" : "",
+              isToolsActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+          </button>
+          {toolsExpanded && (
+            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
+              {TOOLS_SUBITEMS.map(sub => {
+                const subActive = isToolsActive && toolsTab === sub.tab;
+                return (
+                  <Link key={sub.tab} href={`/tools?tab=${sub.tab}`} className={subItemClass(subActive)}>
+                    <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
                     {sub.label}
                   </Link>
                 );
