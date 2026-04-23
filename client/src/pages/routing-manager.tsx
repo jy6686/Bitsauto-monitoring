@@ -6,6 +6,7 @@ import {
   AlertCircle, Clock, Layers, Wifi, ChevronRight, Search, Filter,
   Loader2, GitBranch, BarChart3, Eye, Settings2, Construction,
   ArrowRight, Activity, Timer, AlertTriangle, Zap,
+  List, Grid3X3, ShieldAlert, XCircle, Shield,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -113,6 +114,51 @@ type QbrSummary = {
 };
 type QbrMeta = { hours: number; cdrsAnalyzed: number; updatedAt: string | null };
 type QbrData  = { vendors: QbrVendor[]; summary: QbrSummary; meta: QbrMeta };
+
+type DSRef = {
+  iDS:        number;
+  dsName:     string;
+  routeCount: number;
+  rgName:     string;
+  iRg:        number;
+  preference: number | null;
+};
+type ConnRef = {
+  iConnection: number;
+  connName:    string;
+  vendorName:  string;
+  preference:  number | null;
+  rgName:      string;
+};
+type CovConn = {
+  iConnection: number;
+  name:        string;
+  vendorName:  string | null;
+  host:        string | null;
+  protocol:    string | null;
+  blocked:     boolean;
+  coveredDSets: DSRef[];
+};
+type CovDS = {
+  iDS:                  number;
+  name:                 string;
+  routeCount:           number;
+  cldTranslation:       string | null;
+  connectedConnections: ConnRef[];
+};
+type CovGaps = {
+  unusedConnections:  CovConn[];
+  orphanDSets:        CovDS[];
+  singleCoveredDSets: CovDS[];
+};
+type CoverageMatrix = {
+  connections:     CovConn[];
+  destinationSets: CovDS[];
+  gaps:            CovGaps;
+  rgCount:         number;
+  failedRGs:       number;
+  buildTimeMs:     number;
+};
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -550,9 +596,342 @@ function DestinationSetsTab() {
   );
 }
 
+// ── Coverage Map View ──────────────────────────────────────────────────────────
+
+function CoverageMapView() {
+  const [openGap, setOpenGap] = useState<'unused' | 'orphan' | 'single' | null>(null);
+
+  const { data, isLoading, isFetching, refetch, error } = useQuery<CoverageMatrix>({
+    queryKey: ["/api/coverage/matrix"],
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
+  });
+
+  const g = data?.gaps;
+  const totalGaps = (g?.unusedConnections.length ?? 0) + (g?.orphanDSets.length ?? 0) + (g?.singleCoveredDSets.length ?? 0);
+
+  // Build matrix: rows = connections, cols = DS — O(C × DS)
+  const matrixConns = data?.connections.filter(c => !c.blocked) ?? [];
+  const matrixDSets = data?.destinationSets ?? [];
+
+  // For a cell: is conn X linked to DS Y?
+  const linked = (iConn: number, iDS: number) =>
+    data?.connections.find(c => c.iConnection === iConn)?.coveredDSets.some(d => d.iDS === iDS) ?? false;
+
+  if (isLoading) return (
+    <div className="flex flex-col items-center justify-center py-20 gap-2 text-muted-foreground">
+      <Loader2 className="h-5 w-5 animate-spin" />
+      <p className="text-sm">Building coverage map — fetching live routing group members…</p>
+      <p className="text-[10px]">This makes one API call per routing group. Please wait.</p>
+    </div>
+  );
+
+  if (error || !data) return (
+    <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+      <AlertCircle className="h-8 w-8 text-destructive/60" />
+      <p className="text-sm font-medium">Failed to build coverage map</p>
+      <Button size="sm" variant="outline" onClick={() => refetch()}>Retry</Button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{data.connections.length} connections</span>
+          <span>·</span>
+          <span>{data.destinationSets.length} destination sets</span>
+          <span>·</span>
+          <span>{data.rgCount} routing groups</span>
+          {data.failedRGs > 0 && (
+            <Badge variant="outline" className="text-[10px] text-amber-400 border-amber-500/30">
+              {data.failedRGs} RGs skipped
+            </Badge>
+          )}
+          <span className="text-muted-foreground/40">({data.buildTimeMs}ms)</span>
+        </div>
+        <Button
+          size="sm" variant="outline" className="h-7 gap-1.5 text-xs"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="btn-coverage-refresh"
+        >
+          <RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Gap Summary Cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <button
+          onClick={() => setOpenGap(openGap === 'unused' ? null : 'unused')}
+          data-testid="card-gap-unused"
+          className={cn(
+            "text-left p-4 rounded-xl border transition-colors space-y-1.5",
+            g!.unusedConnections.length > 0
+              ? "bg-red-500/10 border-red-500/30 hover:bg-red-500/15"
+              : "bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/15"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Unused Connections</span>
+            <ShieldAlert className={cn("h-3.5 w-3.5", g!.unusedConnections.length > 0 ? "text-red-400" : "text-emerald-400")} />
+          </div>
+          <p className={cn("text-2xl font-bold tabular-nums", g!.unusedConnections.length > 0 ? "text-red-400" : "text-emerald-400")}>
+            {g!.unusedConnections.length}
+          </p>
+          <p className="text-[10px] text-muted-foreground">connections not in any routing group</p>
+        </button>
+
+        <button
+          onClick={() => setOpenGap(openGap === 'orphan' ? null : 'orphan')}
+          data-testid="card-gap-orphan"
+          className={cn(
+            "text-left p-4 rounded-xl border transition-colors space-y-1.5",
+            g!.orphanDSets.length > 0
+              ? "bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/15"
+              : "bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/15"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Orphan Dest Sets</span>
+            <XCircle className={cn("h-3.5 w-3.5", g!.orphanDSets.length > 0 ? "text-amber-400" : "text-emerald-400")} />
+          </div>
+          <p className={cn("text-2xl font-bold tabular-nums", g!.orphanDSets.length > 0 ? "text-amber-400" : "text-emerald-400")}>
+            {g!.orphanDSets.length}
+          </p>
+          <p className="text-[10px] text-muted-foreground">destination sets with no connections</p>
+        </button>
+
+        <button
+          onClick={() => setOpenGap(openGap === 'single' ? null : 'single')}
+          data-testid="card-gap-single"
+          className={cn(
+            "text-left p-4 rounded-xl border transition-colors space-y-1.5",
+            g!.singleCoveredDSets.length > 0
+              ? "bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/15"
+              : "bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/15"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Redundancy Gaps</span>
+            <Shield className={cn("h-3.5 w-3.5", g!.singleCoveredDSets.length > 0 ? "text-blue-400" : "text-emerald-400")} />
+          </div>
+          <p className={cn("text-2xl font-bold tabular-nums", g!.singleCoveredDSets.length > 0 ? "text-blue-400" : "text-emerald-400")}>
+            {g!.singleCoveredDSets.length}
+          </p>
+          <p className="text-[10px] text-muted-foreground">dest sets with only 1 connection</p>
+        </button>
+      </div>
+
+      {/* Gap Detail Panel (collapsible) */}
+      {openGap === 'unused' && g!.unusedConnections.length > 0 && (
+        <div className="border border-red-500/30 rounded-xl overflow-hidden">
+          <div className="bg-red-500/10 px-4 py-2 flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 text-red-400" />
+            <span className="text-sm font-semibold text-red-400">Unused Connections</span>
+            <span className="text-xs text-muted-foreground ml-1">— not assigned to any routing group member</span>
+          </div>
+          <div className="divide-y divide-border/30">
+            {g!.unusedConnections.map(c => (
+              <div key={c.iConnection} className="flex items-center gap-3 px-4 py-2.5" data-testid={`gap-unused-${c.iConnection}`}>
+                <div className={cn("h-2 w-2 rounded-full shrink-0", c.blocked ? "bg-rose-500" : "bg-slate-500")} />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium">{c.name}</span>
+                  <span className="text-xs text-muted-foreground font-mono ml-1.5">#{c.iConnection}</span>
+                  {c.host && <span className="text-xs text-muted-foreground/60 font-mono ml-2">{c.host}</span>}
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0">{c.vendorName ?? '—'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {openGap === 'orphan' && g!.orphanDSets.length > 0 && (
+        <div className="border border-amber-500/30 rounded-xl overflow-hidden">
+          <div className="bg-amber-500/10 px-4 py-2 flex items-center gap-2">
+            <XCircle className="h-4 w-4 text-amber-400" />
+            <span className="text-sm font-semibold text-amber-400">Orphan Destination Sets</span>
+            <span className="text-xs text-muted-foreground ml-1">— no connection routes to these sets</span>
+          </div>
+          <div className="divide-y divide-border/30">
+            {g!.orphanDSets.map(ds => (
+              <div key={ds.iDS} className="flex items-center gap-3 px-4 py-2.5" data-testid={`gap-orphan-${ds.iDS}`}>
+                <Layers className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium">{ds.name}</span>
+                  <span className="text-xs text-muted-foreground font-mono ml-1.5">#{ds.iDS}</span>
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0">{ds.routeCount} routes</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {openGap === 'single' && g!.singleCoveredDSets.length > 0 && (
+        <div className="border border-blue-500/30 rounded-xl overflow-hidden">
+          <div className="bg-blue-500/10 px-4 py-2 flex items-center gap-2">
+            <Shield className="h-4 w-4 text-blue-400" />
+            <span className="text-sm font-semibold text-blue-400">Redundancy Gaps</span>
+            <span className="text-xs text-muted-foreground ml-1">— single connection creates SPOF risk</span>
+          </div>
+          <div className="divide-y divide-border/30">
+            {g!.singleCoveredDSets.map(ds => (
+              <div key={ds.iDS} className="flex items-center gap-3 px-4 py-2.5" data-testid={`gap-single-${ds.iDS}`}>
+                <Layers className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium">{ds.name}</span>
+                  <span className="text-xs text-muted-foreground font-mono ml-1.5">#{ds.iDS}</span>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs text-blue-400 font-medium">{ds.connectedConnections[0]?.connName}</p>
+                  <p className="text-[10px] text-muted-foreground">{ds.connectedConnections[0]?.vendorName}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* All-clear banner */}
+      {totalGaps === 0 && (
+        <div className="flex items-center gap-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-2.5 text-sm text-emerald-400">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span>No coverage gaps detected — all connections are assigned and all destination sets have redundant coverage.</span>
+        </div>
+      )}
+
+      {/* Coverage Matrix */}
+      {matrixConns.length > 0 && matrixDSets.length > 0 && (
+        <div className="border border-border/40 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 bg-muted/30 border-b border-border/30 flex items-center gap-2">
+            <Grid3X3 className="h-3.5 w-3.5 text-muted-foreground/60" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Connection × Destination Set Matrix
+            </span>
+            <span className="text-[10px] text-muted-foreground/50 ml-1">
+              ● = linked via routing group · blocked connections hidden
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse" data-testid="table-coverage-matrix">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 bg-muted/40 border-b border-r border-border/30 px-3 py-2 text-left text-[10px] font-semibold text-muted-foreground min-w-[180px]">
+                    Connection / Vendor
+                  </th>
+                  {matrixDSets.map(ds => (
+                    <th
+                      key={ds.iDS}
+                      className="border-b border-r border-border/20 px-2 py-2 text-center min-w-[80px] max-w-[100px]"
+                      title={`${ds.name} · ${ds.routeCount} routes`}
+                    >
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-[9px] font-semibold text-muted-foreground truncate max-w-[70px]" style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)', height: '60px' }}>
+                          {ds.name}
+                        </span>
+                        <span className="text-[8px] text-muted-foreground/50">{ds.routeCount}r</span>
+                      </div>
+                    </th>
+                  ))}
+                  <th className="border-b border-border/30 px-2 py-2 text-center text-[10px] font-semibold text-muted-foreground min-w-[60px]">
+                    Coverage
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {matrixConns.map((conn, rowIdx) => {
+                  const coverageCount = matrixDSets.filter(ds => linked(conn.iConnection, ds.iDS)).length;
+                  return (
+                    <tr
+                      key={conn.iConnection}
+                      className={cn("hover:bg-muted/20 transition-colors", rowIdx % 2 === 0 ? "bg-background" : "bg-muted/10")}
+                      data-testid={`matrix-row-${conn.iConnection}`}
+                    >
+                      <td className="sticky left-0 border-b border-r border-border/20 px-3 py-2 min-w-[180px]"
+                        style={{ background: 'var(--background)' }}>
+                        <div>
+                          <p className="font-medium truncate max-w-[160px]">{conn.name}</p>
+                          <p className="text-[10px] text-muted-foreground truncate max-w-[160px]">{conn.vendorName ?? '—'}</p>
+                        </div>
+                      </td>
+                      {matrixDSets.map(ds => {
+                        const isLinked = linked(conn.iConnection, ds.iDS);
+                        const ref = conn.coveredDSets.find(d => d.iDS === ds.iDS);
+                        return (
+                          <td
+                            key={ds.iDS}
+                            className="border-b border-r border-border/15 text-center py-2 px-1"
+                            title={isLinked ? `via ${ref?.rgName ?? 'RG'} · pref ${ref?.preference ?? '—'}` : 'Not linked'}
+                            data-testid={`matrix-cell-${conn.iConnection}-${ds.iDS}`}
+                          >
+                            {isLinked ? (
+                              <div className="flex items-center justify-center">
+                                <div className="h-3.5 w-3.5 rounded-full bg-emerald-500/80 flex items-center justify-center text-[8px] font-bold text-white" title={`Pref: ${ref?.preference ?? '—'}`}>
+                                  ✓
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="h-3.5 w-3.5 rounded-sm bg-muted/30 mx-auto" />
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="border-b border-border/20 text-center py-2 px-2">
+                        <span className={cn("text-xs font-bold tabular-nums",
+                          coverageCount === 0 ? "text-red-400"
+                          : coverageCount === matrixDSets.length ? "text-emerald-400" : "text-amber-400"
+                        )}>
+                          {coverageCount}/{matrixDSets.length}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Per-DS coverage summary row */}
+          <div className="border-t border-border/30 bg-muted/20 flex items-center gap-0 overflow-x-auto">
+            <div className="sticky left-0 bg-muted/40 px-3 py-1.5 text-[10px] font-semibold text-muted-foreground min-w-[180px] shrink-0">
+              Connections per DS
+            </div>
+            {matrixDSets.map(ds => {
+              const cnt = ds.connectedConnections.filter(c => {
+                const conn = data.connections.find(x => x.iConnection === c.iConnection);
+                return !conn?.blocked;
+              }).length;
+              return (
+                <div key={ds.iDS} className="min-w-[80px] text-center py-1.5 border-l border-border/20 text-[10px] font-bold tabular-nums"
+                  style={{ color: cnt === 0 ? '#f87171' : cnt === 1 ? '#fbbf24' : '#34d399' }}>
+                  {cnt}
+                </div>
+              );
+            })}
+            <div className="min-w-[60px]" />
+          </div>
+        </div>
+      )}
+
+      {/* No data */}
+      {data.connections.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+          <Network className="h-8 w-8 text-muted-foreground/30" />
+          <p className="text-sm text-muted-foreground">No connections in cache — run a routing cache sync first</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Connections Tab ────────────────────────────────────────────────────────────
 
 function ConnectionsTab() {
+  const [viewMode, setViewMode] = useState<'list' | 'coverage'>('list');
   const [search, setSearch] = useState("");
   const [showBlocked, setShowBlocked] = useState(true);
   const { data, isLoading } = useQuery<{ connections: Connection[] }>({
@@ -572,30 +951,69 @@ function ConnectionsTab() {
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search connections or vendors…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="pl-9 h-9"
-            data-testid="input-search-conn"
-          />
+      {/* Toolbar row */}
+      <div className="flex gap-2 items-center flex-wrap">
+        {/* View mode toggle */}
+        <div className="flex items-center gap-1 bg-muted/40 border border-border/40 rounded-lg p-1 shrink-0">
+          <button
+            onClick={() => setViewMode('list')}
+            data-testid="btn-view-list"
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors",
+              viewMode === 'list'
+                ? "bg-background text-foreground shadow-sm border border-border/60"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <List className="h-3.5 w-3.5" />
+            List
+          </button>
+          <button
+            onClick={() => setViewMode('coverage')}
+            data-testid="btn-view-coverage"
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors",
+              viewMode === 'coverage'
+                ? "bg-background text-foreground shadow-sm border border-border/60"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Grid3X3 className="h-3.5 w-3.5" />
+            Coverage Map
+          </button>
         </div>
-        <Button
-          size="sm"
-          variant={showBlocked ? "outline" : "default"}
-          onClick={() => setShowBlocked(o => !o)}
-          className="gap-1.5 h-9 text-xs shrink-0"
-          data-testid="btn-toggle-blocked"
-        >
-          <Filter className="h-3.5 w-3.5" />
-          {showBlocked ? "Hide Blocked" : "Show Blocked"}
-        </Button>
+
+        {viewMode === 'list' && (
+          <>
+            <div className="relative flex-1 min-w-[160px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search connections or vendors…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="pl-9 h-9"
+                data-testid="input-search-conn"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant={showBlocked ? "outline" : "default"}
+              onClick={() => setShowBlocked(o => !o)}
+              className="gap-1.5 h-9 text-xs shrink-0"
+              data-testid="btn-toggle-blocked"
+            >
+              <Filter className="h-3.5 w-3.5" />
+              {showBlocked ? "Hide Blocked" : "Show Blocked"}
+            </Button>
+          </>
+        )}
       </div>
 
-      {isLoading ? (
+      {/* Coverage Map view */}
+      {viewMode === 'coverage' && <CoverageMapView />}
+
+      {/* List view */}
+      {viewMode === 'list' && (isLoading ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm">Loading from local cache…</span>
@@ -645,7 +1063,7 @@ function ConnectionsTab() {
             </div>
           ))}
         </div>
-      )}
+      ))}
     </div>
   );
 }

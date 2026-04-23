@@ -144,7 +144,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/routing-manager?tab=destination-sets", label: "Destination Set Explorer",icon: Layers,        roles: ['admin','management'], status: 'live'     },
       { href: "/routing-manager?tab=qbr",              label: "QBR Dashboard",           icon: ShieldCheck,   roles: ['admin','management'] },
       { href: "/call-flow-simulator",                  label: "Routing Audit Trail",     icon: History,       roles: ['admin','management'], status: 'live'     },
-      { href: "/routing-manager?tab=connections",      label: "Connection Coverage Map", icon: Network,       roles: ['admin','management'], status: 'planned'  },
+      { href: "/routing-manager?tab=connections",      label: "Connection Coverage Map", icon: Network,       roles: ['admin','management'] },
       { href: "/rate-cards",                           label: "Bulk Rate / Route Upload",icon: Upload,        roles: ['admin','management'], status: 'planned'  },
       { href: "/routing-manager?tab=on-net",           label: "On-Net Routing Viewer",   icon: Wifi,          roles: ['admin','management'], status: 'planned'  },
       { href: "/routing-manager?tab=policy-sim",       label: "Routing Policy Simulator",icon: Calculator,    roles: ['admin','management'], status: 'planned'  },

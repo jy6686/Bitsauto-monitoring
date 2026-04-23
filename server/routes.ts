@@ -8367,6 +8367,122 @@ export async function registerRoutes(
     }
   );
 
+  // ── Connection Coverage Map ───────────────────────────────────────────────
+  // GET /api/coverage/matrix — Connection × Destination-Set coverage matrix
+  // Fetches live RG members from Sippy (parallel), cross-references cached
+  // connections and DS, and returns gap analysis (unused conns, orphan DS,
+  // redundancy gaps where a DS is served by only one connection).
+  app.get('/api/coverage/matrix',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const t0 = Date.now();
+        const settings = await storage.getSippySettings();
+        if (!settings) return res.status(503).json({ error: 'Sippy not configured' });
+        const { username, password } = sippyXmlCreds(settings);
+        const pUrl = sippyPortalUrl(settings);
+
+        // Load all cached data in parallel
+        const [cachedRGs, cachedDSets, cachedConns] = await Promise.all([
+          getCachedRoutingGroups(),
+          getCachedDestinationSets(),
+          getCachedConnections(),
+        ]);
+
+        // Fetch live members for every RG (parallel, best-effort)
+        type MemberLink = { iConnection: number; iDestinationSet: number | null; preference: number | null; weight: number | null; rgName: string; iRg: number };
+        const links: MemberLink[] = [];
+
+        const memberResults = await Promise.allSettled(
+          (cachedRGs as any[]).map(async (rg: any) => {
+            const result = await sippy.listRoutingGroupMembers(
+              username, password, rg.i_routing_group,
+              { portalUrl: pUrl }
+            );
+            for (const m of result.members ?? []) {
+              if (!m.iConnection) continue;
+              links.push({
+                iConnection:     m.iConnection,
+                iDestinationSet: m.iDestinationSet ?? null,
+                preference:      m.preference ?? null,
+                weight:          m.weight ?? null,
+                rgName:          rg.name ?? `RG#${rg.i_routing_group}`,
+                iRg:             rg.i_routing_group,
+              });
+            }
+          })
+        );
+
+        const failedRGs = memberResults.filter(r => r.status === 'rejected').length;
+
+        // Build lookup maps: iConnection → {iDS, rgName}[] and iDS → {iConnection, connName}[]
+        type DSRef  = { iDS: number; dsName: string; routeCount: number; rgName: string; iRg: number; preference: number | null };
+        type ConnRef = { iConnection: number; connName: string; vendorName: string; preference: number | null; rgName: string };
+
+        const connToDSets  = new Map<number, DSRef[]>();
+        const dSetToConns  = new Map<number, ConnRef[]>();
+
+        const connMap = new Map((cachedConns as any[]).map((c: any) => [c.i_connection, c]));
+        const dsMap   = new Map((cachedDSets as any[]).map((d: any) => [d.i_destination_set, d]));
+
+        for (const link of links) {
+          if (!link.iConnection || !link.iDestinationSet) continue;
+          const ds   = dsMap.get(link.iDestinationSet);
+          const conn = connMap.get(link.iConnection);
+          if (!ds || !conn) continue;
+
+          // conn → DS
+          if (!connToDSets.has(link.iConnection)) connToDSets.set(link.iConnection, []);
+          const existing = connToDSets.get(link.iConnection)!;
+          if (!existing.some(e => e.iDS === link.iDestinationSet && e.iRg === link.iRg)) {
+            existing.push({ iDS: link.iDestinationSet, dsName: ds.name, routeCount: ds.route_count ?? 0, rgName: link.rgName, iRg: link.iRg, preference: link.preference });
+          }
+
+          // DS → conn
+          if (!dSetToConns.has(link.iDestinationSet)) dSetToConns.set(link.iDestinationSet, []);
+          const existing2 = dSetToConns.get(link.iDestinationSet)!;
+          if (!existing2.some(e => e.iConnection === link.iConnection && e.rgName === link.rgName)) {
+            existing2.push({ iConnection: link.iConnection, connName: conn.name, vendorName: conn.vendor_name, preference: link.preference, rgName: link.rgName });
+          }
+        }
+
+        // Build enriched connection list
+        const connections = (cachedConns as any[]).map((c: any) => ({
+          iConnection: c.i_connection,
+          name:        c.name,
+          vendorName:  c.vendor_name ?? null,
+          host:        c.host ?? null,
+          protocol:    c.protocol ?? null,
+          blocked:     c.blocked ?? false,
+          coveredDSets: connToDSets.get(c.i_connection) ?? [],
+        }));
+
+        // Build enriched DS list
+        const destinationSets = (cachedDSets as any[]).map((d: any) => ({
+          iDS:                 d.i_destination_set,
+          name:                d.name,
+          routeCount:          d.route_count ?? 0,
+          cldTranslation:      d.cld_translation ?? null,
+          connectedConnections: dSetToConns.get(d.i_destination_set) ?? [],
+        }));
+
+        // Gaps
+        const unusedConnections     = connections.filter(c => c.coveredDSets.length === 0);
+        const orphanDSets           = destinationSets.filter(d => d.connectedConnections.length === 0);
+        const singleCoveredDSets    = destinationSets.filter(d => d.connectedConnections.length === 1);
+
+        res.json({
+          connections,
+          destinationSets,
+          gaps: { unusedConnections, orphanDSets, singleCoveredDSets },
+          rgCount:    cachedRGs.length,
+          failedRGs,
+          buildTimeMs: Date.now() - t0,
+        });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
   // ── QBR Dashboard ─────────────────────────────────────────────────────────
   // GET /api/qbr/metrics?hours=N — per-vendor quality metrics from CDR cache
   // Computes ASR, ACD, PDD and a composite QBR score per vendor/connection.
