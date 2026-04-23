@@ -43,6 +43,11 @@ type RoutingGroup = {
 type DestinationSet = {
   i_destination_set: number;
   name:              string;
+  currency:          string | null;
+  description:       string | null;
+  connect_fee:       number | null;
+  free_seconds:      number | null;
+  grace_period:      number | null;
   route_count:       number;
   cld_translation:   string | null;
   cli_translation:   string | null;
@@ -719,14 +724,278 @@ function CacheStatusBanner({ meta, onSync, syncing }: {
 
 // ── Routing Groups Tab ─────────────────────────────────────────────────────────
 
-const RG_POLICIES = [
-  { value: "preference",      label: "Route Preference" },
-  { value: "prefix,preference", label: "Prefix + Preference" },
-  { value: "least_cost",      label: "Least Cost (LCR)" },
-  { value: "weighted",        label: "Weighted Round Robin" },
-  { value: "prefix",          label: "Prefix Length" },
-  { value: "order",           label: "Entries Order" },
+const RG_POLICY_OPTIONS = [
+  { value: "order",      label: "Routing Entries Order" },
+  { value: "least_cost", label: "Least Cost" },
+  { value: "weighted",   label: "Weighted Distribution" },
+  { value: "prefix",     label: "Prefix Length" },
+  { value: "preference", label: "Route Preference" },
 ];
+
+const MEDIA_RELAY_OPTIONS = [
+  { value: "built-in",   label: "Built-in RTPproxy" },
+  { value: "direct",     label: "Direct" },
+  { value: "force",      label: "Force (via RTPproxy)" },
+  { value: "disabled",   label: "Disabled" },
+];
+
+const ON_NET_SCOPE_OPTIONS = [
+  { value: "all_accounts",    label: "All Accounts" },
+  { value: "same_customer",   label: "Same Customer" },
+  { value: "same_ip",         label: "Same IP" },
+];
+
+const REMOTE_MGMT_TYPES = [
+  { value: "disabled",  label: "Disabled" },
+  { value: "iex",       label: "IEX" },
+  { value: "megaco",    label: "Megaco/H.248" },
+];
+
+const DS_CURRENCIES_FULL = [
+  { value: "USD", label: "US Dollar (USD)" },
+  { value: "EUR", label: "Euro (EUR)" },
+  { value: "GBP", label: "Pound Sterling (GBP)" },
+  { value: "AED", label: "UAE Dirham (AED)" },
+  { value: "SAR", label: "Saudi Riyal (SAR)" },
+  { value: "PKR", label: "Pakistani Rupee (PKR)" },
+  { value: "INR", label: "Indian Rupee (INR)" },
+  { value: "BDT", label: "Bangladeshi Taka (BDT)" },
+  { value: "EGP", label: "Egyptian Pound (EGP)" },
+  { value: "TRY", label: "Turkish Lira (TRY)" },
+];
+
+type RgFormProps = {
+  rgName: string; setRgName: (v: string) => void;
+  rgDescription: string; setRgDescription: (v: string) => void;
+  rgMediaRelay: string; setRgMediaRelay: (v: string) => void;
+  rgTimeout2xx: string; setRgTimeout2xx: (v: string) => void;
+  rgLrnEnabled: boolean; setRgLrnEnabled: (v: boolean) => void;
+  rgLrnRule: string; setRgLrnRule: (v: string) => void;
+  rgActivePolicies: string[]; setRgActivePolicies: (v: string[]) => void;
+  rgSelAvail: string | null; setRgSelAvail: (v: string | null) => void;
+  rgSelActive: string | null; setRgSelActive: (v: string | null) => void;
+  rgOnNetConnection: string; setRgOnNetConnection: (v: string) => void;
+  rgVoicemailConn: string; setRgVoicemailConn: (v: string) => void;
+  rgOnNetScope: string; setRgOnNetScope: (v: string) => void;
+  rgReplyTimeout: string; setRgReplyTimeout: (v: string) => void;
+  rgTimeout1xx: string; setRgTimeout1xx: (v: string) => void;
+  rgOnNetTimeout2xx: string; setRgOnNetTimeout2xx: (v: string) => void;
+  idSuffix: string;
+};
+
+function RgForm({
+  rgName, setRgName, rgDescription, setRgDescription,
+  rgMediaRelay, setRgMediaRelay, rgTimeout2xx, setRgTimeout2xx,
+  rgLrnEnabled, setRgLrnEnabled, rgLrnRule, setRgLrnRule,
+  rgActivePolicies, setRgActivePolicies,
+  rgSelAvail, setRgSelAvail, rgSelActive, setRgSelActive,
+  rgOnNetConnection, setRgOnNetConnection, rgVoicemailConn, setRgVoicemailConn,
+  rgOnNetScope, setRgOnNetScope, rgReplyTimeout, setRgReplyTimeout,
+  rgTimeout1xx, setRgTimeout1xx, rgOnNetTimeout2xx, setRgOnNetTimeout2xx,
+  idSuffix,
+}: RgFormProps) {
+  const availablePolicies = RG_POLICY_OPTIONS.filter(p => !rgActivePolicies.includes(p.value));
+
+  const include = () => {
+    if (!rgSelAvail) return;
+    setRgActivePolicies([...rgActivePolicies, rgSelAvail]);
+    setRgSelAvail(null);
+  };
+  const remove = () => {
+    if (!rgSelActive) return;
+    setRgActivePolicies(rgActivePolicies.filter(p => p !== rgSelActive));
+    setRgSelActive(null);
+  };
+  const moveUp = () => {
+    if (!rgSelActive) return;
+    const idx = rgActivePolicies.indexOf(rgSelActive);
+    if (idx <= 0) return;
+    const next = [...rgActivePolicies];
+    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+    setRgActivePolicies(next);
+  };
+  const moveDown = () => {
+    if (!rgSelActive) return;
+    const idx = rgActivePolicies.indexOf(rgSelActive);
+    if (idx < 0 || idx >= rgActivePolicies.length - 1) return;
+    const next = [...rgActivePolicies];
+    [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+    setRgActivePolicies(next);
+  };
+
+  const SectionHeader = ({ label }: { label: string }) => (
+    <div className="flex items-center gap-2 py-1 mb-2 border-b border-border/40">
+      <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5 py-2">
+      {/* Basic Parameters */}
+      <div>
+        <SectionHeader label="Basic Parameters" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Group Name *</Label>
+            <Input value={rgName} onChange={e => setRgName(e.target.value)}
+              placeholder="e.g. Europe-LCR" data-testid={`input-rg-name-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Description</Label>
+            <Input value={rgDescription} onChange={e => setRgDescription(e.target.value)}
+              placeholder="e.g. Primary Europe routes" data-testid={`input-rg-desc-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+
+      {/* Advanced Parameters */}
+      <div>
+        <SectionHeader label="Advanced Parameters" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Media Relay</Label>
+            <Select value={rgMediaRelay} onValueChange={setRgMediaRelay}>
+              <SelectTrigger data-testid={`select-rg-media-relay-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {MEDIA_RELAY_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Final 2xx Timeout, sec</Label>
+            <Input type="number" value={rgTimeout2xx} onChange={e => setRgTimeout2xx(e.target.value)}
+              placeholder="300" data-testid={`input-rg-timeout2xx-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5 flex items-center gap-2 col-span-1">
+            <input type="checkbox" id={`chk-lrn-${idSuffix}`} checked={rgLrnEnabled}
+              onChange={e => setRgLrnEnabled(e.target.checked)}
+              className="h-4 w-4 accent-primary mt-5" data-testid={`chk-rg-lrn-${idSuffix}`} />
+            <label htmlFor={`chk-lrn-${idSuffix}`} className="text-sm font-medium cursor-pointer mt-5">Enable LRN</label>
+          </div>
+          <div className="space-y-1.5">
+            <Label>LRN Translation Rule</Label>
+            <Input value={rgLrnRule} onChange={e => setRgLrnRule(e.target.value)}
+              disabled={!rgLrnEnabled}
+              placeholder={rgLrnEnabled ? "e.g. s/^/1/" : "Enable LRN first"}
+              className="disabled:opacity-40"
+              data-testid={`input-rg-lrn-rule-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+
+      {/* Routing Policy dual-list */}
+      <div>
+        <SectionHeader label="Routing Policy" />
+        <div className="flex items-start gap-2">
+          {/* Available list */}
+          <div className="flex-1 space-y-1">
+            <p className="text-xs font-medium text-center text-muted-foreground">Available</p>
+            <div className="border border-border rounded-md bg-background min-h-[100px] overflow-y-auto">
+              {availablePolicies.map(p => (
+                <div
+                  key={p.value}
+                  onClick={() => { setRgSelAvail(p.value); setRgSelActive(null); }}
+                  className={cn("px-2 py-1.5 text-xs cursor-pointer select-none transition-colors",
+                    rgSelAvail === p.value ? "bg-primary text-primary-foreground" : "hover:bg-muted/50")}
+                >
+                  {p.label}
+                </div>
+              ))}
+              {availablePolicies.length === 0 && (
+                <p className="text-[10px] text-muted-foreground/40 text-center py-3 italic">all policies active</p>
+              )}
+            </div>
+          </div>
+          {/* Include/Remove buttons */}
+          <div className="flex flex-col gap-1.5 pt-7 shrink-0">
+            <Button size="sm" variant="outline" className="h-7 text-xs px-2 gap-1" onClick={include} disabled={!rgSelAvail}>
+              Include <span>→</span>
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs px-2 gap-1" onClick={remove} disabled={!rgSelActive}>
+              <span>←</span> Remove
+            </Button>
+          </div>
+          {/* Active list */}
+          <div className="flex-1 space-y-1">
+            <p className="text-xs font-medium text-center text-muted-foreground">Active</p>
+            <div className="border border-border rounded-md bg-background min-h-[100px] overflow-y-auto">
+              {rgActivePolicies.map(v => {
+                const label = RG_POLICY_OPTIONS.find(p => p.value === v)?.label ?? v;
+                return (
+                  <div
+                    key={v}
+                    onClick={() => { setRgSelActive(v); setRgSelAvail(null); }}
+                    className={cn("px-2 py-1.5 text-xs cursor-pointer select-none transition-colors",
+                      rgSelActive === v ? "bg-primary text-primary-foreground" : "hover:bg-muted/50")}
+                  >
+                    {label}
+                  </div>
+                );
+              })}
+              {rgActivePolicies.length === 0 && (
+                <p className="text-[10px] text-muted-foreground/40 text-center py-3 italic">none selected</p>
+              )}
+            </div>
+          </div>
+          {/* Up/Down buttons */}
+          <div className="flex flex-col gap-1.5 pt-7 shrink-0">
+            <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={moveUp} disabled={!rgSelActive}>Up</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={moveDown} disabled={!rgSelActive}>Down</Button>
+          </div>
+        </div>
+      </div>
+
+      {/* On-Net Routing */}
+      <div>
+        <SectionHeader label="On-Net Routing" />
+        <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-1.5">
+            <Label>Use Connection</Label>
+            <Select value={rgOnNetConnection || "_disabled"} onValueChange={v => setRgOnNetConnection(v === "_disabled" ? "" : v)}>
+              <SelectTrigger data-testid={`select-rg-onnet-conn-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_disabled">[ Disabled ]</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Voicemail Connection</Label>
+            <Select value={rgVoicemailConn || "_disabled"} onValueChange={v => setRgVoicemailConn(v === "_disabled" ? "" : v)}>
+              <SelectTrigger data-testid={`select-rg-vm-conn-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_disabled">[ Disabled ]</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>On-Net Scope</Label>
+            <Select value={rgOnNetScope} onValueChange={setRgOnNetScope}>
+              <SelectTrigger data-testid={`select-rg-onnet-scope-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {ON_NET_SCOPE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Reply Timeout, sec</Label>
+            <Input type="number" value={rgReplyTimeout} onChange={e => setRgReplyTimeout(e.target.value)}
+              placeholder="5" data-testid={`input-rg-reply-timeout-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>1xx Timeout, sec</Label>
+            <Input type="number" value={rgTimeout1xx} onChange={e => setRgTimeout1xx(e.target.value)}
+              placeholder="10" data-testid={`input-rg-timeout1xx-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>2xx Timeout, sec</Label>
+            <Input type="number" value={rgOnNetTimeout2xx} onChange={e => setRgOnNetTimeout2xx(e.target.value)}
+              placeholder="60" data-testid={`input-rg-onnet-timeout2xx-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function RoutingGroupsTab() {
   const { toast } = useToast();
@@ -736,12 +1005,25 @@ function RoutingGroupsTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<RoutingGroup | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RoutingGroup | null>(null);
+  // Basic
   const [rgName, setRgName] = useState("");
-  const [rgPolicy, setRgPolicy] = useState("preference");
   const [rgDescription, setRgDescription] = useState("");
+  // Advanced
+  const [rgMediaRelay, setRgMediaRelay] = useState("built-in");
   const [rgTimeout2xx, setRgTimeout2xx] = useState("300");
   const [rgLrnEnabled, setRgLrnEnabled] = useState(false);
   const [rgLrnRule, setRgLrnRule] = useState("");
+  // Routing Policy dual-list
+  const [rgActivePolicies, setRgActivePolicies] = useState<string[]>(["preference"]);
+  const [rgSelAvail, setRgSelAvail] = useState<string | null>(null);
+  const [rgSelActive, setRgSelActive] = useState<string | null>(null);
+  // On-Net Routing
+  const [rgOnNetConnection, setRgOnNetConnection] = useState("");
+  const [rgVoicemailConn, setRgVoicemailConn] = useState("");
+  const [rgOnNetScope, setRgOnNetScope] = useState("all_accounts");
+  const [rgReplyTimeout, setRgReplyTimeout] = useState("5");
+  const [rgTimeout1xx, setRgTimeout1xx] = useState("10");
+  const [rgOnNetTimeout2xx, setRgOnNetTimeout2xx] = useState("60");
 
   const { data, isLoading } = useQuery<{ groups: RoutingGroup[] }>({
     queryKey: ["/api/routing-cache/routing-groups"],
@@ -764,7 +1046,7 @@ function RoutingGroupsTab() {
       } else {
         toast({ title: "Routing group created" });
       }
-      setCreateOpen(false); setRgName(""); setRgPolicy("preference"); setRgDescription(""); setRgTimeout2xx("300"); setRgLrnEnabled(false); setRgLrnRule("");
+      setCreateOpen(false); resetRgForm();
       setTimeout(invalidate, 1000);
     },
     onError: (e: any) => toast({ title: "Error creating group", description: e.message, variant: "destructive" }),
@@ -798,14 +1080,29 @@ function RoutingGroupsTab() {
     onError: (e: any) => toast({ title: "Error deleting group", description: e.message, variant: "destructive" }),
   });
 
+  const resetRgForm = () => {
+    setRgName(""); setRgDescription("");
+    setRgMediaRelay("built-in"); setRgTimeout2xx("300");
+    setRgLrnEnabled(false); setRgLrnRule("");
+    setRgActivePolicies(["preference"]);
+    setRgSelAvail(null); setRgSelActive(null);
+    setRgOnNetConnection(""); setRgVoicemailConn(""); setRgOnNetScope("all_accounts");
+    setRgReplyTimeout("5"); setRgTimeout1xx("10"); setRgOnNetTimeout2xx("60");
+  };
+
   const openEdit = (rg: RoutingGroup) => {
     setEditTarget(rg);
     setRgName(rg.name);
-    setRgPolicy(rg.policy ?? "preference");
     setRgDescription("");
+    setRgMediaRelay(rg.media_relay ?? "built-in");
     setRgTimeout2xx("300");
     setRgLrnEnabled(false);
     setRgLrnRule("");
+    const parsed = (rg.policy ?? "preference").split(",").map(s => s.trim()).filter(Boolean);
+    setRgActivePolicies(parsed.length ? parsed : ["preference"]);
+    setRgSelAvail(null); setRgSelActive(null);
+    setRgOnNetConnection(""); setRgVoicemailConn(""); setRgOnNetScope("all_accounts");
+    setRgReplyTimeout("5"); setRgTimeout1xx("10"); setRgOnNetTimeout2xx("60");
   };
 
   return (
@@ -821,7 +1118,7 @@ function RoutingGroupsTab() {
             data-testid="input-search-rg"
           />
         </div>
-        <Button size="sm" className="gap-1.5 h-9 shrink-0" onClick={() => { setRgName(""); setRgPolicy("preference"); setRgDescription(""); setRgTimeout2xx("300"); setRgLrnEnabled(false); setRgLrnRule(""); setCreateOpen(true); }}
+        <Button size="sm" className="gap-1.5 h-9 shrink-0" onClick={() => { resetRgForm(); setCreateOpen(true); }}
           data-testid="btn-create-rg">
           <Plus className="h-4 w-4" /> New Group
         </Button>
@@ -917,57 +1214,64 @@ function RoutingGroupsTab() {
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Create Routing Group</DialogTitle>
-            <DialogDescription>Add a new routing group to your Sippy switch.</DialogDescription>
+            <DialogTitle>Add New Routing Group</DialogTitle>
+            <DialogDescription>Create a routing group on your Sippy softswitch.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Name *</Label>
-              <Input value={rgName} onChange={e => setRgName(e.target.value)} placeholder="e.g. Europe-LCR" data-testid="input-rg-name" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input value={rgDescription} onChange={e => setRgDescription(e.target.value)} placeholder="e.g. Primary Europe routes" data-testid="input-rg-description" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Routing Policy *</Label>
-              <Select value={rgPolicy} onValueChange={setRgPolicy}>
-                <SelectTrigger data-testid="select-rg-policy"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {RG_POLICIES.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Final 2xx Timeout (sec)</Label>
-              <Input type="number" value={rgTimeout2xx} onChange={e => setRgTimeout2xx(e.target.value)} placeholder="300" data-testid="input-rg-timeout2xx" />
-            </div>
-            <div className="flex items-center gap-3">
-              <input type="checkbox" id="chk-lrn-create" checked={rgLrnEnabled}
-                onChange={e => setRgLrnEnabled(e.target.checked)}
-                className="h-4 w-4 accent-primary" data-testid="chk-rg-lrn" />
-              <label htmlFor="chk-lrn-create" className="text-sm font-medium cursor-pointer">Enable LRN</label>
-            </div>
-            {rgLrnEnabled && (
-              <div className="space-y-1.5">
-                <Label>LRN Translation Rule</Label>
-                <Input value={rgLrnRule} onChange={e => setRgLrnRule(e.target.value)} placeholder="e.g. s/^/1/" data-testid="input-rg-lrn-rule" />
-              </div>
-            )}
-          </div>
+          <RgForm
+            rgName={rgName} setRgName={setRgName}
+            rgDescription={rgDescription} setRgDescription={setRgDescription}
+            rgMediaRelay={rgMediaRelay} setRgMediaRelay={setRgMediaRelay}
+            rgTimeout2xx={rgTimeout2xx} setRgTimeout2xx={setRgTimeout2xx}
+            rgLrnEnabled={rgLrnEnabled} setRgLrnEnabled={setRgLrnEnabled}
+            rgLrnRule={rgLrnRule} setRgLrnRule={setRgLrnRule}
+            rgActivePolicies={rgActivePolicies} setRgActivePolicies={setRgActivePolicies}
+            rgSelAvail={rgSelAvail} setRgSelAvail={setRgSelAvail}
+            rgSelActive={rgSelActive} setRgSelActive={setRgSelActive}
+            rgOnNetConnection={rgOnNetConnection} setRgOnNetConnection={setRgOnNetConnection}
+            rgVoicemailConn={rgVoicemailConn} setRgVoicemailConn={setRgVoicemailConn}
+            rgOnNetScope={rgOnNetScope} setRgOnNetScope={setRgOnNetScope}
+            rgReplyTimeout={rgReplyTimeout} setRgReplyTimeout={setRgReplyTimeout}
+            rgTimeout1xx={rgTimeout1xx} setRgTimeout1xx={setRgTimeout1xx}
+            rgOnNetTimeout2xx={rgOnNetTimeout2xx} setRgOnNetTimeout2xx={setRgOnNetTimeout2xx}
+            idSuffix="create"
+          />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={() => createMut.mutate({
-                name: rgName, policy: rgPolicy,
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Discard & Close</Button>
+            <Button variant="outline" onClick={() => createMut.mutate({
+                name: rgName, policy: rgActivePolicies.join(","),
                 ...(rgDescription ? { description: rgDescription } : {}),
+                media_relay: rgMediaRelay,
                 ...(rgTimeout2xx ? { timeout_2xx: parseInt(rgTimeout2xx) } : {}),
                 ...(rgLrnEnabled ? { lrn_enabled: 1 } : {}),
                 ...(rgLrnEnabled && rgLrnRule ? { lrn_translation_rule: rgLrnRule } : {}),
+                ...(rgOnNetConnection ? { on_net_connection: parseInt(rgOnNetConnection) } : {}),
+                ...(rgVoicemailConn ? { voicemail_connection: parseInt(rgVoicemailConn) } : {}),
+                on_net_scope: rgOnNetScope,
+                ...(rgReplyTimeout ? { reply_timeout: parseInt(rgReplyTimeout) } : {}),
+                ...(rgTimeout1xx ? { timeout_1xx: parseInt(rgTimeout1xx) } : {}),
+                ...(rgOnNetTimeout2xx ? { on_net_timeout_2xx: parseInt(rgOnNetTimeout2xx) } : {}),
+              })}
+              disabled={!rgName || createMut.isPending} data-testid="btn-confirm-save-rg">
+              {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+            </Button>
+            <Button onClick={() => createMut.mutate({
+                name: rgName, policy: rgActivePolicies.join(","),
+                ...(rgDescription ? { description: rgDescription } : {}),
+                media_relay: rgMediaRelay,
+                ...(rgTimeout2xx ? { timeout_2xx: parseInt(rgTimeout2xx) } : {}),
+                ...(rgLrnEnabled ? { lrn_enabled: 1 } : {}),
+                ...(rgLrnEnabled && rgLrnRule ? { lrn_translation_rule: rgLrnRule } : {}),
+                ...(rgOnNetConnection ? { on_net_connection: parseInt(rgOnNetConnection) } : {}),
+                ...(rgVoicemailConn ? { voicemail_connection: parseInt(rgVoicemailConn) } : {}),
+                on_net_scope: rgOnNetScope,
+                ...(rgReplyTimeout ? { reply_timeout: parseInt(rgReplyTimeout) } : {}),
+                ...(rgTimeout1xx ? { timeout_1xx: parseInt(rgTimeout1xx) } : {}),
+                ...(rgOnNetTimeout2xx ? { on_net_timeout_2xx: parseInt(rgOnNetTimeout2xx) } : {}),
               })}
               disabled={!rgName || createMut.isPending} data-testid="btn-confirm-create-rg">
-              {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
+              {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save & Close"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -975,54 +1279,44 @@ function RoutingGroupsTab() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Routing Group</DialogTitle>
-            <DialogDescription>Update the name or policy of this routing group.</DialogDescription>
+            <DialogDescription>Update parameters for <strong>{editTarget?.name}</strong>.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Name *</Label>
-              <Input value={rgName} onChange={e => setRgName(e.target.value)} data-testid="input-rg-name-edit" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input value={rgDescription} onChange={e => setRgDescription(e.target.value)} placeholder="e.g. Primary Europe routes" data-testid="input-rg-description-edit" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Routing Policy *</Label>
-              <Select value={rgPolicy} onValueChange={setRgPolicy}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {RG_POLICIES.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Final 2xx Timeout (sec)</Label>
-              <Input type="number" value={rgTimeout2xx} onChange={e => setRgTimeout2xx(e.target.value)} placeholder="300" data-testid="input-rg-timeout2xx-edit" />
-            </div>
-            <div className="flex items-center gap-3">
-              <input type="checkbox" id="chk-lrn-edit" checked={rgLrnEnabled}
-                onChange={e => setRgLrnEnabled(e.target.checked)}
-                className="h-4 w-4 accent-primary" data-testid="chk-rg-lrn-edit" />
-              <label htmlFor="chk-lrn-edit" className="text-sm font-medium cursor-pointer">Enable LRN</label>
-            </div>
-            {rgLrnEnabled && (
-              <div className="space-y-1.5">
-                <Label>LRN Translation Rule</Label>
-                <Input value={rgLrnRule} onChange={e => setRgLrnRule(e.target.value)} placeholder="e.g. s/^/1/" data-testid="input-rg-lrn-rule-edit" />
-              </div>
-            )}
-          </div>
+          <RgForm
+            rgName={rgName} setRgName={setRgName}
+            rgDescription={rgDescription} setRgDescription={setRgDescription}
+            rgMediaRelay={rgMediaRelay} setRgMediaRelay={setRgMediaRelay}
+            rgTimeout2xx={rgTimeout2xx} setRgTimeout2xx={setRgTimeout2xx}
+            rgLrnEnabled={rgLrnEnabled} setRgLrnEnabled={setRgLrnEnabled}
+            rgLrnRule={rgLrnRule} setRgLrnRule={setRgLrnRule}
+            rgActivePolicies={rgActivePolicies} setRgActivePolicies={setRgActivePolicies}
+            rgSelAvail={rgSelAvail} setRgSelAvail={setRgSelAvail}
+            rgSelActive={rgSelActive} setRgSelActive={setRgSelActive}
+            rgOnNetConnection={rgOnNetConnection} setRgOnNetConnection={setRgOnNetConnection}
+            rgVoicemailConn={rgVoicemailConn} setRgVoicemailConn={setRgVoicemailConn}
+            rgOnNetScope={rgOnNetScope} setRgOnNetScope={setRgOnNetScope}
+            rgReplyTimeout={rgReplyTimeout} setRgReplyTimeout={setRgReplyTimeout}
+            rgTimeout1xx={rgTimeout1xx} setRgTimeout1xx={setRgTimeout1xx}
+            rgOnNetTimeout2xx={rgOnNetTimeout2xx} setRgOnNetTimeout2xx={setRgOnNetTimeout2xx}
+            idSuffix="edit"
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
             <Button onClick={() => editTarget && updateMut.mutate({ id: editTarget.i_routing_group, body: {
-                name: rgName, policy: rgPolicy,
+                name: rgName, policy: rgActivePolicies.join(","),
                 ...(rgDescription ? { description: rgDescription } : {}),
+                media_relay: rgMediaRelay,
                 ...(rgTimeout2xx ? { timeout_2xx: parseInt(rgTimeout2xx) } : {}),
                 lrn_enabled: rgLrnEnabled ? 1 : 0,
                 ...(rgLrnEnabled && rgLrnRule ? { lrn_translation_rule: rgLrnRule } : {}),
+                ...(rgOnNetConnection ? { on_net_connection: parseInt(rgOnNetConnection) } : {}),
+                ...(rgVoicemailConn ? { voicemail_connection: parseInt(rgVoicemailConn) } : {}),
+                on_net_scope: rgOnNetScope,
+                ...(rgReplyTimeout ? { reply_timeout: parseInt(rgReplyTimeout) } : {}),
+                ...(rgTimeout1xx ? { timeout_1xx: parseInt(rgTimeout1xx) } : {}),
+                ...(rgOnNetTimeout2xx ? { on_net_timeout_2xx: parseInt(rgOnNetTimeout2xx) } : {}),
               }})}
               disabled={!rgName || updateMut.isPending} data-testid="btn-confirm-edit-rg">
               {updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
@@ -1058,6 +1352,144 @@ function RoutingGroupsTab() {
 
 const DS_CURRENCIES = ["USD", "EUR", "GBP", "AED", "SAR", "PKR", "INR", "BDT", "EGP", "TRY"];
 
+type DsFormProps = {
+  dsName: string; setDsName: (v: string) => void;
+  dsDescription: string; setDsDescription: (v: string) => void;
+  dsCurrency: string; setDsCurrency: (v: string) => void;
+  dsConnectFee: string; setDsConnectFee: (v: string) => void;
+  dsFreeSeconds: string; setDsFreeSeconds: (v: string) => void;
+  dsPostCallSurcharge: string; setDsPostCallSurcharge: (v: string) => void;
+  dsGracePeriod: string; setDsGracePeriod: (v: string) => void;
+  dsCldTrans: string; setDsCldTrans: (v: string) => void;
+  dsCliTrans: string; setDsCliTrans: (v: string) => void;
+  dsLocalCallingEnabled: boolean; setDsLocalCallingEnabled: (v: boolean) => void;
+  dsCliValidationRule: string; setDsCliValidationRule: (v: string) => void;
+  dsRemoteMgmtType: string; setDsRemoteMgmtType: (v: string) => void;
+  dsRemoteMgmtKey: string; setDsRemoteMgmtKey: (v: string) => void;
+  idSuffix: string;
+};
+
+function DsForm({
+  dsName, setDsName, dsDescription, setDsDescription,
+  dsCurrency, setDsCurrency, dsConnectFee, setDsConnectFee,
+  dsFreeSeconds, setDsFreeSeconds, dsPostCallSurcharge, setDsPostCallSurcharge,
+  dsGracePeriod, setDsGracePeriod, dsCldTrans, setDsCldTrans,
+  dsCliTrans, setDsCliTrans, dsLocalCallingEnabled, setDsLocalCallingEnabled,
+  dsCliValidationRule, setDsCliValidationRule, dsRemoteMgmtType, setDsRemoteMgmtType,
+  dsRemoteMgmtKey, setDsRemoteMgmtKey, idSuffix,
+}: DsFormProps) {
+  const SectionHeader = ({ label }: { label: string }) => (
+    <div className="flex items-center gap-2 py-1 mb-2 border-b border-border/40">
+      <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5 py-2">
+      {/* Basic Parameters */}
+      <div>
+        <SectionHeader label="Basic Parameters" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Name *</Label>
+            <Input value={dsName} onChange={e => setDsName(e.target.value)}
+              placeholder="e.g. UK-Mobile" data-testid={`input-ds-name-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Currency *</Label>
+            <Select value={dsCurrency} onValueChange={setDsCurrency}>
+              <SelectTrigger data-testid={`select-ds-currency-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {DS_CURRENCIES_FULL.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Connect Fee</Label>
+            <Input type="number" step="0.0001" value={dsConnectFee} onChange={e => setDsConnectFee(e.target.value)}
+              placeholder="0.0000" data-testid={`input-ds-connect-fee-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Free Seconds</Label>
+            <Input type="number" value={dsFreeSeconds} onChange={e => setDsFreeSeconds(e.target.value)}
+              placeholder="0" data-testid={`input-ds-free-seconds-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Post Call Surcharge %</Label>
+            <Input type="number" step="0.01" value={dsPostCallSurcharge} onChange={e => setDsPostCallSurcharge(e.target.value)}
+              placeholder="0.00" data-testid={`input-ds-surcharge-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Grace Period, sec</Label>
+            <Input type="number" value={dsGracePeriod} onChange={e => setDsGracePeriod(e.target.value)}
+              placeholder="0" data-testid={`input-ds-grace-period-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>CLD Translation Rule</Label>
+            <Input value={dsCldTrans} onChange={e => setDsCldTrans(e.target.value)}
+              placeholder="e.g. s/^0/44/" data-testid={`input-ds-cld-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Description</Label>
+            <Input value={dsDescription} onChange={e => setDsDescription(e.target.value)}
+              placeholder="e.g. UK mobile prefixes" data-testid={`input-ds-description-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+
+      {/* Local Calling */}
+      <div>
+        <SectionHeader label="Local Calling" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id={`chk-lc-${idSuffix}`} checked={dsLocalCallingEnabled}
+              onChange={e => setDsLocalCallingEnabled(e.target.checked)}
+              className="h-4 w-4 accent-primary" data-testid={`chk-ds-local-calling-${idSuffix}`} />
+            <label htmlFor={`chk-lc-${idSuffix}`} className="text-sm font-medium cursor-pointer">Enabled</label>
+          </div>
+          <div className="space-y-1.5">
+            <Label>CLI Validation Rule</Label>
+            <Input value={dsCliValidationRule} onChange={e => setDsCliValidationRule(e.target.value)}
+              disabled={!dsLocalCallingEnabled}
+              placeholder={dsLocalCallingEnabled ? "e.g. ^44[0-9]{9}$" : "Enable local calling first"}
+              className="disabled:opacity-40"
+              data-testid={`input-ds-cli-validation-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+
+      {/* Remote Management */}
+      <div>
+        <SectionHeader label="Remote Management" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <Select value={dsRemoteMgmtType} onValueChange={setDsRemoteMgmtType}>
+              <SelectTrigger data-testid={`select-ds-remote-mgmt-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {REMOTE_MGMT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Key</Label>
+            <Input value={dsRemoteMgmtKey} onChange={e => setDsRemoteMgmtKey(e.target.value)}
+              disabled={dsRemoteMgmtType === "disabled"}
+              placeholder={dsRemoteMgmtType === "disabled" ? "N/A" : "Remote management key"}
+              className="disabled:opacity-40"
+              data-testid={`input-ds-remote-key-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>CLI Translation Rule</Label>
+            <Input value={dsCliTrans} onChange={e => setDsCliTrans(e.target.value)}
+              placeholder="e.g. s/^0/44/" data-testid={`input-ds-cli-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DestinationSetsTab() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -1075,6 +1507,11 @@ function DestinationSetsTab() {
   const [dsConnectFee, setDsConnectFee] = useState("");
   const [dsFreeSeconds, setDsFreeSeconds] = useState("");
   const [dsGracePeriod, setDsGracePeriod] = useState("");
+  const [dsPostCallSurcharge, setDsPostCallSurcharge] = useState("");
+  const [dsLocalCallingEnabled, setDsLocalCallingEnabled] = useState(false);
+  const [dsCliValidationRule, setDsCliValidationRule] = useState("");
+  const [dsRemoteMgmtType, setDsRemoteMgmtType] = useState("disabled");
+  const [dsRemoteMgmtKey, setDsRemoteMgmtKey] = useState("");
 
   const { data, isLoading } = useQuery<{ sets: DestinationSet[] }>({
     queryKey: ["/api/routing-cache/destination-sets"],
@@ -1101,7 +1538,7 @@ function DestinationSetsTab() {
       } else {
         toast({ title: "Destination set created" });
       }
-      setCreateOpen(false); setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans(""); setDsDescription(""); setDsConnectFee(""); setDsFreeSeconds(""); setDsGracePeriod("");
+      setCreateOpen(false); setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans(""); setDsDescription(""); setDsConnectFee(""); setDsFreeSeconds(""); setDsGracePeriod(""); setDsPostCallSurcharge(""); setDsLocalCallingEnabled(false); setDsCliValidationRule(""); setDsRemoteMgmtType("disabled"); setDsRemoteMgmtKey("");
       setTimeout(invalidate, 1000);
     },
     onError: (e: any) => toast({ title: "Error creating destination set", description: e.message, variant: "destructive" }),
@@ -1135,16 +1572,26 @@ function DestinationSetsTab() {
     onError: (e: any) => toast({ title: "Error deleting destination set", description: e.message, variant: "destructive" }),
   });
 
+  const resetDsForm = () => {
+    setDsName(""); setDsCurrency("USD");
+    setDsCldTrans(""); setDsCliTrans(""); setDsDescription("");
+    setDsConnectFee(""); setDsFreeSeconds(""); setDsGracePeriod("");
+    setDsPostCallSurcharge(""); setDsLocalCallingEnabled(false);
+    setDsCliValidationRule(""); setDsRemoteMgmtType("disabled"); setDsRemoteMgmtKey("");
+  };
+
   const openEdit = (ds: DestinationSet) => {
     setEditTarget(ds);
     setDsName(ds.name);
-    setDsCurrency("USD");
+    setDsCurrency(ds.currency ?? "USD");
     setDsCldTrans(ds.cld_translation ?? "");
     setDsCliTrans(ds.cli_translation ?? "");
-    setDsDescription("");
-    setDsConnectFee("");
-    setDsFreeSeconds("");
-    setDsGracePeriod("");
+    setDsDescription(ds.description ?? "");
+    setDsConnectFee(ds.connect_fee != null ? String(ds.connect_fee) : "");
+    setDsFreeSeconds(ds.free_seconds != null ? String(ds.free_seconds) : "");
+    setDsGracePeriod(ds.grace_period != null ? String(ds.grace_period) : "");
+    setDsPostCallSurcharge(""); setDsLocalCallingEnabled(false);
+    setDsCliValidationRule(""); setDsRemoteMgmtType("disabled"); setDsRemoteMgmtKey("");
   };
 
   return (
@@ -1161,7 +1608,7 @@ function DestinationSetsTab() {
           />
         </div>
         <Button size="sm" className="gap-1.5 h-9 shrink-0"
-          onClick={() => { setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans(""); setDsDescription(""); setDsConnectFee(""); setDsFreeSeconds(""); setDsGracePeriod(""); setCreateOpen(true); }}
+          onClick={() => { resetDsForm(); setCreateOpen(true); }}
           data-testid="btn-create-ds">
           <Plus className="h-4 w-4" /> New Dest Set
         </Button>
@@ -1261,62 +1708,42 @@ function DestinationSetsTab() {
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Create Destination Set</DialogTitle>
-            <DialogDescription>Add a new destination set (prefix/route group) to Sippy.</DialogDescription>
+            <DialogTitle>Add New Destination Set</DialogTitle>
+            <DialogDescription>Create a destination set (prefix/rate group) on Sippy.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Name *</Label>
-              <Input value={dsName} onChange={e => setDsName(e.target.value)} placeholder="e.g. UK-Mobile" data-testid="input-ds-name" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input value={dsDescription} onChange={e => setDsDescription(e.target.value)} placeholder="e.g. UK mobile prefixes" data-testid="input-ds-description" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Currency *</Label>
-              <Select value={dsCurrency} onValueChange={setDsCurrency}>
-                <SelectTrigger data-testid="select-ds-currency"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {DS_CURRENCIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label>Connect Fee</Label>
-                <Input type="number" step="0.0001" value={dsConnectFee} onChange={e => setDsConnectFee(e.target.value)} placeholder="0.0000" data-testid="input-ds-connect-fee" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Free Seconds</Label>
-                <Input type="number" value={dsFreeSeconds} onChange={e => setDsFreeSeconds(e.target.value)} placeholder="0" data-testid="input-ds-free-seconds" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Grace Period (sec)</Label>
-                <Input type="number" value={dsGracePeriod} onChange={e => setDsGracePeriod(e.target.value)} placeholder="0" data-testid="input-ds-grace-period" />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>CLD Translation Rule <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input value={dsCldTrans} onChange={e => setDsCldTrans(e.target.value)} placeholder="e.g. s/^0/44/" data-testid="input-ds-cld" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>CLI Translation Rule <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input value={dsCliTrans} onChange={e => setDsCliTrans(e.target.value)} placeholder="e.g. s/^0/44/" data-testid="input-ds-cli" />
-            </div>
-          </div>
+          <DsForm
+            dsName={dsName} setDsName={setDsName}
+            dsDescription={dsDescription} setDsDescription={setDsDescription}
+            dsCurrency={dsCurrency} setDsCurrency={setDsCurrency}
+            dsConnectFee={dsConnectFee} setDsConnectFee={setDsConnectFee}
+            dsFreeSeconds={dsFreeSeconds} setDsFreeSeconds={setDsFreeSeconds}
+            dsPostCallSurcharge={dsPostCallSurcharge} setDsPostCallSurcharge={setDsPostCallSurcharge}
+            dsGracePeriod={dsGracePeriod} setDsGracePeriod={setDsGracePeriod}
+            dsCldTrans={dsCldTrans} setDsCldTrans={setDsCldTrans}
+            dsCliTrans={dsCliTrans} setDsCliTrans={setDsCliTrans}
+            dsLocalCallingEnabled={dsLocalCallingEnabled} setDsLocalCallingEnabled={setDsLocalCallingEnabled}
+            dsCliValidationRule={dsCliValidationRule} setDsCliValidationRule={setDsCliValidationRule}
+            dsRemoteMgmtType={dsRemoteMgmtType} setDsRemoteMgmtType={setDsRemoteMgmtType}
+            dsRemoteMgmtKey={dsRemoteMgmtKey} setDsRemoteMgmtKey={setDsRemoteMgmtKey}
+            idSuffix="create"
+          />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Discard & Close</Button>
             <Button onClick={() => createMut.mutate({
                 name: dsName, currency: dsCurrency,
                 ...(dsDescription ? { description: dsDescription } : {}),
                 ...(dsConnectFee ? { connect_fee: parseFloat(dsConnectFee) } : {}),
                 ...(dsFreeSeconds ? { free_seconds: parseInt(dsFreeSeconds) } : {}),
+                ...(dsPostCallSurcharge ? { post_call_surcharge: parseFloat(dsPostCallSurcharge) } : {}),
                 ...(dsGracePeriod ? { grace_period: parseInt(dsGracePeriod) } : {}),
                 ...(dsCldTrans ? { cld_translation: dsCldTrans } : {}),
                 ...(dsCliTrans ? { cli_translation: dsCliTrans } : {}),
+                local_calling_enabled: dsLocalCallingEnabled ? 1 : 0,
+                ...(dsLocalCallingEnabled && dsCliValidationRule ? { cli_validation_rule: dsCliValidationRule } : {}),
+                remote_mgmt_type: dsRemoteMgmtType,
+                ...(dsRemoteMgmtType !== "disabled" && dsRemoteMgmtKey ? { remote_mgmt_key: dsRemoteMgmtKey } : {}),
               })}
               disabled={!dsName || !dsCurrency || createMut.isPending} data-testid="btn-confirm-create-ds">
               {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
@@ -1327,55 +1754,44 @@ function DestinationSetsTab() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Destination Set</DialogTitle>
-            <DialogDescription>Update the name or translation rules for this destination set.</DialogDescription>
+            <DialogDescription>Update parameters for <strong>{editTarget?.name}</strong>.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Name *</Label>
-              <Input value={dsName} onChange={e => setDsName(e.target.value)} data-testid="input-ds-name-edit" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input value={dsDescription} onChange={e => setDsDescription(e.target.value)} placeholder="e.g. UK mobile prefixes" data-testid="input-ds-description-edit" />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label>Connect Fee</Label>
-                <Input type="number" step="0.0001" value={dsConnectFee} onChange={e => setDsConnectFee(e.target.value)} placeholder="0.0000" data-testid="input-ds-connect-fee-edit" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Free Seconds</Label>
-                <Input type="number" value={dsFreeSeconds} onChange={e => setDsFreeSeconds(e.target.value)} placeholder="0" data-testid="input-ds-free-seconds-edit" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Grace Period (sec)</Label>
-                <Input type="number" value={dsGracePeriod} onChange={e => setDsGracePeriod(e.target.value)} placeholder="0" data-testid="input-ds-grace-period-edit" />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>CLD Translation Rule <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input value={dsCldTrans} onChange={e => setDsCldTrans(e.target.value)} placeholder="e.g. s/^0/44/" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>CLI Translation Rule <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input value={dsCliTrans} onChange={e => setDsCliTrans(e.target.value)} placeholder="e.g. s/^0/44/" />
-            </div>
-          </div>
+          <DsForm
+            dsName={dsName} setDsName={setDsName}
+            dsDescription={dsDescription} setDsDescription={setDsDescription}
+            dsCurrency={dsCurrency} setDsCurrency={setDsCurrency}
+            dsConnectFee={dsConnectFee} setDsConnectFee={setDsConnectFee}
+            dsFreeSeconds={dsFreeSeconds} setDsFreeSeconds={setDsFreeSeconds}
+            dsPostCallSurcharge={dsPostCallSurcharge} setDsPostCallSurcharge={setDsPostCallSurcharge}
+            dsGracePeriod={dsGracePeriod} setDsGracePeriod={setDsGracePeriod}
+            dsCldTrans={dsCldTrans} setDsCldTrans={setDsCldTrans}
+            dsCliTrans={dsCliTrans} setDsCliTrans={setDsCliTrans}
+            dsLocalCallingEnabled={dsLocalCallingEnabled} setDsLocalCallingEnabled={setDsLocalCallingEnabled}
+            dsCliValidationRule={dsCliValidationRule} setDsCliValidationRule={setDsCliValidationRule}
+            dsRemoteMgmtType={dsRemoteMgmtType} setDsRemoteMgmtType={setDsRemoteMgmtType}
+            dsRemoteMgmtKey={dsRemoteMgmtKey} setDsRemoteMgmtKey={setDsRemoteMgmtKey}
+            idSuffix="edit"
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
             <Button onClick={() => editTarget && updateMut.mutate({
                 id: editTarget.i_destination_set,
                 body: {
-                  name: dsName,
+                  name: dsName, currency: dsCurrency,
                   ...(dsDescription ? { description: dsDescription } : {}),
                   ...(dsConnectFee ? { connect_fee: parseFloat(dsConnectFee) } : {}),
                   ...(dsFreeSeconds ? { free_seconds: parseInt(dsFreeSeconds) } : {}),
+                  ...(dsPostCallSurcharge ? { post_call_surcharge: parseFloat(dsPostCallSurcharge) } : {}),
                   ...(dsGracePeriod ? { grace_period: parseInt(dsGracePeriod) } : {}),
                   ...(dsCldTrans ? { cld_translation: dsCldTrans } : {}),
                   ...(dsCliTrans ? { cli_translation: dsCliTrans } : {}),
+                  local_calling_enabled: dsLocalCallingEnabled ? 1 : 0,
+                  ...(dsLocalCallingEnabled && dsCliValidationRule ? { cli_validation_rule: dsCliValidationRule } : {}),
+                  remote_mgmt_type: dsRemoteMgmtType,
+                  ...(dsRemoteMgmtType !== "disabled" && dsRemoteMgmtKey ? { remote_mgmt_key: dsRemoteMgmtKey } : {}),
                 }
               })}
               disabled={!dsName || updateMut.isPending} data-testid="btn-confirm-edit-ds">
