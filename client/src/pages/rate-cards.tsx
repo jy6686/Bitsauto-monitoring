@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
@@ -7,7 +7,8 @@ import {
   ChevronDown, ChevronRight, PenLine, Download, Send,
   CheckCircle, XCircle, AlertTriangle, Loader2, ShieldCheck,
   Building2, Wallet, Database, MapPin, ScanSearch, Globe,
-  Search, ArrowUpDown, Ban, Package,
+  Search, ArrowUpDown, Ban, Package, CloudUpload, FilePlus2,
+  FileX2, TrendingDown, TrendingUp, Minus,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -427,14 +428,21 @@ export default function RateCardsPage() {
   const [selectedSippyTariff, setSelectedSippyTariff] = useState<SippyTariff | null>(null);
   const [nameManual, setNameManual]                   = useState(false);
 
-  const [uploadCardId, setUploadCardId] = useState<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const [diffCardId, setDiffCardId]     = useState<number | null>(null);
   const [diffFile, setDiffFile]         = useState<File | null>(null);
   const [diffData, setDiffData]         = useState<{ added: number; removed: number; changed: number; unchanged: number; changes: any } | null>(null);
   const [diffLoading, setDiffLoading]   = useState(false);
   const diffInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Bulk import dialog state ──────────────────────────────────────────────
+  type DiffResult = { added: number; removed: number; changed: number; unchanged: number; changes: { added: any[]; removed: any[]; changed: any[] } };
+  const [importCard, setImportCard]     = useState<RateCard | null>(null);
+  const [importFile, setImportFile]     = useState<File | null>(null);
+  const [importStep, setImportStep]     = useState<'drop' | 'diffing' | 'preview'>('drop');
+  const [importDiff, setImportDiff]     = useState<DiffResult | null>(null);
+  const [importDragOver, setImportDragOver] = useState(false);
+  const [importDetailTab, setImportDetailTab] = useState<'changed' | 'added' | 'removed'>('changed');
+  const importBrowseRef = useRef<HTMLInputElement>(null);
 
   const [pushCard, setPushCard]         = useState<RateCard | null>(null);
   const [pushTariffId, setPushTariffId] = useState('');
@@ -549,12 +557,6 @@ export default function RateCardsPage() {
 
   const visibleCards = activeType ? cards.filter(c => (c.cardType ?? 'vendor') === activeType) : cards;
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file && uploadCardId !== null) uploadMutation.mutate({ id: uploadCardId, file });
-    e.target.value = '';
-  }
-
   async function handleDiffPreview(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || diffCardId === null) return;
@@ -597,6 +599,100 @@ export default function RateCardsPage() {
       setDiffData(null);
       setDiffCardId(null);
       setDiffFile(null);
+    }
+  }
+
+  // ── Bulk import dialog helpers ────────────────────────────────────────────
+  function resetImportDialog() {
+    setImportCard(null);
+    setImportFile(null);
+    setImportStep('drop');
+    setImportDiff(null);
+    setImportDragOver(false);
+    setImportDetailTab('changed');
+  }
+
+  async function runImportDiff(file: File, cardId: number) {
+    setImportFile(file);
+    setImportStep('diffing');
+    setImportDiff(null);
+    try {
+      const isExcel = /\.(xlsx|xls)$/i.test(file.name) || file.type.includes('spreadsheet') || file.type.includes('excel');
+      let entries: Array<{ prefix: string; ratePerMin: number; country?: string; breakout?: string; originPrefix?: string }> = [];
+
+      if (isExcel) {
+        const buf = await file.arrayBuffer();
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(buf, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const jsonRows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        if (jsonRows.length > 1) {
+          const rawHdr = (jsonRows[0] as any[]).map((h: any) => String(h).toLowerCase().trim());
+          const pIdx = rawHdr.findIndex(h => h.includes('prefix') || h === 'code' || h === 'dial_code');
+          const rIdx = rawHdr.findIndex(h => h.includes('rate') || h.includes('price') || h.includes('cost') || h === 'sell_rate');
+          const cIdx = rawHdr.findIndex(h => h.includes('country') || h.includes('destination') || h === 'name');
+          const bIdx = rawHdr.findIndex(h => h.includes('breakout') || h.includes('description') || h.includes('desc'));
+          if (pIdx !== -1 && rIdx !== -1) {
+            for (let i = 1; i < jsonRows.length; i++) {
+              const row = jsonRows[i] as any[];
+              const prefix = String(row[pIdx] ?? '').replace(/\D/g, '');
+              const rate = parseFloat(String(row[rIdx] ?? '').replace(/[^0-9.]/g, ''));
+              if (!prefix || isNaN(rate)) continue;
+              entries.push({ prefix, ratePerMin: rate, country: cIdx >= 0 ? String(row[cIdx] ?? '') || undefined : undefined, breakout: bIdx >= 0 ? String(row[bIdx] ?? '') || undefined : undefined });
+            }
+          }
+        }
+      } else {
+        const text = await file.text();
+        const lines = text.split('\n').filter(l => l.trim() && !l.startsWith('#'));
+        const headerLine = lines[0]?.toLowerCase() ?? '';
+        const hasHeader = /prefix|destination|country|rate/.test(headerLine);
+        for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
+          const cols = lines[i].split(/[,\t;]/).map(c => c.trim().replace(/^["']|["']$/g, ''));
+          if (cols.length < 2) continue;
+          const prefix = cols[0].replace(/\D/g, '');
+          const rate = parseFloat(cols[1]);
+          if (!prefix || isNaN(rate)) continue;
+          entries.push({ prefix, ratePerMin: rate, country: cols[2] || undefined, breakout: cols[3] || undefined, originPrefix: cols[4] || undefined });
+        }
+      }
+
+      if (entries.length === 0) throw new Error('No valid rows found. Expected columns: prefix, rate (and optionally country, breakout).');
+
+      const res = await fetch(`/api/rate-cards/${cardId}/diff`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries }),
+      });
+      if (!res.ok) throw new Error('Diff comparison failed');
+      const data = await res.json();
+      setImportDiff(data);
+      setImportStep('preview');
+      const preferTab = data.changes?.changed?.length > 0 ? 'changed' : data.changes?.added?.length > 0 ? 'added' : 'removed';
+      setImportDetailTab(preferTab as any);
+    } catch (err: any) {
+      toast({ title: 'Preview failed', description: err.message, variant: 'destructive' });
+      setImportStep('drop');
+      setImportFile(null);
+    }
+  }
+
+  const handleImportDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setImportDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file && importCard) runImportDiff(file, importCard.id);
+  }, [importCard]);
+
+  const handleImportBrowse = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file && importCard) runImportDiff(file, importCard.id);
+  }, [importCard]);
+
+  function confirmImport() {
+    if (importFile && importCard) {
+      uploadMutation.mutate({ id: importCard.id, file: importFile });
+      resetImportDialog();
     }
   }
 
@@ -796,80 +892,240 @@ export default function RateCardsPage() {
             </div>
           </div>
 
-          {/* Hidden file inputs */}
-          <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFileChange} data-testid="file-upload-input" />
-          <input ref={diffInputRef} type="file" accept=".csv" className="hidden" onChange={handleDiffPreview} data-testid="diff-preview-input" />
+          {/* Hidden browse input for bulk import dialog */}
+          <input ref={importBrowseRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleImportBrowse} data-testid="file-upload-input" />
 
-          {/* Rate Card Diff Preview Modal */}
-          {(diffData || diffLoading) && (
-            <Dialog open onOpenChange={() => { setDiffData(null); setDiffCardId(null); setDiffFile(null); }}>
-              <DialogContent className="max-w-lg">
-                <DialogHeader><DialogTitle className="flex items-center gap-2"><ScanSearch className="h-4 w-4 text-cyan-400" />Rate Sheet Change Preview</DialogTitle></DialogHeader>
-                {diffLoading && <div className="flex items-center justify-center py-8 text-muted-foreground"><RefreshCw className="h-5 w-5 animate-spin mr-2" />Analysing changes…</div>}
-                {diffData && (
-                  <div className="space-y-4 py-2">
-                    <div className="grid grid-cols-4 gap-3">
-                      <div className="rounded-lg p-3 bg-emerald-500/10 border border-emerald-500/20 text-center">
-                        <p className="text-xs text-muted-foreground">New</p>
-                        <p className="text-2xl font-bold text-emerald-400" data-testid="text-diff-added">{diffData.added}</p>
-                      </div>
-                      <div className="rounded-lg p-3 bg-amber-500/10 border border-amber-500/20 text-center">
-                        <p className="text-xs text-muted-foreground">Changed</p>
-                        <p className="text-2xl font-bold text-amber-400" data-testid="text-diff-changed">{diffData.changed}</p>
-                      </div>
-                      <div className="rounded-lg p-3 bg-rose-500/10 border border-rose-500/20 text-center">
-                        <p className="text-xs text-muted-foreground">Removed</p>
-                        <p className="text-2xl font-bold text-rose-400" data-testid="text-diff-removed">{diffData.removed}</p>
-                      </div>
-                      <div className="rounded-lg p-3 bg-muted/10 border border-border/50 text-center">
-                        <p className="text-xs text-muted-foreground">Same</p>
-                        <p className="text-2xl font-bold text-muted-foreground" data-testid="text-diff-same">{diffData.unchanged}</p>
-                      </div>
+          {/* ── Bulk Import Dialog ───────────────────────────────────────────── */}
+          <Dialog open={!!importCard} onOpenChange={o => { if (!o) resetImportDialog(); }}>
+            <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <CloudUpload className="h-4 w-4 text-blue-400" />
+                  Import Rate Sheet
+                  {importCard && <span className="text-muted-foreground font-normal text-sm ml-1">— {importCard.vendorName} · {importCard.name}</span>}
+                </DialogTitle>
+              </DialogHeader>
+
+              {/* Step: drop zone */}
+              {importStep === 'drop' && (
+                <div
+                  className={`relative flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed p-12 text-center transition-colors cursor-pointer ${importDragOver ? 'border-blue-400 bg-blue-500/10' : 'border-border hover:border-blue-400/60 hover:bg-muted/30'}`}
+                  onDragOver={e => { e.preventDefault(); setImportDragOver(true); }}
+                  onDragLeave={() => setImportDragOver(false)}
+                  onDrop={handleImportDrop}
+                  onClick={() => importBrowseRef.current?.click()}
+                  data-testid="dropzone-import"
+                >
+                  <CloudUpload className={`h-12 w-12 transition-colors ${importDragOver ? 'text-blue-400' : 'text-muted-foreground/50'}`} />
+                  <div>
+                    <p className="text-base font-medium">{importDragOver ? 'Release to preview…' : 'Drag & drop your rate sheet here'}</p>
+                    <p className="text-sm text-muted-foreground mt-1">or <span className="text-blue-400 underline underline-offset-2">click to browse</span></p>
+                    <p className="text-xs text-muted-foreground mt-3 font-mono">Accepts .csv · .xlsx · .xls</p>
+                    <p className="text-xs text-muted-foreground mt-1 font-mono">Expected columns: prefix, rate [, country, breakout]</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 w-full mt-2 max-w-xs text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5 bg-muted/30 rounded-lg px-2 py-1.5"><FilePlus2 className="h-3 w-3 text-emerald-400" />New prefixes</div>
+                    <div className="flex items-center gap-1.5 bg-muted/30 rounded-lg px-2 py-1.5"><TrendingDown className="h-3 w-3 text-amber-400" />Rate changes</div>
+                    <div className="flex items-center gap-1.5 bg-muted/30 rounded-lg px-2 py-1.5"><FileX2 className="h-3 w-3 text-rose-400" />Removals</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Step: diffing (loading) */}
+              {importStep === 'diffing' && (
+                <div className="flex flex-col items-center justify-center py-16 gap-4 text-muted-foreground">
+                  <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
+                  <div className="text-center">
+                    <p className="font-medium">Analysing changes…</p>
+                    <p className="text-sm mt-1 text-muted-foreground/70">{importFile?.name}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Step: diff preview */}
+              {importStep === 'preview' && importDiff && (
+                <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+                  {/* File info bar */}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/20 rounded-lg px-3 py-2">
+                    <FileText className="h-3.5 w-3.5" />
+                    <span className="font-medium text-foreground">{importFile?.name}</span>
+                    <span className="ml-auto">{((importFile?.size ?? 0) / 1024).toFixed(1)} KB</span>
+                    <button
+                      className="text-blue-400 hover:text-blue-300 ml-2 underline underline-offset-2"
+                      onClick={() => { setImportStep('drop'); setImportFile(null); setImportDiff(null); }}
+                      data-testid="button-replace-file"
+                    >Replace file</button>
+                  </div>
+
+                  {/* KPI cards */}
+                  <div className="grid grid-cols-4 gap-2 shrink-0">
+                    <button
+                      className={`rounded-xl p-3 text-center border transition-colors ${importDetailTab === 'added' ? 'border-emerald-500 bg-emerald-500/15' : 'border-emerald-500/20 bg-emerald-500/8 hover:border-emerald-500/50'}`}
+                      onClick={() => setImportDetailTab('added')}
+                      data-testid="text-diff-added"
+                    >
+                      <FilePlus2 className="h-4 w-4 text-emerald-400 mx-auto mb-1" />
+                      <p className="text-2xl font-bold text-emerald-400">{importDiff.added}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">New</p>
+                    </button>
+                    <button
+                      className={`rounded-xl p-3 text-center border transition-colors ${importDetailTab === 'changed' ? 'border-amber-500 bg-amber-500/15' : 'border-amber-500/20 bg-amber-500/8 hover:border-amber-500/50'}`}
+                      onClick={() => setImportDetailTab('changed')}
+                      data-testid="text-diff-changed"
+                    >
+                      <TrendingDown className="h-4 w-4 text-amber-400 mx-auto mb-1" />
+                      <p className="text-2xl font-bold text-amber-400">{importDiff.changed}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Changed</p>
+                    </button>
+                    <button
+                      className={`rounded-xl p-3 text-center border transition-colors ${importDetailTab === 'removed' ? 'border-rose-500 bg-rose-500/15' : 'border-rose-500/20 bg-rose-500/8 hover:border-rose-500/50'}`}
+                      onClick={() => setImportDetailTab('removed')}
+                      data-testid="text-diff-removed"
+                    >
+                      <FileX2 className="h-4 w-4 text-rose-400 mx-auto mb-1" />
+                      <p className="text-2xl font-bold text-rose-400">{importDiff.removed}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Removed</p>
+                    </button>
+                    <div className="rounded-xl p-3 text-center border border-border/40 bg-muted/10">
+                      <Minus className="h-4 w-4 text-muted-foreground mx-auto mb-1" />
+                      <p className="text-2xl font-bold text-muted-foreground" data-testid="text-diff-same">{importDiff.unchanged}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Unchanged</p>
                     </div>
-                    {diffData.changes?.changed?.slice(0, 10).length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Rate Changes (first 10)</p>
-                        <div className="rounded-lg border border-border/50 overflow-hidden">
+                  </div>
+
+                  {/* All-clear banner */}
+                  {importDiff.added === 0 && importDiff.changed === 0 && importDiff.removed === 0 && (
+                    <div className="flex items-center gap-2 text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3">
+                      <CheckCircle className="h-4 w-4 shrink-0" />
+                      No changes detected — this file is identical to the current rate sheet.
+                    </div>
+                  )}
+
+                  {/* Detail tab content */}
+                  {(importDiff.added > 0 || importDiff.changed > 0 || importDiff.removed > 0) && (
+                    <div className="flex flex-col min-h-0 flex-1 rounded-xl border border-border/50 overflow-hidden">
+                      {/* Tab bar */}
+                      <div className="flex border-b border-border/50 bg-muted/20 shrink-0">
+                        {importDiff.changed > 0 && (
+                          <button className={`px-4 py-2.5 text-xs font-medium flex items-center gap-1.5 border-b-2 transition-colors ${importDetailTab === 'changed' ? 'border-amber-400 text-amber-400' : 'border-transparent text-muted-foreground hover:text-foreground'}`} onClick={() => setImportDetailTab('changed')} data-testid="tab-changed">
+                            <TrendingDown className="h-3 w-3" />Changed ({importDiff.changed})
+                          </button>
+                        )}
+                        {importDiff.added > 0 && (
+                          <button className={`px-4 py-2.5 text-xs font-medium flex items-center gap-1.5 border-b-2 transition-colors ${importDetailTab === 'added' ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-muted-foreground hover:text-foreground'}`} onClick={() => setImportDetailTab('added')} data-testid="tab-added">
+                            <FilePlus2 className="h-3 w-3" />New ({importDiff.added})
+                          </button>
+                        )}
+                        {importDiff.removed > 0 && (
+                          <button className={`px-4 py-2.5 text-xs font-medium flex items-center gap-1.5 border-b-2 transition-colors ${importDetailTab === 'removed' ? 'border-rose-400 text-rose-400' : 'border-transparent text-muted-foreground hover:text-foreground'}`} onClick={() => setImportDetailTab('removed')} data-testid="tab-removed">
+                            <FileX2 className="h-3 w-3" />Removed ({importDiff.removed})
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Table body */}
+                      <div className="overflow-y-auto flex-1" style={{ maxHeight: 240 }}>
+                        {importDetailTab === 'changed' && importDiff.changes.changed.length > 0 && (
                           <table className="w-full text-xs">
-                            <thead className="bg-muted/10 border-b border-border/30">
-                              <tr>
-                                <th className="px-3 py-2 text-left text-muted-foreground">Prefix</th>
-                                <th className="px-3 py-2 text-right text-muted-foreground">Old Rate</th>
-                                <th className="px-3 py-2 text-right text-muted-foreground">New Rate</th>
-                                <th className="px-3 py-2 text-right text-muted-foreground">Δ</th>
+                            <thead className="sticky top-0 bg-background/95 backdrop-blur-sm">
+                              <tr className="text-muted-foreground border-b border-border/30">
+                                <th className="px-3 py-2 text-left font-medium">Prefix</th>
+                                <th className="px-3 py-2 text-left font-medium">Country</th>
+                                <th className="px-3 py-2 text-right font-medium">Old Rate</th>
+                                <th className="px-3 py-2 text-right font-medium">New Rate</th>
+                                <th className="px-3 py-2 text-right font-medium">Δ</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-border/20">
-                              {diffData.changes.changed.slice(0, 10).map((c: any, i: number) => {
+                              {importDiff.changes.changed.slice(0, 500).map((c: any, i: number) => {
                                 const delta = c.newRate - c.oldRate;
+                                const pct = c.oldRate > 0 ? ((delta / c.oldRate) * 100) : 0;
                                 return (
-                                  <tr key={i}>
-                                    <td className="px-3 py-1.5 font-mono">+{c.prefix}</td>
-                                    <td className="px-3 py-1.5 text-right font-mono">{c.oldRate.toFixed(6)}</td>
-                                    <td className="px-3 py-1.5 text-right font-mono">{c.newRate.toFixed(6)}</td>
-                                    <td className={`px-3 py-1.5 text-right font-mono font-semibold ${delta > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                                      {delta > 0 ? '+' : ''}{delta.toFixed(6)}
+                                  <tr key={i} className="hover:bg-muted/20">
+                                    <td className="px-3 py-1.5 font-mono text-foreground">+{c.prefix}</td>
+                                    <td className="px-3 py-1.5 text-muted-foreground truncate max-w-[100px]">{c.country || '—'}</td>
+                                    <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">{c.oldRate.toFixed(6)}</td>
+                                    <td className="px-3 py-1.5 text-right font-mono font-medium">{c.newRate.toFixed(6)}</td>
+                                    <td className={`px-3 py-1.5 text-right font-mono font-semibold flex items-center justify-end gap-1 ${delta > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                      {delta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                                      {delta > 0 ? '+' : ''}{pct.toFixed(1)}%
                                     </td>
                                   </tr>
                                 );
                               })}
                             </tbody>
                           </table>
-                        </div>
+                        )}
+                        {importDetailTab === 'added' && importDiff.changes.added.length > 0 && (
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-background/95 backdrop-blur-sm">
+                              <tr className="text-muted-foreground border-b border-border/30">
+                                <th className="px-3 py-2 text-left font-medium">Prefix</th>
+                                <th className="px-3 py-2 text-left font-medium">Country</th>
+                                <th className="px-3 py-2 text-left font-medium">Breakout</th>
+                                <th className="px-3 py-2 text-right font-medium">Rate/min</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/20">
+                              {importDiff.changes.added.slice(0, 500).map((r: any, i: number) => (
+                                <tr key={i} className="hover:bg-muted/20">
+                                  <td className="px-3 py-1.5 font-mono text-emerald-400">+{r.prefix}</td>
+                                  <td className="px-3 py-1.5 text-muted-foreground">{r.country || '—'}</td>
+                                  <td className="px-3 py-1.5 text-muted-foreground">{r.breakout || '—'}</td>
+                                  <td className="px-3 py-1.5 text-right font-mono">{r.ratePerMin.toFixed(6)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                        {importDetailTab === 'removed' && importDiff.changes.removed.length > 0 && (
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-background/95 backdrop-blur-sm">
+                              <tr className="text-muted-foreground border-b border-border/30">
+                                <th className="px-3 py-2 text-left font-medium">Prefix</th>
+                                <th className="px-3 py-2 text-left font-medium">Country</th>
+                                <th className="px-3 py-2 text-left font-medium">Breakout</th>
+                                <th className="px-3 py-2 text-right font-medium">Rate/min</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/20">
+                              {importDiff.changes.removed.slice(0, 500).map((r: any, i: number) => (
+                                <tr key={i} className="hover:bg-muted/20">
+                                  <td className="px-3 py-1.5 font-mono text-rose-400">−{r.prefix}</td>
+                                  <td className="px-3 py-1.5 text-muted-foreground">{r.country || '—'}</td>
+                                  <td className="px-3 py-1.5 text-muted-foreground">{r.breakout || '—'}</td>
+                                  <td className="px-3 py-1.5 text-right font-mono">{r.ratePerMin.toFixed(6)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                        {importDetailTab === 'changed' && importDiff.changes.changed.length > 500 && (
+                          <p className="text-center text-xs text-muted-foreground py-2">Showing first 500 of {importDiff.changes.changed.length} changes</p>
+                        )}
+                        {importDetailTab === 'added' && importDiff.changes.added.length > 500 && (
+                          <p className="text-center text-xs text-muted-foreground py-2">Showing first 500 of {importDiff.changes.added.length} new rows</p>
+                        )}
+                        {importDetailTab === 'removed' && importDiff.changes.removed.length > 500 && (
+                          <p className="text-center text-xs text-muted-foreground py-2">Showing first 500 of {importDiff.changes.removed.length} removed rows</p>
+                        )}
                       </div>
-                    )}
-                    <div className="flex justify-end gap-2 pt-2">
-                      <Button variant="outline" size="sm" onClick={() => { setDiffData(null); setDiffCardId(null); setDiffFile(null); }}>Cancel</Button>
-                      <Button size="sm" onClick={confirmDiffUpload} disabled={uploadMutation.isPending} data-testid="button-confirm-import">
-                        {uploadMutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
-                        Import Rate Sheet
-                      </Button>
                     </div>
+                  )}
+
+                  {/* Action bar */}
+                  <div className="flex justify-end gap-2 pt-1 shrink-0">
+                    <Button variant="outline" size="sm" onClick={resetImportDialog} data-testid="button-cancel-import">Cancel</Button>
+                    <Button size="sm" onClick={confirmImport} disabled={uploadMutation.isPending} data-testid="button-confirm-import" className="bg-blue-600 hover:bg-blue-500 text-white">
+                      {uploadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
+                      Confirm Import
+                      {importDiff.added + importDiff.changed > 0 && <span className="ml-2 bg-white/20 rounded px-1.5 text-xs">{importDiff.added + importDiff.changed} changes</span>}
+                    </Button>
                   </div>
-                )}
-              </DialogContent>
-            </Dialog>
-          )}
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
 
           {/* Cards list */}
           {cardsLoading ? (
@@ -901,16 +1157,10 @@ export default function RateCardsPage() {
                         <Badge variant="outline" className="text-xs">{card.currency}</Badge>
                         <Badge variant="outline" className="text-xs capitalize">{card.cardType}</Badge>
                         <span className="text-xs text-muted-foreground">{card.entryCount} rates</span>
-                        <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs"
-                          onClick={() => { setUploadCardId(card.id); fileInputRef.current?.click(); }}
+                        <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-blue-400 hover:text-blue-300"
+                          onClick={() => { setImportCard(card); setImportStep('drop'); }}
                           data-testid={`button-upload-${card.id}`}>
-                          <Upload className="h-3 w-3" />Upload
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-cyan-400"
-                          onClick={() => { setDiffCardId(card.id); diffInputRef.current?.click(); }}
-                          data-testid={`button-preview-${card.id}`}
-                          title="Preview what will change before importing">
-                          <ScanSearch className="h-3 w-3" />Preview
+                          <CloudUpload className="h-3 w-3" />Import
                         </Button>
                         <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs"
                           onClick={() => { setPushCard(card); setPushTariffId(''); setJobId(null); setJobData(null); }}
