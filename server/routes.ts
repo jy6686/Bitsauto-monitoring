@@ -8355,27 +8355,26 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // POST /api/sippy/routing-groups — addRoutingGroup() [approval gated]
+  // POST /api/sippy/routing-groups — addRoutingGroup() [direct — no approval]
   app.post('/api/sippy/routing-groups', async (req: any, res) => {
     try {
       const userId = req.user?.claims?.sub;
       if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
-      const roleRecord = await storage.getUserRoleRecord(userId);
-      const role = (roleRecord?.role ?? 'viewer') as Role;
-      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
-      const { name, policy, ...rest } = req.body ?? {};
-      if (!name)            return res.status(400).json({ success: false, error: 'name is required.' });
-      if (policy === undefined) return res.status(400).json({ success: false, error: 'policy is required.' });
-      const ar = await submitApprovalRequest({
-        operationType: 'routing_group.create',
-        action: 'create',
-        entityName: name,
-        payloadAfter: { name, policy, ...rest },
-        requestedBy: userId,
-        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
-        teamId: roleRecord?.teamId,
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { name, policy, description, timeout_2xx, lrn_enabled, lrn_translation_rule } = req.body ?? {};
+      if (!name)   return res.status(400).json({ success: false, error: 'name is required.' });
+      if (!policy && policy !== 0) return res.status(400).json({ success: false, error: 'policy is required.' });
+      const result = await sippy.addRoutingGroup(username, password, name, policy, {
+        description:        description         || undefined,
+        timeout2xx:         timeout_2xx         ? parseInt(timeout_2xx, 10) : undefined,
+        lrnEnabled:         !!lrn_enabled,
+        lrnTranslationRule: lrn_translation_rule || undefined,
+        portalUrl:          sippyPortalUrl(settings),
       });
-      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Routing group creation submitted for approval.' });
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json({ success: true, iRoutingGroup: result.iRoutingGroup });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
@@ -8749,35 +8748,37 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // POST /api/sippy/routing-groups/:id/members — addRoutingGroupMember() [approval gated]
+  // POST /api/sippy/routing-groups/:id/members — addRoutingGroupMember() [direct — no approval]
   app.post('/api/sippy/routing-groups/:id/members', async (req: any, res) => {
     try {
       const iRoutingGroup = parseInt(req.params.id, 10);
       if (isNaN(iRoutingGroup)) return res.status(400).json({ success: false, error: 'Invalid routing group ID.' });
       const userId = req.user?.claims?.sub;
       if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
-      const roleRecord = await storage.getUserRoleRecord(userId);
-      const role = (roleRecord?.role ?? 'viewer') as Role;
-      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
-      const { iDestinationSet, preference, iConnection, iConnectionGroup, ...rest } = req.body ?? {};
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
+      const { username, password } = sippyXmlCreds(settings);
+      const { iDestinationSet, preference, iConnection, iConnectionGroup, weight, activationDate, expirationDate } = req.body ?? {};
       if (!iDestinationSet) return res.status(400).json({ success: false, error: 'iDestinationSet is required.' });
       if (preference === undefined) return res.status(400).json({ success: false, error: 'preference is required.' });
       if (iConnection === undefined && iConnectionGroup === undefined)
         return res.status(400).json({ success: false, error: 'Either iConnection or iConnectionGroup is required.' });
-      const ar = await submitApprovalRequest({
-        operationType: 'routing_group_member.add',
-        action: 'create',
-        entityId: iRoutingGroup,
-        entityName: `RG #${iRoutingGroup} — Member DS #${iDestinationSet}`,
-        payloadAfter: { iRoutingGroup, iDestinationSet: parseInt(iDestinationSet, 10), preference: parseInt(preference, 10),
-          iConnection: iConnection !== undefined ? parseInt(iConnection, 10) : undefined,
-          iConnectionGroup: iConnectionGroup !== undefined ? parseInt(iConnectionGroup, 10) : undefined,
-          ...rest },
-        requestedBy: userId,
-        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
-        teamId: roleRecord?.teamId,
-      });
-      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Routing group member addition submitted for approval.' });
+      const result = await sippy.addRoutingGroupMember(
+        username, password,
+        iRoutingGroup,
+        parseInt(iDestinationSet, 10),
+        parseInt(preference, 10),
+        {
+          iConnection:       iConnection       !== undefined ? parseInt(iConnection, 10)       : undefined,
+          iConnectionGroup:  iConnectionGroup  !== undefined ? parseInt(iConnectionGroup, 10)  : undefined,
+          weight:            weight             !== undefined ? parseInt(weight, 10)            : undefined,
+          activationDate:    activationDate     || undefined,
+          expirationDate:    expirationDate && expirationDate !== 'never' ? expirationDate : undefined,
+          portalUrl:         sippyPortalUrl(settings),
+        }
+      );
+      if (!result.success) return res.status(422).json({ success: false, error: result.message });
+      res.json({ success: true, iRoutingGroupMember: result.iRoutingGroupMember });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 

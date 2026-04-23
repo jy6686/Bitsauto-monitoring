@@ -7,7 +7,7 @@ import {
   Loader2, GitBranch, BarChart3, Eye, Settings2, Construction,
   ArrowRight, Activity, Timer, AlertTriangle, Zap,
   List, Grid3X3, ShieldAlert, XCircle, Shield,
-  Plus, Pencil, Trash2, ExternalLink, DollarSign, CreditCard,
+  Plus, Pencil, Trash2, ExternalLink, DollarSign, CreditCard, X,
 } from "lucide-react";
 import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
@@ -774,6 +774,19 @@ const DS_CURRENCIES_FULL = [
   { value: "TRY", label: "Turkish Lira (TRY)" },
 ];
 
+type PendingEntry = {
+  id:            string;
+  iConnection:   number;
+  connName:      string;
+  vendorName:    string;
+  iDestinationSet: number;
+  dsName:        string;
+  activationDate: string;
+  expirationDate: string;
+  preference:    number;
+  weight:        number;
+};
+
 type RgFormProps = {
   rgName: string; setRgName: (v: string) => void;
   rgDescription: string; setRgDescription: (v: string) => void;
@@ -791,6 +804,10 @@ type RgFormProps = {
   rgTimeout1xx: string; setRgTimeout1xx: (v: string) => void;
   rgOnNetTimeout2xx: string; setRgOnNetTimeout2xx: (v: string) => void;
   idSuffix: string;
+  pendingEntries?: PendingEntry[];
+  setPendingEntries?: (v: PendingEntry[]) => void;
+  cachedConns?: Connection[];
+  cachedSets?: DestinationSet[];
 };
 
 function RgForm({
@@ -803,8 +820,17 @@ function RgForm({
   rgOnNetScope, setRgOnNetScope, rgReplyTimeout, setRgReplyTimeout,
   rgTimeout1xx, setRgTimeout1xx, rgOnNetTimeout2xx, setRgOnNetTimeout2xx,
   idSuffix,
+  pendingEntries, setPendingEntries,
+  cachedConns = [], cachedSets = [],
 }: RgFormProps) {
   const availablePolicies = RG_POLICY_OPTIONS.filter(p => !rgActivePolicies.includes(p.value));
+
+  // Routing Entries add-row state (always declared, only used when pendingEntries is provided)
+  const [rowVendor, setRowVendor] = useState("");
+  const [rowConn,   setRowConn]   = useState("");
+  const [rowDs,     setRowDs]     = useState("");
+  const [rowPref,   setRowPref]   = useState("1");
+  const [rowWeight, setRowWeight] = useState("1");
 
   const include = () => {
     if (!rgSelAvail) return;
@@ -955,6 +981,111 @@ function RgForm({
         </div>
       </div>
 
+      {/* Routing Entries — only shown when pendingEntries state is provided (Create dialog) */}
+      {pendingEntries !== undefined && setPendingEntries !== undefined && (() => {
+        const reVendors = Array.from(
+          new Map(cachedConns.filter(c => c.vendor_name).map(c => [c.vendor_name!, c.vendor_name!])).entries()
+        ).map(([v]) => v).sort();
+        const reFilteredConns = rowVendor ? cachedConns.filter(c => c.vendor_name === rowVendor) : cachedConns;
+        const reAddRow = () => {
+          if (!rowConn || !rowDs) return;
+          const conn = cachedConns.find(c => String(c.i_connection) === rowConn);
+          const ds   = cachedSets.find(s => String(s.i_destination_set) === rowDs);
+          if (!conn || !ds) return;
+          setPendingEntries([...pendingEntries, {
+            id: `${Date.now()}-${Math.random()}`,
+            iConnection: conn.i_connection, connName: conn.name, vendorName: conn.vendor_name ?? "",
+            iDestinationSet: ds.i_destination_set, dsName: ds.name,
+            activationDate: "now", expirationDate: "never",
+            preference: parseInt(rowPref) || 1, weight: parseInt(rowWeight) || 1,
+          }]);
+          setRowConn(""); setRowDs(""); setRowPref("1"); setRowWeight("1");
+        };
+        return (
+          <div>
+            <SectionHeader label="Routing Entries" />
+            <div className="rounded-md border border-border/40 overflow-hidden text-xs">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-muted/30 border-b border-border/30">
+                    <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground">Vendor</th>
+                    <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground">Connection</th>
+                    <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground">Destination Set</th>
+                    <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground">Activation</th>
+                    <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground">Expiration</th>
+                    <th className="text-center px-2 py-1.5 font-semibold text-muted-foreground">Order#</th>
+                    <th className="text-center px-2 py-1.5 font-semibold text-muted-foreground">Weight</th>
+                    <th className="px-2 py-1.5" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingEntries.map(e => (
+                    <tr key={e.id} className="border-b border-border/20 hover:bg-muted/10">
+                      <td className="px-2 py-1.5 text-muted-foreground">{e.vendorName || "—"}</td>
+                      <td className="px-2 py-1.5">{e.connName}</td>
+                      <td className="px-2 py-1.5">{e.dsName}</td>
+                      <td className="px-2 py-1.5 text-muted-foreground">{e.activationDate}</td>
+                      <td className="px-2 py-1.5 text-muted-foreground">{e.expirationDate}</td>
+                      <td className="px-2 py-1.5 text-center">{e.preference}</td>
+                      <td className="px-2 py-1.5 text-center">{e.weight}</td>
+                      <td className="px-2 py-1.5 text-center">
+                        <button onClick={() => setPendingEntries(pendingEntries.filter(x => x.id !== e.id))}
+                          className="text-rose-400/60 hover:text-rose-400 transition-colors">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-muted/5">
+                    <td className="px-1.5 py-1.5">
+                      <select value={rowVendor} onChange={ev => { setRowVendor(ev.target.value); setRowConn(""); }}
+                        className="w-full text-xs bg-background border border-border/60 rounded px-1.5 py-1 focus:outline-none focus:border-primary">
+                        <option value="">Select Vendor...</option>
+                        {reVendors.map(v => <option key={v} value={v}>{v}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-1.5 py-1.5">
+                      <select value={rowConn} onChange={ev => setRowConn(ev.target.value)}
+                        className="w-full text-xs bg-background border border-border/60 rounded px-1.5 py-1 focus:outline-none focus:border-primary">
+                        <option value="">Select Connection...</option>
+                        {reFilteredConns.map(c => (
+                          <option key={c.i_connection} value={String(c.i_connection)}>{c.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-1.5 py-1.5">
+                      <select value={rowDs} onChange={ev => setRowDs(ev.target.value)}
+                        className="w-full text-xs bg-background border border-border/60 rounded px-1.5 py-1 focus:outline-none focus:border-primary">
+                        <option value="">Select Dest. Set...</option>
+                        {cachedSets.map(s => (
+                          <option key={s.i_destination_set} value={String(s.i_destination_set)}>{s.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-1.5 py-1.5 text-muted-foreground/60 text-center text-[10px]">now</td>
+                    <td className="px-1.5 py-1.5 text-muted-foreground/60 text-center text-[10px]">never</td>
+                    <td className="px-1.5 py-1.5">
+                      <input type="number" min="1" value={rowPref} onChange={ev => setRowPref(ev.target.value)}
+                        className="w-12 text-xs bg-background border border-border/60 rounded px-1.5 py-1 text-center focus:outline-none focus:border-primary" />
+                    </td>
+                    <td className="px-1.5 py-1.5">
+                      <input type="number" min="1" value={rowWeight} onChange={ev => setRowWeight(ev.target.value)}
+                        className="w-12 text-xs bg-background border border-border/60 rounded px-1.5 py-1 text-center focus:outline-none focus:border-primary" />
+                    </td>
+                    <td className="px-1.5 py-1.5 text-center">
+                      <button onClick={reAddRow} disabled={!rowConn || !rowDs}
+                        className="text-primary/60 hover:text-primary transition-colors disabled:opacity-30">
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* On-Net Routing */}
       <div>
         <SectionHeader label="On-Net Routing" />
@@ -1035,10 +1166,20 @@ function RoutingGroupsTab() {
   const [rgReplyTimeout, setRgReplyTimeout] = useState("5");
   const [rgTimeout1xx, setRgTimeout1xx] = useState("10");
   const [rgOnNetTimeout2xx, setRgOnNetTimeout2xx] = useState("60");
+  // Routing entries for new group creation
+  const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([]);
 
   const { data, isLoading } = useQuery<{ groups: RoutingGroup[] }>({
     queryKey: ["/api/routing-cache/routing-groups"],
   });
+  const { data: connsData } = useQuery<{ connections: Connection[] }>({
+    queryKey: ["/api/routing-cache/connections"],
+  });
+  const { data: setsData } = useQuery<{ sets: DestinationSet[] }>({
+    queryKey: ["/api/routing-cache/destination-sets"],
+  });
+  const rgCachedConns = (connsData?.connections ?? []).filter(c => !c.blocked);
+  const rgCachedSets  = setsData?.sets ?? [];
   const groups = (data?.groups ?? []).filter(g =>
     !search || g.name.toLowerCase().includes(search.toLowerCase())
   );
@@ -1051,9 +1192,25 @@ function RoutingGroupsTab() {
 
   const createMut = useMutation({
     mutationFn: async (body: object) => (await apiRequest("POST", "/api/sippy/routing-groups", body)).json(),
-    onSuccess: (data: any) => {
-      const a = approvalToastOpts(data, navigate);
-      if (a) toast(a); else toast({ title: "Routing group created" });
+    onSuccess: async (data: any) => {
+      if (data?.success && data.iRoutingGroup && pendingEntries.length > 0) {
+        let added = 0;
+        for (const e of pendingEntries) {
+          try {
+            const r = await apiRequest("POST", `/api/sippy/routing-groups/${data.iRoutingGroup}/members`, {
+              iDestinationSet: e.iDestinationSet,
+              iConnection:     e.iConnection,
+              preference:      e.preference,
+              weight:          e.weight,
+            });
+            const j = await r.json();
+            if (j?.success) added++;
+          } catch {}
+        }
+        toast({ title: "Routing group created", description: `${added}/${pendingEntries.length} routing entries added.` });
+      } else {
+        toast({ title: "Routing group created" });
+      }
       setCreateOpen(false); resetRgForm();
       setTimeout(invalidate, 1000);
     },
@@ -1090,6 +1247,7 @@ function RoutingGroupsTab() {
     setRgSelAvail(null); setRgSelActive(null);
     setRgOnNetConnection(""); setRgVoicemailConn(""); setRgOnNetScope("all_accounts");
     setRgReplyTimeout("5"); setRgTimeout1xx("10"); setRgOnNetTimeout2xx("60");
+    setPendingEntries([]);
   };
 
   const openEdit = (rg: RoutingGroup) => {
@@ -1222,7 +1380,7 @@ function RoutingGroupsTab() {
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add New Routing Group</DialogTitle>
             <DialogDescription>Create a routing group on your Sippy softswitch.</DialogDescription>
@@ -1244,6 +1402,8 @@ function RoutingGroupsTab() {
             rgTimeout1xx={rgTimeout1xx} setRgTimeout1xx={setRgTimeout1xx}
             rgOnNetTimeout2xx={rgOnNetTimeout2xx} setRgOnNetTimeout2xx={setRgOnNetTimeout2xx}
             idSuffix="create"
+            pendingEntries={pendingEntries} setPendingEntries={setPendingEntries}
+            cachedConns={rgCachedConns} cachedSets={rgCachedSets}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Discard & Close</Button>
