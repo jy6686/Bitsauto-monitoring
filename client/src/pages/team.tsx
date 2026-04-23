@@ -1398,7 +1398,7 @@ export default function TeamPage() {
   const [assignResult, setAssignResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [showKamDialog, setShowKamDialog] = useState(false);
   const [editKam, setEditKam] = useState<Kam | undefined>();
-  const [activeTab, setActiveTab] = useState<'members'|'monitoring'|'kam'|'org'|'alerts'|'access'>('members');
+  const [activeTab, setActiveTab] = useState<'members'|'role-assign'|'monitoring'|'kam'|'org'|'alerts'|'access'>('members');
 
   const { data: members = [], isLoading } = useQuery<TeamMember[]>({
     queryKey: ["/api/team"],
@@ -1545,12 +1545,13 @@ export default function TeamPage() {
       {/* ── Tab Navigation ─────────────────────────────────────────────────── */}
       <div className="flex items-center gap-1 bg-muted/20 border border-border/50 rounded-xl p-1 overflow-x-auto" data-testid="team-tab-nav">
         {([
-          { id: 'members',    label: 'Team Members',   icon: Users,       badge: stats.total    || undefined },
-          { id: 'monitoring', label: 'Monitoring',      icon: MonitorDot,  badge: undefined                  },
-          { id: 'kam',        label: 'KAM & Accounts', icon: UserCheck,   badge: kams.length    || undefined },
-          { id: 'org',        label: 'Org Hierarchy',  icon: Building2,   badge: undefined                  },
-          { id: 'alerts',     label: 'Traffic Alerts', icon: Bell,        badge: openAlerts.length || undefined },
-          { id: 'access',     label: 'Access Control', icon: ToggleRight, badge: undefined                  },
+          { id: 'members',     label: 'Team Members',    icon: Users,       badge: stats.total    || undefined },
+          { id: 'role-assign', label: 'Role Assignment', icon: UserCog,     badge: undefined                  },
+          { id: 'monitoring',  label: 'Monitoring',      icon: MonitorDot,  badge: undefined                  },
+          { id: 'kam',         label: 'KAM & Accounts',  icon: UserCheck,   badge: kams.length    || undefined },
+          { id: 'org',         label: 'Org Hierarchy',   icon: Building2,   badge: undefined                  },
+          { id: 'alerts',      label: 'Traffic Alerts',  icon: Bell,        badge: openAlerts.length || undefined },
+          { id: 'access',      label: 'Access Control',  icon: ToggleRight, badge: undefined                  },
         ] as const).map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -1797,6 +1798,178 @@ export default function TeamPage() {
       </div>
 
       </div>)}{/* ══ end Members Tab ═══════════════════════════════════════════════════════ */}
+
+      {/* ══ Role Assignment Tab ═════════════════════════════════════════════════ */}
+      {activeTab === 'role-assign' && (
+      <div className="space-y-6">
+
+        {/* Stat strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {[
+            { label: "Total Members", value: stats.total,      icon: Users,    color: "text-violet-400", bg: "from-violet-500/10 to-violet-500/5", border: "border-violet-500/20" },
+            { label: "Admins",        value: stats.admin,      icon: Crown,    color: "text-rose-400",   bg: "from-rose-500/10 to-rose-500/5",     border: "border-rose-500/20"   },
+            { label: "Management",    value: stats.management, icon: Briefcase,color: "text-amber-400",  bg: "from-amber-500/10 to-amber-500/5",   border: "border-amber-500/20"  },
+            { label: "Viewers",       value: stats.viewer,     icon: Eye,      color: "text-blue-400",   bg: "from-blue-500/10 to-blue-500/5",     border: "border-blue-500/20"   },
+          ].map(({ label, value, icon: Icon, color, bg, border }) => (
+            <div key={label} className={`rounded-xl border ${border} bg-gradient-to-br ${bg} p-4`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-muted-foreground font-medium">{label}</span>
+                <Icon className={`w-4 h-4 ${color}`} />
+              </div>
+              <div className={`text-2xl font-bold ${color}`}>
+                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : value}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Quick Assign by Email */}
+        <div className="bg-card border border-violet-500/20 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 bg-violet-500/5">
+            <UserCog className="w-4 h-4 text-violet-400" />
+            <div>
+              <h3 className="font-semibold text-sm">Assign Role by Email</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Type a member's email address to instantly update their role</p>
+            </div>
+          </div>
+          <div className="p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <input
+                  data-testid="input-role-assign-email"
+                  type="email"
+                  placeholder="member@example.com"
+                  value={assignEmail}
+                  onChange={e => { setAssignEmail(e.target.value); setAssignResult(null); }}
+                  className="w-full pl-9 pr-4 py-2.5 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition-all"
+                />
+              </div>
+              <div className="relative">
+                <select
+                  data-testid="select-role-assign-role"
+                  value={assignRole}
+                  onChange={e => setAssignRole(e.target.value as Role)}
+                  className="appearance-none bg-background border border-border rounded-lg pl-3 pr-8 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition-all cursor-pointer h-full"
+                >
+                  {(['super_admin','admin','noc_operator','team_lead','management','viewer'] as Role[]).map(r => (
+                    <option key={r} value={r}>{ROLE_META[r]?.label ?? r}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              </div>
+              <button
+                data-testid="button-role-assign-submit"
+                onClick={() => assignMutation.mutate()}
+                disabled={assignMutation.isPending || !assignEmail.trim()}
+                className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 active:scale-95 transition-all disabled:opacity-50 whitespace-nowrap"
+              >
+                {assignMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
+                Assign Role
+              </button>
+            </div>
+            {assignResult && (
+              <div className={`flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm border ${
+                assignResult.ok
+                  ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400'
+                  : 'bg-rose-500/5 border-rose-500/20 text-rose-400'
+              }`}>
+                {assignResult.ok ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <XCircle className="w-4 h-4 shrink-0" />}
+                {assignResult.msg}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Role matrix: description of each role */}
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 bg-muted/20">
+            <Shield className="w-4 h-4 text-muted-foreground" />
+            <div>
+              <h3 className="font-semibold text-sm">Role Reference</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">What each role can access</p>
+            </div>
+          </div>
+          <div className="divide-y divide-border/30">
+            {([
+              { role: 'super_admin', perms: ['Full system access', 'Manage all settings', 'Approve/reject all operations', 'User & role management'] },
+              { role: 'admin',       perms: ['All admin functions', 'User & role management', 'Approve operations', 'Configure system settings'] },
+              { role: 'noc_operator',perms: ['View live NOC dashboard', 'Submit change requests', 'Acknowledge alerts', 'View call reports'] },
+              { role: 'team_lead',   perms: ['View team dashboards', 'Submit change requests', 'Manage KAM assignments', 'View reports'] },
+              { role: 'management',  perms: ['Analytics & P&L views', 'Billing dashboards', 'Rate card access', 'High-level traffic data'] },
+              { role: 'viewer',      perms: ['Read-only dashboard access', 'View call stats', 'No changes or requests'] },
+            ] as const).map(({ role, perms }) => {
+              const meta = ROLE_META[role as Role];
+              if (!meta) return null;
+              return (
+                <div key={role} className="flex items-start gap-4 px-5 py-4" data-testid={`role-ref-row-${role}`}>
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full border shrink-0 ${meta.color} border-current/20`}>
+                    {meta.label}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5 items-center">
+                    {perms.map(p => (
+                      <span key={p} className="text-xs text-muted-foreground bg-muted/30 rounded-full px-2.5 py-0.5 border border-border/30">
+                        {p}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Member table with inline role change */}
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-border/50 bg-muted/20">
+            <div className="flex items-center gap-3">
+              <Users className="w-4 h-4 text-muted-foreground" />
+              <div>
+                <h3 className="font-semibold text-sm">All Members</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Change any member's role inline</p>
+              </div>
+            </div>
+          </div>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" /><span className="text-sm">Loading members…</span>
+            </div>
+          ) : (
+            <div className="divide-y divide-border/30">
+              {members.map((member) => {
+                const meta = ROLE_META[member.role as Role];
+                return (
+                  <div key={member.id} className="flex items-center gap-4 px-5 py-3 hover:bg-muted/5 transition-colors" data-testid={`role-member-row-${member.id}`}>
+                    <div className="w-8 h-8 rounded-full bg-muted/40 border border-border/50 flex items-center justify-center shrink-0">
+                      {member.profileImageUrl ? (
+                        <img src={member.profileImageUrl} className="w-full h-full rounded-full object-cover" alt="" />
+                      ) : (
+                        <span className="text-xs font-bold text-muted-foreground">
+                          {(member.firstName?.[0] ?? member.email?.[0] ?? '?').toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.email ?? member.id}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                    </div>
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border shrink-0 hidden sm:block ${meta?.color ?? ''} border-current/20`}>
+                      {meta?.label ?? member.role}
+                    </span>
+                    <RoleSelector memberId={member.id} currentRole={member.role} selfId={user?.id ?? ''} />
+                  </div>
+                );
+              })}
+              {members.length === 0 && (
+                <div className="py-10 text-center text-sm text-muted-foreground">No team members found</div>
+              )}
+            </div>
+          )}
+        </div>
+
+      </div>)}{/* ══ end Role Assignment Tab ═══════════════════════════════════════════════ */}
 
       {/* ══ Monitoring Tab ══════════════════════════════════════════════════════ */}
       {activeTab === 'monitoring' && (

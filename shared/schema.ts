@@ -107,6 +107,8 @@ export const settings = pgTable("settings", {
   grafanaUrl:          varchar("grafana_url",           { length: 1024 }),  // panel or dashboard embed URL
   grafanaDefaultRange: varchar("grafana_default_range", { length: 20  }).default('1h'), // 1h|6h|24h|7d|30d
   grafanaPanelHeight:  integer("grafana_panel_height").default(480),        // iframe height in px
+  // Configurable approval settings — JSON map of feature → { create, edit, delete } booleans
+  approvalSettings: text("approval_settings"),
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports

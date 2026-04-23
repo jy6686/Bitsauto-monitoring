@@ -1057,6 +1057,61 @@ export async function registerRoutes(
     res.json({ enabledFeatures });
   });
 
+  // ── Approval Settings API ─────────────────────────────────────────────────
+  const DEFAULT_APPROVAL_SETTINGS = {
+    routing_group:        { create: false, edit: true,  delete: true  },
+    routing_group_member: { create: false, edit: true,  delete: true  },
+    destination_set:      { create: true,  edit: true,  delete: true  },
+    ds_route:             { create: true,  edit: true,  delete: true  },
+    vendor_connection:    { create: false, edit: false, delete: false },
+    ip_management:        { create: true,  edit: true,  delete: true  },
+    authentication:       { create: true,  edit: true,  delete: true  },
+  };
+
+  // GET /api/approval-settings
+  app.get('/api/approval-settings', async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const s = await storage.getSettings();
+      let cfg = DEFAULT_APPROVAL_SETTINGS as Record<string, Record<string, boolean>>;
+      if (s.approvalSettings) {
+        try { cfg = { ...DEFAULT_APPROVAL_SETTINGS, ...JSON.parse(s.approvalSettings) }; } catch {}
+      }
+      res.json({ settings: cfg });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/approval-settings  (admin only)
+  app.patch('/api/approval-settings', async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const role = await storage.getUserRole(userId);
+      if (!role || !['admin', 'super_admin'].includes(role)) return res.status(403).json({ message: 'Admin only' });
+      const { settings: newCfg } = req.body ?? {};
+      if (!newCfg || typeof newCfg !== 'object') return res.status(400).json({ message: 'settings object required' });
+      await storage.updateSettings({ approvalSettings: JSON.stringify(newCfg) });
+      res.json({ success: true, settings: newCfg });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/team/lookup-by-email?email= (admin only) — find a user ID by email without exposing all users
+  app.get('/api/team/lookup-by-email', async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const role = await storage.getUserRole(userId);
+      if (!role || !['admin', 'super_admin'].includes(role)) return res.status(403).json({ message: 'Admin only' });
+      const email = ((req.query.email ?? '') as string).trim().toLowerCase();
+      if (!email) return res.status(400).json({ message: 'email is required' });
+      const members = await storage.getAllUsersWithRoles();
+      const match = members.find(m => m.email?.toLowerCase() === email);
+      if (!match) return res.status(404).json({ found: false, message: `No user found with email "${email}"` });
+      res.json({ found: true, user: { id: match.id, email: match.email, firstName: match.firstName, lastName: match.lastName, role: match.role } });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── Team Management API ───────────────────────────────────────────────────
 
   // Middleware: require a minimum role
