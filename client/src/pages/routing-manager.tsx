@@ -7,10 +7,14 @@ import {
   Loader2, GitBranch, BarChart3, Eye, Settings2, Construction,
   ArrowRight, Activity, Timer, AlertTriangle, Zap,
   List, Grid3X3, ShieldAlert, XCircle, Shield,
+  Plus, Pencil, Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -198,9 +202,56 @@ function relTime(iso: string | null): string {
 // ── RgMembersPanel ─────────────────────────────────────────────────────────────
 
 function RgMembersPanel({ groupId }: { groupId: number }) {
-  const { data, isLoading } = useQuery<RgDetail>({
+  const { toast } = useToast();
+  const [addOpen, setAddOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ memberId: number; label: string } | null>(null);
+  const [dsId, setDsId] = useState("");
+  const [connId, setConnId] = useState("");
+  const [pref, setPref] = useState("10");
+  const [weight, setWeight] = useState("");
+
+  const { data, isLoading, refetch } = useQuery<RgDetail>({
     queryKey: ["/api/routing-cache/routing-groups", groupId, "detail"],
   });
+  const { data: connsData } = useQuery<{ connections: Connection[] }>({
+    queryKey: ["/api/routing-cache/connections"],
+  });
+  const { data: setsData } = useQuery<{ sets: DestinationSet[] }>({
+    queryKey: ["/api/routing-cache/destination-sets"],
+  });
+
+  const cachedConns = (connsData?.connections ?? []).filter(c => !c.blocked);
+  const cachedSets  = setsData?.sets ?? [];
+
+  const addMut = useMutation({
+    mutationFn: (body: object) => apiRequest("POST", `/api/sippy/routing-groups/${groupId}/members`, body),
+    onSuccess: () => {
+      toast({ title: "Member added" });
+      setAddOpen(false); setDsId(""); setConnId(""); setPref("10"); setWeight("");
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error adding member", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (memberId: number) => apiRequest("DELETE", `/api/sippy/routing-groups/${groupId}/members/${memberId}`),
+    onSuccess: () => {
+      toast({ title: "Member removed" });
+      setDeleteTarget(null);
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error removing member", description: e.message, variant: "destructive" }),
+  });
+
+  const handleAdd = () => {
+    if (!dsId || !connId || !pref) return;
+    addMut.mutate({
+      iDestinationSet: parseInt(dsId),
+      iConnection: parseInt(connId),
+      preference: parseInt(pref),
+      ...(weight ? { weight: parseInt(weight) } : {}),
+    });
+  };
 
   if (isLoading) {
     return (
@@ -212,60 +263,178 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
   }
 
   const members = data?.members ?? [];
-  if (!data?.ok || members.length === 0) {
-    return (
-      <div className="py-3 px-4 text-xs text-muted-foreground/60 italic">
-        {!data?.ok
-          ? `Failed to load: ${data?.message ?? "Sippy unavailable"}`
-          : "No members configured in this routing group."}
-      </div>
-    );
-  }
 
   return (
-    <div className="overflow-x-auto border border-border/40 rounded-lg mx-4 mb-3 bg-background/40">
-      <table className="w-full text-xs min-w-[680px]">
-        <thead>
-          <tr className="bg-muted/50 border-b border-border/30">
-            {["Pref", "Weight", "Vendor / Connection", "Host", "Destination Set", "Routes", "Status"].map(h => (
-              <th key={h} className="px-3 py-2 text-left font-medium text-muted-foreground">{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {members.map((m, i) => (
-            <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", m.blocked && "opacity-50")}>
-              <td className="px-3 py-2 font-mono font-bold text-amber-400">{m.preference ?? "—"}</td>
-              <td className="px-3 py-2 font-mono text-muted-foreground">{m.weight ?? "—"}</td>
-              <td className="px-3 py-2">
-                <div className="font-medium">{m.connectionName ?? `Connection #${m.iConnection}`}</div>
-                {m.vendorName && <div className="text-[10px] text-muted-foreground/70">{m.vendorName}</div>}
-              </td>
-              <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground/70">{m.host ?? "—"}</td>
-              <td className="px-3 py-2">
-                {m.destSetName
-                  ? <span className="text-violet-400 font-medium">{m.destSetName}</span>
-                  : <span className="text-muted-foreground/30">—</span>}
-              </td>
-              <td className="px-3 py-2 font-mono text-muted-foreground/70">{m.destSetRouteCount ?? "—"}</td>
-              <td className="px-3 py-2">
-                {m.blocked
-                  ? <Badge variant="destructive" className="h-4 text-[9px] px-1.5">Blocked</Badge>
-                  : <span className="text-[10px] text-emerald-400 font-medium">Active</span>}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      {/* Add Member button */}
+      <div className="px-4 pb-2 flex justify-end">
+        <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setAddOpen(true)}
+          data-testid="btn-add-rg-member">
+          <Plus className="h-3.5 w-3.5" /> Add Member
+        </Button>
+      </div>
+
+      {!data?.ok || members.length === 0 ? (
+        <div className="py-3 px-4 text-xs text-muted-foreground/60 italic">
+          {!data?.ok
+            ? `Failed to load: ${data?.message ?? "Sippy unavailable"}`
+            : "No members yet — click Add Member to create one."}
+        </div>
+      ) : (
+        <div className="overflow-x-auto border border-border/40 rounded-lg mx-4 mb-3 bg-background/40">
+          <table className="w-full text-xs min-w-[720px]">
+            <thead>
+              <tr className="bg-muted/50 border-b border-border/30">
+                {["Pref", "Weight", "Vendor / Connection", "Host", "Destination Set", "Routes", "Status", ""].map(h => (
+                  <th key={h} className="px-3 py-2 text-left font-medium text-muted-foreground">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((m, i) => (
+                <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", m.blocked && "opacity-50")}>
+                  <td className="px-3 py-2 font-mono font-bold text-amber-400">{m.preference ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono text-muted-foreground">{m.weight ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    <div className="font-medium">{m.connectionName ?? `Connection #${m.iConnection}`}</div>
+                    {m.vendorName && <div className="text-[10px] text-muted-foreground/70">{m.vendorName}</div>}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground/70">{m.host ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    {m.destSetName
+                      ? <span className="text-violet-400 font-medium">{m.destSetName}</span>
+                      : <span className="text-muted-foreground/30">—</span>}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-muted-foreground/70">{m.destSetRouteCount ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    {m.blocked
+                      ? <Badge variant="destructive" className="h-4 text-[9px] px-1.5">Blocked</Badge>
+                      : <span className="text-[10px] text-emerald-400 font-medium">Active</span>}
+                  </td>
+                  <td className="px-3 py-2">
+                    {m.iRoutingGroupMember != null && (
+                      <button
+                        data-testid={`btn-delete-member-${m.iRoutingGroupMember}`}
+                        onClick={() => setDeleteTarget({ memberId: m.iRoutingGroupMember!, label: m.connectionName ?? `#${m.iRoutingGroupMember}` })}
+                        className="text-rose-400/60 hover:text-rose-400 transition-colors"
+                        title="Remove member"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Add Member Dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Routing Group Member</DialogTitle>
+            <DialogDescription>Add a connection + destination set pair to this routing group.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Destination Set *</Label>
+              <Select value={dsId} onValueChange={setDsId}>
+                <SelectTrigger data-testid="select-ds"><SelectValue placeholder="Select destination set…" /></SelectTrigger>
+                <SelectContent>
+                  {cachedSets.map(s => (
+                    <SelectItem key={s.i_destination_set} value={String(s.i_destination_set)}>
+                      {s.name} <span className="text-muted-foreground text-xs">({s.route_count} routes)</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Connection *</Label>
+              <Select value={connId} onValueChange={setConnId}>
+                <SelectTrigger data-testid="select-conn"><SelectValue placeholder="Select connection…" /></SelectTrigger>
+                <SelectContent>
+                  {cachedConns.map(c => (
+                    <SelectItem key={c.i_connection} value={String(c.i_connection)}>
+                      {c.name} {c.vendor_name ? `· ${c.vendor_name}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Preference *</Label>
+                <Input type="number" value={pref} onChange={e => setPref(e.target.value)} placeholder="10" data-testid="input-pref" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Weight</Label>
+                <Input type="number" value={weight} onChange={e => setWeight(e.target.value)} placeholder="optional" data-testid="input-weight" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+            <Button onClick={handleAdd} disabled={!dsId || !connId || !pref || addMut.isPending} data-testid="btn-confirm-add-member">
+              {addMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add Member"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirm Dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove Member?</DialogTitle>
+            <DialogDescription>Remove <strong>{deleteTarget?.label}</strong> from this routing group?</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleteTarget && deleteMut.mutate(deleteTarget.memberId)}
+              disabled={deleteMut.isPending} data-testid="btn-confirm-delete-member">
+              {deleteMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
 // ── DsRoutesPanel ──────────────────────────────────────────────────────────────
 
 function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: string) => void }) {
-  const { data, isLoading } = useQuery<DsRoutesData>({
+  const { toast } = useToast();
+  const [addOpen, setAddOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [prefix, setPrefix] = useState("");
+  const [routePref, setRoutePref] = useState("");
+
+  const { data, isLoading, refetch } = useQuery<DsRoutesData>({
     queryKey: ["/api/sippy/destination-sets", dsId, "routes"],
+  });
+
+  const addMut = useMutation({
+    mutationFn: (body: object) => apiRequest("POST", `/api/sippy/destination-sets/${dsId}/routes`, body),
+    onSuccess: () => {
+      toast({ title: "Route added" });
+      setAddOpen(false); setPrefix(""); setRoutePref("");
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error adding route", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (p: string) => apiRequest("DELETE", `/api/sippy/destination-sets/${dsId}/routes/${encodeURIComponent(p)}`),
+    onSuccess: () => {
+      toast({ title: "Route deleted" });
+      setDeleteTarget(null);
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error deleting route", description: e.message, variant: "destructive" }),
   });
 
   if (isLoading) {
@@ -278,61 +447,126 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
   }
 
   const routes = data?.list ?? [];
-  if (!data?.success || routes.length === 0) {
-    return (
-      <div className="py-3 px-4 text-xs text-muted-foreground/60 italic">
-        {!data?.success
-          ? `Failed to load: ${data?.message ?? "Sippy unavailable"}`
-          : "No routes in this destination set."}
-      </div>
-    );
-  }
 
   return (
-    <div className="overflow-x-auto border border-border/40 rounded-lg mx-4 mb-3 bg-background/40">
-      <table className="w-full text-xs min-w-[580px]">
-        <thead>
-          <tr className="bg-muted/50 border-b border-border/30">
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Prefix</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Pref</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Huntstop</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Timeout</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {routes.map((r, i) => (
-            <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", r.forbidden && "opacity-40")}>
-              <td className="px-3 py-2 font-mono font-bold text-cyan-400">+{r.prefix}</td>
-              <td className="px-3 py-2 font-mono text-muted-foreground">{r.preference ?? "—"}</td>
-              <td className="px-3 py-2 text-center">
-                {r.huntstop
-                  ? <span className="text-amber-400 font-bold" title="Huntstop enabled">●</span>
-                  : <span className="text-muted-foreground/20">○</span>}
-              </td>
-              <td className="px-3 py-2 font-mono text-muted-foreground/70">{r.timeout ? `${r.timeout}s` : "—"}</td>
-              <td className="px-3 py-2">
-                {r.forbidden
-                  ? <Badge variant="destructive" className="h-4 text-[9px] px-1.5">Blocked</Badge>
-                  : <span className="text-[10px] text-emerald-400 font-medium">Active</span>}
-              </td>
-              <td className="px-3 py-2">
-                {!r.forbidden && (
-                  <button
-                    data-testid={`btn-lcr-${r.prefix}`}
-                    onClick={() => onRunLcr(r.prefix)}
-                    className="text-[10px] font-semibold text-primary hover:text-primary/70 transition-colors flex items-center gap-0.5"
-                  >
-                    Run LCR <ArrowRight className="h-2.5 w-2.5" />
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      {/* Add Route button */}
+      <div className="px-4 pb-2 flex justify-end">
+        <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setAddOpen(true)}
+          data-testid="btn-add-ds-route">
+          <Plus className="h-3.5 w-3.5" /> Add Route
+        </Button>
+      </div>
+
+      {!data?.success || routes.length === 0 ? (
+        <div className="py-3 px-4 text-xs text-muted-foreground/60 italic">
+          {!data?.success
+            ? `Failed to load: ${data?.message ?? "Sippy unavailable"}`
+            : "No routes yet — click Add Route to create one."}
+        </div>
+      ) : (
+        <div className="overflow-x-auto border border-border/40 rounded-lg mx-4 mb-3 bg-background/40">
+          <table className="w-full text-xs min-w-[620px]">
+            <thead>
+              <tr className="bg-muted/50 border-b border-border/30">
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Prefix</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Pref</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Huntstop</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Timeout</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {routes.map((r, i) => (
+                <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", r.forbidden && "opacity-40")}>
+                  <td className="px-3 py-2 font-mono font-bold text-cyan-400">+{r.prefix}</td>
+                  <td className="px-3 py-2 font-mono text-muted-foreground">{r.preference ?? "—"}</td>
+                  <td className="px-3 py-2 text-center">
+                    {r.huntstop
+                      ? <span className="text-amber-400 font-bold" title="Huntstop enabled">●</span>
+                      : <span className="text-muted-foreground/20">○</span>}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-muted-foreground/70">{r.timeout ? `${r.timeout}s` : "—"}</td>
+                  <td className="px-3 py-2">
+                    {r.forbidden
+                      ? <Badge variant="destructive" className="h-4 text-[9px] px-1.5">Blocked</Badge>
+                      : <span className="text-[10px] text-emerald-400 font-medium">Active</span>}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      {!r.forbidden && (
+                        <button
+                          data-testid={`btn-lcr-${r.prefix}`}
+                          onClick={() => onRunLcr(r.prefix)}
+                          className="text-[10px] font-semibold text-primary hover:text-primary/70 transition-colors flex items-center gap-0.5"
+                        >
+                          Run LCR <ArrowRight className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                      <button
+                        data-testid={`btn-delete-route-${r.prefix}`}
+                        onClick={() => setDeleteTarget(r.prefix)}
+                        className="text-rose-400/60 hover:text-rose-400 transition-colors ml-1"
+                        title="Delete route"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Add Route Dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Add Route</DialogTitle>
+            <DialogDescription>Add a new prefix/route to this destination set.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Prefix (digits only, no +) *</Label>
+              <Input value={prefix} onChange={e => setPrefix(e.target.value.replace(/\D/g, ""))}
+                placeholder="e.g. 44 or 9230" data-testid="input-route-prefix" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Preference</Label>
+              <Input type="number" value={routePref} onChange={e => setRoutePref(e.target.value)}
+                placeholder="optional" data-testid="input-route-pref" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+            <Button onClick={() => addMut.mutate({ prefix, ...(routePref ? { preference: parseInt(routePref) } : {}) })}
+              disabled={!prefix || addMut.isPending} data-testid="btn-confirm-add-route">
+              {addMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add Route"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Route Confirm */}
+      <Dialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Route?</DialogTitle>
+            <DialogDescription>Delete prefix <strong>+{deleteTarget}</strong> from this destination set?</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleteTarget && deleteMut.mutate(deleteTarget)}
+              disabled={deleteMut.isPending} data-testid="btn-confirm-delete-route">
+              {deleteMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -387,9 +621,26 @@ function CacheStatusBanner({ meta, onSync, syncing }: {
 
 // ── Routing Groups Tab ─────────────────────────────────────────────────────────
 
+const RG_POLICIES = [
+  { value: "preference",      label: "Route Preference" },
+  { value: "prefix,preference", label: "Prefix + Preference" },
+  { value: "least_cost",      label: "Least Cost (LCR)" },
+  { value: "weighted",        label: "Weighted Round Robin" },
+  { value: "prefix",          label: "Prefix Length" },
+  { value: "order",           label: "Entries Order" },
+];
+
 function RoutingGroupsTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<RoutingGroup | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RoutingGroup | null>(null);
+  const [rgName, setRgName] = useState("");
+  const [rgPolicy, setRgPolicy] = useState("preference");
+
   const { data, isLoading } = useQuery<{ groups: RoutingGroup[] }>({
     queryKey: ["/api/routing-cache/routing-groups"],
   });
@@ -397,17 +648,65 @@ function RoutingGroupsTab() {
     !search || g.name.toLowerCase().includes(search.toLowerCase())
   );
 
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["/api/routing-cache/routing-groups"] });
+    qc.invalidateQueries({ queryKey: ["/api/routing-cache/status"] });
+    apiRequest("POST", "/api/routing-cache/sync").catch(() => {});
+  };
+
+  const createMut = useMutation({
+    mutationFn: (body: object) => apiRequest("POST", "/api/sippy/routing-groups", body),
+    onSuccess: () => {
+      toast({ title: "Routing group created" });
+      setCreateOpen(false); setRgName(""); setRgPolicy("preference");
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error creating group", description: e.message, variant: "destructive" }),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: object }) => apiRequest("PUT", `/api/sippy/routing-groups/${id}`, body),
+    onSuccess: () => {
+      toast({ title: "Routing group updated" });
+      setEditTarget(null);
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error updating group", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/sippy/routing-groups/${id}`),
+    onSuccess: () => {
+      toast({ title: "Routing group deleted" });
+      setDeleteTarget(null);
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error deleting group", description: e.message, variant: "destructive" }),
+  });
+
+  const openEdit = (rg: RoutingGroup) => {
+    setEditTarget(rg);
+    setRgName(rg.name);
+    setRgPolicy(rg.policy ?? "preference");
+  };
+
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search routing groups…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="pl-9 h-9"
-          data-testid="input-search-rg"
-        />
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search routing groups…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-9 h-9"
+            data-testid="input-search-rg"
+          />
+        </div>
+        <Button size="sm" className="gap-1.5 h-9 shrink-0" onClick={() => { setRgName(""); setRgPolicy("preference"); setCreateOpen(true); }}
+          data-testid="btn-create-rg">
+          <Plus className="h-4 w-4" /> New Group
+        </Button>
       </div>
 
       {isLoading ? (
@@ -418,7 +717,7 @@ function RoutingGroupsTab() {
       ) : groups.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           <GitBranch className="h-8 w-8 opacity-30 mx-auto mb-2" />
-          <p className="text-sm">{search ? "No groups match your search" : "No routing groups cached yet — click Sync Now"}</p>
+          <p className="text-sm">{search ? "No groups match your search" : "No routing groups yet — create one or click Sync Now"}</p>
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -430,39 +729,54 @@ function RoutingGroupsTab() {
                 data-testid={`rg-row-${rg.i_routing_group}`}
                 className="rounded-xl border border-border/50 bg-card/60 overflow-hidden"
               >
-                <button
-                  className="w-full flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
-                  onClick={() => setExpandedId(isExpanded ? null : rg.i_routing_group)}
-                  data-testid={`btn-expand-rg-${rg.i_routing_group}`}
-                >
-                  <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                    <Route className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold truncate">{rg.name}</span>
-                      <span className="text-xs text-muted-foreground font-mono">#{rg.i_routing_group}</span>
+                <div className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors">
+                  <button
+                    className="flex items-center gap-4 flex-1 text-left min-w-0"
+                    onClick={() => setExpandedId(isExpanded ? null : rg.i_routing_group)}
+                    data-testid={`btn-expand-rg-${rg.i_routing_group}`}
+                  >
+                    <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <Route className="h-4 w-4 text-primary" />
                     </div>
-                    <div className="flex items-center gap-3 mt-0.5">
-                      <span className={`text-xs font-medium ${policyColor(rg.policy)}`}>
-                        {policyLabel(rg.policy)}
-                      </span>
-                      {rg.on_net && (
-                        <Badge variant="outline" className="h-4 text-[10px] border-cyan-500/40 text-cyan-400 px-1">On-Net</Badge>
-                      )}
-                      {rg.media_relay && (
-                        <span className="text-xs text-muted-foreground">{rg.media_relay}</span>
-                      )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold truncate">{rg.name}</span>
+                        <span className="text-xs text-muted-foreground font-mono">#{rg.i_routing_group}</span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        <span className={`text-xs font-medium ${policyColor(rg.policy)}`}>
+                          {policyLabel(rg.policy)}
+                        </span>
+                        {rg.on_net && (
+                          <Badge variant="outline" className="h-4 text-[10px] border-cyan-500/40 text-cyan-400 px-1">On-Net</Badge>
+                        )}
+                        {rg.media_relay && (
+                          <span className="text-xs text-muted-foreground">{rg.media_relay}</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-right">
+                    <div className="text-right mr-2">
                       <div className="text-sm font-semibold">{rg.members_count}</div>
                       <div className="text-xs text-muted-foreground">members</div>
                     </div>
-                    <ChevronRight className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200", isExpanded && "rotate-90")} />
+                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => openEdit(rg)}
+                      className="p-1.5 text-muted-foreground/50 hover:text-foreground rounded transition-colors"
+                      data-testid={`btn-edit-rg-${rg.i_routing_group}`} title="Edit">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => setDeleteTarget(rg)}
+                      className="p-1.5 text-rose-400/50 hover:text-rose-400 rounded transition-colors"
+                      data-testid={`btn-delete-rg-${rg.i_routing_group}`} title="Delete">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                    <ChevronRight
+                      onClick={() => setExpandedId(isExpanded ? null : rg.i_routing_group)}
+                      className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200 cursor-pointer", isExpanded && "rotate-90")}
+                    />
                   </div>
-                </button>
+                </div>
                 {isExpanded && (
                   <div className="border-t border-border/40 bg-muted/10 pb-1">
                     <div className="px-4 py-2 flex items-center gap-2 border-b border-border/20">
@@ -482,16 +796,112 @@ function RoutingGroupsTab() {
           })}
         </div>
       )}
+
+      {/* Create Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Routing Group</DialogTitle>
+            <DialogDescription>Add a new routing group to your Sippy switch.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Name *</Label>
+              <Input value={rgName} onChange={e => setRgName(e.target.value)} placeholder="e.g. Europe-LCR" data-testid="input-rg-name" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Routing Policy *</Label>
+              <Select value={rgPolicy} onValueChange={setRgPolicy}>
+                <SelectTrigger data-testid="select-rg-policy"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {RG_POLICIES.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={() => createMut.mutate({ name: rgName, policy: rgPolicy })}
+              disabled={!rgName || createMut.isPending} data-testid="btn-confirm-create-rg">
+              {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Routing Group</DialogTitle>
+            <DialogDescription>Update the name or policy of this routing group.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Name *</Label>
+              <Input value={rgName} onChange={e => setRgName(e.target.value)} data-testid="input-rg-name-edit" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Routing Policy *</Label>
+              <Select value={rgPolicy} onValueChange={setRgPolicy}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {RG_POLICIES.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button onClick={() => editTarget && updateMut.mutate({ id: editTarget.i_routing_group, body: { name: rgName, policy: rgPolicy } })}
+              disabled={!rgName || updateMut.isPending} data-testid="btn-confirm-edit-rg">
+              {updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirm */}
+      <Dialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Routing Group?</DialogTitle>
+            <DialogDescription>
+              Permanently delete <strong>{deleteTarget?.name}</strong>? This also removes all its members from Sippy.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive"
+              onClick={() => deleteTarget && deleteMut.mutate(deleteTarget.i_routing_group)}
+              disabled={deleteMut.isPending} data-testid="btn-confirm-delete-rg">
+              {deleteMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 // ── Destination Sets Tab ───────────────────────────────────────────────────────
 
+const DS_CURRENCIES = ["USD", "EUR", "GBP", "AED", "SAR", "PKR", "INR", "BDT", "EGP", "TRY"];
+
 function DestinationSetsTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [, navigate] = useLocation();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<DestinationSet | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DestinationSet | null>(null);
+  const [dsName, setDsName] = useState("");
+  const [dsCurrency, setDsCurrency] = useState("USD");
+  const [dsCldTrans, setDsCldTrans] = useState("");
+  const [dsCliTrans, setDsCliTrans] = useState("");
+
   const { data, isLoading } = useQuery<{ sets: DestinationSet[] }>({
     queryKey: ["/api/routing-cache/destination-sets"],
   });
@@ -503,17 +913,68 @@ function DestinationSetsTab() {
     navigate(`/lcr-analyser?prefix=${encodeURIComponent(prefix)}`);
   };
 
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["/api/routing-cache/destination-sets"] });
+    qc.invalidateQueries({ queryKey: ["/api/routing-cache/status"] });
+    apiRequest("POST", "/api/routing-cache/sync").catch(() => {});
+  };
+
+  const createMut = useMutation({
+    mutationFn: (body: object) => apiRequest("POST", "/api/sippy/destination-sets", body),
+    onSuccess: () => {
+      toast({ title: "Destination set created" });
+      setCreateOpen(false); setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans("");
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error creating destination set", description: e.message, variant: "destructive" }),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: object }) => apiRequest("PATCH", `/api/sippy/destination-sets/${id}`, body),
+    onSuccess: () => {
+      toast({ title: "Destination set updated" });
+      setEditTarget(null);
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error updating destination set", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/sippy/destination-sets/${id}`),
+    onSuccess: () => {
+      toast({ title: "Destination set deleted" });
+      setDeleteTarget(null);
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error deleting destination set", description: e.message, variant: "destructive" }),
+  });
+
+  const openEdit = (ds: DestinationSet) => {
+    setEditTarget(ds);
+    setDsName(ds.name);
+    setDsCurrency("USD");
+    setDsCldTrans(ds.cld_translation ?? "");
+    setDsCliTrans(ds.cli_translation ?? "");
+  };
+
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search destination sets…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="pl-9 h-9"
-          data-testid="input-search-ds"
-        />
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search destination sets…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-9 h-9"
+            data-testid="input-search-ds"
+          />
+        </div>
+        <Button size="sm" className="gap-1.5 h-9 shrink-0"
+          onClick={() => { setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans(""); setCreateOpen(true); }}
+          data-testid="btn-create-ds">
+          <Plus className="h-4 w-4" /> New Dest Set
+        </Button>
       </div>
 
       {isLoading ? (
@@ -524,7 +985,7 @@ function DestinationSetsTab() {
       ) : sets.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           <Layers className="h-8 w-8 opacity-30 mx-auto mb-2" />
-          <p className="text-sm">{search ? "No sets match your search" : "No destination sets cached yet"}</p>
+          <p className="text-sm">{search ? "No sets match your search" : "No destination sets yet — create one or Sync Now"}</p>
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -536,43 +997,58 @@ function DestinationSetsTab() {
                 data-testid={`ds-row-${ds.i_destination_set}`}
                 className="rounded-xl border border-border/50 bg-card/60 overflow-hidden"
               >
-                <button
-                  className="w-full flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
-                  onClick={() => setExpandedId(isExpanded ? null : ds.i_destination_set)}
-                  data-testid={`btn-expand-ds-${ds.i_destination_set}`}
-                >
-                  <div className="h-9 w-9 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
-                    <Layers className="h-4 w-4 text-violet-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold truncate">{ds.name}</span>
-                      <span className="text-xs text-muted-foreground font-mono">#{ds.i_destination_set}</span>
+                <div className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors">
+                  <button
+                    className="flex items-center gap-4 flex-1 text-left min-w-0"
+                    onClick={() => setExpandedId(isExpanded ? null : ds.i_destination_set)}
+                    data-testid={`btn-expand-ds-${ds.i_destination_set}`}
+                  >
+                    <div className="h-9 w-9 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
+                      <Layers className="h-4 w-4 text-violet-400" />
                     </div>
-                    <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                      {ds.cld_translation && (
-                        <span className="text-xs text-muted-foreground font-mono">
-                          CLD: <span className="text-cyan-400">{ds.cld_translation}</span>
-                        </span>
-                      )}
-                      {ds.cli_translation && (
-                        <span className="text-xs text-muted-foreground font-mono">
-                          CLI: <span className="text-amber-400">{ds.cli_translation}</span>
-                        </span>
-                      )}
-                      {!ds.cld_translation && !ds.cli_translation && (
-                        <span className="text-xs text-muted-foreground/40">no translation rules</span>
-                      )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold truncate">{ds.name}</span>
+                        <span className="text-xs text-muted-foreground font-mono">#{ds.i_destination_set}</span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                        {ds.cld_translation && (
+                          <span className="text-xs text-muted-foreground font-mono">
+                            CLD: <span className="text-cyan-400">{ds.cld_translation}</span>
+                          </span>
+                        )}
+                        {ds.cli_translation && (
+                          <span className="text-xs text-muted-foreground font-mono">
+                            CLI: <span className="text-amber-400">{ds.cli_translation}</span>
+                          </span>
+                        )}
+                        {!ds.cld_translation && !ds.cli_translation && (
+                          <span className="text-xs text-muted-foreground/40">no translation rules</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-right">
+                    <div className="text-right mr-2">
                       <div className="text-sm font-semibold">{ds.route_count}</div>
                       <div className="text-xs text-muted-foreground">routes</div>
                     </div>
-                    <ChevronRight className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200", isExpanded && "rotate-90")} />
+                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => openEdit(ds)}
+                      className="p-1.5 text-muted-foreground/50 hover:text-foreground rounded transition-colors"
+                      data-testid={`btn-edit-ds-${ds.i_destination_set}`} title="Edit">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => setDeleteTarget(ds)}
+                      className="p-1.5 text-rose-400/50 hover:text-rose-400 rounded transition-colors"
+                      data-testid={`btn-delete-ds-${ds.i_destination_set}`} title="Delete">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                    <ChevronRight
+                      onClick={() => setExpandedId(isExpanded ? null : ds.i_destination_set)}
+                      className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200 cursor-pointer", isExpanded && "rotate-90")}
+                    />
                   </div>
-                </button>
+                </div>
                 {isExpanded && (
                   <div className="border-t border-border/40 bg-muted/10 pb-1">
                     <div className="px-4 py-2 flex items-center gap-2 border-b border-border/20">
@@ -592,6 +1068,108 @@ function DestinationSetsTab() {
           })}
         </div>
       )}
+
+      {/* Create Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Destination Set</DialogTitle>
+            <DialogDescription>Add a new destination set (prefix/route group) to Sippy.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Name *</Label>
+              <Input value={dsName} onChange={e => setDsName(e.target.value)} placeholder="e.g. UK-Mobile" data-testid="input-ds-name" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Currency *</Label>
+              <Select value={dsCurrency} onValueChange={setDsCurrency}>
+                <SelectTrigger data-testid="select-ds-currency"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {DS_CURRENCIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>CLD Translation Rule <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input value={dsCldTrans} onChange={e => setDsCldTrans(e.target.value)} placeholder="e.g. s/^0/44/" data-testid="input-ds-cld" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>CLI Translation Rule <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input value={dsCliTrans} onChange={e => setDsCliTrans(e.target.value)} placeholder="e.g. s/^0/44/" data-testid="input-ds-cli" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={() => createMut.mutate({
+                name: dsName, currency: dsCurrency,
+                ...(dsCldTrans ? { cld_translation: dsCldTrans } : {}),
+                ...(dsCliTrans ? { cli_translation: dsCliTrans } : {}),
+              })}
+              disabled={!dsName || !dsCurrency || createMut.isPending} data-testid="btn-confirm-create-ds">
+              {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Destination Set</DialogTitle>
+            <DialogDescription>Update the name or translation rules for this destination set.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Name *</Label>
+              <Input value={dsName} onChange={e => setDsName(e.target.value)} data-testid="input-ds-name-edit" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>CLD Translation Rule <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input value={dsCldTrans} onChange={e => setDsCldTrans(e.target.value)} placeholder="e.g. s/^0/44/" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>CLI Translation Rule <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input value={dsCliTrans} onChange={e => setDsCliTrans(e.target.value)} placeholder="e.g. s/^0/44/" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button onClick={() => editTarget && updateMut.mutate({
+                id: editTarget.i_destination_set,
+                body: {
+                  name: dsName,
+                  ...(dsCldTrans ? { cld_translation: dsCldTrans } : {}),
+                  ...(dsCliTrans ? { cli_translation: dsCliTrans } : {}),
+                }
+              })}
+              disabled={!dsName || updateMut.isPending} data-testid="btn-confirm-edit-ds">
+              {updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirm */}
+      <Dialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Destination Set?</DialogTitle>
+            <DialogDescription>
+              Permanently delete <strong>{deleteTarget?.name}</strong> and all its routes from Sippy?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive"
+              onClick={() => deleteTarget && deleteMut.mutate(deleteTarget.i_destination_set)}
+              disabled={deleteMut.isPending} data-testid="btn-confirm-delete-ds">
+              {deleteMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
