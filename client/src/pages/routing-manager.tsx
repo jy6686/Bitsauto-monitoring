@@ -2342,9 +2342,23 @@ function ConnectionsTab() {
     onSuccess: async (res: any) => {
       const d = await res.json().catch(() => ({}));
       if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error ?? d.message }); return; }
-      toast({ title: "Vendor created", description: `${vName} added to Sippy.` });
+      const createdName = vName;
+      const createdId   = d.iVendor as number | undefined;
       setVendorOpen(false); setVName(""); setVLogin(""); setVPass(""); setVCurrency("USD");
-      await afterCreate();
+      queryClient.invalidateQueries({ queryKey: ["/api/sippy/vendors"] });
+      afterCreate();
+      // Immediately open Add Connection dialog pre-selected on the new vendor
+      if (createdId) {
+        setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass("");
+        setCCapacity(""); setCEnforceCap(false); setCMaxCps(""); setCBlocked(false);
+        setCCld(""); setCCli(""); setCProxy(""); setCMediaRelay("1");
+        setConnVendorId(createdId);
+        setConnVendorName(createdName);
+        setConnOpen(true);
+        toast({ title: `Vendor "${createdName}" created`, description: "Now add at least one connection to it." });
+      } else {
+        toast({ title: "Vendor created", description: `${createdName} added to Sippy. Use "Add Connection" to add connections to it.` });
+      }
     },
     onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
   });
