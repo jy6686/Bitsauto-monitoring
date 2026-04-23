@@ -3,6 +3,14 @@
 ## Overview
 Full-stack VoIP monitoring dashboard with real-time metrics, alerting, team management, and live softswitch integration. Supports light/dark theme, command palette, API key management, customizable dashboard widgets, and mobile-responsive NOC view.
 
+## Performance Architecture (Sippy Load Reduction)
+- **NOC WebSocket** (`/ws/noc`, `server/noc-ws.ts`): Push-based live data delivery. `snapshotActiveCalls()` broadcasts a `noc_tick` packet to all connected clients when fresh call data is available. Frontend hook `client/src/hooks/use-noc-ws.ts` subscribes and triggers manual refetch — eliminating per-user 15s polling loops.
+- **`/api/sippy/live-calls` cache-first**: Serves from background `liveCallsCache` (< 90s old) instantly without hitting Sippy. Background job owns all Sippy calls; endpoint never makes direct Sippy calls when cache is warm.
+- **Mutex guards**: All polling functions have `isRunning` flags — if a cycle is still in progress when the next timer fires, the new cycle is skipped. Prevents concurrent double-load.
+- **Staggered 5-min jobs**: Traffic detector (T+2.5min) and SLA watcher (T+3.5min) have startup offsets to spread the 5-min thundering herd across the window.
+- **Interval changes**: IP probe 10s→120s, active call snapshot 30s→60s, reachability check 30s→60s, bitseye refetch 60s→5min, balance monitor 2min→5min.
+- **Total estimated reduction**: ~65-70% fewer Sippy XML-RPC calls per day vs baseline.
+
 ## Architecture
 - **Backend**: Express + TypeScript (`server/`)
 - **Frontend**: React + Vite + TailwindCSS (`client/src/`)

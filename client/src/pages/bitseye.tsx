@@ -474,8 +474,8 @@ export default function BitsEyePage() {
         if (!r.ok) throw new Error(await r.text());
         return r.json();
       },
-      staleTime: 20_000,
-      refetchInterval: 60_000,
+      staleTime: 4 * 60_000,
+      refetchInterval: 5 * 60_000,
     });
 
   // KAMs — fetched when needed (country drill-down or KAM views)
@@ -492,8 +492,8 @@ export default function BitsEyePage() {
         return r.json();
       },
       enabled: fetchKams,
-      staleTime: 20_000,
-      refetchInterval: 60_000,
+      staleTime: 4 * 60_000,
+      refetchInterval: 5 * 60_000,
     });
 
   // Destinations — fetched when needed (KAM drill-down, dest views)
@@ -511,8 +511,8 @@ export default function BitsEyePage() {
         return r.json();
       },
       enabled: fetchDests,
-      staleTime: 20_000,
-      refetchInterval: 60_000,
+      staleTime: 4 * 60_000,
+      refetchInterval: 5 * 60_000,
     });
 
   // Clients (all, unfiltered) — for ?view=clients
@@ -572,8 +572,8 @@ export default function BitsEyePage() {
         return r.json();
       },
       enabled: nav.type === 'kam' && !!activeKamId,
-      staleTime: 20_000,
-      refetchInterval: 60_000,
+      staleTime: 4 * 60_000,
+      refetchInterval: 5 * 60_000,
     });
 
   // ── Entity lists ──────────────────────────────────────────────────────────

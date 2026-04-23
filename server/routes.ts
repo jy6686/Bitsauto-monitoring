@@ -15,6 +15,7 @@ import * as waSvc from "./whatsapp";
 import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas, calcVendorFraudStats, detectIrsf } from "./cdr-enrichment";
 import { initSippyWatcher, notifyNewClientTraffic, getWatcherStatus, sendTestWatcherAlert } from "./sippy-watcher";
 import { setupChatWebSocket } from "./chat-ws";
+import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode } from "./dial-lookup";
 import { readFileSync } from "fs";
 import { join as _pathJoin } from "path";
@@ -61,7 +62,10 @@ interface VendorBalanceSnapshot {
 const vendorBalanceHistory: VendorBalanceSnapshot[] = [];
 const VENDOR_BALANCE_HISTORY_MS = 2 * 60 * 60_000; // keep 2 hours
 
+let _vendorBalanceRunning = false;
 async function refreshVendorBalances(): Promise<void> {
+  if (_vendorBalanceRunning) return;
+  _vendorBalanceRunning = true;
   try {
     if (xmlRpcIsBlocked()) return; // skip while circuit is open
     const settings = await storage.getSippySettings();
@@ -81,7 +85,7 @@ async function refreshVendorBalances(): Promise<void> {
     let i = 0;
     while (i < vendorBalanceHistory.length && vendorBalanceHistory[i].timestamp < cutoff) i++;
     if (i > 0) vendorBalanceHistory.splice(0, i);
-  } catch { /* ignore transient errors */ }
+  } catch { /* ignore transient errors */ } finally { _vendorBalanceRunning = false; }
 }
 
 /**
@@ -118,7 +122,10 @@ function vendorCostFromHistory(tStartMs: number, tEndMs: number): number | null 
   return parseFloat(totalCost.toFixed(4));
 }
 
+let _accountCacheRunning = false;
 async function refreshAccountCache(): Promise<void> {
+  if (_accountCacheRunning) return;
+  _accountCacheRunning = true;
   try {
     const settings = await storage.getSippySettings();
     if (!settings) return;
@@ -137,7 +144,7 @@ async function refreshAccountCache(): Promise<void> {
     console.log(`[routes] accountCache refreshed: ${liveAccountIds.length} accounts`);
   } catch (e: any) {
     console.warn('[routes] accountCache refresh failed:', e.message);
-  }
+  } finally { _accountCacheRunning = false; }
 }
 
 // ── Connection → Vendor name cache ────────────────────────────────────────────
@@ -154,7 +161,10 @@ const connectionNameCache: Map<string, string> = new Map();
 // Used to enrich client CDRs with vendor name from CDR.remoteIp.
 const connectionIpCache: Map<string, string> = new Map();
 
+let _connVendorCacheRunning = false;
 async function refreshConnectionVendorCache(): Promise<void> {
+  if (_connVendorCacheRunning) return;
+  _connVendorCacheRunning = true;
   try {
     const settings = await storage.getSippySettings();
     if (!settings) return;
@@ -203,7 +213,7 @@ async function refreshConnectionVendorCache(): Promise<void> {
     console.log(`[routes] connectionVendorCache refreshed: ${connectionVendorCache.size} entries, nameCache: ${connectionNameCache.size} names, ipCache: ${connectionIpCache.size} IPs`);
   } catch (e: any) {
     console.warn('[routes] connectionVendorCache refresh failed:', e.message);
-  }
+  } finally { _connVendorCacheRunning = false; }
 }
 
 // ── Sippy credential helper ────────────────────────────────────────────────────
@@ -572,13 +582,16 @@ export async function registerRoutes(
       console.warn('[ip-probe] error:', e.message);
     }
   }
-  // Run probe immediately on startup, then every 10 seconds
+  // Run probe immediately on startup, then every 120 seconds (was 10s — reduced to ease Sippy load)
   runIpProbe();
-  setInterval(runIpProbe, 10000);
+  setInterval(runIpProbe, 120000);
 
   // === BACKGROUND FAS AUTO-ANALYSIS — runs every 5 minutes ===
   // Fetches recent CDRs and saves FAS events so the dashboard stays fresh automatically.
+  let _fasRunning = false;
   async function runBackgroundFasAnalysis() {
+    if (_fasRunning) return;
+    _fasRunning = true;
     try {
       const settings = await storage.getSettings();
       if (!settings.portalUrl) return; // no Sippy configured yet
@@ -691,7 +704,7 @@ export async function registerRoutes(
       }
     } catch (err: any) {
       console.error('[fas-bg] Background FAS analysis error:', err.message);
-    }
+    } finally { _fasRunning = false; }
   }
 
   // Per-vendor alert cooldown map (in-memory)
@@ -1891,10 +1904,21 @@ export async function registerRoutes(
   // consecutiveZeros: require 2 consecutive empty polls before accepting "0 calls" as real.
   let liveCallsCache: { calls: any[]; ts: number } = { calls: [], ts: 0 };
   let consecutiveZeros = 0;
-  const LIVE_CALLS_STALE_MS = 30_000; // treat cache stale after 30 s
-  const ZERO_CONFIRM_COUNT  = 2;      // require this many consecutive zero polls to accept 0
+  const LIVE_CALLS_STALE_MS    = 30_000; // stale flag for error fallback
+  const LIVE_CALLS_CACHE_MAX   = 90_000; // serve from background cache if fresher than 90 s
+  const ZERO_CONFIRM_COUNT     = 2;      // require this many consecutive zero polls to accept 0
 
   app.get('/api/sippy/live-calls', async (_req, res) => {
+    // ── Fast path: serve from background-job cache if fresh ──────────────────
+    // snapshotActiveCalls() runs every 60s and populates liveCallsCache with
+    // fully-enriched call data. If the cache is < 90s old, skip the Sippy call
+    // entirely — all clients get data instantly with zero Sippy load.
+    const cacheAge = Date.now() - liveCallsCache.ts;
+    if (liveCallsCache.ts > 0 && cacheAge < LIVE_CALLS_CACHE_MAX) {
+      const isStale = cacheAge > LIVE_CALLS_STALE_MS;
+      return res.json({ calls: liveCallsCache.calls, connected: true, stale: isStale, fromCache: true });
+    }
+
     try {
       const settings = await storage.getSettings();
       const portalUrl = sippyPortalUrl(settings);
@@ -1904,11 +1928,6 @@ export async function registerRoutes(
       // wasting 4 seconds on an XML-RPC attempt that will only fail.
       const { username, password } = sippyXmlCreds(settings);
       const circuitOpen = xmlRpcIsBlocked();
-      // XML-RPC is the primary and reliable path (ssp-root works fine).
-      // Portal web-scrape is disabled in background polls — it requires valid
-      // browser-session credentials which may differ from the XML-RPC API
-      // password. Disabling it eliminates login-failure log spam with zero
-      // functional impact since XML-RPC already returns accurate live-call data.
       const raw = await sippy.getSippyActiveCalls(
         circuitOpen ? '' : username,
         circuitOpen ? '' : password,
@@ -2908,7 +2927,10 @@ export async function registerRoutes(
   const cdrCache = new Map<string, Awaited<ReturnType<typeof sippy.getSippyCDRs>>[0]>();
   let cdrCacheUpdatedAt: Date | null = null;
 
+  let _cdrCacheRunning = false;
   async function refreshCdrCache(): Promise<void> {
+    if (_cdrCacheRunning) return;
+    _cdrCacheRunning = true;
     try {
       const settings = await storage.getSettings();
       const credPairs = sippyXmlCredsPairs(settings);
@@ -2953,7 +2975,7 @@ export async function registerRoutes(
       if (added > 0) console.log(`[cdr-cache] +${added} new records, total=${cdrCache.size}`);
     } catch (e: any) {
       console.warn('[cdr-cache] refresh error:', e.message);
-    }
+    } finally { _cdrCacheRunning = false; }
   }
 
   // Delay first CDR cache refresh by 60s so the portal auto-connect session can be
@@ -8885,8 +8907,11 @@ export async function registerRoutes(
     }
   }
 
-  // ── Reachability background poller (every 30 s) ───────────────────────────────
+  // ── Reachability background poller (every 60 s, was 30 s) ────────────────────
+  let _reachabilityRunning = false;
   async function checkReachability(): Promise<void> {
+    if (_reachabilityRunning) return;
+    _reachabilityRunning = true;
     try {
       const settings = await storage.getSippySettings();
       if (!settings?.portalUrl) return;
@@ -8939,7 +8964,7 @@ export async function registerRoutes(
       }
     } catch (e: any) {
       console.warn('[monitoring] checkReachability error:', e.message);
-    }
+    } finally { _reachabilityRunning = false; }
   }
 
   // ── Alert rule firing ────────────────────────────────────────────────────────
@@ -9185,7 +9210,10 @@ export async function registerRoutes(
   });
 
   // ── Per-host background poller (every 60 s) ───────────────────────────────────
+  let _probeAllHostsRunning = false;
   async function probeAllHosts(): Promise<void> {
+    if (_probeAllHostsRunning) return;
+    _probeAllHostsRunning = true;
     try {
       const hosts = await storage.getMonitoredHosts();
       const enabled = hosts.filter(h => h.enabled);
@@ -9231,7 +9259,7 @@ export async function registerRoutes(
       }
     } catch (e: any) {
       console.warn('[host-probe] probeAllHosts error:', e.message);
-    }
+    } finally { _probeAllHostsRunning = false; }
   }
   setTimeout(() => probeAllHosts(), 12000);           // first run 12s after startup
   setInterval(() => probeAllHosts(), 60 * 1000);      // every 60 seconds
@@ -9390,10 +9418,11 @@ export async function registerRoutes(
   setTimeout(() => refreshVendorBalances(), 9000);   // first snapshot ~9 s after boot
   setInterval(() => refreshVendorBalances(), 60_000); // then every 60 s
 
-  // ── Call snapshot background poller (every 30 s) ──────────────────────────
+  // ── Call snapshot background poller (every 60 s) ──────────────────────────
   // Polls live Sippy calls and upserts each into call_snapshots for 24h history.
+  // Interval increased 30s→60s to reduce Sippy load (still ample for live NOC).
   // ── Concurrent-call history buffer (for live graphs) ─────────────────────────
-  // Stores {ts, count, calls[]} every 30s — max 48h of data (5760 points).
+  // Stores {ts, count, calls[]} every 60s — max 48h of data (2880 points).
   const CONCURRENT_HISTORY_HOURS = 48;
   interface ConcurrentPoint {
     ts: number;
@@ -9466,13 +9495,15 @@ export async function registerRoutes(
     }
   }
 
+  let _snapshotRunning = false;
   async function snapshotActiveCalls(): Promise<void> {
+    if (_snapshotRunning) return; // mutex — skip if previous cycle still in progress
+    _snapshotRunning = true;
     try {
       const settings = await storage.getSippySettings();
       if (!settings) return;
       const credPairs = sippyXmlCredsPairs(settings);
       const portalUrl = sippyPortalUrl(settings);
-      const webPassword = settings.adminWebPassword ?? undefined;
       // Try each credential pair — RTST1 first (XML-RPC capable), ssp-root as fallback
       let raw: Awaited<ReturnType<typeof sippy.getSippyActiveCalls>> = [];
       for (const { username, password } of credPairs) {
@@ -9483,13 +9514,53 @@ export async function registerRoutes(
       // Push to concurrent history (even if 0, to track dips)
       pushConcurrentPoint(raw);
 
+      // ── Enrich and cache results so /api/sippy/live-calls can serve from memory ──
+      const ccStateMap: Record<string, 'connected' | 'routing'> = {
+        Connected: 'connected', ARComplete: 'routing', WaitRoute: 'routing',
+        WaitAuth: 'routing', Idle: 'routing',
+      };
+      const TERMINATED = new Set(['Dead', 'Disconnecting', 'Disconnected', 'Released', 'Rejected']);
+      const enrichedCalls = raw
+        .filter(c => !TERMINATED.has(c.status ?? ''))
+        .map(c => {
+          const dialMatch = lookupDialCode(c.callee ?? '');
+          const resolvedVendor = c.vendor
+            || (c.connection ? connectionVendorCache.get(c.connection) : undefined)
+            || (c.iVendorId  ? connectionVendorCache.get(c.iVendorId)  : undefined);
+          const resolvedConnection = c.connection
+            ? (connectionNameCache.get(c.connection) || c.connection)
+            : undefined;
+          return {
+            ...c,
+            clientName:   c.user || accountNameCache.get(c.accountId ?? '') || (c.accountId ? `Acct.${c.accountId}` : undefined),
+            vendor:       resolvedVendor,
+            connection:   resolvedConnection,
+            ccState:      c.status,
+            callStatus:   ccStateMap[c.status ?? ''] ?? (c.status?.toLowerCase().includes('connect') ? 'connected' : 'routing'),
+            destCountry:  dialMatch?.country  ?? null,
+            destBreakout: dialMatch?.breakout ?? null,
+            destFull:     dialMatch?.destination ?? null,
+            trunkClass:   dialMatch?.trunkClass  ?? null,
+            trunkPrefix:  dialMatch?.trunkPrefix ?? null,
+          };
+        });
+
+      // Update liveCallsCache so the API endpoint can serve instantly without hitting Sippy
+      if (enrichedCalls.length > 0) {
+        consecutiveZeros = 0;
+        liveCallsCache = { calls: enrichedCalls, ts: Date.now() };
+      } else {
+        consecutiveZeros++;
+        if (consecutiveZeros >= ZERO_CONFIRM_COUNT) {
+          liveCallsCache = { calls: [], ts: Date.now() };
+        }
+      }
+
+      // ── Persist to DB for history ──────────────────────────────────────────────
       const now = new Date();
       for (const c of raw) {
         if (!c.callId) continue;
         const vendorName = c.vendor || (c.connection ? connectionVendorCache.get(c.connection) : undefined);
-        // Resolve client name: prefer display name from Sippy (c.user), then look up
-        // the account ID in the name cache (handles cases where cache was warm on first run).
-        // Never store a bare numeric ID — keep undefined so it can be re-resolved on read.
         const rawId     = String(c.accountId ?? c.iCustomer ?? '').trim();
         const cachedName = rawId ? accountNameCache.get(rawId) : undefined;
         const clientName = c.user || cachedName || (rawId && !/^\d+$/.test(rawId) ? rawId : undefined);
@@ -9515,13 +9586,21 @@ export async function registerRoutes(
         });
       }
       await storage.cleanupOldSnapshots();
+
+      // ── Push NOC tick to all connected WebSocket clients ────────────────────
+      broadcastNocTick({
+        callCount:  liveCallsCache.calls.length,
+        alertCount: 0,
+        updatedAt:  new Date().toISOString(),
+      });
     } catch (e: any) {
-      // Non-fatal — just log and continue
       console.warn('[snapshot-bg] error:', e.message);
+    } finally {
+      _snapshotRunning = false;
     }
   }
   setTimeout(() => snapshotActiveCalls(), 8000);            // first run at startup
-  setInterval(() => snapshotActiveCalls(), 30 * 1000);      // every 30 seconds
+  setInterval(() => snapshotActiveCalls(), 60 * 1000);      // every 60 seconds (was 30s)
 
   // GET /api/sippy/live-graphs — live concurrent call history + breakdowns
   app.get('/api/sippy/live-graphs', (req: any, res) => {
@@ -10171,13 +10250,13 @@ export async function registerRoutes(
     });
   });
 
-  // ── Reachability poller (every 30 s) ─────────────────────────────────────────
+  // ── Reachability poller (every 60 s, was 30 s) ────────────────────────────────
   // Init state from DB first (restores open outage + closes phantom duplicates)
   setTimeout(async () => {
     await initReachabilityState();
     await checkReachability();
   }, 15000);
-  setInterval(() => checkReachability(), 30 * 1000);
+  setInterval(() => checkReachability(), 60 * 1000);
 
   // ── GEO ENDPOINTS ──────────────────────────────────────────────────────────
 
@@ -10960,8 +11039,12 @@ export async function registerRoutes(
     }
   }
 
-  // Run drop detector every 5 minutes, trend analyzer every 60 minutes
-  setInterval(runTrafficDropDetector, 5 * 60 * 1000);
+  // Run drop detector every 5 minutes (staggered 2.5 min after startup so it doesn't
+  // fire at the same time as FAS/IRSF/CDR — spreads the 5-min thundering herd)
+  setTimeout(() => {
+    runTrafficDropDetector();
+    setInterval(runTrafficDropDetector, 5 * 60 * 1000);
+  }, 150_000); // T+2.5 min
   setInterval(runHourlyTrendAnalyzer, 60 * 60 * 1000);
   // Also run trend analyzer once after 5 min (after initial history builds up)
   setTimeout(runHourlyTrendAnalyzer, 5 * 60 * 1000);
@@ -11022,7 +11105,10 @@ export async function registerRoutes(
   // ══════════════════════════════════════════════════════════════════════════════
 
   // ── IRSF Background Detection Worker ─────────────────────────────────────────
+  let _irsfRunning = false;
   async function runBackgroundIrsfAnalysis() {
+    if (_irsfRunning) return;
+    _irsfRunning = true;
     try {
       const settings = await storage.getSettings();
       if (!settings.portalUrl) return;
@@ -11075,7 +11161,7 @@ export async function registerRoutes(
       if (saved > 0) console.log(`[irsf-bg] Saved ${saved} new IRSF events from ${cdrs.length} CDRs`);
     } catch (err: any) {
       console.error('[irsf-bg] Error:', err.message);
-    }
+    } finally { _irsfRunning = false; }
   }
   setTimeout(() => {
     runBackgroundIrsfAnalysis();
@@ -13930,7 +14016,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   }, 60 * 60 * 1000);
 
   // SLA Breach Watcher — checks vendor stats against thresholds every 5 minutes
-  setInterval(async () => {
+  // Staggered T+3.5 min to avoid the 5-min thundering herd with FAS/IRSF/CDR/Traffic
+  const _slaWatcherFn = async () => {
     try {
       const slaSettings = await storage.getSippySettings().catch(() => null);
       if (!slaSettings?.portalUrl) return;
@@ -14000,7 +14087,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         }
       }
     } catch (e) { console.warn('[sla-watcher] error:', (e as any).message); }
-  }, 5 * 60 * 1000);
+  };
+  setTimeout(() => {
+    _slaWatcherFn();
+    setInterval(_slaWatcherFn, 5 * 60 * 1000);
+  }, 210_000); // T+3.5 min stagger
 
   // Scheduled Reports background job — checks every 15 minutes
   setInterval(async () => {

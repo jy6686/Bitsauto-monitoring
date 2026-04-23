@@ -16,6 +16,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useNocWebSocket } from "@/hooks/use-noc-ws";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -324,22 +325,30 @@ function SwitchPanel({
 
   const isPrimary = switchId === 'primary';
 
+  // NOC WebSocket — server pushes a tick every ~60s when the background poller updates.
+  // This replaces the 15s refetchInterval on live-calls, eliminating per-user Sippy calls.
+  const { lastTick } = useNocWebSocket();
+
   // Primary Sippy: session used only for the "Live" badge — live calls fetch independently
   const { data: primarySippySession } = useQuery<{ active: boolean }>({
     queryKey: ['/api/sippy/session'],
-    refetchInterval: 30000,
+    refetchInterval: 60000,
     enabled: isPrimary,
   });
   const { data: primarySippyLiveCalls, isLoading: sippyLoading, refetch: refetchSippy } = useQuery<{ calls: LiveCall[]; connected?: boolean }>({
     queryKey: ['/api/sippy/live-calls'],
-    refetchInterval: 15000,
     enabled: isPrimary,
+    staleTime: 50_000,
   });
+  // Trigger live-calls refetch whenever the server pushes a NOC tick
+  useEffect(() => {
+    if (lastTick && isPrimary) refetchSippy();
+  }, [lastTick]);
 
-  // Secondary switch: use per-switch endpoints
+  // Secondary switch: use per-switch endpoints (keep polling — no WS for secondary)
   const { data: switchLiveCalls, isLoading: switchLoading, refetch: refetchSwitch } = useQuery<{ calls: LiveCall[]; error?: string }>({
     queryKey: ['/api/switches', switchId, 'live-calls'],
-    refetchInterval: 15000,
+    refetchInterval: 60000,
     enabled: !isPrimary,
     queryFn: () => fetch(`/api/switches/${switchId}/live-calls`).then(r => r.json()),
   });
@@ -358,7 +367,7 @@ function SwitchPanel({
   }>({
     queryKey: ['/api/call-history', historyHours],
     queryFn: () => fetch(`/api/call-history?hours=${historyHours}`).then(r => r.json()),
-    refetchInterval: 30000,
+    refetchInterval: 60000,
   });
 
   interface RouteQuality {

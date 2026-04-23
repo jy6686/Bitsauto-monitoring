@@ -1,0 +1,40 @@
+Based on the full analysis, here's exactly what I recommend implementing — ordered by impact vs risk:
+
+What I'd Implement (Practical Plan)
+Phase 1 — Safe, Immediate Relief (low risk, high impact)
+These are all server-side changes that don't touch any Sippy configuration or break existing functionality:
+
+1. Mutex guards on every polling function
+Add a simple isRunning flag to each background job so if one cycle is still in progress when the timer fires, the new cycle is skipped. Prevents double-load on slow days.
+
+2. Stagger all 5-minute jobs
+Currently 6 jobs fire at the exact same moment. Add staggered delays (0s, 45s, 90s, 135s, 180s, 225s offset) so they spread across the 5-minute window. No logic changes — just timing.
+
+3. Slow down the 10-second IP probe → 120 seconds
+Pure interval change. Zero functional impact — IP addresses don't change every 10 seconds.
+
+4. Deduplicate the three SIP OPTIONS loops
+checkReachability, probeAllHosts, and runSipOptionsProbe all independently send SIP OPTIONS pings to the same hosts. Merge them into one loop that runs every 90 seconds.
+
+5. Active call snapshot: 30s → 60s
+Live call counts don't need to be accurate to 30 seconds. Doubling the interval halves the most expensive recurring XML-RPC call.
+
+Phase 2 — WebSocket Push (medium effort, eliminates frontend polling)
+6. Live data push via WebSocket
+The WebSocket server is already running for internal chat. Add a second channel (/ws/noc) that pushes a small JSON packet (call count, alert count, top metrics) every time the background poller detects a change. Frontend components subscribe once — the 15-second refetchInterval loops in Live Calls and BitsEye pages get removed entirely. With 5 users logged in, this changes the load from "5 × every 15s" to "1 background fetch every 60s, pushed to all clients simultaneously".
+
+What I'm NOT recommending yet
+Thrift API — requires validating that your Sippy version exposes it and needs a new client library
+CDR streaming — requires Sippy-side configuration that I can't do from here
+TimescaleDB — schema migration risk, better saved for a planned maintenance window
+Summary of Expected Reduction
+After Phase 1	Sippy-side load
+Staggered 5-min jobs + mutexes	Eliminates burst peaks completely
+IP probe slowdown	−7,776 XML-RPC calls/day
+Deduplicated SIP OPTIONS	−1,440 calls/day
+30s → 60s call snapshot	−1,440 calls/day
+After Phase 2	Sippy-side load
+WebSocket push (5 users on Live Calls)	Removes ~28,800 frontend-triggered calls/day
+Both phases together can reduce Sippy-facing load by roughly 60–70% without any changes to Sippy itself, without touching the database schema, and without removing any existing features.
+
+Want me to go ahead and implement both phases? I can do Phase 1 and Phase 2 in one pass.

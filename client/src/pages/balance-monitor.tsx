@@ -684,7 +684,7 @@ export default function BalanceMonitorPage() {
 
   const { data, isLoading, error, dataUpdatedAt } = useQuery<BalanceMonitorResponse>({
     queryKey: ["/api/sippy/balance-monitor"],
-    refetchInterval: 2 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   // For viewers: fetch their assigned accounts (via KAM email match) to filter the list

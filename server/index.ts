@@ -5,6 +5,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { runSafeMigrations } from "./db";
 import { startRoutingCacheSync } from "./routing-cache";
+import { setupNocWebSocket } from "./noc-ws";
 import { createServer } from "http";
 
 // ── Global crash guards ───────────────────────────────────────────────────────
@@ -155,6 +156,9 @@ app.use((req, res, next) => {
   await runSafeMigrations();
 
   await registerRoutes(httpServer, app);
+
+  // NOC WebSocket — real-time live-call count push to all dashboard tabs
+  setupNocWebSocket(httpServer);
 
   // Start routing cache background sync (15-min intervals, first sync after 10s)
   startRoutingCacheSync();
