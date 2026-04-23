@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertSettingsSchema } from "@shared/schema";
 import { z } from "zod";
 import { useState, useEffect, useRef } from "react";
-import { useSearch } from "wouter";
+import { useSearch, useLocation, Link } from "wouter";
 import {
   Loader2, Save, RefreshCw, Eye, EyeOff, Globe, CheckCircle2,
   XCircle, ExternalLink, LogIn, LogOut, ShieldCheck, RefreshCcw,
@@ -563,7 +563,9 @@ function EmailAlertPanel() {
                 <p className="font-medium text-foreground/70">Alert types:</p>
                 <p>• Balance below threshold • Credit limit change • Auth rule add/delete</p>
                 <p>• FAS (False Answer Supervision) detected • Wrong/switched-off number repeated</p>
-                <p className="mt-1">Per-client alert emails can be set in the Clients &amp; Vendors section.</p>
+                <p className="mt-1">Per-client alert emails can be set in the{" "}
+                  <Link to="/team?tab=monitoring" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">Clients &amp; Vendors</Link>
+                  {" "}section.</p>
               </div>
             </>
           )}
@@ -964,6 +966,7 @@ interface SippyChangeEventRow {
 function SippyAuditDialog({ open, category, label, onClose }: {
   open: boolean; category: string | null; label: string; onClose: () => void;
 }) {
+  const [, navigate] = useLocation();
   const { data: events = [], isLoading } = useQuery<SippyChangeEventRow[]>({
     queryKey: ['/api/sippy/change-events', category],
     queryFn: async () => {
@@ -973,6 +976,19 @@ function SippyAuditDialog({ open, category, label, onClose }: {
     },
     enabled: open && !!category,
   });
+
+  const deepLinkFor = (ev: SippyChangeEventRow): string | null => {
+    const cat = category ?? '';
+    if (cat === 'routing_groups' || ev.changeType.includes('routing')) return '/routing-manager?tab=routing-groups';
+    if (cat === 'destination_sets' || ev.changeType.includes('destination')) return '/routing-manager?tab=destination-sets';
+    if (cat === 'connections' || ev.changeType.includes('connection')) return '/routing-manager?tab=connections';
+    if (cat === 'accounts' || ev.changeType.includes('account')) return '/clients';
+    if (cat === 'vendors' || ev.changeType.includes('vendor')) return '/routing-manager?tab=connections';
+    if (cat === 'tariffs' || ev.changeType.includes('tariff')) return '/rate-cards';
+    if (ev.clientName) return '/clients';
+    if (ev.vendorName) return `/routing-manager?tab=connections`;
+    return null;
+  };
 
   const changeTypeColor = (t: string) => {
     if (t.endsWith('_added') || t === 'new_traffic') return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
@@ -1029,10 +1045,21 @@ function SippyAuditDialog({ open, category, label, onClose }: {
                   className="border border-border/60 rounded-lg p-3 bg-muted/10 hover:bg-muted/20 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-3 mb-2">
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${changeTypeColor(ev.changeType)}`}>
-                      {changeTypeLabel(ev.changeType)}
-                    </span>
-                    <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${changeTypeColor(ev.changeType)}`}>
+                        {changeTypeLabel(ev.changeType)}
+                      </span>
+                      {deepLinkFor(ev) && (
+                        <button
+                          onClick={() => { onClose(); navigate(deepLinkFor(ev)!); }}
+                          className="text-[10px] text-primary hover:text-primary/70 underline underline-offset-2 transition-colors flex items-center gap-0.5"
+                          data-testid={`btn-audit-deeplink-${ev.id}`}
+                        >
+                          View <ArrowRight className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground font-mono whitespace-nowrap shrink-0">
                       {new Date(ev.detectedAt).toLocaleString()}
                     </span>
                   </div>
@@ -1080,6 +1107,8 @@ function SippyAuditDialog({ open, category, label, onClose }: {
 
 function SippyUsersPanel() {
   const qc = useQueryClient();
+  const { data: settingsData } = useSettings();
+  const portalBase = settingsData?.portalUrl?.replace(/\/$/, '') ?? '';
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState<SippyPortalUser | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -1259,6 +1288,18 @@ function SippyUsersPanel() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {portalBase && (
+                            <a
+                              href={`${portalBase}/main.php?action=admin_detail&iAdmin=${u.userId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1.5 rounded hover:bg-muted/40 text-muted-foreground hover:text-primary transition-colors"
+                              data-testid={`button-open-sippy-user-${i}`}
+                              title="Open in Sippy"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          )}
                           <button
                             type="button"
                             onClick={() => openEdit(u)}
@@ -2620,12 +2661,25 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
-          <div className="p-6">
+          <div className="p-6 space-y-4">
             {hasSavedPortal ? (
-              <SippyConnectPanel
-                username={settings!.portalUsername!}
-                password={settings!.portalPassword!}
-              />
+              <>
+                <SippyConnectPanel
+                  username={settings!.portalUsername!}
+                  password={settings!.portalPassword!}
+                />
+                <div className="pt-1 border-t border-border/40">
+                  <Link
+                    to="/noc?view=live-calls"
+                    className="inline-flex items-center gap-2 text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+                    data-testid="link-view-live-calls"
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                    View Live Calls
+                    <ArrowRight className="w-3 h-3" />
+                  </Link>
+                </div>
+              </>
             ) : (
               <p className="text-sm text-muted-foreground">
                 Enter your Portal URL, username, and password above, then click <strong>Save Changes</strong> to unlock sign-in.

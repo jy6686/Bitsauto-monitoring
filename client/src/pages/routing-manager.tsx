@@ -7,8 +7,9 @@ import {
   Loader2, GitBranch, BarChart3, Eye, Settings2, Construction,
   ArrowRight, Activity, Timer, AlertTriangle, Zap,
   List, Grid3X3, ShieldAlert, XCircle, Shield,
-  Plus, Pencil, Trash2,
+  Plus, Pencil, Trash2, ExternalLink, DollarSign, CreditCard,
 } from "lucide-react";
+import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+
+// ── Helpers ─────────────────────────────────────────────────────────────────────
+
+function approvalToastOpts(data: any, navigate: (to: string) => void) {
+  if (!data?.requiresApproval) return null;
+  return {
+    title: "Submitted for approval",
+    description: `Request #${data.requestId} queued for review.`,
+    action: <ToastAction altText="View request" onClick={() => navigate(`/approvals?id=${data.requestId}`)}>View →</ToastAction>,
+  };
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -208,6 +220,7 @@ function relTime(iso: string | null): string {
 
 function RgMembersPanel({ groupId }: { groupId: number }) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [addOpen, setAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ memberId: number; label: string } | null>(null);
   const [dsId, setDsId] = useState("");
@@ -233,11 +246,8 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
   const addMut = useMutation({
     mutationFn: async (body: object) => (await apiRequest("POST", `/api/sippy/routing-groups/${groupId}/members`, body)).json(),
     onSuccess: (data: any) => {
-      if (data?.requiresApproval) {
-        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
-      } else {
-        toast({ title: "Member added" });
-      }
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Member added" });
       setAddOpen(false); setDsId(""); setConnId(""); setPref("10"); setWeight(""); setActivationDate(""); setExpirationDate("");
       refetch();
     },
@@ -247,11 +257,8 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
   const deleteMut = useMutation({
     mutationFn: async (memberId: number) => (await apiRequest("DELETE", `/api/sippy/routing-groups/${groupId}/members/${memberId}`)).json(),
     onSuccess: (data: any) => {
-      if (data?.requiresApproval) {
-        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
-      } else {
-        toast({ title: "Member removed" });
-      }
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Member removed" });
       setDeleteTarget(null);
       refetch();
     },
@@ -435,6 +442,7 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
 
 function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: string) => void }) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [addOpen, setAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [prefix, setPrefix] = useState("");
@@ -454,11 +462,8 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
   const addMut = useMutation({
     mutationFn: async (body: object) => (await apiRequest("POST", `/api/sippy/destination-sets/${dsId}/routes`, body)).json(),
     onSuccess: (data: any) => {
-      if (data?.requiresApproval) {
-        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
-      } else {
-        toast({ title: "Route added" });
-      }
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Route added" });
       setAddOpen(false); setPrefix(""); setRoutePref(""); setRouteHuntstop(false); setRouteTimeout(""); setRoutePrice1(""); setRoutePriceN(""); setRouteInterval1(""); setRouteIntervalN(""); setRouteForbidden(false);
       refetch();
     },
@@ -468,11 +473,8 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
   const deleteMut = useMutation({
     mutationFn: async (p: string) => (await apiRequest("DELETE", `/api/sippy/destination-sets/${dsId}/routes/${encodeURIComponent(p)}`)).json(),
     onSuccess: (data: any) => {
-      if (data?.requiresApproval) {
-        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
-      } else {
-        toast({ title: "Route deleted" });
-      }
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Route deleted" });
       setDeleteTarget(null);
       refetch();
     },
@@ -546,6 +548,14 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
                           Run LCR <ArrowRight className="h-2.5 w-2.5" />
                         </button>
                       )}
+                      <button
+                        data-testid={`btn-rate-cards-${r.prefix}`}
+                        onClick={() => navigate(`/rate-cards?prefix=${encodeURIComponent(r.prefix)}`)}
+                        className="text-[10px] font-semibold text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-0.5"
+                        title="View in Rate Cards"
+                      >
+                        <CreditCard className="h-2.5 w-2.5" /> Rates
+                      </button>
                       <button
                         data-testid={`btn-delete-route-${r.prefix}`}
                         onClick={() => setDeleteTarget(r.prefix)}
@@ -1000,6 +1010,7 @@ function RgForm({
 function RoutingGroupsTab() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -1041,11 +1052,8 @@ function RoutingGroupsTab() {
   const createMut = useMutation({
     mutationFn: async (body: object) => (await apiRequest("POST", "/api/sippy/routing-groups", body)).json(),
     onSuccess: (data: any) => {
-      if (data?.requiresApproval) {
-        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
-      } else {
-        toast({ title: "Routing group created" });
-      }
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Routing group created" });
       setCreateOpen(false); resetRgForm();
       setTimeout(invalidate, 1000);
     },
@@ -1055,11 +1063,8 @@ function RoutingGroupsTab() {
   const updateMut = useMutation({
     mutationFn: async ({ id, body }: { id: number; body: object }) => (await apiRequest("PUT", `/api/sippy/routing-groups/${id}`, body)).json(),
     onSuccess: (data: any) => {
-      if (data?.requiresApproval) {
-        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
-      } else {
-        toast({ title: "Routing group updated" });
-      }
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Routing group updated" });
       setEditTarget(null);
       setTimeout(invalidate, 1000);
     },
@@ -1069,11 +1074,8 @@ function RoutingGroupsTab() {
   const deleteMut = useMutation({
     mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/sippy/routing-groups/${id}`)).json(),
     onSuccess: (data: any) => {
-      if (data?.requiresApproval) {
-        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
-      } else {
-        toast({ title: "Routing group deleted" });
-      }
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Routing group deleted" });
       setDeleteTarget(null);
       setTimeout(invalidate, 1000);
     },
@@ -1176,6 +1178,12 @@ function RoutingGroupsTab() {
                     </div>
                   </button>
                   <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => navigate(`/lcr-analyser?rg=${rg.i_routing_group}`)}
+                      className="p-1.5 text-muted-foreground/50 hover:text-violet-400 rounded transition-colors"
+                      data-testid={`btn-analyse-rg-${rg.i_routing_group}`} title="Analyse in LCR">
+                      <BarChart3 className="h-3.5 w-3.5" />
+                    </button>
                     <button onClick={() => openEdit(rg)}
                       className="p-1.5 text-muted-foreground/50 hover:text-foreground rounded transition-colors"
                       data-testid={`btn-edit-rg-${rg.i_routing_group}`} title="Edit">
@@ -1533,11 +1541,8 @@ function DestinationSetsTab() {
   const createMut = useMutation({
     mutationFn: async (body: object) => (await apiRequest("POST", "/api/sippy/destination-sets", body)).json(),
     onSuccess: (data: any) => {
-      if (data?.requiresApproval) {
-        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
-      } else {
-        toast({ title: "Destination set created" });
-      }
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Destination set created" });
       setCreateOpen(false); setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans(""); setDsDescription(""); setDsConnectFee(""); setDsFreeSeconds(""); setDsGracePeriod(""); setDsPostCallSurcharge(""); setDsLocalCallingEnabled(false); setDsCliValidationRule(""); setDsRemoteMgmtType("disabled"); setDsRemoteMgmtKey("");
       setTimeout(invalidate, 1000);
     },
@@ -1547,11 +1552,8 @@ function DestinationSetsTab() {
   const updateMut = useMutation({
     mutationFn: async ({ id, body }: { id: number; body: object }) => (await apiRequest("PATCH", `/api/sippy/destination-sets/${id}`, body)).json(),
     onSuccess: (data: any) => {
-      if (data?.requiresApproval) {
-        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
-      } else {
-        toast({ title: "Destination set updated" });
-      }
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Destination set updated" });
       setEditTarget(null);
       setTimeout(invalidate, 1000);
     },
@@ -1561,11 +1563,8 @@ function DestinationSetsTab() {
   const deleteMut = useMutation({
     mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/sippy/destination-sets/${id}`)).json(),
     onSuccess: (data: any) => {
-      if (data?.requiresApproval) {
-        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
-      } else {
-        toast({ title: "Destination set deleted" });
-      }
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Destination set deleted" });
       setDeleteTarget(null);
       setTimeout(invalidate, 1000);
     },
@@ -2159,6 +2158,7 @@ function CoverageMapView() {
 // ── Connections Tab ────────────────────────────────────────────────────────────
 
 function ConnectionsTab() {
+  const [, navigate] = useLocation();
   const [viewMode, setViewMode] = useState<'list' | 'coverage'>('list');
   const [search, setSearch] = useState("");
   const [showBlocked, setShowBlocked] = useState(true);
@@ -2286,6 +2286,24 @@ function ConnectionsTab() {
                   {conn.protocol && (
                     <span className="text-xs text-muted-foreground/60 font-mono shrink-0">{conn.protocol}</span>
                   )}
+                  <div className="flex items-center gap-1 shrink-0 ml-auto">
+                    <button
+                      data-testid={`btn-billing-conn-${conn.i_connection}`}
+                      onClick={() => navigate(`/billing?connection=${conn.i_connection}`)}
+                      className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400/70 hover:text-emerald-400 transition-colors px-1.5 py-0.5 rounded"
+                      title="View Billing"
+                    >
+                      <DollarSign className="h-3 w-3" />
+                    </button>
+                    <button
+                      data-testid={`btn-fraud-conn-${conn.i_connection}`}
+                      onClick={() => navigate(`/fraud?connection=${conn.i_connection}`)}
+                      className="flex items-center gap-1 text-[10px] font-semibold text-amber-400/70 hover:text-amber-400 transition-colors px-1.5 py-0.5 rounded"
+                      title="Fraud Check"
+                    >
+                      <AlertTriangle className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -2356,6 +2374,7 @@ const QBR_WINDOWS = [
 ];
 
 function QbrTab() {
+  const [, navigate] = useLocation();
   const [hours, setHours] = useState(24);
 
   const { data, isLoading, refetch, isFetching } = useQuery<QbrData>({
@@ -2416,7 +2435,7 @@ function QbrTab() {
           {/* ── KPI Cards ─────────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {/* ASR */}
-            <div className="bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2" data-testid="card-qbr-asr">
+            <button onClick={() => navigate('/noc')} className="text-left bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-primary/40 hover:bg-muted/50 transition-colors cursor-pointer" data-testid="card-qbr-asr">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Network ASR</span>
                 <Activity className="h-3.5 w-3.5 text-muted-foreground/50" />
@@ -2428,10 +2447,10 @@ function QbrTab() {
                 <div className={cn("h-full rounded-full", asrBar(s!.asr))} style={{ width: `${Math.min(s!.asr, 100)}%` }} />
               </div>
               <p className="text-[10px] text-muted-foreground">{s!.answeredCalls.toLocaleString()} / {s!.totalCalls.toLocaleString()} answered</p>
-            </div>
+            </button>
 
             {/* ACD */}
-            <div className="bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2" data-testid="card-qbr-acd">
+            <button onClick={() => navigate('/analytics')} className="text-left bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-primary/40 hover:bg-muted/50 transition-colors cursor-pointer" data-testid="card-qbr-acd">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Avg ACD</span>
                 <Clock className="h-3.5 w-3.5 text-muted-foreground/50" />
@@ -2443,10 +2462,10 @@ function QbrTab() {
                 <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(s!.acd / 120 * 100, 100)}%` }} />
               </div>
               <p className="text-[10px] text-muted-foreground">average call duration (answered)</p>
-            </div>
+            </button>
 
             {/* PDD */}
-            <div className="bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2" data-testid="card-qbr-pdd">
+            <button onClick={() => navigate('/analytics')} className="text-left bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-primary/40 hover:bg-muted/50 transition-colors cursor-pointer" data-testid="card-qbr-pdd">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Avg PDD</span>
                 <Timer className="h-3.5 w-3.5 text-muted-foreground/50" />
@@ -2467,10 +2486,10 @@ function QbrTab() {
                 />
               </div>
               <p className="text-[10px] text-muted-foreground">post-dial delay (lower is better)</p>
-            </div>
+            </button>
 
             {/* Routes status */}
-            <div className="bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2" data-testid="card-qbr-routes">
+            <button onClick={() => navigate('/routing-manager?tab=connections')} className="text-left bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-primary/40 hover:bg-muted/50 transition-colors cursor-pointer" data-testid="card-qbr-routes">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Routes</span>
                 <Zap className="h-3.5 w-3.5 text-muted-foreground/50" />
@@ -2490,7 +2509,7 @@ function QbrTab() {
                 />
               </div>
               <p className="text-[10px] text-muted-foreground">{s!.totalCalls.toLocaleString()} calls in window</p>
-            </div>
+            </button>
           </div>
 
           {/* ── Alert banner ──────────────────────────────────────────────────── */}
@@ -2537,8 +2556,9 @@ function QbrTab() {
                   <div
                     key={v.vendor}
                     data-testid={`row-qbr-${i}`}
-                    className="hidden md:grid px-4 py-3 gap-3 items-center hover:bg-muted/20 transition-colors"
+                    className="hidden md:grid px-4 py-3 gap-3 items-center hover:bg-muted/20 transition-colors cursor-pointer"
                     style={{ gridTemplateColumns: '28px 1fr 70px 90px 130px 72px 80px 120px 90px' }}
+                    onClick={() => navigate(`/lcr-analyser?vendor=${encodeURIComponent(v.vendor)}`)}
                   >
                     {/* Rank */}
                     <span className="text-xs text-muted-foreground tabular-nums font-mono">{i + 1}</span>
@@ -2614,8 +2634,9 @@ function QbrTab() {
                 {data.vendors.map((v, i) => (
                   <div
                     key={`m-${v.vendor}`}
-                    className="md:hidden px-4 py-3 space-y-2"
+                    className="md:hidden px-4 py-3 space-y-2 cursor-pointer hover:bg-muted/20 transition-colors"
                     data-testid={`card-qbr-mobile-${i}`}
+                    onClick={() => navigate(`/lcr-analyser?vendor=${encodeURIComponent(v.vendor)}`)}
                   >
                     <div className="flex items-start justify-between">
                       <div>
