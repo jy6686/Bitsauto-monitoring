@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearch, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Route, RefreshCw, Database, Server, Network, CheckCircle2,
   AlertCircle, Clock, Layers, Wifi, ChevronRight, Search, Filter,
-  Loader2, GitBranch,
+  Loader2, GitBranch, BarChart3, Eye, Settings2, Construction,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -390,18 +391,49 @@ function ConnectionsTab() {
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
-type TabId = "routing-groups" | "destination-sets" | "connections";
+type TabId = "routing-groups" | "destination-sets" | "connections" | "qbr" | "on-net" | "policy-sim";
 
-const TABS: { id: TabId; label: string; icon: typeof Route; countKey: keyof CacheMeta }[] = [
-  { id: "routing-groups",  label: "Routing Groups",   icon: GitBranch, countKey: "rg_count"   },
-  { id: "destination-sets",label: "Destination Sets", icon: Layers,    countKey: "ds_count"   },
-  { id: "connections",     label: "Connections",      icon: Wifi,      countKey: "conn_count" },
+const VALID_TABS = new Set<TabId>(["routing-groups","destination-sets","connections","qbr","on-net","policy-sim"]);
+
+const TABS: { id: TabId; label: string; icon: typeof Route; countKey?: keyof CacheMeta }[] = [
+  { id: "routing-groups",  label: "Routing Groups",   icon: GitBranch,  countKey: "rg_count"   },
+  { id: "destination-sets",label: "Destination Sets", icon: Layers,     countKey: "ds_count"   },
+  { id: "connections",     label: "Connections",      icon: Wifi,       countKey: "conn_count" },
+  { id: "qbr",             label: "QBR Dashboard",    icon: BarChart3                          },
+  { id: "on-net",          label: "On-Net Viewer",    icon: Eye                                },
+  { id: "policy-sim",      label: "Policy Simulator", icon: Settings2                          },
 ];
+
+function PlaceholderTab({ title, description }: { title: string; description: string; icon?: typeof Construction }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
+      <div className="bg-muted/40 p-5 rounded-2xl border border-border/40">
+        <Construction className="h-10 w-10 text-muted-foreground/50" />
+      </div>
+      <div>
+        <p className="text-base font-semibold">{title}</p>
+        <p className="text-sm text-muted-foreground mt-1 max-w-sm">{description}</p>
+      </div>
+      <Badge variant="outline" className="text-xs text-amber-400 border-amber-500/30 bg-amber-500/10">Coming Soon</Badge>
+    </div>
+  );
+}
 
 export default function RoutingManagerPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<TabId>("routing-groups");
+  const rawSearch = useSearch();
+
+  const tabFromUrl = (new URLSearchParams(rawSearch ?? "")).get("tab") as TabId | null;
+  const [activeTab, setActiveTab] = useState<TabId>(
+    tabFromUrl && VALID_TABS.has(tabFromUrl) ? tabFromUrl : "routing-groups"
+  );
+
+  // Sync tab when URL changes (sidebar link clicked)
+  useEffect(() => {
+    const t = (new URLSearchParams(rawSearch ?? "")).get("tab") as TabId | null;
+    if (t && VALID_TABS.has(t)) setActiveTab(t);
+  }, [rawSearch]);
 
   const { data: meta, isLoading: metaLoading } = useQuery<CacheMeta>({
     queryKey: ["/api/routing-cache/status"],
@@ -461,7 +493,7 @@ export default function RoutingManagerPage() {
       {/* Tab bar */}
       <div className="flex gap-1 bg-muted/40 rounded-xl p-1 w-fit">
         {TABS.map(t => {
-          const count = meta?.[t.countKey] ?? 0;
+          const count = t.countKey ? (meta?.[t.countKey] ?? 0) : 0;
           return (
             <button
               key={t.id}
@@ -491,6 +523,9 @@ export default function RoutingManagerPage() {
       {activeTab === "routing-groups"   && <RoutingGroupsTab />}
       {activeTab === "destination-sets" && <DestinationSetsTab />}
       {activeTab === "connections"      && <ConnectionsTab />}
+      {activeTab === "qbr"       && <PlaceholderTab title="QBR Dashboard" description="Quarterly Business Review dashboard with per-customer traffic summaries, trend graphs, and exportable report cards. Coming in next release." />}
+      {activeTab === "on-net"    && <PlaceholderTab title="On-Net Routing Viewer" description="Visualise all on-net routing groups and their member connections, overlaid on a live traffic heatmap." />}
+      {activeTab === "policy-sim"&& <PlaceholderTab title="Routing Policy Simulator" description="Simulate LCR, prefix-priority, and weighted routing decisions against a test call leg before committing changes to the switch." />}
     </div>
   );
 }

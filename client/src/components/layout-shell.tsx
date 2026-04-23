@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
@@ -124,12 +124,31 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Operations',
     roles: ['admin','management'],
     items: [
-      { href: "/dids",                label: "DID Management",     icon: PhoneIncoming, roles: ['admin','management'] },
-      { href: "/traffic-map",         label: "Traffic Map",        icon: Globe,         roles: ['admin','management'] },
-      { href: "/multi-switch",        label: "Multi-Switch View",  icon: Layers,        roles: ['admin','management'] },
-      { href: "/test-call",           label: "Test Call",          icon: PhoneCall,     roles: ['admin','management'] },
-      { href: "/call-flow-simulator", label: "Call Flow Sim.",     icon: Workflow,      roles: ['admin','management'] },
-      { href: "/test-campaigns",      label: "Test Campaigns",     icon: FlaskConical,  roles: ['admin','management'] },
+      { href: "/dids",           label: "DID Management",    icon: PhoneIncoming, roles: ['admin','management'] },
+      { href: "/traffic-map",    label: "Traffic Map",       icon: Globe,         roles: ['admin','management'] },
+      { href: "/multi-switch",   label: "Multi-Switch View", icon: Layers,        roles: ['admin','management'] },
+      { href: "/test-call",      label: "Test Call",         icon: PhoneCall,     roles: ['admin','management'] },
+      { href: "/test-campaigns", label: "Test Campaigns",    icon: FlaskConical,  roles: ['admin','management'] },
+    ],
+  },
+  {
+    key: 'routing',
+    label: 'Routing',
+    roles: ['admin','management'],
+    items: [
+      { href: "/lcr-analyser",       label: "LCR Analyser",           icon: GitBranch,  roles: ['admin','management'] },
+      { href: "/call-flow-simulator",label: "Call Flow Simulator",    icon: Workflow,   roles: ['admin','management'] },
+      { href: "/call-flow-simulator",label: "Routing Audit Trail",    icon: History,    roles: ['admin','management'] },
+      { href: "/tools?tab=route-tester",       label: "Route Tester",           icon: Route,      roles: ['admin','management'] },
+      { href: "/tools?tab=translation-tester", label: "Translation Tester",     icon: ArrowRightLeft, roles: ['admin','management'] },
+      { href: "/routing-manager?tab=routing-groups",   label: "Routing Group Manager",   icon: Database,    roles: ['admin','management'] },
+      { href: "/routing-manager?tab=destination-sets", label: "Destination Set Explorer", icon: Layers,      roles: ['admin','management'] },
+      { href: "/routing-manager?tab=connections",      label: "Connection Coverage Map",  icon: Network,     roles: ['admin','management'] },
+      { href: "/routing-manager?tab=qbr",              label: "QBR Dashboard",            icon: ShieldCheck, roles: ['admin','management'] },
+      { href: "/routing-manager?tab=on-net",           label: "On-Net Routing Viewer",    icon: Wifi,        roles: ['admin','management'] },
+      { href: "/routing-manager?tab=policy-sim",       label: "Routing Policy Simulator", icon: Calculator,  roles: ['admin','management'] },
+      { href: "/tools?tab=route-tester", label: "Prefix Coverage Checker", icon: Search, roles: ['admin','management'] },
+      { href: "/rate-cards",         label: "Bulk Rate / Route Upload",icon: Upload,    roles: ['admin','management'] },
     ],
   },
   {
@@ -137,13 +156,12 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Analytics & Reports',
     roles: ['admin','management'],
     items: [
-      { href: "/graphs",       label: "Graphs",            icon: LineChart,  roles: ['admin','management']                                 },
-      { href: "/bitseye",      label: "BitsEye",           icon: Eye,        roles: ['admin','management'], hasSubmenu: 'bitseye'          },
-      { href: "/reports",      label: "Reports",           icon: BarChart2,  roles: ['admin','management']                                 },
-      { href: "/cdrs",         label: "CDR Viewer",        icon: FileText,   roles: ['admin','management'], hasSubmenu: 'cdr'             },
-      { href: "/analytics",    label: "Revenue Analytics", icon: TrendingUp, roles: ['admin','management']                                 },
-      { href: "/lcr-analyser", label: "LCR Analyser",      icon: GitBranch,  roles: ['admin','management']                                 },
-      { href: "/qos-heatmap",  label: "QoS Heatmap",       icon: Activity,   roles: ['admin','management']                                 },
+      { href: "/graphs",      label: "Graphs",            icon: LineChart,  roles: ['admin','management']                        },
+      { href: "/bitseye",     label: "BitsEye",           icon: Eye,        roles: ['admin','management'], hasSubmenu: 'bitseye' },
+      { href: "/reports",     label: "Reports",           icon: BarChart2,  roles: ['admin','management']                        },
+      { href: "/cdrs",        label: "CDR Viewer",        icon: FileText,   roles: ['admin','management'], hasSubmenu: 'cdr'     },
+      { href: "/analytics",   label: "Revenue Analytics", icon: TrendingUp, roles: ['admin','management']                        },
+      { href: "/qos-heatmap", label: "QoS Heatmap",       icon: Activity,   roles: ['admin','management']                        },
     ],
   },
   {
@@ -159,10 +177,10 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Finance',
     roles: ['admin','management'],
     items: [
-      { href: "/balance",           label: "Balance Monitor",   icon: Wallet,    roles: ['admin','management']                                 },
-      { href: "/rate-cards",        label: "Rate Cards",        icon: CreditCard,roles: ['admin','management'], hasSubmenu: 'ratecards'       },
-      { href: "/cost-optimisation", label: "Cost Optimisation", icon: Lightbulb, roles: ['admin','management']                                 },
-      { href: "/billing-disputes",  label: "Billing Disputes",  icon: FileText,  roles: ['admin','management']                                 },
+      { href: "/balance",           label: "Balance Monitor",   icon: Wallet,    roles: ['admin','management']                          },
+      { href: "/rate-cards",        label: "Rate Cards",        icon: CreditCard,roles: ['admin','management'], hasSubmenu: 'ratecards' },
+      { href: "/cost-optimisation", label: "Cost Optimisation", icon: Lightbulb, roles: ['admin','management']                          },
+      { href: "/billing-disputes",  label: "Billing Disputes",  icon: FileText,  roles: ['admin','management']                          },
     ],
   },
   {
@@ -172,8 +190,8 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     items: [
       { href: "/fraud",                label: "Fraud / FAS",  icon: ShieldAlert, roles: ['admin','management'] },
       { href: "/vendor-sla-scorecard", label: "Vendor SLA",   icon: ShieldCheck, roles: ['admin','management'] },
-      { href: "/sla-breaches",         label: "SLA Breaches", icon: Bell,         roles: ['admin','management'] },
-      { href: "/firewall",             label: "Firewall Mgr", icon: Shield,       roles: ['admin','management'] },
+      { href: "/sla-breaches",         label: "SLA Breaches", icon: Bell,        roles: ['admin','management'] },
+      { href: "/firewall",             label: "Firewall Mgr", icon: Shield,      roles: ['admin','management'] },
     ],
   },
   {
@@ -196,8 +214,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/account-names",   label: "Account Names",   icon: Building2,     roles: ['admin']                        },
       { href: "/api-keys",        label: "API Keys",        icon: Key,           roles: ['admin']                        },
       { href: "/vpn-config",      label: "VPN Config",      icon: Lock,          roles: ['admin']                        },
-      { href: "/email-centre",      label: "Email Centre",      icon: Mail,     roles: ['admin']                        },
-      { href: "/routing-manager",   label: "Routing Cache",     icon: Database, roles: ['admin', 'management']          },
+      { href: "/email-centre",    label: "Email Centre",    icon: Mail,          roles: ['admin']                        },
     ],
   },
 ];
@@ -314,9 +331,20 @@ export function LayoutShell({ children }: LayoutShellProps) {
     isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
   );
 
+  // Compute active state for a nav item — supports ?param=value matching
+  const isNavItemActive = (href: string): boolean => {
+    if (href === '/') return location === '/';
+    const [hrefPath, hrefQuery] = href.split('?');
+    if (!location.startsWith(hrefPath)) return false;
+    if (!hrefQuery) return true;
+    const hrefParams = new URLSearchParams(hrefQuery);
+    const curParams  = new URLSearchParams(search);
+    return [...hrefParams.entries()].every(([k, v]) => curParams.get(k) === v);
+  };
+
   // Render a single nav item with any applicable submenu (desktop expanded mode)
   const renderNavItem = (item: NavItem) => {
-    const isActive = item.href === '/' ? location === '/' : location.startsWith(item.href);
+    const isActive = isNavItemActive(item.href);
 
     /* ── Live Calls submenu ── */
     if (item.hasSubmenu === 'calls') {
@@ -646,7 +674,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
           {/* ── COLLAPSED: flat icon list ── */}
           {collapsed && allFlatItems.filter(isItemVisible).map(item => {
-            const isActive = item.href === '/' ? location === '/' : location.startsWith(item.href);
+            const isActive = isNavItemActive(item.href);
             return (
               <Link key={item.href} href={item.href} title={item.label} className={navItemClass(isActive)}>
                 <item.icon className={navIconClass(isActive)} />
@@ -675,9 +703,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
                 const visibleItems = group.items.filter(isItemVisible);
                 if (visibleItems.length === 0) return null;
                 const isOpen = isGroupOpen(group.key);
-                const isGroupActive = visibleItems.some(item =>
-                  item.href === '/' ? location === '/' : location.startsWith(item.href)
-                );
+                const isGroupActive = visibleItems.some(item => isNavItemActive(item.href));
 
                 return (
                   <div key={group.key} className="mt-3">
