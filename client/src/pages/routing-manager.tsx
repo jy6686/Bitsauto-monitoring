@@ -2265,14 +2265,95 @@ function CoverageMapView() {
 
 // ── Connections Tab ────────────────────────────────────────────────────────────
 
+type SippyVendorItem = { iVendor: number; name: string };
+
 function ConnectionsTab() {
   const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<'list' | 'coverage'>('list');
   const [search, setSearch] = useState("");
   const [showBlocked, setShowBlocked] = useState(true);
+
+  // ── Add Vendor dialog state ──
+  const [vendorOpen, setVendorOpen] = useState(false);
+  const [vName,     setVName]     = useState("");
+  const [vLogin,    setVLogin]    = useState("");
+  const [vPass,     setVPass]     = useState("");
+  const [vCurrency, setVCurrency] = useState("USD");
+
+  // ── Add Connection dialog state ──
+  const [connOpen,       setConnOpen]       = useState(false);
+  const [connVendorId,   setConnVendorId]   = useState<number | null>(null);
+  const [connVendorName, setConnVendorName] = useState("");
+  const [cName,          setCName]          = useState("");
+  const [cProto,         setCProto]         = useState("SIP");
+  const [cDest,          setCDest]          = useState("");
+  const [cUser,          setCUser]          = useState("");
+  const [cPass,          setCPass]          = useState("");
+  const [cCapacity,      setCCapacity]      = useState("");
+  const [cEnforceCap,    setCEnforceCap]    = useState(false);
+  const [cMaxCps,        setCMaxCps]        = useState("");
+  const [cBlocked,       setCBlocked]       = useState(false);
+  const [cCld,           setCCld]           = useState("");
+  const [cCli,           setCCli]           = useState("");
+  const [cProxy,         setCProxy]         = useState("");
+  const [cMediaRelay,    setCMediaRelay]    = useState("1");
+
   const { data, isLoading } = useQuery<{ connections: Connection[] }>({
     queryKey: ["/api/routing-cache/connections"],
   });
+
+  // Vendor list for connection dialog dropdown (only loaded when needed)
+  const { data: vendorsData } = useQuery<{ vendors: SippyVendorItem[] }>({
+    queryKey: ["/api/sippy/vendors"],
+    enabled: connOpen && connVendorId === null,
+    select: (d: any) => ({
+      vendors: (d.vendors ?? []).map((v: any) => ({ iVendor: v.iVendor ?? v.i_vendor, name: v.name }))
+    }),
+  });
+
+  const afterCreate = async () => {
+    try { await apiRequest("POST", "/api/routing-cache/sync"); } catch { /* best-effort */ }
+    queryClient.invalidateQueries({ queryKey: ["/api/routing-cache/connections"] });
+  };
+
+  const addVendorMut = useMutation({
+    mutationFn: (body: object) => apiRequest("POST", "/api/sippy/vendors", body),
+    onSuccess: async (res: any) => {
+      const d = await res.json().catch(() => ({}));
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error ?? d.message }); return; }
+      toast({ title: "Vendor created", description: `${vName} added to Sippy.` });
+      setVendorOpen(false); setVName(""); setVLogin(""); setVPass(""); setVCurrency("USD");
+      await afterCreate();
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const addConnMut = useMutation({
+    mutationFn: ({ vendorId, body }: { vendorId: number; body: object }) =>
+      apiRequest("POST", `/api/sippy/vendors/${vendorId}/connections`, body),
+    onSuccess: async (res: any) => {
+      const d = await res.json().catch(() => ({}));
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error ?? d.message }); return; }
+      toast({ title: "Connection created", description: `${cName} added to Sippy.` });
+      setConnOpen(false);
+      setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass("");
+      setCCapacity(""); setCEnforceCap(false); setCMaxCps(""); setCBlocked(false);
+      setCCld(""); setCCli(""); setCProxy(""); setCMediaRelay("1");
+      await afterCreate();
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const openAddConn = (vendorId: number, vendorName: string) => {
+    setConnVendorId(vendorId); setConnVendorName(vendorName);
+    setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass("");
+    setCCapacity(""); setCEnforceCap(false); setCMaxCps(""); setCBlocked(false);
+    setCCld(""); setCCli(""); setCProxy(""); setCMediaRelay("1");
+    setConnOpen(true);
+  };
+
   const connections = (data?.connections ?? []).filter(c => {
     if (!showBlocked && c.blocked) return false;
     return !search || c.name.toLowerCase().includes(search.toLowerCase()) || (c.vendor_name ?? "").toLowerCase().includes(search.toLowerCase());
@@ -2343,6 +2424,28 @@ function ConnectionsTab() {
             </Button>
           </>
         )}
+
+        <div className="flex gap-2 ml-auto shrink-0">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => { setConnVendorId(null); setConnVendorName(""); setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass(""); setCCapacity(""); setCEnforceCap(false); setCMaxCps(""); setCBlocked(false); setCCld(""); setCCli(""); setCProxy(""); setCMediaRelay("1"); setConnOpen(true); }}
+            className="gap-1.5 h-9 text-xs"
+            data-testid="btn-add-connection"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Connection
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => { setVName(""); setVLogin(""); setVPass(""); setVCurrency("USD"); setVendorOpen(true); }}
+            className="gap-1.5 h-9 text-xs"
+            data-testid="btn-add-vendor"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Vendor
+          </Button>
+        </div>
       </div>
 
       {/* Coverage Map view */}
@@ -2357,67 +2460,264 @@ function ConnectionsTab() {
       ) : Object.keys(byVendor).length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           <Network className="h-8 w-8 opacity-30 mx-auto mb-2" />
-          <p className="text-sm">{search ? "No connections match your search" : "No connections cached yet"}</p>
+          <p className="text-sm">{search ? "No connections match your search" : "No connections cached yet — use Add Vendor to get started."}</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {Object.entries(byVendor).map(([vendor, conns]) => (
-            <div key={vendor} className="space-y-1.5">
-              <div className="flex items-center gap-2 px-1">
-                <Server className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{vendor}</span>
-                <span className="text-xs text-muted-foreground/50">({conns.length})</span>
-              </div>
-              {conns.map(conn => (
-                <div
-                  key={conn.i_connection}
-                  data-testid={`conn-row-${conn.i_connection}`}
-                  className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-colors ${
-                    conn.blocked
-                      ? "border-rose-500/30 bg-rose-500/5"
-                      : "border-border/50 bg-card/60 hover:bg-card"
-                  }`}
-                >
-                  <div className={`h-2 w-2 rounded-full shrink-0 ${conn.blocked ? "bg-rose-500" : "bg-emerald-500"}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium truncate">{conn.name}</span>
-                      <span className="text-xs text-muted-foreground font-mono">#{conn.i_connection}</span>
-                      {conn.blocked && (
-                        <Badge variant="destructive" className="h-4 text-[10px] px-1">Blocked</Badge>
+          {Object.entries(byVendor).map(([vendor, conns]) => {
+            const vendorId = conns[0]?.i_vendor;
+            return (
+              <div key={vendor} className="space-y-1.5">
+                <div className="flex items-center gap-2 px-1">
+                  <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{vendor}</span>
+                  <span className="text-xs text-muted-foreground/50">({conns.length})</span>
+                  {vendorId != null && (
+                    <button
+                      data-testid={`btn-add-conn-vendor-${vendorId}`}
+                      onClick={() => openAddConn(vendorId, vendor)}
+                      className="ml-auto flex items-center gap-1 text-[10px] font-medium text-primary/60 hover:text-primary transition-colors px-1.5 py-0.5 rounded border border-border/40 hover:border-primary/40"
+                      title={`Add connection to ${vendor}`}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add Connection
+                    </button>
+                  )}
+                </div>
+                {conns.map(conn => (
+                  <div
+                    key={conn.i_connection}
+                    data-testid={`conn-row-${conn.i_connection}`}
+                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-colors ${
+                      conn.blocked
+                        ? "border-rose-500/30 bg-rose-500/5"
+                        : "border-border/50 bg-card/60 hover:bg-card"
+                    }`}
+                  >
+                    <div className={`h-2 w-2 rounded-full shrink-0 ${conn.blocked ? "bg-rose-500" : "bg-emerald-500"}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium truncate">{conn.name}</span>
+                        <span className="text-xs text-muted-foreground font-mono">#{conn.i_connection}</span>
+                        {conn.blocked && (
+                          <Badge variant="destructive" className="h-4 text-[10px] px-1">Blocked</Badge>
+                        )}
+                      </div>
+                      {conn.host && (
+                        <span className="text-xs text-muted-foreground font-mono">{conn.host}</span>
                       )}
                     </div>
-                    {conn.host && (
-                      <span className="text-xs text-muted-foreground font-mono">{conn.host}</span>
+                    {conn.protocol && (
+                      <span className="text-xs text-muted-foreground/60 font-mono shrink-0">{conn.protocol}</span>
                     )}
+                    <div className="flex items-center gap-1 shrink-0 ml-auto">
+                      <button
+                        data-testid={`btn-billing-conn-${conn.i_connection}`}
+                        onClick={() => navigate(`/billing?connection=${conn.i_connection}`)}
+                        className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400/70 hover:text-emerald-400 transition-colors px-1.5 py-0.5 rounded"
+                        title="View Billing"
+                      >
+                        <DollarSign className="h-3 w-3" />
+                      </button>
+                      <button
+                        data-testid={`btn-fraud-conn-${conn.i_connection}`}
+                        onClick={() => navigate(`/fraud?connection=${conn.i_connection}`)}
+                        className="flex items-center gap-1 text-[10px] font-semibold text-amber-400/70 hover:text-amber-400 transition-colors px-1.5 py-0.5 rounded"
+                        title="Fraud Check"
+                      >
+                        <AlertTriangle className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
-                  {conn.protocol && (
-                    <span className="text-xs text-muted-foreground/60 font-mono shrink-0">{conn.protocol}</span>
-                  )}
-                  <div className="flex items-center gap-1 shrink-0 ml-auto">
-                    <button
-                      data-testid={`btn-billing-conn-${conn.i_connection}`}
-                      onClick={() => navigate(`/billing?connection=${conn.i_connection}`)}
-                      className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400/70 hover:text-emerald-400 transition-colors px-1.5 py-0.5 rounded"
-                      title="View Billing"
-                    >
-                      <DollarSign className="h-3 w-3" />
-                    </button>
-                    <button
-                      data-testid={`btn-fraud-conn-${conn.i_connection}`}
-                      onClick={() => navigate(`/fraud?connection=${conn.i_connection}`)}
-                      className="flex items-center gap-1 text-[10px] font-semibold text-amber-400/70 hover:text-amber-400 transition-colors px-1.5 py-0.5 rounded"
-                      title="Fraud Check"
-                    >
-                      <AlertTriangle className="h-3 w-3" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ))}
+                ))}
+              </div>
+            );
+          })}
         </div>
       ))}
+
+      {/* ── Add Vendor Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={vendorOpen} onOpenChange={setVendorOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add New Vendor</DialogTitle>
+            <DialogDescription>Creates the vendor on your Sippy softswitch.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40 pb-1">Basic Parameters</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 space-y-1">
+                <Label htmlFor="v-name">Vendor Name <span className="text-destructive">*</span></Label>
+                <Input id="v-name" placeholder="e.g. BICS-PR-PR" value={vName} onChange={e => setVName(e.target.value)} data-testid="input-vendor-name" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="v-login">Web Login <span className="text-destructive">*</span></Label>
+                <Input id="v-login" placeholder="login" value={vLogin} onChange={e => setVLogin(e.target.value)} data-testid="input-vendor-login" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="v-pass">Web Password <span className="text-destructive">*</span></Label>
+                <Input id="v-pass" type="password" placeholder="password" value={vPass} onChange={e => setVPass(e.target.value)} data-testid="input-vendor-password" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="v-currency">Base Currency</Label>
+                <Select value={vCurrency} onValueChange={setVCurrency}>
+                  <SelectTrigger id="v-currency" data-testid="select-vendor-currency"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["USD","EUR","GBP","AED","CAD","AUD","JPY","CHF"].map(c => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVendorOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!vName || !vLogin || !vPass || addVendorMut.isPending}
+              data-testid="btn-confirm-add-vendor"
+              onClick={() => addVendorMut.mutate({ name: vName, webLogin: vLogin, webPassword: vPass, iTimeZone: 1, baseCurrency: vCurrency })}
+            >
+              {addVendorMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save & Close"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add Connection Dialog ─────────────────────────────────────────── */}
+      <Dialog open={connOpen} onOpenChange={setConnOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add New Connection{connVendorName ? ` — ${connVendorName}` : ""}</DialogTitle>
+            <DialogDescription>Creates the vendor connection on your Sippy softswitch.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+
+            {/* Vendor selector — only shown when not pre-selected from a group row */}
+            {connVendorId === null && (
+              <div className="space-y-1">
+                <Label htmlFor="c-vendor">Vendor <span className="text-destructive">*</span></Label>
+                <Select value={connVendorId !== null ? String(connVendorId) : ""} onValueChange={v => { setConnVendorId(parseInt(v)); setConnVendorName(vendorsData?.vendors.find(x => x.iVendor === parseInt(v))?.name ?? ""); }}>
+                  <SelectTrigger id="c-vendor" data-testid="select-conn-vendor"><SelectValue placeholder="Select vendor…" /></SelectTrigger>
+                  <SelectContent>
+                    {(vendorsData?.vendors ?? []).map(v => (
+                      <SelectItem key={v.iVendor} value={String(v.iVendor)}>{v.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40 pb-1">Basic Parameters</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2 space-y-1">
+                <Label htmlFor="c-name">Connection Name <span className="text-destructive">*</span></Label>
+                <Input id="c-name" placeholder="e.g. BICS-BD-PR-PR" value={cName} onChange={e => setCName(e.target.value)} data-testid="input-conn-name" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-proto">Protocol</Label>
+                <Select value={cProto} onValueChange={setCProto}>
+                  <SelectTrigger id="c-proto" data-testid="select-conn-proto"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SIP">SIP</SelectItem>
+                    <SelectItem value="H323">H323</SelectItem>
+                    <SelectItem value="Zap">Zap</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3 space-y-1">
+                <Label htmlFor="c-dest">Destination (IP or SIP:host) <span className="text-destructive">*</span></Label>
+                <Input id="c-dest" placeholder="e.g. 149.20.187.181 or SIP:192.168.1.1" value={cDest} onChange={e => setCDest(e.target.value)} data-testid="input-conn-dest" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-user">Username</Label>
+                <Input id="c-user" value={cUser} onChange={e => setCUser(e.target.value)} data-testid="input-conn-user" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-cpass">Password</Label>
+                <Input id="c-cpass" type="password" value={cPass} onChange={e => setCPass(e.target.value)} data-testid="input-conn-cpass" />
+              </div>
+            </div>
+
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40 pb-1 mt-2">Advanced Parameters</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="c-maxcps">Max CPS</Label>
+                <Input id="c-maxcps" placeholder="Unlimited" value={cMaxCps} onChange={e => setCMaxCps(e.target.value)} data-testid="input-conn-maxcps" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-cap">Capacity</Label>
+                <Input id="c-cap" placeholder="e.g. 30" value={cCapacity} onChange={e => setCCapacity(e.target.value)} data-testid="input-conn-capacity" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-relay">Use Media Relay</Label>
+                <Select value={cMediaRelay} onValueChange={setCMediaRelay}>
+                  <SelectTrigger id="c-relay" data-testid="select-conn-relay"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Always</SelectItem>
+                    <SelectItem value="0">Never</SelectItem>
+                    <SelectItem value="2">If No Direct RTP</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-proxy">Outbound Proxy</Label>
+                <Input id="c-proxy" placeholder="optional" value={cProxy} onChange={e => setCProxy(e.target.value)} data-testid="input-conn-proxy" />
+              </div>
+              <div className="flex items-center gap-3 col-span-2 pt-5">
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input type="checkbox" checked={cEnforceCap} onChange={e => setCEnforceCap(e.target.checked)} data-testid="chk-enforce-cap" className="rounded" />
+                  Enforce Capacity
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input type="checkbox" checked={cBlocked} onChange={e => setCBlocked(e.target.checked)} data-testid="chk-conn-blocked" className="rounded" />
+                  Blocked
+                </label>
+              </div>
+            </div>
+
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40 pb-1 mt-2">Number Translation</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="c-cld">CLD Translation Rule</Label>
+                <Input id="c-cld" placeholder="e.g. s/^1/108011/" value={cCld} onChange={e => setCCld(e.target.value)} data-testid="input-conn-cld" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-cli">CLI Translation Rule</Label>
+                <Input id="c-cli" placeholder="optional" value={cCli} onChange={e => setCCli(e.target.value)} data-testid="input-conn-cli" />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConnOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!cName || !cDest || connVendorId === null || addConnMut.isPending}
+              data-testid="btn-confirm-add-connection"
+              onClick={() => {
+                if (connVendorId === null) return;
+                const body: Record<string, string | number | boolean> = {
+                  name: cName,
+                  destination: cDest,
+                  ...(cUser         ? { connUsername: cUser }             : {}),
+                  ...(cPass         ? { connPassword: cPass }             : {}),
+                  ...(cCapacity     ? { capacity: parseInt(cCapacity) }   : {}),
+                  ...(cMaxCps       ? { maxCps: parseInt(cMaxCps) }       : {}),
+                  ...(cCld          ? { translationRule: cCld }           : {}),
+                  ...(cCli          ? { cliTranslationRule: cCli }        : {}),
+                  ...(cProxy        ? { outboundProxy: cProxy }           : {}),
+                  enforceCapacity: cEnforceCap,
+                  blocked: cBlocked,
+                  iMediaRelay: parseInt(cMediaRelay),
+                };
+                addConnMut.mutate({ vendorId: connVendorId, body });
+              }}
+            >
+              {addConnMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save & Close"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
