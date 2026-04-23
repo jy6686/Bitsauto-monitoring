@@ -1966,6 +1966,7 @@ export default function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
   const updateMutation = useUpdateSettings();
   const resetMutation = useResetSimulation();
+  const [activeTab, setActiveTab] = useState<'connection'|'monitoring'|'alerts'|'users'|'system'>('connection');
   const [showPassword, setShowPassword] = useState(false);
   const [testResult, setTestResult] = useState<TestResult>(null);
   const [isTesting, setIsTesting] = useState(false);
@@ -2158,14 +2159,47 @@ export default function SettingsPage() {
   const switchType = form.watch('switchType') ?? 'sippy';
   const hasSavedPortal = !!(settings?.portalUrl && settings?.portalUsername && settings?.portalPassword);
 
+  const SETTINGS_TABS = [
+    { id: 'connection',  label: 'Connection',       Icon: Globe    },
+    { id: 'monitoring',  label: 'Monitoring',        Icon: Activity },
+    { id: 'alerts',      label: 'Alerts',            Icon: Bell     },
+    { id: 'users',       label: 'Users & Switches',  Icon: Users    },
+    { id: 'system',      label: 'System',            Icon: Server   },
+  ] as const;
+
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
+    <div className="max-w-2xl mx-auto space-y-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Configuration</h2>
         <p className="text-muted-foreground mt-1">Adjust monitoring thresholds, portal access, and simulation parameters.</p>
       </div>
 
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      {/* ── Tab Navigation ── */}
+      <div className="flex gap-0 border-b border-border overflow-x-auto">
+        {SETTINGS_TABS.map(({ id, label, Icon }) => {
+          const active = activeTab === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActiveTab(id)}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                active
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      <form onSubmit={form.handleSubmit(onSubmit)}>
+
+        {/* ══ CONNECTION TAB ══ */}
+        <div className={activeTab !== 'connection' ? 'hidden' : 'space-y-6'}>
 
         {/* ── Management Portal Access ── */}
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
@@ -2600,6 +2634,28 @@ export default function SettingsPage() {
           </div>
         </div>
 
+          {/* Save — Connection tab */}
+          <div className="flex items-center gap-4 pt-2">
+            <button
+              type="submit"
+              data-testid="button-save-settings-connection"
+              disabled={updateMutation.isPending}
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {updateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save Changes
+            </button>
+            {updateMutation.isSuccess && (
+              <span className="text-sm text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4" /> Saved
+              </span>
+            )}
+          </div>
+        </div>{/* /connection tab */}
+
+        {/* ══ MONITORING TAB ══ */}
+        <div className={activeTab !== 'monitoring' ? 'hidden' : 'space-y-6'}>
+
         {/* ── Monitoring Thresholds ── */}
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-border/50 bg-muted/20">
@@ -2712,6 +2768,28 @@ export default function SettingsPage() {
           </div>
         </div>
 
+          {/* Save — Monitoring tab */}
+          <div className="flex items-center gap-4 pt-2">
+            <button
+              type="submit"
+              data-testid="button-save-settings-monitoring"
+              disabled={updateMutation.isPending}
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {updateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save Changes
+            </button>
+            {updateMutation.isSuccess && (
+              <span className="text-sm text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4" /> Saved
+              </span>
+            )}
+          </div>
+        </div>{/* /monitoring tab */}
+
+        {/* ══ SYSTEM TAB (Grafana) ══ */}
+        <div className={activeTab !== 'system' ? 'hidden' : 'space-y-6'}>
+
         {/* ── Grafana Embed ── */}
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-border/50 bg-muted/20 flex items-center gap-3">
@@ -2780,40 +2858,43 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Save button */}
-        <div className="flex items-center gap-4">
-          <button
-            type="submit"
-            data-testid="button-save-settings"
-            disabled={updateMutation.isPending}
-            className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-          >
-            {updateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save Changes
-          </button>
-          {updateMutation.isSuccess && (
-            <span className="text-sm text-emerald-400 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4" /> Saved
-            </span>
-          )}
-        </div>
+          {/* Save — System tab (Grafana) */}
+          <div className="flex items-center gap-4 pt-2">
+            <button
+              type="submit"
+              data-testid="button-save-settings"
+              disabled={updateMutation.isPending}
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {updateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save Changes
+            </button>
+            {updateMutation.isSuccess && (
+              <span className="text-sm text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4" /> Saved
+              </span>
+            )}
+          </div>
+        </div>{/* /system tab (grafana) */}
+
       </form>
 
-      {/* Email Alert Configuration */}
-      <EmailAlertPanel />
+      {/* ══ ALERTS TAB ══ */}
+      <div className={activeTab !== 'alerts' ? 'hidden' : 'space-y-6'}>
+        <EmailAlertPanel />
+        <SippyWatcherPanel />
+        <PushNotificationPanel />
+        <ScheduledReportsPanel />
+      </div>
 
-      {/* Sippy Change Watcher */}
-      <SippyWatcherPanel />
+      {/* ══ USERS TAB ══ */}
+      <div className={activeTab !== 'users' ? 'hidden' : 'space-y-6'}>
+        <SippyUsersPanel />
+        <SwitchesPanel />
+      </div>
 
-      {/* Sippy Users */}
-      <SippyUsersPanel />
-
-      {/* Additional Switches */}
-      <SwitchesPanel />
-
-      {/* Push Notifications */}
-      <PushNotificationPanel />
-      <ScheduledReportsPanel />
+      {/* ══ SYSTEM TAB (continued: docs + danger zone) ══ */}
+      <div className={activeTab !== 'system' ? 'hidden' : 'space-y-6'}>
 
       {/* Downloads */}
       <div className="bg-card border border-border rounded-xl p-6">
@@ -3062,6 +3143,8 @@ export default function SettingsPage() {
           Reset Simulation
         </button>
       </div>
+      </div>{/* /system tab (docs + danger zone) */}
+
     </div>
   );
 }
