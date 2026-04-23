@@ -417,13 +417,13 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
                 </td>
                 {/* Destination Set */}
                 <td className="px-1.5 py-1.5">
-                  <select value={rowDs} onChange={e => setRowDs(e.target.value)}
-                    className={selCls} data-testid="select-entry-ds">
-                    <option value="">Select Dest. Set...</option>
+                  <datalist id="ds-opts-rg">
                     {cachedSets.map(s => (
                       <option key={s.i_destination_set} value={String(s.i_destination_set)}>{s.name}</option>
                     ))}
-                  </select>
+                  </datalist>
+                  <input list="ds-opts-rg" value={rowDs} onChange={e => setRowDs(e.target.value)}
+                    className={selCls} placeholder="DS ID (e.g. 42)" data-testid="input-entry-ds" />
                 </td>
                 {/* Activation Date */}
                 <td className="px-1.5 py-1.5">
@@ -1027,13 +1027,14 @@ function RgForm({
                       </select>
                     </td>
                     <td className="px-1.5 py-1.5">
-                      <select value={rowDs} onChange={ev => setRowDs(ev.target.value)}
-                        className="w-full text-xs bg-background border border-border/60 rounded px-1.5 py-1 focus:outline-none focus:border-primary">
-                        <option value="">Select Dest. Set...</option>
+                      <datalist id="ds-opts-re">
                         {cachedSets.map(s => (
                           <option key={s.i_destination_set} value={String(s.i_destination_set)}>{s.name}</option>
                         ))}
-                      </select>
+                      </datalist>
+                      <input list="ds-opts-re" value={rowDs} onChange={ev => setRowDs(ev.target.value)}
+                        className="w-full text-xs bg-background border border-border/60 rounded px-1.5 py-1 focus:outline-none focus:border-primary"
+                        placeholder="DS ID (e.g. 42)" data-testid="input-entry-ds-re" />
                     </td>
                     <td className="px-1.5 py-1.5 text-muted-foreground/60 text-center text-[10px]">now</td>
                     <td className="px-1.5 py-1.5 text-muted-foreground/60 text-center text-[10px]">never</td>
