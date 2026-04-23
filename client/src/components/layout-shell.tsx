@@ -26,9 +26,12 @@ interface LayoutShellProps {
 }
 
 const ROLE_BADGE: Record<Role, { label: string; color: string }> = {
-  admin:      { label: "Admin",      color: "text-rose-400 bg-rose-500/10"   },
-  management: { label: "Management", color: "text-amber-400 bg-amber-500/10" },
-  viewer:     { label: "Viewer",     color: "text-blue-400 bg-blue-500/10"   },
+  super_admin:  { label: "Super Admin",  color: "text-violet-400 bg-violet-500/10" },
+  admin:        { label: "Admin",        color: "text-rose-400 bg-rose-500/10"     },
+  noc_operator: { label: "NOC Operator", color: "text-cyan-400 bg-cyan-500/10"     },
+  team_lead:    { label: "Team Lead",    color: "text-emerald-400 bg-emerald-500/10"},
+  management:   { label: "Management",  color: "text-amber-400 bg-amber-500/10"   },
+  viewer:       { label: "Viewer",       color: "text-blue-400 bg-blue-500/10"     },
 };
 
 const CALLS_SUBITEMS = [
@@ -137,6 +140,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Routing',
     roles: ['admin','management'],
     items: [
+      { href: "/approvals",                              label: "Approval Queue",          icon: ShieldCheck,   roles: ['admin','management','super_admin','noc_operator','team_lead'], status: 'live' },
       { href: "/lcr-analyser",                          label: "LCR Analyser",            icon: GitBranch,     roles: ['admin','management']                    },
       { href: "/call-flow-simulator",                   label: "Call Flow Simulator",     icon: Workflow,      roles: ['admin','management']                    },
       // ── 9 tracked routing features ────────────────────────────────────────────
@@ -294,6 +298,14 @@ export function LayoutShell({ children }: LayoutShellProps) {
     staleTime: 60_000,
   });
   const assignedItemSet = new Set(viewerAssignmentsData?.items ?? []);
+
+  const { data: pendingCountData } = useQuery<{ count: number }>({
+    queryKey: ['/api/approvals/pending-count'],
+    enabled: role === 'admin' || role === 'management' || role === 'super_admin' || role === 'team_lead',
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+  const pendingApprovalCount = pendingCountData?.count ?? 0;
 
   const VIEWER_ALWAYS_SHOW = new Set(['/', '/account', '/chat']);
 
@@ -611,10 +623,16 @@ export function LayoutShell({ children }: LayoutShellProps) {
     }
 
     /* ── Plain nav item ── */
+    const isApprovalQueue = item.href === '/approvals';
     return (
       <Link key={item.href + (item.label)} href={item.href} className={navItemClass(isActive)}>
         <item.icon className={navIconClass(isActive)} />
         <span className="flex-1 leading-tight">{item.label}</span>
+        {isApprovalQueue && pendingApprovalCount > 0 && (
+          <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white min-w-[18px] text-center" data-testid="badge-approval-count">
+            {pendingApprovalCount > 99 ? '99+' : pendingApprovalCount}
+          </span>
+        )}
         {item.status === 'planned' && !isActive && (
           <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-muted/60 text-muted-foreground/60 border border-border/30 tracking-wide">
             Soon

@@ -82,12 +82,16 @@ import FirewallPage from "@/pages/firewall";
 import VpnConfigPage from "@/pages/vpn-config";
 import EmailCentrePage from "@/pages/email-centre";
 import RoutingManagerPage from "@/pages/routing-manager";
+import ApprovalQueuePage from "@/pages/approval-queue";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
-  admin:      ['/', '/calls', '/alerts', '/reports', '/settings', '/team'],
-  management: ['/', '/calls', '/alerts', '/reports'],
-  viewer:     ['/', '/calls'],
+  super_admin:  ['/', '/calls', '/alerts', '/reports', '/settings', '/team', '/approvals'],
+  admin:        ['/', '/calls', '/alerts', '/reports', '/settings', '/team', '/approvals'],
+  noc_operator: ['/', '/calls', '/approvals'],
+  team_lead:    ['/', '/calls', '/approvals'],
+  management:   ['/', '/calls', '/alerts', '/reports'],
+  viewer:       ['/', '/calls'],
 };
 
 // Build a quick lookup: route → feature key (used by ProtectedRoute)
@@ -315,6 +319,9 @@ function Router() {
       </Route>
       <Route path="/routing-manager">
         {() => <ProtectedRoute component={RoutingManagerPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/approvals">
+        {() => <ProtectedRoute component={ApprovalQueuePage} requiredRoles={['admin', 'management', 'super_admin', 'noc_operator', 'team_lead']} />}
       </Route>
       <Route component={NotFound} />
     </Switch>

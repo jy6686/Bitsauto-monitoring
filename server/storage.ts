@@ -8,6 +8,7 @@ import {
   apiKeys, dashboardWidgetPrefs, callTestLogs, whatsappAlertLog,
   simboxScores, billingDisputes, slaBreachLog, testCampaigns, testCampaignResults, scheduledReports,
   chatRooms, chatMessages,
+  approvalRequests, approvalAuditLog,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -45,6 +46,7 @@ import {
   type ScheduledReport, type InsertScheduledReport,
   type ChatRoom, type InsertChatRoom,
   type ChatMessage, type InsertChatMessage,
+  type ApprovalRequest, type InsertApprovalRequest, type ApprovalAuditEntry,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -78,8 +80,9 @@ export interface IStorage {
 
   // Team / Roles
   getUserRole(userId: string): Promise<Role | null>;
-  setUserRole(userId: string, role: Role, assignedBy?: string): Promise<void>;
-  getAllUsersWithRoles(): Promise<Array<User & { role: Role }>>;
+  getUserRoleRecord(userId: string): Promise<{ role: Role; teamId: string | null } | null>;
+  setUserRole(userId: string, role: Role, assignedBy?: string, teamId?: string | null): Promise<void>;
+  getAllUsersWithRoles(): Promise<Array<User & { role: Role; teamId: string | null }>>;
   countRoleEntries(): Promise<number>;
 
   // Client & Vendor Profiles
@@ -259,6 +262,16 @@ export interface IStorage {
   getChatMessages(roomId: number, limit?: number): Promise<ChatMessage[]>;
   createChatMessage(msg: InsertChatMessage): Promise<ChatMessage>;
   ensureDefaultChatRooms(): Promise<void>;
+
+  // Approval Workflow
+  createApprovalRequest(data: InsertApprovalRequest): Promise<ApprovalRequest>;
+  getApprovalRequests(opts: { userId: string; role: Role; teamId?: string | null; status?: string }): Promise<ApprovalRequest[]>;
+  getApprovalRequestById(id: number): Promise<ApprovalRequest | null>;
+  updateApprovalRequest(id: number, updates: Partial<ApprovalRequest>): Promise<ApprovalRequest>;
+  addApprovalAuditEntry(entry: Omit<ApprovalAuditEntry, 'id' | 'createdAt'>): Promise<void>;
+  getApprovalAuditLog(requestId: number): Promise<ApprovalAuditEntry[]>;
+  getPendingApprovalCount(opts: { userId: string; role: Role; teamId?: string | null }): Promise<number>;
+  getUserTeamId(userId: string): Promise<string | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -584,10 +597,16 @@ export class DatabaseStorage implements IStorage {
     return (row?.role as Role) ?? null;
   }
 
-  async setUserRole(userId: string, role: Role, assignedBy?: string): Promise<void> {
+  async getUserRoleRecord(userId: string): Promise<{ role: Role; teamId: string | null } | null> {
+    const [row] = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
+    if (!row) return null;
+    return { role: row.role as Role, teamId: row.teamId ?? null };
+  }
+
+  async setUserRole(userId: string, role: Role, assignedBy?: string, teamId?: string | null): Promise<void> {
     await db.insert(userRoles)
-      .values({ userId, role, assignedBy })
-      .onConflictDoUpdate({ target: userRoles.userId, set: { role, assignedBy, assignedAt: new Date() } });
+      .values({ userId, role, assignedBy, teamId: teamId ?? null })
+      .onConflictDoUpdate({ target: userRoles.userId, set: { role, assignedBy, teamId: teamId ?? null, assignedAt: new Date() } });
   }
 
   async countRoleEntries(): Promise<number> {
@@ -595,11 +614,20 @@ export class DatabaseStorage implements IStorage {
     return Number(row?.count ?? 0);
   }
 
-  async getAllUsersWithRoles(): Promise<Array<User & { role: Role }>> {
+  async getAllUsersWithRoles(): Promise<Array<User & { role: Role; teamId: string | null }>> {
     const allUsers = await db.select().from(users);
     const allRoles = await db.select().from(userRoles);
-    const roleMap = new Map(allRoles.map(r => [r.userId, r.role as Role]));
-    return allUsers.map(u => ({ ...u, role: roleMap.get(u.id) ?? 'viewer' as Role }));
+    const roleMap = new Map(allRoles.map(r => [r.userId, { role: r.role as Role, teamId: r.teamId ?? null }]));
+    return allUsers.map(u => ({
+      ...u,
+      role: roleMap.get(u.id)?.role ?? ('viewer' as Role),
+      teamId: roleMap.get(u.id)?.teamId ?? null,
+    }));
+  }
+
+  async getUserTeamId(userId: string): Promise<string | null> {
+    const [row] = await db.select({ teamId: userRoles.teamId }).from(userRoles).where(eq(userRoles.userId, userId));
+    return row?.teamId ?? null;
   }
 
   // ── Client & Vendor Profiles ───────────────────────────────────────────────
@@ -1390,6 +1418,72 @@ export class DatabaseStorage implements IStorage {
       const existing = await this.getChatRoom(room.slug);
       if (!existing) await this.createChatRoom(room);
     }
+  }
+
+  // ── Approval Workflow ─────────────────────────────────────────────────────
+
+  async createApprovalRequest(data: InsertApprovalRequest): Promise<ApprovalRequest> {
+    const [created] = await db.insert(approvalRequests).values(data).returning();
+    return created;
+  }
+
+  async getApprovalRequests(opts: { userId: string; role: Role; teamId?: string | null; status?: string }): Promise<ApprovalRequest[]> {
+    const { role, teamId, status } = opts;
+    let query = db.select().from(approvalRequests);
+    const conditions: any[] = [];
+    if (status) conditions.push(eq(approvalRequests.status, status));
+
+    if (role === 'super_admin' || role === 'admin') {
+      // see all requests
+    } else if (role === 'team_lead' && teamId) {
+      conditions.push(eq(approvalRequests.teamId, teamId));
+    } else {
+      // noc_operator / management / viewer: see only own submissions
+      conditions.push(eq(approvalRequests.requestedBy, opts.userId));
+    }
+
+    const rows = conditions.length > 0
+      ? await db.select().from(approvalRequests).where(and(...conditions)).orderBy(desc(approvalRequests.requestedAt))
+      : await db.select().from(approvalRequests).orderBy(desc(approvalRequests.requestedAt));
+    return rows;
+  }
+
+  async getApprovalRequestById(id: number): Promise<ApprovalRequest | null> {
+    const [row] = await db.select().from(approvalRequests).where(eq(approvalRequests.id, id));
+    return row ?? null;
+  }
+
+  async updateApprovalRequest(id: number, updates: Partial<ApprovalRequest>): Promise<ApprovalRequest> {
+    const [updated] = await db.update(approvalRequests).set(updates).where(eq(approvalRequests.id, id)).returning();
+    return updated;
+  }
+
+  async addApprovalAuditEntry(entry: Omit<ApprovalAuditEntry, 'id' | 'createdAt'>): Promise<void> {
+    await db.insert(approvalAuditLog).values(entry);
+  }
+
+  async getApprovalAuditLog(requestId: number): Promise<ApprovalAuditEntry[]> {
+    return await db.select().from(approvalAuditLog)
+      .where(eq(approvalAuditLog.requestId, requestId))
+      .orderBy(desc(approvalAuditLog.createdAt));
+  }
+
+  async getPendingApprovalCount(opts: { userId: string; role: Role; teamId?: string | null }): Promise<number> {
+    const { role, teamId } = opts;
+    const conditions: any[] = [eq(approvalRequests.status, 'pending')];
+
+    if (role === 'super_admin' || role === 'admin') {
+      // count all pending
+    } else if (role === 'team_lead' && teamId) {
+      conditions.push(eq(approvalRequests.teamId, teamId));
+    } else {
+      return 0; // noc_operator, management, viewer: no approvals to take action on
+    }
+
+    const [row] = await db.select({ count: sql<number>`count(*)` })
+      .from(approvalRequests)
+      .where(and(...conditions));
+    return Number(row?.count ?? 0);
   }
 }
 

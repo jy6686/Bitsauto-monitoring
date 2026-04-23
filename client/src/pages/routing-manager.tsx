@@ -226,9 +226,13 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
   const cachedSets  = setsData?.sets ?? [];
 
   const addMut = useMutation({
-    mutationFn: (body: object) => apiRequest("POST", `/api/sippy/routing-groups/${groupId}/members`, body),
-    onSuccess: () => {
-      toast({ title: "Member added" });
+    mutationFn: async (body: object) => (await apiRequest("POST", `/api/sippy/routing-groups/${groupId}/members`, body)).json(),
+    onSuccess: (data: any) => {
+      if (data?.requiresApproval) {
+        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
+      } else {
+        toast({ title: "Member added" });
+      }
       setAddOpen(false); setDsId(""); setConnId(""); setPref("10"); setWeight(""); setActivationDate(""); setExpirationDate("");
       refetch();
     },
@@ -236,9 +240,13 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (memberId: number) => apiRequest("DELETE", `/api/sippy/routing-groups/${groupId}/members/${memberId}`),
-    onSuccess: () => {
-      toast({ title: "Member removed" });
+    mutationFn: async (memberId: number) => (await apiRequest("DELETE", `/api/sippy/routing-groups/${groupId}/members/${memberId}`)).json(),
+    onSuccess: (data: any) => {
+      if (data?.requiresApproval) {
+        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
+      } else {
+        toast({ title: "Member removed" });
+      }
       setDeleteTarget(null);
       refetch();
     },
@@ -439,9 +447,13 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
   });
 
   const addMut = useMutation({
-    mutationFn: (body: object) => apiRequest("POST", `/api/sippy/destination-sets/${dsId}/routes`, body),
-    onSuccess: () => {
-      toast({ title: "Route added" });
+    mutationFn: async (body: object) => (await apiRequest("POST", `/api/sippy/destination-sets/${dsId}/routes`, body)).json(),
+    onSuccess: (data: any) => {
+      if (data?.requiresApproval) {
+        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
+      } else {
+        toast({ title: "Route added" });
+      }
       setAddOpen(false); setPrefix(""); setRoutePref(""); setRouteHuntstop(false); setRouteTimeout(""); setRoutePrice1(""); setRoutePriceN(""); setRouteInterval1(""); setRouteIntervalN(""); setRouteForbidden(false);
       refetch();
     },
@@ -449,9 +461,13 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
   });
 
   const deleteMut = useMutation({
-    mutationFn: (p: string) => apiRequest("DELETE", `/api/sippy/destination-sets/${dsId}/routes/${encodeURIComponent(p)}`),
-    onSuccess: () => {
-      toast({ title: "Route deleted" });
+    mutationFn: async (p: string) => (await apiRequest("DELETE", `/api/sippy/destination-sets/${dsId}/routes/${encodeURIComponent(p)}`)).json(),
+    onSuccess: (data: any) => {
+      if (data?.requiresApproval) {
+        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
+      } else {
+        toast({ title: "Route deleted" });
+      }
       setDeleteTarget(null);
       refetch();
     },
@@ -741,9 +757,13 @@ function RoutingGroupsTab() {
   };
 
   const createMut = useMutation({
-    mutationFn: (body: object) => apiRequest("POST", "/api/sippy/routing-groups", body),
-    onSuccess: () => {
-      toast({ title: "Routing group created" });
+    mutationFn: async (body: object) => (await apiRequest("POST", "/api/sippy/routing-groups", body)).json(),
+    onSuccess: (data: any) => {
+      if (data?.requiresApproval) {
+        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
+      } else {
+        toast({ title: "Routing group created" });
+      }
       setCreateOpen(false); setRgName(""); setRgPolicy("preference"); setRgDescription(""); setRgTimeout2xx("300"); setRgLrnEnabled(false); setRgLrnRule("");
       setTimeout(invalidate, 1000);
     },
@@ -751,9 +771,13 @@ function RoutingGroupsTab() {
   });
 
   const updateMut = useMutation({
-    mutationFn: ({ id, body }: { id: number; body: object }) => apiRequest("PUT", `/api/sippy/routing-groups/${id}`, body),
-    onSuccess: () => {
-      toast({ title: "Routing group updated" });
+    mutationFn: async ({ id, body }: { id: number; body: object }) => (await apiRequest("PUT", `/api/sippy/routing-groups/${id}`, body)).json(),
+    onSuccess: (data: any) => {
+      if (data?.requiresApproval) {
+        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
+      } else {
+        toast({ title: "Routing group updated" });
+      }
       setEditTarget(null);
       setTimeout(invalidate, 1000);
     },
@@ -761,9 +785,13 @@ function RoutingGroupsTab() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: number) => apiRequest("DELETE", `/api/sippy/routing-groups/${id}`),
-    onSuccess: () => {
-      toast({ title: "Routing group deleted" });
+    mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/sippy/routing-groups/${id}`)).json(),
+    onSuccess: (data: any) => {
+      if (data?.requiresApproval) {
+        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
+      } else {
+        toast({ title: "Routing group deleted" });
+      }
       setDeleteTarget(null);
       setTimeout(invalidate, 1000);
     },
@@ -1066,9 +1094,13 @@ function DestinationSetsTab() {
   };
 
   const createMut = useMutation({
-    mutationFn: (body: object) => apiRequest("POST", "/api/sippy/destination-sets", body),
-    onSuccess: () => {
-      toast({ title: "Destination set created" });
+    mutationFn: async (body: object) => (await apiRequest("POST", "/api/sippy/destination-sets", body)).json(),
+    onSuccess: (data: any) => {
+      if (data?.requiresApproval) {
+        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
+      } else {
+        toast({ title: "Destination set created" });
+      }
       setCreateOpen(false); setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans(""); setDsDescription(""); setDsConnectFee(""); setDsFreeSeconds(""); setDsGracePeriod("");
       setTimeout(invalidate, 1000);
     },
@@ -1076,9 +1108,13 @@ function DestinationSetsTab() {
   });
 
   const updateMut = useMutation({
-    mutationFn: ({ id, body }: { id: number; body: object }) => apiRequest("PATCH", `/api/sippy/destination-sets/${id}`, body),
-    onSuccess: () => {
-      toast({ title: "Destination set updated" });
+    mutationFn: async ({ id, body }: { id: number; body: object }) => (await apiRequest("PATCH", `/api/sippy/destination-sets/${id}`, body)).json(),
+    onSuccess: (data: any) => {
+      if (data?.requiresApproval) {
+        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
+      } else {
+        toast({ title: "Destination set updated" });
+      }
       setEditTarget(null);
       setTimeout(invalidate, 1000);
     },
@@ -1086,9 +1122,13 @@ function DestinationSetsTab() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: number) => apiRequest("DELETE", `/api/sippy/destination-sets/${id}`),
-    onSuccess: () => {
-      toast({ title: "Destination set deleted" });
+    mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/sippy/destination-sets/${id}`)).json(),
+    onSuccess: (data: any) => {
+      if (data?.requiresApproval) {
+        toast({ title: "Submitted for approval", description: `Request #${data.requestId} queued for review.` });
+      } else {
+        toast({ title: "Destination set deleted" });
+      }
       setDeleteTarget(null);
       setTimeout(invalidate, 1000);
     },

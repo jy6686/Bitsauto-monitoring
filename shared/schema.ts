@@ -460,14 +460,63 @@ export type MonitoringAssignment = typeof monitoringAssignments.$inferSelect;
 // Team Roles: maps each user to their access role
 export const userRoles = pgTable("user_roles", {
   userId: varchar("user_id").primaryKey(), // references users.id
-  role: varchar("role", { length: 20 }).default('viewer').notNull(), // admin | management | viewer
+  role: varchar("role", { length: 20 }).default('viewer').notNull(), // super_admin | admin | noc_operator | team_lead | management | viewer
+  teamId: varchar("team_id", { length: 64 }),  // used for team_lead scoping — users with matching teamId
   assignedAt: timestamp("assigned_at").defaultNow(),
   assignedBy: varchar("assigned_by"), // userId of admin who assigned (null = auto)
 });
 
 export type UserRole = typeof userRoles.$inferSelect;
 export type InsertUserRole = typeof userRoles.$inferInsert;
-export type Role = 'admin' | 'management' | 'viewer';
+export type Role = 'super_admin' | 'admin' | 'noc_operator' | 'team_lead' | 'management' | 'viewer';
+
+// Approval Workflow RBAC policy (configurable — policy may be updated over time)
+export const APPROVAL_POLICY: Record<Role, { canSubmit: boolean; approveScope: 'all' | 'team' | 'none'; selfApproval: boolean }> = {
+  super_admin:  { canSubmit: true,  approveScope: 'all',  selfApproval: true  },
+  admin:        { canSubmit: true,  approveScope: 'all',  selfApproval: false },
+  noc_operator: { canSubmit: true,  approveScope: 'none', selfApproval: false },
+  team_lead:    { canSubmit: false, approveScope: 'team', selfApproval: false },
+  management:   { canSubmit: true,  approveScope: 'none', selfApproval: false },
+  viewer:       { canSubmit: false, approveScope: 'none', selfApproval: false },
+};
+
+// Approval Requests: queued change requests awaiting admin review
+export const approvalRequests = pgTable("approval_requests", {
+  id:              serial("id").primaryKey(),
+  operationType:   varchar("operation_type",    { length: 64  }).notNull(), // e.g. routing_group.create
+  action:          varchar("action",            { length: 20  }).notNull(), // create | update | delete
+  entityId:        varchar("entity_id",         { length: 64  }),           // Sippy ID of affected entity
+  entityName:      varchar("entity_name",       { length: 255 }),           // human-readable name
+  payloadBefore:   json("payload_before"),                                   // current state snapshot (null for creates)
+  payloadAfter:    json("payload_after"),                                    // requested new state (null for deletes)
+  requestedBy:     varchar("requested_by",      { length: 255 }).notNull(),
+  requestedByName: varchar("requested_by_name", { length: 128 }),
+  teamId:          varchar("team_id",           { length: 64  }),            // team of requester (for team_lead routing)
+  status:          varchar("status",            { length: 20  }).notNull().default('pending'), // pending | approved | rejected
+  reviewedBy:      varchar("reviewed_by",       { length: 255 }),
+  reviewedByName:  varchar("reviewed_by_name",  { length: 128 }),
+  reviewedAt:      timestamp("reviewed_at"),
+  rejectionReason: text("rejection_reason"),
+  selfApproval:    boolean("self_approval").default(false),                  // true when Super Admin approves own request
+  requestedAt:     timestamp("requested_at").defaultNow(),
+});
+
+export type ApprovalRequest    = typeof approvalRequests.$inferSelect;
+export type InsertApprovalRequest = typeof approvalRequests.$inferInsert;
+
+// Approval Audit Log: immutable history of every approval decision
+export const approvalAuditLog = pgTable("approval_audit_log", {
+  id:        serial("id").primaryKey(),
+  requestId: integer("request_id").notNull(),
+  action:    varchar("action",     { length: 32  }).notNull(), // submitted | approved | rejected
+  actorId:   varchar("actor_id",   { length: 255 }).notNull(),
+  actorName: varchar("actor_name", { length: 128 }),
+  actorRole: varchar("actor_role", { length: 32  }),
+  note:      text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type ApprovalAuditEntry = typeof approvalAuditLog.$inferSelect;
 
 // === SCHEMAS ===
 

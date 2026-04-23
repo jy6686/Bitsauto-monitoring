@@ -15,6 +15,8 @@ import * as waSvc from "./whatsapp";
 import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas, calcVendorFraudStats, detectIrsf } from "./cdr-enrichment";
 import { initSippyWatcher, notifyNewClientTraffic, getWatcherStatus, sendTestWatcherAlert } from "./sippy-watcher";
 import { setupChatWebSocket } from "./chat-ws";
+import { submitApprovalRequest, approveRequest, rejectRequest, canSubmit, type OperationType } from "./approvals";
+import { APPROVAL_POLICY, type Role } from "@shared/schema";
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode } from "./dial-lookup";
 import { readFileSync } from "fs";
@@ -1078,21 +1080,21 @@ export async function registerRoutes(
     }
   });
 
-  // PATCH /api/team/:userId/role — change a user's role (admin only)
-  app.patch('/api/team/:userId/role', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+  // PATCH /api/team/:userId/role — change a user's role + optional teamId (admin/super_admin only)
+  app.patch('/api/team/:userId/role', (req: any, res, next) => requireRole(['admin', 'super_admin'], req, res, next), async (req: any, res) => {
     const { userId } = req.params;
-    const { role } = req.body as { role: string };
-    if (!['admin', 'management', 'viewer'].includes(role)) {
-      return res.status(400).json({ message: 'Invalid role. Must be admin, management, or viewer.' });
+    const { role, teamId } = req.body as { role: string; teamId?: string };
+    const VALID_ROLES: Role[] = ['super_admin', 'admin', 'noc_operator', 'team_lead', 'management', 'viewer'];
+    if (!VALID_ROLES.includes(role as Role)) {
+      return res.status(400).json({ message: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
     }
     const requesterId = req.user.claims.sub;
-    // Prevent admin from demoting themselves
-    if (userId === requesterId && role !== 'admin') {
-      return res.status(400).json({ message: 'You cannot change your own role.' });
+    if (userId === requesterId && !['admin', 'super_admin'].includes(role)) {
+      return res.status(400).json({ message: 'You cannot demote your own role.' });
     }
     try {
-      await storage.setUserRole(userId, role as any, requesterId);
-      res.json({ message: 'Role updated', userId, role });
+      await storage.setUserRole(userId, role as Role, requesterId, teamId ?? null);
+      res.json({ message: 'Role updated', userId, role, teamId: teamId ?? null });
     } catch (err) {
       res.status(500).json({ message: 'Failed to update role' });
     }
@@ -7597,17 +7599,26 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, list: [], message: e.message }); }
   });
 
-  // POST /api/sippy/destination-sets — create a destination set (admin+management)
-  app.post('/api/sippy/destination-sets', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+  // POST /api/sippy/destination-sets — create a destination set [approval gated]
+  app.post('/api/sippy/destination-sets', async (req: any, res) => {
     try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
       const { name, currency, ...rest } = req.body ?? {};
       if (!name || !currency) return res.status(400).json({ success: false, error: 'name and currency are required.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.addDestinationSet(username, password, { name, currency, ...rest, portalUrl: sippyPortalUrl(settings) });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.status(201).json(result);
+      const ar = await submitApprovalRequest({
+        operationType: 'destination_set.create',
+        action: 'create',
+        entityName: name,
+        payloadAfter: { name, currency, ...rest },
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
+      });
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Destination set creation submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
@@ -7626,31 +7637,51 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // PATCH /api/sippy/destination-sets/:id — update a destination set (admin+management, Sippy 2024+)
-  app.patch('/api/sippy/destination-sets/:id', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+  // PATCH /api/sippy/destination-sets/:id — update a destination set [approval gated]
+  app.patch('/api/sippy/destination-sets/:id', async (req: any, res) => {
     try {
       const iDestinationSet = parseInt(req.params.id, 10);
       if (isNaN(iDestinationSet)) return res.status(400).json({ success: false, error: 'Invalid i_destination_set.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateDestinationSet(username, password, iDestinationSet, { ...req.body, portalUrl: sippyPortalUrl(settings) });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.json(result);
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
+      const ar = await submitApprovalRequest({
+        operationType: 'destination_set.update',
+        action: 'update',
+        entityId: iDestinationSet,
+        entityName: req.body?.name ?? `Destination Set #${iDestinationSet}`,
+        payloadAfter: req.body ?? {},
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
+      });
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Destination set update submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // DELETE /api/sippy/destination-sets/:id — delete a destination set (admin only, Sippy 2024+)
-  app.delete('/api/sippy/destination-sets/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+  // DELETE /api/sippy/destination-sets/:id — delete a destination set [approval gated]
+  app.delete('/api/sippy/destination-sets/:id', async (req: any, res) => {
     try {
       const iDestinationSet = parseInt(req.params.id, 10);
       if (isNaN(iDestinationSet)) return res.status(400).json({ success: false, error: 'Invalid i_destination_set.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteDestinationSet(username, password, iDestinationSet, { portalUrl: sippyPortalUrl(settings) });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.json(result);
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
+      const ar = await submitApprovalRequest({
+        operationType: 'destination_set.delete',
+        action: 'delete',
+        entityId: iDestinationSet,
+        entityName: `Destination Set #${iDestinationSet}`,
+        payloadBefore: { iDestinationSet },
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
+      });
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Destination set deletion submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
@@ -7667,63 +7698,103 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, list: [], error: e.message }); }
   });
 
-  // POST /api/sippy/destination-sets/:id/routes — add a route to a destination set (admin+management)
-  app.post('/api/sippy/destination-sets/:id/routes', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+  // POST /api/sippy/destination-sets/:id/routes — add a route [approval gated]
+  app.post('/api/sippy/destination-sets/:id/routes', async (req: any, res) => {
     try {
       const iDestinationSet = parseInt(req.params.id, 10);
       if (isNaN(iDestinationSet)) return res.status(400).json({ success: false, error: 'Invalid i_destination_set.' });
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
       const { prefix, ...rest } = req.body ?? {};
       if (!prefix) return res.status(400).json({ success: false, error: 'prefix is required.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.addRouteToDestinationSet(username, password, iDestinationSet, prefix, { ...rest, portalUrl: sippyPortalUrl(settings) });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.status(201).json(result);
+      const ar = await submitApprovalRequest({
+        operationType: 'ds_route.add',
+        action: 'create',
+        entityId: iDestinationSet,
+        entityName: `DS #${iDestinationSet} — Route ${prefix}`,
+        payloadAfter: { iDestinationSet, prefix, ...rest },
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
+      });
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Route addition submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // PATCH /api/sippy/destination-sets/:id/routes/:prefix — update a route (admin+management)
-  app.patch('/api/sippy/destination-sets/:id/routes/:prefix', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+  // PATCH /api/sippy/destination-sets/:id/routes/:prefix — update a route [approval gated]
+  app.patch('/api/sippy/destination-sets/:id/routes/:prefix', async (req: any, res) => {
     try {
       const iDestinationSet = parseInt(req.params.id, 10);
       const prefix = decodeURIComponent(req.params.prefix);
       if (isNaN(iDestinationSet) || !prefix) return res.status(400).json({ success: false, error: 'Invalid destination set ID or prefix.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateRouteInDestinationSet(username, password, iDestinationSet, prefix, { ...req.body, portalUrl: sippyPortalUrl(settings) });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.json(result);
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
+      const ar = await submitApprovalRequest({
+        operationType: 'ds_route.update',
+        action: 'update',
+        entityId: iDestinationSet,
+        entityName: `DS #${iDestinationSet} — Route ${prefix}`,
+        payloadAfter: { iDestinationSet, prefix, ...req.body },
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
+      });
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Route update submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // DELETE /api/sippy/destination-sets/:id/routes — delete ALL routes (admin only, Sippy 2024+)
-  app.delete('/api/sippy/destination-sets/:id/routes', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+  // DELETE /api/sippy/destination-sets/:id/routes — delete ALL routes [approval gated]
+  app.delete('/api/sippy/destination-sets/:id/routes', async (req: any, res) => {
     try {
       const iDestinationSet = parseInt(req.params.id, 10);
       if (isNaN(iDestinationSet)) return res.status(400).json({ success: false, error: 'Invalid i_destination_set.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteAllRoutesInDestinationSet(username, password, iDestinationSet, { portalUrl: sippyPortalUrl(settings) });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.json(result);
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
+      const ar = await submitApprovalRequest({
+        operationType: 'ds_route.delete_all',
+        action: 'delete',
+        entityId: iDestinationSet,
+        entityName: `DS #${iDestinationSet} — ALL Routes`,
+        payloadBefore: { iDestinationSet },
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
+      });
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Delete-all-routes submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // DELETE /api/sippy/destination-sets/:id/routes/:prefix — delete a single route (admin only)
-  app.delete('/api/sippy/destination-sets/:id/routes/:prefix', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+  // DELETE /api/sippy/destination-sets/:id/routes/:prefix — delete a single route [approval gated]
+  app.delete('/api/sippy/destination-sets/:id/routes/:prefix', async (req: any, res) => {
     try {
       const iDestinationSet = parseInt(req.params.id, 10);
       const prefix = decodeURIComponent(req.params.prefix);
       if (isNaN(iDestinationSet) || !prefix) return res.status(400).json({ success: false, error: 'Invalid destination set ID or prefix.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.delRouteFromDestinationSet(username, password, iDestinationSet, prefix, { portalUrl: sippyPortalUrl(settings) });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.json(result);
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
+      const ar = await submitApprovalRequest({
+        operationType: 'ds_route.delete',
+        action: 'delete',
+        entityId: iDestinationSet,
+        entityName: `DS #${iDestinationSet} — Route ${prefix}`,
+        payloadAfter: { iDestinationSet, prefix },
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
+      });
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Route deletion submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
@@ -8284,22 +8355,27 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // POST /api/sippy/routing-groups — addRoutingGroup()
-  // Body: { name, policy, description?, iMediaRelay?, disableOnnetRouting?, onnetIConnection?,
-  //         disableOnnetVoicemail?, onnetVoicemailIConnection?, onnetScope?, lrnEnabled?,
-  //         lrnTranslationRule?, timeout2xx?, onnetTimeout100?, onnetTimeout1xx?,
-  //         onnetTimeout2xx?, stirShakenEnabled? }
+  // POST /api/sippy/routing-groups — addRoutingGroup() [approval gated]
   app.post('/api/sippy/routing-groups', async (req: any, res) => {
     try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
       const { name, policy, ...rest } = req.body ?? {};
       if (!name)            return res.status(400).json({ success: false, error: 'name is required.' });
-      if (policy === undefined) return res.status(400).json({ success: false, error: 'policy is required (can be empty string).' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.addRoutingGroup(username, password, name, policy, { ...rest, portalUrl: sippyPortalUrl(settings) });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.status(201).json(result);
+      if (policy === undefined) return res.status(400).json({ success: false, error: 'policy is required.' });
+      const ar = await submitApprovalRequest({
+        operationType: 'routing_group.create',
+        action: 'create',
+        entityName: name,
+        payloadAfter: { name, policy, ...rest },
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
+      });
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Routing group creation submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
@@ -8611,32 +8687,51 @@ export async function registerRoutes(
     }
   );
 
-  // PUT /api/sippy/routing-groups/:id — updateRoutingGroup()
-  // Body: any subset of addRoutingGroup params (all optional).
+  // PUT /api/sippy/routing-groups/:id — updateRoutingGroup() [approval gated]
   app.put('/api/sippy/routing-groups/:id', async (req: any, res) => {
     try {
       const iRoutingGroup = parseInt(req.params.id, 10);
       if (isNaN(iRoutingGroup)) return res.status(400).json({ success: false, error: 'Invalid routing group ID.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateRoutingGroup(username, password, iRoutingGroup, { ...req.body, portalUrl: sippyPortalUrl(settings) });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.json(result);
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
+      const ar = await submitApprovalRequest({
+        operationType: 'routing_group.update',
+        action: 'update',
+        entityId: iRoutingGroup,
+        entityName: req.body?.name ?? `Routing Group #${iRoutingGroup}`,
+        payloadAfter: req.body ?? {},
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
+      });
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Routing group update submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // DELETE /api/sippy/routing-groups/:id — delRoutingGroup()
+  // DELETE /api/sippy/routing-groups/:id — delRoutingGroup() [approval gated]
   app.delete('/api/sippy/routing-groups/:id', async (req: any, res) => {
     try {
       const iRoutingGroup = parseInt(req.params.id, 10);
       if (isNaN(iRoutingGroup)) return res.status(400).json({ success: false, error: 'Invalid routing group ID.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.delRoutingGroup(username, password, iRoutingGroup, { portalUrl: sippyPortalUrl(settings) });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.json(result);
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
+      const ar = await submitApprovalRequest({
+        operationType: 'routing_group.delete',
+        action: 'delete',
+        entityId: iRoutingGroup,
+        entityName: `Routing Group #${iRoutingGroup}`,
+        payloadBefore: { iRoutingGroup },
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
+      });
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Routing group deletion submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
@@ -8654,73 +8749,87 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // POST /api/sippy/routing-groups/:id/members — addRoutingGroupMember()
-  // Body: { iDestinationSet, preference, iConnection?, iConnectionGroup?,
-  //         activationDate?, expirationDate?, weight?, stirShakenAsMode? }
+  // POST /api/sippy/routing-groups/:id/members — addRoutingGroupMember() [approval gated]
   app.post('/api/sippy/routing-groups/:id/members', async (req: any, res) => {
     try {
       const iRoutingGroup = parseInt(req.params.id, 10);
       if (isNaN(iRoutingGroup)) return res.status(400).json({ success: false, error: 'Invalid routing group ID.' });
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
       const { iDestinationSet, preference, iConnection, iConnectionGroup, ...rest } = req.body ?? {};
       if (!iDestinationSet) return res.status(400).json({ success: false, error: 'iDestinationSet is required.' });
       if (preference === undefined) return res.status(400).json({ success: false, error: 'preference is required.' });
       if (iConnection === undefined && iConnectionGroup === undefined)
         return res.status(400).json({ success: false, error: 'Either iConnection or iConnectionGroup is required.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.addRoutingGroupMember(
-        username, password, iRoutingGroup,
-        parseInt(iDestinationSet, 10), parseInt(preference, 10),
-        {
-          iConnection:      iConnection      !== undefined ? parseInt(iConnection, 10)      : undefined,
+      const ar = await submitApprovalRequest({
+        operationType: 'routing_group_member.add',
+        action: 'create',
+        entityId: iRoutingGroup,
+        entityName: `RG #${iRoutingGroup} — Member DS #${iDestinationSet}`,
+        payloadAfter: { iRoutingGroup, iDestinationSet: parseInt(iDestinationSet, 10), preference: parseInt(preference, 10),
+          iConnection: iConnection !== undefined ? parseInt(iConnection, 10) : undefined,
           iConnectionGroup: iConnectionGroup !== undefined ? parseInt(iConnectionGroup, 10) : undefined,
-          ...rest,
-          portalUrl: sippyPortalUrl(settings),
-        },
-      );
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.status(201).json(result);
+          ...rest },
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
+      });
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Routing group member addition submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // PUT /api/sippy/routing-groups/:id/members/:memberId — updateRoutingGroupMember()
-  // Body: any subset of addRoutingGroupMember params (all optional).
+  // PUT /api/sippy/routing-groups/:id/members/:memberId — updateRoutingGroupMember() [approval gated]
   app.put('/api/sippy/routing-groups/:id/members/:memberId', async (req: any, res) => {
     try {
       const iRoutingGroup       = parseInt(req.params.id, 10);
       const iRoutingGroupMember = parseInt(req.params.memberId, 10);
       if (isNaN(iRoutingGroup) || isNaN(iRoutingGroupMember))
         return res.status(400).json({ success: false, error: 'Invalid routing group or member ID.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.updateRoutingGroupMember(username, password, iRoutingGroupMember, {
-        iRoutingGroup,
-        ...req.body,
-        portalUrl: sippyPortalUrl(settings),
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
+      const ar = await submitApprovalRequest({
+        operationType: 'routing_group_member.update',
+        action: 'update',
+        entityId: iRoutingGroupMember,
+        entityName: `RG #${iRoutingGroup} — Member #${iRoutingGroupMember}`,
+        payloadAfter: { iRoutingGroupMember, iRoutingGroup, ...req.body },
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
       });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.json(result);
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Routing group member update submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  // DELETE /api/sippy/routing-groups/:id/members/:memberId — delRoutingGroupMember()
+  // DELETE /api/sippy/routing-groups/:id/members/:memberId — delRoutingGroupMember() [approval gated]
   app.delete('/api/sippy/routing-groups/:id/members/:memberId', async (req: any, res) => {
     try {
       const iRoutingGroup       = parseInt(req.params.id, 10);
       const iRoutingGroupMember = parseInt(req.params.memberId, 10);
       if (isNaN(iRoutingGroup) || isNaN(iRoutingGroupMember))
         return res.status(400).json({ success: false, error: 'Invalid routing group or member ID.' });
-      const settings = await storage.getSippySettings();
-      if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.delRoutingGroupMember(username, password, iRoutingGroupMember, {
-        iRoutingGroup,
-        portalUrl: sippyPortalUrl(settings),
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      if (!canSubmit(role)) return res.status(403).json({ success: false, error: 'Your role cannot submit routing change requests.' });
+      const ar = await submitApprovalRequest({
+        operationType: 'routing_group_member.delete',
+        action: 'delete',
+        entityId: iRoutingGroupMember,
+        entityName: `RG #${iRoutingGroup} — Member #${iRoutingGroupMember}`,
+        payloadAfter: { iRoutingGroupMember, iRoutingGroup },
+        requestedBy: userId,
+        requestedByName: req.user?.claims?.name ?? req.user?.claims?.email,
+        teamId: roleRecord?.teamId,
       });
-      if (!result.success) return res.status(422).json({ success: false, error: result.message });
-      res.json(result);
+      res.status(202).json({ requiresApproval: true, requestId: ar.id, message: 'Routing group member removal submitted for approval.' });
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
   });
 
@@ -14114,6 +14223,89 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();
+
+  // ── Approval Workflow API ────────────────────────────────────────────────────
+
+  // GET /api/approvals/pending-count — badge count for sidebar
+  app.get('/api/approvals/pending-count', async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ count: 0 });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      const count = await storage.getPendingApprovalCount({ userId, role, teamId: roleRecord?.teamId });
+      res.json({ count });
+    } catch (e: any) { res.status(500).json({ count: 0, error: e.message }); }
+  });
+
+  // GET /api/approvals — list requests visible to this user
+  app.get('/api/approvals', async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      const status = (req.query.status as string) || undefined;
+      const requests = await storage.getApprovalRequests({ userId, role, teamId: roleRecord?.teamId, status });
+      res.json(requests);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/approvals/:id — get specific request + audit trail
+  app.get('/api/approvals/:id', async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid approval request ID.' });
+      const request = await storage.getApprovalRequestById(id);
+      if (!request) return res.status(404).json({ error: 'Approval request not found.' });
+      const auditLog = await storage.getApprovalAuditLog(id);
+      res.json({ ...request, auditLog });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/approvals/:id/approve — approve a request
+  app.post('/api/approvals/:id/approve', async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid approval request ID.' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      const result = await approveRequest(id, {
+        id: userId,
+        name: req.user?.claims?.name ?? req.user?.claims?.email,
+        role,
+        teamId: roleRecord?.teamId ?? null,
+      });
+      if (!result.success) return res.status(403).json({ error: result.error });
+      res.json({ success: true, message: 'Request approved and executed.' });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/approvals/:id/reject — reject a request
+  app.post('/api/approvals/:id/reject', async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid approval request ID.' });
+      const { reason } = req.body ?? {};
+      if (!reason) return res.status(400).json({ error: 'Rejection reason is required.' });
+      const roleRecord = await storage.getUserRoleRecord(userId);
+      const role = (roleRecord?.role ?? 'viewer') as Role;
+      const result = await rejectRequest(id, {
+        id: userId,
+        name: req.user?.claims?.name ?? req.user?.claims?.email,
+        role,
+        teamId: roleRecord?.teamId ?? null,
+      }, reason);
+      if (!result.success) return res.status(403).json({ error: result.error });
+      res.json({ success: true, message: 'Request rejected.' });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
 
   // ── Internal Team Chat ──────────────────────────────────────────────────────
   // Create default rooms on startup (idempotent)
