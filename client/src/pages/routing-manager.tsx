@@ -1489,14 +1489,11 @@ const DS_CURRENCIES = ["USD", "EUR", "GBP", "AED", "SAR", "PKR", "INR", "BDT", "
 
 type DsFormProps = {
   dsName: string; setDsName: (v: string) => void;
-  dsDescription: string; setDsDescription: (v: string) => void;
   dsCurrency: string; setDsCurrency: (v: string) => void;
   dsConnectFee: string; setDsConnectFee: (v: string) => void;
   dsFreeSeconds: string; setDsFreeSeconds: (v: string) => void;
   dsPostCallSurcharge: string; setDsPostCallSurcharge: (v: string) => void;
   dsGracePeriod: string; setDsGracePeriod: (v: string) => void;
-  dsCldTrans: string; setDsCldTrans: (v: string) => void;
-  dsCliTrans: string; setDsCliTrans: (v: string) => void;
   dsLocalCallingEnabled: boolean; setDsLocalCallingEnabled: (v: boolean) => void;
   dsCliValidationRule: string; setDsCliValidationRule: (v: string) => void;
   dsRemoteMgmtType: string; setDsRemoteMgmtType: (v: string) => void;
@@ -1505,11 +1502,11 @@ type DsFormProps = {
 };
 
 function DsForm({
-  dsName, setDsName, dsDescription, setDsDescription,
+  dsName, setDsName,
   dsCurrency, setDsCurrency, dsConnectFee, setDsConnectFee,
   dsFreeSeconds, setDsFreeSeconds, dsPostCallSurcharge, setDsPostCallSurcharge,
-  dsGracePeriod, setDsGracePeriod, dsCldTrans, setDsCldTrans,
-  dsCliTrans, setDsCliTrans, dsLocalCallingEnabled, setDsLocalCallingEnabled,
+  dsGracePeriod, setDsGracePeriod,
+  dsLocalCallingEnabled, setDsLocalCallingEnabled,
   dsCliValidationRule, setDsCliValidationRule, dsRemoteMgmtType, setDsRemoteMgmtType,
   dsRemoteMgmtKey, setDsRemoteMgmtKey, idSuffix,
 }: DsFormProps) {
@@ -1558,16 +1555,6 @@ function DsForm({
             <Label>Grace Period, sec</Label>
             <Input type="number" value={dsGracePeriod} onChange={e => setDsGracePeriod(e.target.value)}
               placeholder="0" data-testid={`input-ds-grace-period-${idSuffix}`} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>CLD Translation Rule</Label>
-            <Input value={dsCldTrans} onChange={e => setDsCldTrans(e.target.value)}
-              placeholder="e.g. s/^0/44/" data-testid={`input-ds-cld-${idSuffix}`} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Description</Label>
-            <Input value={dsDescription} onChange={e => setDsDescription(e.target.value)}
-              placeholder="e.g. UK mobile prefixes" data-testid={`input-ds-description-${idSuffix}`} />
           </div>
         </div>
       </div>
@@ -1841,14 +1828,11 @@ function DestinationSetsTab() {
           </DialogHeader>
           <DsForm
             dsName={dsName} setDsName={setDsName}
-            dsDescription={dsDescription} setDsDescription={setDsDescription}
             dsCurrency={dsCurrency} setDsCurrency={setDsCurrency}
             dsConnectFee={dsConnectFee} setDsConnectFee={setDsConnectFee}
             dsFreeSeconds={dsFreeSeconds} setDsFreeSeconds={setDsFreeSeconds}
             dsPostCallSurcharge={dsPostCallSurcharge} setDsPostCallSurcharge={setDsPostCallSurcharge}
             dsGracePeriod={dsGracePeriod} setDsGracePeriod={setDsGracePeriod}
-            dsCldTrans={dsCldTrans} setDsCldTrans={setDsCldTrans}
-            dsCliTrans={dsCliTrans} setDsCliTrans={setDsCliTrans}
             dsLocalCallingEnabled={dsLocalCallingEnabled} setDsLocalCallingEnabled={setDsLocalCallingEnabled}
             dsCliValidationRule={dsCliValidationRule} setDsCliValidationRule={setDsCliValidationRule}
             dsRemoteMgmtType={dsRemoteMgmtType} setDsRemoteMgmtType={setDsRemoteMgmtType}
@@ -1887,14 +1871,11 @@ function DestinationSetsTab() {
           </DialogHeader>
           <DsForm
             dsName={dsName} setDsName={setDsName}
-            dsDescription={dsDescription} setDsDescription={setDsDescription}
             dsCurrency={dsCurrency} setDsCurrency={setDsCurrency}
             dsConnectFee={dsConnectFee} setDsConnectFee={setDsConnectFee}
             dsFreeSeconds={dsFreeSeconds} setDsFreeSeconds={setDsFreeSeconds}
             dsPostCallSurcharge={dsPostCallSurcharge} setDsPostCallSurcharge={setDsPostCallSurcharge}
             dsGracePeriod={dsGracePeriod} setDsGracePeriod={setDsGracePeriod}
-            dsCldTrans={dsCldTrans} setDsCldTrans={setDsCldTrans}
-            dsCliTrans={dsCliTrans} setDsCliTrans={setDsCliTrans}
             dsLocalCallingEnabled={dsLocalCallingEnabled} setDsLocalCallingEnabled={setDsLocalCallingEnabled}
             dsCliValidationRule={dsCliValidationRule} setDsCliValidationRule={setDsCliValidationRule}
             dsRemoteMgmtType={dsRemoteMgmtType} setDsRemoteMgmtType={setDsRemoteMgmtType}
