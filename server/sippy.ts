@@ -14442,10 +14442,16 @@ export async function listRoutingGroups(
     const resp = await sippyPost(apiUrl, xmlRpcCall('listRoutingGroups', params as any), username, password);
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
-      // Response: struct with a 'list' member that is an array of structs.
-      const listBlock = /<name>list<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/.exec(text)?.[1] ?? text;
-      const rawStructs = parseArrayOfStructs(listBlock);
-      const groups = rawStructs.map((r: Record<string, string>) => parseRoutingGroupDetail(r));
+      // Sippy returns a top-level struct with a 'list' array-of-structs member.
+      // We scan ALL <struct> blocks in the full response and keep only those that
+      // carry i_routing_group (matching listDestinationSets' proven pattern).
+      const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+      const groups: SippyRoutingGroupDetail[] = [];
+      let sm: RegExpExecArray | null;
+      while ((sm = structRe.exec(text)) !== null) {
+        const m = extractStructMembers(sm[1]);
+        if (m['i_routing_group']) groups.push(parseRoutingGroupDetail(m));
+      }
       return { success: true, groups, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()

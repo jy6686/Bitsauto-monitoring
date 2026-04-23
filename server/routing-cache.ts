@@ -52,7 +52,11 @@ export async function syncRoutingCache(force = false): Promise<{ ok: boolean; me
     // ── 1. Sync Routing Groups ──────────────────────────────────────────────
     const rgResult = await sippy.listRoutingGroups(username, password, { portalUrl });
     let rgCount = 0;
-    if (rgResult.success && rgResult.groups.length > 0) {
+    if (!rgResult.success) {
+      console.warn(`[routing-cache] listRoutingGroups failed: ${rgResult.message}`);
+    } else if (rgResult.groups.length === 0) {
+      console.log(`[routing-cache] listRoutingGroups returned 0 groups (empty list from Sippy)`);
+    } else {
       for (const rg of rgResult.groups) {
         const iRg = rg.iRoutingGroup ?? (rg as any).id;
         if (!iRg) continue;

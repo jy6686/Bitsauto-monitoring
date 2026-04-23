@@ -191,6 +191,7 @@ function policyLabel(policy: string | null): string {
     "prefix":              "Prefix Length",
     "preference":          "Route Preference",
     "order":               "Entries Order",
+    "order,weight":        "Order + Weight",
     "weighted":            "Weighted",
   };
   return map[policy] ?? policy;
@@ -738,7 +739,9 @@ const RG_POLICY_OPTIONS = [
   { value: "prefix,preference", label: "Prefix + Preference (recommended)" },
   { value: "least_cost",        label: "Least Cost (LCR)" },
   { value: "order",             label: "Entries Order" },
+  { value: "order,weight",      label: "Order + Weight" },
   { value: "weighted",          label: "Weighted Distribution" },
+  { value: "preference",        label: "Route Preference" },
 ];
 
 const MEDIA_RELAY_OPTIONS = [
@@ -1104,10 +1107,10 @@ function RoutingGroupsTab() {
     !search || g.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const invalidate = () => {
+  const invalidate = async () => {
+    try { await apiRequest("POST", "/api/routing-cache/sync"); } catch { /* swallow — stale cache shown */ }
     qc.invalidateQueries({ queryKey: ["/api/routing-cache/routing-groups"] });
     qc.invalidateQueries({ queryKey: ["/api/routing-cache/status"] });
-    apiRequest("POST", "/api/routing-cache/sync").catch(() => {});
   };
 
   const createMut = useMutation({
@@ -1608,10 +1611,10 @@ function DestinationSetsTab() {
     navigate(`/lcr-analyser?prefix=${encodeURIComponent(prefix)}`);
   };
 
-  const invalidate = () => {
+  const invalidate = async () => {
+    try { await apiRequest("POST", "/api/routing-cache/sync"); } catch { /* swallow */ }
     qc.invalidateQueries({ queryKey: ["/api/routing-cache/destination-sets"] });
     qc.invalidateQueries({ queryKey: ["/api/routing-cache/status"] });
-    apiRequest("POST", "/api/routing-cache/sync").catch(() => {});
   };
 
   const createMut = useMutation({

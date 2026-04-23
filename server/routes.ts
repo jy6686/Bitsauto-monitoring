@@ -8466,8 +8466,8 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // POST /api/routing-cache/sync — force immediate re-sync
-  app.post('/api/routing-cache/sync', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (_req, res) => {
+  // POST /api/routing-cache/sync — force immediate re-sync (admin + management)
+  app.post('/api/routing-cache/sync', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req, res) => {
     try {
       const result = await syncRoutingCache(true);
       res.json(result);
