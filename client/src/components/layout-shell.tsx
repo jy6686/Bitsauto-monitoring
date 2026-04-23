@@ -90,6 +90,7 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   roles: Role[];
   hasSubmenu?: SubmenuType;
+  status?: 'live' | 'partial' | 'planned';
 }
 
 interface NavGroup {
@@ -136,19 +137,18 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Routing',
     roles: ['admin','management'],
     items: [
-      { href: "/lcr-analyser",       label: "LCR Analyser",           icon: GitBranch,  roles: ['admin','management'] },
-      { href: "/call-flow-simulator",label: "Call Flow Simulator",    icon: Workflow,   roles: ['admin','management'] },
-      { href: "/call-flow-simulator",label: "Routing Audit Trail",    icon: History,    roles: ['admin','management'] },
-      { href: "/tools?tab=route-tester",       label: "Route Tester",           icon: Route,      roles: ['admin','management'] },
-      { href: "/tools?tab=translation-tester", label: "Translation Tester",     icon: ArrowRightLeft, roles: ['admin','management'] },
-      { href: "/routing-manager?tab=routing-groups",   label: "Routing Group Manager",   icon: Database,    roles: ['admin','management'] },
-      { href: "/routing-manager?tab=destination-sets", label: "Destination Set Explorer", icon: Layers,      roles: ['admin','management'] },
-      { href: "/routing-manager?tab=connections",      label: "Connection Coverage Map",  icon: Network,     roles: ['admin','management'] },
-      { href: "/routing-manager?tab=qbr",              label: "QBR Dashboard",            icon: ShieldCheck, roles: ['admin','management'] },
-      { href: "/routing-manager?tab=on-net",           label: "On-Net Routing Viewer",    icon: Wifi,        roles: ['admin','management'] },
-      { href: "/routing-manager?tab=policy-sim",       label: "Routing Policy Simulator", icon: Calculator,  roles: ['admin','management'] },
-      { href: "/tools?tab=route-tester", label: "Prefix Coverage Checker", icon: Search, roles: ['admin','management'] },
-      { href: "/rate-cards",         label: "Bulk Rate / Route Upload",icon: Upload,    roles: ['admin','management'] },
+      { href: "/lcr-analyser",                          label: "LCR Analyser",            icon: GitBranch,     roles: ['admin','management']                    },
+      { href: "/call-flow-simulator",                   label: "Call Flow Simulator",     icon: Workflow,      roles: ['admin','management']                    },
+      // ── 9 tracked routing features ────────────────────────────────────────────
+      { href: "/routing-manager?tab=routing-groups",   label: "Routing Group Manager",   icon: Database,      roles: ['admin','management'], status: 'partial'  },
+      { href: "/routing-manager?tab=destination-sets", label: "Destination Set Explorer",icon: Layers,        roles: ['admin','management'], status: 'partial'  },
+      { href: "/routing-manager?tab=qbr",              label: "QBR Dashboard",           icon: ShieldCheck,   roles: ['admin','management'], status: 'planned'  },
+      { href: "/call-flow-simulator",                  label: "Routing Audit Trail",     icon: History,       roles: ['admin','management'], status: 'partial'  },
+      { href: "/routing-manager?tab=connections",      label: "Connection Coverage Map", icon: Network,       roles: ['admin','management'], status: 'planned'  },
+      { href: "/rate-cards",                           label: "Bulk Rate / Route Upload",icon: Upload,        roles: ['admin','management'], status: 'planned'  },
+      { href: "/routing-manager?tab=on-net",           label: "On-Net Routing Viewer",   icon: Wifi,          roles: ['admin','management'], status: 'planned'  },
+      { href: "/routing-manager?tab=policy-sim",       label: "Routing Policy Simulator",icon: Calculator,    roles: ['admin','management'], status: 'planned'  },
+      { href: "/tools?tab=route-tester",               label: "Prefix Coverage Checker", icon: Search,        roles: ['admin','management'], status: 'planned'  },
     ],
   },
   {
@@ -610,9 +610,19 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
     /* ── Plain nav item ── */
     return (
-      <Link key={item.href} href={item.href} className={navItemClass(isActive)}>
+      <Link key={item.href + (item.label)} href={item.href} className={navItemClass(isActive)}>
         <item.icon className={navIconClass(isActive)} />
-        <span>{item.label}</span>
+        <span className="flex-1 leading-tight">{item.label}</span>
+        {item.status === 'planned' && !isActive && (
+          <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-muted/60 text-muted-foreground/60 border border-border/30 tracking-wide">
+            Soon
+          </span>
+        )}
+        {item.status === 'partial' && !isActive && (
+          <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 tracking-wide">
+            Partial
+          </span>
+        )}
       </Link>
     );
   };
