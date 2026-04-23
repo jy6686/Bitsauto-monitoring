@@ -178,7 +178,7 @@ export default function BillingDisputesPage() {
 
   const { data: disputes = [], isLoading } = useQuery<BillingDispute[]>({
     queryKey: ["/api/disputes"],
-    refetchInterval: 60_000,
+    staleTime: 5 * 60_000,
   });
 
   const deleteMut = useMutation({

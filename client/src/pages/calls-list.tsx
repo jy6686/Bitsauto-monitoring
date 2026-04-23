@@ -367,7 +367,8 @@ function SwitchPanel({
   }>({
     queryKey: ['/api/call-history', historyHours],
     queryFn: () => fetch(`/api/call-history?hours=${historyHours}`).then(r => r.json()),
-    refetchInterval: 60000,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
   });
 
   interface RouteQuality {
@@ -382,7 +383,8 @@ function SwitchPanel({
     queryKey: ['/api/call-history/route-quality', historyHours],
     queryFn: () => fetch(`/api/call-history/route-quality?hours=${historyHours}`).then(r => r.json()),
     enabled: routeAnalysisMode,
-    refetchInterval: 60000,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
   });
 
   // For primary: use the 'connected' field from the live calls response (most accurate);
@@ -1969,14 +1971,15 @@ export default function CallsListPage() {
 
   const { data: switches = [] } = useQuery<SwitchRecord[]>({
     queryKey: ['/api/switches'],
-    refetchInterval: 60000,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
   });
 
   const primaryLabel = 'Primary Sippy';
 
   const { data: primarySippySession } = useQuery<{ active: boolean }>({
     queryKey: ['/api/sippy/session'],
-    refetchInterval: 30000,
+    refetchInterval: 120_000,
   });
   const primarySessionActive = !!primarySippySession?.active;
 
@@ -2069,7 +2072,7 @@ function SwitchTab({
 }) {
   const { data: session } = useQuery<{ active: boolean }>({
     queryKey: ['/api/switches', sw.id, 'session'],
-    refetchInterval: 30000,
+    refetchInterval: 120_000,
     queryFn: () => fetch(`/api/switches/${sw.id}/session`).then(r => r.json()),
   });
 

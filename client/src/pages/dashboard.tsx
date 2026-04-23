@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useNocWebSocket } from "@/hooks/use-noc-ws";
 import { useDashboardStats } from "@/hooks/use-dashboard";
 import { useCalls } from "@/hooks/use-calls";
 import { useSettings } from "@/hooks/use-settings";
@@ -211,7 +212,8 @@ export default function DashboardPage() {
   }>({
     queryKey: ['/api/analytics/revenue', 30],
     queryFn: () => fetch('/api/analytics/revenue?days=30').then(r => r.json()),
-    refetchInterval: 120_000,
+    refetchInterval: 10 * 60_000,
+    staleTime: 9 * 60_000,
   });
 
 
@@ -291,16 +293,22 @@ export default function DashboardPage() {
     { id: 'fas_events',        label: 'FAS Events' },
   ] as const;
 
+  // NOC WebSocket — push tick arrives every ~60s when background poller refreshes.
+  // All live-calls queries are refetched on tick instead of individual per-user polling.
+  const { lastTick } = useNocWebSocket();
+
   // Sippy session
   const { data: sippySession } = useQuery<{ active: boolean; username?: string; connectedAt?: string; portalUrl?: string }>({
     queryKey: ['/api/sippy/session'],
-    refetchInterval: 30000,
+    refetchInterval: 120_000,
   });
-  // Sippy live calls — always polled; server uses hardcoded defaults so no session needed
-  const { data: sippyLiveCalls } = useQuery<{ calls: any[]; connected?: boolean; stale?: boolean; error?: string }>({
+  // Sippy live calls — served from server-side cache; refetch is triggered by WS tick only.
+  const { data: sippyLiveCalls, refetch: refetchLiveCalls } = useQuery<{ calls: any[]; connected?: boolean; stale?: boolean; error?: string }>({
     queryKey: ['/api/sippy/live-calls'],
-    refetchInterval: 5000,
+    staleTime: 90_000,
   });
+  // Trigger refetch whenever the NOC background job publishes a tick
+  useEffect(() => { if (lastTick) refetchLiveCalls(); }, [lastTick]);
   // Sippy real-time dashboard stats — ASR, ACD, PDD, active calls direct from Sippy switch
   const { data: sippyStats, isLoading: sippyStatsLoading, dataUpdatedAt: statsUpdatedAt } = useQuery<{
     asr: number; acd: number;
@@ -319,7 +327,7 @@ export default function DashboardPage() {
     cpsSource?: 'monitoring' | 'cdr';
   }>({
     queryKey: ['/api/sippy/dashboard-stats'],
-    refetchInterval: 20000,
+    refetchInterval: 60_000,
   });
   const isSippyReachable = sippyLiveCalls?.connected === true || !!sippySession?.active || sippyStats?.connected === true;
   // Sippy ASR/ACD report — CDR-based revenue & margin stats for last 90 min
@@ -330,14 +338,15 @@ export default function DashboardPage() {
     margin: number;
   }>({
     queryKey: ['/api/sippy/asr-acd-stats'],
-    refetchInterval: 120000,
-    staleTime: 0,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
     enabled: isSippyReachable,
   });
 
   const { data: fasEventsData } = useQuery<{ events: any[] }>({
     queryKey: ['/api/fas-events'],
-    refetchInterval: 30000,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
   });
   const recentFasEvents = (fasEventsData?.events ?? []).slice(0, 5);
   const fasAll         = fasEventsData?.events ?? [];

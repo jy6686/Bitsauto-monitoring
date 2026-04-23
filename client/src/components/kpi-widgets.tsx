@@ -54,11 +54,11 @@ function KpiSub({ children }: { children: React.ReactNode }) {
 export function HostStatusWidget() {
   const { data } = useQuery<{ active: boolean; username?: string; connectedAt?: string }>({
     queryKey: ['/api/sippy/session'],
-    refetchInterval: 30000,
+    refetchInterval: 120_000,
   });
   const { data: lc } = useQuery<{ calls: any[]; connected?: boolean }>({
     queryKey: ['/api/sippy/live-calls'],
-    refetchInterval: 10000,
+    staleTime: 90_000,
   });
   const connected = data?.active === true || lc?.connected === true;
   return (
@@ -87,7 +87,7 @@ export function HostStatusWidget() {
 export function LiveCallsWidget() {
   const { data } = useQuery<{ calls: any[]; connected?: boolean }>({
     queryKey: ['/api/sippy/live-calls'],
-    refetchInterval: 5000,
+    staleTime: 90_000,
   });
   const count = data?.calls?.length ?? 0;
   return (
@@ -106,7 +106,7 @@ export function LiveCallsWidget() {
 export function ASRWidget() {
   const { data } = useQuery<{ asr: number; connected: boolean }>({
     queryKey: ['/api/sippy/dashboard-stats'],
-    refetchInterval: 20000,
+    refetchInterval: 60_000,
   });
   const asr = data?.asr ?? 0;
   const color = asr >= 15 ? "text-emerald-400" : asr >= 5 ? "text-amber-400" : "text-rose-400";
@@ -129,7 +129,8 @@ export function ASRWidget() {
 export function BalanceTickerWidget() {
   const { data } = useQuery<{ vendors: Array<{ iVendor: number; name: string; balance: number }>; ts: string | null }>({
     queryKey: ['/api/vendors/current-balances'],
-    refetchInterval: 60000,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
   });
   const vendors = data?.vendors ?? [];
   return (
@@ -168,12 +169,12 @@ export function BalanceTickerWidget() {
 export function MOSTrendWidget() {
   const { data: stats } = useQuery<{ estimatedMos: number | null; acd: number; connected: boolean }>({
     queryKey: ['/api/sippy/dashboard-stats'],
-    refetchInterval: 20000,
+    refetchInterval: 60_000,
   });
   const { data: trend } = useQuery<{ ok: boolean; points: Array<{ ts: number; mos?: number; acd?: number }> }>({
     queryKey: ['/api/sippy/monitoring/acd-asr'],
-    refetchInterval: 120000,
-    staleTime: 60000,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
   });
 
   const mos = stats?.estimatedMos ?? null;
@@ -205,8 +206,8 @@ export function MOSTrendWidget() {
 export function FraudCountWidget() {
   const { data } = useQuery<{ events: Array<{ id: number; fraudScore?: number; detectedAt: string }> }>({
     queryKey: ['/api/fas-events'],
-    refetchInterval: 120000,
-    staleTime: 60000,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
   });
   const count = data?.events?.length ?? 0;
   const highScore = data?.events?.filter(e => (e.fraudScore ?? 0) >= 70).length ?? 0;
@@ -236,8 +237,8 @@ export function BitsEyeGraphWidget() {
   const { data } = useQuery<{ ok: boolean; points: Array<{ ts: number; calls_in_progress?: number; [k: string]: any }> }>({
     queryKey: ['/api/sippy/monitoring/graph', 'widget'],
     queryFn: () => fetch('/api/sippy/monitoring/graph?type=calls_in_progress_total&hours=6').then(r => r.json()),
-    refetchInterval: 120000,
-    staleTime: 60000,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
   });
 
   const points = (data?.points ?? []).slice(-30).map(p => {

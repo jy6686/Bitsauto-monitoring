@@ -1786,20 +1786,23 @@ function SippyLiveStatsTab() {
   const { data: stats, isLoading: statsLoading, refetch, dataUpdatedAt } = useQuery<PerAccountStats>({
     queryKey: ['/api/sippy/per-account-stats', period],
     queryFn: () => fetch(`/api/sippy/per-account-stats?period=${period}`).then(r => r.json()),
-    refetchInterval: 60000,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
   });
 
   // Fetch individual accounts (PUSHTOTALK/aircel/asif) under RTST1 (iCustomer=2)
   const { data: accountsData } = useQuery<{ accounts: SippyAccount[] }>({
     queryKey: ['/api/sippy/accounts'],
     queryFn: () => fetch('/api/sippy/accounts?iCustomer=2').then(r => r.json()),
-    refetchInterval: 120000,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
   });
 
   const { data: vendData } = useQuery<{ vendors: SippyVendorEntry[] }>({
     queryKey: ['/api/sippy/vendors'],
     queryFn: () => fetch('/api/sippy/vendors').then(r => r.json()),
-    refetchInterval: 120000,
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
   });
 
   const accounts = accountsData?.accounts ?? [];
@@ -3139,7 +3142,7 @@ export default function ClientsPage() {
 
   const { data: sippySession } = useQuery<{ active: boolean; username?: string }>({
     queryKey: ['/api/sippy/session'],
-    refetchInterval: 30000,
+    refetchInterval: 120_000,
   });
 
   const createMut = useMutation({
