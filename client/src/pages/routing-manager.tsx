@@ -225,42 +225,51 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
   const [deleteTarget, setDeleteTarget] = useState<{ memberId: number; label: string } | null>(null);
 
   // "Add entry" inline row state — matches Sippy UI (vendor → connection → dest set → dates → order → weight)
-  const [rowVendor, setRowVendor]  = useState("");
-  const [rowConn,   setRowConn]    = useState("");
-  const [rowDs,     setRowDs]      = useState("");
-  const [rowPref,   setRowPref]    = useState("1");
-  const [rowWeight, setRowWeight]  = useState("1");
-  const [rowAct,    setRowAct]     = useState("now");
-  const [rowExp,    setRowExp]     = useState("never");
+  const [rowVendorId, setRowVendorId] = useState<number | null>(null);
+  const [rowConn,     setRowConn]     = useState("");
+  const [rowDs,       setRowDs]       = useState("");
+  const [rowPref,     setRowPref]     = useState("1");
+  const [rowWeight,   setRowWeight]   = useState("1");
+  const [rowAct,      setRowAct]      = useState("now");
+  const [rowExp,      setRowExp]      = useState("never");
 
   const { data, isLoading, refetch } = useQuery<RgDetail>({
     queryKey: ["/api/routing-cache/routing-groups", groupId, "detail"],
   });
-  const { data: connsData } = useQuery<{ connections: Connection[] }>({
-    queryKey: ["/api/routing-cache/connections"],
+
+  // Live vendor list from Sippy (all vendors, not just cached)
+  const { data: sippyVendorsData, isLoading: vendorsLoading } = useQuery<{ vendors: { iVendor: number; name: string }[] }>({
+    queryKey: ["/api/sippy/vendors"],
+    staleTime: 60_000,
+    select: (d: any) => ({
+      vendors: (d.vendors ?? []).map((v: any) => ({ iVendor: v.iVendor ?? v.i_vendor, name: v.name }))
+        .sort((a: any, b: any) => a.name.localeCompare(b.name))
+    }),
   });
+
+  // Live connections for selected vendor from Sippy
+  const { data: vendorConnsData, isLoading: vendorConnsLoading } = useQuery<{ connections: { iConnection: number; name: string }[] }>({
+    queryKey: ["/api/sippy/vendors", rowVendorId, "connections"],
+    enabled: rowVendorId !== null,
+    staleTime: 30_000,
+    select: (d: any) => ({
+      connections: (d.connections ?? []).map((c: any) => ({ iConnection: c.iConnection, name: c.name }))
+        .sort((a: any, b: any) => a.name.localeCompare(b.name))
+    }),
+  });
+
+  // Destination sets from cache
   const { data: setsData } = useQuery<{ sets: DestinationSet[] }>({
     queryKey: ["/api/routing-cache/destination-sets"],
   });
-
-  const allConns   = connsData?.connections ?? [];
   const cachedSets = setsData?.sets ?? [];
-
-  // Unique vendor list (sorted) for the vendor filter column
-  const vendors = Array.from(
-    new Set(allConns.filter(c => c.vendor_name).map(c => c.vendor_name!))
-  ).sort();
-
-  // Filter connections by selected vendor
-  const filteredConns = rowVendor ? allConns.filter(c => c.vendor_name === rowVendor) : allConns;
 
   const addMut = useMutation({
     mutationFn: async (body: object) => (await apiRequest("POST", `/api/sippy/routing-groups/${groupId}/members`, body)).json(),
     onSuccess: (data: any) => {
       const a = approvalToastOpts(data, navigate);
       if (a) toast(a); else toast({ title: "Routing entry added" });
-      setAddOpen(false);
-      setRowVendor(""); setRowConn(""); setRowDs(""); setRowPref("1"); setRowWeight("1"); setRowAct("now"); setRowExp("never");
+      setRowVendorId(null); setRowConn(""); setRowDs(""); setRowPref("1"); setRowWeight("1"); setRowAct("now"); setRowExp("never");
       refetch();
     },
     onError: (e: any) => toast({ title: "Error adding routing entry", description: e.message, variant: "destructive" }),
@@ -378,21 +387,31 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
 
               {/* ── Inline Add Row (matches Sippy UI) ── */}
               <tr className="border-t border-border/40 bg-muted/10">
-                {/* Vendor */}
+                {/* Vendor — live from Sippy */}
                 <td className="px-1.5 py-1.5">
-                  <select value={rowVendor} onChange={e => { setRowVendor(e.target.value); setRowConn(""); }}
-                    className={selCls} data-testid="select-entry-vendor">
-                    <option value="">Select Vendor...</option>
-                    {vendors.map(v => <option key={v} value={v}>{v}</option>)}
+                  <select
+                    value={rowVendorId !== null ? String(rowVendorId) : ""}
+                    onChange={e => { const v = e.target.value; setRowVendorId(v ? parseInt(v) : null); setRowConn(""); }}
+                    className={selCls} data-testid="select-entry-vendor"
+                    disabled={vendorsLoading}
+                  >
+                    <option value="">{vendorsLoading ? "Loading vendors…" : "Select Vendor…"}</option>
+                    {(sippyVendorsData?.vendors ?? []).map(v => (
+                      <option key={v.iVendor} value={String(v.iVendor)}>{v.name}</option>
+                    ))}
                   </select>
                 </td>
-                {/* Connection (filtered by vendor) */}
+                {/* Connection — live from Sippy, filtered by vendor */}
                 <td className="px-1.5 py-1.5">
                   <select value={rowConn} onChange={e => setRowConn(e.target.value)}
-                    className={selCls} data-testid="select-entry-conn">
-                    <option value="">Select Connection...</option>
-                    {filteredConns.map(c => (
-                      <option key={c.i_connection} value={String(c.i_connection)}>{c.name}</option>
+                    className={selCls} data-testid="select-entry-conn"
+                    disabled={rowVendorId === null || vendorConnsLoading}
+                  >
+                    <option value="">
+                      {rowVendorId === null ? "Select vendor first" : vendorConnsLoading ? "Loading…" : "Select Connection…"}
+                    </option>
+                    {(vendorConnsData?.connections ?? []).map(c => (
+                      <option key={c.iConnection} value={String(c.iConnection)}>{c.name}</option>
                     ))}
                   </select>
                 </td>
