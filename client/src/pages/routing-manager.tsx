@@ -1601,11 +1601,6 @@ function DsForm({
               className="disabled:opacity-40"
               data-testid={`input-ds-remote-key-${idSuffix}`} />
           </div>
-          <div className="space-y-1.5">
-            <Label>CLI Translation Rule</Label>
-            <Input value={dsCliTrans} onChange={e => setDsCliTrans(e.target.value)}
-              placeholder="e.g. s/^0/44/" data-testid={`input-ds-cli-${idSuffix}`} />
-          </div>
         </div>
       </div>
     </div>
