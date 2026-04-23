@@ -23,6 +23,10 @@ import { generateUserManual, USER_MANUAL_PATH } from "./manual-generator";
 import { generateSippyDataflowDoc, SIPPY_DATAFLOW_PATH } from "./sippy-dataflow-generator";
 import { generateTroubleshootGuide, TROUBLESHOOT_GUIDE_PATH } from "./troubleshoot-generator";
 import { generateOrgHierarchyDoc, ORG_HIERARCHY_PATH } from "./org-hierarchy-generator";
+import {
+  syncRoutingCache, getCachedRoutingGroups, getCachedDestinationSets,
+  getCachedConnections, getRoutingCacheMeta,
+} from "./routing-cache";
 
 // ── /api/dial-codes handler — serves raw prefix JSON for client-side lookup ───
 // Uses process.cwd() so it works in both ESM dev (tsx) and CJS production build.
@@ -8245,6 +8249,47 @@ export async function registerRoutes(
       if (!result.success) return res.status(422).json({ success: false, error: result.message });
       res.status(201).json(result);
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // ── Routing Cache API ────────────────────────────────────────────────────────
+  // GET /api/routing-cache/status — sync metadata + item counts
+  app.get('/api/routing-cache/status', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req, res) => {
+    try {
+      const meta = await getRoutingCacheMeta();
+      res.json(meta ?? { last_sync_status: 'pending', rg_count: 0, ds_count: 0, conn_count: 0 });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/routing-cache/routing-groups — cached routing groups
+  app.get('/api/routing-cache/routing-groups', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req, res) => {
+    try {
+      const groups = await getCachedRoutingGroups();
+      res.json({ groups });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/routing-cache/destination-sets — cached destination sets
+  app.get('/api/routing-cache/destination-sets', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req, res) => {
+    try {
+      const sets = await getCachedDestinationSets();
+      res.json({ sets });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/routing-cache/connections — cached connections
+  app.get('/api/routing-cache/connections', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req, res) => {
+    try {
+      const connections = await getCachedConnections();
+      res.json({ connections });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/routing-cache/sync — force immediate re-sync
+  app.post('/api/routing-cache/sync', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (_req, res) => {
+    try {
+      const result = await syncRoutingCache(true);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
   });
 
   // PUT /api/sippy/routing-groups/:id — updateRoutingGroup()

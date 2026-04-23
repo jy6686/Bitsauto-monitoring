@@ -4,6 +4,7 @@ import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { runSafeMigrations } from "./db";
+import { startRoutingCacheSync } from "./routing-cache";
 import { createServer } from "http";
 
 // ── Global crash guards ───────────────────────────────────────────────────────
@@ -154,6 +155,9 @@ app.use((req, res, next) => {
   await runSafeMigrations();
 
   await registerRoutes(httpServer, app);
+
+  // Start routing cache background sync (15-min intervals, first sync after 10s)
+  startRoutingCacheSync();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

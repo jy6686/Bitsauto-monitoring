@@ -43,6 +43,63 @@ export async function runSafeMigrations(): Promise<void> {
       ALTER TABLE call_snapshots
         ALTER COLUMN connection TYPE VARCHAR(255)
     `);
+    // ── Routing cache tables (added 2026-04-23) ───────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS routing_groups_cache (
+        id               SERIAL PRIMARY KEY,
+        i_routing_group  INTEGER NOT NULL UNIQUE,
+        name             VARCHAR(255) NOT NULL,
+        policy           VARCHAR(64),
+        media_relay      VARCHAR(64),
+        on_net           BOOLEAN DEFAULT FALSE,
+        members_count    INTEGER DEFAULT 0,
+        raw_json         TEXT,
+        cached_at        TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS destination_sets_cache (
+        id                SERIAL PRIMARY KEY,
+        i_destination_set INTEGER NOT NULL UNIQUE,
+        name              VARCHAR(255) NOT NULL,
+        route_count       INTEGER DEFAULT 0,
+        cld_translation   VARCHAR(255),
+        cli_translation   VARCHAR(255),
+        raw_json          TEXT,
+        cached_at         TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS connection_vendor_cache2 (
+        id           SERIAL PRIMARY KEY,
+        i_connection INTEGER NOT NULL UNIQUE,
+        name         VARCHAR(255) NOT NULL,
+        i_vendor     INTEGER,
+        vendor_name  VARCHAR(255),
+        host         VARCHAR(255),
+        protocol     VARCHAR(32),
+        blocked      BOOLEAN DEFAULT FALSE,
+        raw_json     TEXT,
+        cached_at    TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS routing_cache_meta (
+        id               SERIAL PRIMARY KEY,
+        last_sync_at     TIMESTAMP,
+        last_sync_status VARCHAR(32) DEFAULT 'pending',
+        last_sync_error  TEXT,
+        rg_count         INTEGER DEFAULT 0,
+        ds_count         INTEGER DEFAULT 0,
+        conn_count       INTEGER DEFAULT 0
+      )
+    `);
+    // Ensure at least one meta row exists
+    await client.query(`
+      INSERT INTO routing_cache_meta (last_sync_status) VALUES ('pending')
+      ON CONFLICT DO NOTHING
+    `);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

@@ -81,6 +81,7 @@ import ChatPage from "@/pages/chat";
 import FirewallPage from "@/pages/firewall";
 import VpnConfigPage from "@/pages/vpn-config";
 import EmailCentrePage from "@/pages/email-centre";
+import RoutingManagerPage from "@/pages/routing-manager";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -311,6 +312,9 @@ function Router() {
       </Route>
       <Route path="/email-centre">
         {() => <ProtectedRoute component={EmailCentrePage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/routing-manager">
+        {() => <ProtectedRoute component={RoutingManagerPage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route component={NotFound} />
     </Switch>

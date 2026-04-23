@@ -825,6 +825,57 @@ export type AsrAcdReportFilters = {
   hideEmpty?: boolean;
 };
 
+// ── Routing Cache (local snapshot of Sippy routing data) ───────────────────────
+
+export const routingGroupsCache = pgTable("routing_groups_cache", {
+  id:            serial("id").primaryKey(),
+  iRoutingGroup: integer("i_routing_group").notNull().unique(),
+  name:          varchar("name", { length: 255 }).notNull(),
+  policy:        varchar("policy", { length: 64 }),          // least_cost | prefix | preference | order | weighted
+  mediaRelay:    varchar("media_relay", { length: 64 }),
+  onNet:         boolean("on_net").default(false),
+  membersCount:  integer("members_count").default(0),
+  rawJson:       text("raw_json"),                            // full JSON from Sippy for reference
+  cachedAt:      timestamp("cached_at").defaultNow(),
+});
+export type RoutingGroupCache = typeof routingGroupsCache.$inferSelect;
+
+export const destinationSetsCache = pgTable("destination_sets_cache", {
+  id:               serial("id").primaryKey(),
+  iDestinationSet:  integer("i_destination_set").notNull().unique(),
+  name:             varchar("name", { length: 255 }).notNull(),
+  routeCount:       integer("route_count").default(0),
+  cldTranslation:   varchar("cld_translation", { length: 255 }),
+  cliTranslation:   varchar("cli_translation", { length: 255 }),
+  rawJson:          text("raw_json"),
+  cachedAt:         timestamp("cached_at").defaultNow(),
+});
+export type DestinationSetCache = typeof destinationSetsCache.$inferSelect;
+
+export const connectionVendorCache2 = pgTable("connection_vendor_cache2", {
+  id:          serial("id").primaryKey(),
+  iConnection: integer("i_connection").notNull().unique(),
+  name:        varchar("name", { length: 255 }).notNull(),
+  iVendor:     integer("i_vendor"),
+  vendorName:  varchar("vendor_name", { length: 255 }),
+  host:        varchar("host", { length: 255 }),
+  protocol:    varchar("protocol", { length: 32 }),
+  blocked:     boolean("blocked").default(false),
+  rawJson:     text("raw_json"),
+  cachedAt:    timestamp("cached_at").defaultNow(),
+});
+export type ConnectionVendorCache2 = typeof connectionVendorCache2.$inferSelect;
+
+export const routingCacheMeta = pgTable("routing_cache_meta", {
+  id:             serial("id").primaryKey(),
+  lastSyncAt:     timestamp("last_sync_at"),
+  lastSyncStatus: varchar("last_sync_status", { length: 32 }).default('pending'), // ok | error | syncing
+  lastSyncError:  text("last_sync_error"),
+  rgCount:        integer("rg_count").default(0),
+  dsCount:        integer("ds_count").default(0),
+  connCount:      integer("conn_count").default(0),
+});
+
 // ── Internal Team Chat ─────────────────────────────────────────────────────────
 
 export const chatRooms = pgTable("chat_rooms", {
