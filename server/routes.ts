@@ -12126,27 +12126,102 @@ export async function registerRoutes(
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
-  // GET /api/rate-cards/:id/verify-sippy?tariffId=xxx — compare local entries vs Sippy tariff
+  // POST /api/rate-cards/:id/push-to-destset — bulk-push vendor rates into a Sippy destination set
+  app.post('/api/rate-cards/:id/push-to-destset', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    try {
+      const rateCardId = Number(req.params.id);
+      const { destSetId, switchId, effectiveFrom, effectiveTill } = req.body as {
+        destSetId: number; switchId?: number; effectiveFrom?: string; effectiveTill?: string;
+      };
+      if (!destSetId) return res.status(400).json({ message: 'destSetId is required' });
+
+      const entries = await storage.getRateCardEntries(rateCardId);
+      if (!entries.length) return res.status(400).json({ message: 'Rate card has no entries to push' });
+
+      const settings = await storage.getSettings();
+      const pairs = sippyXmlCredsPairs(settings);
+      let u = pairs[0].username;
+      let p = pairs[0].password;
+      for (const pair of pairs) {
+        try {
+          await sippy.getTariffsList(pair.username, pair.password, undefined, undefined, 1);
+          u = pair.username; p = pair.password; break;
+        } catch { /* try next */ }
+      }
+      let portalUrl = sippyPortalUrl(settings);
+      if (switchId) {
+        const sw = (await storage.getSwitches()).find(s => s.id === Number(switchId) && s.type === 'sippy');
+        if (sw) { portalUrl = sw.portalUrl ?? portalUrl; const swCreds = sippyXmlCreds(settings, sw); u = swCreds.username; p = swCreds.password; }
+      }
+
+      const jobId = randomBytes(8).toString('hex');
+      const job: PushJob = { status: 'running', pushed: 0, failed: 0, total: entries.length, startedAt: new Date().toISOString() };
+      pushJobs.set(jobId, job);
+      res.json({ jobId, total: entries.length });
+
+      (async () => {
+        const CONCURRENCY = 10;
+        let i = 0;
+        async function worker() {
+          while (i < entries.length) {
+            const entry = entries[i++];
+            try {
+              const result = await sippy.addRouteToDestinationSet(u, p, Number(destSetId), entry.prefix, {
+                price1: entry.ratePerMin,
+                priceN: entry.ratePerMin,
+                activationDate: effectiveFrom,
+                expirationDate: effectiveTill,
+                portalUrl,
+              });
+              if (result.success) job.pushed++; else job.failed++;
+            } catch { job.failed++; }
+          }
+        }
+        await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+        job.status = job.failed === 0 ? 'done' : (job.pushed === 0 ? 'error' : 'done');
+        job.message = `Pushed ${job.pushed} routes${job.failed ? `, ${job.failed} failed` : ''}`;
+        setTimeout(() => pushJobs.delete(jobId), 10 * 60 * 1000);
+      })().catch(err => { job.status = 'error'; job.message = err.message; });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/rate-cards/:id/verify-sippy?tariffId=xxx — compare local entries vs Sippy tariff (or destSetId for vendor)
   app.get('/api/rate-cards/:id/verify-sippy', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
     try {
       const rateCardId = Number(req.params.id);
-      const tariffId = req.query.tariffId as string;
-      if (!tariffId) return res.status(400).json({ message: 'tariffId is required' });
+      const tariffId  = req.query.tariffId  as string | undefined;
+      const destSetId = req.query.destSetId as string | undefined;
+      if (!tariffId && !destSetId) return res.status(400).json({ message: 'tariffId or destSetId is required' });
 
       const settings = await storage.getSettings();
       const localEntries = await storage.getRateCardEntries(rateCardId);
 
-      // Fetch up to 1000 rates from Sippy tariff — retry with fallback credentials on 401
-      const sippyResult = await withSippyCredsRaw(
-        settings,
-        (u, p) => sippy.getTariffRatesListFull(u, p, Number(tariffId), undefined, 0, 1000),
-        [],
-      );
-      const sippyRates: any[] = (sippyResult as any)?.rates ?? sippyResult ?? [];
-      const sippyMap = new Map<string, number>();
-      for (const r of sippyRates) {
-        const pfx = String(r.prefix ?? r.destination ?? '').replace(/\D/g, '');
-        if (pfx) sippyMap.set(pfx, Number(r.price_1 ?? r.rate ?? 0));
+      let sippyMap = new Map<string, number>();
+
+      if (destSetId) {
+        // Vendor: compare against destination set routes
+        const dsResult = await withSippyCredsRaw(
+          settings,
+          (u, p) => sippy.getDestinationSetRoutesList(u, p, Number(destSetId), { portalUrl: sippyPortalUrl(settings) }),
+          { success: false, list: [], message: '' },
+        );
+        const routes: any[] = (dsResult as any)?.list ?? [];
+        for (const r of routes) {
+          const pfx = String(r.prefix ?? '').replace(/\D/g, '');
+          if (pfx) sippyMap.set(pfx, Number(r.price1 ?? r.price_1 ?? r.priceN ?? 0));
+        }
+      } else {
+        // Client: compare against tariff rates
+        const sippyResult = await withSippyCredsRaw(
+          settings,
+          (u, p) => sippy.getTariffRatesListFull(u, p, Number(tariffId), undefined, 0, 1000),
+          [],
+        );
+        const sippyRates: any[] = (sippyResult as any)?.rates ?? sippyResult ?? [];
+        for (const r of sippyRates) {
+          const pfx = String(r.prefix ?? r.destination ?? '').replace(/\D/g, '');
+          if (pfx) sippyMap.set(pfx, Number(r.price_1 ?? r.rate ?? 0));
+        }
       }
 
       const localMap = new Map(localEntries.map(e => [e.prefix, e.ratePerMin]));
@@ -12167,7 +12242,7 @@ export async function registerRoutes(
 
       res.json({
         localTotal: localEntries.length,
-        sippyFetched: sippyRates.length,
+        sippyFetched: sippyMap.size,
         matched, mismatched, localOnly, sippyOnly,
         mismatchSample: sample,
       });

@@ -699,9 +699,14 @@ export default function RateCardsPage() {
   async function startPush() {
     if (!pushCard || !pushTariffId) return;
     setJobData(null); setJobId(null);
-    const r = await fetch(`/api/rate-cards/${pushCard.id}/push-to-sippy`, {
+    const isVendor = pushCard.cardType === 'vendor';
+    const endpoint = isVendor ? `/api/rate-cards/${pushCard.id}/push-to-destset` : `/api/rate-cards/${pushCard.id}/push-to-sippy`;
+    const body = isVendor
+      ? { destSetId: Number(pushTariffId), effectiveFrom: effectiveFrom || undefined }
+      : { tariffId: pushTariffId, effectiveFrom: effectiveFrom || undefined };
+    const r = await fetch(endpoint, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tariffId: pushTariffId, effectiveFrom: effectiveFrom || undefined }),
+      body: JSON.stringify(body),
     });
     const data = await r.json();
     if (!r.ok) { toast({ title: "Push failed", description: data.message, variant: "destructive" }); return; }
@@ -713,7 +718,9 @@ export default function RateCardsPage() {
     if (!verifyCard || !verifyTariffId) return;
     setVerifyLoading(true); setVerifyResult(null);
     try {
-      const r = await fetch(`/api/rate-cards/${verifyCard.id}/verify-sippy?tariffId=${verifyTariffId}`);
+      const isVendor = verifyCard.cardType === 'vendor';
+      const param = isVendor ? `destSetId=${verifyTariffId}` : `tariffId=${verifyTariffId}`;
+      const r = await fetch(`/api/rate-cards/${verifyCard.id}/verify-sippy?${param}`);
       const data = await r.json();
       if (!r.ok) throw new Error(data.message);
       setVerifyResult(data);
@@ -1237,41 +1244,72 @@ export default function RateCardsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Send className="h-4 w-4 text-emerald-400" />Push to Sippy Tariff
+              <Send className="h-4 w-4 text-emerald-400" />
+              {pushCard?.cardType === 'vendor' ? 'Push to Sippy Destination Set' : 'Push to Sippy Tariff'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <p className="text-sm text-muted-foreground">
-              Push all <span className="font-medium text-foreground">{pushCard?.entryCount}</span> rates from <span className="font-medium text-foreground">{pushCard?.name}</span> to a Sippy tariff.
+              Push all <span className="font-medium text-foreground">{pushCard?.entryCount}</span> rates from <span className="font-medium text-foreground">{pushCard?.name}</span> to a Sippy {pushCard?.cardType === 'vendor' ? 'destination set' : 'tariff'}.
             </p>
             <div>
-              <Label className="text-xs text-muted-foreground mb-1.5 block">Target Sippy Tariff</Label>
-              {tariffsLoading ? (
-                <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-muted/30 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />Loading tariffs from Sippy…
-                </div>
-              ) : sippyTariffs.length > 0 ? (
-                <Select value={pushTariffId} onValueChange={setPushTariffId} data-testid="select-push-tariff-id">
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a tariff…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sippyTariffs.map(t => (
-                      <SelectItem key={t.iTariff} value={String(t.iTariff)}>
-                        {t.name}
-                        <span className="ml-2 text-muted-foreground text-xs">ID {t.iTariff}{t.currency ? ` · ${t.currency}` : ''}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">
+                {pushCard?.cardType === 'vendor' ? 'Target Sippy Destination Set' : 'Target Sippy Tariff'}
+              </Label>
+              {pushCard?.cardType === 'vendor' ? (
+                // Vendor → Destination Set dropdown
+                rcCtx?.destSets && rcCtx.destSets.length > 0 ? (
+                  <Select value={pushTariffId} onValueChange={setPushTariffId} data-testid="select-push-destset-id">
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select a destination set…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {rcCtx.destSets.map(ds => (
+                        <SelectItem key={ds.iDestinationSet} value={String(ds.iDestinationSet)}>
+                          {ds.name}
+                          <span className="ml-2 text-muted-foreground text-xs">ID {ds.iDestinationSet}{ds.currency ? ` · ${ds.currency}` : ''}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Input value={pushTariffId} onChange={e => setPushTariffId(e.target.value)} placeholder="Enter numeric destination set ID, e.g. 2" data-testid="input-push-destset-id" />
+                    <p className="text-[11px] text-amber-400">Could not load destination sets from Sippy — enter the numeric ID manually.</p>
+                  </div>
+                )
               ) : (
-                <div className="space-y-1.5">
-                  <Input value={pushTariffId} onChange={e => setPushTariffId(e.target.value)} placeholder="Enter numeric tariff ID, e.g. 42" data-testid="input-push-tariff-id" />
-                  <p className="text-[11px] text-amber-400">Could not load tariffs from Sippy — enter the numeric ID manually.</p>
-                </div>
+                // Client → Tariff dropdown
+                tariffsLoading ? (
+                  <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-muted/30 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />Loading tariffs from Sippy…
+                  </div>
+                ) : sippyTariffs.length > 0 ? (
+                  <Select value={pushTariffId} onValueChange={setPushTariffId} data-testid="select-push-tariff-id">
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select a tariff…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sippyTariffs.map(t => (
+                        <SelectItem key={t.iTariff} value={String(t.iTariff)}>
+                          {t.name}
+                          <span className="ml-2 text-muted-foreground text-xs">ID {t.iTariff}{t.currency ? ` · ${t.currency}` : ''}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Input value={pushTariffId} onChange={e => setPushTariffId(e.target.value)} placeholder="Enter numeric tariff ID, e.g. 42" data-testid="input-push-tariff-id" />
+                    <p className="text-[11px] text-amber-400">Could not load tariffs from Sippy — enter the numeric ID manually.</p>
+                  </div>
+                )
               )}
               {pushTariffId && (
-                <p className="text-[11px] text-muted-foreground mt-1">Tariff ID: <span className="font-mono text-foreground">{pushTariffId}</span></p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {pushCard?.cardType === 'vendor' ? 'Destination Set ID: ' : 'Tariff ID: '}
+                  <span className="font-mono text-foreground">{pushTariffId}</span>
+                </p>
               )}
             </div>
             <div>
@@ -1300,38 +1338,67 @@ export default function RateCardsPage() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-blue-400" />Verify vs Sippy
+              <ShieldCheck className="h-4 w-4 text-blue-400" />
+              {verifyCard?.cardType === 'vendor' ? 'Verify vs Sippy Destination Set' : 'Verify vs Sippy Tariff'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div>
-              <Label className="text-xs text-muted-foreground mb-1.5 block">Sippy Tariff to compare against</Label>
-              {tariffsLoading ? (
-                <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-muted/30 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />Loading tariffs from Sippy…
-                </div>
-              ) : sippyTariffs.length > 0 ? (
-                <Select value={verifyTariffId} onValueChange={setVerifyTariffId} data-testid="select-verify-tariff-id">
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a tariff…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sippyTariffs.map(t => (
-                      <SelectItem key={t.iTariff} value={String(t.iTariff)}>
-                        {t.name}
-                        <span className="ml-2 text-muted-foreground text-xs">ID {t.iTariff}{t.currency ? ` · ${t.currency}` : ''}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">
+                {verifyCard?.cardType === 'vendor' ? 'Sippy Destination Set to compare against' : 'Sippy Tariff to compare against'}
+              </Label>
+              {verifyCard?.cardType === 'vendor' ? (
+                rcCtx?.destSets && rcCtx.destSets.length > 0 ? (
+                  <Select value={verifyTariffId} onValueChange={setVerifyTariffId} data-testid="select-verify-destset-id">
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select a destination set…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {rcCtx.destSets.map(ds => (
+                        <SelectItem key={ds.iDestinationSet} value={String(ds.iDestinationSet)}>
+                          {ds.name}
+                          <span className="ml-2 text-muted-foreground text-xs">ID {ds.iDestinationSet}{ds.currency ? ` · ${ds.currency}` : ''}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Input value={verifyTariffId} onChange={e => setVerifyTariffId(e.target.value)} placeholder="Enter numeric destination set ID, e.g. 2" data-testid="input-verify-destset-id" />
+                    <p className="text-[11px] text-amber-400">Could not load destination sets from Sippy — enter the numeric ID manually.</p>
+                  </div>
+                )
               ) : (
-                <div className="space-y-1.5">
-                  <Input value={verifyTariffId} onChange={e => setVerifyTariffId(e.target.value)} placeholder="Enter numeric tariff ID, e.g. 42" data-testid="input-verify-tariff-id" />
-                  <p className="text-[11px] text-amber-400">Could not load tariffs from Sippy — enter the numeric ID manually.</p>
-                </div>
+                tariffsLoading ? (
+                  <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-muted/30 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />Loading tariffs from Sippy…
+                  </div>
+                ) : sippyTariffs.length > 0 ? (
+                  <Select value={verifyTariffId} onValueChange={setVerifyTariffId} data-testid="select-verify-tariff-id">
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select a tariff…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sippyTariffs.map(t => (
+                        <SelectItem key={t.iTariff} value={String(t.iTariff)}>
+                          {t.name}
+                          <span className="ml-2 text-muted-foreground text-xs">ID {t.iTariff}{t.currency ? ` · ${t.currency}` : ''}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Input value={verifyTariffId} onChange={e => setVerifyTariffId(e.target.value)} placeholder="Enter numeric tariff ID, e.g. 42" data-testid="input-verify-tariff-id" />
+                    <p className="text-[11px] text-amber-400">Could not load tariffs from Sippy — enter the numeric ID manually.</p>
+                  </div>
+                )
               )}
               {verifyTariffId && (
-                <p className="text-[11px] text-muted-foreground mt-1">Tariff ID: <span className="font-mono text-foreground">{verifyTariffId}</span></p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {verifyCard?.cardType === 'vendor' ? 'Destination Set ID: ' : 'Tariff ID: '}
+                  <span className="font-mono text-foreground">{verifyTariffId}</span>
+                </p>
               )}
             </div>
             <Button onClick={runVerify} disabled={!verifyTariffId || verifyLoading} className="w-full" data-testid="button-run-verify">
