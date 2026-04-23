@@ -1438,6 +1438,324 @@ function QbrTab() {
   );
 }
 
+// ── On-Net Routing Viewer ──────────────────────────────────────────────────────
+
+function OnNetTab() {
+  const [search, setSearch]   = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const { data, isLoading } = useQuery<{ groups: RoutingGroup[] }>({
+    queryKey: ["/api/routing-cache/routing-groups"],
+  });
+  const allGroups  = data?.groups ?? [];
+  const onNetGroups = allGroups.filter(g => g.on_net);
+  const groups = onNetGroups.filter(g =>
+    !search || g.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Summary bar */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/8 px-4 py-3 text-center">
+          <p className="text-2xl font-bold text-cyan-400">{onNetGroups.length}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">On-Net Groups</p>
+        </div>
+        <div className="rounded-xl border border-border/40 bg-muted/10 px-4 py-3 text-center">
+          <p className="text-2xl font-bold">{onNetGroups.reduce((s, g) => s + g.members_count, 0)}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Total Members</p>
+        </div>
+        <div className="rounded-xl border border-border/40 bg-muted/10 px-4 py-3 text-center">
+          <p className="text-2xl font-bold">{allGroups.length - onNetGroups.length}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Off-Net Groups</p>
+        </div>
+      </div>
+
+      {/* Info banner */}
+      <div className="flex items-start gap-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-sm text-cyan-300">
+        <Wifi className="h-4 w-4 mt-0.5 shrink-0 text-cyan-400" />
+        <span>On-Net routing groups route traffic between known peers without traversing the PSTN — typically for direct inter-carrier interconnects and on-net call optimisation.</span>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search on-net routing groups…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="pl-9 h-9"
+          data-testid="input-search-onnet"
+        />
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Loading from local cache…</span>
+        </div>
+      ) : onNetGroups.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <Wifi className="h-10 w-10 opacity-20 mx-auto mb-3" />
+          <p className="font-medium">No on-net routing groups found</p>
+          <p className="text-sm mt-1 opacity-70">Sync the routing cache to refresh data from Sippy.</p>
+        </div>
+      ) : groups.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">No groups match your search.</div>
+      ) : (
+        <div className="space-y-1.5">
+          {groups.map(rg => {
+            const isExpanded = expandedId === rg.i_routing_group;
+            return (
+              <div key={rg.i_routing_group} className="rounded-xl border border-cyan-500/20 bg-card/60 overflow-hidden" data-testid={`onnet-rg-${rg.i_routing_group}`}>
+                <button
+                  className="w-full flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                  onClick={() => setExpandedId(isExpanded ? null : rg.i_routing_group)}
+                  data-testid={`btn-expand-onnet-${rg.i_routing_group}`}
+                >
+                  <div className="h-9 w-9 rounded-lg bg-cyan-500/10 flex items-center justify-center shrink-0">
+                    <Wifi className="h-4 w-4 text-cyan-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold truncate">{rg.name}</span>
+                      <span className="text-xs text-muted-foreground font-mono">#{rg.i_routing_group}</span>
+                      <Badge variant="outline" className="h-4 text-[10px] border-cyan-500/40 text-cyan-400 px-1">On-Net</Badge>
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      <span className={`text-xs font-medium ${policyColor(rg.policy)}`}>{policyLabel(rg.policy)}</span>
+                      <span className="text-xs text-muted-foreground">{rg.members_count} member{rg.members_count !== 1 ? 's' : ''}</span>
+                      {rg.media_relay && <span className="text-xs text-muted-foreground">{rg.media_relay}</span>}
+                    </div>
+                  </div>
+                  <ChevronRight className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200", isExpanded && "rotate-90")} />
+                </button>
+                {isExpanded && (
+                  <div className="border-t border-cyan-500/20 bg-muted/10 pb-1">
+                    <div className="px-4 py-2 flex items-center gap-2 border-b border-border/20">
+                      <Server className="h-3.5 w-3.5 text-muted-foreground/60" />
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">On-Net Members</span>
+                    </div>
+                    <div className="pt-2">
+                      <RgMembersPanel groupId={rg.i_routing_group} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Routing Policy Simulator ───────────────────────────────────────────────────
+
+function PolicySimTab() {
+  const [cld, setCld]           = useState("");
+  const [cli, setCli]           = useState("");
+  const [selectedRgId, setSelectedRgId] = useState<string>("");
+  const [simResult, setSimResult]       = useState<{ rg: RoutingGroup; members: RgMember[] } | null>(null);
+  const [simLoading, setSimLoading]     = useState(false);
+
+  const { data: rgData } = useQuery<{ groups: RoutingGroup[] }>({
+    queryKey: ["/api/routing-cache/routing-groups"],
+  });
+  const groups = rgData?.groups ?? [];
+
+  async function runSim() {
+    const rgId = Number(selectedRgId);
+    if (!cld.trim() || !rgId) return;
+    setSimLoading(true);
+    setSimResult(null);
+    try {
+      const res = await fetch(`/api/routing-cache/routing-groups/${rgId}/detail`);
+      const detail: RgDetail = await res.json();
+      const rg = groups.find(g => g.i_routing_group === rgId);
+      if (rg && detail.ok) {
+        setSimResult({ rg, members: detail.members });
+      } else {
+        setSimResult(null);
+      }
+    } catch { /* ignore */ } finally { setSimLoading(false); }
+  }
+
+  // Simulate routing decision based on policy
+  function simulateWinner(members: RgMember[], policy: string | null): RgMember | null {
+    const active = members.filter(m => !m.blocked);
+    if (active.length === 0) return null;
+    const p = policy ?? "";
+    if (p.includes("least_cost")) {
+      // Would need rate card data — show note instead
+      return null;
+    }
+    if (p.includes("weight") || p.includes("random")) {
+      // Weighted random — just show distribution
+      return null;
+    }
+    // Priority / prefix,preference — lowest preference number wins
+    const sorted = [...active].sort((a, b) => (a.preference ?? 99) - (b.preference ?? 99));
+    return sorted[0] ?? null;
+  }
+
+  const winner = simResult ? simulateWinner(simResult.members, simResult.rg.policy) : null;
+  const isLcr  = simResult?.rg.policy?.includes("least_cost");
+  const isWeighted = simResult?.rg.policy?.includes("weight") || simResult?.rg.policy?.includes("random");
+  const activeMems = (simResult?.members ?? []).filter(m => !m.blocked);
+  const sortedMems = [...(simResult?.members ?? [])].sort((a, b) => (a.preference ?? 99) - (b.preference ?? 99));
+
+  return (
+    <div className="space-y-5">
+      {/* Explainer */}
+      <div className="flex items-start gap-3 rounded-xl border border-violet-500/20 bg-violet-500/5 px-4 py-3 text-sm text-violet-300">
+        <Settings2 className="h-4 w-4 mt-0.5 shrink-0 text-violet-400" />
+        <span>Simulates which connection a routing group would select for a given destination, based on its configured routing policy (priority, LCR, weighted). Uses cached routing data — no live calls are made.</span>
+      </div>
+
+      {/* Input form */}
+      <div className="rounded-xl border border-border/50 bg-card/60 p-5 space-y-4">
+        <h3 className="text-sm font-semibold flex items-center gap-2"><Settings2 className="h-4 w-4 text-violet-400" />Simulation Parameters</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground font-medium">CLI (Caller ID)</label>
+            <Input
+              value={cli}
+              onChange={e => setCli(e.target.value)}
+              placeholder="e.g. 14155551234"
+              data-testid="input-sim-cli"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground font-medium">CLD (Destination) *</label>
+            <Input
+              value={cld}
+              onChange={e => setCld(e.target.value)}
+              placeholder="e.g. 447911123456"
+              data-testid="input-sim-cld"
+            />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground font-medium">Routing Group *</label>
+          <select
+            className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            value={selectedRgId}
+            onChange={e => { setSelectedRgId(e.target.value); setSimResult(null); }}
+            data-testid="select-sim-rg"
+          >
+            <option value="">— Select routing group —</option>
+            {groups.map(g => (
+              <option key={g.i_routing_group} value={g.i_routing_group}>
+                {g.name} ({policyLabel(g.policy)} · {g.members_count} members)
+              </option>
+            ))}
+          </select>
+        </div>
+        <Button
+          onClick={runSim}
+          disabled={!cld.trim() || !selectedRgId || simLoading}
+          data-testid="button-run-sim"
+          className="w-full sm:w-auto"
+        >
+          {simLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Zap className="h-4 w-4 mr-2" />}
+          Simulate Route
+        </Button>
+      </div>
+
+      {/* Results */}
+      {simResult && (
+        <div className="space-y-4">
+          {/* Policy banner */}
+          <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/40 px-4 py-3">
+            <GitBranch className="h-4 w-4 text-muted-foreground" />
+            <div className="flex-1 min-w-0">
+              <span className="text-sm font-semibold">{simResult.rg.name}</span>
+              <span className="text-sm text-muted-foreground ml-2">— routing {cld}</span>
+            </div>
+            <Badge variant="outline" className={`text-xs ${policyColor(simResult.rg.policy)}`}>
+              {policyLabel(simResult.rg.policy)}
+            </Badge>
+          </div>
+
+          {/* Winner card */}
+          {winner && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/8 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                <span className="text-sm font-semibold text-emerald-300">Predicted Winner — Preference {winner.preference}</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                <div><span className="text-muted-foreground">Connection</span><div className="font-medium mt-0.5">{winner.connectionName ?? `#${winner.iConnection}`}</div></div>
+                <div><span className="text-muted-foreground">Vendor</span><div className="font-medium mt-0.5">{winner.vendorName ?? "—"}</div></div>
+                <div><span className="text-muted-foreground">Destination Set</span><div className="font-medium mt-0.5 text-violet-400">{winner.destSetName ?? "—"}</div></div>
+                <div><span className="text-muted-foreground">Host</span><div className="font-mono text-[10px] mt-0.5">{winner.host ?? "—"}</div></div>
+                <div><span className="text-muted-foreground">Routes in DS</span><div className="font-medium mt-0.5">{winner.destSetRouteCount ?? "—"}</div></div>
+              </div>
+            </div>
+          )}
+
+          {/* LCR / weighted notice */}
+          {isLcr && (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/8 px-4 py-3 text-sm text-amber-300">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>This routing group uses <strong>Least Cost Routing</strong>. The actual winner depends on rate card data at call time. The cascade below shows all candidates in preference order.</span>
+            </div>
+          )}
+          {isWeighted && !isLcr && (
+            <div className="flex items-start gap-2 rounded-xl border border-blue-500/20 bg-blue-500/8 px-4 py-3 text-sm text-blue-300">
+              <Activity className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>This routing group uses <strong>Weighted Routing</strong>. Traffic is distributed probabilistically. All active members below are valid candidates.</span>
+            </div>
+          )}
+
+          {/* Cascade waterfall */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Call Cascade — {activeMems.length} active / {simResult.members.length} total members
+            </p>
+            <div className="space-y-1.5">
+              {sortedMems.map((m, idx) => {
+                const isWinner = !m.blocked && winner && m.iConnection === winner.iConnection && m.preference === winner.preference;
+                return (
+                  <div
+                    key={idx}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg border px-4 py-2.5 text-sm transition-colors",
+                      m.blocked          && "opacity-40 border-border/30 bg-muted/10",
+                      isWinner           && "border-emerald-500/40 bg-emerald-500/10",
+                      !m.blocked && !isWinner && "border-border/40 bg-card/40"
+                    )}
+                    data-testid={`sim-member-${idx}`}
+                  >
+                    <div className={cn(
+                      "h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                      isWinner     ? "bg-emerald-500/20 text-emerald-400"    :
+                      m.blocked    ? "bg-muted/30 text-muted-foreground/40"  :
+                                     "bg-muted/20 text-muted-foreground/60"
+                    )}>
+                      {m.blocked ? "✕" : (idx + 1)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium">{m.connectionName ?? `Connection #${m.iConnection}`}</span>
+                      {m.vendorName && <span className="text-xs text-muted-foreground ml-2">{m.vendorName}</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground shrink-0">Pref {m.preference ?? "—"}</div>
+                    {m.destSetName && (
+                      <div className="text-xs text-violet-400 font-medium shrink-0 hidden sm:block">{m.destSetName}</div>
+                    )}
+                    {isWinner && <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />}
+                    {m.blocked && <Badge variant="destructive" className="h-4 text-[9px] px-1.5 shrink-0">Blocked</Badge>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlaceholderTab({ title, description }: { title: string; description: string; icon?: typeof Construction }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
@@ -1558,8 +1876,8 @@ export default function RoutingManagerPage() {
       {activeTab === "destination-sets" && <DestinationSetsTab />}
       {activeTab === "connections"      && <ConnectionsTab />}
       {activeTab === "qbr"       && <QbrTab />}
-      {activeTab === "on-net"    && <PlaceholderTab title="On-Net Routing Viewer" description="Visualise all on-net routing groups and their member connections, overlaid on a live traffic heatmap." />}
-      {activeTab === "policy-sim"&& <PlaceholderTab title="Routing Policy Simulator" description="Simulate LCR, prefix-priority, and weighted routing decisions against a test call leg before committing changes to the switch." />}
+      {activeTab === "on-net"    && <OnNetTab />}
+      {activeTab === "policy-sim"&& <PolicySimTab />}
     </div>
   );
 }

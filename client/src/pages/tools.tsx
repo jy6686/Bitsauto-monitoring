@@ -10,6 +10,7 @@ import {
   BarChart3, ArrowRight, Info, Route, AlertTriangle, ChevronRight,
   Loader2, DollarSign, Network, ShieldCheck, ShieldAlert, ArrowDownUp,
   Regex, ArrowRightLeft, History, Trash2, Copy, FlipHorizontal2,
+  Search, Download, FileText, List,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -88,15 +89,16 @@ const INDUSTRIES = [
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
 
-type Tab = "carrier" | "capacity" | "bandwidth" | "burst" | "route" | "translation";
+type Tab = "carrier" | "capacity" | "bandwidth" | "burst" | "route" | "translation" | "coverage";
 
 const TABS: { id: Tab; label: string; icon: typeof Wrench }[] = [
-  { id: "carrier",     label: "Carrier Quality",    icon: Star },
-  { id: "capacity",    label: "SIP Capacity",       icon: Calculator },
-  { id: "bandwidth",   label: "Bandwidth Planner",  icon: Wifi },
-  { id: "burst",       label: "Burst Simulator",    icon: Zap },
-  { id: "route",       label: "Route Tester",       icon: Route },
-  { id: "translation", label: "Translation Tester", icon: ArrowRightLeft },
+  { id: "carrier",     label: "Carrier Quality",          icon: Star },
+  { id: "capacity",    label: "SIP Capacity",             icon: Calculator },
+  { id: "bandwidth",   label: "Bandwidth Planner",        icon: Wifi },
+  { id: "burst",       label: "Burst Simulator",          icon: Zap },
+  { id: "route",       label: "Route Tester",             icon: Route },
+  { id: "translation", label: "Translation Tester",       icon: ArrowRightLeft },
+  { id: "coverage",    label: "Prefix Coverage Checker",  icon: Search },
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1407,6 +1409,255 @@ class ToolsErrorBoundary extends Component<{ children: ReactNode }, { error: Err
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// TAB 7 — Prefix Coverage Checker (Bulk)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const MAX_BULK = 50;
+
+type BulkRow = {
+  cld:       string;
+  status:    'pending' | 'running' | 'done' | 'error';
+  result?:   string | null;
+  tariff?:   string | null;
+  routeCount?: number;
+  bestRoute?: string | null;
+  cost?:     string | null;
+  error?:    string;
+};
+
+function PrefixCoverageTab() {
+  const [rawInput, setRawInput]             = useState("");
+  const [accountId, setAccountId]           = useState<string>("");
+  const [rows, setRows]                     = useState<BulkRow[]>([]);
+  const [running, setRunning]               = useState(false);
+  const [progress, setProgress]             = useState(0);
+
+  const { data: acctData } = useQuery<{ success: boolean; accounts: Array<{ iAccount: number; username: string }> }>({
+    queryKey: ["/api/sippy/accounts"],
+  });
+  const accounts = acctData?.accounts ?? [];
+
+  const parsedCLDs = rawInput
+    .split(/[\n,;]+/)
+    .map(s => s.trim().replace(/\s+/g, ''))
+    .filter(s => s.length > 0)
+    .slice(0, MAX_BULK);
+
+  async function runAll() {
+    if (parsedCLDs.length === 0) return;
+    const initial: BulkRow[] = parsedCLDs.map(cld => ({ cld, status: 'pending' }));
+    setRows(initial);
+    setRunning(true);
+    setProgress(0);
+
+    for (let i = 0; i < parsedCLDs.length; i++) {
+      const cld = parsedCLDs[i];
+      setRows(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'running' } : r));
+      try {
+        const res = await fetch('/api/sippy/test-dialplan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cli: '10000000000',
+            cld: cld.replace(/^\+/, ''),
+            fallbackIAccount: accountId || undefined,
+          }),
+        });
+        const data = await res.json();
+        const d: DialplanResult | undefined = data?.data;
+        const routes = d?.routes ?? [];
+        const best = routes.find(r => !r.forbidden && !r.huntstop) ?? routes[0];
+        setRows(prev => prev.map((r, idx) =>
+          idx === i ? {
+            ...r,
+            status: 'done',
+            result:     d?.result ?? (data?.error ? 'error' : 'unknown'),
+            tariff:     d?.tariffName ?? null,
+            routeCount: routes.length,
+            bestRoute:  best?.connectionName ?? best?.vendorName ?? null,
+            cost:       best?.estimatedCost ?? best?.price1 ?? null,
+          } : r
+        ));
+      } catch (e: any) {
+        setRows(prev => prev.map((r, idx) =>
+          idx === i ? { ...r, status: 'error', error: e.message } : r
+        ));
+      }
+      setProgress(i + 1);
+    }
+    setRunning(false);
+  }
+
+  function exportCsv() {
+    const header = 'CLD,Result,Tariff,Routes,Best Connection,Cost\n';
+    const body = rows.map(r =>
+      [r.cld, r.result ?? '', r.tariff ?? '', r.routeCount ?? '', r.bestRoute ?? '', r.cost ?? ''].map(v => `"${v}"`).join(',')
+    ).join('\n');
+    const blob = new Blob([header + body], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement('a'), { href: url, download: 'prefix_coverage.csv' });
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const doneCount    = rows.filter(r => r.status === 'done').length;
+  const allowedCount = rows.filter(r => r.result === 'allowed').length;
+  const blockedCount = rows.filter(r => r.result === 'blocked').length;
+  const errorCount   = rows.filter(r => r.status === 'error').length;
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-start gap-3 rounded-xl border border-violet-500/20 bg-violet-500/5 px-4 py-3 text-sm text-violet-300">
+        <Search className="h-4 w-4 mt-0.5 shrink-0 text-violet-400" />
+        <span>
+          Bulk-test up to <strong>{MAX_BULK}</strong> destination numbers against Sippy's live dialplan.
+          Each CLD is tested independently and the allowed/blocked status, tariff, route count, and best connection are shown.
+        </span>
+      </div>
+
+      {/* Input form */}
+      <div className="rounded-xl border border-border/50 bg-card/60 p-5 space-y-4">
+        <h3 className="text-sm font-semibold flex items-center gap-2"><List className="h-4 w-4 text-violet-400" />Destination Numbers</h3>
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground font-medium">
+            CLDs to test <span className="text-muted-foreground/60">(one per line, comma or semicolon separated)</span>
+          </label>
+          <textarea
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+            rows={6}
+            placeholder={"447911123456\n14155551234\n33123456789\n+49301234567"}
+            value={rawInput}
+            onChange={e => setRawInput(e.target.value)}
+            data-testid="textarea-bulk-clds"
+          />
+          <p className="text-xs text-muted-foreground">
+            {parsedCLDs.length} number{parsedCLDs.length !== 1 ? 's' : ''} detected
+            {parsedCLDs.length >= MAX_BULK && <span className="text-amber-400"> — capped at {MAX_BULK}</span>}
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground font-medium">Account (optional — uses default routing if omitted)</label>
+          <select
+            className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            value={accountId}
+            onChange={e => setAccountId(e.target.value)}
+            data-testid="select-bulk-account"
+          >
+            <option value="">— Default (no account) —</option>
+            {accounts.map(a => (
+              <option key={a.iAccount} value={a.iAccount}>{a.username} (#{a.iAccount})</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            onClick={runAll}
+            disabled={running || parsedCLDs.length === 0}
+            data-testid="button-run-coverage"
+          >
+            {running
+              ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Running {progress}/{parsedCLDs.length}…</>
+              : <><Search className="h-4 w-4 mr-2" />Run Coverage Check</>
+            }
+          </Button>
+          {rows.length > 0 && !running && (
+            <Button variant="outline" onClick={exportCsv} data-testid="button-export-coverage">
+              <Download className="h-4 w-4 mr-2" />Export CSV
+            </Button>
+          )}
+        </div>
+
+        {/* Progress bar */}
+        {running && (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Progress</span>
+              <span>{progress} / {parsedCLDs.length}</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full bg-violet-500 transition-all duration-300"
+                style={{ width: `${parsedCLDs.length ? (progress / parsedCLDs.length) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Summary row */}
+      {rows.length > 0 && (
+        <div className="grid grid-cols-4 gap-3">
+          <div className="rounded-xl border border-border/40 bg-muted/10 px-3 py-2.5 text-center">
+            <p className="text-xl font-bold">{rows.length}</p><p className="text-xs text-muted-foreground">Total</p>
+          </div>
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-3 py-2.5 text-center">
+            <p className="text-xl font-bold text-emerald-400">{allowedCount}</p><p className="text-xs text-muted-foreground">Allowed</p>
+          </div>
+          <div className="rounded-xl border border-rose-500/20 bg-rose-500/8 px-3 py-2.5 text-center">
+            <p className="text-xl font-bold text-rose-400">{blockedCount}</p><p className="text-xs text-muted-foreground">Blocked</p>
+          </div>
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2.5 text-center">
+            <p className="text-xl font-bold text-amber-400">{errorCount}</p><p className="text-xs text-muted-foreground">Errors</p>
+          </div>
+        </div>
+      )}
+
+      {/* Results table */}
+      {rows.length > 0 && (
+        <div className="rounded-xl border border-border/50 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/20 border-b border-border/40">
+            <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Results</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[640px]">
+              <thead className="bg-muted/20 border-b border-border/30">
+                <tr className="text-muted-foreground">
+                  <th className="px-4 py-2.5 text-left font-medium">#</th>
+                  <th className="px-4 py-2.5 text-left font-medium">CLD</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Result</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Tariff</th>
+                  <th className="px-4 py-2.5 text-center font-medium">Routes</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Best Connection</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Est. Cost</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/20">
+                {rows.map((r, i) => (
+                  <tr key={i} className="hover:bg-muted/20 transition-colors" data-testid={`coverage-row-${i}`}>
+                    <td className="px-4 py-2 font-mono text-muted-foreground/60">{i + 1}</td>
+                    <td className="px-4 py-2 font-mono font-medium">{r.cld}</td>
+                    <td className="px-4 py-2">
+                      {r.status === 'pending' && <span className="text-muted-foreground/40">—</span>}
+                      {r.status === 'running' && <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" />}
+                      {r.status === 'error'   && <span className="text-rose-400">Error</span>}
+                      {r.status === 'done'    && (
+                        r.result === 'allowed' ? (
+                          <span className="flex items-center gap-1 text-emerald-400 font-medium"><CheckCircle2 className="h-3.5 w-3.5" />Allowed</span>
+                        ) : r.result === 'blocked' ? (
+                          <span className="flex items-center gap-1 text-rose-400 font-medium"><XCircle className="h-3.5 w-3.5" />Blocked</span>
+                        ) : (
+                          <span className="text-amber-400">{r.result}</span>
+                        )
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-muted-foreground">{r.tariff ?? (r.status === 'done' ? '—' : '')}</td>
+                    <td className="px-4 py-2 text-center font-mono">{r.routeCount !== undefined ? r.routeCount : ''}</td>
+                    <td className="px-4 py-2 text-violet-400 font-medium">{r.bestRoute ?? (r.status === 'done' ? '—' : '')}</td>
+                    <td className="px-4 py-2 text-right font-mono">{r.cost ?? (r.status === 'done' ? '—' : '')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Main Page
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1437,6 +1688,7 @@ function ToolsPageInner() {
       {activeTab === "burst"       && <BurstSimulatorTab />}
       {activeTab === "route"       && <RouteTestTab />}
       {activeTab === "translation" && <TranslationTesterTab />}
+      {activeTab === "coverage"    && <PrefixCoverageTab />}
     </div>
   );
 }
