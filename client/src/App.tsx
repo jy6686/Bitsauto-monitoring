@@ -83,6 +83,7 @@ import VpnConfigPage from "@/pages/vpn-config";
 import EmailCentrePage from "@/pages/email-centre";
 import RoutingManagerPage from "@/pages/routing-manager";
 import ApprovalQueuePage from "@/pages/approval-queue";
+import VendorsPage from "@/pages/vendors";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -322,6 +323,9 @@ function Router() {
       </Route>
       <Route path="/approvals">
         {() => <ProtectedRoute component={ApprovalQueuePage} requiredRoles={['admin', 'management', 'super_admin', 'noc_operator', 'team_lead']} />}
+      </Route>
+      <Route path="/vendors">
+        {() => <ProtectedRoute component={VendorsPage} requiredRoles={['admin', 'management']} mgmtFeature="clients" />}
       </Route>
       <Route component={NotFound} />
     </Switch>
