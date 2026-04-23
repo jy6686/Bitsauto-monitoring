@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { LayoutShell } from "@/components/layout-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1279,8 +1278,7 @@ export default function VendorsPage() {
   const isConnectionsView = !!vendorIdParam;
 
   return (
-    <LayoutShell>
-      <div className="p-6 space-y-5 max-w-7xl mx-auto">
+    <div className="p-6 space-y-5 max-w-7xl mx-auto">
         {/* Page header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -1312,8 +1310,7 @@ export default function VendorsPage() {
         ) : (
           <VendorListView onSelect={handleSelectVendor} />
         )}
-      </div>
-    </LayoutShell>
+    </div>
   );
 }
 
