@@ -325,5 +325,51 @@ The platform is designed to be **read-only by default**. Every operation that ru
 - `GET /api/portal/client-stats` — per-client 24h traffic stats
 
 ## Database Schema (`shared/schema.ts`)
-Key tables: `calls`, `callMetrics`, `alerts`, `settings`, `clientProfiles`, `userConfig`
-Settings table has `switchType` column (vos3000 | sippy).
+
+### Key Tables
+| Table | Purpose |
+|---|---|
+| `settings` | Platform-wide config: Sippy credentials, thresholds, WhatsApp keys, Grafana embed, `approval_settings` JSON, `mgmt_feature_permissions` JSON |
+| `calls` / `callMetrics` | Live call snapshots and per-call quality metrics |
+| `alerts` / `alert_rules` | Alert events and configurable threshold rules |
+| `client_profiles` / `vendor_profiles` | Display name mappings for Sippy accounts/vendors |
+| `user_config` | Per-user dashboard widget preferences |
+| `kams` / `kam_accounts` | KAM records with org hierarchy (orgRole, reportsTo, userId) |
+| `monitoring_assignments` | Which monitoring items each team member is assigned to |
+| `rate_cards` / `rate_card_entries` | Vendor/client rate cards and prefix-level rate entries |
+| `routing_groups_cache` / `destination_sets_cache` / `connections_cache` | 15-min local cache of Sippy routing data |
+| `switches` | Secondary Sippy switch instances (Multi-Switch view) |
+| `outage_log` / `host_outage_log` / `monitored_hosts` | Server monitoring outage tracking |
+| `fas_events` / `irsf_events` / `fas_vendor_settings` | FAS/IRSF fraud detection events and vendor thresholds |
+| `blacklist_rules` | IP/prefix/account blocking rules |
+| `mos_hourly` | Hourly MOS quality aggregations |
+| `traffic_alerts` | Traffic drop detection events |
+| `sippy_snapshots` | Change-watcher snapshots (IP rules, accounts, vendors) |
+| `fix_history` | Global Fix Button diagnostic + fix audit log |
+| `call_test_logs` | Test call launcher history |
+| `chat_rooms` / `chat_messages` | Internal team chat rooms and messages |
+| `org_roles` | Organisational hierarchy role definitions |
+| `approval_requests` | Approval queue: pending/approved/rejected change requests for Sippy ops |
+
+### Settings Table — Key Columns
+| Column | Purpose |
+|---|---|
+| `sippy_url` / `api_admin_username` / `api_admin_password` | Primary switch Sippy credentials |
+| `portal_username` / `portal_password` / `admin_web_password` | Portal session credentials |
+| `mgmt_feature_permissions` | JSON array of enabled feature keys for Management role |
+| `approval_settings` | JSON map `{ feature: { create, edit, delete } }` for configurable approval engine |
+| `whatsapp_number` / `whatsapp_api_key` / `whatsapp_instance_id` | WhatsApp alert config |
+| `grafana_url` / `grafana_default_range` / `grafana_panel_height` | Grafana embed config |
+
+### MGMT_CONFIGURABLE_FEATURES (32 feature keys, `shared/schema.ts`)
+Controls which pages are accessible to the Management role — toggled in Team → Access Control tab.
+
+| Category | Feature Keys |
+|---|---|
+| Monitoring | `alerts`, `server_monitoring` |
+| Operations | `did_management`, `test_call`, `traffic_map`, `multi_switch`, `test_campaigns` |
+| Routing | `routing_manager`, `approval_queue`, `call_flow_simulator`, `lcr_analyser`, `routing_audit` |
+| Analytics | `graphs`, `bitseye`, `reports`, `cdr_viewer`, `analytics`, `qos_heatmap` |
+| Finance | `balance_monitor`, `rate_cards`, `cost_optimisation`, `billing_disputes` |
+| Security | `fraud_fas`, `vendor_sla`, `sla_breaches`, `firewall` |
+| Client & Vendor | `clients`, `vendor_connections`, `tools`, `products` |
