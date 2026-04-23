@@ -42,6 +42,18 @@ Full-stack VoIP monitoring dashboard with real-time metrics, alerting, team mana
 
 - **Internal Team Chat** (`/chat`): Real-time WebSocket-based internal messaging for KAMs and team members. Three default group channels auto-created on startup: **#general**, **#noc-team**, **#announcements**. **Direct Messages (DM)**: click any member in the "Team Members" sidebar section to open a private 1-on-1 conversation; DM rooms are created on-demand with slug `dm_${[uid1,uid2].sort().join('_')}` ensuring symmetry; if target is online they are instantly notified via `dm_invited` WebSocket event. Sidebar sections: Channels (group rooms with unread badge), Direct Messages (past DM conversations with online dot), Team Members (all KAMs from `kams` table + any online non-KAM guests — click to DM). Features: live online presence, message persistence in PostgreSQL (`chat_rooms` + `chat_messages` tables), typing indicators, avatar initials with deterministic colour hash, date dividers, grouped messages, unread count badges. WebSocket message types: `join`, `join_room`, `leave_room`, `open_dm` (DM initiation), `message`, `typing`, `ping/pong`, `dm_opened` (sent back to initiator), `dm_invited` (sent to target if online). REST: `GET /api/chat/rooms`, `POST /api/chat/rooms`, `GET /api/chat/rooms/:id/messages`, `GET /api/chat/members` (KAMs + online guests). "Team Chat" link pinned at top of sidebar for all roles. Auto-reconnect every 3s, keepalive ping every 25s.
 
+## Vol 3 Features (April 2026 — Latest)
+
+- **Vendor Connection Module** (`/vendors`, LIVE): Dedicated page for managing Sippy vendor trunk connections. Full CRUD: create, view, edit and delete connections. Shows connection list with vendor grouping, host IP, port, codec, capacity parameters. Create/Edit dialog posts to `POST /api/sippy/vendor-connections` (calls `createVendorConnection` XML-RPC). Delete posts to `DELETE /api/sippy/vendor-connections/:id`. Nav: Building2 icon, admin+management, `vendor_connections` mgmtFeature key.
+
+- **Routing Manager — RgForm Routing Entries** (LIVE): Create Routing Group dialog widened to `max-w-3xl`. Added "Routing Entries" section with dynamic rows: each row has Vendor/Connection dropdown (loaded from connection cache), Destination Set dropdown, Start Date, End Date, Order # and Weight inputs, + delete button. On submit, auto-adds pending routing entries to the new group via `POST /api/sippy/routing-groups/:id/members`. `POST /api/sippy/routing-groups` and `POST /api/sippy/routing-groups/:id/members` now apply **directly to Sippy** — approval gating removed for create operations (only edit/delete remain gated).
+
+- **Role Assignment Tab** (Team page — new dedicated tab): Standalone "Role Assignment" tab extracted next to Team Members tab. Contains: (1) Member stats strip (Total, Admins, Management, Viewers); (2) **Assign Role by Email** form — email input + full 6-role dropdown (super_admin/admin/noc_operator/team_lead/management/viewer) + Assign button with success/error feedback card; (3) **Role Reference** table showing all 6 roles with their permissions listed as chips; (4) **All Members** inline table with current role badge + inline RoleSelector for instant role change without email lookup. Lookup helper endpoint `GET /api/team/lookup-by-email?email=` added (admin-only).
+
+- **Approval Settings Page** (`/approval-settings`, LIVE): New standalone admin-only page for configuring the approval engine. Feature × Action toggle matrix — 7 features (Routing Group, Routing Entries, Destination Sets, DS Routes, Vendor Connection, IP Management, Authentication) × 3 actions (Create / Edit / Delete) — each cell is an independent ON/OFF toggle. ON = action queued in Approval Queue before being applied. OFF = applied directly to Sippy. Config persisted as JSON in `settings.approval_settings` column. Stats strip shows total actions requiring approval vs direct. Grouped by category (Routing / Network / Access & Auth). "Save Changes" button only appears when unsaved changes exist (dirty state). Accessible from sidebar under Administration → Approval Settings (ShieldCheck icon). Routes: `GET /api/approval-settings`, `PATCH /api/approval-settings` (admin only). Default config: all routing operations gated (edit+delete), create operations direct for routing groups.
+
+- **Access Control Tab — Complete Feature Matrix** (Team page): Access Control tab overhauled. Added 8 new feature keys to `MGMT_CONFIGURABLE_FEATURES` in schema.ts: `vendor_connections` (/vendors), `products` (/products), `routing_manager` (/routing-manager, covers all tabs), `approval_queue` (/approvals), `routing_audit` (/routing-audit), `firewall` (/firewall). All routes in App.tsx now have correct `mgmtFeature` prop wired up — previously `/qos-heatmap`, `/sla-breaches`, `/billing-disputes`, `/test-campaigns`, `/firewall`, `/routing-manager`, `/approvals`, `/vendors`, `/products` were all unprotected for management. Permissions Matrix in Access Control tab now has a full **Routing section** with all sidebar routing items listed. `MGMT_FEATURE_META` in team.tsx updated with icons and descriptions for all 32 configurable features including previously missing ones (sla_breaches, billing_disputes, qos_heatmap, test_campaigns).
+
 ## Key Features
 - Real-time call quality metrics (Jitter, Latency, Packet Loss, MOS)
 - Telecom KPIs: ASR, ACD, PDD, Call Back Ratio
@@ -50,7 +62,7 @@ Full-stack VoIP monitoring dashboard with real-time metrics, alerting, team mana
 - ASR/ACD origination reports with client/vendor profiles
 - Role-based access control (admin > management > viewer)
 - Alert engine with threshold-based triggers
-- Team page with Quick Assign Role form (email + role dropdown + submit)
+- Team page with dedicated Role Assignment tab + Quick Assign Role by Email form
 - **KAM Management** (`/graphs` page — KAM Overview section): `kams` + `kam_accounts` DB tables, CRUD API at `/api/kam`, assign Sippy clients to KAMs, live call count overlay per KAM
 - **Organisational Hierarchy & RBAC** (Team page — Org Hierarchy section): 6-level hierarchy (HOD→SVP→VP→Manager→TeamLead→KAM). Schema: `kams.orgRole`, `kams.reportsTo` (parent KAM id), `kams.userId` (links to auth user). New storage methods: `getKamByUserId`, `getKamSubtreeIds` (BFS), `getAccountsForSubtree`. API: `GET /api/org/hierarchy` (nested tree), `GET /api/org/my-scope` (user's kamId+orgRole+visibleAccountIds). KAM form: Org Role dropdown (HOD/SVP/VP/Manager/TeamLead/KAM), Reports-To dropdown (filtered to higher-rank KAMs), Link Login Account picker. Team page shows collapsible tree with role colour badges and client counts. `OrgScopeContext` (React context) fetches scope once on login and shares it app-wide. BitsEye auto-filters to user's KAM subtree when `orgScope.isScoped=true`. Sidebar shows "My Portfolio" link with role badge for scoped users. HOD = full access. Non-HOD users see only their scope + subordinates.
 - **Traffic Drop Detector**: background job runs every 5 minutes, compares per-client concurrent calls vs 60-min peak, triggers email when traffic drops >50% or goes to 0. Stores history in `traffic_alerts` table. Email sent via Gmail SMTP (existing settings). Cooldown 30 min per client.
@@ -244,20 +256,65 @@ The platform is designed to be **read-only by default**. Every operation that ru
 - **Revenue Analytics**: `/api/analytics/revenue?days=N` computes P&L from call snapshots + client profile rates. Returns summary, byClient, byVendor arrays. `/analytics` page with summary cards, Revenue vs Cost bar chart, vendor cost pie, client P&L table.
 
 ## Pages
+
+### Monitoring
 - `/` — Dashboard with live stats, KPIs, IP probe, portal data
-- `/calls` — Call list with metrics
-- `/calls/:id` — Call detail page
-- `/alerts` — Alert feed
-- `/reports` — ASR/ACD report + client stats table
-- `/cdrs` — CDR Viewer: full CDR table (CLI, CLD, country, duration, billed, charged), date presets, call type filter, CLI/CLD search, pagination (50/page), CSV export, summary stats. Shows data when RTST1 accounts make completed calls. API: GET /api/sippy/cdr
-- `/tools` — Telecom Tools & Calculators: 4 tabs — (1) Carrier Quality Scoring (ASR/ACD/PDD/FraudRisk → 0-100 score + rating from Sippy CDRs), (2) SIP Capacity Calculator (employees × concurrency × codec → channels + bandwidth, industry presets), (3) Bandwidth Planner (concurrent calls × codec → Mbps, QoS/VPN overhead, max calls table), (4) Burst Capacity Simulator (normal × peak multiplier + overflow %, scenario presets)
-- `/fraud` — Fraud & FAS: 3 tabs — FAS detection, IRSF events (scan + table), Blacklist (CRUD)
-- `/rate-cards` — Carrier Rate Card management: create cards, upload CSV, expand prefix entries
-- `/analytics` — Revenue Analytics: P&L by client/vendor, margin trending, summary cards
-- `/clients` — Client/vendor profiles
-- `/settings` — Thresholds, IP probe, softswitch connection
-- `/team` — Team member management
-- `/account` — User profile
+- `/calls` — Live call list with metrics (sub-tabs: Summary, Details, Quality, History)
+- `/calls/:id` — Call detail page with quality charts
+- `/alerts` — Alert feed with threshold config
+- `/server-monitoring` — 6-tab server health (Reachability, RTP, Disk/Memory, Carrier ASR, Alert Rules, SIP Reg Storm)
+
+### Operations
+- `/dids` — DID Management
+- `/traffic-map` — Live geographic choropleth map of call traffic by country
+- `/multi-switch` — Multi-Switch consolidated view (aggregated across all Sippy instances)
+- `/test-call` — Click-to-Call / Test Call Launcher (3-phase origination)
+- `/test-campaigns` — Automated test call campaigns
+
+### Routing
+- `/approvals` — Approval Queue: pending change requests for Sippy operations
+- `/lcr-analyser` — LCR Analyser: cheapest-route analysis across all vendor rate cards
+- `/call-flow-simulator` — Call Flow Simulator + Routing Audit Trail (two-mode tab page)
+- `/routing-manager` — 8-tab Routing Manager (Routing Groups, Destination Sets, Connections/Coverage Map, QBR Dashboard, On-Net Viewer, Policy Simulator)
+- `/approval-settings` — **NEW** Configurable Approval Engine: feature × action (create/edit/delete) toggle matrix. Admin only.
+- `/vendors` — **NEW** Vendor Connection Manager: full CRUD for Sippy vendor trunk connections
+- `/tools` — Telecom Tools: Route Tester, Translation Tester, Prefix Coverage Checker, SIP Capacity Calc, Bandwidth Planner, Burst Simulator, Carrier Scoring
+
+### Analytics & Reports
+- `/graphs` — Traffic trend charts + KAM overview + MOS trending + Traffic Alerts log
+- `/bitseye` — BitsEye drill-down live analytics (countries/clients/vendors/KAMs/destinations)
+- `/reports` — ASR / ACD reports + client stats table
+- `/cdrs` — CDR Viewer (CLI, CLD, country flag, product class, duration, CSV export)
+- `/analytics` — Revenue & Margin Analytics: P&L, by-client, by-destination, worst routes, P&L report
+- `/qos-heatmap` — Route QoS Heatmap
+
+### Finance
+- `/balance` — Balance Monitor
+- `/rate-cards` — Rate Card Management: create cards, bulk CSV/XLSX import with live diff preview, push to Sippy
+- `/cost-optimisation` — Cost Optimisation Engine (9-rule AI-assisted analysis)
+- `/billing-disputes` — Billing Dispute Tracker
+
+### Security & Fraud
+- `/fraud` — Fraud / FAS detection, IRSF events, Blacklist, vendor drill-down, per-vendor thresholds
+- `/vendor-sla-scorecard` — Vendor SLA Scorecard
+- `/sla-breaches` — SLA Breach Log
+- `/firewall` — Firewall Manager (IP allowlists, blocklists, firewall rules)
+
+### Client & Vendor
+- `/clients` — Client & Vendor Profiles (Sippy accounts, auth rules CRUD, new account wizard)
+- `/vendors` — Vendor Connections (Sippy vendor trunk connections CRUD)
+- `/products` — Product Classification (CDR breakdown by trunk class digit)
+
+### Administration
+- `/settings` — Platform settings: Sippy credentials, thresholds, WhatsApp, Grafana embed, Documentation downloads
+- `/team` — Team & KAM (7 tabs: **Team Members**, **Role Assignment**, Monitoring, KAM & Accounts, Org Hierarchy, Traffic Alerts, Access Control)
+- `/approval-settings` — Configurable Approval Settings matrix (admin/super_admin only)
+- `/whatsapp-alerts` — WhatsApp alert config (CallMeBot / UltraMsg)
+- `/account-names` — Account display name mappings
+- `/api-keys` — External API key management
+- `/vpn-config` — VPN configuration
+- `/email-centre` — Email Centre
+- `/chat` — Internal Team Chat (real-time WebSocket, channels + DMs)
 
 ## API Routes (portal)
 - `GET /api/portal/session` — current VOS3000 session status
