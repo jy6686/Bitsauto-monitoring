@@ -14632,13 +14632,16 @@ export async function listRoutingGroupMembers(
     const resp = await sippyPost(apiUrl, xmlRpcCall('listRoutingGroupMembers', { i_routing_group: iRoutingGroup }), username, password);
     const text = resp.body;
     if (resp.statusCode === 200 && !text.includes('<fault>')) {
-      // Response: struct with 'list' (≤2024) or 'routing_group_members' (≥2025) — array of member structs.
-      const memberBlock =
-        /<name>routing_group_members<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/.exec(text)?.[1]
-        ?? /<name>list<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/.exec(text)?.[1]
-        ?? text;
-      const rawStructs = parseArrayOfStructs(memberBlock);
-      const members = rawStructs.map((r: Record<string, string>) => parseRoutingGroupMember(r));
+      // Scan ALL <struct> blocks in the full response and keep only those that
+      // carry i_routing_group_member — same proven pattern used by listDestinationSets.
+      // Avoids the non-greedy *? regex bug that stops at the first inner </value></member>.
+      const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+      const members: SippyRoutingGroupMember[] = [];
+      let sm: RegExpExecArray | null;
+      while ((sm = structRe.exec(text)) !== null) {
+        const m = extractStructMembers(sm[1]);
+        if (m['i_routing_group_member']) members.push(parseRoutingGroupMember(m));
+      }
       return { success: true, members, message: 'OK' };
     }
     const fault = text.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim()

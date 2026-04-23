@@ -222,14 +222,16 @@ function relTime(iso: string | null): string {
 function RgMembersPanel({ groupId }: { groupId: number }) {
   const { toast } = useToast();
   const [, navigate] = useLocation();
-  const [addOpen, setAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ memberId: number; label: string } | null>(null);
-  const [dsId, setDsId] = useState("");
-  const [connId, setConnId] = useState("");
-  const [pref, setPref] = useState("10");
-  const [weight, setWeight] = useState("");
-  const [activationDate, setActivationDate] = useState("");
-  const [expirationDate, setExpirationDate] = useState("");
+
+  // "Add entry" inline row state — matches Sippy UI (vendor → connection → dest set → dates → order → weight)
+  const [rowVendor, setRowVendor]  = useState("");
+  const [rowConn,   setRowConn]    = useState("");
+  const [rowDs,     setRowDs]      = useState("");
+  const [rowPref,   setRowPref]    = useState("1");
+  const [rowWeight, setRowWeight]  = useState("1");
+  const [rowAct,    setRowAct]     = useState("now");
+  const [rowExp,    setRowExp]     = useState("never");
 
   const { data, isLoading, refetch } = useQuery<RgDetail>({
     queryKey: ["/api/routing-cache/routing-groups", groupId, "detail"],
@@ -241,40 +243,49 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
     queryKey: ["/api/routing-cache/destination-sets"],
   });
 
-  const cachedConns = (connsData?.connections ?? []).filter(c => !c.blocked);
-  const cachedSets  = setsData?.sets ?? [];
+  const allConns   = connsData?.connections ?? [];
+  const cachedSets = setsData?.sets ?? [];
+
+  // Unique vendor list (sorted) for the vendor filter column
+  const vendors = Array.from(
+    new Set(allConns.filter(c => c.vendor_name).map(c => c.vendor_name!))
+  ).sort();
+
+  // Filter connections by selected vendor
+  const filteredConns = rowVendor ? allConns.filter(c => c.vendor_name === rowVendor) : allConns;
 
   const addMut = useMutation({
     mutationFn: async (body: object) => (await apiRequest("POST", `/api/sippy/routing-groups/${groupId}/members`, body)).json(),
     onSuccess: (data: any) => {
       const a = approvalToastOpts(data, navigate);
-      if (a) toast(a); else toast({ title: "Member added" });
-      setAddOpen(false); setDsId(""); setConnId(""); setPref("10"); setWeight(""); setActivationDate(""); setExpirationDate("");
+      if (a) toast(a); else toast({ title: "Routing entry added" });
+      setAddOpen(false);
+      setRowVendor(""); setRowConn(""); setRowDs(""); setRowPref("1"); setRowWeight("1"); setRowAct("now"); setRowExp("never");
       refetch();
     },
-    onError: (e: any) => toast({ title: "Error adding member", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error adding routing entry", description: e.message, variant: "destructive" }),
   });
 
   const deleteMut = useMutation({
     mutationFn: async (memberId: number) => (await apiRequest("DELETE", `/api/sippy/routing-groups/${groupId}/members/${memberId}`)).json(),
     onSuccess: (data: any) => {
       const a = approvalToastOpts(data, navigate);
-      if (a) toast(a); else toast({ title: "Member removed" });
+      if (a) toast(a); else toast({ title: "Routing entry removed" });
       setDeleteTarget(null);
       refetch();
     },
-    onError: (e: any) => toast({ title: "Error removing member", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error removing entry", description: e.message, variant: "destructive" }),
   });
 
   const handleAdd = () => {
-    if (!dsId || !connId || !pref) return;
+    if (!rowConn || !rowDs || !rowPref) return;
     addMut.mutate({
-      iDestinationSet: parseInt(dsId),
-      iConnection: parseInt(connId),
-      preference: parseInt(pref),
-      ...(weight ? { weight: parseInt(weight) } : {}),
-      ...(activationDate ? { activationDate } : {}),
-      ...(expirationDate ? { expirationDate } : {}),
+      iConnection:     parseInt(rowConn),
+      iDestinationSet: parseInt(rowDs),
+      preference:      parseInt(rowPref) || 1,
+      weight:          parseInt(rowWeight) || 1,
+      activationDate:  rowAct === "now"   ? undefined : rowAct,
+      expirationDate:  rowExp === "never" ? undefined : rowExp,
     });
   };
 
@@ -282,148 +293,166 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
     return (
       <div className="flex items-center gap-2 py-3 px-4 text-xs text-muted-foreground">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        Loading members from Sippy…
+        Loading routing entries from Sippy…
       </div>
     );
   }
 
   const members = data?.members ?? [];
 
+  const thCls = "text-left px-2 py-1.5 font-semibold text-muted-foreground text-[11px] whitespace-nowrap";
+  const cellCls = "px-2 py-1.5 text-xs";
+  const selCls  = "w-full text-xs bg-background border border-border/60 rounded px-1.5 py-1 focus:outline-none focus:border-primary";
+
   return (
     <>
-      {/* Add Member button */}
-      <div className="px-4 pb-2 flex justify-end">
-        <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setAddOpen(true)}
-          data-testid="btn-add-rg-member">
-          <Plus className="h-3.5 w-3.5" /> Add Member
-        </Button>
-      </div>
+      {/* Sippy-style Routing Entries table with inline add row */}
+      <div className="mx-4 mb-3">
+        {!data?.ok && (
+          <div className="py-2 text-xs text-rose-400/80 italic">
+            Failed to load entries: {data?.message ?? "Sippy unavailable"}
+          </div>
+        )}
 
-      {!data?.ok || members.length === 0 ? (
-        <div className="py-3 px-4 text-xs text-muted-foreground/60 italic">
-          {!data?.ok
-            ? `Failed to load: ${data?.message ?? "Sippy unavailable"}`
-            : "No members yet — click Add Member to create one."}
-        </div>
-      ) : (
-        <div className="overflow-x-auto border border-border/40 rounded-lg mx-4 mb-3 bg-background/40">
-          <table className="w-full text-xs min-w-[720px]">
+        <div className="overflow-x-auto rounded-md border border-border/40 bg-background/40">
+          <table className="w-full min-w-[860px] text-xs">
             <thead>
-              <tr className="bg-muted/50 border-b border-border/30">
-                {["Pref", "Weight", "Vendor / Connection", "Host", "Destination Set", "Routes", "Status", ""].map(h => (
-                  <th key={h} className="px-3 py-2 text-left font-medium text-muted-foreground">{h}</th>
-                ))}
+              <tr className="bg-muted/40 border-b border-border/30">
+                <th className={thCls}>Vendor</th>
+                <th className={thCls}>Connection</th>
+                <th className={thCls}>Destination Set</th>
+                <th className={thCls}>Activation Date</th>
+                <th className={thCls}>Expiration Date</th>
+                <th className={cn(thCls, "text-center")}>Order #</th>
+                <th className={cn(thCls, "text-center")}>Weight</th>
+                <th className={cn(thCls, "w-8")} />
               </tr>
             </thead>
             <tbody>
-              {members.map((m, i) => (
-                <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", m.blocked && "opacity-50")}>
-                  <td className="px-3 py-2 font-mono font-bold text-amber-400">{m.preference ?? "—"}</td>
-                  <td className="px-3 py-2 font-mono text-muted-foreground">{m.weight ?? "—"}</td>
-                  <td className="px-3 py-2">
-                    <div className="font-medium">{m.connectionName ?? `Connection #${m.iConnection}`}</div>
-                    {m.vendorName && <div className="text-[10px] text-muted-foreground/70">{m.vendorName}</div>}
+              {members.length === 0 && data?.ok && (
+                <tr>
+                  <td colSpan={8} className="px-3 py-3 text-xs text-muted-foreground/50 italic text-center">
+                    No routing entries yet — use the row below to add one.
                   </td>
-                  <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground/70">{m.host ?? "—"}</td>
-                  <td className="px-3 py-2">
+                </tr>
+              )}
+              {members.map((m, i) => (
+                <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", m.blocked && "opacity-40")}>
+                  <td className={cellCls}>
+                    {m.vendorName
+                      ? <span className="font-medium text-amber-400/90">{m.vendorName}</span>
+                      : <span className="text-muted-foreground/40">—</span>}
+                  </td>
+                  <td className={cellCls}>
+                    <div className="font-medium">{m.connectionName ?? `#${m.iConnection}`}</div>
+                    {m.host && <div className="text-[10px] text-muted-foreground/60 font-mono">{m.host}</div>}
+                  </td>
+                  <td className={cellCls}>
                     {m.destSetName
                       ? <span className="text-violet-400 font-medium">{m.destSetName}</span>
-                      : <span className="text-muted-foreground/30">—</span>}
+                      : <span className="text-muted-foreground/40">{m.iDestinationSet ? `DS #${m.iDestinationSet}` : "—"}</span>}
+                    {m.destSetRouteCount != null && (
+                      <span className="ml-1 text-[10px] text-muted-foreground/50">({m.destSetRouteCount} routes)</span>
+                    )}
                   </td>
-                  <td className="px-3 py-2 font-mono text-muted-foreground/70">{m.destSetRouteCount ?? "—"}</td>
-                  <td className="px-3 py-2">
-                    {m.blocked
-                      ? <Badge variant="destructive" className="h-4 text-[9px] px-1.5">Blocked</Badge>
-                      : <span className="text-[10px] text-emerald-400 font-medium">Active</span>}
+                  <td className={cn(cellCls, "text-muted-foreground/70 font-mono text-[10px]")}>
+                    {m.activationDate ?? "now"}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className={cn(cellCls, "text-muted-foreground/70 font-mono text-[10px]")}>
+                    {m.expirationDate ?? "never"}
+                  </td>
+                  <td className={cn(cellCls, "text-center font-mono font-bold text-cyan-400")}>{m.preference ?? "—"}</td>
+                  <td className={cn(cellCls, "text-center font-mono text-muted-foreground")}>{m.weight ?? "—"}</td>
+                  <td className={cn(cellCls, "text-center")}>
                     {m.iRoutingGroupMember != null && (
                       <button
                         data-testid={`btn-delete-member-${m.iRoutingGroupMember}`}
                         onClick={() => setDeleteTarget({ memberId: m.iRoutingGroupMember!, label: m.connectionName ?? `#${m.iRoutingGroupMember}` })}
                         className="text-rose-400/60 hover:text-rose-400 transition-colors"
-                        title="Remove member"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                        title="Remove entry"
+                      ><Trash2 className="h-3.5 w-3.5" /></button>
                     )}
                   </td>
                 </tr>
               ))}
+
+              {/* ── Inline Add Row (matches Sippy UI) ── */}
+              <tr className="border-t border-border/40 bg-muted/10">
+                {/* Vendor */}
+                <td className="px-1.5 py-1.5">
+                  <select value={rowVendor} onChange={e => { setRowVendor(e.target.value); setRowConn(""); }}
+                    className={selCls} data-testid="select-entry-vendor">
+                    <option value="">Select Vendor...</option>
+                    {vendors.map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </td>
+                {/* Connection (filtered by vendor) */}
+                <td className="px-1.5 py-1.5">
+                  <select value={rowConn} onChange={e => setRowConn(e.target.value)}
+                    className={selCls} data-testid="select-entry-conn">
+                    <option value="">Select Connection...</option>
+                    {filteredConns.map(c => (
+                      <option key={c.i_connection} value={String(c.i_connection)}>{c.name}</option>
+                    ))}
+                  </select>
+                </td>
+                {/* Destination Set */}
+                <td className="px-1.5 py-1.5">
+                  <select value={rowDs} onChange={e => setRowDs(e.target.value)}
+                    className={selCls} data-testid="select-entry-ds">
+                    <option value="">Select Dest. Set...</option>
+                    {cachedSets.map(s => (
+                      <option key={s.i_destination_set} value={String(s.i_destination_set)}>{s.name}</option>
+                    ))}
+                  </select>
+                </td>
+                {/* Activation Date */}
+                <td className="px-1.5 py-1.5">
+                  <input value={rowAct} onChange={e => setRowAct(e.target.value)}
+                    placeholder="now" className={cn(selCls, "w-28")}
+                    data-testid="input-entry-activation" />
+                </td>
+                {/* Expiration Date */}
+                <td className="px-1.5 py-1.5">
+                  <input value={rowExp} onChange={e => setRowExp(e.target.value)}
+                    placeholder="never" className={cn(selCls, "w-28")}
+                    data-testid="input-entry-expiration" />
+                </td>
+                {/* Order # (preference) */}
+                <td className="px-1.5 py-1.5">
+                  <input type="number" min="1" value={rowPref} onChange={e => setRowPref(e.target.value)}
+                    className={cn(selCls, "w-14 text-center")} data-testid="input-entry-pref" />
+                </td>
+                {/* Weight */}
+                <td className="px-1.5 py-1.5">
+                  <input type="number" min="1" value={rowWeight} onChange={e => setRowWeight(e.target.value)}
+                    className={cn(selCls, "w-14 text-center")} data-testid="input-entry-weight" />
+                </td>
+                {/* Add button */}
+                <td className="px-1.5 py-1.5 text-center">
+                  <button
+                    onClick={handleAdd}
+                    disabled={!rowConn || !rowDs || addMut.isPending}
+                    className="text-primary/60 hover:text-primary transition-colors disabled:opacity-30"
+                    data-testid="btn-add-rg-member"
+                    title="Add routing entry"
+                  >
+                    {addMut.isPending
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Plus className="h-3.5 w-3.5" />}
+                  </button>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
-      )}
-
-      {/* Add Member Dialog */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add Routing Group Member</DialogTitle>
-            <DialogDescription>Add a connection + destination set pair to this routing group.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Destination Set *</Label>
-              <Select value={dsId} onValueChange={setDsId}>
-                <SelectTrigger data-testid="select-ds"><SelectValue placeholder="Select destination set…" /></SelectTrigger>
-                <SelectContent>
-                  {cachedSets.map(s => (
-                    <SelectItem key={s.i_destination_set} value={String(s.i_destination_set)}>
-                      {s.name} <span className="text-muted-foreground text-xs">({s.route_count} routes)</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Connection *</Label>
-              <Select value={connId} onValueChange={setConnId}>
-                <SelectTrigger data-testid="select-conn"><SelectValue placeholder="Select connection…" /></SelectTrigger>
-                <SelectContent>
-                  {cachedConns.map(c => (
-                    <SelectItem key={c.i_connection} value={String(c.i_connection)}>
-                      {c.name} {c.vendor_name ? `· ${c.vendor_name}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Preference *</Label>
-                <Input type="number" value={pref} onChange={e => setPref(e.target.value)} placeholder="10" data-testid="input-pref" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Weight</Label>
-                <Input type="number" value={weight} onChange={e => setWeight(e.target.value)} placeholder="optional" data-testid="input-weight" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Activation Date <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                <Input type="datetime-local" value={activationDate} onChange={e => setActivationDate(e.target.value)} data-testid="input-activation-date" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Expiration Date <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                <Input type="datetime-local" value={expirationDate} onChange={e => setExpirationDate(e.target.value)} data-testid="input-expiration-date" />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={handleAdd} disabled={!dsId || !connId || !pref || addMut.isPending} data-testid="btn-confirm-add-member">
-              {addMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add Member"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </div>
 
       {/* Delete Confirm Dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Remove Member?</DialogTitle>
+            <DialogTitle>Remove Routing Entry?</DialogTitle>
             <DialogDescription>Remove <strong>{deleteTarget?.label}</strong> from this routing group?</DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1286,9 +1315,9 @@ function RoutingGroupsTab() {
                     <div className="px-4 py-2 flex items-center gap-2 border-b border-border/20">
                       <Server className="h-3.5 w-3.5 text-muted-foreground/60" />
                       <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                        Routing Group Members
+                        Routing Entries
                       </span>
-                      <span className="text-[10px] text-muted-foreground/40 ml-1">live from Sippy + cache enrichment</span>
+                      <span className="text-[10px] text-muted-foreground/40 ml-1">live from Sippy · vendor → connection → destination set</span>
                     </div>
                     <div className="pt-2">
                       <RgMembersPanel groupId={rg.i_routing_group} />
