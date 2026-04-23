@@ -1974,6 +1974,7 @@ export default function SettingsPage() {
   const [dataflowRegeneratedAt, setDataflowRegeneratedAt] = useState<string | null>(null);
   const [troubleshootRegeneratedAt, setTroubleshootRegeneratedAt] = useState<string | null>(null);
   const [orgHierarchyRegeneratedAt, setOrgHierarchyRegeneratedAt] = useState<string | null>(null);
+  const [routingFeaturesRegeneratedAt, setRoutingFeaturesRegeneratedAt] = useState<string | null>(null);
   const [allDocsUpdating, setAllDocsUpdating] = useState(false);
   const [allDocsProgress, setAllDocsProgress] = useState<string | null>(null);
   const { toast } = useToast();
@@ -2038,14 +2039,27 @@ export default function SettingsPage() {
     },
   });
 
+  const regenRoutingFeaturesMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/download/regenerate-routing-features'),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setRoutingFeaturesRegeneratedAt(data.regeneratedAt);
+      toast({ title: 'Routing Features Plan updated', description: 'The Sippy Routing Features Plan document has been regenerated. Download it now.' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Update failed', description: err.message ?? 'Could not regenerate the Routing Features document.', variant: 'destructive' });
+    },
+  });
+
   async function updateAllDocs() {
     setAllDocsUpdating(true);
     const steps: { label: string; endpoint: string; setter: (v: string) => void }[] = [
       { label: 'User Manual',                endpoint: '/api/download/regenerate-manual',         setter: setManualRegeneratedAt },
       { label: 'Sippy Dataflow Reference',   endpoint: '/api/download/regenerate-sippy-dataflow', setter: setDataflowRegeneratedAt },
       { label: 'Troubleshooting Guide',      endpoint: '/api/download/regenerate-troubleshoot',   setter: setTroubleshootRegeneratedAt },
-      { label: 'Org Hierarchy',              endpoint: '/api/download/regenerate-org-hierarchy',  setter: setOrgHierarchyRegeneratedAt },
-      { label: 'Status Report',              endpoint: '/api/download/regenerate',                setter: setRegeneratedAt },
+      { label: 'Org Hierarchy',              endpoint: '/api/download/regenerate-org-hierarchy',      setter: setOrgHierarchyRegeneratedAt },
+      { label: 'Routing Features Plan',      endpoint: '/api/download/regenerate-routing-features',   setter: setRoutingFeaturesRegeneratedAt },
+      { label: 'Status Report',              endpoint: '/api/download/regenerate',                    setter: setRegeneratedAt },
     ];
     let failed = 0;
     for (const step of steps) {
@@ -2065,7 +2079,7 @@ export default function SettingsPage() {
     setAllDocsUpdating(false);
     setAllDocsProgress(null);
     if (failed === 0) {
-      toast({ title: 'All documents updated', description: 'All 5 documents have been regenerated with the latest platform data. Download them below.' });
+      toast({ title: 'All documents updated', description: 'All 6 documents have been regenerated with the latest platform data. Download them below.' });
     } else {
       toast({ title: `${steps.length - failed}/${steps.length} documents updated`, description: `${failed} document(s) failed to regenerate. Try updating them individually.`, variant: 'destructive' });
     }
@@ -2875,6 +2889,18 @@ export default function SettingsPage() {
             {regenOrgHierarchyMutation.isPending ? 'Building…' : 'Update Org Hierarchy Doc'}
           </button>
           <button
+            data-testid="button-regenerate-routing-features"
+            onClick={() => regenRoutingFeaturesMutation.mutate()}
+            disabled={regenRoutingFeaturesMutation.isPending || allDocsUpdating}
+            title="Regenerate Routing Features Plan Document"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-teal-500/10 border border-teal-500/20 text-teal-400 hover:bg-teal-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {regenRoutingFeaturesMutation.isPending
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <RefreshCcw className="h-3 w-3" />}
+            {regenRoutingFeaturesMutation.isPending ? 'Building…' : 'Update Routing Features Doc'}
+          </button>
+          <button
             data-testid="button-regenerate-docs"
             onClick={() => regenMutation.mutate()}
             disabled={regenMutation.isPending || allDocsUpdating}
@@ -2902,6 +2928,9 @@ export default function SettingsPage() {
           {!allDocsUpdating && orgHierarchyRegeneratedAt
             ? `Org Hierarchy last built: ${new Date(orgHierarchyRegeneratedAt).toLocaleString()}  ·  `
             : ''}
+          {!allDocsUpdating && routingFeaturesRegeneratedAt
+            ? `Routing Features last built: ${new Date(routingFeaturesRegeneratedAt).toLocaleString()}  ·  `
+            : ''}
           {!allDocsUpdating && regeneratedAt
             ? `Status report last updated: ${new Date(regeneratedAt).toLocaleString()}`
             : ''}
@@ -2915,6 +2944,7 @@ export default function SettingsPage() {
             { label: "Volume 1 — Status Report", desc: "Completed features & pending items", href: "/api/download/status-report", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
             { label: "Feature Roadmap", desc: "Full platform feature roadmap", href: "/api/download/feature-roadmap", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
             { label: "Extended Features Vol II", desc: "Proposed Tier 2 & Tier 3 features", href: "/api/download/feature-roadmap-v2", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
+            { label: "Routing Features Plan", desc: "All 9 Sippy routing features — descriptions, API methods, status & effort estimates", href: "/api/download/routing-features", color: "text-teal-400", bg: "bg-teal-500/10 border-teal-500/20" },
             { label: "API Reference", desc: "All 200+ endpoints across 21 categories", href: "/api/download/api-reference", color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
           ].map(doc => (
             <a

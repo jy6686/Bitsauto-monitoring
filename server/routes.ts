@@ -23,6 +23,7 @@ import { generateUserManual, USER_MANUAL_PATH } from "./manual-generator";
 import { generateSippyDataflowDoc, SIPPY_DATAFLOW_PATH } from "./sippy-dataflow-generator";
 import { generateTroubleshootGuide, TROUBLESHOOT_GUIDE_PATH } from "./troubleshoot-generator";
 import { generateOrgHierarchyDoc, ORG_HIERARCHY_PATH } from "./org-hierarchy-generator";
+import { generateRoutingFeaturesDoc, ROUTING_FEATURES_PATH } from "./routing-features-generator";
 import {
   syncRoutingCache, getCachedRoutingGroups, getCachedDestinationSets,
   getCachedConnections, getRoutingCacheMeta,
@@ -9502,6 +9503,35 @@ export async function registerRoutes(
       if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
       await generateOrgHierarchyDoc(ORG_HIERARCHY_PATH);
       res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'VoIP_Watcher_Org_Hierarchy_Access_Control.docx' });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/download/routing-features — serve the Routing Features Plan .docx (auto-generates if missing)
+  app.get('/api/download/routing-features', async (_req: any, res: any) => {
+    try {
+      const { existsSync } = await import('fs');
+      if (!existsSync(ROUTING_FEATURES_PATH)) {
+        await generateRoutingFeaturesDoc(ROUTING_FEATURES_PATH);
+      }
+      res.download(ROUTING_FEATURES_PATH, 'Bitsauto_Routing_Features_Plan.docx', (err: any) => {
+        if (err && !res.headersSent) res.status(500).json({ message: 'Download error' });
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: `Failed to generate routing features doc: ${e.message}` });
+    }
+  });
+
+  // POST /api/download/regenerate-routing-features — rebuild on demand (admin)
+  app.post('/api/download/regenerate-routing-features', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user.claims?.sub;
+      const role = await storage.getUserRole(userId);
+      if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+      await generateRoutingFeaturesDoc(ROUTING_FEATURES_PATH);
+      res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'Bitsauto_Routing_Features_Plan.docx' });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
