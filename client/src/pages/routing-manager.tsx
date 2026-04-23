@@ -209,6 +209,8 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
   const [connId, setConnId] = useState("");
   const [pref, setPref] = useState("10");
   const [weight, setWeight] = useState("");
+  const [activationDate, setActivationDate] = useState("");
+  const [expirationDate, setExpirationDate] = useState("");
 
   const { data, isLoading, refetch } = useQuery<RgDetail>({
     queryKey: ["/api/routing-cache/routing-groups", groupId, "detail"],
@@ -227,7 +229,7 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
     mutationFn: (body: object) => apiRequest("POST", `/api/sippy/routing-groups/${groupId}/members`, body),
     onSuccess: () => {
       toast({ title: "Member added" });
-      setAddOpen(false); setDsId(""); setConnId(""); setPref("10"); setWeight("");
+      setAddOpen(false); setDsId(""); setConnId(""); setPref("10"); setWeight(""); setActivationDate(""); setExpirationDate("");
       refetch();
     },
     onError: (e: any) => toast({ title: "Error adding member", description: e.message, variant: "destructive" }),
@@ -250,6 +252,8 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
       iConnection: parseInt(connId),
       preference: parseInt(pref),
       ...(weight ? { weight: parseInt(weight) } : {}),
+      ...(activationDate ? { activationDate } : {}),
+      ...(expirationDate ? { expirationDate } : {}),
     });
   };
 
@@ -374,6 +378,16 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
                 <Input type="number" value={weight} onChange={e => setWeight(e.target.value)} placeholder="optional" data-testid="input-weight" />
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Activation Date <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                <Input type="datetime-local" value={activationDate} onChange={e => setActivationDate(e.target.value)} data-testid="input-activation-date" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Expiration Date <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                <Input type="datetime-local" value={expirationDate} onChange={e => setExpirationDate(e.target.value)} data-testid="input-expiration-date" />
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
@@ -412,6 +426,13 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [prefix, setPrefix] = useState("");
   const [routePref, setRoutePref] = useState("");
+  const [routeHuntstop, setRouteHuntstop] = useState(false);
+  const [routeTimeout, setRouteTimeout] = useState("");
+  const [routePrice1, setRoutePrice1] = useState("");
+  const [routePriceN, setRoutePriceN] = useState("");
+  const [routeInterval1, setRouteInterval1] = useState("");
+  const [routeIntervalN, setRouteIntervalN] = useState("");
+  const [routeForbidden, setRouteForbidden] = useState(false);
 
   const { data, isLoading, refetch } = useQuery<DsRoutesData>({
     queryKey: ["/api/sippy/destination-sets", dsId, "routes"],
@@ -421,7 +442,7 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
     mutationFn: (body: object) => apiRequest("POST", `/api/sippy/destination-sets/${dsId}/routes`, body),
     onSuccess: () => {
       toast({ title: "Route added" });
-      setAddOpen(false); setPrefix(""); setRoutePref("");
+      setAddOpen(false); setPrefix(""); setRoutePref(""); setRouteHuntstop(false); setRouteTimeout(""); setRoutePrice1(""); setRoutePriceN(""); setRouteInterval1(""); setRouteIntervalN(""); setRouteForbidden(false);
       refetch();
     },
     onError: (e: any) => toast({ title: "Error adding route", description: e.message, variant: "destructive" }),
@@ -528,21 +549,82 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
             <DialogTitle>Add Route</DialogTitle>
             <DialogDescription>Add a new prefix/route to this destination set.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Prefix (digits only, no +) *</Label>
-              <Input value={prefix} onChange={e => setPrefix(e.target.value.replace(/\D/g, ""))}
-                placeholder="e.g. 44 or 9230" data-testid="input-route-prefix" />
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Prefix (digits only, no +) *</Label>
+                <Input value={prefix} onChange={e => setPrefix(e.target.value.replace(/\D/g, ""))}
+                  placeholder="e.g. 44 or 9230" data-testid="input-route-prefix" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Preference</Label>
+                <Input type="number" value={routePref} onChange={e => setRoutePref(e.target.value)}
+                  placeholder="optional" data-testid="input-route-pref" />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Preference</Label>
-              <Input type="number" value={routePref} onChange={e => setRoutePref(e.target.value)}
-                placeholder="optional" data-testid="input-route-pref" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Timeout (sec)</Label>
+                <Input type="number" value={routeTimeout} onChange={e => setRouteTimeout(e.target.value)}
+                  placeholder="optional" data-testid="input-route-timeout" />
+              </div>
+              <div className="space-y-1.5 flex flex-col justify-end">
+                <div className="flex items-center gap-2 py-1">
+                  <input type="checkbox" id="chk-huntstop" checked={routeHuntstop}
+                    onChange={e => setRouteHuntstop(e.target.checked)}
+                    className="h-4 w-4 accent-primary" data-testid="chk-route-huntstop" />
+                  <label htmlFor="chk-huntstop" className="text-sm font-medium cursor-pointer">Huntstop</label>
+                  <span className="text-xs text-muted-foreground">(stop on match)</span>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Price 1 ($/min)</Label>
+                <Input type="number" step="0.0001" value={routePrice1} onChange={e => setRoutePrice1(e.target.value)}
+                  placeholder="e.g. 0.012" data-testid="input-route-price1" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Price N ($/min)</Label>
+                <Input type="number" step="0.0001" value={routePriceN} onChange={e => setRoutePriceN(e.target.value)}
+                  placeholder="e.g. 0.010" data-testid="input-route-priceN" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Interval 1 (sec)</Label>
+                <Input type="number" value={routeInterval1} onChange={e => setRouteInterval1(e.target.value)}
+                  placeholder="e.g. 60" data-testid="input-route-interval1" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Interval N (sec)</Label>
+                <Input type="number" value={routeIntervalN} onChange={e => setRouteIntervalN(e.target.value)}
+                  placeholder="e.g. 6" data-testid="input-route-intervalN" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <input type="checkbox" id="chk-forbidden" checked={routeForbidden}
+                onChange={e => setRouteForbidden(e.target.checked)}
+                className="h-4 w-4 accent-destructive" data-testid="chk-route-forbidden" />
+              <label htmlFor="chk-forbidden" className="text-sm cursor-pointer">
+                <span className="font-medium text-rose-400">Forbidden</span>
+                <span className="text-muted-foreground ml-1">— block all calls on this prefix</span>
+              </label>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={() => addMut.mutate({ prefix, ...(routePref ? { preference: parseInt(routePref) } : {}) })}
+            <Button onClick={() => addMut.mutate({
+                prefix,
+                ...(routePref ? { preference: parseInt(routePref) } : {}),
+                ...(routeHuntstop ? { huntstop: 1 } : {}),
+                ...(routeTimeout ? { timeout: parseInt(routeTimeout) } : {}),
+                ...(routePrice1 ? { price1: parseFloat(routePrice1) } : {}),
+                ...(routePriceN ? { priceN: parseFloat(routePriceN) } : {}),
+                ...(routeInterval1 ? { interval1: parseInt(routeInterval1) } : {}),
+                ...(routeIntervalN ? { intervalN: parseInt(routeIntervalN) } : {}),
+                ...(routeForbidden ? { forbidden: true } : {}),
+              })}
               disabled={!prefix || addMut.isPending} data-testid="btn-confirm-add-route">
               {addMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add Route"}
             </Button>
@@ -640,6 +722,10 @@ function RoutingGroupsTab() {
   const [deleteTarget, setDeleteTarget] = useState<RoutingGroup | null>(null);
   const [rgName, setRgName] = useState("");
   const [rgPolicy, setRgPolicy] = useState("preference");
+  const [rgDescription, setRgDescription] = useState("");
+  const [rgTimeout2xx, setRgTimeout2xx] = useState("300");
+  const [rgLrnEnabled, setRgLrnEnabled] = useState(false);
+  const [rgLrnRule, setRgLrnRule] = useState("");
 
   const { data, isLoading } = useQuery<{ groups: RoutingGroup[] }>({
     queryKey: ["/api/routing-cache/routing-groups"],
@@ -658,7 +744,7 @@ function RoutingGroupsTab() {
     mutationFn: (body: object) => apiRequest("POST", "/api/sippy/routing-groups", body),
     onSuccess: () => {
       toast({ title: "Routing group created" });
-      setCreateOpen(false); setRgName(""); setRgPolicy("preference");
+      setCreateOpen(false); setRgName(""); setRgPolicy("preference"); setRgDescription(""); setRgTimeout2xx("300"); setRgLrnEnabled(false); setRgLrnRule("");
       setTimeout(invalidate, 1000);
     },
     onError: (e: any) => toast({ title: "Error creating group", description: e.message, variant: "destructive" }),
@@ -688,6 +774,10 @@ function RoutingGroupsTab() {
     setEditTarget(rg);
     setRgName(rg.name);
     setRgPolicy(rg.policy ?? "preference");
+    setRgDescription("");
+    setRgTimeout2xx("300");
+    setRgLrnEnabled(false);
+    setRgLrnRule("");
   };
 
   return (
@@ -703,7 +793,7 @@ function RoutingGroupsTab() {
             data-testid="input-search-rg"
           />
         </div>
-        <Button size="sm" className="gap-1.5 h-9 shrink-0" onClick={() => { setRgName(""); setRgPolicy("preference"); setCreateOpen(true); }}
+        <Button size="sm" className="gap-1.5 h-9 shrink-0" onClick={() => { setRgName(""); setRgPolicy("preference"); setRgDescription(""); setRgTimeout2xx("300"); setRgLrnEnabled(false); setRgLrnRule(""); setCreateOpen(true); }}
           data-testid="btn-create-rg">
           <Plus className="h-4 w-4" /> New Group
         </Button>
@@ -810,6 +900,10 @@ function RoutingGroupsTab() {
               <Input value={rgName} onChange={e => setRgName(e.target.value)} placeholder="e.g. Europe-LCR" data-testid="input-rg-name" />
             </div>
             <div className="space-y-1.5">
+              <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input value={rgDescription} onChange={e => setRgDescription(e.target.value)} placeholder="e.g. Primary Europe routes" data-testid="input-rg-description" />
+            </div>
+            <div className="space-y-1.5">
               <Label>Routing Policy *</Label>
               <Select value={rgPolicy} onValueChange={setRgPolicy}>
                 <SelectTrigger data-testid="select-rg-policy"><SelectValue /></SelectTrigger>
@@ -818,10 +912,32 @@ function RoutingGroupsTab() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label>Final 2xx Timeout (sec)</Label>
+              <Input type="number" value={rgTimeout2xx} onChange={e => setRgTimeout2xx(e.target.value)} placeholder="300" data-testid="input-rg-timeout2xx" />
+            </div>
+            <div className="flex items-center gap-3">
+              <input type="checkbox" id="chk-lrn-create" checked={rgLrnEnabled}
+                onChange={e => setRgLrnEnabled(e.target.checked)}
+                className="h-4 w-4 accent-primary" data-testid="chk-rg-lrn" />
+              <label htmlFor="chk-lrn-create" className="text-sm font-medium cursor-pointer">Enable LRN</label>
+            </div>
+            {rgLrnEnabled && (
+              <div className="space-y-1.5">
+                <Label>LRN Translation Rule</Label>
+                <Input value={rgLrnRule} onChange={e => setRgLrnRule(e.target.value)} placeholder="e.g. s/^/1/" data-testid="input-rg-lrn-rule" />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={() => createMut.mutate({ name: rgName, policy: rgPolicy })}
+            <Button onClick={() => createMut.mutate({
+                name: rgName, policy: rgPolicy,
+                ...(rgDescription ? { description: rgDescription } : {}),
+                ...(rgTimeout2xx ? { timeout_2xx: parseInt(rgTimeout2xx) } : {}),
+                ...(rgLrnEnabled ? { lrn_enabled: 1 } : {}),
+                ...(rgLrnEnabled && rgLrnRule ? { lrn_translation_rule: rgLrnRule } : {}),
+              })}
               disabled={!rgName || createMut.isPending} data-testid="btn-confirm-create-rg">
               {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
             </Button>
@@ -842,6 +958,10 @@ function RoutingGroupsTab() {
               <Input value={rgName} onChange={e => setRgName(e.target.value)} data-testid="input-rg-name-edit" />
             </div>
             <div className="space-y-1.5">
+              <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input value={rgDescription} onChange={e => setRgDescription(e.target.value)} placeholder="e.g. Primary Europe routes" data-testid="input-rg-description-edit" />
+            </div>
+            <div className="space-y-1.5">
               <Label>Routing Policy *</Label>
               <Select value={rgPolicy} onValueChange={setRgPolicy}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -850,10 +970,32 @@ function RoutingGroupsTab() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label>Final 2xx Timeout (sec)</Label>
+              <Input type="number" value={rgTimeout2xx} onChange={e => setRgTimeout2xx(e.target.value)} placeholder="300" data-testid="input-rg-timeout2xx-edit" />
+            </div>
+            <div className="flex items-center gap-3">
+              <input type="checkbox" id="chk-lrn-edit" checked={rgLrnEnabled}
+                onChange={e => setRgLrnEnabled(e.target.checked)}
+                className="h-4 w-4 accent-primary" data-testid="chk-rg-lrn-edit" />
+              <label htmlFor="chk-lrn-edit" className="text-sm font-medium cursor-pointer">Enable LRN</label>
+            </div>
+            {rgLrnEnabled && (
+              <div className="space-y-1.5">
+                <Label>LRN Translation Rule</Label>
+                <Input value={rgLrnRule} onChange={e => setRgLrnRule(e.target.value)} placeholder="e.g. s/^/1/" data-testid="input-rg-lrn-rule-edit" />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
-            <Button onClick={() => editTarget && updateMut.mutate({ id: editTarget.i_routing_group, body: { name: rgName, policy: rgPolicy } })}
+            <Button onClick={() => editTarget && updateMut.mutate({ id: editTarget.i_routing_group, body: {
+                name: rgName, policy: rgPolicy,
+                ...(rgDescription ? { description: rgDescription } : {}),
+                ...(rgTimeout2xx ? { timeout_2xx: parseInt(rgTimeout2xx) } : {}),
+                lrn_enabled: rgLrnEnabled ? 1 : 0,
+                ...(rgLrnEnabled && rgLrnRule ? { lrn_translation_rule: rgLrnRule } : {}),
+              }})}
               disabled={!rgName || updateMut.isPending} data-testid="btn-confirm-edit-rg">
               {updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
             </Button>
@@ -901,6 +1043,10 @@ function DestinationSetsTab() {
   const [dsCurrency, setDsCurrency] = useState("USD");
   const [dsCldTrans, setDsCldTrans] = useState("");
   const [dsCliTrans, setDsCliTrans] = useState("");
+  const [dsDescription, setDsDescription] = useState("");
+  const [dsConnectFee, setDsConnectFee] = useState("");
+  const [dsFreeSeconds, setDsFreeSeconds] = useState("");
+  const [dsGracePeriod, setDsGracePeriod] = useState("");
 
   const { data, isLoading } = useQuery<{ sets: DestinationSet[] }>({
     queryKey: ["/api/routing-cache/destination-sets"],
@@ -923,7 +1069,7 @@ function DestinationSetsTab() {
     mutationFn: (body: object) => apiRequest("POST", "/api/sippy/destination-sets", body),
     onSuccess: () => {
       toast({ title: "Destination set created" });
-      setCreateOpen(false); setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans("");
+      setCreateOpen(false); setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans(""); setDsDescription(""); setDsConnectFee(""); setDsFreeSeconds(""); setDsGracePeriod("");
       setTimeout(invalidate, 1000);
     },
     onError: (e: any) => toast({ title: "Error creating destination set", description: e.message, variant: "destructive" }),
@@ -955,6 +1101,10 @@ function DestinationSetsTab() {
     setDsCurrency("USD");
     setDsCldTrans(ds.cld_translation ?? "");
     setDsCliTrans(ds.cli_translation ?? "");
+    setDsDescription("");
+    setDsConnectFee("");
+    setDsFreeSeconds("");
+    setDsGracePeriod("");
   };
 
   return (
@@ -971,7 +1121,7 @@ function DestinationSetsTab() {
           />
         </div>
         <Button size="sm" className="gap-1.5 h-9 shrink-0"
-          onClick={() => { setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans(""); setCreateOpen(true); }}
+          onClick={() => { setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans(""); setDsDescription(""); setDsConnectFee(""); setDsFreeSeconds(""); setDsGracePeriod(""); setCreateOpen(true); }}
           data-testid="btn-create-ds">
           <Plus className="h-4 w-4" /> New Dest Set
         </Button>
@@ -1082,6 +1232,10 @@ function DestinationSetsTab() {
               <Input value={dsName} onChange={e => setDsName(e.target.value)} placeholder="e.g. UK-Mobile" data-testid="input-ds-name" />
             </div>
             <div className="space-y-1.5">
+              <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input value={dsDescription} onChange={e => setDsDescription(e.target.value)} placeholder="e.g. UK mobile prefixes" data-testid="input-ds-description" />
+            </div>
+            <div className="space-y-1.5">
               <Label>Currency *</Label>
               <Select value={dsCurrency} onValueChange={setDsCurrency}>
                 <SelectTrigger data-testid="select-ds-currency"><SelectValue /></SelectTrigger>
@@ -1089,6 +1243,20 @@ function DestinationSetsTab() {
                   {DS_CURRENCIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>Connect Fee</Label>
+                <Input type="number" step="0.0001" value={dsConnectFee} onChange={e => setDsConnectFee(e.target.value)} placeholder="0.0000" data-testid="input-ds-connect-fee" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Free Seconds</Label>
+                <Input type="number" value={dsFreeSeconds} onChange={e => setDsFreeSeconds(e.target.value)} placeholder="0" data-testid="input-ds-free-seconds" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Grace Period (sec)</Label>
+                <Input type="number" value={dsGracePeriod} onChange={e => setDsGracePeriod(e.target.value)} placeholder="0" data-testid="input-ds-grace-period" />
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label>CLD Translation Rule <span className="text-muted-foreground text-xs">(optional)</span></Label>
@@ -1103,6 +1271,10 @@ function DestinationSetsTab() {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button onClick={() => createMut.mutate({
                 name: dsName, currency: dsCurrency,
+                ...(dsDescription ? { description: dsDescription } : {}),
+                ...(dsConnectFee ? { connect_fee: parseFloat(dsConnectFee) } : {}),
+                ...(dsFreeSeconds ? { free_seconds: parseInt(dsFreeSeconds) } : {}),
+                ...(dsGracePeriod ? { grace_period: parseInt(dsGracePeriod) } : {}),
                 ...(dsCldTrans ? { cld_translation: dsCldTrans } : {}),
                 ...(dsCliTrans ? { cli_translation: dsCliTrans } : {}),
               })}
@@ -1126,6 +1298,24 @@ function DestinationSetsTab() {
               <Input value={dsName} onChange={e => setDsName(e.target.value)} data-testid="input-ds-name-edit" />
             </div>
             <div className="space-y-1.5">
+              <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input value={dsDescription} onChange={e => setDsDescription(e.target.value)} placeholder="e.g. UK mobile prefixes" data-testid="input-ds-description-edit" />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>Connect Fee</Label>
+                <Input type="number" step="0.0001" value={dsConnectFee} onChange={e => setDsConnectFee(e.target.value)} placeholder="0.0000" data-testid="input-ds-connect-fee-edit" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Free Seconds</Label>
+                <Input type="number" value={dsFreeSeconds} onChange={e => setDsFreeSeconds(e.target.value)} placeholder="0" data-testid="input-ds-free-seconds-edit" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Grace Period (sec)</Label>
+                <Input type="number" value={dsGracePeriod} onChange={e => setDsGracePeriod(e.target.value)} placeholder="0" data-testid="input-ds-grace-period-edit" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
               <Label>CLD Translation Rule <span className="text-muted-foreground text-xs">(optional)</span></Label>
               <Input value={dsCldTrans} onChange={e => setDsCldTrans(e.target.value)} placeholder="e.g. s/^0/44/" />
             </div>
@@ -1140,6 +1330,10 @@ function DestinationSetsTab() {
                 id: editTarget.i_destination_set,
                 body: {
                   name: dsName,
+                  ...(dsDescription ? { description: dsDescription } : {}),
+                  ...(dsConnectFee ? { connect_fee: parseFloat(dsConnectFee) } : {}),
+                  ...(dsFreeSeconds ? { free_seconds: parseInt(dsFreeSeconds) } : {}),
+                  ...(dsGracePeriod ? { grace_period: parseInt(dsGracePeriod) } : {}),
                   ...(dsCldTrans ? { cld_translation: dsCldTrans } : {}),
                   ...(dsCliTrans ? { cli_translation: dsCliTrans } : {}),
                 }
