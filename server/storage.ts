@@ -1072,8 +1072,7 @@ export class DatabaseStorage implements IStorage {
   async getRateCardEntries(rateCardId: number): Promise<RateCardEntry[]> {
     return db.select().from(rateCardEntries)
       .where(eq(rateCardEntries.rateCardId, rateCardId))
-      .orderBy(rateCardEntries.prefix)
-      .limit(5000);
+      .orderBy(rateCardEntries.prefix);
   }
 
   async bulkInsertRateCardEntries(entries: InsertRateCardEntry[]): Promise<number> {
