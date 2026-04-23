@@ -6,6 +6,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Role } from "@shared/schema";
+import { MGMT_CONFIGURABLE_FEATURES } from "@shared/schema";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { CommandBar } from "@/components/command-bar";
 import { FixButton } from "@/components/fix-button";
@@ -81,6 +82,11 @@ const ITEM_NAV_MAP: Record<string, string> = {
   route_quality:     '/reports',
   did_management:    '/dids',
 };
+
+// Reverse map: route path → MGMT_CONFIGURABLE_FEATURES key
+const MGMT_ROUTE_TO_KEY: Record<string, string> = Object.fromEntries(
+  MGMT_CONFIGURABLE_FEATURES.map(f => [f.route, f.key])
+);
 
 const SIDEBAR_KEY    = 'voip-sidebar-collapsed';
 const GROUPS_LS_KEY  = 'voip-sidebar-groups';
@@ -307,6 +313,17 @@ export function LayoutShell({ children }: LayoutShellProps) {
   });
   const pendingApprovalCount = pendingCountData?.count ?? 0;
 
+  // Management: fetch which features have been enabled for the management role
+  const { data: mgmtPermsData } = useQuery<{ enabledFeatures: string[] }>({
+    queryKey: ['/api/settings/mgmt-permissions'],
+    enabled: role === 'management',
+    staleTime: 60_000,
+  });
+  // null = still loading (show all); Set = loaded (filter by enabled)
+  const mgmtEnabledFeatures: Set<string> | null = mgmtPermsData
+    ? new Set(mgmtPermsData.enabledFeatures ?? [])
+    : null;
+
   const VIEWER_ALWAYS_SHOW = new Set(['/', '/account', '/chat']);
 
   const isItemVisible = (item: NavItem): boolean => {
@@ -314,7 +331,14 @@ export function LayoutShell({ children }: LayoutShellProps) {
       if (VIEWER_ALWAYS_SHOW.has(item.href)) return true;
       return [...assignedItemSet].some(id => ITEM_NAV_MAP[id] === item.href);
     }
-    return item.roles.includes(role);
+    if (!item.roles.includes(role)) return false;
+    // Management: additionally gate by mgmtFeaturePermissions
+    if (role === 'management' && mgmtEnabledFeatures !== null) {
+      const routeBase = item.href.split('?')[0]; // strip query params
+      const featureKey = MGMT_ROUTE_TO_KEY[routeBase];
+      if (featureKey && !mgmtEnabledFeatures.has(featureKey)) return false;
+    }
+    return true;
   };
 
   const visibleCallsSubitems = role === 'viewer'

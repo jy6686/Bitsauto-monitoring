@@ -25,7 +25,7 @@ import {
   type KpiWidgetId,
 } from "@/components/kpi-widgets";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { MONITORING_ITEMS } from "@shared/schema";
+import { MONITORING_ITEMS, MGMT_CONFIGURABLE_FEATURES } from "@shared/schema";
 import { 
   Activity, 
   Server, 
@@ -235,6 +235,39 @@ export default function DashboardPage() {
   });
   const hiddenWidgets = new Set(widgetPrefs?.hiddenWidgets ?? []);
   const showWidget = (id: string) => !hiddenWidgets.has(id);
+
+  // Management role: fetch which features are enabled so we can gate sections
+  const { data: mgmtPermsData } = useQuery<{ enabledFeatures: string[] }>({
+    queryKey: ['/api/settings/mgmt-permissions'],
+    enabled: role === 'management',
+    staleTime: 60_000,
+  });
+  // null = still loading (show all); Set = loaded (filter by enabled)
+  const mgmtEnabledSet: Set<string> | null = mgmtPermsData
+    ? new Set(mgmtPermsData.enabledFeatures ?? [])
+    : null;
+  const mgmtHas = (featureKey: string) => {
+    if (role !== 'management') return true;
+    if (mgmtEnabledSet === null) return true; // loading — show all
+    return mgmtEnabledSet.has(featureKey);
+  };
+
+  // Dashboard section visibility: combines user toggle prefs AND mgmt feature gate
+  const WIDGET_FEATURE_MAP: Record<string, string> = {
+    revenue_analytics: 'analytics',
+    asr_trend:         'graphs',
+    fas_events:        'fraud_fas',
+  };
+  const sectionVisible = (widgetId: string): boolean => {
+    if (!showWidget(widgetId)) return false;
+    const featureKey = WIDGET_FEATURE_MAP[widgetId];
+    if (featureKey && !mgmtHas(featureKey)) return false;
+    return true;
+  };
+  // For the Customize sheet: filter available dashboard section toggles for management
+  const availableMgmtFeatureKeys = new Set(
+    MGMT_CONFIGURABLE_FEATURES.map(f => f.key)
+  );
 
   const savePrefsMutation = useMutation({
     mutationFn: ({ hidden, order }: { hidden: string[]; order: string[] }) =>
@@ -918,7 +951,10 @@ export default function DashboardPage() {
           <div>
             <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">Dashboard Sections</p>
             <div className="space-y-2">
-              {DASHBOARD_WIDGETS.map(widget => (
+              {DASHBOARD_WIDGETS.filter(w => {
+                const fk = WIDGET_FEATURE_MAP[w.id];
+                return !fk || mgmtHas(fk);
+              }).map(widget => (
                 <div key={widget.id} className="flex items-start justify-between gap-4 p-3 rounded-lg bg-muted/30 border border-border/50">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium leading-tight">{widget.label}</p>
@@ -1122,7 +1158,10 @@ export default function DashboardPage() {
           <LayoutGrid className="w-3.5 h-3.5" />
           Sections:
         </div>
-        {SECTION_CHIPS.map(chip => {
+        {SECTION_CHIPS.filter(chip => {
+          const fk = WIDGET_FEATURE_MAP[chip.id];
+          return !fk || mgmtHas(fk);
+        }).map(chip => {
           const isOn = showWidget(chip.id);
           return (
             <button
@@ -1322,7 +1361,7 @@ export default function DashboardPage() {
 
 
       {/* ── Revenue & Margin Analytics ───────────────────────────────────────── */}
-      {showWidget('revenue_analytics') && anyPortalActive && (
+      {sectionVisible('revenue_analytics') && anyPortalActive && (
         <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-2.5 border-b border-border/40 bg-muted/10">
             <div className="flex items-center gap-2">
@@ -1540,7 +1579,7 @@ export default function DashboardPage() {
       </div>}
 
       {/* ── Graphs Row: ASR/ACD Trend + Call Back Ratio ─────────────────────── */}
-      {showWidget('asr_trend') && <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      {sectionVisible('asr_trend') && <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
         {/* ASR & ACD Trend */}
         <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
@@ -1748,7 +1787,7 @@ export default function DashboardPage() {
       </div>}{/* ── end Graphs Row grid ─── */}
 
       {/* ── FAS Events + Stats ───────────────────────────────────────────────── */}
-      {showWidget('fas_events') && fasAll.length > 0 && (
+      {sectionVisible('fas_events') && fasAll.length > 0 && (
         <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-2 px-5 py-3 border-b border-rose-500/15">
