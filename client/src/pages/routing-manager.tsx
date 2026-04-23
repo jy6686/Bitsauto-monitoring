@@ -5,12 +5,14 @@ import {
   Route, RefreshCw, Database, Server, Network, CheckCircle2,
   AlertCircle, Clock, Layers, Wifi, ChevronRight, Search, Filter,
   Loader2, GitBranch, BarChart3, Eye, Settings2, Construction,
+  ArrowRight,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -53,6 +55,37 @@ type Connection = {
   cached_at:    string;
 };
 
+type RgMember = {
+  iRoutingGroupMember: number | null;
+  iConnection:         number | null;
+  iConnectionGroup:    number | null;
+  iDestinationSet:     number | null;
+  preference:          number | null;
+  weight:              number | null;
+  activationDate:      string | null;
+  expirationDate:      string | null;
+  connectionName:      string | null;
+  vendorName:          string | null;
+  blocked:             boolean;
+  host:                string | null;
+  destSetName:         string | null;
+  destSetRouteCount:   number | null;
+};
+type RgDetail = { members: RgMember[]; ok: boolean; message: string };
+
+type DsRoute = {
+  prefix:          string;
+  preference:      number | null;
+  huntstop:        number | null;
+  timeout:         number | null;
+  price1:          number | null;
+  priceN:          number | null;
+  forbidden:       boolean | null;
+  activationDate:  string | null;
+  expirationDate:  string | null;
+};
+type DsRoutesData = { success: boolean; list: DsRoute[]; message: string };
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function policyLabel(policy: string | null): string {
@@ -86,6 +119,147 @@ function relTime(iso: string | null): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24)  return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
+}
+
+// ── RgMembersPanel ─────────────────────────────────────────────────────────────
+
+function RgMembersPanel({ groupId }: { groupId: number }) {
+  const { data, isLoading } = useQuery<RgDetail>({
+    queryKey: ["/api/routing-cache/routing-groups", groupId, "detail"],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-3 px-4 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Loading members from Sippy…
+      </div>
+    );
+  }
+
+  const members = data?.members ?? [];
+  if (!data?.ok || members.length === 0) {
+    return (
+      <div className="py-3 px-4 text-xs text-muted-foreground/60 italic">
+        {!data?.ok
+          ? `Failed to load: ${data?.message ?? "Sippy unavailable"}`
+          : "No members configured in this routing group."}
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto border border-border/40 rounded-lg mx-4 mb-3 bg-background/40">
+      <table className="w-full text-xs min-w-[680px]">
+        <thead>
+          <tr className="bg-muted/50 border-b border-border/30">
+            {["Pref", "Weight", "Vendor / Connection", "Host", "Destination Set", "Routes", "Status"].map(h => (
+              <th key={h} className="px-3 py-2 text-left font-medium text-muted-foreground">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {members.map((m, i) => (
+            <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", m.blocked && "opacity-50")}>
+              <td className="px-3 py-2 font-mono font-bold text-amber-400">{m.preference ?? "—"}</td>
+              <td className="px-3 py-2 font-mono text-muted-foreground">{m.weight ?? "—"}</td>
+              <td className="px-3 py-2">
+                <div className="font-medium">{m.connectionName ?? `Connection #${m.iConnection}`}</div>
+                {m.vendorName && <div className="text-[10px] text-muted-foreground/70">{m.vendorName}</div>}
+              </td>
+              <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground/70">{m.host ?? "—"}</td>
+              <td className="px-3 py-2">
+                {m.destSetName
+                  ? <span className="text-violet-400 font-medium">{m.destSetName}</span>
+                  : <span className="text-muted-foreground/30">—</span>}
+              </td>
+              <td className="px-3 py-2 font-mono text-muted-foreground/70">{m.destSetRouteCount ?? "—"}</td>
+              <td className="px-3 py-2">
+                {m.blocked
+                  ? <Badge variant="destructive" className="h-4 text-[9px] px-1.5">Blocked</Badge>
+                  : <span className="text-[10px] text-emerald-400 font-medium">Active</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── DsRoutesPanel ──────────────────────────────────────────────────────────────
+
+function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: string) => void }) {
+  const { data, isLoading } = useQuery<DsRoutesData>({
+    queryKey: ["/api/sippy/destination-sets", dsId, "routes"],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-3 px-4 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Loading routes from Sippy…
+      </div>
+    );
+  }
+
+  const routes = data?.list ?? [];
+  if (!data?.success || routes.length === 0) {
+    return (
+      <div className="py-3 px-4 text-xs text-muted-foreground/60 italic">
+        {!data?.success
+          ? `Failed to load: ${data?.message ?? "Sippy unavailable"}`
+          : "No routes in this destination set."}
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto border border-border/40 rounded-lg mx-4 mb-3 bg-background/40">
+      <table className="w-full text-xs min-w-[580px]">
+        <thead>
+          <tr className="bg-muted/50 border-b border-border/30">
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Prefix</th>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Pref</th>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Huntstop</th>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Timeout</th>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {routes.map((r, i) => (
+            <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", r.forbidden && "opacity-40")}>
+              <td className="px-3 py-2 font-mono font-bold text-cyan-400">+{r.prefix}</td>
+              <td className="px-3 py-2 font-mono text-muted-foreground">{r.preference ?? "—"}</td>
+              <td className="px-3 py-2 text-center">
+                {r.huntstop
+                  ? <span className="text-amber-400 font-bold" title="Huntstop enabled">●</span>
+                  : <span className="text-muted-foreground/20">○</span>}
+              </td>
+              <td className="px-3 py-2 font-mono text-muted-foreground/70">{r.timeout ? `${r.timeout}s` : "—"}</td>
+              <td className="px-3 py-2">
+                {r.forbidden
+                  ? <Badge variant="destructive" className="h-4 text-[9px] px-1.5">Blocked</Badge>
+                  : <span className="text-[10px] text-emerald-400 font-medium">Active</span>}
+              </td>
+              <td className="px-3 py-2">
+                {!r.forbidden && (
+                  <button
+                    data-testid={`btn-lcr-${r.prefix}`}
+                    onClick={() => onRunLcr(r.prefix)}
+                    className="text-[10px] font-semibold text-primary hover:text-primary/70 transition-colors flex items-center gap-0.5"
+                  >
+                    Run LCR <ArrowRight className="h-2.5 w-2.5" />
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 // ── Status Banner ──────────────────────────────────────────────────────────────
@@ -141,6 +315,7 @@ function CacheStatusBanner({ meta, onSync, syncing }: {
 
 function RoutingGroupsTab() {
   const [search, setSearch] = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const { data, isLoading } = useQuery<{ groups: RoutingGroup[] }>({
     queryKey: ["/api/routing-cache/routing-groups"],
   });
@@ -173,38 +348,64 @@ function RoutingGroupsTab() {
         </div>
       ) : (
         <div className="space-y-1.5">
-          {groups.map(rg => (
-            <div
-              key={rg.i_routing_group}
-              data-testid={`rg-row-${rg.i_routing_group}`}
-              className="flex items-center gap-4 px-4 py-3 rounded-xl border border-border/50 bg-card/60 hover:bg-card transition-colors"
-            >
-              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <Route className="h-4 w-4 text-primary" />
+          {groups.map(rg => {
+            const isExpanded = expandedId === rg.i_routing_group;
+            return (
+              <div
+                key={rg.i_routing_group}
+                data-testid={`rg-row-${rg.i_routing_group}`}
+                className="rounded-xl border border-border/50 bg-card/60 overflow-hidden"
+              >
+                <button
+                  className="w-full flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                  onClick={() => setExpandedId(isExpanded ? null : rg.i_routing_group)}
+                  data-testid={`btn-expand-rg-${rg.i_routing_group}`}
+                >
+                  <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <Route className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold truncate">{rg.name}</span>
+                      <span className="text-xs text-muted-foreground font-mono">#{rg.i_routing_group}</span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      <span className={`text-xs font-medium ${policyColor(rg.policy)}`}>
+                        {policyLabel(rg.policy)}
+                      </span>
+                      {rg.on_net && (
+                        <Badge variant="outline" className="h-4 text-[10px] border-cyan-500/40 text-cyan-400 px-1">On-Net</Badge>
+                      )}
+                      {rg.media_relay && (
+                        <span className="text-xs text-muted-foreground">{rg.media_relay}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-right">
+                      <div className="text-sm font-semibold">{rg.members_count}</div>
+                      <div className="text-xs text-muted-foreground">members</div>
+                    </div>
+                    <ChevronRight className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200", isExpanded && "rotate-90")} />
+                  </div>
+                </button>
+                {isExpanded && (
+                  <div className="border-t border-border/40 bg-muted/10 pb-1">
+                    <div className="px-4 py-2 flex items-center gap-2 border-b border-border/20">
+                      <Server className="h-3.5 w-3.5 text-muted-foreground/60" />
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        Routing Group Members
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/40 ml-1">live from Sippy + cache enrichment</span>
+                    </div>
+                    <div className="pt-2">
+                      <RgMembersPanel groupId={rg.i_routing_group} />
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold truncate">{rg.name}</span>
-                  <span className="text-xs text-muted-foreground font-mono">#{rg.i_routing_group}</span>
-                </div>
-                <div className="flex items-center gap-3 mt-0.5">
-                  <span className={`text-xs font-medium ${policyColor(rg.policy)}`}>
-                    {policyLabel(rg.policy)}
-                  </span>
-                  {rg.on_net && (
-                    <Badge variant="outline" className="h-4 text-[10px] border-cyan-500/40 text-cyan-400 px-1">On-Net</Badge>
-                  )}
-                  {rg.media_relay && (
-                    <span className="text-xs text-muted-foreground">{rg.media_relay}</span>
-                  )}
-                </div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="text-sm font-semibold">{rg.members_count}</div>
-                <div className="text-xs text-muted-foreground">members</div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -215,12 +416,18 @@ function RoutingGroupsTab() {
 
 function DestinationSetsTab() {
   const [search, setSearch] = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [, navigate] = useLocation();
   const { data, isLoading } = useQuery<{ sets: DestinationSet[] }>({
     queryKey: ["/api/routing-cache/destination-sets"],
   });
   const sets = (data?.sets ?? []).filter(s =>
     !search || s.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  const handleRunLcr = (prefix: string) => {
+    navigate(`/lcr-analyser?prefix=${encodeURIComponent(prefix)}`);
+  };
 
   return (
     <div className="space-y-3">
@@ -247,42 +454,68 @@ function DestinationSetsTab() {
         </div>
       ) : (
         <div className="space-y-1.5">
-          {sets.map(ds => (
-            <div
-              key={ds.i_destination_set}
-              data-testid={`ds-row-${ds.i_destination_set}`}
-              className="flex items-center gap-4 px-4 py-3 rounded-xl border border-border/50 bg-card/60 hover:bg-card transition-colors"
-            >
-              <div className="h-9 w-9 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
-                <Layers className="h-4 w-4 text-violet-400" />
+          {sets.map(ds => {
+            const isExpanded = expandedId === ds.i_destination_set;
+            return (
+              <div
+                key={ds.i_destination_set}
+                data-testid={`ds-row-${ds.i_destination_set}`}
+                className="rounded-xl border border-border/50 bg-card/60 overflow-hidden"
+              >
+                <button
+                  className="w-full flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                  onClick={() => setExpandedId(isExpanded ? null : ds.i_destination_set)}
+                  data-testid={`btn-expand-ds-${ds.i_destination_set}`}
+                >
+                  <div className="h-9 w-9 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
+                    <Layers className="h-4 w-4 text-violet-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold truncate">{ds.name}</span>
+                      <span className="text-xs text-muted-foreground font-mono">#{ds.i_destination_set}</span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                      {ds.cld_translation && (
+                        <span className="text-xs text-muted-foreground font-mono">
+                          CLD: <span className="text-cyan-400">{ds.cld_translation}</span>
+                        </span>
+                      )}
+                      {ds.cli_translation && (
+                        <span className="text-xs text-muted-foreground font-mono">
+                          CLI: <span className="text-amber-400">{ds.cli_translation}</span>
+                        </span>
+                      )}
+                      {!ds.cld_translation && !ds.cli_translation && (
+                        <span className="text-xs text-muted-foreground/40">no translation rules</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-right">
+                      <div className="text-sm font-semibold">{ds.route_count}</div>
+                      <div className="text-xs text-muted-foreground">routes</div>
+                    </div>
+                    <ChevronRight className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200", isExpanded && "rotate-90")} />
+                  </div>
+                </button>
+                {isExpanded && (
+                  <div className="border-t border-border/40 bg-muted/10 pb-1">
+                    <div className="px-4 py-2 flex items-center gap-2 border-b border-border/20">
+                      <Network className="h-3.5 w-3.5 text-muted-foreground/60" />
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        Prefix Routes
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/40 ml-1">click Run LCR to analyse a prefix</span>
+                    </div>
+                    <div className="pt-2">
+                      <DsRoutesPanel dsId={ds.i_destination_set} onRunLcr={handleRunLcr} />
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold truncate">{ds.name}</span>
-                  <span className="text-xs text-muted-foreground font-mono">#{ds.i_destination_set}</span>
-                </div>
-                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                  {ds.cld_translation && (
-                    <span className="text-xs text-muted-foreground font-mono">
-                      CLD: <span className="text-cyan-400">{ds.cld_translation}</span>
-                    </span>
-                  )}
-                  {ds.cli_translation && (
-                    <span className="text-xs text-muted-foreground font-mono">
-                      CLI: <span className="text-amber-400">{ds.cli_translation}</span>
-                    </span>
-                  )}
-                  {!ds.cld_translation && !ds.cli_translation && (
-                    <span className="text-xs text-muted-foreground/40">no translation rules</span>
-                  )}
-                </div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="text-sm font-semibold">{ds.route_count}</div>
-                <div className="text-xs text-muted-foreground">routes</div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -493,7 +726,7 @@ export default function RoutingManagerPage() {
       {/* Tab bar */}
       <div className="flex gap-1 bg-muted/40 rounded-xl p-1 w-fit">
         {TABS.map(t => {
-          const count = t.countKey ? (meta?.[t.countKey] ?? 0) : 0;
+          const count = t.countKey ? Number(meta?.[t.countKey] ?? 0) : 0;
           return (
             <button
               key={t.id}

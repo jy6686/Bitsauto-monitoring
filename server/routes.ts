@@ -5035,6 +5035,35 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ accounts: [], error: e.message }); }
   });
 
+  // GET /api/sippy/accounts/:id/info — lightweight account info including iRoutingGroup (for routing audit trail)
+  app.get('/api/sippy/accounts/:id/info', async (req: any, res: any) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ error: 'Invalid account ID' });
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ error: 'Sippy not configured' });
+      const portalUrl = sippyPortalUrl(settings);
+      const credPairs = sippyXmlCredsPairs(settings);
+      let info: any = null;
+      for (const { username, password } of credPairs) {
+        try {
+          info = await sippy.getAccountInfo(username, password, portalUrl, iAccount);
+          if (info) { xmlRpcRecordSuccess(); break; }
+        } catch { /* try next pair */ }
+      }
+      if (!info) return res.status(404).json({ error: 'Account not found or Sippy unavailable' });
+      res.json({
+        iAccount:      info.iAccount,
+        username:      info.username,
+        iRoutingGroup: info.iRoutingGroup ?? null,
+        description:   info.description ?? null,
+        blocked:       info.blocked ?? false,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // GET /api/sippy/accounts/:id/registration — SIP registration status (docs 107366)
   // Returns registered status plus user_agent, contact, expires if registered.
   // Uses getRegistrationStatus(). Fault code 403 = not registered (not an error).
@@ -8292,6 +8321,51 @@ export async function registerRoutes(
       res.json(result);
     } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
   });
+
+  // GET /api/routing-cache/routing-groups/:id/detail — live members enriched with cached connection/DS names
+  app.get('/api/routing-cache/routing-groups/:id/detail',
+    (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) return res.status(400).json({ error: 'Invalid routing group ID' });
+        const settings = await storage.getSippySettings();
+        if (!settings) return res.status(503).json({ error: 'Sippy not configured' });
+        const { username, password } = sippyXmlCreds(settings);
+        // Fetch live members from Sippy
+        const mResult = await sippy.listRoutingGroupMembers(username, password, id, { portalUrl: sippyPortalUrl(settings) });
+        // Enrich with cached connection info
+        const cachedConns  = await getCachedConnections();
+        const connMap = new Map((cachedConns as any[]).map((c: any) => [c.i_connection, c]));
+        // Enrich with cached destination set names
+        const cachedDSets  = await getCachedDestinationSets();
+        const dsMap   = new Map((cachedDSets as any[]).map((d: any) => [d.i_destination_set, d]));
+        const members = (mResult.members ?? []).map((m: any) => {
+          const conn = m.iConnection    ? (connMap.get(m.iConnection) as any)    : null;
+          const ds   = m.iDestinationSet ? (dsMap.get(m.iDestinationSet) as any) : null;
+          return {
+            iRoutingGroupMember: m.iRoutingGroupMember,
+            iConnection:         m.iConnection,
+            iConnectionGroup:    m.iConnectionGroup,
+            iDestinationSet:     m.iDestinationSet,
+            preference:          m.preference,
+            weight:              m.weight,
+            activationDate:      m.activationDate,
+            expirationDate:      m.expirationDate,
+            connectionName:      conn?.name       ?? (m.iConnection      ? `Connection #${m.iConnection}`       : null),
+            vendorName:          conn?.vendor_name ?? null,
+            blocked:             conn?.blocked     ?? false,
+            host:                conn?.host        ?? null,
+            destSetName:         ds?.name          ?? (m.iDestinationSet  ? `DS #${m.iDestinationSet}`           : null),
+            destSetRouteCount:   ds?.route_count   ?? null,
+          };
+        });
+        res.json({ members, ok: mResult.success, message: mResult.message });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    }
+  );
 
   // PUT /api/sippy/routing-groups/:id — updateRoutingGroup()
   // Body: any subset of addRoutingGroup params (all optional).

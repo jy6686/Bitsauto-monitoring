@@ -16,7 +16,7 @@ import {
   Workflow, Hash, User, Wallet, DollarSign, GitBranch,
   TrendingDown, CheckCircle2, XCircle, AlertTriangle,
   ChevronDown, ChevronRight, Play, ArrowRight,
-  Shield, Info, Minus
+  Shield, Info, Minus, Loader2, Network,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -276,9 +276,232 @@ function OutcomeBanner({ step, cli, cld }: { step: SimStep; cli: string; cld: st
   );
 }
 
+// ── Routing Audit Trail ───────────────────────────────────────────────────────
+
+type AuditAccountInfo = {
+  iAccount: number;
+  username: string;
+  iRoutingGroup: number | null;
+  description: string | null;
+  blocked: boolean;
+};
+type AuditRgMember = {
+  iRoutingGroupMember: number | null;
+  iConnection: number | null;
+  iConnectionGroup: number | null;
+  iDestinationSet: number | null;
+  preference: number | null;
+  weight: number | null;
+  connectionName: string | null;
+  vendorName: string | null;
+  blocked: boolean;
+  host: string | null;
+  destSetName: string | null;
+  destSetRouteCount: number | null;
+};
+type AuditRgDetail = { members: AuditRgMember[]; ok: boolean; message: string };
+type AuditCachedRg = { i_routing_group: number; name: string; policy: string | null; members_count: number };
+
+function RoutingAuditSection({
+  accounts,
+}: {
+  accounts: { iAccount: number; username: string; description?: string }[];
+}) {
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
+  const accountId = selectedAccountId ? parseInt(selectedAccountId, 10) : null;
+
+  const { data: accountInfo, isLoading: loadingInfo } = useQuery<AuditAccountInfo>({
+    queryKey: ["/api/sippy/accounts", accountId, "info"],
+    enabled: accountId !== null,
+  });
+
+  const rgId = accountInfo?.iRoutingGroup ?? null;
+
+  const { data: rgDetail, isLoading: loadingDetail } = useQuery<AuditRgDetail>({
+    queryKey: ["/api/routing-cache/routing-groups", rgId, "detail"],
+    enabled: rgId !== null,
+  });
+
+  const { data: rgListData } = useQuery<{ groups: AuditCachedRg[] }>({
+    queryKey: ["/api/routing-cache/routing-groups"],
+  });
+  const rgInfo = rgListData?.groups?.find(g => g.i_routing_group === rgId) ?? null;
+
+  const policyLabel = (p: string | null) =>
+    p ? p.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "—";
+
+  return (
+    <div className="space-y-6">
+      {/* Account Selector */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-medium">Select Account</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Trace the full routing chain for any account: Account → Routing Group → Connections → Destination Sets.
+              </p>
+            </div>
+            <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+              <SelectTrigger data-testid="select-audit-account" className="w-full">
+                <SelectValue placeholder="Choose an account…" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map(a => (
+                  <SelectItem key={a.iAccount} value={String(a.iAccount)}>
+                    {a.username}{a.description ? ` · ${a.description}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Loading */}
+      {accountId !== null && (loadingInfo || loadingDetail) && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {loadingInfo ? "Fetching account info from Sippy…" : "Loading routing group members…"}
+        </div>
+      )}
+
+      {/* Chain Display */}
+      {accountInfo && !loadingInfo && (
+        <div className="space-y-0" data-testid="audit-chain">
+          {/* Node: Account */}
+          <div className="flex gap-4">
+            <div className="flex flex-col items-center">
+              <div className="h-10 w-10 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center shrink-0">
+                <User className="h-5 w-5 text-blue-400" />
+              </div>
+              {rgId && <div className="w-0.5 h-8 bg-border/50 mt-1" />}
+            </div>
+            <div className="flex-1 py-1.5 pb-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold">{accountInfo.username}</span>
+                <span className="text-xs font-mono text-muted-foreground">#{accountInfo.iAccount}</span>
+                {accountInfo.blocked && (
+                  <Badge variant="destructive" className="h-4 text-[9px] px-1.5">Blocked</Badge>
+                )}
+              </div>
+              {accountInfo.description && (
+                <p className="text-xs text-muted-foreground mt-0.5">{accountInfo.description}</p>
+              )}
+              {!rgId && (
+                <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
+                  <Info className="h-3.5 w-3.5" />
+                  No routing group assigned to this account.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Node: Routing Group */}
+          {rgId && (
+            <>
+              <div className="flex gap-4">
+                <div className="flex flex-col items-center">
+                  <div className="h-10 w-10 rounded-xl bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0">
+                    <GitBranch className="h-5 w-5 text-primary" />
+                  </div>
+                  {(rgDetail?.members?.length ?? 0) > 0 && <div className="w-0.5 h-8 bg-border/50 mt-1" />}
+                </div>
+                <div className="flex-1 py-1.5 pb-4">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold">
+                      {rgInfo?.name ?? `Routing Group #${rgId}`}
+                    </span>
+                    <span className="text-xs font-mono text-muted-foreground">#{rgId}</span>
+                  </div>
+                  {rgInfo?.policy && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{policyLabel(rgInfo.policy)}</p>
+                  )}
+                  {loadingDetail && (
+                    <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Loading members…
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Members table */}
+              {rgDetail && !loadingDetail && (
+                <div className="flex gap-4">
+                  <div className="w-10 shrink-0" />
+                  <div className="flex-1 pb-4">
+                    {rgDetail.members.length === 0 ? (
+                      <p className="text-xs text-muted-foreground/60 italic">
+                        {!rgDetail.ok
+                          ? `Could not load members: ${rgDetail.message}`
+                          : "No members configured in this routing group."}
+                      </p>
+                    ) : (
+                      <div className="overflow-x-auto border border-border/40 rounded-xl bg-card/60">
+                        <table className="w-full text-xs min-w-[640px]">
+                          <thead>
+                            <tr className="bg-muted/50 border-b border-border/30">
+                              {["Pref", "Weight", "Connection / Vendor", "Host", "Destination Set", "Routes", "Status"].map(h => (
+                                <th key={h} className="px-3 py-2 text-left font-medium text-muted-foreground">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rgDetail.members.map((m, i) => (
+                              <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", m.blocked && "opacity-50")}>
+                                <td className="px-3 py-2 font-mono font-bold text-amber-400">{m.preference ?? "—"}</td>
+                                <td className="px-3 py-2 font-mono text-muted-foreground/70">{m.weight ?? "—"}</td>
+                                <td className="px-3 py-2">
+                                  <div className="font-medium">{m.connectionName ?? `Connection #${m.iConnection}`}</div>
+                                  {m.vendorName && <div className="text-[10px] text-muted-foreground/60">{m.vendorName}</div>}
+                                </td>
+                                <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground/70">{m.host ?? "—"}</td>
+                                <td className="px-3 py-2">
+                                  {m.destSetName
+                                    ? <span className="text-violet-400 font-medium">{m.destSetName}</span>
+                                    : <span className="text-muted-foreground/30">—</span>}
+                                </td>
+                                <td className="px-3 py-2 font-mono text-muted-foreground/70">{m.destSetRouteCount ?? "—"}</td>
+                                <td className="px-3 py-2">
+                                  {m.blocked
+                                    ? <Badge variant="destructive" className="h-4 text-[9px] px-1.5">Blocked</Badge>
+                                    : <span className="text-[10px] text-emerald-400 font-medium">Active</span>}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!selectedAccountId && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="p-4 rounded-2xl bg-muted/30 mb-4">
+            <Network className="h-10 w-10 text-muted-foreground/50" />
+          </div>
+          <h3 className="text-base font-medium text-muted-foreground">Select an account to begin</h3>
+          <p className="text-sm text-muted-foreground/70 mt-1 max-w-md">
+            The routing audit trail shows you exactly how an account connects to carriers
+            — from account → routing group → connection members → destination sets.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function CallFlowSimulatorPage() {
   const { toast } = useToast();
+  const [mode, setMode] = useState<"simulator" | "audit">("simulator");
   const [result, setResult] = useState<SimResult | null>(null);
   const [submittedCli, setSubmittedCli] = useState("");
   const [submittedCld, setSubmittedCld] = useState("");
@@ -328,17 +551,60 @@ export default function CallFlowSimulatorPage() {
     <div className="p-6 space-y-6 max-w-3xl mx-auto">
 
       {/* ── Header ── */}
-      <div className="flex items-center gap-3">
-        <div className="p-2.5 rounded-xl bg-primary/10">
-          <Workflow className="h-6 w-6 text-primary" />
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-primary/10">
+            <Workflow className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Call Flow Simulator</h1>
+            <p className="text-sm text-muted-foreground">
+              {mode === "simulator"
+                ? "Trace the exact decision path Sippy would take — without making a real call."
+                : "Visualise an account's full routing chain: account → group → connections → destination sets."}
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Call Flow Simulator</h1>
-          <p className="text-sm text-muted-foreground">
-            Trace the exact decision path Sippy would take — without making a real call.
-          </p>
+        {/* Mode Toggle */}
+        <div className="flex items-center gap-1 bg-muted/50 rounded-xl p-1 shrink-0" role="tablist">
+          <button
+            role="tab"
+            aria-selected={mode === "simulator"}
+            data-testid="tab-sim-mode"
+            onClick={() => setMode("simulator")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+              mode === "simulator"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Play className="h-3.5 w-3.5" />
+            Simulator
+          </button>
+          <button
+            role="tab"
+            aria-selected={mode === "audit"}
+            data-testid="tab-audit-mode"
+            onClick={() => setMode("audit")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+              mode === "audit"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Network className="h-3.5 w-3.5" />
+            Routing Audit
+          </button>
         </div>
       </div>
+
+      {/* ── Routing Audit mode ── */}
+      {mode === "audit" && <RoutingAuditSection accounts={accounts} />}
+
+      {/* ── Simulator mode ── */}
+      {mode === "simulator" && <>
 
       {/* ── Input panel ── */}
       <Card>
@@ -476,6 +742,7 @@ export default function CallFlowSimulatorPage() {
           </div>
         </div>
       )}
+      </>}
     </div>
   );
 }
