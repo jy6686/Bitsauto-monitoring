@@ -10,7 +10,7 @@ import {
   Mail, Plus, Trash2, Edit2, X, TrendingUp, TrendingDown,
   UserPlus, PhoneCall, LinkIcon, Unlink, ShieldAlert, Check, Server, FileText,
   PieChart, CreditCard, GitBranch, Award, Zap, Layers, Settings2,
-  ToggleRight,
+  ToggleRight, Building2,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useState, useMemo } from "react";
@@ -1398,6 +1398,7 @@ export default function TeamPage() {
   const [assignResult, setAssignResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [showKamDialog, setShowKamDialog] = useState(false);
   const [editKam, setEditKam] = useState<Kam | undefined>();
+  const [activeTab, setActiveTab] = useState<'members'|'monitoring'|'kam'|'org'|'alerts'|'access'>('members');
 
   const { data: members = [], isLoading } = useQuery<TeamMember[]>({
     queryKey: ["/api/team"],
@@ -1540,6 +1541,49 @@ export default function TeamPage() {
           Manage team roles, monitoring responsibilities, and Key Account Manager assignments.
         </p>
       </div>
+
+      {/* ── Tab Navigation ─────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-1 bg-muted/20 border border-border/50 rounded-xl p-1 overflow-x-auto" data-testid="team-tab-nav">
+        {([
+          { id: 'members',    label: 'Team Members',   icon: Users,       badge: stats.total    || undefined },
+          { id: 'monitoring', label: 'Monitoring',      icon: MonitorDot,  badge: undefined                  },
+          { id: 'kam',        label: 'KAM & Accounts', icon: UserCheck,   badge: kams.length    || undefined },
+          { id: 'org',        label: 'Org Hierarchy',  icon: Building2,   badge: undefined                  },
+          { id: 'alerts',     label: 'Traffic Alerts', icon: Bell,        badge: openAlerts.length || undefined },
+          { id: 'access',     label: 'Access Control', icon: ToggleRight, badge: undefined                  },
+        ] as const).map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              data-testid={`tab-team-${tab.id}`}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all flex-shrink-0 ${
+                isActive
+                  ? 'bg-background text-foreground shadow-sm border border-border/50'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+              }`}
+            >
+              <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-violet-400' : ''}`} />
+              {tab.label}
+              {tab.badge != null && tab.badge > 0 && (
+                <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-semibold ${
+                  tab.id === 'alerts'
+                    ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                    : 'bg-violet-500/15 text-violet-400 border border-violet-500/30'
+                }`}>
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ══ Members Tab ════════════════════════════════════════════════════════ */}
+      {activeTab === 'members' && (
+      <div className="space-y-6">
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1752,6 +1796,12 @@ export default function TeamPage() {
         )}
       </div>
 
+      </div>)}{/* ══ end Members Tab ═══════════════════════════════════════════════════════ */}
+
+      {/* ══ Monitoring Tab ══════════════════════════════════════════════════════ */}
+      {activeTab === 'monitoring' && (
+      <div className="space-y-6">
+
       {/* ── Monitoring Assignments ─────────────────────────────────────────────── */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 bg-muted/20">
@@ -1858,7 +1908,9 @@ export default function TeamPage() {
         </div>
       </div>
 
-      {/* ── KAM Dialogs ─────────────────────────────────────────────────────────── */}
+      </div>)}{/* ══ end Monitoring Tab ═════════════════════════════════════════════════ */}
+
+      {/* ── KAM Dialog (always mounted outside tabs) ─────────────────────── */}
       {(showKamDialog || editKam) && (
         <KamFormDialog
           editKam={editKam}
@@ -1867,8 +1919,14 @@ export default function TeamPage() {
         />
       )}
 
-      {/* ── Org Hierarchy ───────────────────────────────────────────────────────── */}
-      <OrgHierarchySection onEdit={k => { setEditKam(k); }} />
+      {/* ══ Org Hierarchy Tab ══════════════════════════════════════════════════ */}
+      {activeTab === 'org' && (
+        <OrgHierarchySection onEdit={k => { setEditKam(k); setActiveTab('kam'); }} />
+      )}
+
+      {/* ══ KAM Tab ════════════════════════════════════════════════════════════ */}
+      {activeTab === 'kam' && (
+      <div className="space-y-6">
 
       {/* ── KAM Stat Cards ──────────────────────────────────────────────────────── */}
       <div>
@@ -1962,6 +2020,12 @@ export default function TeamPage() {
         )}
       </div>
 
+      </div>)}{/* ══ end KAM Tab ═══════════════════════════════════════════════════════════ */}
+
+      {/* ══ Alerts Tab ═════════════════════════════════════════════════════════ */}
+      {activeTab === 'alerts' && (
+      <div className="space-y-6">
+
       {/* ── Traffic Alert Log ────────────────────────────────────────────────────── */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 bg-muted/20">
@@ -2033,6 +2097,12 @@ export default function TeamPage() {
 
       {/* Watcher Alert Members */}
       <WatcherRecipientsSection />
+
+      </div>)}{/* ══ end Alerts Tab ═════════════════════════════════════════════════════ */}
+
+      {/* ══ Access Control Tab ══════════════════════════════════════════════════ */}
+      {activeTab === 'access' && (
+      <div className="space-y-6">
 
       {/* Management Feature Access Controls */}
       {isAdmin && (
@@ -2200,9 +2270,8 @@ export default function TeamPage() {
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground text-center pb-2">
-        New users who sign in are automatically assigned the <strong>Viewer</strong> role. Promote them here at any time.
-      </p>
+      </div>)}{/* ══ end Access Control Tab ══════════════════════════════════════════════ */}
+
     </div>
   );
 }
