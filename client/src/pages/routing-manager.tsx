@@ -735,11 +735,10 @@ function CacheStatusBanner({ meta, onSync, syncing }: {
 // ── Routing Groups Tab ─────────────────────────────────────────────────────────
 
 const RG_POLICY_OPTIONS = [
-  { value: "order",      label: "Routing Entries Order" },
-  { value: "least_cost", label: "Least Cost" },
-  { value: "weighted",   label: "Weighted Distribution" },
-  { value: "prefix",     label: "Prefix Length" },
-  { value: "preference", label: "Route Preference" },
+  { value: "prefix,preference", label: "Prefix + Preference (recommended)" },
+  { value: "least_cost",        label: "Least Cost (LCR)" },
+  { value: "order",             label: "Entries Order" },
+  { value: "weighted",          label: "Weighted Distribution" },
 ];
 
 const MEDIA_RELAY_OPTIONS = [
@@ -794,9 +793,7 @@ type RgFormProps = {
   rgTimeout2xx: string; setRgTimeout2xx: (v: string) => void;
   rgLrnEnabled: boolean; setRgLrnEnabled: (v: boolean) => void;
   rgLrnRule: string; setRgLrnRule: (v: string) => void;
-  rgActivePolicies: string[]; setRgActivePolicies: (v: string[]) => void;
-  rgSelAvail: string | null; setRgSelAvail: (v: string | null) => void;
-  rgSelActive: string | null; setRgSelActive: (v: string | null) => void;
+  rgPolicy: string; setRgPolicy: (v: string) => void;
   rgOnNetConnection: string; setRgOnNetConnection: (v: string) => void;
   rgVoicemailConn: string; setRgVoicemailConn: (v: string) => void;
   rgOnNetScope: string; setRgOnNetScope: (v: string) => void;
@@ -814,8 +811,7 @@ function RgForm({
   rgName, setRgName, rgDescription, setRgDescription,
   rgMediaRelay, setRgMediaRelay, rgTimeout2xx, setRgTimeout2xx,
   rgLrnEnabled, setRgLrnEnabled, rgLrnRule, setRgLrnRule,
-  rgActivePolicies, setRgActivePolicies,
-  rgSelAvail, setRgSelAvail, rgSelActive, setRgSelActive,
+  rgPolicy, setRgPolicy,
   rgOnNetConnection, setRgOnNetConnection, rgVoicemailConn, setRgVoicemailConn,
   rgOnNetScope, setRgOnNetScope, rgReplyTimeout, setRgReplyTimeout,
   rgTimeout1xx, setRgTimeout1xx, rgOnNetTimeout2xx, setRgOnNetTimeout2xx,
@@ -823,41 +819,12 @@ function RgForm({
   pendingEntries, setPendingEntries,
   cachedConns = [], cachedSets = [],
 }: RgFormProps) {
-  const availablePolicies = RG_POLICY_OPTIONS.filter(p => !rgActivePolicies.includes(p.value));
-
   // Routing Entries add-row state (always declared, only used when pendingEntries is provided)
   const [rowVendor, setRowVendor] = useState("");
   const [rowConn,   setRowConn]   = useState("");
   const [rowDs,     setRowDs]     = useState("");
   const [rowPref,   setRowPref]   = useState("1");
   const [rowWeight, setRowWeight] = useState("1");
-
-  const include = () => {
-    if (!rgSelAvail) return;
-    setRgActivePolicies([...rgActivePolicies, rgSelAvail]);
-    setRgSelAvail(null);
-  };
-  const remove = () => {
-    if (!rgSelActive) return;
-    setRgActivePolicies(rgActivePolicies.filter(p => p !== rgSelActive));
-    setRgSelActive(null);
-  };
-  const moveUp = () => {
-    if (!rgSelActive) return;
-    const idx = rgActivePolicies.indexOf(rgSelActive);
-    if (idx <= 0) return;
-    const next = [...rgActivePolicies];
-    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-    setRgActivePolicies(next);
-  };
-  const moveDown = () => {
-    if (!rgSelActive) return;
-    const idx = rgActivePolicies.indexOf(rgSelActive);
-    if (idx < 0 || idx >= rgActivePolicies.length - 1) return;
-    const next = [...rgActivePolicies];
-    [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-    setRgActivePolicies(next);
-  };
 
   const SectionHeader = ({ label }: { label: string }) => (
     <div className="flex items-center gap-2 py-1 mb-2 border-b border-border/40">
@@ -919,65 +886,20 @@ function RgForm({
         </div>
       </div>
 
-      {/* Routing Policy dual-list */}
+      {/* Routing Policy */}
       <div>
         <SectionHeader label="Routing Policy" />
-        <div className="flex items-start gap-2">
-          {/* Available list */}
-          <div className="flex-1 space-y-1">
-            <p className="text-xs font-medium text-center text-muted-foreground">Available</p>
-            <div className="border border-border rounded-md bg-background min-h-[100px] overflow-y-auto">
-              {availablePolicies.map(p => (
-                <div
-                  key={p.value}
-                  onClick={() => { setRgSelAvail(p.value); setRgSelActive(null); }}
-                  className={cn("px-2 py-1.5 text-xs cursor-pointer select-none transition-colors",
-                    rgSelAvail === p.value ? "bg-primary text-primary-foreground" : "hover:bg-muted/50")}
-                >
-                  {p.label}
-                </div>
-              ))}
-              {availablePolicies.length === 0 && (
-                <p className="text-[10px] text-muted-foreground/40 text-center py-3 italic">all policies active</p>
-              )}
-            </div>
-          </div>
-          {/* Include/Remove buttons */}
-          <div className="flex flex-col gap-1.5 pt-7 shrink-0">
-            <Button size="sm" variant="outline" className="h-7 text-xs px-2 gap-1" onClick={include} disabled={!rgSelAvail}>
-              Include <span>→</span>
-            </Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs px-2 gap-1" onClick={remove} disabled={!rgSelActive}>
-              <span>←</span> Remove
-            </Button>
-          </div>
-          {/* Active list */}
-          <div className="flex-1 space-y-1">
-            <p className="text-xs font-medium text-center text-muted-foreground">Active</p>
-            <div className="border border-border rounded-md bg-background min-h-[100px] overflow-y-auto">
-              {rgActivePolicies.map(v => {
-                const label = RG_POLICY_OPTIONS.find(p => p.value === v)?.label ?? v;
-                return (
-                  <div
-                    key={v}
-                    onClick={() => { setRgSelActive(v); setRgSelAvail(null); }}
-                    className={cn("px-2 py-1.5 text-xs cursor-pointer select-none transition-colors",
-                      rgSelActive === v ? "bg-primary text-primary-foreground" : "hover:bg-muted/50")}
-                  >
-                    {label}
-                  </div>
-                );
-              })}
-              {rgActivePolicies.length === 0 && (
-                <p className="text-[10px] text-muted-foreground/40 text-center py-3 italic">none selected</p>
-              )}
-            </div>
-          </div>
-          {/* Up/Down buttons */}
-          <div className="flex flex-col gap-1.5 pt-7 shrink-0">
-            <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={moveUp} disabled={!rgSelActive}>Up</Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={moveDown} disabled={!rgSelActive}>Down</Button>
-          </div>
+        <div className="space-y-1.5">
+          <Label>Policy *</Label>
+          <Select value={rgPolicy} onValueChange={setRgPolicy}>
+            <SelectTrigger data-testid={`select-rg-policy-${idSuffix}`}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {RG_POLICY_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">
+            Select the routing policy that controls how Sippy selects a carrier connection for each call.
+          </p>
         </div>
       </div>
 
@@ -1155,10 +1077,8 @@ function RoutingGroupsTab() {
   const [rgTimeout2xx, setRgTimeout2xx] = useState("300");
   const [rgLrnEnabled, setRgLrnEnabled] = useState(false);
   const [rgLrnRule, setRgLrnRule] = useState("");
-  // Routing Policy dual-list
-  const [rgActivePolicies, setRgActivePolicies] = useState<string[]>(["preference"]);
-  const [rgSelAvail, setRgSelAvail] = useState<string | null>(null);
-  const [rgSelActive, setRgSelActive] = useState<string | null>(null);
+  // Routing Policy
+  const [rgPolicy, setRgPolicy] = useState("prefix,preference");
   // On-Net Routing
   const [rgOnNetConnection, setRgOnNetConnection] = useState("");
   const [rgVoicemailConn, setRgVoicemailConn] = useState("");
@@ -1243,8 +1163,7 @@ function RoutingGroupsTab() {
     setRgName(""); setRgDescription("");
     setRgMediaRelay("built-in"); setRgTimeout2xx("300");
     setRgLrnEnabled(false); setRgLrnRule("");
-    setRgActivePolicies(["preference"]);
-    setRgSelAvail(null); setRgSelActive(null);
+    setRgPolicy("prefix,preference");
     setRgOnNetConnection(""); setRgVoicemailConn(""); setRgOnNetScope("all_accounts");
     setRgReplyTimeout("5"); setRgTimeout1xx("10"); setRgOnNetTimeout2xx("60");
     setPendingEntries([]);
@@ -1258,9 +1177,10 @@ function RoutingGroupsTab() {
     setRgTimeout2xx("300");
     setRgLrnEnabled(false);
     setRgLrnRule("");
-    const parsed = (rg.policy ?? "preference").split(",").map(s => s.trim()).filter(Boolean);
-    setRgActivePolicies(parsed.length ? parsed : ["preference"]);
-    setRgSelAvail(null); setRgSelActive(null);
+    // Use the existing policy value directly, falling back to the most common working value
+    const existingPolicy = rg.policy ?? "prefix,preference";
+    const knownPolicies = RG_POLICY_OPTIONS.map(o => o.value);
+    setRgPolicy(knownPolicies.includes(existingPolicy) ? existingPolicy : "prefix,preference");
     setRgOnNetConnection(""); setRgVoicemailConn(""); setRgOnNetScope("all_accounts");
     setRgReplyTimeout("5"); setRgTimeout1xx("10"); setRgOnNetTimeout2xx("60");
   };
@@ -1392,9 +1312,7 @@ function RoutingGroupsTab() {
             rgTimeout2xx={rgTimeout2xx} setRgTimeout2xx={setRgTimeout2xx}
             rgLrnEnabled={rgLrnEnabled} setRgLrnEnabled={setRgLrnEnabled}
             rgLrnRule={rgLrnRule} setRgLrnRule={setRgLrnRule}
-            rgActivePolicies={rgActivePolicies} setRgActivePolicies={setRgActivePolicies}
-            rgSelAvail={rgSelAvail} setRgSelAvail={setRgSelAvail}
-            rgSelActive={rgSelActive} setRgSelActive={setRgSelActive}
+            rgPolicy={rgPolicy} setRgPolicy={setRgPolicy}
             rgOnNetConnection={rgOnNetConnection} setRgOnNetConnection={setRgOnNetConnection}
             rgVoicemailConn={rgVoicemailConn} setRgVoicemailConn={setRgVoicemailConn}
             rgOnNetScope={rgOnNetScope} setRgOnNetScope={setRgOnNetScope}
@@ -1408,7 +1326,7 @@ function RoutingGroupsTab() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Discard & Close</Button>
             <Button variant="outline" onClick={() => createMut.mutate({
-                name: rgName, policy: rgActivePolicies.join(","),
+                name: rgName, policy: rgPolicy,
                 ...(rgDescription ? { description: rgDescription } : {}),
                 media_relay: rgMediaRelay,
                 ...(rgTimeout2xx ? { timeout_2xx: parseInt(rgTimeout2xx) } : {}),
@@ -1421,11 +1339,11 @@ function RoutingGroupsTab() {
                 ...(rgTimeout1xx ? { timeout_1xx: parseInt(rgTimeout1xx) } : {}),
                 ...(rgOnNetTimeout2xx ? { on_net_timeout_2xx: parseInt(rgOnNetTimeout2xx) } : {}),
               })}
-              disabled={!rgName || createMut.isPending} data-testid="btn-confirm-save-rg">
+              disabled={!rgName || !rgPolicy || createMut.isPending} data-testid="btn-confirm-save-rg">
               {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
             </Button>
             <Button onClick={() => createMut.mutate({
-                name: rgName, policy: rgActivePolicies.join(","),
+                name: rgName, policy: rgPolicy,
                 ...(rgDescription ? { description: rgDescription } : {}),
                 media_relay: rgMediaRelay,
                 ...(rgTimeout2xx ? { timeout_2xx: parseInt(rgTimeout2xx) } : {}),
@@ -1438,7 +1356,7 @@ function RoutingGroupsTab() {
                 ...(rgTimeout1xx ? { timeout_1xx: parseInt(rgTimeout1xx) } : {}),
                 ...(rgOnNetTimeout2xx ? { on_net_timeout_2xx: parseInt(rgOnNetTimeout2xx) } : {}),
               })}
-              disabled={!rgName || createMut.isPending} data-testid="btn-confirm-create-rg">
+              disabled={!rgName || !rgPolicy || createMut.isPending} data-testid="btn-confirm-create-rg">
               {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save & Close"}
             </Button>
           </DialogFooter>
@@ -1459,9 +1377,7 @@ function RoutingGroupsTab() {
             rgTimeout2xx={rgTimeout2xx} setRgTimeout2xx={setRgTimeout2xx}
             rgLrnEnabled={rgLrnEnabled} setRgLrnEnabled={setRgLrnEnabled}
             rgLrnRule={rgLrnRule} setRgLrnRule={setRgLrnRule}
-            rgActivePolicies={rgActivePolicies} setRgActivePolicies={setRgActivePolicies}
-            rgSelAvail={rgSelAvail} setRgSelAvail={setRgSelAvail}
-            rgSelActive={rgSelActive} setRgSelActive={setRgSelActive}
+            rgPolicy={rgPolicy} setRgPolicy={setRgPolicy}
             rgOnNetConnection={rgOnNetConnection} setRgOnNetConnection={setRgOnNetConnection}
             rgVoicemailConn={rgVoicemailConn} setRgVoicemailConn={setRgVoicemailConn}
             rgOnNetScope={rgOnNetScope} setRgOnNetScope={setRgOnNetScope}
@@ -1473,7 +1389,7 @@ function RoutingGroupsTab() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
             <Button onClick={() => editTarget && updateMut.mutate({ id: editTarget.i_routing_group, body: {
-                name: rgName, policy: rgActivePolicies.join(","),
+                name: rgName, policy: rgPolicy,
                 ...(rgDescription ? { description: rgDescription } : {}),
                 media_relay: rgMediaRelay,
                 ...(rgTimeout2xx ? { timeout_2xx: parseInt(rgTimeout2xx) } : {}),
