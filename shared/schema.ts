@@ -444,7 +444,15 @@ export const MGMT_CONFIGURABLE_FEATURES = [
   { key: 'test_campaigns',     label: 'Test Call Campaigns',        route: '/test-campaigns'         },
   // Client & Vendor
   { key: 'clients',            label: 'Client & Vendor Profiles',   route: '/clients'                },
+  { key: 'vendor_connections', label: 'Vendor Connections',         route: '/vendors'                },
   { key: 'tools',              label: 'Tools / Calculators',        route: '/tools'                  },
+  { key: 'products',           label: 'Product Classification',     route: '/products'               },
+  // Routing
+  { key: 'routing_manager',    label: 'Routing Manager',            route: '/routing-manager'        },
+  { key: 'approval_queue',     label: 'Approval Queue',             route: '/approvals'              },
+  { key: 'routing_audit',      label: 'Routing Audit Trail',        route: '/routing-audit'          },
+  // Network & Security
+  { key: 'firewall',           label: 'Firewall Manager',           route: '/firewall'               },
 ] as const;
 
 export type MgmtFeatureKey = typeof MGMT_CONFIGURABLE_FEATURES[number]['key'];

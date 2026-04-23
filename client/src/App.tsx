@@ -292,26 +292,26 @@ function Router() {
         {() => <ProtectedRoute component={AccountNamesPage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/products">
-        {() => <ProtectedRoute component={ProductsPage} requiredRoles={['admin','management']} mgmtFeature="analytics" />}
+        {() => <ProtectedRoute component={ProductsPage} requiredRoles={['admin','management']} mgmtFeature="products" />}
       </Route>
 
       <Route path="/qos-heatmap">
-        {() => <ProtectedRoute component={QosHeatmapPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={QosHeatmapPage} requiredRoles={['admin','management']} mgmtFeature="qos_heatmap" />}
       </Route>
       <Route path="/sla-breaches">
-        {() => <ProtectedRoute component={SlaBreachesPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={SlaBreachesPage} requiredRoles={['admin','management']} mgmtFeature="sla_breaches" />}
       </Route>
       <Route path="/billing-disputes">
-        {() => <ProtectedRoute component={BillingDisputesPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={BillingDisputesPage} requiredRoles={['admin','management']} mgmtFeature="billing_disputes" />}
       </Route>
       <Route path="/test-campaigns">
-        {() => <ProtectedRoute component={TestCampaignsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={TestCampaignsPage} requiredRoles={['admin','management']} mgmtFeature="test_campaigns" />}
       </Route>
       <Route path="/chat">
         {() => <ProtectedRoute component={ChatPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
       <Route path="/firewall">
-        {() => <ProtectedRoute component={FirewallPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={FirewallPage} requiredRoles={['admin','management']} mgmtFeature="firewall" />}
       </Route>
       <Route path="/vpn-config">
         {() => <ProtectedRoute component={VpnConfigPage} requiredRoles={['admin']} />}
@@ -320,13 +320,13 @@ function Router() {
         {() => <ProtectedRoute component={EmailCentrePage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/routing-manager">
-        {() => <ProtectedRoute component={RoutingManagerPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={RoutingManagerPage} requiredRoles={['admin', 'management']} mgmtFeature="routing_manager" />}
       </Route>
       <Route path="/approvals">
-        {() => <ProtectedRoute component={ApprovalQueuePage} requiredRoles={['admin', 'management', 'super_admin', 'noc_operator', 'team_lead']} />}
+        {() => <ProtectedRoute component={ApprovalQueuePage} requiredRoles={['admin', 'management', 'super_admin', 'noc_operator', 'team_lead']} mgmtFeature="approval_queue" />}
       </Route>
       <Route path="/vendors">
-        {() => <ProtectedRoute component={VendorsPage} requiredRoles={['admin', 'management']} mgmtFeature="clients" />}
+        {() => <ProtectedRoute component={VendorsPage} requiredRoles={['admin', 'management']} mgmtFeature="vendor_connections" />}
       </Route>
       <Route path="/approval-settings">
         {() => <ProtectedRoute component={ApprovalSettingsPage} requiredRoles={['admin', 'super_admin']} />}
