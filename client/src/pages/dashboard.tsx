@@ -93,8 +93,16 @@ import { formatInTz } from "@/lib/date-utils";
 
 // Parses Sippy's non-standard timestamp "20260411T20:20:32.055" → ms since epoch
 function parseSippyTime(setupTime: string): number | null {
-  const normalized = setupTime.replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T');
-  const t = new Date(normalized).getTime();
+  if (!setupTime) return null;
+  // Handle: "20260424T140225.000", "20260424T14:02:25.000", "2026-04-24 14:02:25", "2026-04-24T14:02:25"
+  let s = setupTime.trim();
+  // Compact date: 20260424T... → 2026-04-24T...
+  s = s.replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T');
+  // Compact time without colons: T140225 → T14:02:25
+  s = s.replace(/T(\d{2})(\d{2})(\d{2})/, 'T$1:$2:$3');
+  // Space separator → T
+  s = s.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})/, '$1T$2');
+  const t = new Date(s).getTime();
   return isNaN(t) ? null : t;
 }
 
@@ -335,12 +343,13 @@ export default function DashboardPage() {
     queryKey: ['/api/sippy/session'],
     refetchInterval: 120_000,
   });
-  // Sippy live calls — served from server-side cache; refetch is triggered by WS tick only.
+  // Sippy live calls — poll every 15 s; WS tick triggers an immediate refetch on top of that.
   const { data: sippyLiveCalls, refetch: refetchLiveCalls } = useQuery<{ calls: any[]; connected?: boolean; stale?: boolean; error?: string }>({
     queryKey: ['/api/sippy/live-calls'],
-    staleTime: 90_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
   });
-  // Trigger refetch whenever the NOC background job publishes a tick
+  // WS tick also triggers an immediate refetch
   useEffect(() => { if (lastTick) refetchLiveCalls(); }, [lastTick]);
   // Sippy real-time dashboard stats — ASR, ACD, PDD, active calls direct from Sippy switch
   const { data: sippyStats, isLoading: sippyStatsLoading, dataUpdatedAt: statsUpdatedAt } = useQuery<{
@@ -360,7 +369,7 @@ export default function DashboardPage() {
     cpsSource?: 'monitoring' | 'cdr';
   }>({
     queryKey: ['/api/sippy/dashboard-stats'],
-    refetchInterval: 60_000,
+    refetchInterval: 15_000,
   });
   const isSippyReachable = sippyLiveCalls?.connected === true || !!sippySession?.active || sippyStats?.connected === true;
   // Sippy ASR/ACD report — CDR-based revenue & margin stats for last 90 min
