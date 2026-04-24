@@ -143,6 +143,34 @@ export default function ApprovalSettingsPage() {
     setIsDirty(true);
   };
 
+  const toggleSection = (cat: string) => {
+    const catFeatures = FEATURES.filter(f => f.category === cat);
+    const allOn = catFeatures.every(f =>
+      (["create", "edit", "delete"] as ActionKey[]).every(a => cfg[f.key]?.[a])
+    );
+    const next = { ...cfg };
+    for (const f of catFeatures) {
+      next[f.key] = { create: !allOn, edit: !allOn, delete: !allOn };
+    }
+    setLocalCfg(next);
+    setIsDirty(true);
+  };
+
+  const isSectionOn = (cat: string) => {
+    const catFeatures = FEATURES.filter(f => f.category === cat);
+    return catFeatures.every(f =>
+      (["create", "edit", "delete"] as ActionKey[]).every(a => cfg[f.key]?.[a])
+    );
+  };
+
+  const isSectionPartial = (cat: string) => {
+    const catFeatures = FEATURES.filter(f => f.category === cat);
+    const total = catFeatures.length * 3;
+    const on = catFeatures.reduce((sum, f) =>
+      sum + (["create", "edit", "delete"] as ActionKey[]).filter(a => cfg[f.key]?.[a]).length, 0);
+    return on > 0 && on < total;
+  };
+
   const totalEnabled = Object.values(cfg).reduce(
     (sum, f) => sum + Object.values(f).filter(Boolean).length,
     0,
@@ -239,10 +267,26 @@ export default function ApprovalSettingsPage() {
             return (
               <div key={cat}>
                 {/* Category header */}
-                <div className="px-5 py-2 bg-muted/30 border-b border-border/30 flex items-center gap-2">
+                <div className="px-5 py-2.5 bg-muted/30 border-b border-border/30 flex items-center justify-between gap-2">
                   <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border ${CATEGORY_COLORS[cat]}`}>
                     {CATEGORY_LABELS[cat]}
                   </span>
+                  <button
+                    data-testid={`btn-section-toggle-${cat}`}
+                    onClick={() => toggleSection(cat)}
+                    disabled={saveMut.isPending}
+                    title={isSectionOn(cat) ? `Turn off all ${CATEGORY_LABELS[cat]} approvals` : `Turn on all ${CATEGORY_LABELS[cat]} approvals`}
+                    className={`flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-lg border transition-all ${
+                      isSectionOn(cat)
+                        ? "bg-amber-500/15 border-amber-500/40 text-amber-400 hover:bg-amber-500/25"
+                        : isSectionPartial(cat)
+                        ? "bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50"
+                        : "bg-muted/20 border-border/30 text-muted-foreground/60 hover:bg-muted/40"
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${isSectionOn(cat) ? "bg-amber-400" : isSectionPartial(cat) ? "bg-amber-400/50" : "bg-muted-foreground/30"}`} />
+                    {isSectionOn(cat) ? "All Required" : isSectionPartial(cat) ? "Mixed" : "All Direct"}
+                  </button>
                 </div>
                 {catFeatures.map((feat, idx) => {
                   const isLast = idx === catFeatures.length - 1;
