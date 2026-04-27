@@ -429,16 +429,44 @@ export default function TestCallPage() {
                     </div>
                   )}
 
-                  {!callResult.success && !['no_authname', 'no_customer_creds', 'not_connected'].includes(callResult.errorType ?? '') && (
-                    <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/5 p-4 space-y-2">
-                      <p className="text-xs font-semibold text-rose-400 flex items-center gap-2">
-                        <ShieldAlert className="h-3.5 w-3.5" /> Call failed — Sippy response
-                      </p>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        <em className="text-foreground/70 break-all">&ldquo;{callResult.message}&rdquo;</em>
-                      </p>
-                    </div>
-                  )}
+                  {!callResult.success && !['no_authname', 'no_customer_creds', 'not_connected'].includes(callResult.errorType ?? '') && (() => {
+                    const isAuthFail = /auth_failed|HTTP 401|HTTP 403|credentials rejected/i.test(callResult.message ?? '');
+                    const apiUser = callResult.apiUser;
+                    if (isAuthFail) {
+                      return (
+                        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+                          <p className="text-xs font-semibold text-amber-400 flex items-center gap-2">
+                            <ShieldAlert className="h-3.5 w-3.5" /> Credential rejected by Sippy
+                          </p>
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            Sippy rejected the stored password for <code className="bg-background px-1 rounded font-mono text-foreground/80">{apiUser || 'portal user'}</code>.
+                            The Portal Password in Settings does not match what Sippy expects.
+                          </p>
+                          <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                            <li>Go to <strong className="text-foreground/70">Settings → Sippy Connection</strong> and update the <strong className="text-foreground/70">Portal Password</strong> for <code className="bg-background px-1 rounded font-mono">{apiUser || 'RTST1'}</code></li>
+                            <li>The Portal Password must match the account's <strong className="text-foreground/70">API password</strong> (not web login password) in Sippy Admin</li>
+                            <li>Or enable <strong className="text-foreground/70">Allow XML-RPC call origination</strong> for the admin account in Sippy → System → Administrators</li>
+                          </ul>
+                          <a
+                            href="/settings?tab=sippy"
+                            className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 mt-1"
+                          >
+                            <Settings className="h-3 w-3" /> Open Settings → Sippy Connection
+                          </a>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/5 p-4 space-y-2">
+                        <p className="text-xs font-semibold text-rose-400 flex items-center gap-2">
+                          <ShieldAlert className="h-3.5 w-3.5" /> Call failed — Sippy response
+                        </p>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          <em className="text-foreground/70 break-all">&ldquo;{callResult.message}&rdquo;</em>
+                        </p>
+                      </div>
+                    );
+                  })()}
 
                   {!callResult.success && callResult.errorType === 'no_authname' && (
                     <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
