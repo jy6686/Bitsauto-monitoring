@@ -1,5 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { lookupCLD } from "@/lib/country-lookup";
 import {
   subHoursUTC, subDaysUTC, startOfDayUTC, endOfDayUTC,
@@ -12,12 +14,19 @@ import {
   Package, Phone, Clock, DollarSign, Activity, BarChart3,
   TrendingUp, RefreshCw, ChevronDown, ChevronUp, Users,
   Globe, Network, Layers, Timer, X, Check,
+  FileText, Plus, Pencil, Trash2, Save, BookOpen, ChevronRight, Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 // ── Product class definitions ─────────────────────────────────────────────────
@@ -702,6 +711,377 @@ function IntelPanel({
   );
 }
 
+// ── Product document sections ─────────────────────────────────────────────────
+const DOC_SECTIONS = [
+  'Overview', 'Service Description', 'SLA', 'Technical Specs',
+  'Pricing', 'Pricing Terms', 'Compliance', 'Notes', 'Other',
+] as const;
+
+// ── Product Docs types ─────────────────────────────────────────────────────────
+interface ProductDoc {
+  id: number;
+  productPrefix: string;
+  title: string;
+  section: string;
+  content: string;
+  sortOrder: number;
+  updatedBy?: string;
+  updatedAt?: string;
+  createdAt?: string;
+}
+
+// ── DocEditor modal ────────────────────────────────────────────────────────────
+function DocEditorModal({
+  open, onClose, doc, productPrefix, onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  doc: ProductDoc | null;
+  productPrefix: string;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [title, setTitle]     = useState('');
+  const [section, setSection] = useState('Overview');
+  const [content, setContent] = useState('');
+
+  useEffect(() => {
+    if (open) {
+      setTitle(doc?.title ?? '');
+      setSection(doc?.section ?? 'Overview');
+      setContent(doc?.content ?? '');
+    }
+  }, [open, doc]);
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      if (doc) {
+        return apiRequest('PUT', `/api/product-docs/${doc.id}`, { title, section, content });
+      }
+      return apiRequest('POST', '/api/product-docs', { productPrefix, title, section, content });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/product-docs'] });
+      toast({ title: doc ? 'Document updated' : 'Document created', description: title });
+      onSaved();
+      onClose();
+    },
+    onError: (e: any) => {
+      toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col gap-0 p-0">
+        <DialogHeader className="px-6 pt-5 pb-3 border-b border-border shrink-0">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <FileText className="h-4 w-4 text-primary" />
+            {doc ? 'Edit Document' : 'New Document'}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Title</label>
+              <Input
+                data-testid="input-doc-title"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder="e.g. First Class SLA Agreement"
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Section</label>
+              <Select value={section} onValueChange={setSection}>
+                <SelectTrigger data-testid="select-doc-section" className="text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DOC_SECTIONS.map(s => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">
+              Content <span className="text-muted-foreground/50">(markdown supported)</span>
+            </label>
+            <Textarea
+              data-testid="textarea-doc-content"
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              placeholder="Write documentation here… Markdown is rendered in the view."
+              className="text-sm font-mono min-h-[280px] resize-y"
+            />
+          </div>
+        </div>
+        <DialogFooter className="px-6 py-4 border-t border-border shrink-0 flex gap-2 justify-end">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={saveMut.isPending}>
+            Cancel
+          </Button>
+          <Button
+            data-testid="button-save-doc"
+            size="sm"
+            onClick={() => saveMut.mutate()}
+            disabled={saveMut.isPending || !title.trim()}
+          >
+            {saveMut.isPending ? (
+              <><RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" /> Saving…</>
+            ) : (
+              <><Save className="h-3.5 w-3.5 mr-1.5" /> Save</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Docs Tab component ────────────────────────────────────────────────────────
+function DocsTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [selectedPrefix, setSelectedPrefix] = useState('1');
+  const [editorOpen, setEditorOpen]         = useState(false);
+  const [editingDoc, setEditingDoc]         = useState<ProductDoc | null>(null);
+  const [expandedId, setExpandedId]         = useState<number | null>(null);
+
+  const { data, isLoading } = useQuery<{ docs: ProductDoc[] }>({
+    queryKey: ['/api/product-docs', selectedPrefix],
+    queryFn: () => fetch(`/api/product-docs?prefix=${selectedPrefix}`).then(r => r.json()),
+    staleTime: 30_000,
+  });
+  const docs = data?.docs ?? [];
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/product-docs/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/product-docs'] });
+      toast({ title: 'Document deleted' });
+    },
+    onError: (e: any) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
+  });
+
+  // Group docs by section
+  const grouped = useMemo(() => {
+    const map = new Map<string, ProductDoc[]>();
+    for (const doc of docs) {
+      const arr = map.get(doc.section) ?? [];
+      arr.push(doc);
+      map.set(doc.section, arr);
+    }
+    return map;
+  }, [docs]);
+
+  const activeCls = PRODUCT_CLASSES.find(c => c.prefix === selectedPrefix)!;
+
+  // Simple markdown → readable text renderer (strip markup for preview)
+  const previewText = (content: string, maxLen = 140) => {
+    const plain = content.replace(/#{1,6}\s/g, '').replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').replace(/\n/g, ' ').trim();
+    return plain.length > maxLen ? plain.slice(0, maxLen) + '…' : plain || '(no content)';
+  };
+
+  // Simple markdown renderer for expanded view
+  const renderMarkdown = (content: string) => {
+    if (!content) return <p className="text-muted-foreground italic text-sm">No content yet.</p>;
+    return content.split('\n').map((line, i) => {
+      if (line.startsWith('### ')) return <h3 key={i} className="text-sm font-bold mt-3 mb-1 text-foreground">{line.slice(4)}</h3>;
+      if (line.startsWith('## '))  return <h2 key={i} className="text-base font-bold mt-4 mb-1 text-foreground">{line.slice(3)}</h2>;
+      if (line.startsWith('# '))   return <h1 key={i} className="text-lg font-bold mt-4 mb-2 text-foreground">{line.slice(2)}</h1>;
+      if (line.startsWith('- ') || line.startsWith('* ')) {
+        return <li key={i} className="ml-4 text-sm text-foreground/80 list-disc">{line.slice(2)}</li>;
+      }
+      if (line.trim() === '') return <br key={i} />;
+      // Bold: **text**
+      const parts = line.split(/\*\*(.+?)\*\*/g);
+      return <p key={i} className="text-sm text-foreground/80 leading-relaxed">
+        {parts.map((part, j) => j % 2 === 1 ? <strong key={j}>{part}</strong> : part)}
+      </p>;
+    });
+  };
+
+  return (
+    <div className="flex gap-0 h-full min-h-[600px]">
+      {/* Left sidebar — product selector */}
+      <div className="w-56 shrink-0 border-r border-border flex flex-col">
+        <div className="p-4 border-b border-border">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <Package className="h-3.5 w-3.5" /> Products
+          </p>
+        </div>
+        <div className="flex-1 p-2 space-y-1">
+          {PRODUCT_CLASSES.filter(c => c.prefix !== 'other').map(cls => {
+            const count = docs.filter(d => d.productPrefix === cls.prefix).length;
+            const isActive = selectedPrefix === cls.prefix;
+            return (
+              <button
+                key={cls.prefix}
+                data-testid={`button-product-${cls.prefix}`}
+                onClick={() => setSelectedPrefix(cls.prefix)}
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left text-sm transition-colors",
+                  isActive
+                    ? cn("font-semibold", cls.bg, cls.color)
+                    : "hover:bg-muted/50 text-foreground/70"
+                )}
+              >
+                <span className={cn("h-2 w-2 rounded-full shrink-0", cls.dot)} />
+                <span className="flex-1 truncate">{cls.short}</span>
+                {count > 0 && (
+                  <span className={cn(
+                    "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+                    isActive ? "bg-background/30 text-current" : "bg-muted text-muted-foreground"
+                  )}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Right panel — docs for selected product */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-border flex items-center gap-3 shrink-0">
+          <span className={cn("h-2.5 w-2.5 rounded-full", activeCls?.dot)} />
+          <div className="flex-1 min-w-0">
+            <h2 className={cn("text-sm font-semibold", activeCls?.color)}>{activeCls?.label}</h2>
+            <p className="text-xs text-muted-foreground">
+              {docs.length} document{docs.length !== 1 ? 's' : ''} •&nbsp;
+              {grouped.size} section{grouped.size !== 1 ? 's' : ''}
+            </p>
+          </div>
+          <Button
+            data-testid="button-new-doc"
+            size="sm"
+            onClick={() => { setEditingDoc(null); setEditorOpen(true); }}
+            className="shrink-0"
+          >
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> New Document
+          </Button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5">
+          {isLoading ? (
+            <div className="space-y-3">
+              {[1,2,3].map(i => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
+            </div>
+          ) : docs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-64 text-center">
+              <BookOpen className="h-10 w-10 text-muted-foreground/20 mb-3" />
+              <p className="text-sm font-medium text-muted-foreground">No documents yet</p>
+              <p className="text-xs text-muted-foreground/60 mt-1 mb-4">
+                Add SLA specs, pricing terms, technical notes and more for {activeCls?.label}.
+              </p>
+              <Button
+                data-testid="button-new-doc-empty"
+                size="sm" variant="outline"
+                onClick={() => { setEditingDoc(null); setEditorOpen(true); }}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1.5" /> Create First Document
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {Array.from(grouped.entries()).map(([sectionName, sectionDocs]) => (
+                <div key={sectionName}>
+                  {/* Section header */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{sectionName}</span>
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-[10px] text-muted-foreground/50">{sectionDocs.length}</span>
+                  </div>
+                  {/* Docs in section */}
+                  <div className="space-y-2">
+                    {sectionDocs.map(doc => {
+                      const isExpanded = expandedId === doc.id;
+                      return (
+                        <div
+                          key={doc.id}
+                          data-testid={`card-doc-${doc.id}`}
+                          className="border border-border rounded-xl overflow-hidden bg-card"
+                        >
+                          {/* Doc header row */}
+                          <div
+                            className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                            onClick={() => setExpandedId(isExpanded ? null : doc.id)}
+                          >
+                            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">{doc.title}</p>
+                              {!isExpanded && (
+                                <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{previewText(doc.content)}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <Button
+                                data-testid={`button-edit-doc-${doc.id}`}
+                                variant="ghost" size="icon"
+                                className="h-6 w-6"
+                                onClick={e => { e.stopPropagation(); setEditingDoc(doc); setEditorOpen(true); }}
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                data-testid={`button-delete-doc-${doc.id}`}
+                                variant="ghost" size="icon"
+                                className="h-6 w-6 text-destructive hover:text-destructive"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  if (confirm(`Delete "${doc.title}"?`)) deleteMut.mutate(doc.id);
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                              <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", isExpanded && "rotate-90")} />
+                            </div>
+                          </div>
+                          {/* Expanded content */}
+                          {isExpanded && (
+                            <div className="border-t border-border px-5 py-4 bg-muted/10">
+                              <div className="prose prose-sm max-w-none space-y-1">
+                                {renderMarkdown(doc.content)}
+                              </div>
+                              {doc.updatedAt && (
+                                <p className="text-[10px] text-muted-foreground/50 mt-4 pt-3 border-t border-border/50">
+                                  Last updated {new Date(doc.updatedAt).toLocaleString()}
+                                  {doc.updatedBy && ` by ${doc.updatedBy}`}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Editor modal */}
+      <DocEditorModal
+        open={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        doc={editingDoc}
+        productPrefix={selectedPrefix}
+        onSaved={() => qc.invalidateQueries({ queryKey: ['/api/product-docs'] })}
+      />
+    </div>
+  );
+}
+
 // ── Range options ─────────────────────────────────────────────────────────────
 const RANGE_OPTIONS = [
   { label: 'Last 1 hour',  key: '1h',     fn: () => [subHoursUTC(new Date(), 1),   new Date()] },
@@ -718,7 +1098,8 @@ const RANGE_OPTIONS = [
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ProductsPage() {
   const { tz } = useTimezone();
-  const [rangeKey, setRangeKey] = useState('24h');
+  const [pageTab, setPageTab]             = useState<'analytics' | 'docs'>('analytics');
+  const [rangeKey, setRangeKey]           = useState('24h');
   const [expandedPrefix, setExpandedPrefix] = useState<string | null>(null);
 
   const [start, end] = useMemo(() => {
@@ -781,31 +1162,72 @@ export default function ProductsPage() {
             </span>
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
-            CDR breakdown by product / trunk class — first digit of CLD encodes the service tier. Click any card to drill down.
+            CDR breakdown by product / trunk class — first digit of CLD encodes the service tier.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={rangeKey} onValueChange={setRangeKey}>
-            <SelectTrigger className="h-8 text-xs w-36" data-testid="select-product-range">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RANGE_OPTIONS.map(o => (
-                <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline" size="sm"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            data-testid="button-products-refresh"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", isFetching && "animate-spin")} />
-            Refresh
-          </Button>
+          {/* Tab switcher */}
+          <div className="flex items-center gap-1 bg-muted/50 border border-border rounded-lg p-0.5">
+            <button
+              data-testid="tab-analytics"
+              onClick={() => setPageTab('analytics')}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                pageTab === 'analytics'
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <BarChart3 className="h-3.5 w-3.5" /> Analytics
+            </button>
+            <button
+              data-testid="tab-docs"
+              onClick={() => setPageTab('docs')}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                pageTab === 'docs'
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <BookOpen className="h-3.5 w-3.5" /> Documents
+            </button>
+          </div>
+          {pageTab === 'analytics' && (
+            <>
+              <Select value={rangeKey} onValueChange={setRangeKey}>
+                <SelectTrigger className="h-8 text-xs w-36" data-testid="select-product-range">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RANGE_OPTIONS.map(o => (
+                    <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline" size="sm"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                data-testid="button-products-refresh"
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", isFetching && "animate-spin")} />
+                Refresh
+              </Button>
+            </>
+          )}
         </div>
       </div>
+
+      {/* ── Documents tab ─────────────────────────────────────────────────── */}
+      {pageTab === 'docs' && (
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <DocsTab />
+        </div>
+      )}
+
+      {/* ── Analytics tab ─────────────────────────────────────────────────── */}
+      {pageTab === 'analytics' && <>
 
       {/* Legend row */}
       <div className="flex flex-wrap gap-3">
@@ -1063,6 +1485,8 @@ export default function ProductsPage() {
           </div>
         )}
       </div>
+
+      </>}  {/* end analytics tab */}
     </div>
   );
 }

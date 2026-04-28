@@ -14516,5 +14516,69 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e) { res.status(500).json({ message: 'Failed to load messages' }); }
   });
 
+  // ── Product Documents ────────────────────────────────────────────────────────
+  // GET  /api/product-docs?prefix=1         — all docs, optionally filtered by prefix
+  // POST /api/product-docs                  — create a new doc
+  // PUT  /api/product-docs/:id              — update a doc
+  // DELETE /api/product-docs/:id            — delete a doc
+
+  app.get('/api/product-docs', async (req: any, res: any) => {
+    try {
+      const prefix = req.query.prefix as string | undefined;
+      const docs = await storage.getProductDocs(prefix);
+      res.json({ docs });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || 'Failed to load product docs' });
+    }
+  });
+
+  app.post('/api/product-docs', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { productPrefix, title, section, content, sortOrder } = req.body;
+      if (!productPrefix || !title) return res.status(400).json({ message: 'productPrefix and title are required' });
+      const userId = req.user?.claims?.sub ?? 'unknown';
+      const doc = await storage.createProductDoc({
+        productPrefix,
+        title: title.trim(),
+        section: (section || 'General').trim(),
+        content: content ?? '',
+        sortOrder: sortOrder ?? 0,
+        updatedBy: userId,
+      });
+      res.json({ doc });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || 'Failed to create product doc' });
+    }
+  });
+
+  app.put('/api/product-docs/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      const userId = req.user?.claims?.sub ?? 'unknown';
+      const { title, section, content, sortOrder } = req.body;
+      const patch: Record<string, any> = { updatedBy: userId };
+      if (title     !== undefined) patch.title     = title.trim();
+      if (section   !== undefined) patch.section   = section.trim();
+      if (content   !== undefined) patch.content   = content;
+      if (sortOrder !== undefined) patch.sortOrder = sortOrder;
+      const doc = await storage.updateProductDoc(id, patch);
+      res.json({ doc });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || 'Failed to update product doc' });
+    }
+  });
+
+  app.delete('/api/product-docs/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      await storage.deleteProductDoc(id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || 'Failed to delete product doc' });
+    }
+  });
+
   return httpServer;
 }

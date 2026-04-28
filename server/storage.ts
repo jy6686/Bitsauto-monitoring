@@ -8,6 +8,7 @@ import {
   apiKeys, dashboardWidgetPrefs, callTestLogs, whatsappAlertLog,
   simboxScores, billingDisputes, slaBreachLog, testCampaigns, testCampaignResults, scheduledReports,
   chatRooms, chatMessages,
+  productDocs,
   approvalRequests, approvalAuditLog,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
@@ -46,6 +47,7 @@ import {
   type ScheduledReport, type InsertScheduledReport,
   type ChatRoom, type InsertChatRoom,
   type ChatMessage, type InsertChatMessage,
+  type ProductDoc, type InsertProductDoc,
   type ApprovalRequest, type InsertApprovalRequest, type ApprovalAuditEntry,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
@@ -262,6 +264,13 @@ export interface IStorage {
   getChatMessages(roomId: number, limit?: number): Promise<ChatMessage[]>;
   createChatMessage(msg: InsertChatMessage): Promise<ChatMessage>;
   ensureDefaultChatRooms(): Promise<void>;
+
+  // Product Documents
+  getProductDocs(productPrefix?: string): Promise<ProductDoc[]>;
+  getProductDoc(id: number): Promise<ProductDoc | undefined>;
+  createProductDoc(doc: InsertProductDoc): Promise<ProductDoc>;
+  updateProductDoc(id: number, patch: Partial<InsertProductDoc>): Promise<ProductDoc>;
+  deleteProductDoc(id: number): Promise<void>;
 
   // Approval Workflow
   createApprovalRequest(data: InsertApprovalRequest): Promise<ApprovalRequest>;
@@ -1417,6 +1426,39 @@ export class DatabaseStorage implements IStorage {
       const existing = await this.getChatRoom(room.slug);
       if (!existing) await this.createChatRoom(room);
     }
+  }
+
+  // ── Product Documents ─────────────────────────────────────────────────────
+
+  async getProductDocs(productPrefix?: string): Promise<ProductDoc[]> {
+    if (productPrefix) {
+      return db.select().from(productDocs)
+        .where(eq(productDocs.productPrefix, productPrefix))
+        .orderBy(productDocs.sortOrder, productDocs.createdAt);
+    }
+    return db.select().from(productDocs).orderBy(productDocs.productPrefix, productDocs.sortOrder, productDocs.createdAt);
+  }
+
+  async getProductDoc(id: number): Promise<ProductDoc | undefined> {
+    const [row] = await db.select().from(productDocs).where(eq(productDocs.id, id));
+    return row;
+  }
+
+  async createProductDoc(doc: InsertProductDoc): Promise<ProductDoc> {
+    const [created] = await db.insert(productDocs).values({ ...doc, updatedAt: new Date() }).returning();
+    return created;
+  }
+
+  async updateProductDoc(id: number, patch: Partial<InsertProductDoc>): Promise<ProductDoc> {
+    const [updated] = await db.update(productDocs)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(productDocs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteProductDoc(id: number): Promise<void> {
+    await db.delete(productDocs).where(eq(productDocs.id, id));
   }
 
   // ── Approval Workflow ─────────────────────────────────────────────────────

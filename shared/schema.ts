@@ -962,3 +962,21 @@ export const chatMessages = pgTable("chat_messages", {
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type InsertChatMessage = typeof chatMessages.$inferInsert;
 export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({ id: true, createdAt: true });
+
+// Product Documents — per-product-class wiki/spec documents
+export const productDocs = pgTable("product_docs", {
+  id:            serial("id").primaryKey(),
+  productPrefix: varchar("product_prefix", { length: 16 }).notNull(), // '1' | '2' | '6' | '7'
+  title:         varchar("title", { length: 255 }).notNull(),
+  section:       varchar("section", { length: 64 }).notNull().default('General'),
+  content:       text("content").notNull().default(''),
+  sortOrder:     integer("sort_order").notNull().default(0),
+  updatedBy:     varchar("updated_by", { length: 255 }),
+  updatedAt:     timestamp("updated_at").defaultNow(),
+  createdAt:     timestamp("created_at").defaultNow(),
+});
+
+export type ProductDoc = typeof productDocs.$inferSelect;
+export type InsertProductDoc = typeof productDocs.$inferInsert;
+export const insertProductDocSchema = createInsertSchema(productDocs).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateProductDocSchema = insertProductDocSchema.partial();
