@@ -166,20 +166,35 @@ async function getAdminPortalSession(
   base: string,
   adminUser: string, adminPass: string,
   portalUser: string, portalPass: string,
+  adminWebPassword?: string,
+  bypassNegCache?: boolean,
 ): Promise<CookieJar | null> {
   const now = Date.now();
   const cached = adminPortalCacheByUrl.get(base);
   if (cached && cached.expiresAt > now) return cached.cookies;
   // Negative cache: if all logins failed recently, don't hammer Sippy again — wait 5 minutes.
-  const negExp = adminPortalNegCacheByUrl.get(base);
-  if (negExp && negExp > now) {
-    return null;
+  // bypassNegCache=true lets explicit user-triggered actions (e.g. create service plan) retry immediately.
+  if (!bypassNegCache) {
+    const negExp = adminPortalNegCacheByUrl.get(base);
+    if (negExp && negExp > now) {
+      return null;
+    }
   }
-  // Try admin+reseller types only — customer login gives wrong vendor amounts
-  const pairs = [[adminUser, adminPass], [portalUser, portalPass]] as [string, string][];
+  // Build de-duplicated credential pairs to try (admin+reseller account types)
+  const seen = new Set<string>();
+  const pairs: [string, string][] = [];
+  function addPair(u: string, p: string) {
+    const key = `${u}:${p}`;
+    if (u && p && !seen.has(key)) { seen.add(key); pairs.push([u, p]); }
+  }
+  addPair(adminUser, adminPass);
+  addPair(portalUser, portalPass);
+  if (adminWebPassword) {
+    addPair(adminUser,  adminWebPassword);
+    addPair(portalUser, adminWebPassword);
+  }
   const failures: string[] = [];
   for (const [u, p] of pairs) {
-    if (!u || !p) continue;
     for (const acctType of ['admin', 'reseller'] as const) {
       const res = await portalLogin(base, u, p, acctType);
       if (res.success) {
@@ -5555,10 +5570,20 @@ export async function createSippyServicePlan(
   iTariff: number,
   description?: string,
   billingCycle?: number,
+  adminWebPassword?: string,
 ): Promise<{ success: boolean; planId?: number; planName?: string; error?: string }> {
   const base = sippyBase(portalUrl);
 
-  const cookies = await getAdminPortalSession(base, adminUser, adminPass, portalUser, portalPass);
+  // Prefer the already-established active session cookies — connectToSippy tried many more
+  // credential combinations (including adminWebPassword) than getAdminPortalSession does.
+  let cookies: CookieJar | null = activeSession?.cookies ?? null;
+  if (!cookies) {
+    // No active session: attempt portal login with all known credential combos.
+    // bypassNegCache=true so explicit user actions are never blocked by the 5-min neg-cache.
+    cookies = await getAdminPortalSession(
+      base, adminUser, adminPass, portalUser, portalPass, adminWebPassword, true,
+    );
+  }
   if (!cookies) {
     return { success: false, error: 'Portal login failed — check admin credentials in Settings.' };
   }

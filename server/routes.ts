@@ -1943,6 +1943,7 @@ export async function registerRoutes(
         const adminPass = settings?.apiAdminPassword || settings?.portalPassword || '';
         const portalUser = settings?.portalUsername || '';
         const portalPass = settings?.portalPassword || '';
+        const adminWebPassword = settings?.adminWebPassword || undefined;
 
         // Step 1 — create tariff via XML-RPC
         const tariffRes = await sippy.createSippyTariff(username, password, { name: name.trim(), currency: currency.trim() });
@@ -1954,6 +1955,7 @@ export async function registerRoutes(
           portalUrl, adminUser, adminPass, portalUser, portalPass,
           name.trim(), tariffRes.iTariff, undefined,
           billingCycle ? Number(billingCycle) : 3,
+          adminWebPassword,
         );
         if (!planRes.success)
           return res.json({ success: false, error: `Service plan creation failed: ${planRes.error}`, tariffId: tariffRes.iTariff });
@@ -1987,10 +1989,12 @@ export async function registerRoutes(
         const portalUser = settings?.portalUsername || '';
         const portalPass = settings?.portalPassword || '';
 
+        const adminWebPassword = settings?.adminWebPassword || undefined;
         const result = await sippy.createSippyServicePlan(
           portalUrl, adminUser, adminPass, portalUser, portalPass,
           planName.trim(), Number(iTariff), description || undefined,
           billingCycle ? Number(billingCycle) : undefined,
+          adminWebPassword,
         );
         res.json(result);
       } catch (e: any) {

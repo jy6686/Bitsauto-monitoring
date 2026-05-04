@@ -225,7 +225,26 @@ export default function CompanyProfilePage() {
                     </Link>
                   </>
                 ) : (
-                  <p>{result.error}</p>
+                  <div className="space-y-2">
+                    <p>{result.error}</p>
+                    {result.error?.toLowerCase().includes('portal login') && (
+                      <p className="text-xs text-rose-300/80 leading-relaxed">
+                        Service plan creation requires portal (web UI) access. If your Sippy web login
+                        password differs from the API password, set it in{' '}
+                        <Link href="/settings">
+                          <a className="underline hover:text-rose-200 font-medium">
+                            Settings → Admin Web Password
+                          </a>
+                        </Link>
+                        .
+                        {result.tariffId && (
+                          <span className="block mt-1 text-rose-300/60">
+                            Note: the tariff was already created (ID {result.tariffId}). Once the password is set, try again with the same name.
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
