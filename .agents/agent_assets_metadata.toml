@@ -24,3 +24,9 @@ id = "GIRU7GY-AyLY4yNYQi78y"
 uri = "file://VoIP_Platform_Volume1_Status.docx"
 type = "word_document"
 title = "VoIP Platform — Volume 1 Status Report"
+
+[[outputs]]
+id = "qdQX5sc3RHFAWTO5Dls-K"
+uri = "file://docs/create-sippy-account-guide.md"
+type = "text"
+title = "Create Sippy Account — Full Team Guide"
