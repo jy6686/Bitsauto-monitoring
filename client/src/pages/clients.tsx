@@ -2446,7 +2446,8 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
 
   // Track whether user has manually overridden auto-filled fields
   const companyNameEdited = useRef(false);
-  const authnameEdited = useRef(false);
+  const authnameEdited    = useRef(false);
+  const tariffManuallySet = useRef(false);
 
   // Step 2: Network & Routing
   const [ipTags, setIpTags] = useState<string[]>([]);
@@ -2541,19 +2542,28 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
     if (!authnameEdited.current)    setAuthname(name.toLowerCase().replace(/[^a-z0-9]/g, '') || '');
   }, [name]);
 
-  // Auto-select the billing plan whose name matches the client name (Display Name from Step 1).
-  // Triggers when billing plans load OR when step advances to 2, but only if tariffId is not already set.
+  // Auto-select the billing plan whose name matches the Display Name.
+  // Re-runs whenever: billing plans load, the name changes, or the step changes.
+  // Skipped only when the user has manually chosen a plan themselves.
   useEffect(() => {
-    if (!name.trim() || !billingPlans.length || tariffId) return;
-    const needle = name.trim().toLowerCase();
-    const exact = billingPlans.find(p => p.name.toLowerCase() === needle);
-    const partial = !exact && billingPlans.find(p =>
-      p.name.toLowerCase().includes(needle) || needle.includes(p.name.toLowerCase())
-    );
-    const match = exact ?? partial;
+    if (tariffManuallySet.current || !billingPlans.length) return;
+    const needle = name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    // 1. Exact match on normalized name
+    const exact = name.trim()
+      ? billingPlans.find(p => p.name.trim().toLowerCase() === name.trim().toLowerCase())
+      : null;
+    // 2. Normalized contains match (strip non-alphanumeric for fuzzy comparison)
+    const fuzzy = !exact && name.trim()
+      ? billingPlans.find(p => {
+          const pn = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          return needle && (pn.includes(needle) || needle.includes(pn));
+        })
+      : null;
+    // 3. Fallback: first plan in the list when no name match found
+    const match = exact ?? fuzzy ?? billingPlans[0];
     if (match) {
       setTariffId(String(match.id));
-      setTariffAutoMatched(match.name);
+      setTariffAutoMatched(exact || fuzzy ? match.name : null); // only show badge for named matches
     }
   }, [billingPlans, name, step]);
 
@@ -2935,18 +2945,25 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    {tariffAutoMatched && tariffId && (
+                    {tariffAutoMatched && tariffId ? (
                       <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-medium">
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
                         Auto-matched <span className="font-semibold">"{tariffAutoMatched}"</span>
-                        <button type="button" onClick={() => { setTariffId(''); setTariffAutoMatched(null); }}
+                        <button type="button" onClick={() => { setTariffId(''); setTariffAutoMatched(null); tariffManuallySet.current = false; }}
                           className="ml-1 text-muted-foreground hover:text-foreground underline text-[10px]">clear</button>
                       </div>
-                    )}
+                    ) : tariffId && !tariffAutoMatched ? (
+                      <div className="flex items-center gap-1.5 text-[10px] text-violet-400 font-medium">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-400" />
+                        Auto-selected first plan
+                        <button type="button" onClick={() => { setTariffId(''); setTariffAutoMatched(null); tariffManuallySet.current = false; }}
+                          className="ml-1 text-muted-foreground hover:text-foreground underline text-[10px]">change</button>
+                      </div>
+                    ) : null}
                     {billingPlans.length > 0 ? (
                       /* Plans discovered — show name-only dropdown */
                       <select data-testid="select-sippy-tariff" value={tariffId}
-                        onChange={e => { setTariffId(e.target.value); setTariffAutoMatched(null); }} className={fieldCls}>
+                        onChange={e => { tariffManuallySet.current = true; setTariffId(e.target.value); setTariffAutoMatched(null); }} className={fieldCls}>
                         <option value="">— Select service plan —</option>
                         {billingPlans.map(p => (
                           <option key={p.id} value={String(p.id)}>
@@ -2956,8 +2973,8 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                       </select>
                     ) : (
                       /* No plans loaded — accept plan name; backend auto-discovers ID */
-                      <input data-testid="input-sippy-plan" value={tariffId}
-                        onChange={e => { setTariffId(e.target.value); setTariffAutoMatched(null); }}
+                      <input data-testid="input-sippy-plan" value={tariffId || name}
+                        onChange={e => { tariffManuallySet.current = true; setTariffId(e.target.value); setTariffAutoMatched(null); }}
                         placeholder="Type plan name (e.g. Standard, Business)"
                         className={fieldCls} />
                     )}
