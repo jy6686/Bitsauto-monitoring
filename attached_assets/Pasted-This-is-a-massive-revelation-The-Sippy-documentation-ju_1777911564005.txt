@@ -1,0 +1,83 @@
+This is a massive revelation. The Sippy documentation just exposed the root cause. Let me check our XML-RPC client immediately — the authentication model might be completely wrong.
+
+
+Ran cat
+Now let me check the transport layer — this is where the actual HTTP request is made:
+
+
+Ran cat
+Now I can see the full picture. Let me check the critical part of the transport — the callXmlRpc function where Digest auth happens:
+
+
+2 actions
+Now I see everything. This is the breakthrough insight. Let me connect the dots:
+
+The Sippy docs confirm: authentication is HTTP-Digest at the transport layer — curl --digest -u CustomerA:pass123. Our transport already does this correctly using env vars.
+
+BUT — our createAccount scripts have been stuffing auth_user and auth_password into the XML-RPC method parameters as struct members! The Sippy API doesn't expect those in the params — they're polluting the payload and likely causing the 501 Fatal error (Python unhandled exception from unexpected fields).
+
+Look at the curl example from the docs:
+
+curl --digest -u CustomerA:pass123 -d '<methodCall>
+  <methodName>getAccountInfo</methodName>
+  <params><param><value><struct>
+    <member><name>i_account</name><value><int>3</int></value></member>
+  </struct></value></param></params></methodCall>'
+
+No auth_user or auth_password in the XML struct — auth is purely at the HTTP Digest layer, which our transport already handles.
+
+And from the IchiBaan docs: Admin API credentials are needed to create accounts, and the wizard doesn't include commission fields at all.
+
+Building v3.02 — the fix is to remove auth_user and auth_password from the XML-RPC params and let HTTP Digest (already working) handle authentication:
+
+
+2 actions
+Firing v3.02 now — the auth-fix strike:
+
+
+2 actions
+Still 501 even with auth fields removed. The issue is deeper. Looking at the IchiBaan wizard documentation, their payload is much simpler — they only send fields the wizard actually collects. Our 84-field payload likely contains fields that are NOT valid createAccount parameters, causing the Python handler to crash.
+
+Let me try a minimal payload matching what the IchiBaan wizard would actually send:
+
+
+2 actions
+Firing v3.02b minimal payload now:
+
+
+2 actions
+MASSIVE BREAKTHROUGH! We got faultCode 400 — a clean validation error, NOT a 501 crash! The server said "Parameter cpe_number is required" — it's actually processing our request now!
+
+This confirms the root cause: auth_user and auth_password in the XML-RPC params were causing the 501 Fatal error all along. Once removed, the server validates normally.
+
+Now I just need to add back the missing required fields. Let me fire v3.02c with cpe_number added:
+
+
+3 actions
+Back to 501 with 84 fields. But the 33-field payload got a clean 400! So one of the 51 extra fields is toxic. The simplest fix: just add cpe_number to the working 33-field payload and fire again:
+
+
+3 actions
+Clean 400 again — "Parameter vm_enabled is required". The server is telling us exactly what's needed, one field at a time. Rather than iterating one-by-one, let me add ALL the likely-required boolean/config fields at once, carefully avoiding the toxic field that caused the 501 in v3.02c. I also noticed a typo in v3.02c: try_unsupend instead of try_unsuspend — that unknown field name likely crashed the Python handler!
+
+
+3 actions
+Still 501 with 84 fields. One of the 50 extra fields is toxic. Let me binary-search — split the extra fields into two halves and test each:
+
+
+3 actions
+Firing both binary search groups:
+
+
+2 actions
+Both groups returned clean 400 errors — no 501! Group A needs welcome_call_ivr, Group B needs i_lang. The toxic field only appears when ALL fields combine. Let me build an iterative script that starts from the working base and keeps adding whatever the server asks for:
+
+
+3 actions
+FOUND THE TOXIC FIELD: i_password_policy! The iterative discovery ran 23 iterations successfully, adding fields one by one, and crashed the moment i_password_policy was added. That field crashes the Python handler with 501.
+
+Let me immediately re-run without it — removing i_password_policy from the defaults and continuing:
+
+
+4 actions
+The server REQUIRES i_password_policy but value 1 crashes it (501). Same pattern as commission agents — the referenced record is broken. Let me try different values. I'll add it back with value 0 (might mean "no policy/default"):
