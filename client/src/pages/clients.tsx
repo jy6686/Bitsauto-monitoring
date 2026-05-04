@@ -2548,12 +2548,25 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
     enabled: canProceed,
   });
 
-  const { data: billingPlanData, isLoading: bpLoading } = useQuery<{ plans: { id: number; name: string; currency?: string }[]; error?: string }>({
+  const [bpRefreshing, setBpRefreshing] = useState(false);
+  const { data: billingPlanData, isLoading: bpLoading, refetch: refetchBp } = useQuery<{ plans: { id: number; name: string; currency?: string }[]; error?: string }>({
     queryKey: ['/api/sippy/billing-plans', switchId, inlineUrl, inlineUser],
     queryFn: () => fetch(`/api/sippy/billing-plans${switchQs}`).then(r => r.json()),
     staleTime: 0,
     enabled: canProceed,
   });
+
+  async function refreshBillingPlans() {
+    setBpRefreshing(true);
+    try {
+      // Hit the endpoint with ?refresh=1 to bust the server-side cache, then refetch
+      const sep = switchQs ? '&' : '?';
+      await fetch(`/api/sippy/billing-plans${switchQs}${sep}refresh=1`);
+      await refetchBp();
+    } finally {
+      setBpRefreshing(false);
+    }
+  }
 
   const { data: currencyDict } = useQuery<{ entries: { id: string; name: string }[]; error?: string }>({
     queryKey: ['/api/sippy/dictionaries/currencies', switchId, inlineUrl, inlineUser],
@@ -2977,11 +2990,24 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                 )}
               </div>
               <div>
-                <label className={labelCls}>Billing / Service Plan <span className="text-rose-400">*</span></label>
-                {bpLoading && canProceed ? (
+                <div className="flex items-center justify-between mb-1">
+                  <label className={labelCls + ' mb-0'}>Billing / Service Plan <span className="text-rose-400">*</span></label>
+                  <button
+                    type="button"
+                    data-testid="button-refresh-billing-plans"
+                    onClick={refreshBillingPlans}
+                    disabled={bpRefreshing || bpLoading}
+                    title="Refresh service plan list from Sippy"
+                    className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${bpRefreshing ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
+                </div>
+                {(bpLoading || bpRefreshing) && canProceed ? (
                   <div className={`${fieldCls} text-muted-foreground flex items-center gap-2`}>
                     <span className="animate-spin inline-block w-3 h-3 border border-current border-t-transparent rounded-full" />
-                    Loading plans…
+                    {bpRefreshing ? 'Refreshing plans…' : 'Loading plans…'}
                   </div>
                 ) : (
                   <div className="space-y-1.5">

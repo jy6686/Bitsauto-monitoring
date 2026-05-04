@@ -4179,14 +4179,17 @@ export async function registerRoutes(
   });
 
   // GET /api/sippy/billing-plans — list billing plans (Service Plans) from Sippy
+  // Pass ?refresh=1 to bypass the server-side cache (use after manually creating a plan in Sippy).
   app.get('/api/sippy/billing-plans', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
       const portalUrl: string = (req.query.inlineUrl as string) || sippyPortalUrl(settings);
+      const bustCache = req.query.refresh === '1';
+      if (bustCache) sippy.clearBillingPlanCache();
 
       // Inline credentials (wizard's "test connection" flow)
       if (req.query.inlineUser && req.query.inlinePass) {
-        const result = await sippy.listSippyBillingPlans(req.query.inlineUser as string, req.query.inlinePass as string, portalUrl);
+        const result = await sippy.listSippyBillingPlans(req.query.inlineUser as string, req.query.inlinePass as string, portalUrl, bustCache);
         return res.json(result);
       }
 
@@ -4195,7 +4198,7 @@ export async function registerRoutes(
         const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.query.switchId) && s.type === 'sippy');
         if (sw) {
           const { username, password } = sippyXmlCreds(settings, sw);
-          const result = await sippy.listSippyBillingPlans(username, password, sw.portalUrl ?? portalUrl);
+          const result = await sippy.listSippyBillingPlans(username, password, sw.portalUrl ?? portalUrl, bustCache);
           return res.json(result);
         }
       }
@@ -4206,7 +4209,7 @@ export async function registerRoutes(
       const credPairs = sippyXmlCredsPairs(settings);
       let bpResult = { plans: [] as { id: number; name: string; currency?: string }[], error: 'No credentials.' };
       for (const creds of credPairs) {
-        const r = await sippy.listSippyBillingPlans(creds.username, creds.password, portalUrl);
+        const r = await sippy.listSippyBillingPlans(creds.username, creds.password, portalUrl, bustCache);
         if (r.plans.length > 0) { bpResult = r; break; }
         bpResult = r; // keep last result (best error message)
       }

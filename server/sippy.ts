@@ -5489,20 +5489,31 @@ export interface SippyBillingPlan {
 const _bpCache: Map<string, { plans: SippyBillingPlan[]; ts: number }> = new Map();
 const BP_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+/** Clear the billing-plan cache for all hosts (or a specific base URL prefix). */
+export function clearBillingPlanCache(basePrefix?: string): void {
+  if (!basePrefix) { _bpCache.clear(); return; }
+  for (const k of _bpCache.keys()) { if (k.startsWith(basePrefix)) _bpCache.delete(k); }
+}
+
 export async function listSippyBillingPlans(
   username: string,
   password: string,
   portalUrl?: string,
+  bustCache?: boolean,
 ): Promise<{ plans: SippyBillingPlan[]; error?: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { plans: [], error: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
-  // Return cached result if still fresh
+  // Return cached result if still fresh (skip when bustCache=true)
   const cacheKey = `${base}:${username}`;
-  const cached = _bpCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < BP_CACHE_TTL) {
-    return { plans: cached.plans };
+  if (!bustCache) {
+    const cached = _bpCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < BP_CACHE_TTL) {
+      return { plans: cached.plans };
+    }
+  } else {
+    _bpCache.delete(cacheKey);
   }
 
   // Try all known billing plan listing methods across Sippy versions
