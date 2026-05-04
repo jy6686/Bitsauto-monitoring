@@ -9338,7 +9338,7 @@ export async function createSippyTariff(
 
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('createTariff', params), username, password);
-    console.log(`[Sippy] createSippyTariff HTTP ${resp.statusCode} @ ${apiUrl} — body: ${resp.body.slice(0, 400)}`);
+    console.log(`[Sippy] createSippyTariff HTTP ${resp.statusCode} @ ${apiUrl} — body: ${resp.body.slice(0, 300)}`);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       const m = extractStructMembers(resp.body);
       const iTariff = parseInt(m['i_tariff'] || '0', 10);
@@ -9346,6 +9346,15 @@ export async function createSippyTariff(
     }
     const fault = extractFaultString(resp.body) || `createTariff HTTP ${resp.statusCode}`;
     console.log(`[Sippy] createSippyTariff failed: ${fault}`);
+    // If a tariff with this name already exists, find and reuse its ID
+    if (fault.toLowerCase().includes('already exist') || fault.toLowerCase().includes('conflicting name')) {
+      const { tariffs } = await listSippyTariffs(username, password, portalUrl);
+      const existing = tariffs.find(t => t.name.toLowerCase() === opts.name.toLowerCase());
+      if (existing) {
+        console.log(`[Sippy] createSippyTariff: reusing existing tariff "${existing.name}" id=${existing.id}`);
+        return { success: true, message: 'Tariff already exists — reusing.', iTariff: existing.id };
+      }
+    }
     return { success: false, message: fault };
   } catch (e: any) {
     console.log(`[Sippy] createSippyTariff exception: ${e.message}`);
