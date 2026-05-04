@@ -31,6 +31,7 @@ export default function CompanyProfilePage() {
     success: boolean;
     partial?: boolean;
     name?: string;
+    planName?: string;
     tariffId?: number;
     planId?: number | null;
     alreadyExists?: boolean;
@@ -221,7 +222,7 @@ export default function CompanyProfilePage() {
                       </p>
                       <p>
                         <FileText className="w-3 h-3 inline mr-1 text-sky-400" />
-                        Service Plan <span className="font-medium text-emerald-200">"{result.name}"</span> — ID {result.planId}
+                        Service Plan <span className="font-medium text-emerald-200">"{result.planName ?? result.name}"</span> — ID {result.planId}
                       </p>
                     </div>
                     <Link href="/clients?openWizard=1">

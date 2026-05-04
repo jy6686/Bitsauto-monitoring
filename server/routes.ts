@@ -1963,6 +1963,7 @@ export async function registerRoutes(
           return res.json({
             success: true,
             name: name.trim(),
+            planName: planRes.planName ?? name.trim(),
             tariffId: tariffRes.iTariff,
             planId: planRes.planId,
             alreadyExists: planRes.alreadyExists,

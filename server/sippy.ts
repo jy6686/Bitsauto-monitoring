@@ -5481,6 +5481,7 @@ export interface SippyBillingPlan {
   id: number;
   name: string;
   currency?: string;
+  iTariff?: number;   // i_tariff from getServicePlanInfo — used for tariff-ID-based matching
 }
 
 // ── In-memory cache for billing plans (5-minute TTL) ─────────────────────────
@@ -5530,8 +5531,9 @@ export async function listSippyBillingPlans(
         const m = extractStructMembers(s);
         const id = parseInt(m['i_billing_plan'] || m['id'] || '0', 10);
         const name = m['name'] || m['billing_plan_name'] || `Plan ${id}`;
-        const currency = m['currency'] || undefined;
-        if (id) plans.push({ id, name, ...(currency ? { currency } : {}) });
+        const currency = m['currency'] || m['iso_4217'] || undefined;
+        const iTariff = m['i_tariff'] ? parseInt(m['i_tariff'], 10) : undefined;
+        if (id) plans.push({ id, name, ...(currency ? { currency } : {}), ...(iTariff ? { iTariff } : {}) });
       }
       console.log(`[Sippy] listSippyBillingPlans: found ${plans.length} plans via ${method}`);
       _bpCache.set(cacheKey, { plans, ts: Date.now() });
@@ -5539,14 +5541,19 @@ export async function listSippyBillingPlans(
     } catch { continue; }
   }
 
-  // ── Fallback: probe IDs 1–100 in batches via getServicePlanInfo ─────────
-  // The list API is not available on this Sippy version, but individual lookups work.
-  // Run probes in batches of 10 to avoid overwhelming the server with concurrent requests.
-  console.log('[Sippy] listSippyBillingPlans: list API unavailable — probing IDs 1-100 via getServicePlanInfo');
+  // ── Fallback: probe IDs 1–200 in batches via getServicePlanInfo ─────────
+  // getServicePlanInfo() is the only documented XML-RPC method for service plans
+  // (Sippy XML-RPC API has no list or create method for billing/service plans).
+  // Run probes in batches of 10 to avoid overwhelming the server.
+  // Stop early when an entire batch returns no results (gap detection).
+  console.log('[Sippy] listSippyBillingPlans: list API unavailable — probing IDs 1-200 via getServicePlanInfo');
   const probedPlans: SippyBillingPlan[] = [];
   const BATCH = 10;
-  for (let start = 1; start <= 100; start += BATCH) {
-    const ids = Array.from({ length: BATCH }, (_, i) => start + i);
+  const MAX_ID = 200;
+  const MAX_CONSECUTIVE_EMPTY = 2; // stop after 2 consecutive empty batches
+  let consecutiveEmpty = 0;
+  for (let start = 1; start <= MAX_ID; start += BATCH) {
+    const ids = Array.from({ length: BATCH }, (_, i) => start + i).filter(i => i <= MAX_ID);
     const batchResults = await Promise.allSettled(
       ids.map(async (id) => {
         const params: Record<string, string | number> = { i_billing_plan: id };
@@ -5556,11 +5563,19 @@ export async function listSippyBillingPlans(
         const name = m['name'];
         if (!name) return null;
         const currency = m['iso_4217'] || m['currency'] || undefined;
-        return { id, name, ...(currency ? { currency } : {}) } as SippyBillingPlan;
+        const iTariff = m['i_tariff'] ? parseInt(m['i_tariff'], 10) : undefined;
+        return { id, name, ...(currency ? { currency } : {}), ...(iTariff ? { iTariff } : {}) } as SippyBillingPlan;
       })
     );
+    let batchFound = 0;
     for (const r of batchResults) {
-      if (r.status === 'fulfilled' && r.value !== null) probedPlans.push(r.value);
+      if (r.status === 'fulfilled' && r.value !== null) { probedPlans.push(r.value); batchFound++; }
+    }
+    if (batchFound === 0) {
+      consecutiveEmpty++;
+      if (consecutiveEmpty >= MAX_CONSECUTIVE_EMPTY) break; // stop probing — no more plans expected
+    } else {
+      consecutiveEmpty = 0; // reset gap counter when we find something
     }
   }
   if (probedPlans.length > 0) {
@@ -5594,15 +5609,23 @@ export async function createSippyServicePlan(
 ): Promise<{ success: boolean; planId?: number; planName?: string; error?: string; needsManualCreation?: boolean; alreadyExists?: boolean }> {
   const base = sippyBase(portalUrl);
 
-  // ── Step 0: check if a plan with this name already exists via XML-RPC ─────
-  // This handles both "already created" and the case where the portal is
-  // inaccessible (admin account cannot log into the self-care portal).
+  // ── Step 0: check if a plan already exists via XML-RPC ───────────────────
+  // Matches by name first; falls back to tariff-ID match (i_tariff from getServicePlanInfo).
+  // This handles both "already created manually" and portal-inaccessible scenarios.
   try {
     const existing = await listSippyBillingPlans(adminUser, adminPass, portalUrl);
-    const match = existing.plans.find(p => p.name.trim().toLowerCase() === planName.trim().toLowerCase());
-    if (match) {
-      console.log(`[Sippy] createSippyServicePlan: reusing existing plan "${match.name}" id=${match.id}`);
-      return { success: true, planId: match.id, planName: match.name, alreadyExists: true };
+    // Primary: exact name match (case-insensitive)
+    const nameMatch = existing.plans.find(p => p.name.trim().toLowerCase() === planName.trim().toLowerCase());
+    if (nameMatch) {
+      console.log(`[Sippy] createSippyServicePlan: reusing existing plan by name "${nameMatch.name}" id=${nameMatch.id}`);
+      return { success: true, planId: nameMatch.id, planName: nameMatch.name, alreadyExists: true };
+    }
+    // Secondary: tariff-ID match — finds a service plan linked to the same tariff even if
+    // the plan was created manually with a slightly different name.
+    const tariffMatch = existing.plans.find(p => p.iTariff === iTariff);
+    if (tariffMatch) {
+      console.log(`[Sippy] createSippyServicePlan: reusing existing plan by tariff match "${tariffMatch.name}" id=${tariffMatch.id} (i_tariff=${iTariff})`);
+      return { success: true, planId: tariffMatch.id, planName: tariffMatch.name, alreadyExists: true };
     }
   } catch { /* ignore — continue to portal attempt */ }
 
