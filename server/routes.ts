@@ -1938,9 +1938,7 @@ export async function registerRoutes(
         if (!currency?.trim()) return res.status(400).json({ success: false, error: 'currency is required.' });
 
         const { username, password } = sippyXmlCreds(settings);
-        // Prefer portalSessionBase — it's the URL that Sippy's web portal was previously
-        // reached at successfully (may differ from portalUrl which is the XML-RPC host).
-        const portalUrl = settings?.portalSessionBase || sippyPortalUrl(settings);
+        const portalUrl = sippyPortalUrl(settings);
         const adminUser = settings?.apiAdminUsername || settings?.portalUsername || '';
         const adminPass = settings?.apiAdminPassword || settings?.portalPassword || '';
         const portalUser = settings?.portalUsername || '';
@@ -1985,8 +1983,7 @@ export async function registerRoutes(
         if (!iTariff || isNaN(Number(iTariff)))
           return res.status(400).json({ success: false, error: 'iTariff (Basic Tariff ID) is required.' });
 
-        // Prefer portalSessionBase — the URL the Sippy web portal was last successfully reached at.
-        const portalUrl = settings?.portalSessionBase || sippyPortalUrl(settings);
+        const portalUrl = sippyPortalUrl(settings);
         const adminUser = settings?.apiAdminUsername || settings?.portalUsername || '';
         const adminPass = settings?.apiAdminPassword || settings?.portalPassword || '';
         const portalUser = settings?.portalUsername || '';

@@ -193,6 +193,7 @@ async function getAdminPortalSession(
     addPair(adminUser,  adminWebPassword);
     addPair(portalUser, adminWebPassword);
   }
+  console.log(`[Sippy] getAdminPortalSession: trying ${pairs.length} cred pair(s) against ${base}`);
   const failures: string[] = [];
   for (const [u, p] of pairs) {
     for (const acctType of ['admin', 'reseller'] as const) {
@@ -206,7 +207,7 @@ async function getAdminPortalSession(
       failures.push(`${u}/${acctType}: ${res.message}`);
     }
   }
-  console.log('[Sippy] getAdminPortalSession: no admin/reseller login worked:', failures.slice(0,4).join(' | '));
+  console.log('[Sippy] getAdminPortalSession: all attempts failed:', failures.join(' | '));
   adminPortalCacheByUrl.delete(base);
   // Store negative result for 5 minutes to stop hammering the Sippy portal with doomed logins.
   adminPortalNegCacheByUrl.set(base, now + ADMIN_NEG_CACHE_TTL_MS);
