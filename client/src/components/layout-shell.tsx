@@ -1,9 +1,9 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Role } from "@shared/schema";
 import { MGMT_CONFIGURABLE_FEATURES } from "@shared/schema";
@@ -88,8 +88,11 @@ const MGMT_ROUTE_TO_KEY: Record<string, string> = Object.fromEntries(
   MGMT_CONFIGURABLE_FEATURES.map(f => [f.route, f.key])
 );
 
-const SIDEBAR_KEY    = 'voip-sidebar-collapsed';
-const GROUPS_LS_KEY  = 'voip-sidebar-groups';
+const SIDEBAR_KEY       = 'voip-sidebar-collapsed';
+const GROUPS_LS_KEY     = 'voip-sidebar-groups';
+const GROUPS_ORDER_KEY  = 'voip-sidebar-group-order';
+
+const DEFAULT_GROUP_ORDER = SIDEBAR_GROUPS.map(g => g.key);
 
 type SubmenuType = 'calls' | 'bitseye' | 'cdr' | 'monitoring' | 'ratecards' | 'settings' | 'tools';
 
@@ -254,6 +257,52 @@ export function LayoutShell({ children }: LayoutShellProps) {
     return {};
   });
 
+  const [groupOrder, setGroupOrder] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(GROUPS_ORDER_KEY);
+      if (stored) {
+        const parsed: string[] = JSON.parse(stored);
+        // Merge: keep stored order, append any new groups not yet in storage
+        const known = new Set(parsed);
+        const merged = [...parsed.filter(k => DEFAULT_GROUP_ORDER.includes(k)),
+                        ...DEFAULT_GROUP_ORDER.filter(k => !known.has(k))];
+        return merged;
+      }
+    } catch { /* ignore */ }
+    return DEFAULT_GROUP_ORDER;
+  });
+
+  const dragSrcKey = useRef<string | null>(null);
+  const dragOverKey = useRef<string | null>(null);
+
+  function handleDragStart(key: string) { dragSrcKey.current = key; }
+  function handleDragOver(e: React.DragEvent, key: string) {
+    e.preventDefault();
+    dragOverKey.current = key;
+  }
+  function handleDrop(e: React.DragEvent, key: string) {
+    e.preventDefault();
+    const src = dragSrcKey.current;
+    if (!src || src === key) return;
+    setGroupOrder(prev => {
+      const arr = [...prev];
+      const fromIdx = arr.indexOf(src);
+      const toIdx   = arr.indexOf(key);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      arr.splice(fromIdx, 1);
+      arr.splice(toIdx, 0, src);
+      return arr;
+    });
+    dragSrcKey.current  = null;
+    dragOverKey.current = null;
+  }
+  function resetGroupOrder() { setGroupOrder(DEFAULT_GROUP_ORDER); }
+  const isOrderCustomized = groupOrder.join(',') !== DEFAULT_GROUP_ORDER.join(',');
+
+  const orderedGroups = groupOrder
+    .map(key => SIDEBAR_GROUPS.find(g => g.key === key))
+    .filter((g): g is NavGroup => !!g);
+
   useEffect(() => {
     try { localStorage.setItem(SIDEBAR_KEY, String(collapsed)); } catch { /* ignore */ }
   }, [collapsed]);
@@ -261,6 +310,10 @@ export function LayoutShell({ children }: LayoutShellProps) {
   useEffect(() => {
     try { localStorage.setItem(GROUPS_LS_KEY, JSON.stringify(groupsExpanded)); } catch { /* ignore */ }
   }, [groupsExpanded]);
+
+  useEffect(() => {
+    try { localStorage.setItem(GROUPS_ORDER_KEY, JSON.stringify(groupOrder)); } catch { /* ignore */ }
+  }, [groupOrder]);
 
   const isGroupOpen  = (key: string) => groupsExpanded[key] !== false;
   const toggleGroup  = (key: string) => setGroupsExpanded(prev => ({ ...prev, [key]: !isGroupOpen(key) }));
@@ -755,26 +808,44 @@ export function LayoutShell({ children }: LayoutShellProps) {
                 })}
               </div>
 
-              {/* Collapsible groups */}
-              {SIDEBAR_GROUPS.map(group => {
+              {/* Collapsible groups — drag grip to reorder */}
+              {isOrderCustomized && (
+                <button
+                  onClick={resetGroupOrder}
+                  title="Reset to default order"
+                  className="w-full flex items-center gap-1 px-2 py-0.5 text-[9px] text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors"
+                >
+                  <RotateCcw className="h-2.5 w-2.5" />
+                  Reset menu order
+                </button>
+              )}
+              {orderedGroups.map(group => {
                 const visibleItems = group.items.filter(isItemVisible);
                 if (visibleItems.length === 0) return null;
                 const isOpen = isGroupOpen(group.key);
                 const isGroupActive = visibleItems.some(item => isNavItemActive(item.href));
 
                 return (
-                  <div key={group.key} className="mt-3">
+                  <div
+                    key={group.key}
+                    className="mt-3"
+                    draggable
+                    onDragStart={() => handleDragStart(group.key)}
+                    onDragOver={e => handleDragOver(e, group.key)}
+                    onDrop={e => handleDrop(e, group.key)}
+                  >
                     {/* Group header */}
                     <button
                       data-testid={`sidebar-group-${group.key}`}
                       onClick={() => toggleGroup(group.key)}
                       className={cn(
-                        "w-full flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors",
+                        "group/grp w-full flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors",
                         isGroupActive
                           ? "text-muted-foreground/80 hover:text-muted-foreground"
                           : "text-muted-foreground/40 hover:text-muted-foreground/70"
                       )}
                     >
+                      <GripVertical className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/grp:opacity-40 transition-opacity cursor-grab active:cursor-grabbing" />
                       <span className="flex-1 text-left">{group.label}</span>
                       <ChevronRight className={cn(
                         "h-3 w-3 transition-transform duration-200 flex-shrink-0",
