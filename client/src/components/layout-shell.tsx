@@ -92,8 +92,6 @@ const SIDEBAR_KEY       = 'voip-sidebar-collapsed';
 const GROUPS_LS_KEY     = 'voip-sidebar-groups';
 const GROUPS_ORDER_KEY  = 'voip-sidebar-group-order';
 
-const DEFAULT_GROUP_ORDER = SIDEBAR_GROUPS.map(g => g.key);
-
 type SubmenuType = 'calls' | 'bitseye' | 'cdr' | 'monitoring' | 'ratecards' | 'settings' | 'tools';
 
 interface NavItem {
@@ -236,6 +234,8 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     ],
   },
 ];
+
+const DEFAULT_GROUP_ORDER = SIDEBAR_GROUPS.map(g => g.key);
 
 export function LayoutShell({ children }: LayoutShellProps) {
   const [location] = useLocation();
