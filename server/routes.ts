@@ -1934,7 +1934,7 @@ export async function registerRoutes(
     async (req, res) => {
       try {
         const settings = await storage.getSettings();
-        const { planName, iTariff, description } = req.body;
+        const { planName, iTariff, description, billingCycle } = req.body;
 
         if (!planName?.trim())
           return res.status(400).json({ success: false, error: 'planName is required.' });
@@ -1950,6 +1950,7 @@ export async function registerRoutes(
         const result = await sippy.createSippyServicePlan(
           portalUrl, adminUser, adminPass, portalUser, portalPass,
           planName.trim(), Number(iTariff), description || undefined,
+          billingCycle ? Number(billingCycle) : undefined,
         );
         res.json(result);
       } catch (e: any) {

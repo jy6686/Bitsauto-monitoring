@@ -5554,6 +5554,7 @@ export async function createSippyServicePlan(
   planName: string,
   iTariff: number,
   description?: string,
+  billingCycle?: number,
 ): Promise<{ success: boolean; planId?: number; planName?: string; error?: string }> {
   const base = sippyBase(portalUrl);
 
@@ -5566,7 +5567,7 @@ export async function createSippyServicePlan(
     bp_name:                     planName,
     i_tariff:                    String(iTariff),
     i_onnet_tariff:              '-1',
-    billing_cycle:               '3',       // Monthly
+    billing_cycle:               String(billingCycle ?? 3),
     i_billing_day:               '-1',      // On Assignment
     _billing_day:                '-1',
     description:                 description ?? '',

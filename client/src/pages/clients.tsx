@@ -10,7 +10,7 @@ import {
   Wifi, WifiOff, Shield, DollarSign, ShieldCheck, Info, Save,
   Network, Cable, ArrowRightLeft, Settings2,
 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import type { ClientProfile } from "@shared/schema";
 
 
@@ -2446,11 +2446,10 @@ const genPassword = () => {
 
 // ── New Sippy Account Modal — Multi-Step Wizard ──────────────────────────────
 const WIZARD_STEPS = [
-  { label: 'Company Profile', icon: 'company'  },
-  { label: 'Basic Info',      icon: 'user'     },
-  { label: 'Network',         icon: 'network'  },
-  { label: 'SIP Config',      icon: 'sip'      },
-  { label: 'Billing',         icon: 'billing'  },
+  { label: 'Basic Info',   icon: 'user'    },
+  { label: 'Network',      icon: 'network' },
+  { label: 'SIP Config',   icon: 'sip'     },
+  { label: 'Billing',      icon: 'billing' },
 ];
 
 function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; switches: SwitchOption[] }) {
@@ -2484,13 +2483,6 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [voipPassword, setVoipPassword] = useState(genPassword);   // auto-generated on mount
   const [showWebPass, setShowWebPass] = useState(false);
   const [showVoipPass, setShowVoipPass] = useState(true);           // visible by default (auto-generated)
-
-  // Step 0 (Company Profile) — service plan creation
-  const [basicTariffId, setBasicTariffId]   = useState('');
-  const [planCreating, setPlanCreating]     = useState(false);
-  const [planCreateResult, setPlanCreateResult] = useState<{
-    success: boolean; planId?: number; planName?: string; error?: string;
-  } | null>(null);
 
   // Track whether user has manually overridden auto-filled fields
   const companyNameEdited = useRef(false);
@@ -2549,18 +2541,6 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
       ? `?inlineUrl=${encodeURIComponent(inlineUrl)}&inlineUser=${encodeURIComponent(inlineUser)}&inlinePass=${encodeURIComponent(inlinePass)}`
       : '';
 
-  // Tariffs for Step 1 (Company Profile) — used to pick the Basic Tariff for the new service plan
-  const { data: tariffListRaw, isLoading: tariffListLoading } = useQuery<
-    Array<{ iTariff: number; name: string; currency: string }> | { tariffs: []; error: string }
-  >({
-    queryKey: ['/api/sippy/tariffs', switchId, inlineUrl, inlineUser],
-    queryFn: () => fetch(`/api/sippy/tariffs${switchQs}`).then(r => r.json()),
-    staleTime: 5 * 60_000,
-    enabled: hasActiveSession || canProceed,
-  });
-  const tariffList: Array<{ iTariff: number; name: string; currency: string }> =
-    Array.isArray(tariffListRaw) ? tariffListRaw : [];
-
   const { data: rgData } = useQuery<{ groups: { id: number; name: string }[]; error?: string }>({
     queryKey: ['/api/sippy/routing-groups', switchId, inlineUrl, inlineUser],
     queryFn: () => fetch(`/api/sippy/routing-groups${switchQs}`).then(r => r.json()),
@@ -2571,7 +2551,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const { data: billingPlanData, isLoading: bpLoading } = useQuery<{ plans: { id: number; name: string; currency?: string }[]; error?: string }>({
     queryKey: ['/api/sippy/billing-plans', switchId, inlineUrl, inlineUser],
     queryFn: () => fetch(`/api/sippy/billing-plans${switchQs}`).then(r => r.json()),
-    staleTime: 60_000,
+    staleTime: 0,
     enabled: canProceed,
   });
 
@@ -2709,36 +2689,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
     </label>
   );
 
-  // Step 1 (Company Profile) just needs a name; connection is set in step 2
-  const canAdvanceStep1 = !!name.trim();
-  // Step 2 (Basic Info) needs a connection configured
-  const canAdvanceStep2 = !!name.trim() && (sippySwitches.length === 0 || !!switchId || hasActiveSession || inlineReady);
-
-  async function handleNextFromStep1() {
-    // Create the service plan in Sippy before moving to Basic Info
-    if (hasActiveSession && name.trim() && basicTariffId) {
-      setPlanCreating(true);
-      try {
-        const r = await fetch('/api/sippy/service-plans/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ planName: name.trim(), iTariff: Number(basicTariffId) }),
-        });
-        const res = await r.json();
-        setPlanCreateResult(res);
-        if (res.success && res.planId) {
-          setTariffId(String(res.planId));
-          tariffManuallySet.current = true;
-          setTariffAutoMatched(null);
-        }
-      } catch (e: any) {
-        setPlanCreateResult({ success: false, error: e.message });
-      } finally {
-        setPlanCreating(false);
-      }
-    }
-    setStep(2);
-  }
+  const canAdvanceStep1 = !!name.trim() && (sippySwitches.length === 0 || !!switchId || hasActiveSession || inlineReady);
 
   const ResultBanner = result ? (
     <div className={`rounded-lg px-4 py-3 text-sm space-y-2 ${
@@ -2839,78 +2790,8 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
         {/* ── Scrollable body ── */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
 
-          {/* ══ STEP 1: Company Profile ══ */}
+          {/* ══ STEP 1: Basic Info ══ */}
           {step === 1 && (<>
-
-            {/* Display Name (used as Service Plan name) */}
-            <div>
-              <label className={labelCls}>Company / Display Name <span className="text-rose-400">*</span></label>
-              <input data-testid="input-sippy-company-name" value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="e.g. Acme Telecom"
-                className={`${fieldCls} ${!name.trim() ? 'border-amber-500/50' : ''}`} />
-              {!name.trim() && <p className="text-xs text-amber-400 mt-1">Required — used as the Service Plan name in Sippy.</p>}
-            </div>
-
-            {/* Service Plan creation (only when connected) */}
-            {hasActiveSession ? (<>
-              {sectionTitle('Service Plan')}
-              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 space-y-1">
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  A <strong className="text-foreground">Service Plan</strong> will be created in Sippy with this company's name.
-                  Select the <strong className="text-foreground">Basic Tariff</strong> that will be linked to the plan.
-                </p>
-                <div className="grid grid-cols-2 gap-3 mt-3 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-2"><span className="px-2 py-0.5 rounded bg-muted border border-border font-medium text-foreground">Billing Cycle</span> Monthly</div>
-                  <div className="flex items-center gap-2"><span className="px-2 py-0.5 rounded bg-muted border border-border font-medium text-foreground">Calls Duration</span> Round-Up</div>
-                </div>
-              </div>
-
-              <div>
-                <label className={labelCls}>Basic Tariff <span className="text-muted-foreground font-normal">(optional — needed to auto-create plan)</span></label>
-                {tariffListLoading ? (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading tariffs…
-                  </div>
-                ) : tariffList.length > 0 ? (
-                  <select data-testid="select-step1-tariff" value={basicTariffId}
-                    onChange={e => setBasicTariffId(e.target.value)}
-                    className={fieldCls}>
-                    <option value="">— Skip plan creation —</option>
-                    {tariffList.map(t => (
-                      <option key={t.iTariff} value={String(t.iTariff)}>
-                        {t.name}{t.currency ? ` (${t.currency})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="text-xs text-amber-400 py-1">No tariffs found — plan will not be auto-created. You can assign one manually in Sippy later.</div>
-                )}
-              </div>
-
-              {/* Plan create result banner */}
-              {planCreateResult && (
-                <div className={`rounded-lg px-3 py-2 text-xs ${
-                  planCreateResult.success
-                    ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
-                    : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
-                }`}>
-                  {planCreateResult.success
-                    ? `✓ Service Plan "${planCreateResult.planName}" created (ID ${planCreateResult.planId}) and linked to this account.`
-                    : `⚠ Plan creation: ${planCreateResult.error}`}
-                </div>
-              )}
-            </>) : (
-              <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
-                <p>Connect to a Sippy switch (in Settings → Sippy API) to enable automatic Service Plan creation.</p>
-                <p className="mt-1">You can proceed and create the plan manually in Sippy later.</p>
-              </div>
-            )}
-
-          </>)}
-
-          {/* ══ STEP 2: Basic Info ══ */}
-          {step === 2 && (<>
 
             {/* Connection */}
             {sippySwitches.length > 0 ? (
@@ -3079,8 +2960,8 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
             </div>
           </>)}
 
-          {/* ══ STEP 3: Network & Routing ══ */}
-          {step === 3 && (<>
+          {/* ══ STEP 2: Network & Routing ══ */}
+          {step === 2 && (<>
             {sectionTitle('Routing & Service Plan')}
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -3172,8 +3053,8 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
             </div>
           </>)}
 
-          {/* ══ STEP 4: SIP Configuration ══ */}
-          {step === 4 && (<>
+          {/* ══ STEP 3: SIP Configuration ══ */}
+          {step === 3 && (<>
             {sectionTitle('Codec & Media')}
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -3240,8 +3121,8 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
             </div>
           </>)}
 
-          {/* ══ STEP 5: Billing & Alerts ══ */}
-          {step === 5 && (<>
+          {/* ══ STEP 4: Billing & Alerts ══ */}
+          {step === 4 && (<>
             {sectionTitle('Billing & Limits')}
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -3318,22 +3199,17 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
           )}
 
           {/* Next */}
-          {step < 5 && (
+          {step < 4 && (
             <button data-testid="button-wizard-next"
-              disabled={
-                (step === 1 && !canAdvanceStep1) ||
-                (step === 2 && !canAdvanceStep2) ||
-                planCreating
-              }
-              onClick={() => step === 1 ? handleNextFromStep1() : setStep(s => s + 1)}
+              disabled={step === 1 && !canAdvanceStep1}
+              onClick={() => setStep(s => s + 1)}
               className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors">
-              {planCreating && step === 1 ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              {planCreating && step === 1 ? 'Creating plan…' : 'Next →'}
+              Next →
             </button>
           )}
 
-          {/* Create (step 5 only) */}
-          {step === 5 && !(result?.success || result?.portalSubcustomer) && (
+          {/* Create (step 4 only) */}
+          {step === 4 && !(result?.success || result?.portalSubcustomer) && (
             <button
               data-testid="button-sippy-create-account"
               disabled={!name.trim() || createMut.isPending}
@@ -3352,10 +3228,11 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
 export default function ClientsPage() {
   const { isManagement } = useAuth();
   const queryClient = useQueryClient();
+  const search = useSearch();
   const [tab, setTab] = useState<'profiles' | 'send-rate' | 'sippy' | 'sippy-vendors' | 'live-stats'>('live-stats');
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [newSippyOpen, setNewSippyOpen] = useState(false);
+  const [newSippyOpen, setNewSippyOpen] = useState(() => new URLSearchParams(search).get('openWizard') === '1');
 
   const { data: profiles = [], isLoading } = useQuery<ClientProfile[]>({
     queryKey: ['/api/clients'],
