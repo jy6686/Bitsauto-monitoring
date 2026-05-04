@@ -214,7 +214,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     items: [
       { href: "/vendors",          label: "Vendor Connections", icon: Building2,    roles: ['admin','management'], status: 'live' },
       { href: "/clients",          label: "Client / Vendor",    icon: Users,        roles: ['admin','management'] },
-      { href: "/company-profile",  label: "Company Profile",    icon: ContactRound, roles: ['admin','management'] },
+      { href: "/company-profile",  label: "Rateplan",           icon: ContactRound, roles: ['admin','management'] },
       { href: "/tools",            label: "Tools",              icon: Wrench,       roles: ['admin','management'], hasSubmenu: 'tools' as SubmenuType },
     ],
   },
