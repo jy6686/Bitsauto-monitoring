@@ -29,9 +29,12 @@ export default function CompanyProfilePage() {
   const [step, setStep] = useState<'idle' | 'tariff' | 'plan' | 'done'>('idle');
   const [result, setResult] = useState<{
     success: boolean;
+    partial?: boolean;
     name?: string;
     tariffId?: number;
-    planId?: number;
+    planId?: number | null;
+    alreadyExists?: boolean;
+    manualStep?: string;
     error?: string;
   } | null>(null);
 
@@ -194,17 +197,23 @@ export default function CompanyProfilePage() {
           {/* Result banner */}
           {step === 'done' && result && (
             <div className={`rounded-lg px-4 py-3 text-sm flex items-start gap-3 ${
-              result.success
-                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
-                : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+              !result.success
+                ? 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+                : result.partial
+                  ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
+                  : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
             }`}>
-              {result.success
-                ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-emerald-400" />
-                : <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-rose-400" />}
-              <div className="space-y-1.5">
-                {result.success ? (
+              {!result.success
+                ? <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-rose-400" />
+                : result.partial
+                  ? <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+                  : <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-emerald-400" />}
+              <div className="space-y-1.5 w-full">
+                {result.success && !result.partial && (
                   <>
-                    <p className="font-medium text-emerald-200">Tariff &amp; Service Plan created</p>
+                    <p className="font-medium text-emerald-200">
+                      {result.alreadyExists ? 'Tariff &amp; Service Plan already exist — reused' : 'Tariff &amp; Service Plan created'}
+                    </p>
                     <div className="text-xs text-emerald-300/80 space-y-0.5">
                       <p>
                         <Receipt className="w-3 h-3 inline mr-1 text-violet-400" />
@@ -224,24 +233,39 @@ export default function CompanyProfilePage() {
                       </a>
                     </Link>
                   </>
-                ) : (
+                )}
+
+                {result.success && result.partial && (
+                  <>
+                    <p className="font-medium text-amber-200">Tariff created — Service Plan needs manual setup</p>
+                    <div className="text-xs text-amber-300/80 space-y-1">
+                      <p className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                        Tariff <span className="font-medium text-amber-200">"{result.name}"</span> created — Tariff ID {result.tariffId}
+                      </p>
+                      <p className="flex items-center gap-1.5">
+                        <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                        Service Plan could not be created automatically (Sippy admin portal not accessible from this server)
+                      </p>
+                    </div>
+                    {result.manualStep && (
+                      <div className="mt-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-xs text-amber-300/90 leading-relaxed">
+                        <p className="font-semibold text-amber-200 mb-0.5">Manual step required:</p>
+                        <p>{result.manualStep}</p>
+                      </div>
+                    )}
+                    <p className="text-xs text-amber-300/60 mt-1">
+                      Once the service plan is created, re-run this with the same name — it will detect the existing plan automatically.
+                    </p>
+                  </>
+                )}
+
+                {!result.success && (
                   <div className="space-y-2">
                     <p>{result.error}</p>
-                    {result.error?.toLowerCase().includes('portal login') && (
-                      <p className="text-xs text-rose-300/80 leading-relaxed">
-                        Service plan creation requires portal (web UI) access. If your Sippy web login
-                        password differs from the API password, set it in{' '}
-                        <Link href="/settings">
-                          <a className="underline hover:text-rose-200 font-medium">
-                            Settings → Admin Web Password
-                          </a>
-                        </Link>
-                        .
-                        {result.tariffId && (
-                          <span className="block mt-1 text-rose-300/60">
-                            Note: the tariff was already created (ID {result.tariffId}). Once the password is set, try again with the same name.
-                          </span>
-                        )}
+                    {result.tariffId && (
+                      <p className="text-xs text-rose-300/70">
+                        Note: Tariff was already created (ID {result.tariffId}).
                       </p>
                     )}
                   </div>

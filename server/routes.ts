@@ -1957,10 +1957,32 @@ export async function registerRoutes(
           billingCycle ? Number(billingCycle) : 3,
           adminWebPassword,
         );
-        if (!planRes.success)
-          return res.json({ success: false, error: `Service plan creation failed: ${planRes.error}`, tariffId: tariffRes.iTariff });
 
-        res.json({ success: true, name: name.trim(), tariffId: tariffRes.iTariff, planId: planRes.planId });
+        // If the plan already existed or was created successfully — full success
+        if (planRes.success) {
+          return res.json({
+            success: true,
+            name: name.trim(),
+            tariffId: tariffRes.iTariff,
+            planId: planRes.planId,
+            alreadyExists: planRes.alreadyExists,
+          });
+        }
+
+        // Portal is inaccessible for service plan creation — partial success:
+        // tariff is ready, service plan must be created manually in Sippy.
+        if (planRes.needsManualCreation) {
+          return res.json({
+            success: true,
+            partial: true,
+            name: name.trim(),
+            tariffId: tariffRes.iTariff,
+            planId: null,
+            manualStep: `In your Sippy portal, go to Billing → Service Plans → Add New Plan. Set the name to "${name.trim()}", link it to Tariff ID ${tariffRes.iTariff}, and configure billing as needed.`,
+          });
+        }
+
+        res.json({ success: false, error: `Service plan creation failed: ${planRes.error}`, tariffId: tariffRes.iTariff });
       } catch (e: any) {
         res.status(500).json({ success: false, error: e.message });
       }

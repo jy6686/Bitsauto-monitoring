@@ -5576,6 +5576,10 @@ export async function listSippyBillingPlans(
 // Creates a new Service Plan in Sippy by POST-ing to service_plans.php.
 // Sippy has no XML-RPC API for this; we reuse the admin portal session.
 // Form fields reverse-engineered from service_plans.php "Add New Plan" HTML.
+//
+// Returns { needsManualCreation: true } when the web portal is not accessible
+// (e.g. ssp-root cannot log in via the self-care portal) so the caller can
+// surface clear guidance to the user rather than a confusing error.
 export async function createSippyServicePlan(
   portalUrl: string,
   adminUser: string,
@@ -5587,34 +5591,49 @@ export async function createSippyServicePlan(
   description?: string,
   billingCycle?: number,
   adminWebPassword?: string,
-): Promise<{ success: boolean; planId?: number; planName?: string; error?: string }> {
+): Promise<{ success: boolean; planId?: number; planName?: string; error?: string; needsManualCreation?: boolean; alreadyExists?: boolean }> {
   const base = sippyBase(portalUrl);
 
-  // Prefer the already-established active session cookies — connectToSippy tried many more
-  // credential combinations (including adminWebPassword) than getAdminPortalSession does.
+  // ── Step 0: check if a plan with this name already exists via XML-RPC ─────
+  // This handles both "already created" and the case where the portal is
+  // inaccessible (admin account cannot log into the self-care portal).
+  try {
+    const existing = await listSippyBillingPlans(adminUser, adminPass, portalUrl);
+    const match = existing.plans.find(p => p.name.trim().toLowerCase() === planName.trim().toLowerCase());
+    if (match) {
+      console.log(`[Sippy] createSippyServicePlan: reusing existing plan "${match.name}" id=${match.id}`);
+      return { success: true, planId: match.id, planName: match.name, alreadyExists: true };
+    }
+  } catch { /* ignore — continue to portal attempt */ }
+
+  // ── Step 1: attempt portal login ──────────────────────────────────────────
   let cookies: CookieJar | null = activeSession?.cookies ?? null;
   if (!cookies) {
-    // No active session: attempt portal login with all known credential combos.
-    // bypassNegCache=true so explicit user actions are never blocked by the 5-min neg-cache.
     cookies = await getAdminPortalSession(
       base, adminUser, adminPass, portalUser, portalPass, adminWebPassword, true,
     );
   }
   if (!cookies) {
-    return { success: false, error: 'Portal login failed — check admin credentials in Settings.' };
+    console.log('[Sippy] createSippyServicePlan: no portal session — needs manual creation');
+    return {
+      success: false,
+      needsManualCreation: true,
+      error: 'The Sippy web portal is not accessible from this server (admin account cannot log into the self-care portal). Create the Service Plan manually.',
+    };
   }
 
+  // ── Step 2: POST service_plans.php ────────────────────────────────────────
   const postBody = encodeForm({
     bp_name:                     planName,
     i_tariff:                    String(iTariff),
     i_onnet_tariff:              '-1',
     billing_cycle:               String(billingCycle ?? 3),
-    i_billing_day:               '-1',      // On Assignment
+    i_billing_day:               '-1',
     _billing_day:                '-1',
     description:                 description ?? '',
-    i_billing_plan_suspend_mode: '1',       // Use Tariff
-    prepaid:                     '1',       // Pre-Paid
-    round_up:                    '1',       // Round-Up (user requirement)
+    i_billing_plan_suspend_mode: '1',
+    prepaid:                     '1',
+    round_up:                    '1',
     action:                      'add',
     save_and_close:              'Save & Close',
     i_billing_plan:              '',
@@ -5640,7 +5659,19 @@ export async function createSippyServicePlan(
 
   console.log(`[Sippy] createSippyServicePlan POST → HTTP ${resp.statusCode}, body: ${resp.body.length}B`);
 
-  // Check for Sippy error messages in the response HTML
+  // Detect login page redirect (session rejected by portal) — body ≈ 2099B
+  // and contains the login form submit button.
+  const isLoginPage = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
+  if (isLoginPage) {
+    console.log('[Sippy] createSippyServicePlan: portal returned login page — session invalid, needs manual creation');
+    return {
+      success: false,
+      needsManualCreation: true,
+      error: 'The Sippy web portal did not accept the session (portal redirected to login page). Create the Service Plan manually in Sippy.',
+    };
+  }
+
+  // Check for Sippy validation errors in the response HTML
   const bodyLower = resp.body.toLowerCase();
   const hasError = bodyLower.includes('class="error"') || bodyLower.includes('class="err"')
                 || bodyLower.includes('required field') || bodyLower.includes('already exists')
@@ -5651,8 +5682,7 @@ export async function createSippyServicePlan(
     return { success: false, error: errMsg };
   }
 
-  // After "Save & Close", Sippy redirects to the edit page for the new plan.
-  // The edit page contains: <input name="i_billing_plan" value="NEW_ID">
+  // After "Save & Close", Sippy redirects to the edit page containing the new plan ID.
   const planIdMatch =
     resp.body.match(/name=["']i_billing_plan["'][^>]*value=["'](\d+)["']/i) ||
     resp.body.match(/value=["'](\d+)["'][^>]*name=["']i_billing_plan["']/i);
@@ -5666,26 +5696,30 @@ export async function createSippyServicePlan(
     }
   }
 
-  // Fallback: GET service_plans.php list and find the newly created plan by name
+  // Fallback: scrape the service plan list page for the newly created plan
   try {
     const listResp = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies);
-    const linkRe = /service_plans\.php\?[^"']*i_billing_plan=(\d+)/gi;
-    let m: RegExpExecArray | null;
-    const nameEscaped = planName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    while ((m = linkRe.exec(listResp.body)) !== null) {
-      const planId = parseInt(m[1], 10);
-      const snippet = listResp.body.slice(Math.max(0, m.index - 200), m.index + 200);
-      if (new RegExp(nameEscaped, 'i').test(snippet) && planId > 0) {
-        console.log(`[Sippy] createSippyServicePlan: found "${planName}" via list scrape → i_billing_plan=${planId}`);
-        for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
-        return { success: true, planId, planName };
+    if (!listResp.body.includes('value="Login"')) {
+      const linkRe = /service_plans\.php\?[^"']*i_billing_plan=(\d+)/gi;
+      let m: RegExpExecArray | null;
+      const nameEscaped = planName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      while ((m = linkRe.exec(listResp.body)) !== null) {
+        const planId = parseInt(m[1], 10);
+        const snippet = listResp.body.slice(Math.max(0, m.index - 200), m.index + 200);
+        if (new RegExp(nameEscaped, 'i').test(snippet) && planId > 0) {
+          console.log(`[Sippy] createSippyServicePlan: found "${planName}" via list scrape → i_billing_plan=${planId}`);
+          for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
+          return { success: true, planId, planName };
+        }
       }
     }
   } catch { /* ignore */ }
 
+  // Could not confirm the ID — treat as needing manual verification
   return {
     success: false,
-    error: 'Service plan may have been created but ID could not be confirmed. Check Sippy portal → Customers → Service Plans.',
+    needsManualCreation: true,
+    error: 'Service plan was submitted but the ID could not be confirmed. Check Sippy portal → Billing → Service Plans.',
   };
 }
 
