@@ -9338,14 +9338,17 @@ export async function createSippyTariff(
 
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('createTariff', params), username, password);
+    console.log(`[Sippy] createSippyTariff HTTP ${resp.statusCode} @ ${apiUrl} — body: ${resp.body.slice(0, 400)}`);
     if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
       const m = extractStructMembers(resp.body);
       const iTariff = parseInt(m['i_tariff'] || '0', 10);
       return { success: true, message: 'Tariff created.', iTariff: iTariff || undefined };
     }
-    const fault = extractTag(resp.body, 'faultString') || 'createTariff failed.';
+    const fault = extractFaultString(resp.body) || `createTariff HTTP ${resp.statusCode}`;
+    console.log(`[Sippy] createSippyTariff failed: ${fault}`);
     return { success: false, message: fault };
   } catch (e: any) {
+    console.log(`[Sippy] createSippyTariff exception: ${e.message}`);
     return { success: false, message: e.message };
   }
 }

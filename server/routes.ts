@@ -1946,7 +1946,7 @@ export async function registerRoutes(
         const adminWebPassword = settings?.adminWebPassword || undefined;
 
         // Step 1 — create tariff via XML-RPC
-        const tariffRes = await sippy.createSippyTariff(username, password, { name: name.trim(), currency: currency.trim() });
+        const tariffRes = await sippy.createSippyTariff(username, password, { name: name.trim(), currency: currency.trim() }, portalUrl);
         if (!tariffRes.success || !tariffRes.iTariff)
           return res.json({ success: false, error: `Tariff creation failed: ${tariffRes.message}` });
 
