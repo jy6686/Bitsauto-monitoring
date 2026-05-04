@@ -5541,6 +5541,112 @@ export async function listSippyBillingPlans(
   return { plans: [], error: 'No billing plan list method found on this Sippy instance. Create Service Plans in your Sippy portal (Billing → Service Plans) first.' };
 }
 
+// ── createSippyServicePlan — portal form POST ─────────────────────────────────
+// Creates a new Service Plan in Sippy by POST-ing to service_plans.php.
+// Sippy has no XML-RPC API for this; we reuse the admin portal session.
+// Form fields reverse-engineered from service_plans.php "Add New Plan" HTML.
+export async function createSippyServicePlan(
+  portalUrl: string,
+  adminUser: string,
+  adminPass: string,
+  portalUser: string,
+  portalPass: string,
+  planName: string,
+  iTariff: number,
+  description?: string,
+): Promise<{ success: boolean; planId?: number; planName?: string; error?: string }> {
+  const base = sippyBase(portalUrl);
+
+  const cookies = await getAdminPortalSession(base, adminUser, adminPass, portalUser, portalPass);
+  if (!cookies) {
+    return { success: false, error: 'Portal login failed — check admin credentials in Settings.' };
+  }
+
+  const postBody = encodeForm({
+    bp_name:                     planName,
+    i_tariff:                    String(iTariff),
+    i_onnet_tariff:              '-1',
+    billing_cycle:               '3',       // Monthly
+    i_billing_day:               '-1',      // On Assignment
+    _billing_day:                '-1',
+    description:                 description ?? '',
+    i_billing_plan_suspend_mode: '1',       // Use Tariff
+    prepaid:                     '1',       // Pre-Paid
+    round_up:                    '1',       // Round-Up (user requirement)
+    action:                      'add',
+    save_and_close:              'Save & Close',
+    i_billing_plan:              '',
+    links:                       '0',
+    keep_db_history:             '1',
+    i_service_charge:            '',
+    i_accessibility_surcharge:   '',
+    i_service_plan:              '',
+    sc_description:              '',
+    sc_price:                    '0.0000',
+    n:                           '',
+    name:                        '',
+    name_clause:                 '',
+  });
+
+  const resp = await rawRequest(
+    'POST',
+    `${base}/service_plans.php`,
+    postBody,
+    { 'User-Agent': PORTAL_USER_AGENT },
+    cookies,
+  );
+
+  console.log(`[Sippy] createSippyServicePlan POST → HTTP ${resp.statusCode}, body: ${resp.body.length}B`);
+
+  // Check for Sippy error messages in the response HTML
+  const bodyLower = resp.body.toLowerCase();
+  const hasError = bodyLower.includes('class="error"') || bodyLower.includes('class="err"')
+                || bodyLower.includes('required field') || bodyLower.includes('already exists')
+                || bodyLower.includes('invalid value');
+  if (hasError) {
+    const errMatch = resp.body.match(/class="err(?:or)?[^"]*"[^>]*>([\s\S]{0,300}?)<\/[^>]+>/i);
+    const errMsg = errMatch ? errMatch[1].replace(/<[^>]+>/g, '').trim() : 'Sippy returned a validation error.';
+    return { success: false, error: errMsg };
+  }
+
+  // After "Save & Close", Sippy redirects to the edit page for the new plan.
+  // The edit page contains: <input name="i_billing_plan" value="NEW_ID">
+  const planIdMatch =
+    resp.body.match(/name=["']i_billing_plan["'][^>]*value=["'](\d+)["']/i) ||
+    resp.body.match(/value=["'](\d+)["'][^>]*name=["']i_billing_plan["']/i);
+
+  if (planIdMatch) {
+    const planId = parseInt(planIdMatch[1], 10);
+    if (planId > 0) {
+      console.log(`[Sippy] createSippyServicePlan: plan "${planName}" created → i_billing_plan=${planId}`);
+      for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
+      return { success: true, planId, planName };
+    }
+  }
+
+  // Fallback: GET service_plans.php list and find the newly created plan by name
+  try {
+    const listResp = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies);
+    const linkRe = /service_plans\.php\?[^"']*i_billing_plan=(\d+)/gi;
+    let m: RegExpExecArray | null;
+    const nameEscaped = planName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    while ((m = linkRe.exec(listResp.body)) !== null) {
+      const planId = parseInt(m[1], 10);
+      const snippet = listResp.body.slice(Math.max(0, m.index - 200), m.index + 200);
+      if (new RegExp(nameEscaped, 'i').test(snippet) && planId > 0) {
+        console.log(`[Sippy] createSippyServicePlan: found "${planName}" via list scrape → i_billing_plan=${planId}`);
+        for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
+        return { success: true, planId, planName };
+      }
+    }
+  } catch { /* ignore */ }
+
+  return {
+    success: false,
+    error: 'Service plan may have been created but ID could not be confirmed. Check Sippy portal → Customers → Service Plans.',
+  };
+}
+
 export async function listSippyRoutingGroups(
   username: string,
   password: string,

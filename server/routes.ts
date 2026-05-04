@@ -1925,6 +1925,39 @@ export async function registerRoutes(
     return res.json({ success: true, message: 'Circuit breaker cleared — next Sippy call will retry live.' });
   });
 
+  // POST /api/sippy/service-plans/create — create a Service Plan in Sippy via portal form POST
+  // Sippy's XML-RPC API has no createServicePlan(); we POST service_plans.php directly.
+  // Body: { planName: string, iTariff: number, description?: string }
+  // Returns: { success, planId?, planName?, error? }
+  app.post('/api/sippy/service-plans/create',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req, res) => {
+      try {
+        const settings = await storage.getSettings();
+        const { planName, iTariff, description } = req.body;
+
+        if (!planName?.trim())
+          return res.status(400).json({ success: false, error: 'planName is required.' });
+        if (!iTariff || isNaN(Number(iTariff)))
+          return res.status(400).json({ success: false, error: 'iTariff (Basic Tariff ID) is required.' });
+
+        const portalUrl = sippy.getActivePortalUrl() ?? sippyPortalUrl(settings);
+        const adminUser = settings?.apiAdminUsername || settings?.portalUsername || '';
+        const adminPass = settings?.apiAdminPassword || settings?.portalPassword || '';
+        const portalUser = settings?.portalUsername || '';
+        const portalPass = settings?.portalPassword || '';
+
+        const result = await sippy.createSippyServicePlan(
+          portalUrl, adminUser, adminPass, portalUser, portalPass,
+          planName.trim(), Number(iTariff), description || undefined,
+        );
+        res.json(result);
+      } catch (e: any) {
+        res.status(500).json({ success: false, error: e.message });
+      }
+    }
+  );
+
   // GET /api/sippy/methods — list all XML-RPC methods available on this switch (diagnostic)
   app.get('/api/sippy/methods', async (req: any, res: any) => {
     try {
