@@ -1,0 +1,100 @@
+curl --digest -u ssp-root:sippy321 -k \
+-d '<?xml version="1.0"?>
+<methodCall>
+  <methodName>createAccount</methodName>
+  <params>
+    <param>
+      <value>
+        <struct>
+
+          <member>
+            <name>username</name>
+            <value><string>user1001</string></value>
+          </member>
+
+          <member>
+            <name>web_password</name>
+            <value><string>webpass123</string></value>
+          </member>
+
+          <member>
+            <name>authname</name>
+            <value><string>user1001</string></value>
+          </member>
+
+          <member>
+            <name>voip_password</name>
+            <value><string>voippass123</string></value>
+          </member>
+
+          <member>
+            <name>max_sessions</name>
+            <value><int>10</int></value>
+          </member>
+
+          <member>
+            <name>max_credit_time</name>
+            <value><int>3600</int></value>
+          </member>
+
+          <member>
+            <name>translation_rule</name>
+            <value><string></string></value>
+          </member>
+
+          <member>
+            <name>cli_translation_rule</name>
+            <value><string></string></value>
+          </member>
+
+          <member>
+            <name>credit_limit</name>
+            <value><double>0</double></value>
+          </member>
+
+          <member>
+            <name>i_routing_group</name>
+            <value><int>1</int></value>
+          </member>
+
+          <member>
+            <name>i_billing_plan</name>
+            <value><int>1</int></value>
+          </member>
+
+          <member>
+            <name>i_time_zone</name>
+            <value><int>370</int></value>
+          </member>
+
+          <member>
+            <name>balance</name>
+            <value><double>10.0</double></value>
+          </member>
+
+          <member>
+            <name>cpe_number</name>
+            <value><string>CPE1001</string></value>
+          </member>
+
+          <member>
+            <name>vm_enabled</name>
+            <value><int>1</int></value>
+          </member>
+
+          <member>
+            <name>vm_password</name>
+            <value><string>1234</string></value>
+          </member>
+
+          <member>
+            <name>blocked</name>
+            <value><int>0</int></value>
+          </member>
+
+        </struct>
+      </value>
+    </param>
+  </params>
+</methodCall>' \
+https://192.168.1.1/xmlapi/xmlapi
