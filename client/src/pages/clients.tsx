@@ -2067,12 +2067,28 @@ function SippyLiveStatsTab() {
 
 function SippyVendorsTab({ isManagement }: { isManagement: boolean }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [resetting, setResetting]   = useState(false);
 
   const { data, isLoading, refetch } = useQuery<{ vendors: SippyVendor[]; error?: string }>({
     queryKey: ['/api/sippy/vendors'],
     queryFn: () => fetch('/api/sippy/vendors?limit=200').then(r => r.json()),
     staleTime: 30_000,
+    // Auto-retry every 30 s while the circuit breaker is open; stop polling once healthy
+    refetchInterval: (query) => {
+      const d = query.state.data as { error?: string } | undefined;
+      return d?.error?.includes('paused after repeated failures') ? 30_000 : false;
+    },
   });
+
+  async function forceCircuitReset() {
+    setResetting(true);
+    try {
+      await fetch('/api/sippy/circuit-reset', { method: 'POST' });
+      await refetch();
+    } finally {
+      setResetting(false);
+    }
+  }
 
   const vendors = data?.vendors ?? [];
 
@@ -2105,10 +2121,26 @@ function SippyVendorsTab({ isManagement }: { isManagement: boolean }) {
       ) : data?.error ? (
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-6 py-8 flex flex-col items-center gap-3 text-rose-400">
           <AlertTriangle className="w-8 h-8 opacity-50" />
-          <p className="text-sm font-medium">{data.error}</p>
-          <Link href="/settings" className="mt-1 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs font-medium hover:bg-rose-500/20 transition-colors">
-            Go to Settings →
-          </Link>
+          <p className="text-sm font-medium text-center">{data.error}</p>
+          <div className="flex items-center gap-2 mt-1 flex-wrap justify-center">
+            {data.error.includes('paused after repeated failures') && (
+              <button
+                data-testid="button-force-circuit-reset-vendors"
+                onClick={forceCircuitReset}
+                disabled={resetting}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-violet-500/20 border border-violet-500/40 text-violet-300 text-xs font-medium hover:bg-violet-500/30 transition-colors disabled:opacity-50"
+              >
+                {resetting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                {resetting ? 'Retrying…' : 'Force Retry Now'}
+              </button>
+            )}
+            <Link href="/settings" className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs font-medium hover:bg-rose-500/20 transition-colors">
+              Go to Settings →
+            </Link>
+          </div>
+          {data.error.includes('paused after repeated failures') && (
+            <p className="text-[10px] text-rose-400/50 mt-0.5">Auto-retrying every 30 s…</p>
+          )}
         </div>
       ) : vendors.length === 0 ? (
         <div className="rounded-xl border border-border bg-card/60 flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
@@ -2186,6 +2218,11 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
     queryKey: ['/api/sippy/accounts'],
     queryFn: () => fetch('/api/sippy/accounts?limit=200').then(r => r.json()),
     staleTime: 30_000,
+    // Auto-retry every 30 s while the circuit breaker is open; stop polling once healthy
+    refetchInterval: (query) => {
+      const d = query.state.data as { error?: string } | undefined;
+      return d?.error?.includes('paused after repeated failures') ? 30_000 : false;
+    },
   });
 
   async function forceCircuitReset() {
@@ -2247,6 +2284,9 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
               Go to Settings →
             </Link>
           </div>
+          {data.error.includes('paused after repeated failures') && (
+            <p className="text-[10px] text-rose-400/50 mt-0.5">Auto-retrying every 30 s…</p>
+          )}
         </div>
       ) : accounts.length === 0 ? (
         <div className="rounded-xl border border-border bg-card/60 flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
