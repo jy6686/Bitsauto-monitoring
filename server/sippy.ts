@@ -525,55 +525,70 @@ async function portalLogin(
   accountType: 'customer' | 'reseller' | 'admin' = 'customer',
 ): Promise<{ success: boolean; cookies: CookieJar; message: string }> {
   const loginUrl = `${base}/main.php`;
-  const formData = encodeForm({
-    username,
-    password,
-    acct_type: accountType,
-    login_page: 'all',
-    Login: 'Login',
-  });
 
-  try {
-    const resp = await rawRequest('POST', loginUrl, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map());
-    if (resp.statusCode === 401) {
-      return { success: false, cookies: new Map(), message: 'Authentication failed (401).' };
+  // Try every known acct_type value — this Sippy build exposes account/customer/vendor
+  // in the UI dropdown; older or admin-level accounts may use different values.
+  const acctTypesToTry = accountType === 'admin'
+    ? ['account', 'customer', 'vendor']   // ssp-root logs in as 'account' type on this build
+    : [accountType];
+
+  for (const acctType of acctTypesToTry) {
+    const formData = encodeForm({
+      username,
+      password,
+      acct_type: acctType,
+      login_page: 'all',
+      Login: 'Login',
+    });
+
+    try {
+      // Use redirectsLeft=0 so we capture the 302 cookie BEFORE following — Sippy sessions
+      // are server-side and the cookie is valid immediately on the 302 response.
+      // Following the redirect causes the session to appear invalid in the next request.
+      const resp = await rawRequest('POST', loginUrl, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
+
+      // ── Success: Sippy redirects to /index.php on successful login ──────────
+      if ((resp.statusCode === 301 || resp.statusCode === 302 || resp.statusCode === 303) && resp.cookies.size > 0) {
+        // Verify the session cookie works by fetching a known authenticated page
+        const check = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies, 0);
+        if (check.statusCode === 200 && check.body.length > 500 && !check.body.includes('value="Login"')) {
+          console.log(`[Sippy] portalLogin: success via 302+cookie for ${username}/${acctType}`);
+          return { success: true, cookies: resp.cookies, message: `Authenticated via web portal as ${acctType}` };
+        }
+        // Also accept a further redirect from service_plans.php (still authenticated, just redirecting)
+        if (check.statusCode === 302) {
+          console.log(`[Sippy] portalLogin: success via 302 chain for ${username}/${acctType}`);
+          return { success: true, cookies: resp.cookies, message: `Authenticated via web portal as ${acctType}` };
+        }
+      }
+
+      if (resp.statusCode === 401) continue;
+
+      // ── Failure: login page returned again ───────────────────────────────────
+      const isStillLoginPage = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
+      if (isStillLoginPage) continue;
+
+      // ── Success: direct page response with portal content ────────────────────
+      const hasErrorDialog = resp.body.includes('ShowErrorDialog(')
+        && !resp.body.includes('ShowErrorDialog(\'\')') && !resp.body.includes('ShowErrorDialog("")');
+      if (hasErrorDialog) continue;
+
+      const hasSessionMarker = resp.body.includes('action=Logout')
+        || resp.body.toLowerCase().includes('logout')
+        || resp.body.includes('vendors.php')
+        || resp.body.includes('accounts.php')
+        || resp.body.includes('activecalls.php')
+        || resp.body.includes('service_plans.php')
+        || resp.body.includes('reports.php');
+      if (hasSessionMarker) {
+        return { success: true, cookies: resp.cookies, message: `Authenticated via web portal as ${acctType}` };
+      }
+    } catch (err: any) {
+      console.log(`[Sippy] portalLogin error ${username}/${acctType}: ${err.message}`);
     }
-    // Definitive failure: login page returned with a non-empty ShowErrorDialog() JS call.
-    const hasErrorDialog = resp.body.includes('ShowErrorDialog(')
-      && !resp.body.includes('ShowErrorDialog(\'\')') && !resp.body.includes('ShowErrorDialog("")');
-    if (hasErrorDialog) {
-      return { success: false, cookies: new Map(), message: `Login rejected — wrong username, password, or account type (${accountType}).` };
-    }
-    if (resp.body.length < 200) {
-      return { success: false, cookies: new Map(), message: `Login returned empty/short body (${resp.body.length} bytes, type=${accountType}).` };
-    }
-    // Definitive failure: still on the login page (form present, no session established).
-    // Sippy login pages always carry a hidden <input name="action" value="Login"> field.
-    const isStillLoginPage = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
-    if (isStillLoginPage) {
-      return { success: false, cookies: new Map(), message: `Login returned login form again — credentials rejected (${accountType}).` };
-    }
-    // Success validation: require at least ONE known Sippy portal marker.
-    // A successfully logged-in page always contains logout/portal-menu references.
-    // If NONE are present, the response is an unknown redirect target — treat as failure.
-    const hasSessionMarker = resp.body.includes('action=Logout')
-      || resp.body.toLowerCase().includes('logout')
-      || resp.body.includes('vendors.php')
-      || resp.body.includes('accounts.php')
-      || resp.body.includes('activecalls.php')
-      || resp.body.includes('subcustomers.php')
-      || resp.body.includes('reports.php')
-      || resp.body.includes('My Preferences')
-      || resp.body.includes('/c2/')
-      || resp.body.includes('i_customer')
-      || resp.body.includes('billing.php');
-    if (!hasSessionMarker) {
-      return { success: false, cookies: new Map(), message: `Login response has no portal session markers — likely a redirect/error page (${accountType}, ${resp.body.length}B).` };
-    }
-    return { success: true, cookies: resp.cookies, message: `Authenticated via web portal as ${accountType}` };
-  } catch (err: any) {
-    return { success: false, cookies: new Map(), message: err.message ?? 'Portal login failed.' };
   }
+
+  return { success: false, cookies: new Map(), message: `Login returned login form again — credentials rejected (${accountType}).` };
 }
 
 async function portalGet(path: string, cookies: CookieJar, base: string): Promise<{ html: string; cookies: CookieJar }> {
