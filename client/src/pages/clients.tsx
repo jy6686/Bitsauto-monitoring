@@ -2180,12 +2180,23 @@ function SippyVendorsTab({ isManagement }: { isManagement: boolean }) {
 function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
   const [expandedId, setExpandedId]   = useState<number | null>(null);
   const [lbAccount, setLbAccount]     = useState<{ iAccount: number; username: string } | null>(null);
+  const [resetting, setResetting]     = useState(false);
 
   const { data, isLoading, refetch } = useQuery<{ accounts: SippyAccount[]; error?: string }>({
     queryKey: ['/api/sippy/accounts'],
     queryFn: () => fetch('/api/sippy/accounts?limit=200').then(r => r.json()),
     staleTime: 30_000,
   });
+
+  async function forceCircuitReset() {
+    setResetting(true);
+    try {
+      await fetch('/api/sippy/circuit-reset', { method: 'POST' });
+      await refetch();
+    } finally {
+      setResetting(false);
+    }
+  }
 
   const accounts = data?.accounts ?? [];
 
@@ -2219,10 +2230,23 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
       ) : data?.error ? (
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-6 py-8 flex flex-col items-center gap-3 text-rose-400">
           <AlertTriangle className="w-8 h-8 opacity-50" />
-          <p className="text-sm font-medium">{data.error}</p>
-          <Link href="/settings" className="mt-1 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs font-medium hover:bg-rose-500/20 transition-colors">
-            Go to Settings →
-          </Link>
+          <p className="text-sm font-medium text-center">{data.error}</p>
+          <div className="flex items-center gap-2 mt-1 flex-wrap justify-center">
+            {data.error.includes('paused after repeated failures') && (
+              <button
+                data-testid="button-force-circuit-reset"
+                onClick={forceCircuitReset}
+                disabled={resetting}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-violet-500/20 border border-violet-500/40 text-violet-300 text-xs font-medium hover:bg-violet-500/30 transition-colors disabled:opacity-50"
+              >
+                {resetting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                {resetting ? 'Retrying…' : 'Force Retry Now'}
+              </button>
+            )}
+            <Link href="/settings" className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs font-medium hover:bg-rose-500/20 transition-colors">
+              Go to Settings →
+            </Link>
+          </div>
         </div>
       ) : accounts.length === 0 ? (
         <div className="rounded-xl border border-border bg-card/60 flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">

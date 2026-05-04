@@ -379,6 +379,13 @@ function xmlRpcRecordSuccess() {
   _xmlRpcBlockedUntil = 0;
 }
 
+/** Force-clear the circuit breaker — callable via admin API when Sippy recovers. */
+function xmlRpcForceReset(reason: string) {
+  _xmlRpcFailStreak   = 0;
+  _xmlRpcBlockedUntil = 0;
+  console.log(`[xml-rpc] Circuit breaker manually cleared (${reason})`);
+}
+
 function xmlRpcRecordAllFailed(reason: string) {
   _xmlRpcFailStreak++;
   if (_xmlRpcFailStreak >= XML_RPC_FAIL_THRESHOLD && _xmlRpcBlockedUntil === 0) {
@@ -1909,6 +1916,13 @@ export async function registerRoutes(
   // GET /api/sippy/session — current Sippy session status
   app.get('/api/sippy/session', (_req, res) => {
     res.json(sippy.getSippySessionStatus());
+  });
+
+  // POST /api/sippy/circuit-reset — admin-only: force-clear the XML-RPC circuit breaker
+  // Useful when Sippy has recovered but the breaker is still open from background-job failures.
+  app.post('/api/sippy/circuit-reset', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (_req, res) => {
+    xmlRpcForceReset('admin manual reset via API');
+    return res.json({ success: true, message: 'Circuit breaker cleared — next Sippy call will retry live.' });
   });
 
   // GET /api/sippy/methods — list all XML-RPC methods available on this switch (diagnostic)
@@ -4112,7 +4126,10 @@ export async function registerRoutes(
         const { username: adminUser, password: adminPass } = sippyXmlCreds(settings);
         username = adminUser;
         password = adminPass;
-        targetUrl = sippyPortalUrl(settings);
+        // Prefer the active session's URL over the raw settings URL — the session
+        // URL is proven to accept our credentials (it was used to connect), while
+        // the settings portalUrl may point to a different IP that rejects the same creds.
+        targetUrl = sippy.getActivePortalUrl() ?? sippyPortalUrl(settings);
         if (req.body.switchId) {
           const sw = (await storage.getSwitches()).find((s: any) => s.id === Number(req.body.switchId) && s.type === 'sippy');
           if (!sw) return res.status(404).json({ success: false, message: 'Sippy switch not found.' });

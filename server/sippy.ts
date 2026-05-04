@@ -87,6 +87,11 @@ interface SippySession {
 
 let activeSession: SippySession | null = null;
 
+/** Returns the portal URL of the current active Sippy session, if any. */
+export function getActivePortalUrl(): string | undefined {
+  return activeSession?.portalUrl ?? undefined;
+}
+
 // ── Portal session caches ─────────────────────────────────────────────────────
 // Two separate caches:
 //   anyPortalCache  — used by listActiveCalls; accepts any session (admin/reseller/customer)
