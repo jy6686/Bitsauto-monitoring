@@ -1925,6 +1925,46 @@ export async function registerRoutes(
     return res.json({ success: true, message: 'Circuit breaker cleared — next Sippy call will retry live.' });
   });
 
+  // POST /api/sippy/company-profile/setup — create Tariff + Service Plan in one call
+  // Body: { name, currency, billingCycle? }
+  // Returns: { success, tariffId?, planId?, name?, error? }
+  app.post('/api/sippy/company-profile/setup',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req, res) => {
+      try {
+        const settings = await storage.getSettings();
+        const { name, currency, billingCycle } = req.body;
+        if (!name?.trim())     return res.status(400).json({ success: false, error: 'name is required.' });
+        if (!currency?.trim()) return res.status(400).json({ success: false, error: 'currency is required.' });
+
+        const { username, password } = sippyXmlCreds(settings);
+        const portalUrl = sippy.getActivePortalUrl() ?? sippyPortalUrl(settings);
+        const adminUser = settings?.apiAdminUsername || settings?.portalUsername || '';
+        const adminPass = settings?.apiAdminPassword || settings?.portalPassword || '';
+        const portalUser = settings?.portalUsername || '';
+        const portalPass = settings?.portalPassword || '';
+
+        // Step 1 — create tariff via XML-RPC
+        const tariffRes = await sippy.createSippyTariff(username, password, { name: name.trim(), currency: currency.trim() });
+        if (!tariffRes.success || !tariffRes.iTariff)
+          return res.json({ success: false, error: `Tariff creation failed: ${tariffRes.message}` });
+
+        // Step 2 — create service plan via portal form POST, using the new tariff ID
+        const planRes = await sippy.createSippyServicePlan(
+          portalUrl, adminUser, adminPass, portalUser, portalPass,
+          name.trim(), tariffRes.iTariff, undefined,
+          billingCycle ? Number(billingCycle) : 3,
+        );
+        if (!planRes.success)
+          return res.json({ success: false, error: `Service plan creation failed: ${planRes.error}`, tariffId: tariffRes.iTariff });
+
+        res.json({ success: true, name: name.trim(), tariffId: tariffRes.iTariff, planId: planRes.planId });
+      } catch (e: any) {
+        res.status(500).json({ success: false, error: e.message });
+      }
+    }
+  );
+
   // POST /api/sippy/service-plans/create — create a Service Plan in Sippy via portal form POST
   // Sippy's XML-RPC API has no createServicePlan(); we POST service_plans.php directly.
   // Body: { planName: string, iTariff: number, description?: string }

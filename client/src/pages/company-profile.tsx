@@ -1,28 +1,38 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
-  Loader2, CheckCircle2, AlertTriangle, Building2, ArrowRight, RefreshCw,
+  Loader2, CheckCircle2, AlertTriangle, Building2, ArrowRight,
+  Receipt, FileText,
 } from "lucide-react";
 
 const BILLING_CYCLES = [
-  { value: '1', label: 'Weekly'     },
-  { value: '2', label: 'Bi-Weekly'  },
-  { value: '3', label: 'Monthly'    },
-  { value: '4', label: 'Quarterly'  },
-  { value: '5', label: 'Annually'   },
+  { value: '1', label: 'Weekly'    },
+  { value: '2', label: 'Bi-Weekly' },
+  { value: '3', label: 'Monthly'   },
+  { value: '4', label: 'Quarterly' },
+  { value: '5', label: 'Annually'  },
+];
+
+const COMMON_CURRENCIES = [
+  'USD', 'EUR', 'GBP', 'AED', 'AUD', 'CAD', 'CHF', 'CNY',
+  'HKD', 'INR', 'JPY', 'MXN', 'NOK', 'NZD', 'SEK', 'SGD',
 ];
 
 export default function CompanyProfilePage() {
   const queryClient = useQueryClient();
 
-  const [companyName, setBillingName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [currency, setCurrency]       = useState('USD');
   const [billingCycle, setBillingCycle] = useState('3');
-  const [tariffId, setTariffId] = useState('');
-  const [tariffManual, setTariffManual] = useState(false);
-  const [creating, setCreating] = useState(false);
+
+  const [step, setStep] = useState<'idle' | 'tariff' | 'plan' | 'done'>('idle');
   const [result, setResult] = useState<{
-    success: boolean; planId?: number; planName?: string; error?: string;
+    success: boolean;
+    name?: string;
+    tariffId?: number;
+    planId?: number;
+    error?: string;
   } | null>(null);
 
   const { data: sippySession } = useQuery<{ active: boolean; username?: string }>({
@@ -31,41 +41,19 @@ export default function CompanyProfilePage() {
   });
   const hasSession = sippySession?.active === true;
 
-  const { data: tariffListRaw, isLoading: tariffListLoading, refetch: refetchTariffs } = useQuery<
-    Array<{ iTariff: number; name: string; currency: string }> | { tariffs: []; error: string }
-  >({
-    queryKey: ['/api/sippy/tariffs'],
-    queryFn: () => fetch('/api/sippy/tariffs').then(r => r.json()),
-    staleTime: 5 * 60_000,
-    enabled: hasSession,
-  });
-  const tariffList: Array<{ iTariff: number; name: string; currency: string }> =
-    Array.isArray(tariffListRaw) ? tariffListRaw : [];
+  const creating = step === 'tariff' || step === 'plan';
 
-  useEffect(() => {
-    if (tariffManual || !companyName.trim() || !tariffList.length) return;
-    const needle = companyName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    const exact = tariffList.find(t => t.name.toLowerCase().replace(/[^a-z0-9]/g, '') === needle);
-    const partial = tariffList.find(t => {
-      const n = t.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-      return n.includes(needle) || needle.includes(n);
-    });
-    const match = exact ?? partial;
-    if (match) setTariffId(String(match.iTariff));
-    else setTariffId('');
-  }, [companyName, tariffList, tariffManual]);
-
-  async function handleCreatePlan() {
-    if (!companyName.trim() || !tariffId) return;
-    setCreating(true);
+  async function handleCreate() {
+    if (!companyName.trim()) return;
     setResult(null);
+    setStep('tariff');
     try {
-      const r = await fetch('/api/sippy/service-plans/create', {
+      const r = await fetch('/api/sippy/company-profile/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          planName: companyName.trim(),
-          iTariff: Number(tariffId),
+          name: companyName.trim(),
+          currency,
           billingCycle: Number(billingCycle),
         }),
       });
@@ -73,11 +61,12 @@ export default function CompanyProfilePage() {
       setResult(res);
       if (res.success) {
         queryClient.invalidateQueries({ queryKey: ['/api/sippy/billing-plans'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/sippy/tariffs'] });
       }
     } catch (e: any) {
       setResult({ success: false, error: e.message });
     } finally {
-      setCreating(false);
+      setStep('done');
     }
   }
 
@@ -94,7 +83,7 @@ export default function CompanyProfilePage() {
           Company Profile
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Create a Sippy Service Plan before onboarding a new account. Once done, open the New Sippy Account wizard.
+          Creates a matching <strong>Tariff</strong> and <strong>Service Plan</strong> in Sippy using the same company name, then you can open the New Sippy Account wizard.
         </p>
       </div>
 
@@ -108,20 +97,39 @@ export default function CompanyProfilePage() {
 
           {/* Company name */}
           <div>
-            <label className={labelCls}>Company / Display Name <span className="text-rose-400">*</span></label>
+            <label className={labelCls}>
+              Company / Display Name <span className="text-rose-400">*</span>
+            </label>
             <input
               data-testid="input-company-name"
               value={companyName}
-              onChange={e => setBillingName(e.target.value)}
+              onChange={e => { setCompanyName(e.target.value); setResult(null); setStep('idle'); }}
               placeholder="e.g. Acme Telecom"
               className={`${fieldCls} ${!companyName.trim() ? 'border-amber-500/50' : ''}`}
             />
-            {!companyName.trim() && (
-              <p className="text-xs text-amber-400 mt-1">Required — used as the Service Plan name.</p>
+            {companyName.trim() && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Both the tariff and service plan will be named <span className="text-foreground font-medium">"{companyName.trim()}"</span>.
+              </p>
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
+            {/* Currency */}
+            <div>
+              <label className={labelCls}>Tariff Currency <span className="text-rose-400">*</span></label>
+              <select
+                data-testid="select-currency"
+                value={currency}
+                onChange={e => setCurrency(e.target.value)}
+                className={fieldCls}
+              >
+                {COMMON_CURRENCIES.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+
             {/* Billing Cycle */}
             <div>
               <label className={labelCls}>Billing Cycle</label>
@@ -136,73 +144,55 @@ export default function CompanyProfilePage() {
                 ))}
               </select>
             </div>
+          </div>
 
-            {/* Basic Tariff */}
-            <div>
-              <label className={labelCls}>
-                Basic Tariff <span className="text-rose-400">*</span>
-                {!tariffManual && companyName.trim() && tariffId && (
-                  <span className="ml-2 text-[10px] text-violet-400 font-normal normal-case tracking-normal">
-                    auto-matched by name
-                  </span>
-                )}
-              </label>
-              {tariffListLoading ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading tariffs…
-                </div>
-              ) : tariffList.length === 0 ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-amber-400">No tariffs found</span>
-                  <button onClick={() => refetchTariffs()} className="text-xs text-primary hover:underline flex items-center gap-1">
-                    <RefreshCw className="w-3 h-3" /> Retry
-                  </button>
-                </div>
-              ) : (
-                <select
-                  data-testid="select-tariff"
-                  value={tariffId}
-                  onChange={e => { setTariffId(e.target.value); setTariffManual(true); }}
-                  className={`${fieldCls} ${!tariffId ? 'border-amber-500/50' : ''}`}
-                >
-                  <option value="">— Select tariff —</option>
-                  {tariffList.map(t => (
-                    <option key={t.iTariff} value={String(t.iTariff)}>
-                      {t.name}{t.currency ? ` (${t.currency})` : ''}
-                    </option>
-                  ))}
-                </select>
-              )}
+          {/* What will be created summary */}
+          <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 space-y-2 text-xs text-muted-foreground">
+            <p className="font-medium text-foreground text-[11px] uppercase tracking-wide mb-1">Will be created</p>
+            <div className="flex items-center gap-2">
+              <Receipt className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+              <span>
+                Tariff <span className="text-foreground font-medium">"{companyName.trim() || '…'}"</span>
+                {' '}· currency <span className="text-foreground font-medium">{currency}</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <FileText className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <span>
+                Service Plan <span className="text-foreground font-medium">"{companyName.trim() || '…'}"</span>
+                {' '}· {BILLING_CYCLES.find(c => c.value === billingCycle)?.label}
+                {' '}· Calls Duration Round-Up
+              </span>
             </div>
           </div>
 
-          {/* Fixed settings summary */}
-          <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 grid grid-cols-2 gap-3 text-xs text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-muted border border-border text-foreground font-medium">Calls Duration</span>
-              Round-Up
+          {/* Progress indicator while creating */}
+          {creating && (
+            <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 space-y-2 text-sm">
+              <div className="flex items-center gap-2 text-primary">
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                <span>
+                  {step === 'tariff' ? 'Step 1/2 — Creating tariff in Sippy…' : 'Step 2/2 — Creating service plan…'}
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-muted border border-border text-foreground font-medium">Billing Cycle</span>
-              {BILLING_CYCLES.find(c => c.value === billingCycle)?.label}
-            </div>
-          </div>
+          )}
 
           {/* Create button */}
           <button
-            data-testid="button-create-plan"
-            onClick={handleCreatePlan}
-            disabled={!companyName.trim() || !tariffId || creating}
+            data-testid="button-create"
+            onClick={handleCreate}
+            disabled={!companyName.trim() || creating}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             {creating
               ? <Loader2 className="w-4 h-4 animate-spin" />
               : <Building2 className="w-4 h-4" />}
-            {creating ? 'Creating Service Plan…' : 'Create Service Plan in Sippy'}
+            {creating ? 'Creating…' : 'Create Tariff + Service Plan'}
           </button>
 
           {/* Result banner */}
-          {result && (
+          {step === 'done' && result && (
             <div className={`rounded-lg px-4 py-3 text-sm flex items-start gap-3 ${
               result.success
                 ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
@@ -214,14 +204,21 @@ export default function CompanyProfilePage() {
               <div className="space-y-1.5">
                 {result.success ? (
                   <>
-                    <p className="font-medium text-emerald-200">Service Plan created successfully</p>
-                    <p className="text-xs text-emerald-300/80">
-                      "{result.planName}" (ID {result.planId}) is ready in Sippy.
-                    </p>
+                    <p className="font-medium text-emerald-200">Tariff &amp; Service Plan created</p>
+                    <div className="text-xs text-emerald-300/80 space-y-0.5">
+                      <p>
+                        <Receipt className="w-3 h-3 inline mr-1 text-violet-400" />
+                        Tariff <span className="font-medium text-emerald-200">"{result.name}"</span> — ID {result.tariffId}
+                      </p>
+                      <p>
+                        <FileText className="w-3 h-3 inline mr-1 text-sky-400" />
+                        Service Plan <span className="font-medium text-emerald-200">"{result.name}"</span> — ID {result.planId}
+                      </p>
+                    </div>
                     <Link href="/clients?openWizard=1">
                       <a
                         data-testid="link-open-wizard"
-                        className="inline-flex items-center gap-1.5 mt-1 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+                        className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
                       >
                         New Sippy Account <ArrowRight className="w-3.5 h-3.5" />
                       </a>
