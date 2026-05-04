@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   Loader2, CheckCircle2, AlertTriangle, Building2, ArrowRight,
-  Receipt, FileText,
+  Receipt, FileText, ExternalLink,
 } from "lucide-react";
 
 const BILLING_CYCLES = [
@@ -36,6 +36,7 @@ export default function CompanyProfilePage() {
     planId?: number | null;
     alreadyExists?: boolean;
     manualStep?: string;
+    sippyPortalLink?: string;
     error?: string;
   } | null>(null);
 
@@ -246,17 +247,29 @@ export default function CompanyProfilePage() {
                       </p>
                       <p className="flex items-center gap-1.5">
                         <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
-                        Service Plan could not be created automatically (Sippy admin portal not accessible from this server)
+                        Service Plan could not be created automatically — Sippy requires manual creation via the portal
                       </p>
                     </div>
                     {result.manualStep && (
                       <div className="mt-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-xs text-amber-300/90 leading-relaxed">
-                        <p className="font-semibold text-amber-200 mb-0.5">Manual step required:</p>
+                        <p className="font-semibold text-amber-200 mb-1">Steps to complete in Sippy:</p>
                         <p>{result.manualStep}</p>
                       </div>
                     )}
+                    {result.sippyPortalLink && (
+                      <a
+                        data-testid="link-sippy-service-plans"
+                        href={result.sippyPortalLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs font-medium hover:bg-amber-500/30 transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Open Sippy → Add Service Plan
+                      </a>
+                    )}
                     <p className="text-xs text-amber-300/60 mt-1">
-                      Once the service plan is created, re-run this with the same name — it will detect the existing plan automatically.
+                      After creating the plan in Sippy, click "Create Tariff + Service Plan" again with the same name — it will detect and reuse it automatically.
                     </p>
                   </>
                 )}

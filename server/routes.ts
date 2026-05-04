@@ -1973,13 +1973,16 @@ export async function registerRoutes(
         // Portal is inaccessible for service plan creation — partial success:
         // tariff is ready, service plan must be created manually in Sippy.
         if (planRes.needsManualCreation) {
+          const sippyBase = portalUrl ? portalUrl.replace(/\/$/, '') : '';
+          const sippyPortalLink = sippyBase ? `${sippyBase}/service_plans.php?action=add` : undefined;
           return res.json({
             success: true,
             partial: true,
             name: name.trim(),
             tariffId: tariffRes.iTariff,
             planId: null,
-            manualStep: `In your Sippy portal, go to Billing → Service Plans → Add New Plan. Set the name to "${name.trim()}", link it to Tariff ID ${tariffRes.iTariff}, and configure billing as needed.`,
+            sippyPortalLink,
+            manualStep: `In your Sippy portal, go to Billing → Service Plans → Add New Plan. Set the name to "${name.trim()}", select Tariff ID ${tariffRes.iTariff}, set billing cycle, then save.`,
           });
         }
 
