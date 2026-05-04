@@ -2507,7 +2507,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [passPAssertedId, setPassPAssertedId] = useState(false);
   const [pAssrtIdTranslationRule, setPAssrtIdTranslationRule] = useState(gen4Digit); // auto-generated 4-digit on mount
   const [disallowLoops, setDisallowLoops] = useState(false);
-  const [timezone, setTimezone] = useState('1'); // default GMT+00 (UTC)
+  const [timezone, setTimezone] = useState('0'); // default GMT+00 (UTC)
   const [currency, setCurrency] = useState('');
 
   // Step 4: Billing & Alerts
