@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -2444,6 +2444,10 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [showWebPass, setShowWebPass] = useState(false);
   const [showVoipPass, setShowVoipPass] = useState(true);           // visible by default (auto-generated)
 
+  // Track whether user has manually overridden auto-filled fields
+  const companyNameEdited = useRef(false);
+  const authnameEdited = useRef(false);
+
   // Step 2: Network & Routing
   const [ipTags, setIpTags] = useState<string[]>([]);
   const [ipInput, setIpInput] = useState('');
@@ -2451,7 +2455,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [tariffId, setTariffId] = useState('');
   const [ratePerMin, setRatePerMin] = useState('');
   const [cliTranslationRule, setCliTranslationRule] = useState('');
-  const [cldTranslationRule, setCldTranslationRule] = useState('');
+  const [cldTranslationRule, setCldTranslationRule] = useState('s/^0//');
   const [maxSessionTime, setMaxSessionTime] = useState('');
 
   // Step 3: SIP Configuration
@@ -2462,7 +2466,7 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [passPAssertedId, setPassPAssertedId] = useState(false);
   const [pAssrtIdTranslationRule, setPAssrtIdTranslationRule] = useState(gen4Digit); // auto-generated 4-digit on mount
   const [disallowLoops, setDisallowLoops] = useState(false);
-  const [timezone, setTimezone] = useState('');
+  const [timezone, setTimezone] = useState('1'); // default GMT+00 (UTC)
   const [currency, setCurrency] = useState('');
 
   // Step 4: Billing & Alerts
@@ -2530,6 +2534,12 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const billingPlans = billingPlanData?.plans ?? [];
 
   const [tariffAutoMatched, setTariffAutoMatched] = useState<string | null>(null);
+
+  // Auto-fill Company Name and SIP Authname from Display Name unless user has manually edited them.
+  useEffect(() => {
+    if (!companyNameEdited.current) setCompanyName(name);
+    if (!authnameEdited.current)    setAuthname(name.toLowerCase().replace(/[^a-z0-9]/g, '') || '');
+  }, [name]);
 
   // Auto-select the billing plan whose name matches the client name (Display Name from Step 1).
   // Triggers when billing plans load OR when step advances to 2, but only if tariffId is not already set.
@@ -2803,8 +2813,9 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
               </div>
               <div>
                 <label className={labelCls}>Company Name</label>
-                <input data-testid="input-sippy-company" value={companyName} onChange={e => setCompanyName(e.target.value)}
-                  placeholder="Optional" className={fieldCls} />
+                <input data-testid="input-sippy-company" value={companyName}
+                  onChange={e => { companyNameEdited.current = true; setCompanyName(e.target.value); }}
+                  placeholder="Auto-filled from Display Name" className={fieldCls} />
               </div>
               <div>
                 <label className={labelCls}>First Name</label>
@@ -2864,8 +2875,14 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                 </div>
               </div>
               <div>
-                <label className={labelCls}>SIP Authname</label>
-                <input data-testid="input-sippy-authname" value={authname} onChange={e => setAuthname(e.target.value)}
+                <label className={`${labelCls} flex items-center justify-between`}>
+                  <span>SIP Authname</span>
+                  {!authnameEdited.current && name && (
+                    <span className="text-[10px] text-violet-400 font-normal normal-case tracking-normal">auto-filled from name</span>
+                  )}
+                </label>
+                <input data-testid="input-sippy-authname" value={authname}
+                  onChange={e => { authnameEdited.current = true; setAuthname(e.target.value); }}
                   placeholder={name ? name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'sipuser' : 'Auto-derived'}
                   className={fieldCls} autoComplete="off" />
                 <p className="text-xs text-muted-foreground mt-1">For SIP REGISTER authentication.</p>
