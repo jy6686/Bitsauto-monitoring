@@ -5641,13 +5641,58 @@ export async function createSippyServicePlan(
     }
   } catch { /* ignore — continue to portal attempt */ }
 
+  // ── Step 0.5: Try XML-RPC addBillingPlan first (no scraping needed) ─────────
+  // Sippy may expose a billing plan creation method via XML-RPC.
+  // Try multiple method names and both flat/nested param shapes across Sippy versions.
+  {
+    const apiUrl = `${portalUrl.replace(/\/+$/, '')}/xmlapi/xmlapi`;
+    const bpParams = {
+      name:          planName,
+      i_tariff:      iTariff,
+      billing_cycle: billingCycle ?? 3,
+    };
+    // Flat-params variants
+    const flatMethods = ['addBillingPlan', 'addServicePlan', 'createBillingPlan', 'billing_plan.add'];
+    // Nested variants (billing_plan_info wrapper, common Sippy pattern)
+    const nestedKey = 'billing_plan_info';
+    for (const method of flatMethods) {
+      for (const useNested of [false, true]) {
+        try {
+          const xml = useNested
+            ? xmlRpcCallNested(method, nestedKey, bpParams as Record<string, string | number | boolean | null>)
+            : xmlRpcCall(method, bpParams as Record<string, string | number | boolean | null>);
+          const r = await sippyPost(apiUrl, xml, adminUser, adminPass, 8000);
+          if (r.statusCode !== 200) continue;
+          if (r.body.includes('faultCode')) {
+            const fault = extractFaultString(r.body) ?? '';
+            if (/unknown method|not found|not supported|no method/i.test(fault)) break; // try next method
+            console.log(`[Sippy] createSippyServicePlan XML-RPC ${method}: fault "${fault}"`);
+            continue;
+          }
+          // Success: parse the returned i_billing_plan from the XML response
+          const idMatch = r.body.match(/<int>(\d+)<\/int>/) || r.body.match(/<value><int>(\d+)<\/int>/);
+          if (idMatch) {
+            const planId = parseInt(idMatch[1], 10);
+            if (planId > 0) {
+              console.log(`[Sippy] createSippyServicePlan: created via XML-RPC ${method} → i_billing_plan=${planId}`);
+              for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
+              return { success: true, planId, planName };
+            }
+          }
+          console.log(`[Sippy] createSippyServicePlan XML-RPC ${method} OK but no plan ID in response`);
+        } catch { /* next */ }
+      }
+    }
+  }
+
   // ── Step 1: collect ALL portal sessions where service_plans.php returns HTTP 200 ─
   // We need a session with INSERT permission, not just read access.
   // acct_type=customer can READ service_plans.php (HTTP 200) but Sippy blocks writes
-  // with "Cannot insert Service Plan." — acct_type=admin has INSERT permission.
-  // We collect all viable sessions (ordered: admin first), then try the POST with each
-  // until one succeeds — so if admin login fails we still fall back to customer.
-  type SessionCandidate = { cookies: CookieJar; label: string };
+  // with "Cannot insert Service Plan." — acct_type=admin has INSERT permission but
+  // uses a different URL context: service_plans.php?i_customer=1 (admin manages
+  // customer 1 = ssp-root's own plans).  We collect all viable sessions (admin first),
+  // then try the POST with each until one succeeds.
+  type SessionCandidate = { cookies: CookieJar; label: string; iCustomer?: string };
   const viableSessions: SessionCandidate[] = [];
   {
     const seen = new Set<string>();
@@ -5662,7 +5707,7 @@ export async function createSippyServicePlan(
     addC(adminUser,  adminPass);
     addC(portalUser, portalPass);
 
-    // admin first — INSERT permission; customer/others as fallback
+    // admin first — admin sessions need ?i_customer=N URL; customer type uses bare URL
     for (const [u, p] of cands) {
       for (const acctType of ['admin', 'customer', 'reseller', 'account', 'vendor'] as const) {
         const formData = encodeForm({
@@ -5671,14 +5716,29 @@ export async function createSippyServicePlan(
         try {
           const loginResp = await rawRequest('POST', `${base}/main.php`, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
           if (loginResp.statusCode !== 302 || loginResp.cookies.size === 0) continue;
+
+          const label = `${u}/${acctType}`;
+          if (viableSessions.some(s => s.label.startsWith(u + '/'))) break; // already have one for this cred
+
+          // For admin sessions, Sippy requires ?i_customer=N to access service_plans.php.
+          // The root customer ssp-root is always i_customer=1.  Try IDs 1 and 2 as fallback.
+          if (acctType === 'admin') {
+            for (const iCust of ['1', '2', '3']) {
+              const adminSpCheck = await rawRequest('GET', `${base}/service_plans.php?i_customer=${iCust}`, null, { 'User-Agent': PORTAL_USER_AGENT }, loginResp.cookies, 0);
+              if (adminSpCheck.statusCode === 200 && adminSpCheck.body.length > 500 && !adminSpCheck.body.includes('value="Login"')) {
+                console.log(`[Sippy] createSippyServicePlan: viable ADMIN session as ${label} with i_customer=${iCust}`);
+                viableSessions.push({ cookies: loginResp.cookies, label: `${label}+ic${iCust}`, iCustomer: iCust });
+                break;
+              }
+            }
+            if (viableSessions.some(s => s.label.startsWith(u + '/'))) break;
+          }
+
+          // For non-admin, check bare service_plans.php
           const spCheck = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, loginResp.cookies, 0);
           if (spCheck.statusCode === 200 && spCheck.body.length > 500 && !spCheck.body.includes('value="Login"')) {
-            const label = `${u}/${acctType}`;
-            // Only keep one session per credential-pair (the first acct_type that works)
-            if (!viableSessions.some(s => s.label.startsWith(u + '/'))) {
-              console.log(`[Sippy] createSippyServicePlan: viable session as ${label}`);
-              viableSessions.push({ cookies: loginResp.cookies, label });
-            }
+            console.log(`[Sippy] createSippyServicePlan: viable session as ${label}`);
+            viableSessions.push({ cookies: loginResp.cookies, label });
             break; // next credential pair
           }
         } catch { /* next */ }
@@ -5697,7 +5757,9 @@ export async function createSippyServicePlan(
 
   // ── Step 2: POST service_plans.php — try each viable session until one succeeds ──
   // NOTE: do NOT include i_billing_plan — empty string crashes Sippy's PHP (HTTP 500).
-  const postBody = encodeForm({
+  // Admin sessions that were discovered via ?i_customer=N must include i_customer in the
+  // POST body so Sippy's PHP knows which customer context the plan belongs to.
+  const basePostFields = {
     bp_name:                     planName,
     i_tariff:                    String(iTariff),
     i_onnet_tariff:              '-1',
@@ -5720,13 +5782,22 @@ export async function createSippyServicePlan(
     n:                           '',
     name:                        '',
     name_clause:                 '',
-  });
+  };
 
   let resp!: Awaited<ReturnType<typeof rawRequest>>;
   let usedSession = '';
-  for (const { cookies, label } of viableSessions) {
+  for (const { cookies, label, iCustomer } of viableSessions) {
     try {
-      const r = await rawRequest('POST', `${base}/service_plans.php`, postBody, { 'User-Agent': PORTAL_USER_AGENT }, cookies);
+      // For admin sessions with i_customer context, include it in the POST body
+      // and also add it to the URL so PHP finds the right session context
+      const postFields = iCustomer
+        ? { ...basePostFields, i_customer: iCustomer }
+        : basePostFields;
+      const postBody = encodeForm(postFields);
+      const postUrl = iCustomer
+        ? `${base}/service_plans.php?i_customer=${iCustomer}`
+        : `${base}/service_plans.php`;
+      const r = await rawRequest('POST', postUrl, postBody, { 'User-Agent': PORTAL_USER_AGENT }, cookies);
       console.log(`[Sippy] createSippyServicePlan POST (${label}) → HTTP ${r.statusCode}, body: ${r.body.length}B`);
       const isLoginPage = r.body.includes('value="Login"') || r.body.includes("value='Login'");
       const hasInsertError = /alert\(['"][^'"]*Cannot insert[^'"]*['"]\)/i.test(r.body);
