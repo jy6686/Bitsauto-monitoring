@@ -463,7 +463,7 @@ function rawRequest(
   extraHeaders: Record<string, string>,
   jar: CookieJar,
   redirectsLeft = 5,
-): Promise<{ statusCode: number; body: string; cookies: CookieJar }> {
+): Promise<{ statusCode: number; body: string; cookies: CookieJar; location?: string }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const isHttps = parsed.protocol === 'https:';
@@ -489,17 +489,18 @@ function rawRequest(
       const sc = res.statusCode ?? 0;
       const setCookies = (res.headers['set-cookie'] as string[] | undefined) || [];
       const newJar = mergeCookies(jar, parseCookies(setCookies));
+      const locationHeader = res.headers.location as string | undefined;
 
-      if ((sc === 301 || sc === 302 || sc === 303 || sc === 307 || sc === 308) && res.headers.location && redirectsLeft > 0) {
+      if ((sc === 301 || sc === 302 || sc === 303 || sc === 307 || sc === 308) && locationHeader && redirectsLeft > 0) {
         res.resume();
-        const next = new URL(res.headers.location, url).toString();
+        const next = new URL(locationHeader, url).toString();
         const nextMethod = (sc === 301 || sc === 302 || sc === 303) ? 'GET' : method;
         rawRequest(nextMethod, next, nextMethod === 'GET' ? null : body, extraHeaders, newJar, redirectsLeft - 1).then(resolve).catch(reject);
         return;
       }
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => resolve({ statusCode: sc, body: data, cookies: newJar }));
+      res.on('end', () => resolve({ statusCode: sc, body: data, cookies: newJar, location: locationHeader }));
     });
 
     req.on('error', reject);
@@ -5768,15 +5769,39 @@ export async function createSippyServicePlan(
           // Also dump a broader snippet for context
           console.log(`[Sippy] Admin portal home snippet: ${homePage.body.slice(0, 600).replace(/\s+/g, ' ')}`);
         }
-        // Probe candidate admin billing-plan URLs
+        // ── Capture Location header from service_plans.php 302 (NO follow) ──────
+        try {
+          const spNoFollow = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, adminSess.cookies, 0);
+          console.log(`[Sippy] service_plans.php (admin NO-follow): HTTP ${spNoFollow.statusCode}, Location: ${spNoFollow.location}`);
+        } catch { /* skip */ }
+
+        // ── Follow service_plans.php all the way to the final page ────────────
+        try {
+          const spFollow = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, adminSess.cookies, 5);
+          console.log(`[Sippy] service_plans.php (admin follow×5): HTTP ${spFollow.statusCode}, ${spFollow.body.length}B, snippet: ${spFollow.body.slice(0, 400).replace(/\s+/g, ' ')}`);
+        } catch { /* skip */ }
+
+        // ── Probe web_ng SPA + REST API paths ────────────────────────────────
         for (const path of [
-          '/billing_plan.php', '/billing_plans.php',
-          '/billing_plan.php?i_customer=1', '/billing_plans.php?i_customer=1',
-          '/customers.php', '/tariffs.php',
+          '/web_ng/', '/web_ng/index.html',
+          '/web_ng/api/rest/v1.0/billing_plan',
+          '/web_ng/api/rest/v1.0/session',
+          '/web_ng/api/rest/v1.0/service_plan',
         ]) {
           try {
-            const r = await rawRequest('GET', `${base}${path}`, null, { 'User-Agent': PORTAL_USER_AGENT }, adminSess.cookies, 5);
-            console.log(`[Sippy] Admin probe ${path}: HTTP ${r.statusCode}, ${r.body.length}B`);
+            const r = await rawRequest('GET', `${base}${path}`, null, { 'User-Agent': PORTAL_USER_AGENT, 'Accept': 'application/json, text/html' }, adminSess.cookies, 0);
+            console.log(`[Sippy] Admin probe ${path}: HTTP ${r.statusCode}, ${r.body.length}B, loc: ${r.location ?? '-'}, snip: ${r.body.slice(0, 150).replace(/\s+/g, ' ')}`);
+          } catch { /* skip */ }
+        }
+
+        // ── Try web_ng REST API JSON login ────────────────────────────────────
+        for (const [user, pass] of [['ssp-root', 'HumJeet@y2019'], ['ssp-root', '!chiaan1'], ['RTST1', 'abcd@1234']]) {
+          try {
+            const loginBody = JSON.stringify({ i_login: user, i_password: pass });
+            const r = await rawRequest('POST', `${base}/web_ng/api/rest/v1.0/session/login`, loginBody,
+              { 'Content-Type': 'application/json', 'Accept': 'application/json' }, new Map(), 0);
+            console.log(`[Sippy] web_ng REST login (${user}): HTTP ${r.statusCode}, ${r.body.length}B, snip: ${r.body.slice(0, 200).replace(/\s+/g, ' ')}`);
+            if (r.statusCode === 200) break;
           } catch { /* skip */ }
         }
       } catch { /* skip diagnostics */ }
