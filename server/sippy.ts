@@ -5749,65 +5749,6 @@ export async function createSippyServicePlan(
   }
   console.log(`[Sippy] createSippyServicePlan: ${allSessions.length} sessions to try: ${allSessions.map(s => s.label).join(', ')}`);
 
-  // ── Step 1b: Diagnose admin portal URL structure ──────────────────────────────
-  // service_plans.php only accepts customer-portal sessions.  Admin/account sessions
-  // live in a DIFFERENT sub-portal with different URLs.  Find those URLs by:
-  //  a) following the login redirect to the admin portal home
-  //  b) scanning links for billing/service-plan pages
-  //  c) probing a list of known Sippy admin billing-plan URL candidates
-  {
-    const adminSess = allSessions.find(s => /\/(account|admin|reseller)$/.test(s.label));
-    if (adminSess) {
-      try {
-        // Follow all redirects from login to land on the admin portal home page
-        const homePage = await rawRequest('GET', `${base}/`, null, { 'User-Agent': PORTAL_USER_AGENT }, adminSess.cookies, 5);
-        console.log(`[Sippy] Admin portal home (${adminSess.label}): HTTP ${homePage.statusCode}, ${homePage.body.length}B`);
-        if (homePage.body.length > 500) {
-          const links = [...homePage.body.matchAll(/href=["']([^"']+)["']/g)].map(m => m[1]);
-          const billingLinks = links.filter(l => /billing|service.?plan|tariff|bp/i.test(l));
-          console.log(`[Sippy] Admin portal billing-related links: ${billingLinks.slice(0, 15).join(' | ')}`);
-          // Also dump a broader snippet for context
-          console.log(`[Sippy] Admin portal home snippet: ${homePage.body.slice(0, 600).replace(/\s+/g, ' ')}`);
-        }
-        // ── Capture Location header from service_plans.php 302 (NO follow) ──────
-        try {
-          const spNoFollow = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, adminSess.cookies, 0);
-          console.log(`[Sippy] service_plans.php (admin NO-follow): HTTP ${spNoFollow.statusCode}, Location: ${spNoFollow.location}`);
-        } catch { /* skip */ }
-
-        // ── Follow service_plans.php all the way to the final page ────────────
-        try {
-          const spFollow = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, adminSess.cookies, 5);
-          console.log(`[Sippy] service_plans.php (admin follow×5): HTTP ${spFollow.statusCode}, ${spFollow.body.length}B, snippet: ${spFollow.body.slice(0, 400).replace(/\s+/g, ' ')}`);
-        } catch { /* skip */ }
-
-        // ── Probe web_ng SPA + REST API paths ────────────────────────────────
-        for (const path of [
-          '/web_ng/', '/web_ng/index.html',
-          '/web_ng/api/rest/v1.0/billing_plan',
-          '/web_ng/api/rest/v1.0/session',
-          '/web_ng/api/rest/v1.0/service_plan',
-        ]) {
-          try {
-            const r = await rawRequest('GET', `${base}${path}`, null, { 'User-Agent': PORTAL_USER_AGENT, 'Accept': 'application/json, text/html' }, adminSess.cookies, 0);
-            console.log(`[Sippy] Admin probe ${path}: HTTP ${r.statusCode}, ${r.body.length}B, loc: ${r.location ?? '-'}, snip: ${r.body.slice(0, 150).replace(/\s+/g, ' ')}`);
-          } catch { /* skip */ }
-        }
-
-        // ── Try web_ng REST API JSON login ────────────────────────────────────
-        for (const [user, pass] of [['ssp-root', 'HumJeet@y2019'], ['ssp-root', '!chiaan1'], ['RTST1', 'abcd@1234']]) {
-          try {
-            const loginBody = JSON.stringify({ i_login: user, i_password: pass });
-            const r = await rawRequest('POST', `${base}/web_ng/api/rest/v1.0/session/login`, loginBody,
-              { 'Content-Type': 'application/json', 'Accept': 'application/json' }, new Map(), 0);
-            console.log(`[Sippy] web_ng REST login (${user}): HTTP ${r.statusCode}, ${r.body.length}B, snip: ${r.body.slice(0, 200).replace(/\s+/g, ' ')}`);
-            if (r.statusCode === 200) break;
-          } catch { /* skip */ }
-        }
-      } catch { /* skip diagnostics */ }
-    }
-  }
-
   // ── Step 2: POST service_plans.php — try each session in priority order ───────
   // NOTE: do NOT include i_billing_plan — empty string crashes Sippy's PHP (HTTP 500).
   // account/admin sessions include i_customer='1' in both the URL and POST body so
