@@ -5685,20 +5685,26 @@ export async function createSippyServicePlan(
     }
   }
 
-  // ── Step 1: collect ALL portal sessions where service_plans.php returns HTTP 200 ─
-  // We need a session with INSERT permission, not just read access.
-  // acct_type=customer can READ service_plans.php (HTTP 200) but Sippy blocks writes
-  // with "Cannot insert Service Plan." — acct_type=admin has INSERT permission but
-  // uses a different URL context: service_plans.php?i_customer=1 (admin manages
-  // customer 1 = ssp-root's own plans).  We collect all viable sessions (admin first),
-  // then try the POST with each until one succeeds.
-  type SessionCandidate = { cookies: CookieJar; label: string; iCustomer?: string };
-  const viableSessions: SessionCandidate[] = [];
+  // ── Step 1: collect login sessions for every credential × acct_type combination ─
+  // KEY INSIGHT (from portalLogin): on this Sippy build ssp-root uses acct_type='account',
+  // NOT 'admin' or 'customer'.  The 'customer' session can READ service_plans.php but
+  // Sippy blocks writes ("Cannot insert").  The 'account' session is the one that has
+  // INSERT permission — even though its GET to service_plans.php returns 302 (redirect),
+  // the POST may succeed.  So: collect ALL sessions where login POST returns 302 (no GET
+  // pre-check), ordered by most-privileged acct_type first, then try POST with each.
+  //
+  // acct_type priority (insert-permission likelihood):
+  //   account(0) > admin(1) > reseller(2) > customer(3) > vendor(4)
+  //
+  // For non-customer sessions include i_customer='1' in the POST body so Sippy's PHP
+  // knows which customer context to create the plan under (ssp-root = i_customer=1).
+  type SessionCandidate = { cookies: CookieJar; label: string; priority: number; iCustomer?: string };
+  const allSessions: SessionCandidate[] = [];
   {
-    const seen = new Set<string>();
+    const credSeen = new Set<string>();
     const cands: Array<[string, string]> = [];
     const addC = (u: string, p: string) => {
-      if (u && p && !seen.has(`${u}:${p}`)) { seen.add(`${u}:${p}`); cands.push([u, p]); }
+      if (u && p && !credSeen.has(`${u}:${p}`)) { credSeen.add(`${u}:${p}`); cands.push([u, p]); }
     };
     if (adminWebPassword) {
       addC(adminUser,  adminWebPassword);
@@ -5707,58 +5713,45 @@ export async function createSippyServicePlan(
     addC(adminUser,  adminPass);
     addC(portalUser, portalPass);
 
-    // admin first — admin sessions need ?i_customer=N URL; customer type uses bare URL
+    const typePriority: Record<string, number> = { account: 0, admin: 1, reseller: 2, customer: 3, vendor: 4 };
+    const sessionKeys = new Set<string>();
+
     for (const [u, p] of cands) {
-      for (const acctType of ['admin', 'customer', 'reseller', 'account', 'vendor'] as const) {
+      for (const acctType of ['account', 'admin', 'reseller', 'customer', 'vendor'] as const) {
+        const key = `${u}/${acctType}`;
+        if (sessionKeys.has(key)) continue;
         const formData = encodeForm({
           username: u, password: p, acct_type: acctType, login_page: 'all', Login: 'Login',
         });
         try {
           const loginResp = await rawRequest('POST', `${base}/main.php`, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
           if (loginResp.statusCode !== 302 || loginResp.cookies.size === 0) continue;
-
-          const label = `${u}/${acctType}`;
-          if (viableSessions.some(s => s.label.startsWith(u + '/'))) break; // already have one for this cred
-
-          // For admin sessions, Sippy requires ?i_customer=N to access service_plans.php.
-          // The root customer ssp-root is always i_customer=1.  Try IDs 1 and 2 as fallback.
-          if (acctType === 'admin') {
-            for (const iCust of ['1', '2', '3']) {
-              const adminSpCheck = await rawRequest('GET', `${base}/service_plans.php?i_customer=${iCust}`, null, { 'User-Agent': PORTAL_USER_AGENT }, loginResp.cookies, 0);
-              if (adminSpCheck.statusCode === 200 && adminSpCheck.body.length > 500 && !adminSpCheck.body.includes('value="Login"')) {
-                console.log(`[Sippy] createSippyServicePlan: viable ADMIN session as ${label} with i_customer=${iCust}`);
-                viableSessions.push({ cookies: loginResp.cookies, label: `${label}+ic${iCust}`, iCustomer: iCust });
-                break;
-              }
-            }
-            if (viableSessions.some(s => s.label.startsWith(u + '/'))) break;
-          }
-
-          // For non-admin, check bare service_plans.php
-          const spCheck = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, loginResp.cookies, 0);
-          if (spCheck.statusCode === 200 && spCheck.body.length > 500 && !spCheck.body.includes('value="Login"')) {
-            console.log(`[Sippy] createSippyServicePlan: viable session as ${label}`);
-            viableSessions.push({ cookies: loginResp.cookies, label });
-            break; // next credential pair
-          }
+          sessionKeys.add(key);
+          // Non-customer sessions: always include i_customer=1 in POST body
+          const iCustomer = (acctType !== 'customer' && acctType !== 'vendor') ? '1' : undefined;
+          console.log(`[Sippy] createSippyServicePlan: captured login session ${key}${iCustomer ? ' (admin ctx i_customer=1)' : ''}`);
+          allSessions.push({ cookies: loginResp.cookies, label: key, priority: typePriority[acctType] ?? 99, iCustomer });
         } catch { /* next */ }
       }
     }
+    // Sort by priority: account first, then admin, reseller, customer, vendor
+    allSessions.sort((a, b) => a.priority - b.priority);
   }
 
-  if (viableSessions.length === 0) {
-    console.log('[Sippy] createSippyServicePlan: no session reached service_plans.php with 200 — needs manual creation');
+  if (allSessions.length === 0) {
+    console.log('[Sippy] createSippyServicePlan: no login session succeeded — needs manual creation');
     return {
       success: false,
       needsManualCreation: true,
       error: 'The Sippy web portal is not accessible from this server. Create the Service Plan manually in the Sippy portal.',
     };
   }
+  console.log(`[Sippy] createSippyServicePlan: ${allSessions.length} sessions to try: ${allSessions.map(s => s.label).join(', ')}`);
 
-  // ── Step 2: POST service_plans.php — try each viable session until one succeeds ──
+  // ── Step 2: POST service_plans.php — try each session in priority order ───────
   // NOTE: do NOT include i_billing_plan — empty string crashes Sippy's PHP (HTTP 500).
-  // Admin sessions that were discovered via ?i_customer=N must include i_customer in the
-  // POST body so Sippy's PHP knows which customer context the plan belongs to.
+  // account/admin sessions include i_customer='1' in both the URL and POST body so
+  // Sippy's PHP knows which customer context to create the plan under.
   const basePostFields = {
     bp_name:                     planName,
     i_tariff:                    String(iTariff),
@@ -5786,34 +5779,33 @@ export async function createSippyServicePlan(
 
   let resp!: Awaited<ReturnType<typeof rawRequest>>;
   let usedSession = '';
-  for (const { cookies, label, iCustomer } of viableSessions) {
+  for (const { cookies, label, iCustomer } of allSessions) {
     try {
-      // For admin sessions with i_customer context, include it in the POST body
-      // and also add it to the URL so PHP finds the right session context
-      const postFields = iCustomer
-        ? { ...basePostFields, i_customer: iCustomer }
-        : basePostFields;
-      const postBody = encodeForm(postFields);
-      const postUrl = iCustomer
+      const postFields = iCustomer ? { ...basePostFields, i_customer: iCustomer } : basePostFields;
+      const postBody   = encodeForm(postFields);
+      const postUrl    = iCustomer
         ? `${base}/service_plans.php?i_customer=${iCustomer}`
         : `${base}/service_plans.php`;
-      const r = await rawRequest('POST', postUrl, postBody, { 'User-Agent': PORTAL_USER_AGENT }, cookies);
-      console.log(`[Sippy] createSippyServicePlan POST (${label}) → HTTP ${r.statusCode}, body: ${r.body.length}B`);
-      const isLoginPage = r.body.includes('value="Login"') || r.body.includes("value='Login'");
+      // Use redirectsLeft=5 so a successful POST that redirects to the edit page is followed
+      const r = await rawRequest('POST', postUrl, postBody, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 5);
+      console.log(`[Sippy] createSippyServicePlan POST (${label}) → HTTP ${r.statusCode}, body: ${r.body.length}B, snippet: ${r.body.slice(0, 200).replace(/\s+/g, ' ')}`);
+      const isLoginPage    = r.body.includes('value="Login"') || r.body.includes("value='Login'");
       const hasInsertError = /alert\(['"][^'"]*Cannot insert[^'"]*['"]\)/i.test(r.body);
       if (!isLoginPage && !hasInsertError) {
         resp = r;
         usedSession = label;
-        break; // this session worked — proceed to parse the response
+        break;
       }
-      if (isLoginPage)    console.log(`[Sippy] createSippyServicePlan: ${label} → session expired (login page)`);
-      if (hasInsertError) console.log(`[Sippy] createSippyServicePlan: ${label} → "Cannot insert" (no write permission)`);
-    } catch { /* try next session */ }
+      if (isLoginPage)    console.log(`[Sippy] createSippyServicePlan: ${label} → session rejected (login page)`);
+      if (hasInsertError) console.log(`[Sippy] createSippyServicePlan: ${label} → "Cannot insert" (no permission)`);
+    } catch (e: any) {
+      console.log(`[Sippy] createSippyServicePlan: ${label} → error: ${e?.message}`);
+    }
   }
 
   // All sessions failed
   if (!resp) {
-    console.log('[Sippy] createSippyServicePlan: all sessions returned login page or Cannot insert');
+    console.log('[Sippy] createSippyServicePlan: all sessions failed — needs manual creation');
     return {
       success: false,
       needsManualCreation: true,
