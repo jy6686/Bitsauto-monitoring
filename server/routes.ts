@@ -1927,15 +1927,19 @@ export async function registerRoutes(
 
   // POST /api/sippy/company-profile/setup — create Tariff + Service Plan in one call
   // Body: { name, currency, billingCycle? }
-  // Returns: { success, tariffId?, planId?, name?, error? }
+  // Returns: { success, tariffId?, planId?, name?, planName?, error? }
+  // planName (optional) — name for the service plan; defaults to name.
+  // Convention: tariffName = name (e.g. "Test-2"), planName = name + " " + currency (e.g. "Test-2 USD")
   app.post('/api/sippy/company-profile/setup',
     (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
     async (req, res) => {
       try {
         const settings = await storage.getSettings();
-        const { name, currency, billingCycle } = req.body;
+        const { name, planName, currency, billingCycle } = req.body;
         if (!name?.trim())     return res.status(400).json({ success: false, error: 'name is required.' });
         if (!currency?.trim()) return res.status(400).json({ success: false, error: 'currency is required.' });
+
+        const resolvedPlanName = planName?.trim() || name.trim();
 
         const { username, password } = sippyXmlCreds(settings);
         const portalUrl = sippyPortalUrl(settings);
@@ -1945,15 +1949,15 @@ export async function registerRoutes(
         const portalPass = settings?.portalPassword || '';
         const adminWebPassword = settings?.adminWebPassword || undefined;
 
-        // Step 1 — create tariff via XML-RPC
+        // Step 1 — create tariff named after the account (e.g. "Test-2") via XML-RPC
         const tariffRes = await sippy.createSippyTariff(username, password, { name: name.trim(), currency: currency.trim() }, portalUrl);
         if (!tariffRes.success || !tariffRes.iTariff)
           return res.json({ success: false, error: `Tariff creation failed: ${tariffRes.message}` });
 
-        // Step 2 — create service plan via portal form POST, using the new tariff ID
+        // Step 2 — create service plan named {account} {currency} (e.g. "Test-2 USD") via portal form POST
         const planRes = await sippy.createSippyServicePlan(
           portalUrl, adminUser, adminPass, portalUser, portalPass,
-          name.trim(), tariffRes.iTariff, undefined,
+          resolvedPlanName, tariffRes.iTariff, undefined,
           billingCycle ? Number(billingCycle) : 3,
           adminWebPassword,
         );
@@ -1963,7 +1967,7 @@ export async function registerRoutes(
           return res.json({
             success: true,
             name: name.trim(),
-            planName: planRes.planName ?? name.trim(),
+            planName: planRes.planName ?? resolvedPlanName,
             tariffId: tariffRes.iTariff,
             planId: planRes.planId,
             alreadyExists: planRes.alreadyExists,
@@ -1979,10 +1983,11 @@ export async function registerRoutes(
             success: true,
             partial: true,
             name: name.trim(),
+            planName: resolvedPlanName,
             tariffId: tariffRes.iTariff,
             planId: null,
             sippyPortalLink,
-            manualStep: `In your Sippy portal, go to Billing → Service Plans → Add New Plan. Set the name to "${name.trim()}", select Tariff ID ${tariffRes.iTariff}, set billing cycle, then save.`,
+            manualStep: `Tariff "${name.trim()}" (ID ${tariffRes.iTariff}) was created. Now go to Sippy portal → Customers → Tariffs & Currencies → Service Plans → Add. Set Name to "${resolvedPlanName}", select Tariff ID ${tariffRes.iTariff}, then save.`,
           });
         }
 

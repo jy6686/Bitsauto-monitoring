@@ -2499,6 +2499,15 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   const [cldTranslationRule, setCldTranslationRule] = useState('s/^0//');
   const [maxSessionTime, setMaxSessionTime] = useState('');
 
+  // Auto-create tariff + service plan panel
+  const [autoCreateOpen, setAutoCreateOpen] = useState(false);
+  const [autoCreateCurrency, setAutoCreateCurrency] = useState('USD');
+  const [autoCreateResult, setAutoCreateResult] = useState<{
+    success: boolean; partial?: boolean; planId?: number | null; tariffId?: number;
+    planName?: string; name?: string; sippyPortalLink?: string; manualStep?: string;
+    error?: string; alreadyExists?: boolean;
+  } | null>(null);
+
   // Step 3: SIP Configuration
   const [codec, setCodec] = useState('null');
   const [usePreferredCodecOnly, setUsePreferredCodecOnly] = useState(false);
@@ -2567,6 +2576,30 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
       setBpRefreshing(false);
     }
   }
+
+  const autoCreateMut = useMutation({
+    mutationFn: () =>
+      apiRequest('POST', '/api/sippy/company-profile/setup', {
+        name: name.trim(),
+        planName: `${name.trim()} ${autoCreateCurrency.trim()}`,
+        currency: autoCreateCurrency.trim(),
+      }).then(r => r.json()),
+    onSuccess: async (data) => {
+      setAutoCreateResult(data);
+      if (data.success && !data.partial && data.planId) {
+        setTariffId(String(data.planId));
+        tariffManuallySet.current = true;
+        setTariffAutoMatched(data.planName ?? null);
+        const sep = switchQs ? '&' : '?';
+        await fetch(`/api/sippy/billing-plans${switchQs}${sep}refresh=1`);
+        await refetchBp();
+        setAutoCreateOpen(false);
+      }
+    },
+    onError: (e: any) => {
+      setAutoCreateResult({ success: false, error: e.message });
+    },
+  });
 
   const { data: currencyDict } = useQuery<{ entries: { id: string; name: string }[]; error?: string }>({
     queryKey: ['/api/sippy/dictionaries/currencies', switchId, inlineUrl, inlineUser],
@@ -3047,6 +3080,126 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                     <p className="text-[10px] text-muted-foreground/70">
                       Service plans are configured in Sippy portal → <em>Customers → Tariffs &amp; Currencies → Service Plans</em>.
                     </p>
+
+                    {/* ── Auto-create panel ── */}
+                    {!autoCreateResult?.success && (
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          data-testid="button-toggle-auto-create-plan"
+                          onClick={() => { setAutoCreateOpen(o => !o); setAutoCreateResult(null); }}
+                          className="flex items-center gap-1.5 text-[10px] text-primary hover:text-primary/80 font-medium transition-colors"
+                        >
+                          <span className={`inline-block transition-transform ${autoCreateOpen ? 'rotate-90' : ''}`}>▶</span>
+                          {autoCreateOpen ? 'Hide' : 'No plan yet? Auto-create Tariff + Service Plan'}
+                        </button>
+
+                        {autoCreateOpen && (
+                          <div className="mt-2 rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-3">
+                            <p className="text-[10px] text-muted-foreground leading-relaxed">
+                              Creates a <strong className="text-foreground/70">Tariff</strong> named{' '}
+                              <code className="bg-background px-1 rounded font-mono">{name.trim() || '(account name)'}</code>{' '}
+                              and a <strong className="text-foreground/70">Service Plan</strong> named{' '}
+                              <code className="bg-background px-1 rounded font-mono">
+                                {name.trim() || '(account name)'} {autoCreateCurrency}
+                              </code>{' '}
+                              directly on your Sippy switch.
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <label className="text-[10px] text-muted-foreground shrink-0">Currency</label>
+                              {currencies.length > 0 ? (
+                                <select
+                                  data-testid="select-auto-create-currency"
+                                  value={autoCreateCurrency}
+                                  onChange={e => setAutoCreateCurrency(e.target.value)}
+                                  className="flex-1 text-xs rounded border border-border bg-background px-2 py-1"
+                                >
+                                  {currencies.map(c => (
+                                    <option key={c.id} value={c.id}>{c.id} — {c.name}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  data-testid="input-auto-create-currency"
+                                  value={autoCreateCurrency}
+                                  onChange={e => setAutoCreateCurrency(e.target.value.toUpperCase())}
+                                  placeholder="USD"
+                                  className="flex-1 text-xs rounded border border-border bg-background px-2 py-1 font-mono uppercase"
+                                  maxLength={3}
+                                />
+                              )}
+                              <button
+                                type="button"
+                                data-testid="button-auto-create-plan"
+                                disabled={!name.trim() || !autoCreateCurrency.trim() || autoCreateMut.isPending}
+                                onClick={() => { setAutoCreateResult(null); autoCreateMut.mutate(); }}
+                                className="shrink-0 flex items-center gap-1.5 px-3 py-1 rounded bg-primary text-primary-foreground text-[10px] font-semibold disabled:opacity-50 hover:opacity-90 transition-opacity"
+                              >
+                                {autoCreateMut.isPending
+                                  ? <><Loader2 className="w-3 h-3 animate-spin" /> Creating…</>
+                                  : <><Plus className="w-3 h-3" /> Create</>}
+                              </button>
+                            </div>
+                            {!name.trim() && (
+                              <p className="text-[10px] text-amber-400">Fill in the Display Name in Step 1 first.</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ── Auto-create result feedback ── */}
+                    {autoCreateResult && (
+                      <div className={`mt-2 rounded-lg border p-3 space-y-1.5 text-[10px] ${
+                        autoCreateResult.success && !autoCreateResult.partial
+                          ? 'border-emerald-500/30 bg-emerald-500/5'
+                          : autoCreateResult.partial
+                          ? 'border-amber-500/30 bg-amber-500/5'
+                          : 'border-rose-500/30 bg-rose-500/5'
+                      }`}>
+                        {autoCreateResult.success && !autoCreateResult.partial && (
+                          <>
+                            <p className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                              <Check className="w-3 h-3" />
+                              {autoCreateResult.alreadyExists ? 'Plan already existed — auto-selected' : 'Tariff + Service Plan created and selected'}
+                            </p>
+                            <p className="text-muted-foreground">
+                              Service Plan: <strong className="text-foreground/70">{autoCreateResult.planName}</strong>
+                              {autoCreateResult.tariffId ? ` · Tariff ID: ${autoCreateResult.tariffId}` : ''}
+                              {autoCreateResult.planId ? ` · Plan ID: ${autoCreateResult.planId}` : ''}
+                            </p>
+                          </>
+                        )}
+                        {autoCreateResult.partial && (
+                          <>
+                            <p className="font-semibold text-amber-400 flex items-center gap-1.5">
+                              <AlertTriangle className="w-3 h-3" />
+                              Tariff created — Service Plan needs manual step
+                            </p>
+                            <p className="text-muted-foreground">{autoCreateResult.manualStep}</p>
+                            {autoCreateResult.sippyPortalLink && (
+                              <a
+                                href={autoCreateResult.sippyPortalLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-primary hover:underline"
+                              >
+                                Open Sippy → Add Service Plan ↗
+                              </a>
+                            )}
+                            <p className="text-muted-foreground/70">After saving in Sippy, click <strong className="text-foreground/60">Refresh</strong> above to load the new plan.</p>
+                          </>
+                        )}
+                        {!autoCreateResult.success && (
+                          <>
+                            <p className="font-semibold text-rose-400 flex items-center gap-1.5">
+                              <X className="w-3 h-3" /> Creation failed
+                            </p>
+                            <p className="text-muted-foreground">{autoCreateResult.error}</p>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
