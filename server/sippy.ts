@@ -5641,17 +5641,15 @@ export async function createSippyServicePlan(
     }
   } catch { /* ignore — continue to portal attempt */ }
 
-  // ── Step 1: find a portal session where service_plans.php returns HTTP 200 ─
-  // We need FULL admin access (200 from service_plans.php), not just a 302-chain
-  // authenticated session. The shared getAdminPortalSession cache may hold a
-  // 302-chain session (e.g. ssp-root with API password), which redirects away
-  // from service_plans.php and cannot create plans. We therefore do our own
-  // login loop here, verifying the HTTP 200 condition for each candidate.
-  //
-  // Known-working combination: ssp-root + adminWebPassword + acct_type=customer
-  let servicePlanCookies: CookieJar | null = null;
+  // ── Step 1: collect ALL portal sessions where service_plans.php returns HTTP 200 ─
+  // We need a session with INSERT permission, not just read access.
+  // acct_type=customer can READ service_plans.php (HTTP 200) but Sippy blocks writes
+  // with "Cannot insert Service Plan." — acct_type=admin has INSERT permission.
+  // We collect all viable sessions (ordered: admin first), then try the POST with each
+  // until one succeeds — so if admin login fails we still fall back to customer.
+  type SessionCandidate = { cookies: CookieJar; label: string };
+  const viableSessions: SessionCandidate[] = [];
   {
-    // Build ordered candidate list — adminWebPassword pairs first since they tend to work
     const seen = new Set<string>();
     const cands: Array<[string, string]> = [];
     const addC = (u: string, p: string) => {
@@ -5664,9 +5662,9 @@ export async function createSippyServicePlan(
     addC(adminUser,  adminPass);
     addC(portalUser, portalPass);
 
-    outer: for (const [u, p] of cands) {
-      // Try acct_types most likely to give 200 from service_plans.php first
-      for (const acctType of ['customer', 'admin', 'reseller', 'account', 'vendor'] as const) {
+    // admin first — INSERT permission; customer/others as fallback
+    for (const [u, p] of cands) {
+      for (const acctType of ['admin', 'customer', 'reseller', 'account', 'vendor'] as const) {
         const formData = encodeForm({
           username: u, password: p, acct_type: acctType, login_page: 'all', Login: 'Login',
         });
@@ -5675,16 +5673,20 @@ export async function createSippyServicePlan(
           if (loginResp.statusCode !== 302 || loginResp.cookies.size === 0) continue;
           const spCheck = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, loginResp.cookies, 0);
           if (spCheck.statusCode === 200 && spCheck.body.length > 500 && !spCheck.body.includes('value="Login"')) {
-            console.log(`[Sippy] createSippyServicePlan: got service_plans.php 200 session as ${u}/${acctType}`);
-            servicePlanCookies = loginResp.cookies;
-            break outer;
+            const label = `${u}/${acctType}`;
+            // Only keep one session per credential-pair (the first acct_type that works)
+            if (!viableSessions.some(s => s.label.startsWith(u + '/'))) {
+              console.log(`[Sippy] createSippyServicePlan: viable session as ${label}`);
+              viableSessions.push({ cookies: loginResp.cookies, label });
+            }
+            break; // next credential pair
           }
         } catch { /* next */ }
       }
     }
   }
 
-  if (!servicePlanCookies) {
+  if (viableSessions.length === 0) {
     console.log('[Sippy] createSippyServicePlan: no session reached service_plans.php with 200 — needs manual creation');
     return {
       success: false,
@@ -5692,9 +5694,8 @@ export async function createSippyServicePlan(
       error: 'The Sippy web portal is not accessible from this server. Create the Service Plan manually in the Sippy portal.',
     };
   }
-  const cookies = servicePlanCookies;
 
-  // ── Step 2: POST service_plans.php ────────────────────────────────────────
+  // ── Step 2: POST service_plans.php — try each viable session until one succeeds ──
   // NOTE: do NOT include i_billing_plan — empty string crashes Sippy's PHP (HTTP 500).
   const postBody = encodeForm({
     bp_name:                     planName,
@@ -5721,39 +5722,31 @@ export async function createSippyServicePlan(
     name_clause:                 '',
   });
 
-  const resp = await rawRequest(
-    'POST',
-    `${base}/service_plans.php`,
-    postBody,
-    { 'User-Agent': PORTAL_USER_AGENT },
-    cookies,
-  );
-
-  console.log(`[Sippy] createSippyServicePlan POST → HTTP ${resp.statusCode}, body: ${resp.body.length}B`);
-
-  // Detect login page redirect (session rejected by portal) — body ≈ 2099B
-  // and contains the login form submit button.
-  const isLoginPage = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
-  if (isLoginPage) {
-    console.log('[Sippy] createSippyServicePlan: portal returned login page — session invalid, needs manual creation');
-    return {
-      success: false,
-      needsManualCreation: true,
-      error: 'The Sippy web portal did not accept the session (portal redirected to login page). Create the Service Plan manually in Sippy.',
-    };
+  let resp!: Awaited<ReturnType<typeof rawRequest>>;
+  let usedSession = '';
+  for (const { cookies, label } of viableSessions) {
+    try {
+      const r = await rawRequest('POST', `${base}/service_plans.php`, postBody, { 'User-Agent': PORTAL_USER_AGENT }, cookies);
+      console.log(`[Sippy] createSippyServicePlan POST (${label}) → HTTP ${r.statusCode}, body: ${r.body.length}B`);
+      const isLoginPage = r.body.includes('value="Login"') || r.body.includes("value='Login'");
+      const hasInsertError = /alert\(['"][^'"]*Cannot insert[^'"]*['"]\)/i.test(r.body);
+      if (!isLoginPage && !hasInsertError) {
+        resp = r;
+        usedSession = label;
+        break; // this session worked — proceed to parse the response
+      }
+      if (isLoginPage)    console.log(`[Sippy] createSippyServicePlan: ${label} → session expired (login page)`);
+      if (hasInsertError) console.log(`[Sippy] createSippyServicePlan: ${label} → "Cannot insert" (no write permission)`);
+    } catch { /* try next session */ }
   }
 
-  // Detect "Cannot insert Service Plan." — Sippy emits this as a JS alert() in the page body.
-  // This means the PHP processed the request but the DB insert was rejected (permission or
-  // constraint), so we surface it clearly and fall through to needsManualCreation.
-  const jsAlertMatch = resp.body.match(/alert\(['"]([^'"]*Cannot[^'"]*|[^'"]*cannot[^'"]*|[^'"]*Cannot insert[^'"]*)['"]\)/i);
-  if (jsAlertMatch) {
-    const alertMsg = jsAlertMatch[1];
-    console.log(`[Sippy] createSippyServicePlan: Sippy alert detected: "${alertMsg}" — needs manual creation`);
+  // All sessions failed
+  if (!resp) {
+    console.log('[Sippy] createSippyServicePlan: all sessions returned login page or Cannot insert');
     return {
       success: false,
       needsManualCreation: true,
-      error: `Sippy rejected the insertion: "${alertMsg}". The root-customer portal session does not have permission to create service plans via the web form. Create the Service Plan manually in the Sippy portal.`,
+      error: 'All available portal sessions were tried but none had write permission to create Service Plans. Create it manually in Sippy portal → Customers → Tariffs & Currencies → Service Plans.',
     };
   }
 
