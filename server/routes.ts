@@ -2424,13 +2424,19 @@ export async function registerRoutes(
 
       // Fallback: if one set is missing, fill from credPairs so we always have at least something
       const allPairs = sippyXmlCredsPairs(settings);
-      const phase1Pairs = adminPairs.length   ? adminPairs   : allPairs;
-      // Phase 2 (make2WayCallback) MUST use customer credentials in Normal Mode.
-      // Using admin (ssp-root) credentials always produces HTTP 401 — Sippy rejects
-      // admin auth for this method. We strictly only use customer credentials here.
-      const adminUserNames = new Set(adminPairs.map(p => p.username.toLowerCase()));
-      const phase2PairsRaw = customerPairs.length ? customerPairs : allPairs;
-      const phase2Pairs    = phase2PairsRaw.filter(p => !adminUserNames.has(p.username.toLowerCase()));
+      const phase1Pairs = adminPairs.length ? adminPairs : allPairs;
+      // Phase 2 (make2WayCallback): try customer credentials first (Normal Mode per Sippy docs),
+      // then fall back to admin credentials — if "Allow XML-RPC call origination" is enabled on
+      // the admin account in Sippy, admin creds work here too.
+      const seen2b = new Set<string>();
+      const phase2Pairs: Array<{ username: string; password: string }> = [];
+      const addPhase2 = (u: string, p: string) => {
+        const k = `${u}:${p}`; if (!u || !p || seen2b.has(k)) return;
+        seen2b.add(k); phase2Pairs.push({ username: u, password: p });
+      };
+      for (const pair of customerPairs) addPhase2(pair.username, pair.password);
+      for (const pair of adminPairs)    addPhase2(pair.username, pair.password);
+      if (phase2Pairs.length === 0) for (const pair of allPairs) addPhase2(pair.username, pair.password);
       // Phase 3: try customer first (most likely .htpassword entry), then admin
       const phase3Pairs = [...customerPairs, ...adminPairs].length ? [...customerPairs, ...adminPairs] : allPairs;
       console.log(`[make-call] phase1=${phase1Pairs.map(p=>p.username).join(',')} | phase2=${phase2Pairs.map(p=>p.username).join(',') || '(empty)'} | phase3=${phase3Pairs.map(p=>p.username).join(',')}`);
@@ -2493,12 +2499,6 @@ export async function registerRoutes(
             message: 'No direct call origination method found on this switch, and no authname is available for 2-way callback. Select a billing account and try again.',
             errorType: 'no_authname',
           };
-        } else if (phase2Pairs.length === 0) {
-          result = {
-            success: false,
-            message: `Phase 2 (make2WayCallback) requires CUSTOMER credentials in Normal Mode — admin credentials cannot be used for this method. Configure "Portal Username" and "Portal Password" in Settings → Sippy Connection with a customer account that has the Callback application enabled.`,
-            errorType: 'no_customer_creds',
-          };
         } else {
           // Per Sippy support's confirmed-working example (ticket reply, Apr 2026):
           //   make2WayCallback only requires authname, cld_first, cld_second
@@ -2555,6 +2555,31 @@ export async function registerRoutes(
             };
             if (r.success) break;
           }
+
+          // If all Phase 2 pairs returned auth failures, surface a clear, actionable message.
+          const allPhase2AuthFailed = !result.success &&
+            /auth_failed|HTTP 401|HTTP 403/i.test(result.message || '');
+          if (allPhase2AuthFailed) {
+            const triedUsers = phase2Pairs.map(p => `"${p.username}"`).join(', ');
+            result = {
+              ...result,
+              message: [
+                `make2WayCallback: all credentials rejected by Sippy (tried ${triedUsers}).`,
+                ``,
+                `To fix this, ask your Sippy admin to do ONE of the following:`,
+                `  1. In Sippy Admin → System → Administrators → ssp-root → check`,
+                `     "Allow XML-RPC call origination" — this lets the admin account`,
+                `     originate calls via XML-RPC and is the simplest fix.`,
+                `  2. In Sippy Admin → Customers → [customer account] → Applications,`,
+                `     enable the "Callback" service and ensure the account's API password`,
+                `     (not web login password) is set in Settings → Sippy Connection`,
+                `     as the Portal Password.`,
+                ``,
+                `Reference: Sippy article 107448 (make2WayCallback).`,
+              ].join('\n'),
+              errorType: 'auth_failed',
+            };
+          }
         }
       }
 
@@ -2569,8 +2594,12 @@ export async function registerRoutes(
       const phase2ModuleNotEnabled = result.message?.toLowerCase().includes('callback module not enabled') ||
         result.message?.toLowerCase().includes('module not enabled') ||
         result.message?.toLowerCase().includes('module is not available');
+      // Skip Phase 3 when Phase 2 already identified a full auth failure (all cred pairs
+      // tried including admin). Simple API will also fail with 401 for the same reason and
+      // would overwrite our actionable error message with a less useful one.
+      const phase2AllAuthFailed = result.errorType === 'auth_failed';
 
-      if (!result.success && !phase2ModuleNotEnabled) {
+      if (!result.success && !phase2ModuleNotEnabled && !phase2AllAuthFailed) {
         const authname =
           bodyAuthname?.trim() ||
           (iAccount ? accountNameCache.get(String(iAccount)) : '') ||

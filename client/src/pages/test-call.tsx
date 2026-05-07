@@ -429,7 +429,7 @@ export default function TestCallPage() {
                     </div>
                   )}
 
-                  {!callResult.success && !['no_authname', 'no_customer_creds', 'not_connected'].includes(callResult.errorType ?? '') && (() => {
+                  {!callResult.success && !['no_authname', 'not_connected'].includes(callResult.errorType ?? '') && (() => {
                     const isAuthFail = /auth_failed|HTTP 401|HTTP 403|credentials rejected/i.test(callResult.message ?? '');
                     const apiUser = callResult.apiUser;
                     if (isAuthFail) {
