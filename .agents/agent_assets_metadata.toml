@@ -72,3 +72,9 @@ id = "3MC85gQO0bsa5qDTwM2h1"
 uri = "file://attached_assets/generated_videos/bitseye_analytics_revenue.mp4"
 type = "video"
 title = "7. BitsEye Analytics — Revenue & Margin Drill-Down"
+
+[[outputs]]
+id = "qBfftD15OjOw1Ztxf03px"
+uri = "file://attached_assets/generated_videos/Bitsauto_Demo_Presentation.mp4"
+type = "video"
+title = "Bitsauto Monitoring Platform — Full Demo Presentation (1:23)"
