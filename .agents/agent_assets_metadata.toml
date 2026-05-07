@@ -30,3 +30,45 @@ id = "qdQX5sc3RHFAWTO5Dls-K"
 uri = "file://docs/create-sippy-account-guide.md"
 type = "text"
 title = "Create Sippy Account — Full Team Guide"
+
+[[outputs]]
+id = "fKnF0zVBfdFhSZz2Oz7U6"
+uri = "file://attached_assets/generated_videos/voip_dashboard_hero.mp4"
+type = "video"
+title = "1. Dashboard Hero — Live Metrics Animate In"
+
+[[outputs]]
+id = "33_eTLIcmGU1KgGSSgs61"
+uri = "file://attached_assets/generated_videos/noc_live_globe_calls.mp4"
+type = "video"
+title = "2. NOC View — Live Call Globe with Real-Time Arcs"
+
+[[outputs]]
+id = "0H1Agpqp2nMBsNFItQ0cR"
+uri = "file://attached_assets/generated_videos/network_metrics_waveforms.mp4"
+type = "video"
+title = "3. Network Quality — Jitter / Latency / MOS Waveforms"
+
+[[outputs]]
+id = "WKpuke3hs5Szf4oFd0LsE"
+uri = "file://attached_assets/generated_videos/fraud_fas_detection_alert.mp4"
+type = "video"
+title = "4. Security — FAS Fraud Detection & Auto-Blacklist"
+
+[[outputs]]
+id = "hGUeStr74rxaFYiEbOToH"
+uri = "file://attached_assets/generated_videos/routing_lcr_flow_diagram.mp4"
+type = "video"
+title = "5. Routing Manager — LCR Flow & Policy Simulator"
+
+[[outputs]]
+id = "oXIs_EtTdPTjyY2fIcc5J"
+uri = "file://attached_assets/generated_videos/account_wizard_creation_flow.mp4"
+type = "video"
+title = "6. Account Wizard — Multi-Step Creation Flow"
+
+[[outputs]]
+id = "3MC85gQO0bsa5qDTwM2h1"
+uri = "file://attached_assets/generated_videos/bitseye_analytics_revenue.mp4"
+type = "video"
+title = "7. BitsEye Analytics — Revenue & Margin Drill-Down"
