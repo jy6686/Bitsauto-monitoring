@@ -35,6 +35,7 @@ type CallResult = {
   message: string;
   errorType?: string;
   apiUser?: string;
+  authname?: string;
 } | null;
 
 type TestCallLog = {
@@ -162,9 +163,18 @@ export default function TestCallPage() {
   // The correct portal/CDR account when swapped (what is currently incorrectly set as admin)
   const swappedPortalUser = settings?.portalUsername || '';
 
+  // Derive the selected account username for error messages
+  const selectedIAccount = form.watch("iAccount");
+  const selectedAccount = accounts.find(a => String(a.iAccount) === selectedIAccount);
+  const selectedAccountName = selectedAccount?.username || callResult?.authname || '';
+
   const callErrorMsg = callResult?.message?.toLowerCase() ?? '';
+  const isCallbackModuleNotAvailable = !callResult?.success && (
+    callErrorMsg.includes('callback module is not available') ||
+    (callErrorMsg.includes('callback module') && callErrorMsg.includes('not available'))
+  );
   const isCallbackModuleError = !callResult?.success && (
-    callErrorMsg.includes('callback module') ||
+    isCallbackModuleNotAvailable ||
     callErrorMsg.includes('module is not available') ||
     callErrorMsg.includes('module not enabled') ||
     callErrorMsg.includes('not available via xml-rpc') ||
@@ -452,6 +462,41 @@ export default function TestCallPage() {
                             className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 mt-1"
                           >
                             <Settings className="h-3 w-3" /> Open Settings → Sippy Connection
+                          </a>
+                        </div>
+                      );
+                    }
+                    if (isCallbackModuleNotAvailable) {
+                      const accountLabel = selectedAccountName
+                        ? <><code className="bg-background px-1 rounded font-mono text-foreground/80">{selectedAccountName}</code></>
+                        : <span>the selected billing account</span>;
+                      return (
+                        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+                          <p className="text-xs font-semibold text-amber-400 flex items-center gap-2">
+                            <AlertTriangle className="h-3.5 w-3.5" /> Callback service not enabled on account
+                          </p>
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            Authentication succeeded (admin credentials accepted), but Sippy says the
+                            Callback service is not enabled for {accountLabel}.
+                          </p>
+                          <p className="text-xs font-semibold text-foreground/60">Ask your Sippy admin to:</p>
+                          <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                            <li>Log in to <strong className="text-foreground/70">Sippy Admin</strong></li>
+                            <li>Go to <strong className="text-foreground/70">Customers</strong> → open account {accountLabel}</li>
+                            <li>Click the <strong className="text-foreground/70">Applications</strong> tab</li>
+                            <li>Enable <strong className="text-foreground/70">2 Way Callback</strong> and save</li>
+                          </ol>
+                          <p className="text-xs text-muted-foreground">
+                            Or try a different billing account from the dropdown — one that already has
+                            the Callback application enabled.
+                          </p>
+                          <a
+                            href={adminUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 mt-1"
+                          >
+                            <ExternalLink className="h-3 w-3" /> Open Sippy Admin Panel
                           </a>
                         </div>
                       );

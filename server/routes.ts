@@ -2441,7 +2441,7 @@ export async function registerRoutes(
       const phase3Pairs = [...customerPairs, ...adminPairs].length ? [...customerPairs, ...adminPairs] : allPairs;
       console.log(`[make-call] phase1=${phase1Pairs.map(p=>p.username).join(',')} | phase2=${phase2Pairs.map(p=>p.username).join(',') || '(empty)'} | phase3=${phase3Pairs.map(p=>p.username).join(',')}`);
 
-      let result: { success: boolean; callId?: string; message: string; errorType?: string; apiUser?: string; method?: string } = {
+      let result: { success: boolean; callId?: string; message: string; errorType?: string; apiUser?: string; authname?: string; method?: string } = {
         success: false,
         message: 'No Sippy credentials configured.',
         errorType: 'not_connected',
@@ -2551,6 +2551,7 @@ export async function registerRoutes(
               message:   r.message,
               errorType: r.success ? undefined : 'call_error',
               apiUser:   username,
+              authname,
               method:    'callback',
             };
             if (r.success) break;
