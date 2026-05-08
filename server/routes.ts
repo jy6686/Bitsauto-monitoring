@@ -1978,7 +1978,7 @@ export async function registerRoutes(
         // tariff is ready, service plan must be created manually in Sippy.
         if (planRes.needsManualCreation) {
           const sippyBase = portalUrl ? portalUrl.replace(/\/$/, '') : '';
-          const sippyPortalLink = sippyBase ? `${sippyBase}/service_plans.php?action=add` : undefined;
+          const sippyPortalLink = sippyBase ? `${sippyBase}/c1/service_plans.php?action=add` : undefined;
           return res.json({
             success: true,
             partial: true,
@@ -1987,7 +1987,7 @@ export async function registerRoutes(
             tariffId: tariffRes.iTariff,
             planId: null,
             sippyPortalLink,
-            manualStep: `Tariff "${name.trim()}" (ID ${tariffRes.iTariff}) was created. Now go to Sippy portal → Customers → Tariffs & Currencies → Service Plans → Add. Set Name to "${resolvedPlanName}", select Tariff ID ${tariffRes.iTariff}, then save.`,
+            manualStep: `Tariff "${name.trim()}" (ID ${tariffRes.iTariff}) was created successfully.\n\nTo add the Service Plan:\n1. Open Sippy → log in as ssp-root\n2. Go to: Service Plans → Add New\n3. Set Plan Name to "${resolvedPlanName}"\n4. Select Basic Tariff: "${name.trim()}" (ID ${tariffRes.iTariff})\n5. Click Save\n\nOnce saved, click "Create Tariff + Service Plan" again here — the system will auto-detect and link the plan.`,
           });
         }
 

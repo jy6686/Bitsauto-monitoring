@@ -252,8 +252,12 @@ export default function CompanyProfilePage() {
                     </div>
                     {result.manualStep && (
                       <div className="mt-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-xs text-amber-300/90 leading-relaxed">
-                        <p className="font-semibold text-amber-200 mb-1">Steps to complete in Sippy:</p>
-                        <p>{result.manualStep}</p>
+                        <p className="font-semibold text-amber-200 mb-1.5">Steps to complete in Sippy:</p>
+                        <div className="space-y-0.5">
+                          {result.manualStep.split('\n').filter(Boolean).map((line: string, i: number) => (
+                            <p key={i} className={line.match(/^\d+\./) ? 'pl-1' : 'opacity-80'}>{line}</p>
+                          ))}
+                        </div>
                       </div>
                     )}
                     {result.sippyPortalLink && (

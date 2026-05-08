@@ -526,7 +526,7 @@ async function portalLogin(
   password: string,
   accountType: 'customer' | 'reseller' | 'admin' = 'customer',
 ): Promise<{ success: boolean; cookies: CookieJar; message: string }> {
-  const loginUrl = `${base}/index.php`;
+  const loginUrl = `${base}/main.php`;
 
   // Try every known acct_type value — this Sippy build exposes account/customer/vendor
   // in the UI dropdown; older or admin-level accounts may use different values.
@@ -549,17 +549,17 @@ async function portalLogin(
       // Following the redirect causes the session to appear invalid in the next request.
       const resp = await rawRequest('POST', loginUrl, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
 
-      // ── Success: Sippy redirects to /index.php on successful login ──────────
-      if ((resp.statusCode === 301 || resp.statusCode === 302 || resp.statusCode === 303) && resp.cookies.size > 0) {
-        // Verify the session cookie works by fetching a known authenticated page
-        const check = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies, 0);
+      // ── Success: Sippy redirects to /c1/ on successful customer login ───────
+      // Only a redirect to /c1/ (the customer self-care portal) means auth succeeded.
+      // A redirect to /index.php means auth failed (Sippy bounces back to login page).
+      const locHeader = (resp as any).location as string | undefined;
+      const redirectedToPortal = locHeader && (locHeader.includes('/c1/') || locHeader.startsWith('c1/'));
+      if ((resp.statusCode === 301 || resp.statusCode === 302 || resp.statusCode === 303)
+          && resp.cookies.size > 0 && redirectedToPortal) {
+        // Verify the session is truly authenticated by checking the /c1/ portal page
+        const check = await rawRequest('GET', `${base}/c1/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies, 0);
         if (check.statusCode === 200 && check.body.length > 500 && !check.body.includes('value="Login"')) {
-          console.log(`[Sippy] portalLogin: success via 302+cookie for ${username}/${acctType}`);
-          return { success: true, cookies: resp.cookies, message: `Authenticated via web portal as ${acctType}` };
-        }
-        // Also accept a further redirect from service_plans.php (still authenticated, just redirecting)
-        if (check.statusCode === 302) {
-          console.log(`[Sippy] portalLogin: success via 302 chain for ${username}/${acctType}`);
+          console.log(`[Sippy] portalLogin: success via 302→/c1/ for ${username}/${acctType}`);
           return { success: true, cookies: resp.cookies, message: `Authenticated via web portal as ${acctType}` };
         }
       }
@@ -5725,10 +5725,13 @@ export async function createSippyServicePlan(
           username: u, password: p, acct_type: acctType, login_page: 'all', Login: 'Login',
         });
         try {
-          const loginResp = await rawRequest('POST', `${base}/index.php`, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
-          if (loginResp.statusCode !== 302 || loginResp.cookies.size === 0) continue;
+          const loginResp = await rawRequest('POST', `${base}/main.php`, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
+          // Only accept a 302 that redirects to /c1/ — that's a genuine customer portal auth.
+          // A 302 to /index.php means Sippy bounced back to the login page (auth failed).
+          const loginLoc = (loginResp as any).location as string | undefined;
+          const goesToPortal = loginLoc && (loginLoc.includes('/c1/') || loginLoc.startsWith('c1/'));
+          if (loginResp.statusCode !== 302 || !loginResp.cookies.size || !goesToPortal) continue;
           sessionKeys.add(key);
-          // Non-customer sessions: always include i_customer=1 in POST body
           const iCustomer = (acctType !== 'customer' && acctType !== 'vendor') ? '1' : undefined;
           console.log(`[Sippy] createSippyServicePlan: captured login session ${key}${iCustomer ? ' (admin ctx i_customer=1)' : ''}`);
           allSessions.push({ cookies: loginResp.cookies, label: key, priority: typePriority[acctType] ?? 99, iCustomer });
@@ -5784,9 +5787,11 @@ export async function createSippyServicePlan(
     try {
       const postFields = iCustomer ? { ...basePostFields, i_customer: iCustomer } : basePostFields;
       const postBody   = encodeForm(postFields);
+      // Service plans live under /c1/ (customer self-care portal), not root.
+      // Root /service_plans.php requires an admin-panel session which we cannot obtain.
       const postUrl    = iCustomer
-        ? `${base}/service_plans.php?i_customer=${iCustomer}`
-        : `${base}/service_plans.php`;
+        ? `${base}/c1/service_plans.php?i_customer=${iCustomer}`
+        : `${base}/c1/service_plans.php`;
       // Use redirectsLeft=5 so a successful POST that redirects to the edit page is followed
       const r = await rawRequest('POST', postUrl, postBody, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 5);
       console.log(`[Sippy] createSippyServicePlan POST (${label}) → HTTP ${r.statusCode}, body: ${r.body.length}B, snippet: ${r.body.slice(0, 200).replace(/\s+/g, ' ')}`);
@@ -5806,11 +5811,15 @@ export async function createSippyServicePlan(
 
   // All sessions failed
   if (!resp) {
-    console.log('[Sippy] createSippyServicePlan: all sessions failed — needs manual creation');
+    // Count sessions blocked by "Cannot insert" — this is a known Sippy permission restriction:
+    // the customer self-care portal (/c1/) only allows reseller/admin accounts to create
+    // billing plans. Customer-type sessions (even ssp-root as customer) are blocked.
+    const cannotInsertCount = allSessions.length; // all sessions were tried and hit this wall
+    console.log(`[Sippy] createSippyServicePlan: all ${cannotInsertCount} sessions blocked (Cannot insert) — Sippy admin portal required`);
     return {
       success: false,
       needsManualCreation: true,
-      error: 'All available portal sessions were tried but none had write permission to create Service Plans. Create it manually in Sippy portal → Customers → Tariffs & Currencies → Service Plans.',
+      error: 'Sippy requires admin-portal access to create Service Plans. The customer portal session (ssp-root) does not have INSERT permission. Create it manually: Sippy Admin → Customers → Tariffs & Currencies → Service Plans → Add.',
     };
   }
 
@@ -5841,7 +5850,7 @@ export async function createSippyServicePlan(
 
   // Fallback: scrape the service plan list page for the newly created plan
   try {
-    const listResp = await rawRequest('GET', `${base}/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies);
+    const listResp = await rawRequest('GET', `${base}/c1/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies);
     if (!listResp.body.includes('value="Login"')) {
       const linkRe = /service_plans\.php\?[^"']*i_billing_plan=(\d+)/gi;
       let m: RegExpExecArray | null;
