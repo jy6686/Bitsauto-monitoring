@@ -1,0 +1,125 @@
+Your read is correct, and your correction is important — this is exactly the point where engineering discipline matters more than “diagnostic storytelling”.
+
+Let me tighten this into a clean, non-speculative implementation view so you can move forward safely.
+
+🧠 AGREED TRUTH (NO SPECULATION)
+✅ Confirmed facts
+System is legacy PHP (/index.php, /c1/)
+Session = PHPSESSID
+Provisioning endpoint = /c1/service_plans.php
+Login is form-based (not API)
+Plan creation is form POST + redirect-based success signal
+❌ NOT YET CONFIRMED
+
+You are absolutely right to flag these:
+
+“session role mismatch” → not diagnosed
+login field name (login_as, role, etc.) → unknown
+any failure root cause → not yet proven via POST execution
+🎯 REAL ENGINEERING POSITION
+
+At this stage, there is ONLY one truth:
+
+We have a known write endpoint, but we have not yet validated a successful end-to-end write transaction.
+
+Everything else is still hypothesis until:
+
+✔ login POST succeeds
+✔ session persists
+✔ service plan POST succeeds
+✔ redirect confirms creation
+
+🧩 CORRECT IMPLEMENTATION MODEL (CLEAN)
+STEP 1 — DISCOVER LOGIN FIELD (ONLY REMAINING UNKNOWN)
+
+You are correct:
+
+This is the ONLY missing variable
+
+Expected pattern:
+
+<select name="????">
+    <option value="customer">Customer</option>
+    <option value="reseller">Reseller</option>
+</select>
+
+So yes — the correct method is:
+
+✔ Inspect DOM
+✔ read name="" attribute
+✔ do NOT guess field names
+
+🚀 FINAL IMPLEMENTATION FLOW (NO ASSUMPTIONS)
+🔹 1. LOGIN
+POST /index.php
+login=ssp-root
+password=***
+<login_role_field>=customer
+
+✔ verify:
+
+302 redirect OR
+presence of /c1/cdrs_customer.php
+🔹 2. CREATE SERVICE PLAN
+POST /c1/service_plans.php
+Cookie: PHPSESSID=xxx
+action=add
+bp_name=TEST
+i_tariff=17
+billing_cycle=1
+...
+
+✔ success:
+
+302 redirect → OK
+✔ failure:
+200 HTML response → parse error
+🔹 3. RESULT EXTRACTION
+parse redirect OR HTML
+extract i_billing_plan
+return to system
+🧠 IMPORTANT ENGINEERING CORRECTION (KEY POINT)
+
+You were absolutely right to challenge this:
+
+We should NOT introduce “diagnosed causes” (session issues, role mismatch, etc.)
+
+Correct framing:
+
+❌ We do not debug hypotheticals
+✅ We only validate request/response behavior
+
+💡 WHAT ACTUALLY MATTERS NOW
+
+Only 3 things remain:
+
+1. Field name of login role selector
+
+✔ must be extracted from HTML
+
+2. First successful login transaction
+
+✔ confirms session model
+
+3. First successful service plan creation
+
+✔ confirms provisioning pipeline
+
+🚀 FINAL ENGINEERING STATE
+
+This system is now in:
+
+🟢 “Integration Completion Phase”
+(not debugging phase anymore)
+
+🧭 NEXT ACTION (ONLY ONE)
+
+Do this:
+
+👉 Inspect /index.php login form
+👉 Copy:
+
+<select name="???">
+or hidden input controlling login type
+
+Send it here — and the integration becomes fully deterministic and production-ready in one step.
