@@ -593,6 +593,57 @@ async function portalLogin(
   return { success: false, cookies: new Map(), message: `Login returned login form again — credentials rejected (${accountType}).` };
 }
 
+// ── provisioningLogin — strictly isolated write-plane authentication ───────────
+// Uses ONLY SIPPY_PROV_USERNAME / SIPPY_PROV_PASSWORD.
+// Throws "PROVISIONING_NOT_CONFIGURED" if credentials are absent — callers must
+// catch this and surface the manual-fallback UI card.  The returned session is
+// function-scoped and must NEVER be cached globally or reused across calls.
+async function provisioningLogin(base: string): Promise<CookieJar> {
+  const provUser = process.env.SIPPY_PROV_USERNAME?.trim() ?? '';
+  const provPass = process.env.SIPPY_PROV_PASSWORD?.trim() ?? '';
+
+  if (!provUser || !provPass) {
+    throw new Error('PROVISIONING_NOT_CONFIGURED');
+  }
+
+  const loginUrl = `${base}/main.php`;
+  // Try every account type — reseller/admin accounts may use 'reseller', 'admin', or 'account'.
+  const acctTypes = ['reseller', 'admin', 'account', 'customer'] as const;
+
+  for (const acctType of acctTypes) {
+    const formData = encodeForm({
+      username: provUser, password: provPass, acct_type: acctType,
+      login_page: 'all', Login: 'Login',
+    });
+    try {
+      const resp = await rawRequest('POST', loginUrl, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
+      const loc = (resp as any).location as string | undefined;
+      // Accept any redirect that is NOT back to the login page — reseller/admin sessions
+      // may redirect to /c1/, /main.php, or other sub-paths depending on Sippy build.
+      const isLoginRedirect = !loc || loc.includes('/index.php') || loc.endsWith('/main.php') || loc === '/';
+      if ((resp.statusCode === 302 || resp.statusCode === 301) && resp.cookies.size > 0 && !isLoginRedirect) {
+        console.log(`[Sippy] provisioningLogin: authenticated as ${provUser}/${acctType} → ${loc}`);
+        return resp.cookies;
+      }
+      // Also accept a 200 with portal content (some builds don't redirect)
+      if (resp.statusCode === 200 && resp.cookies.size > 0) {
+        const hasPortal = resp.body.includes('action=Logout') || resp.body.toLowerCase().includes('logout')
+          || resp.body.includes('service_plans.php') || resp.body.includes('accounts.php');
+        const hasLogin  = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
+        if (hasPortal && !hasLogin) {
+          console.log(`[Sippy] provisioningLogin: authenticated as ${provUser}/${acctType} via 200+portal`);
+          return resp.cookies;
+        }
+      }
+    } catch (e: any) {
+      console.log(`[Sippy] provisioningLogin error (${acctType}): ${e?.message}`);
+    }
+  }
+
+  console.log(`[Sippy] provisioningLogin: all acct_type attempts failed for ${provUser} — credentials rejected by Sippy`);
+  throw new Error('PROVISIONING_NOT_CONFIGURED');
+}
+
 async function portalGet(path: string, cookies: CookieJar, base: string): Promise<{ html: string; cookies: CookieJar }> {
   const url = `${base}${path}`;
   try {
@@ -5686,71 +5737,33 @@ export async function createSippyServicePlan(
     }
   }
 
-  // ── Step 1: collect login sessions for every credential × acct_type combination ─
-  // KEY INSIGHT (from portalLogin): on this Sippy build ssp-root uses acct_type='account',
-  // NOT 'admin' or 'customer'.  The 'customer' session can READ service_plans.php but
-  // Sippy blocks writes ("Cannot insert").  The 'account' session is the one that has
-  // INSERT permission — even though its GET to service_plans.php returns 302 (redirect),
-  // the POST may succeed.  So: collect ALL sessions where login POST returns 302 (no GET
-  // pre-check), ordered by most-privileged acct_type first, then try POST with each.
-  //
-  // acct_type priority (insert-permission likelihood):
-  //   account(0) > admin(1) > reseller(2) > customer(3) > vendor(4)
-  //
-  // For non-customer sessions include i_customer='1' in the POST body so Sippy's PHP
-  // knows which customer context to create the plan under (ssp-root = i_customer=1).
-  type SessionCandidate = { cookies: CookieJar; label: string; priority: number; iCustomer?: string };
+  // ── Step 1: obtain a provisioning session via the isolated write plane ────────
+  // provisioningLogin() reads ONLY SIPPY_PROV_USERNAME / SIPPY_PROV_PASSWORD.
+  // Throws PROVISIONING_NOT_CONFIGURED when credentials are absent → manual fallback.
+  // Session is function-scoped: discarded automatically when this function returns.
+  type SessionCandidate = { cookies: CookieJar; label: string; iCustomer?: string };
   const allSessions: SessionCandidate[] = [];
-  {
-    const credSeen = new Set<string>();
-    const cands: Array<[string, string]> = [];
-    const addC = (u: string, p: string) => {
-      if (u && p && !credSeen.has(`${u}:${p}`)) { credSeen.add(`${u}:${p}`); cands.push([u, p]); }
-    };
-    if (adminWebPassword) {
-      addC(adminUser,  adminWebPassword);
-      addC(portalUser, adminWebPassword);
+  try {
+    const provCookies = await provisioningLogin(base);
+    console.log('[Sippy] createSippyServicePlan: provisioning session obtained');
+    allSessions.push({ cookies: provCookies, label: `prov:${process.env.SIPPY_PROV_USERNAME}`, iCustomer: '1' });
+  } catch (e: any) {
+    if (e?.message === 'PROVISIONING_NOT_CONFIGURED') {
+      console.log('[Sippy] createSippyServicePlan: PROVISIONING_NOT_CONFIGURED — returning manual fallback');
+      return {
+        success: false,
+        needsManualCreation: true,
+        error: 'Provisioning credentials (SIPPY_PROV_USERNAME / SIPPY_PROV_PASSWORD) are not configured. Add a Sippy reseller/admin account to the secrets vault to enable automated service plan creation.',
+      };
     }
-    addC(adminUser,  adminPass);
-    addC(portalUser, portalPass);
-
-    const typePriority: Record<string, number> = { account: 0, admin: 1, reseller: 2, customer: 3, vendor: 4 };
-    const sessionKeys = new Set<string>();
-
-    for (const [u, p] of cands) {
-      for (const acctType of ['account', 'admin', 'reseller', 'customer', 'vendor'] as const) {
-        const key = `${u}/${acctType}`;
-        if (sessionKeys.has(key)) continue;
-        const formData = encodeForm({
-          username: u, password: p, acct_type: acctType, login_page: 'all', Login: 'Login',
-        });
-        try {
-          const loginResp = await rawRequest('POST', `${base}/main.php`, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
-          // Only accept a 302 that redirects to /c1/ — that's a genuine customer portal auth.
-          // A 302 to /index.php means Sippy bounced back to the login page (auth failed).
-          const loginLoc = (loginResp as any).location as string | undefined;
-          const goesToPortal = loginLoc && (loginLoc.includes('/c1/') || loginLoc.startsWith('c1/'));
-          if (loginResp.statusCode !== 302 || !loginResp.cookies.size || !goesToPortal) continue;
-          sessionKeys.add(key);
-          const iCustomer = (acctType !== 'customer' && acctType !== 'vendor') ? '1' : undefined;
-          console.log(`[Sippy] createSippyServicePlan: captured login session ${key}${iCustomer ? ' (admin ctx i_customer=1)' : ''}`);
-          allSessions.push({ cookies: loginResp.cookies, label: key, priority: typePriority[acctType] ?? 99, iCustomer });
-        } catch { /* next */ }
-      }
-    }
-    // Sort by priority: account first, then admin, reseller, customer, vendor
-    allSessions.sort((a, b) => a.priority - b.priority);
-  }
-
-  if (allSessions.length === 0) {
-    console.log('[Sippy] createSippyServicePlan: no login session succeeded — needs manual creation');
+    console.log(`[Sippy] createSippyServicePlan: provisioningLogin failed — ${e?.message}`);
     return {
       success: false,
       needsManualCreation: true,
-      error: 'The Sippy web portal is not accessible from this server. Create the Service Plan manually in the Sippy portal.',
+      error: `Provisioning login failed: ${e?.message}. Check that SIPPY_PROV_USERNAME / SIPPY_PROV_PASSWORD are correct reseller/admin credentials.`,
     };
   }
-  console.log(`[Sippy] createSippyServicePlan: ${allSessions.length} sessions to try: ${allSessions.map(s => s.label).join(', ')}`);
+  console.log(`[Sippy] createSippyServicePlan: using provisioning session: ${allSessions.map(s => s.label).join(', ')}`);
 
   // ── Step 2: POST service_plans.php — try each session in priority order ───────
   // NOTE: do NOT include i_billing_plan — empty string crashes Sippy's PHP (HTTP 500).
@@ -5809,17 +5822,14 @@ export async function createSippyServicePlan(
     }
   }
 
-  // All sessions failed
+  // POST failed — provisioning session authenticated but Sippy rejected the write.
+  // This means SIPPY_PROV_USERNAME does not have reseller/admin INSERT permission on this Sippy build.
   if (!resp) {
-    // Count sessions blocked by "Cannot insert" — this is a known Sippy permission restriction:
-    // the customer self-care portal (/c1/) only allows reseller/admin accounts to create
-    // billing plans. Customer-type sessions (even ssp-root as customer) are blocked.
-    const cannotInsertCount = allSessions.length; // all sessions were tried and hit this wall
-    console.log(`[Sippy] createSippyServicePlan: all ${cannotInsertCount} sessions blocked (Cannot insert) — Sippy admin portal required`);
+    console.log('[Sippy] createSippyServicePlan: provisioning session POST rejected (no INSERT permission) — manual creation needed');
     return {
       success: false,
       needsManualCreation: true,
-      error: 'Sippy requires admin-portal access to create Service Plans. The customer portal session (ssp-root) does not have INSERT permission. Create it manually: Sippy Admin → Customers → Tariffs & Currencies → Service Plans → Add.',
+      error: `Provisioning account "${process.env.SIPPY_PROV_USERNAME}" authenticated but Sippy rejected the Service Plan INSERT. Ensure the account has reseller or admin privileges in Sippy, then retry.`,
     };
   }
 
