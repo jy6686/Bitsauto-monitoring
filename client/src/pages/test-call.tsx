@@ -432,12 +432,36 @@ export default function TestCallPage() {
                       </code>
                     </div>
                   )}
-                  {callResult.success && (
-                    <div className="mt-3 text-xs text-muted-foreground bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3 space-y-1">
-                      <p className="font-semibold text-emerald-400/80">Call sent to Sippy</p>
-                      <p>The call has been routed. Check the Live Calls dashboard to see it appear — CDR will be generated on completion.</p>
-                    </div>
-                  )}
+                  {callResult.success && (() => {
+                    const submittedCli = form.getValues("cli")?.trim();
+                    const submittedCld = form.getValues("cld")?.trim();
+                    return (
+                      <div className="mt-3 space-y-2">
+                        {/* Primary action banner — answer your phone */}
+                        <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+                          <Phone className="h-4 w-4 text-amber-400 mt-0.5 shrink-0 animate-pulse" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-amber-300 uppercase tracking-wide">Your phone is ringing now — answer it!</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Sippy is calling <code className="font-mono bg-background/60 px-1 rounded text-foreground/80">{submittedCli || "your phone"}</code>
+                              {submittedCld ? (
+                                <> — once you answer, it bridges to <code className="font-mono bg-background/60 px-1 rounded text-foreground/80">{submittedCld}</code></>
+                              ) : null}
+                            </p>
+                          </div>
+                        </div>
+                        {/* CDR explanation */}
+                        <div className="text-xs text-muted-foreground bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-4 py-3 space-y-1">
+                          <p className="font-semibold text-emerald-400/80">What you'll see in the CDR</p>
+                          <p>
+                            While waiting for you to answer, the CDR shows <strong className="text-foreground/70">CLI = CLD = {submittedCli || "your phone"}</strong> — that's the
+                            first-leg call to your phone with the account's default caller-ID. Once you answer and the call bridges,
+                            a second CDR row will appear with CLD = <code className="font-mono bg-background/60 px-0.5 rounded text-foreground/70">{submittedCld || "destination"}</code>.
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {!callResult.success && !['no_authname', 'not_connected'].includes(callResult.errorType ?? '') && (() => {
                     const isAuthFail = /auth_failed|HTTP 401|HTTP 403|credentials rejected/i.test(callResult.message ?? '');

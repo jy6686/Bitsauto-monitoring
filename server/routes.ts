@@ -2532,10 +2532,13 @@ export async function registerRoutes(
             if (!r.success && !isAuthFail && cliDiffersFromCld) {
               try {
                 console.log(`[make-call] make2WayCallback minimal failed (${r.message}); retrying with cli_first/cli_second`);
+                // cli_first = destination number: when Sippy calls the user's phone (cld_first),
+                // show the destination (cld) as the caller ID so the user recognises the callback.
+                // cli_second = user's phone (cli): what the destination sees as the incoming caller.
                 r = await sippy.make2WayCallback(username, password, {
                   authname,
                   cldFirst:  cliTrim,
-                  cliFirst:  cliTrim,
+                  cliFirst:  cldTrim,
                   cldSecond: cldTrim,
                   cliSecond: cliTrim,
                 }, portalBase);
