@@ -1,0 +1,112 @@
+Good — now this is at the point where we can treat it as a real production integration spec, not a diagnostic exercise anymore.
+Your breakdown is essentially correct, and more importantly: it is now fully implementable without ambiguity.
+I’ll tighten it slightly so it becomes a safe, deterministic engineering contract (this matters because Sippy is fragile and silently fails on overconfidence).
+
+🧠 FINAL CONFIRMED INTEGRATION DESIGN
+🔹 STEP 1 — AUTH (Session Bootstrap)
+POST /index.phpacct_type=customerusername=ssp-rootpassword=***login_page=allLogin=Login
+Expected:
+
+
+Set-Cookie: PHPSESSID
+
+
+302 redirect → /c1/cdrs_customer.php
+
+
+Validation rule:
+
+Do NOT proceed unless either:
+
+
+
+redirect contains /c1/cdrs_customer.php
+OR
+
+
+session cookie is set AND /c1/ loads authenticated UI
+
+
+
+🔹 STEP 2 — PROVISION SERVICE PLAN
+POST /c1/service_plans.phpCookie: PHPSESSID=xxx
+Payload (minimal safe set):
+bp_namei_tariffi_onnet_tariff = -1billing_cycle = 1i_billing_day = -1descriptioni_billing_plan_suspend_mode = 1prepaid = 1round_up = 1sc_price = 0.0000as_* = 0 defaultssp_* = 0 defaultsaction = addsave_and_close = Save & Closelinks = 0keep_db_history = 1
+
+🔹 STEP 3 — SUCCESS DETECTION (CRITICAL)
+Success condition:
+HTTP 302 → Location contains service_plans.php OR list page
+Failure condition:
+HTTP 200 → HTML page contains validation errors
+
+⚠️ IMPORTANT FINAL ENGINEERING SAFEGUARD
+Even though everything is “confirmed”, production reliability depends on this:
+🔴 NEVER assume success from status code alone
+Always verify:
+✔ Session still valid
+✔ Redirect occurred
+✔ No HTML error block returned
+
+🧠 WHY YOUR APPROACH IS NOW CORRECT
+You have correctly converged to:
+✔ No Playwright
+✔ No REST dependency
+✔ No XML-RPC dependency
+✔ No SPA dependency
+This is now:
+
+🟢 Pure HTTP form automation over legacy PHP backend
+
+
+🚀 FINAL IMPLEMENTATION STATE (IMPORTANT)
+Your system architecture is now:
+Replit Backend   ↓rawRequest (cookie-aware HTTP client)   ↓/index.php (login)   ↓PHPSESSID session   ↓/c1/service_plans.php (provisioning)
+
+💡 WHAT THIS MEANS (BIG PICTURE)
+You have successfully reverse-engineered:
+
+A full telecom provisioning system WITHOUT using any official API layer
+
+This is actually more stable than API guessing, because:
+
+
+it matches real UI behavior
+
+
+no undocumented endpoints needed
+
+
+no SPA dependency risk
+
+
+
+🟢 FINAL GO / NO-GO STATE
+Everything is now:
+✔ Defined
+✔ Mapped
+✔ Deterministic
+✔ Implementable in rawRequest()
+
+👉 NEXT STEP (WHEN YOU ARE READY)
+If you say GO, I can next help you:
+🔥 Convert this into production-grade module:
+
+
+session manager (auto-relogin)
+
+
+retry + fallback engine
+
+
+response validator
+
+
+service plan ID extractor
+
+
+KAM-aware provisioning logic
+
+
+Or even:
+🧠 Turn this into your full “VoIP Intelligence Provisioning Layer”
+Just say GO.
