@@ -200,30 +200,30 @@ export default function CompanyProfilePage() {
           {step === 'done' && result && (
             <div className={`rounded-lg px-4 py-3 text-sm flex items-start gap-3 ${
               !result.success
-                ? 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+                ? 'bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300'
                 : result.partial
-                  ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
-                  : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                  ? 'bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300'
+                  : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
             }`}>
               {!result.success
-                ? <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-rose-400" />
+                ? <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-rose-500 dark:text-rose-400" />
                 : result.partial
-                  ? <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
-                  : <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-emerald-400" />}
+                  ? <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-500 dark:text-amber-400" />
+                  : <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-emerald-500 dark:text-emerald-400" />}
               <div className="space-y-1.5 w-full">
                 {result.success && !result.partial && (
                   <>
-                    <p className="font-medium text-emerald-200">
-                      {result.alreadyExists ? 'Tariff &amp; Service Plan already exist — reused' : 'Tariff &amp; Service Plan created'}
+                    <p className="font-medium text-emerald-800 dark:text-emerald-200">
+                      {result.alreadyExists ? 'Tariff & Service Plan already exist — reused' : 'Tariff & Service Plan created'}
                     </p>
-                    <div className="text-xs text-emerald-300/80 space-y-0.5">
+                    <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80 space-y-0.5">
                       <p>
-                        <Receipt className="w-3 h-3 inline mr-1 text-violet-400" />
-                        Tariff <span className="font-medium text-emerald-200">"{result.name}"</span> — ID {result.tariffId}
+                        <Receipt className="w-3 h-3 inline mr-1 text-violet-500 dark:text-violet-400" />
+                        Tariff <span className="font-medium text-emerald-800 dark:text-emerald-200">"{result.name}"</span> — ID {result.tariffId}
                       </p>
                       <p>
-                        <FileText className="w-3 h-3 inline mr-1 text-sky-400" />
-                        Service Plan <span className="font-medium text-emerald-200">"{result.planName ?? result.name}"</span> — ID {result.planId}
+                        <FileText className="w-3 h-3 inline mr-1 text-sky-500 dark:text-sky-400" />
+                        Service Plan <span className="font-medium text-emerald-800 dark:text-emerald-200">"{result.planName ?? result.name}"</span> — ID {result.planId}
                       </p>
                     </div>
                     <Link href="/clients?openWizard=1">
@@ -239,23 +239,23 @@ export default function CompanyProfilePage() {
 
                 {result.success && result.partial && (
                   <>
-                    <p className="font-medium text-amber-200">Tariff created — Service Plan needs manual setup</p>
-                    <div className="text-xs text-amber-300/80 space-y-1">
+                    <p className="font-medium text-amber-800 dark:text-amber-200">Tariff created — Service Plan needs manual setup</p>
+                    <div className="text-xs text-amber-700/80 dark:text-amber-300/80 space-y-1">
                       <p className="flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                        Tariff <span className="font-medium text-amber-200">"{result.name}"</span> created — Tariff ID {result.tariffId}
+                        <CheckCircle2 className="w-3 h-3 text-emerald-500 dark:text-emerald-400 shrink-0" />
+                        Tariff <span className="font-medium text-amber-800 dark:text-amber-200">"{result.name}"</span> created — Tariff ID {result.tariffId}
                       </p>
                       <p className="flex items-center gap-1.5">
-                        <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                        <AlertTriangle className="w-3 h-3 text-amber-500 dark:text-amber-400 shrink-0" />
                         Service Plan could not be created automatically — Sippy requires manual creation via the portal
                       </p>
                     </div>
                     {result.manualStep && (
-                      <div className="mt-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-xs text-amber-300/90 leading-relaxed">
-                        <p className="font-semibold text-amber-200 mb-1.5">Steps to complete in Sippy:</p>
+                      <div className="mt-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+                        <p className="font-semibold text-amber-800 dark:text-amber-200 mb-1.5">Steps to complete in Sippy:</p>
                         <div className="space-y-0.5">
                           {result.manualStep.split('\n').filter(Boolean).map((line: string, i: number) => (
-                            <p key={i} className={line.match(/^\d+\./) ? 'pl-1' : 'opacity-80'}>{line}</p>
+                            <p key={i} className={line.match(/^\d+\./) ? 'pl-1' : 'opacity-70'}>{line}</p>
                           ))}
                         </div>
                       </div>
@@ -266,13 +266,13 @@ export default function CompanyProfilePage() {
                         href={result.sippyPortalLink}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs font-medium hover:bg-amber-500/30 transition-colors"
+                        className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-800 dark:text-amber-200 text-xs font-medium hover:bg-amber-500/30 transition-colors"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
                         Open Sippy → Add Service Plan
                       </a>
                     )}
-                    <p className="text-xs text-amber-300/60 mt-1">
+                    <p className="text-xs text-amber-600/70 dark:text-amber-300/60 mt-1">
                       After creating the plan in Sippy, click "Create Tariff + Service Plan" again with the same name — it will detect and reuse it automatically.
                     </p>
                   </>
@@ -282,7 +282,7 @@ export default function CompanyProfilePage() {
                   <div className="space-y-2">
                     <p>{result.error}</p>
                     {result.tariffId && (
-                      <p className="text-xs text-rose-300/70">
+                      <p className="text-xs text-rose-600/70 dark:text-rose-300/70">
                         Note: Tariff was already created (ID {result.tariffId}).
                       </p>
                     )}
