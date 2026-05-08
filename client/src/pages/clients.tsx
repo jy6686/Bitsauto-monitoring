@@ -2560,12 +2560,60 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
   async function refreshBillingPlans() {
     setBpRefreshing(true);
     try {
-      // Hit the endpoint with ?refresh=1 to bust the server-side cache, then refetch
       const sep = switchQs ? '&' : '?';
       await fetch(`/api/sippy/billing-plans${switchQs}${sep}refresh=1`);
       await refetchBp();
     } finally {
       setBpRefreshing(false);
+    }
+  }
+
+  // Tariffs for "Create new plan" inline form
+  const { data: tariffData } = useQuery<{ tariffs: { id: number; name: string; currency?: string }[]; error?: string }>({
+    queryKey: ['/api/sippy/tariffs', switchId, inlineUrl, inlineUser],
+    queryFn: () => fetch(`/api/sippy/tariffs${switchQs}`).then(r => r.json()),
+    staleTime: 60_000,
+    enabled: canProceed,
+  });
+  const tariffList = tariffData?.tariffs ?? [];
+
+  // Inline "create new plan" form state
+  const [createPlanOpen, setCreatePlanOpen] = useState(false);
+  const [cpName, setCpName] = useState('');
+  const [cpTariff, setCpTariff] = useState('');
+  const [cpCreating, setCpCreating] = useState(false);
+  const [cpResult, setCpResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  async function handleCreatePlan() {
+    if (!cpName.trim() || !cpTariff) return;
+    setCpCreating(true);
+    setCpResult(null);
+    try {
+      const r = await apiRequest('POST', '/api/sippy/service-plans/create', {
+        planName: cpName.trim(),
+        iTariff: Number(cpTariff),
+        billingCycle: 3,
+      });
+      const data = r as any;
+      if (data.success) {
+        setCpResult({ ok: true, msg: data.alreadyExists ? `Plan already exists — selected "${data.planName}"` : `Plan "${data.planName}" created (ID ${data.planId})` });
+        // Refresh plan list and auto-select the new plan
+        await refreshBillingPlans();
+        if (data.planId) {
+          setTariffId(String(data.planId));
+          tariffManuallySet.current = true;
+          setTariffAutoMatched(data.planName ?? cpName.trim());
+        }
+        setCreatePlanOpen(false);
+        setCpName('');
+        setCpTariff('');
+      } else {
+        setCpResult({ ok: false, msg: data.error || 'Failed to create plan.' });
+      }
+    } catch (e: any) {
+      setCpResult({ ok: false, msg: e.message || 'Request failed.' });
+    } finally {
+      setCpCreating(false);
     }
   }
 
@@ -3046,18 +3094,85 @@ function NewSippyAccountModal({ onClose, switches }: { onClose: () => void; swit
                         placeholder="Type plan name (e.g. Standard, Business)"
                         className={fieldCls} />
                     )}
-                    <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
-                      Select an existing plan above. To create a new one, go to{' '}
-                      <a
-                        href="https://191.101.30.107/service_plans.php"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline"
-                      >
-                        Sippy portal → Service Plans ↗
-                      </a>
-                      {' '}then click <strong className="text-foreground/60">Refresh</strong> to reload.
-                    </p>
+                    {!createPlanOpen ? (
+                      <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+                        Select an existing plan above, or{' '}
+                        <button
+                          type="button"
+                          data-testid="button-open-create-plan"
+                          onClick={() => { setCreatePlanOpen(true); setCpName(name.trim()); setCpTariff(tariffList[0] ? String(tariffList[0].id) : ''); setCpResult(null); }}
+                          className="text-primary hover:underline font-medium"
+                        >
+                          + Create new plan
+                        </button>
+                        {' '}in Sippy directly.
+                      </p>
+                    ) : (
+                      <div className="mt-1 rounded-md border border-border/50 bg-muted/30 p-2.5 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-semibold text-foreground/70 uppercase tracking-wider">New Service Plan</span>
+                          <button type="button" onClick={() => { setCreatePlanOpen(false); setCpResult(null); }} className="text-muted-foreground hover:text-foreground transition-colors">
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] text-muted-foreground mb-0.5">Plan Name</label>
+                            <input
+                              data-testid="input-create-plan-name"
+                              type="text"
+                              value={cpName}
+                              onChange={e => setCpName(e.target.value)}
+                              placeholder="e.g. Test-2 USD"
+                              className={fieldCls + ' text-xs py-1'}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-muted-foreground mb-0.5">Tariff (Billing Rate)</label>
+                            {tariffList.length > 0 ? (
+                              <select
+                                data-testid="select-create-plan-tariff"
+                                value={cpTariff}
+                                onChange={e => setCpTariff(e.target.value)}
+                                className={fieldCls + ' text-xs py-1'}
+                              >
+                                <option value="">— Select tariff —</option>
+                                {tariffList.map(t => (
+                                  <option key={t.id} value={String(t.id)}>
+                                    {t.name}{t.currency ? ` (${t.currency})` : ''} #{t.id}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                data-testid="input-create-plan-tariff"
+                                type="number"
+                                min="1"
+                                value={cpTariff}
+                                onChange={e => setCpTariff(e.target.value)}
+                                placeholder="Tariff ID"
+                                className={fieldCls + ' text-xs py-1'}
+                              />
+                            )}
+                          </div>
+                        </div>
+                        {cpResult && (
+                          <p className={`text-[10px] ${cpResult.ok ? 'text-emerald-400' : 'text-rose-400'} leading-relaxed`}>
+                            {cpResult.ok ? '✓' : '✗'} {cpResult.msg}
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          data-testid="button-create-plan-submit"
+                          onClick={handleCreatePlan}
+                          disabled={cpCreating || !cpName.trim() || !cpTariff}
+                          className="flex items-center gap-1.5 px-3 py-1 rounded text-[10px] font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                        >
+                          {cpCreating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                          {cpCreating ? 'Creating…' : 'Create Plan'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

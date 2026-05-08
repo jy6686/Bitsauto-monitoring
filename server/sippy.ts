@@ -526,7 +526,7 @@ async function portalLogin(
   password: string,
   accountType: 'customer' | 'reseller' | 'admin' = 'customer',
 ): Promise<{ success: boolean; cookies: CookieJar; message: string }> {
-  const loginUrl = `${base}/main.php`;
+  const loginUrl = `${base}/index.php`;
 
   // Try every known acct_type value — this Sippy build exposes account/customer/vendor
   // in the UI dropdown; older or admin-level accounts may use different values.
@@ -5725,7 +5725,7 @@ export async function createSippyServicePlan(
           username: u, password: p, acct_type: acctType, login_page: 'all', Login: 'Login',
         });
         try {
-          const loginResp = await rawRequest('POST', `${base}/main.php`, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
+          const loginResp = await rawRequest('POST', `${base}/index.php`, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
           if (loginResp.statusCode !== 302 || loginResp.cookies.size === 0) continue;
           sessionKeys.add(key);
           // Non-customer sessions: always include i_customer=1 in POST body
