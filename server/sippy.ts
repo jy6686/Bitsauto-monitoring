@@ -607,7 +607,10 @@ async function provisioningLogin(base: string): Promise<CookieJar> {
   }
 
   const loginUrl = `${base}/main.php`;
-  // Try every account type — reseller/admin accounts may use 'reseller', 'admin', or 'account'.
+  // Try every account type. On this Sippy build ssp-root authenticates as 'customer'
+  // redirecting to /c1/cdrs_customer.php — that IS a successful login even though
+  // the session is customer-typed. We capture cookies directly from the 302 without
+  // a follow-up verification GET (verification was the source of false negatives).
   const acctTypes = ['reseller', 'admin', 'account', 'customer'] as const;
 
   for (const acctType of acctTypes) {
@@ -618,20 +621,23 @@ async function provisioningLogin(base: string): Promise<CookieJar> {
     try {
       const resp = await rawRequest('POST', loginUrl, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
       const loc = (resp as any).location as string | undefined;
-      // Accept any redirect that is NOT back to the login page — reseller/admin sessions
-      // may redirect to /c1/, /main.php, or other sub-paths depending on Sippy build.
-      const isLoginRedirect = !loc || loc.includes('/index.php') || loc.endsWith('/main.php') || loc === '/';
-      if ((resp.statusCode === 302 || resp.statusCode === 301) && resp.cookies.size > 0 && !isLoginRedirect) {
-        console.log(`[Sippy] provisioningLogin: authenticated as ${provUser}/${acctType} → ${loc}`);
+      const statusCode = resp.statusCode;
+      const hasCookies = resp.cookies.size > 0;
+      console.log(`[Sippy] provisioningLogin (${provUser}/${acctType}): HTTP ${statusCode}, Location: ${loc ?? 'none'}, cookies: ${resp.cookies.size}`);
+
+      // Success: any 3xx that does NOT go back to index.php / login page
+      const isFailRedirect = !loc || loc.includes('/index.php') || (loc.endsWith('/main.php') && !loc.includes('?'));
+      if ((statusCode === 301 || statusCode === 302 || statusCode === 303) && hasCookies && !isFailRedirect) {
+        console.log(`[Sippy] provisioningLogin: captured session as ${provUser}/${acctType} → ${loc}`);
         return resp.cookies;
       }
-      // Also accept a 200 with portal content (some builds don't redirect)
-      if (resp.statusCode === 200 && resp.cookies.size > 0) {
+      // Also accept a direct 200 with portal content (no redirect on some builds)
+      if (statusCode === 200 && hasCookies) {
         const hasPortal = resp.body.includes('action=Logout') || resp.body.toLowerCase().includes('logout')
           || resp.body.includes('service_plans.php') || resp.body.includes('accounts.php');
-        const hasLogin  = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
-        if (hasPortal && !hasLogin) {
-          console.log(`[Sippy] provisioningLogin: authenticated as ${provUser}/${acctType} via 200+portal`);
+        const hasLoginForm = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
+        if (hasPortal && !hasLoginForm) {
+          console.log(`[Sippy] provisioningLogin: captured session as ${provUser}/${acctType} via 200+portal`);
           return resp.cookies;
         }
       }
@@ -640,7 +646,7 @@ async function provisioningLogin(base: string): Promise<CookieJar> {
     }
   }
 
-  console.log(`[Sippy] provisioningLogin: all acct_type attempts failed for ${provUser} — credentials rejected by Sippy`);
+  console.log(`[Sippy] provisioningLogin: all acct_type attempts failed for ${provUser}`);
   throw new Error('PROVISIONING_NOT_CONFIGURED');
 }
 
