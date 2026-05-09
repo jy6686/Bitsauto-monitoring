@@ -11,7 +11,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle, ShieldCheck } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle, ShieldCheck, RotateCcw, Zap, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ApprovalRequest, ApprovalAuditEntry } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
@@ -22,6 +22,12 @@ const STATUS_BADGE: Record<string, { label: string; icon: any; className: string
   pending:  { label: "Pending",  icon: Clock,        className: "bg-amber-500/10 text-amber-400 border-amber-500/20"  },
   approved: { label: "Approved", icon: CheckCircle2, className: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
   rejected: { label: "Rejected", icon: XCircle,      className: "bg-rose-500/10 text-rose-400 border-rose-500/20"   },
+};
+
+const SOURCE_BADGE: Record<string, { label: string; className: string; icon: any }> = {
+  rule_engine: { label: "Rule Engine", className: "bg-violet-500/10 text-violet-400 border-violet-500/20", icon: Bot },
+  rollback:    { label: "Rollback",    className: "bg-orange-500/10 text-orange-400 border-orange-500/20", icon: RotateCcw },
+  manual:      { label: "Manual",      className: "bg-muted/50 text-muted-foreground border-border",        icon: Zap },
 };
 
 const ACTION_LABEL: Record<string, string> = {
@@ -104,10 +110,24 @@ function AuditLogEntry({ entry }: { entry: ApprovalAuditEntry }) {
   );
 }
 
-function RequestRow({ request, onApprove, onReject, canAct }: {
-  request: ApprovalRequest;
+function SourceBadge({ source }: { source?: string | null }) {
+  const s = source ?? 'manual';
+  const cfg = SOURCE_BADGE[s] ?? SOURCE_BADGE.manual;
+  const Icon = cfg.icon;
+  if (s === 'manual') return null;
+  return (
+    <Badge variant="outline" className={cn("text-[10px] h-4 px-1 gap-0.5 shrink-0", cfg.className)}>
+      <Icon className="h-2.5 w-2.5" />
+      {cfg.label}
+    </Badge>
+  );
+}
+
+function RequestRow({ request, onApprove, onReject, onRollback, canAct }: {
+  request: ApprovalRequest & { source?: string | null; ruleId?: number | null; rollbackOf?: number | null; execResult?: any };
   onApprove: (id: number) => void;
   onReject: (id: number) => void;
+  onRollback: (id: number) => void;
   canAct: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -119,6 +139,11 @@ function RequestRow({ request, onApprove, onReject, canAct }: {
   const statusInfo = STATUS_BADGE[request.status] ?? STATUS_BADGE.pending;
   const StatusIcon = statusInfo.icon;
   const isSelf = request.selfApproval;
+  const isRollbackEligible =
+    request.status === 'approved' &&
+    request.operationType === 'routing_group_member.update' &&
+    !(request as any).rollbackOf &&
+    canAct;
 
   return (
     <>
@@ -129,9 +154,10 @@ function RequestRow({ request, onApprove, onReject, canAct }: {
       >
         <TableCell className="py-2.5 pr-2">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-sm font-medium truncate max-w-[200px]" title={request.entityName ?? ""}>
+            <span className="text-sm font-medium truncate max-w-[180px]" title={request.entityName ?? ""}>
               {request.entityName ?? `Request #${request.id}`}
             </span>
+            <SourceBadge source={(request as any).source} />
             {isSelf && (
               <Badge variant="outline" className="text-[10px] h-4 px-1 bg-rose-500/10 text-rose-400 border-rose-500/30 shrink-0">
                 Self-Approved
@@ -140,6 +166,9 @@ function RequestRow({ request, onApprove, onReject, canAct }: {
           </div>
           <div className="text-xs text-muted-foreground mt-0.5">
             {request.operationType}
+            {(request as any).rollbackOf && (
+              <span className="ml-1.5 text-orange-400/80">↩ rollback of #{(request as any).rollbackOf}</span>
+            )}
           </div>
         </TableCell>
         <TableCell className="py-2.5">
@@ -183,6 +212,18 @@ function RequestRow({ request, onApprove, onReject, canAct }: {
                 </Button>
               </>
             )}
+            {isRollbackEligible && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs text-orange-400 border-orange-500/30 hover:bg-orange-500/10"
+                onClick={() => onRollback(request.id)}
+                data-testid={`btn-rollback-${request.id}`}
+                title="Submit a rollback — creates a reverse change in the Approval Queue"
+              >
+                <RotateCcw className="h-3.5 w-3.5 mr-1" /> Rollback
+              </Button>
+            )}
             {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
           </div>
         </TableCell>
@@ -195,6 +236,14 @@ function RequestRow({ request, onApprove, onReject, canAct }: {
                 <div>
                   <div className="text-xs font-semibold text-muted-foreground mb-1">Change Details</div>
                   <DiffView before={request.payloadBefore as any} after={request.payloadAfter as any} />
+                </div>
+              )}
+              {(request as any).execResult && (
+                <div className="rounded border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+                  <div className="text-xs font-semibold text-emerald-400 mb-1">Sippy Execution Result</div>
+                  <pre className="text-xs font-mono text-emerald-300/80 whitespace-pre-wrap break-all">
+                    {JSON.stringify((request as any).execResult, null, 2)}
+                  </pre>
                 </div>
               )}
               {request.status === 'rejected' && request.rejectionReason && (
@@ -283,9 +332,26 @@ export default function ApprovalQueuePage() {
     onError: (e: any) => toast({ title: "Rejection failed", description: e.message, variant: "destructive" }),
   });
 
-  const handleApprove = (id: number) => { approveMut.mutate(id); };
-  const handleReject  = (id: number) => { setRejectTarget(id); setRejectReason(""); };
-  const submitReject  = () => { if (rejectTarget && rejectReason.trim()) rejectMut.mutate({ id: rejectTarget, reason: rejectReason.trim() }); };
+  const rollbackMut = useMutation({
+    mutationFn: async (id: number) => (await apiRequest("POST", `/api/approvals/${id}/rollback`)).json(),
+    onSuccess: (data: any) => {
+      if (!data.success) {
+        toast({ title: "Rollback failed", description: data.error, variant: "destructive" });
+      } else {
+        toast({
+          title: "Rollback queued",
+          description: `Rollback request #${data.request?.id} submitted to Approval Queue for review.`,
+        });
+      }
+      qc.invalidateQueries({ queryKey: ["/api/approvals"] });
+    },
+    onError: (e: any) => toast({ title: "Rollback failed", description: e.message, variant: "destructive" }),
+  });
+
+  const handleApprove  = (id: number) => { approveMut.mutate(id); };
+  const handleReject   = (id: number) => { setRejectTarget(id); setRejectReason(""); };
+  const handleRollback = (id: number) => { rollbackMut.mutate(id); };
+  const submitReject   = () => { if (rejectTarget && rejectReason.trim()) rejectMut.mutate({ id: rejectTarget, reason: rejectReason.trim() }); };
 
   const tabs = [
     { value: "pending",  label: "Pending",  count: pendingCount },
@@ -377,10 +443,11 @@ export default function ApprovalQueuePage() {
               {requests.map(req => (
                 <RequestRow
                   key={req.id}
-                  request={req}
+                  request={req as any}
                   canAct={canAct}
                   onApprove={handleApprove}
                   onReject={handleReject}
+                  onRollback={handleRollback}
                 />
               ))}
             </TableBody>

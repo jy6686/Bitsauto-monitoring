@@ -509,6 +509,11 @@ export const approvalRequests = pgTable("approval_requests", {
   rejectionReason: text("rejection_reason"),
   selfApproval:    boolean("self_approval").default(false),                  // true when Super Admin approves own request
   requestedAt:     timestamp("requested_at").defaultNow(),
+  // ── Feature 3: Rule Execution Engine ──────────────────────────────────────
+  source:          varchar("source",            { length: 32  }).default('manual'), // manual | rule_engine | rollback
+  ruleId:          integer("rule_id"),                                       // FK → routing_rules.id (when fired by rule engine)
+  rollbackOf:      integer("rollback_of"),                                   // FK → approval_requests.id (when this is a rollback)
+  execResult:      json("exec_result"),                                      // Sippy XML-RPC result stored after execution
 });
 
 export type ApprovalRequest    = typeof approvalRequests.$inferSelect;

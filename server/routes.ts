@@ -15,7 +15,8 @@ import * as waSvc from "./whatsapp";
 import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas, calcVendorFraudStats, detectIrsf } from "./cdr-enrichment";
 import { initSippyWatcher, notifyNewClientTraffic, getWatcherStatus, sendTestWatcherAlert } from "./sippy-watcher";
 import { setupChatWebSocket } from "./chat-ws";
-import { submitApprovalRequest, approveRequest, rejectRequest, canSubmit, type OperationType } from "./approvals";
+import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, canSubmit, type OperationType } from "./approvals";
+import { evaluateRules } from "./rule-engine";
 import { APPROVAL_POLICY, type Role } from "@shared/schema";
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode } from "./dial-lookup";
@@ -14758,6 +14759,21 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e) { console.warn('[scheduled-reports] scheduler error:', (e as any).message); }
   }, 15 * 60 * 1000);
 
+  // Routing Intelligence — evaluate rules every 5 minutes (T+4 min stagger)
+  setTimeout(() => {
+    const _runRuleEngine = async () => {
+      try {
+        const results = await evaluateRules(cdrCache, liveCallsCache);
+        const fired = results.filter(r => r.fired);
+        if (fired.length > 0) {
+          console.log(`[rule-engine] ${fired.length}/${results.length} rules fired → ${fired.map(r => r.ruleName).join(', ')}`);
+        }
+      } catch (e: any) { console.warn('[rule-engine] evaluation error:', e.message); }
+    };
+    _runRuleEngine();
+    setInterval(_runRuleEngine, 5 * 60 * 1000);
+  }, 240_000); // T+4 min stagger
+
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();
 
@@ -14819,6 +14835,22 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       });
       if (!result.success) return res.status(403).json({ error: result.error });
       res.json({ success: true, message: 'Request approved and executed.' });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/approvals/:id/rollback — create a reversed approval request
+  app.post('/api/approvals/:id/rollback', async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid approval request ID.' });
+      const result = await submitRollback(id, {
+        id: userId,
+        name: req.user?.claims?.name ?? req.user?.claims?.email,
+      });
+      if (!result.success) return res.status(400).json({ error: result.error });
+      res.json({ success: true, request: result.request, message: 'Rollback request submitted to Approval Queue.' });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -14990,7 +15022,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // ── Routing Intelligence Rules ────────────────────────────────────────────────
 
-  app.get('/api/routing-rules', isAuthenticated, async (req: any, res: any) => {
+  app.get('/api/routing-rules', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { routingRules } = await import('../shared/schema');
@@ -15000,7 +15032,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.post('/api/routing-rules', isAuthenticated, async (req: any, res: any) => {
+  app.post('/api/routing-rules', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { routingRules } = await import('../shared/schema');
@@ -15021,7 +15053,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.patch('/api/routing-rules/:id', isAuthenticated, async (req: any, res: any) => {
+  app.patch('/api/routing-rules/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { routingRules } = await import('../shared/schema');
@@ -15036,7 +15068,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.delete('/api/routing-rules/:id', isAuthenticated, async (req: any, res: any) => {
+  app.delete('/api/routing-rules/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { routingRules } = await import('../shared/schema');
@@ -15048,9 +15080,18 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // POST /api/routing-rules/evaluate — manually trigger rule evaluation
+  app.post('/api/routing-rules/evaluate', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (req: any, res: any) => {
+    try {
+      const results = await evaluateRules(cdrCache, liveCallsCache);
+      const fired = results.filter(r => r.fired).length;
+      res.json({ success: true, evaluated: results.length, fired, results });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── Number Intelligence Lookup ────────────────────────────────────────────────
 
-  app.get('/api/number-lookup/:number', isAuthenticated, async (req: any, res: any) => {
+  app.get('/api/number-lookup/:number', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { numberLookupCache } = await import('../shared/schema');
@@ -15099,7 +15140,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // ── SBC Hosts ─────────────────────────────────────────────────────────────────
 
-  app.get('/api/sbc-hosts', isAuthenticated, async (req: any, res: any) => {
+  app.get('/api/sbc-hosts', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { sbcHosts } = await import('../shared/schema');
@@ -15109,7 +15150,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.post('/api/sbc-hosts', isAuthenticated, async (req: any, res: any) => {
+  app.post('/api/sbc-hosts', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { sbcHosts } = await import('../shared/schema');
@@ -15127,7 +15168,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.patch('/api/sbc-hosts/:id', isAuthenticated, async (req: any, res: any) => {
+  app.patch('/api/sbc-hosts/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { sbcHosts } = await import('../shared/schema');
@@ -15142,7 +15183,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.delete('/api/sbc-hosts/:id', isAuthenticated, async (req: any, res: any) => {
+  app.delete('/api/sbc-hosts/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { sbcHosts } = await import('../shared/schema');
@@ -15154,7 +15195,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.get('/api/sbc-hosts/:id/metrics', isAuthenticated, async (req: any, res: any) => {
+  app.get('/api/sbc-hosts/:id/metrics', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { sbcHosts } = await import('../shared/schema');
@@ -15181,7 +15222,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // ── Reseller Profiles ─────────────────────────────────────────────────────────
 
-  app.get('/api/resellers', isAuthenticated, async (req: any, res: any) => {
+  app.get('/api/resellers', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { resellerProfiles } = await import('../shared/schema');
@@ -15191,7 +15232,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.post('/api/resellers', isAuthenticated, async (req: any, res: any) => {
+  app.post('/api/resellers', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { resellerProfiles } = await import('../shared/schema');
@@ -15209,7 +15250,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.patch('/api/resellers/:id', isAuthenticated, async (req: any, res: any) => {
+  app.patch('/api/resellers/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { resellerProfiles } = await import('../shared/schema');
@@ -15224,7 +15265,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.delete('/api/resellers/:id', isAuthenticated, async (req: any, res: any) => {
+  app.delete('/api/resellers/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { resellerProfiles } = await import('../shared/schema');

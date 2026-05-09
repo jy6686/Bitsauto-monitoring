@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Workflow, Plus, Trash2, ToggleLeft, ToggleRight, AlertTriangle, CheckCircle2, Clock, Zap, Bell, ShieldOff, ArrowDown, Info, ChevronDown } from "lucide-react";
+import { Workflow, Plus, Trash2, ToggleLeft, ToggleRight, AlertTriangle, CheckCircle2, Clock, Zap, Bell, ShieldOff, ArrowDown, Info, ChevronDown, Play, RefreshCw, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -70,10 +70,23 @@ function metricSummary(rule: RoutingRule): string {
   return `If ${m?.label ?? rule.conditionMetric} ${opLabel} ${t}${m?.unit ?? ''} for ${dur} min`;
 }
 
+interface EvalResult {
+  ruleId: number;
+  ruleName: string;
+  fired: boolean;
+  metric: string;
+  current: number | null;
+  threshold: number;
+  action: string;
+  message: string;
+  approvalRequestId?: number;
+}
+
 export default function RoutingIntelligencePage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [showDialog, setShowDialog] = useState(false);
+  const [evalResults, setEvalResults] = useState<EvalResult[] | null>(null);
   const [form, setForm] = useState({
     name: '', conditionMetric: 'asr', conditionOperator: 'lt',
     conditionThreshold: 60, conditionDurationMin: 5,
@@ -111,6 +124,24 @@ export default function RoutingIntelligencePage() {
     },
   });
 
+  const evaluateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/routing-rules/evaluate');
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setEvalResults(data.results ?? []);
+      const fired = (data.results ?? []).filter((r: EvalResult) => r.fired).length;
+      if (fired > 0) {
+        toast({ title: `${fired} rule${fired > 1 ? 's' : ''} fired`, description: "Approval request(s) submitted to the queue." });
+      } else {
+        toast({ title: "Evaluation complete", description: `${data.evaluated ?? 0} rules evaluated — no actions taken.` });
+      }
+      qc.invalidateQueries({ queryKey: ['/api/routing-rules'] });
+    },
+    onError: (e: any) => toast({ title: "Evaluation failed", description: e.message, variant: "destructive" }),
+  });
+
   const activeRules = rules.filter(r => r.enabled).length;
   const triggeredToday = rules.filter(r => r.lastTriggeredAt && new Date(r.lastTriggeredAt).toDateString() === new Date().toDateString()).length;
 
@@ -128,9 +159,23 @@ export default function RoutingIntelligencePage() {
               <p className="text-sm text-muted-foreground">Automated rule-based routing decisions with approval gates</p>
             </div>
           </div>
-          <Button onClick={() => setShowDialog(true)} data-testid="button-new-rule">
-            <Plus className="h-4 w-4 mr-2" /> New Rule
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => evaluateMutation.mutate()}
+              disabled={evaluateMutation.isPending}
+              data-testid="button-evaluate-rules"
+              className="gap-1.5"
+            >
+              {evaluateMutation.isPending
+                ? <RefreshCw className="h-4 w-4 animate-spin" />
+                : <Play className="h-4 w-4" />}
+              Evaluate Now
+            </Button>
+            <Button onClick={() => setShowDialog(true)} data-testid="button-new-rule">
+              <Plus className="h-4 w-4 mr-2" /> New Rule
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -155,6 +200,56 @@ export default function RoutingIntelligencePage() {
             <p>Rules are evaluated every 5 minutes against live Sippy metrics. When a condition is met for the specified duration, the action fires automatically. <strong className="text-foreground/80">Flag for Approval</strong> and <strong className="text-foreground/80">Block</strong> actions are queued in the Approval Queue first — no route changes happen without a human sign-off.</p>
           </div>
         </div>
+
+        {/* Evaluation Results */}
+        {evalResults && (
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-cyan-400" />
+                <h2 className="text-sm font-semibold">Last Evaluation Results</h2>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {evalResults.filter(r => r.fired).length} fired / {evalResults.length} evaluated
+              </span>
+            </div>
+            <div className="divide-y divide-border/40">
+              {evalResults.length === 0 && (
+                <div className="px-5 py-4 text-xs text-muted-foreground">No rules to evaluate.</div>
+              )}
+              {evalResults.map(r => (
+                <div key={r.ruleId} className="px-5 py-3 flex items-start gap-3">
+                  {r.fired
+                    ? <CheckCircle2 className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                    : <Clock className="h-4 w-4 text-muted-foreground/50 mt-0.5 shrink-0" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold">{r.ruleName}</span>
+                      {r.fired && (
+                        <Badge variant="outline" className="text-[10px] h-4 px-1.5 bg-amber-500/10 text-amber-400 border-amber-500/20">
+                          FIRED
+                        </Badge>
+                      )}
+                      {r.approvalRequestId && (
+                        <a href="/approval-queue" className="text-[10px] text-violet-400 hover:underline flex items-center gap-0.5">
+                          <ExternalLink className="h-2.5 w-2.5" />Approval #{r.approvalRequestId}
+                        </a>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">{r.message}</p>
+                    {r.current !== null && (
+                      <p className="text-xs text-muted-foreground/60 mt-0.5">
+                        {r.metric}: <span className={cn("font-mono", r.fired ? "text-amber-400" : "text-foreground/60")}>
+                          {r.current.toFixed(2)}
+                        </span> vs threshold {r.threshold}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Rules list */}
         <div className="bg-card border border-border rounded-xl overflow-hidden">

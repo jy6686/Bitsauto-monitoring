@@ -17,6 +17,8 @@
 import { storage } from "./storage";
 import * as sippy from "./sippy";
 import { type Role, type ApprovalRequest, type InsertApprovalRequest, APPROVAL_POLICY } from "@shared/schema";
+import { db as _db } from "./db";
+import { approvalRequests as _arTable } from "../shared/schema";
 
 // ─── Operation type registry ────────────────────────────────────────────────
 
@@ -34,6 +36,8 @@ export type OperationType =
   | 'ds_route.update'
   | 'ds_route.delete'
   | 'ds_route.delete_all';
+
+export type ApprovalSource = 'manual' | 'rule_engine' | 'rollback';
 
 export const OPERATION_LABELS: Record<OperationType, string> = {
   'routing_group.create':          'Create Routing Group',
@@ -99,6 +103,9 @@ export async function submitApprovalRequest(params: {
   requestedBy: string;
   requestedByName?: string;
   teamId?: string | null;
+  source?: ApprovalSource;
+  ruleId?: number | null;
+  rollbackOf?: number | null;
 }): Promise<ApprovalRequest> {
   const data: InsertApprovalRequest = {
     operationType: params.operationType,
@@ -112,6 +119,9 @@ export async function submitApprovalRequest(params: {
     teamId: params.teamId ?? null,
     status: 'pending',
     selfApproval: false,
+    source: params.source ?? 'manual',
+    ruleId: params.ruleId ?? null,
+    rollbackOf: params.rollbackOf ?? null,
   };
 
   const request = await storage.createApprovalRequest(data);
@@ -152,13 +162,14 @@ export async function approveRequest(
     return { success: false, error: `Execution error: ${err.message}` };
   }
 
-  // Mark as approved
+  // Mark as approved and store Sippy execution result
   await storage.updateApprovalRequest(requestId, {
     status: 'approved',
     reviewedBy: actor.id,
     reviewedByName: actor.name,
     reviewedAt: new Date(),
     selfApproval: isSelfApproval,
+    execResult: execResult ?? null,
   });
 
   await storage.addApprovalAuditEntry({
@@ -206,6 +217,35 @@ export async function rejectRequest(
   });
 
   return { success: true };
+}
+
+// ─── Create a rollback request (swap before ↔ after) ────────────────────────
+
+export async function submitRollback(
+  originalId: number,
+  actor: { id: string; name?: string },
+): Promise<{ success: boolean; request?: ApprovalRequest; error?: string }> {
+  const original = await storage.getApprovalRequestById(originalId);
+  if (!original) return { success: false, error: 'Original request not found' };
+  if (original.status !== 'approved') return { success: false, error: 'Can only rollback approved requests' };
+  if (!original.payloadBefore) return { success: false, error: 'No payloadBefore to rollback to' };
+  if ((original as any).rollbackOf) return { success: false, error: 'Cannot rollback a rollback request' };
+
+  const req = await submitApprovalRequest({
+    operationType: original.operationType as OperationType,
+    action: 'update',
+    entityId: original.entityId ?? undefined,
+    entityName: `[ROLLBACK] ${original.entityName ?? `Request #${originalId}`}`,
+    payloadBefore: original.payloadAfter,
+    payloadAfter:  original.payloadBefore,
+    requestedBy:   actor.id,
+    requestedByName: actor.name,
+    teamId: original.teamId,
+    source: 'rollback',
+    rollbackOf: originalId,
+  });
+
+  return { success: true, request: req };
 }
 
 // ─── Execute approved operation ──────────────────────────────────────────────
