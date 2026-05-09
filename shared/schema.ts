@@ -819,7 +819,9 @@ export const syntheticTestRuns = pgTable("synthetic_test_runs", {
   totalCalls:       integer("total_calls").notNull().default(0),
   connectedCalls:   integer("connected_calls").notNull().default(0),
   failedCalls:      integer("failed_calls").notNull().default(0),
-  asr:              real("asr"),                   // % connected for this run
+  infraFailures:    integer("infra_failures").notNull().default(0),   // excluded from ASR
+  carrierFailures:  integer("carrier_failures").notNull().default(0),
+  asr:              real("asr"),                   // % connected for this run (excl. infra)
   avgPddMs:         real("avg_pdd_ms"),
   baselineAsrAtRun: real("baseline_asr_at_run"),  // snapshot of baseline when run fired
   anomalyFired:     boolean("anomaly_fired").notNull().default(false),
@@ -848,22 +850,40 @@ export type InsertTestCampaignResult = typeof testCampaignResults.$inferInsert;
 
 // ── Route Decision Traces — per-call routing resolution log ──────────────────
 export const routeDecisionTraces = pgTable("route_decision_traces", {
-  id:                serial("id").primaryKey(),
-  campaignId:        integer("campaign_id"),
-  runId:             integer("run_id"),
-  cld:               varchar("cld",    { length: 64 }).notNull(),
-  cli:               varchar("cli",    { length: 64 }),
-  selectedCarrier:   varchar("selected_carrier",   { length: 128 }),
-  selectedCarrierId: integer("selected_carrier_id"),
-  candidateRoutes:   text("candidate_routes"),       // JSON: [{groupId, groupName, carrierId, carrierName, priority}]
-  decisionReason:    varchar("decision_reason",      { length: 255 }),
-  outcome:           varchar("outcome",              { length: 20 }),
-  sipCode:           integer("sip_code"),
-  pddMs:             real("pdd_ms"),
-  durationSec:       real("duration_sec"),
-  failureCategory:   varchar("failure_category",     { length: 64 }),  // user_not_found|no_route|timeout|network|fas|other
-  createdAt:         timestamp("created_at").defaultNow().notNull(),
+  id:                   serial("id").primaryKey(),
+  campaignId:           integer("campaign_id"),
+  runId:                integer("run_id"),
+  cld:                  varchar("cld",    { length: 64 }).notNull(),
+  cli:                  varchar("cli",    { length: 64 }),
+  selectedCarrier:      varchar("selected_carrier",   { length: 128 }),
+  selectedCarrierId:    integer("selected_carrier_id"),
+  candidateRoutes:      text("candidate_routes"),       // JSON: [{groupId, groupName, carrierId, carrierName, priority}]
+  decisionReason:       varchar("decision_reason",      { length: 255 }),
+  outcome:              varchar("outcome",              { length: 20 }),
+  sipCode:              integer("sip_code"),
+  pddMs:                real("pdd_ms"),
+  durationSec:          real("duration_sec"),
+  failureCategory:      varchar("failure_category",     { length: 64 }),  // user_not_found|no_route|timeout|network|fas|other
+  // ── Phase 1 + Phase 5 additions ──────────────────────────────────────────
+  failureType:          varchar("failure_type",         { length: 32  }),  // carrier_failure | infra_failure
+  carrierScoresSnapshot: text("carrier_scores_snapshot"),                   // JSON: {carrierName: stabilityScore} at execution time
+  createdAt:            timestamp("created_at").defaultNow().notNull(),
 });
+
+// ── Execution Health Log — infra noise stream (separate from carrier failures) ─
+export const executionHealthLog = pgTable("execution_health_log", {
+  id:           serial("id").primaryKey(),
+  campaignId:   integer("campaign_id"),
+  runId:        integer("run_id"),
+  cld:          varchar("cld",           { length: 64 }),
+  cli:          varchar("cli",           { length: 64 }),
+  errorType:    varchar("error_type",    { length: 32 }),  // timeout|auth|xmlrpc|network|null_result
+  errorMessage: text("error_message"),
+  attemptCount: integer("attempt_count").notNull().default(1),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+});
+export type ExecutionHealthEntry    = typeof executionHealthLog.$inferSelect;
+export type InsertExecutionHealthEntry = typeof executionHealthLog.$inferInsert;
 export type RouteDecisionTrace    = typeof routeDecisionTraces.$inferSelect;
 export type InsertRouteDecisionTrace = typeof routeDecisionTraces.$inferInsert;
 
@@ -1168,15 +1188,20 @@ export type InsertAnomalyEvent = typeof anomalyEvents.$inferInsert;
 
 // AI Ops execution-derived control-plane signals
 export const aiOpsEvents = pgTable("ai_ops_events", {
-  id:           serial("id").primaryKey(),
-  type:         text("type").notNull(),                        // ROUTING_FAILURE | EXECUTION_LATENCY_HIGH | VENDOR_DEGRADATION_SIGNAL
-  severity:     varchar("severity", { length: 16 }).notNull(), // high | medium | low
-  message:      text("message").notNull(),
-  entity:       text("entity"),                                // operationType that produced the signal
-  value:        text("value"),                                 // e.g. durationMs as string
-  linkedExecId: text("linked_exec_id"),                        // approval request ID that triggered this signal
-  source:       text("source").notNull().default('execution'),
-  createdAt:    timestamp("created_at").defaultNow().notNull(),
+  id:             serial("id").primaryKey(),
+  type:           text("type").notNull(),                        // ROUTING_FAILURE | EXECUTION_LATENCY_HIGH | VENDOR_DEGRADATION_SIGNAL
+  severity:       varchar("severity",       { length: 16  }).notNull(), // high | medium | low
+  message:        text("message").notNull(),
+  entity:         text("entity"),                                // operationType that produced the signal
+  value:          text("value"),                                 // e.g. durationMs as string
+  linkedExecId:   text("linked_exec_id"),                        // approval request ID that triggered this signal
+  source:         text("source").notNull().default('execution'),
+  // ── Truth layer (Phase 2) ──────────────────────────────────────────────────
+  confidence:     real("confidence"),                            // 0–1 evidence strength
+  signalSource:   varchar("signal_source",  { length: 32  }),   // synthetic | live_traffic | manual_test
+  dedupeKey:      varchar("dedupe_key",     { length: 128 }),   // carrier+type+15min-bucket for dedup
+  classification: varchar("classification", { length: 32  }),   // carrier_failure | infra_failure | success
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
 export type AiOpsEvent = typeof aiOpsEvents.$inferSelect;
 export type InsertAiOpsEvent = typeof aiOpsEvents.$inferInsert;

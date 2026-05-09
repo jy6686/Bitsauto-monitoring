@@ -1,0 +1,140 @@
+Yes — but with one important correction in framing before we implement anything:
+
+What you’re describing is no longer “feature work” — it’s data integrity hardening for a real-time decision system.
+
+So the order matters strictly. If we don’t respect it, everything built after will look correct but behave wrong under load.
+
+✅ Clean implementation plan (correct order)
+🥇 1. Execution Reliability Layer (DO THIS FIRST — mandatory)
+
+This is the foundation fix.
+
+What we implement:
+A. Retry + backoff policy (Sippy calls)
+max 2 retries
+exponential backoff (5s → 10s)
+only for infra-level failures
+B. Failure classification (critical change)
+
+Split every execution into:
+
+🟥 carrier_failure
+SIP 4xx / 5xx / 6xx
+rejected calls
+busy / unreachable from carrier
+🟨 infra_failure
+timeout
+XML-RPC crash
+network error
+auth failure
+Sippy unreachable
+C. Baseline protection rule
+❌ infra_failure DOES NOT affect:
+ASR
+PDD baseline
+anomaly detection
+✔ infra_failure still goes to:
+separate “execution_health_log”
+AI Ops (low severity)
+Why this is critical:
+
+Without this, your system is currently:
+
+“measuring your infrastructure problems as carrier problems”
+
+That breaks everything downstream.
+
+🥈 2. Cross-Campaign Carrier Correlation (NEXT)
+What we change:
+
+Current:
+
+campaign → incident
+
+New:
+
+carrier → incident (global view)
+Implementation:
+group by:
+selectedCarrier
+time window (15 min)
+merge:
+SYNTHETIC_FAILURE
+ROUTE_DEGRADATION_SIGNAL
+output:
+single CARRIER_INCIDENT
+Result:
+
+Instead of noise:
+
+Campaign A alert
+Campaign B alert
+
+You get:
+
+“Carrier X degradation event”
+🥉 3. Baseline Upgrade (stability fix)
+
+Replace fragile baseline:
+
+Option A (recommended)
+24h rolling ASR average
+Option B
+EMA smoothing (α = 0.3)
+Rule:
+use same baseline for:
+synthetic tests
+real traffic anomalies
+ensure infra_failure excluded
+🚫 What we do NOT touch yet
+❌ Routing Replay UI
+❌ Self-healing routing
+❌ RTP/media correlation
+❌ new dashboards
+❌ UI expansion
+
+These are dependent systems, not fixes.
+
+🧠 What this actually achieves
+
+After these 3:
+
+Your system becomes:
+Before:
+detects events
+correlates noise
+sometimes overreacts
+After:
+separates truth vs infrastructure noise
+produces stable carrier intelligence
+stops false incidents
+becomes production-grade telecom analytics layer
+⚡ My recommendation (very direct)
+
+Yes — implement all 3 together, BUT in this exact order:
+
+Execution Reliability Layer (mandatory first)
+Cross-campaign correlation
+Baseline upgrade
+If you want next step
+
+I can now design:
+
+“production-grade execution reliability module”
+
+including:
+
+retry middleware
+classification engine
+baseline guard layer
+signal filtering rules
+
+This is the final step that turns your system from:
+
+“advanced monitoring platform”
+
+into:
+
+telecom-grade decision system
+
+Just say 👍
