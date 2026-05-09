@@ -11,7 +11,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle, ShieldCheck, RotateCcw, Zap, Bot } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle, ShieldCheck, RotateCcw, Zap, Bot, Activity, GitBranch, Cpu, Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ApprovalRequest, ApprovalAuditEntry } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
@@ -242,17 +242,118 @@ function RequestRow({ request, onApprove, onReject, onRollback, canAct }: {
               {(request as any).execResult && (() => {
                 const er = (request as any).execResult;
                 const isErr = er?.success === false || request.status === 'failed';
+                const trace = er?.trace as {
+                  requestReceivedAt?: string;
+                  execStartedAt?: string;
+                  execCompletedAt?: string;
+                  signalEval?: { evaluated: boolean; signalsEmitted: number; types: string[]; skippedReason: string };
+                } | undefined;
+
+                const fmtTime = (iso?: string) => iso
+                  ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 })
+                  : '—';
+                const msBetween = (a?: string, b?: string) =>
+                  a && b ? `${(new Date(b).getTime() - new Date(a).getTime())}ms` : null;
+
                 return (
-                  <div className={cn("rounded border px-3 py-2", isErr
-                    ? "border-rose-500/30 bg-rose-500/5"
-                    : "border-emerald-500/20 bg-emerald-500/5"
-                  )}>
-                    <div className={cn("text-xs font-semibold mb-1", isErr ? "text-rose-400" : "text-emerald-400")}>
-                      {isErr ? "Execution Failed" : "Sippy Execution Result"}
+                  <div className={cn("rounded border", isErr ? "border-rose-500/30 bg-rose-500/5" : "border-emerald-500/20 bg-emerald-500/5")}>
+                    {/* Header */}
+                    <div className={cn("flex items-center gap-2 px-3 py-2 border-b", isErr ? "border-rose-500/20" : "border-emerald-500/15")}>
+                      <Activity className={cn("h-3.5 w-3.5", isErr ? "text-rose-400" : "text-emerald-400")} />
+                      <span className={cn("text-xs font-semibold", isErr ? "text-rose-400" : "text-emerald-400")}>
+                        Execution Trace
+                      </span>
+                      <span className="text-[10px] font-mono text-muted-foreground/60 ml-auto">
+                        {er.method ?? request.operationType}
+                      </span>
+                      <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-full border",
+                        isErr ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                      )}>
+                        {isErr ? 'FAILED' : 'SUCCESS'}
+                      </span>
                     </div>
-                    <pre className={cn("text-xs font-mono whitespace-pre-wrap break-all", isErr ? "text-rose-300/80" : "text-emerald-300/80")}>
-                      {JSON.stringify(er, null, 2)}
-                    </pre>
+
+                    <div className="px-3 py-2 space-y-0">
+                      {/* Timeline steps */}
+                      {[
+                        {
+                          icon: GitBranch,
+                          label: 'Request received',
+                          value: fmtTime(trace?.requestReceivedAt),
+                          sub: null,
+                          color: 'text-blue-400',
+                        },
+                        {
+                          icon: Cpu,
+                          label: 'Sippy call started',
+                          value: fmtTime(trace?.execStartedAt),
+                          sub: trace?.requestReceivedAt && trace?.execStartedAt
+                            ? `+${msBetween(trace.requestReceivedAt, trace.execStartedAt)} queue`
+                            : null,
+                          color: 'text-amber-400',
+                        },
+                        {
+                          icon: Zap,
+                          label: 'Sippy call completed',
+                          value: fmtTime(trace?.execCompletedAt),
+                          sub: er.durationMs != null ? `${er.durationMs}ms` : (trace?.execStartedAt && trace?.execCompletedAt ? msBetween(trace.execStartedAt, trace.execCompletedAt) : null),
+                          color: isErr ? 'text-rose-400' : 'text-emerald-400',
+                        },
+                      ].map((step, i) => {
+                        const Icon = step.icon;
+                        const hasData = step.value !== '—';
+                        return (
+                          <div key={i} className="flex items-start gap-2.5 py-1.5 relative">
+                            {i < 2 && <div className="absolute left-[5px] top-[22px] w-px h-[calc(100%+0px)] bg-border/40" />}
+                            <Icon className={cn("h-3 w-3 mt-0.5 shrink-0", hasData ? step.color : "text-muted-foreground/30")} />
+                            <div className="flex-1 flex items-center justify-between min-w-0">
+                              <span className={cn("text-xs", hasData ? "text-foreground/80" : "text-muted-foreground/40")}>{step.label}</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {step.sub && <span className="text-[10px] font-mono text-muted-foreground/50">{step.sub}</span>}
+                                <span className={cn("text-[10px] font-mono", hasData ? "text-muted-foreground/70" : "text-muted-foreground/30")}>{step.value}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Signal evaluation row */}
+                      <div className="flex items-start gap-2.5 py-1.5 border-t border-border/20 mt-1">
+                        <Radio className={cn("h-3 w-3 mt-0.5 shrink-0",
+                          !trace?.signalEval ? "text-muted-foreground/30"
+                          : trace.signalEval.signalsEmitted > 0 ? "text-violet-400"
+                          : "text-muted-foreground/50"
+                        )} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-foreground/80">Signal evaluation</span>
+                            {trace?.signalEval?.signalsEmitted != null && (
+                              <span className={cn("text-[10px] font-mono",
+                                trace.signalEval.signalsEmitted > 0 ? "text-violet-400" : "text-muted-foreground/50"
+                              )}>
+                                {trace.signalEval.signalsEmitted > 0
+                                  ? `${trace.signalEval.signalsEmitted} emitted`
+                                  : 'none emitted'}
+                              </span>
+                            )}
+                            {!trace?.signalEval && <span className="text-[10px] text-muted-foreground/30">—</span>}
+                          </div>
+                          {trace?.signalEval?.types && trace.signalEval.types.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {trace.signalEval.types.map(t => (
+                                <span key={t} className="text-[9px] font-mono bg-violet-500/10 border border-violet-500/20 text-violet-400 px-1.5 py-0.5 rounded-full">{t}</span>
+                              ))}
+                            </div>
+                          )}
+                          {trace?.signalEval?.skippedReason && (
+                            <p className="text-[10px] text-muted-foreground/50 mt-0.5">{trace.signalEval.skippedReason}</p>
+                          )}
+                          {!trace && (
+                            <p className="text-[10px] text-muted-foreground/30 mt-0.5">Trace not available — approval predates this feature</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 );
               })()}

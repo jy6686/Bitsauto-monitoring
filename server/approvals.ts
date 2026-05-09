@@ -162,6 +162,8 @@ export async function approveRequest(
   requestId: number,
   actor: { id: string; name?: string; role: Role; teamId: string | null },
 ): Promise<{ success: boolean; error?: string; result?: any }> {
+  const requestReceivedAt = new Date();
+
   const request = await storage.getApprovalRequestById(requestId);
   if (!request) return { success: false, error: 'Approval request not found' };
   if (request.status !== 'pending') return { success: false, error: `Request is already ${request.status}` };
@@ -182,6 +184,8 @@ export async function approveRequest(
   let executionFailed = false;
 
   const execStart = Date.now();
+  const execStartedAt = new Date();
+  let execCompletedAt = new Date();
 
   try {
     const rawResult = await withTimeout(
@@ -191,6 +195,7 @@ export async function approveRequest(
     );
 
     const durationMs = Date.now() - execStart;
+    execCompletedAt = new Date();
 
     if (!rawResult.success) {
       executionFailed = true;
@@ -215,6 +220,7 @@ export async function approveRequest(
     }
   } catch (err: any) {
     const durationMs = Date.now() - execStart;
+    execCompletedAt = new Date();
     executionFailed = true;
     execResult = {
       success: false,
@@ -226,13 +232,35 @@ export async function approveRequest(
     };
   }
 
-  // Emit AI Ops signals — non-critical; a failure here must not block the approval
+  // Emit AI Ops signals — capture evaluation outcome for trace (silent on failure)
+  const signalEval: { evaluated: boolean; signalsEmitted: number; types: string[]; skippedReason: string } = {
+    evaluated: false, signalsEmitted: 0, types: [], skippedReason: '',
+  };
   try {
     const signals = mapExecToSignals(execResult, request.operationType, requestId);
+    signalEval.evaluated = true;
+    signalEval.signalsEmitted = signals.length;
+    signalEval.types = signals.map(s => s.type);
+    if (signals.length === 0) {
+      signalEval.skippedReason = execResult.success
+        ? 'execution succeeded with normal latency — signals emit only on failure or latency >6s'
+        : 'execution failed but mapper returned no signals (unexpected)';
+    }
     if (signals.length > 0) {
       await _db.insert(_aiOpsEventsTable).values(signals);
     }
-  } catch (_e) { /* intentionally silent */ }
+  } catch (_e) {
+    signalEval.skippedReason = 'signal emission threw during DB insert (silent)';
+    /* intentionally silent */
+  }
+
+  // Attach execution trace to execResult before persisting
+  (execResult as any).trace = {
+    requestReceivedAt: requestReceivedAt.toISOString(),
+    execStartedAt:     execStartedAt.toISOString(),
+    execCompletedAt:   execCompletedAt.toISOString(),
+    signalEval,
+  };
 
   if (executionFailed) {
     // Persist 'failed' status so it's visible in the UI and audit trail
