@@ -459,8 +459,24 @@ export default function CarrierScoringPage() {
                     initial={{ opacity: 0, y: -6 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2, delay: i * 0.05 }}
-                    className={cn("rounded-lg border transition-all", stabilityBg(s.stabilityScore))}
+                    className={cn(
+                      "rounded-lg border transition-all relative overflow-hidden",
+                      stabilityBg(s.stabilityScore),
+                      (s.stabilityScore ?? 100) < 45  && "noc-glow-red",
+                      (s.stabilityScore ?? 100) >= 45 && (s.stabilityScore ?? 100) < 70 && "noc-glow-amber",
+                    )}
                   >
+                    {/* Scanning line overlay */}
+                    <div className="absolute inset-0 overflow-hidden rounded-lg pointer-events-none">
+                      <div
+                        className={cn("absolute top-0 h-px w-16 opacity-15",
+                          (s.stabilityScore ?? 100) < 45  ? "bg-red-300" :
+                          (s.stabilityScore ?? 100) < 70  ? "bg-amber-300" : "bg-green-300"
+                        )}
+                        style={{ animation: `noc-scan ${4 + i * 0.7}s linear infinite` }}
+                      />
+                    </div>
+
                     <div className="flex items-center gap-4 cursor-pointer p-4" onClick={() => setExpandedCarrier(isExpanded ? null : s.carrierId)}>
                       {/* Live pulse + rank */}
                       <div className="relative w-7 h-7 rounded-full bg-background/60 border border-border flex items-center justify-center text-xs font-semibold text-muted-foreground shrink-0">
@@ -511,8 +527,24 @@ export default function CarrierScoringPage() {
                         <div className="text-xs text-muted-foreground">fail rate</div>
                       </div>
 
-                      {/* Animated bar */}
-                      <StabilityBar score={s.stabilityScore} />
+                      {/* Animated bar with flowing packet particle */}
+                      <div className="relative">
+                        <StabilityBar score={s.stabilityScore} />
+                        <div className="absolute inset-0 overflow-hidden rounded-full pointer-events-none">
+                          <div
+                            className="absolute top-0 h-full w-3 rounded-full"
+                            style={{
+                              background: (s.stabilityScore ?? 100) >= 70
+                                ? "radial-gradient(circle, rgba(34,197,94,0.7) 0%, transparent 100%)"
+                                : (s.stabilityScore ?? 100) >= 45
+                                ? "radial-gradient(circle, rgba(245,158,11,0.7) 0%, transparent 100%)"
+                                : "radial-gradient(circle, rgba(239,68,68,0.7) 0%, transparent 100%)",
+                              animation: `noc-flow-right 2.4s ease-in-out infinite`,
+                              animationDelay: `${i * 0.35}s`,
+                            }}
+                          />
+                        </div>
+                      </div>
 
                       {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
                     </div>

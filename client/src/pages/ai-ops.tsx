@@ -521,8 +521,28 @@ export default function AiOpsPage() {
                         animate={{ opacity: isActive ? 1 : 0.65, y: 0 }}
                         exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                         transition={{ duration: 0.25, delay: idx * 0.04 }}
-                        className={cn("rounded-xl border space-y-3 overflow-hidden", isActive ? cfg.bg : "bg-card border-border")}
+                        className={cn(
+                          "rounded-xl border space-y-3 overflow-hidden relative",
+                          isActive ? cfg.bg : "bg-card border-border",
+                          isActive && sev === 'critical' && "noc-glow-red",
+                          isActive && sev === 'high'     && "noc-glow-amber",
+                        )}
                       >
+                        {/* Glass sheen + scanning line overlay */}
+                        {isActive && (
+                          <>
+                            <div className="absolute inset-0 bg-gradient-to-br from-white/[0.025] via-transparent to-transparent pointer-events-none rounded-xl" />
+                            <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none">
+                              <div
+                                className={cn("absolute top-0 h-px w-20 opacity-20",
+                                  sev === 'critical' ? "bg-rose-300" : "bg-amber-300"
+                                )}
+                                style={{ animation: `noc-scan ${3.8 + idx * 0.45}s linear infinite` }}
+                              />
+                            </div>
+                          </>
+                        )}
+
                         {/* Pulse bar on active critical/high */}
                         {isActive && (sev === 'critical' || sev === 'high') && (
                           <motion.div
