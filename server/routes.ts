@@ -14742,5 +14742,253 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Routing Intelligence Rules ────────────────────────────────────────────────
+
+  app.get('/api/routing-rules', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { routingRules } = await import('../shared/schema');
+      const { desc } = await import('drizzle-orm');
+      const rules = await db.select().from(routingRules).orderBy(desc(routingRules.createdAt));
+      res.json(rules);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post('/api/routing-rules', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { routingRules } = await import('../shared/schema');
+      const { name, conditionMetric, conditionOperator, conditionThreshold, conditionDurationMin, scopeVendor, scopeDestination, actionType, actionPayload } = req.body;
+      if (!name || !conditionMetric || !conditionOperator || conditionThreshold === undefined || !actionType) {
+        return res.status(400).json({ message: 'Missing required fields' });
+      }
+      const [rule] = await db.insert(routingRules).values({
+        name: name.trim(),
+        conditionMetric, conditionOperator,
+        conditionThreshold: Number(conditionThreshold),
+        conditionDurationMin: Number(conditionDurationMin ?? 5),
+        scopeVendor: scopeVendor || null,
+        scopeDestination: scopeDestination || null,
+        actionType, actionPayload: actionPayload || null,
+      }).returning();
+      res.json(rule);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch('/api/routing-rules/:id', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { routingRules } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      const patch: Record<string, any> = {};
+      const allowed = ['name','enabled','conditionMetric','conditionOperator','conditionThreshold','conditionDurationMin','scopeVendor','scopeDestination','actionType','actionPayload'];
+      for (const k of allowed) { if (req.body[k] !== undefined) patch[k] = req.body[k]; }
+      const [updated] = await db.update(routingRules).set(patch).where(eq(routingRules.id, id)).returning();
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete('/api/routing-rules/:id', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { routingRules } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      await db.delete(routingRules).where(eq(routingRules.id, id));
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Number Intelligence Lookup ────────────────────────────────────────────────
+
+  app.get('/api/number-lookup/:number', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { numberLookupCache } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const number = decodeURIComponent(req.params.number).trim();
+      if (!number) return res.status(400).json({ message: 'Number required' });
+
+      // Check cache first (24 hour TTL)
+      const [cached] = await db.select().from(numberLookupCache).where(eq(numberLookupCache.number, number));
+      if (cached) {
+        const ageMs = Date.now() - new Date(cached.lookedUpAt!).getTime();
+        if (ageMs < 86400000) return res.json(cached);
+      }
+
+      // Derive basic info from number format
+      const e164 = number.startsWith('+') ? number : `+${number}`;
+      let country: string | null = null;
+      let countryCode: string | null = null;
+      let lineType: string | null = 'unknown';
+
+      if (e164.startsWith('+1'))        { country = 'United States / Canada'; countryCode = '1'; }
+      else if (e164.startsWith('+44'))  { country = 'United Kingdom'; countryCode = '44'; }
+      else if (e164.startsWith('+92'))  { country = 'Pakistan'; countryCode = '92'; lineType = number.length >= 12 ? 'mobile' : 'fixed'; }
+      else if (e164.startsWith('+263')) { country = 'Zimbabwe'; countryCode = '263'; }
+      else if (e164.startsWith('+91'))  { country = 'India'; countryCode = '91'; }
+      else if (e164.startsWith('+61'))  { country = 'Australia'; countryCode = '61'; }
+      else if (e164.startsWith('+971')) { country = 'UAE'; countryCode = '971'; }
+      else if (e164.startsWith('+27'))  { country = 'South Africa'; countryCode = '27'; }
+
+      const record = {
+        number, country, countryCode,
+        carrier: null, lineType, ported: null, active: null, roaming: null,
+        cnam: null, stirShaken: 'unknown', reputationScore: 0, rawJson: null,
+      };
+
+      if (cached) {
+        await db.update(numberLookupCache).set({ ...record, lookedUpAt: new Date() }).where(eq(numberLookupCache.number, number));
+        const [updated] = await db.select().from(numberLookupCache).where(eq(numberLookupCache.number, number));
+        return res.json(updated);
+      }
+
+      const [inserted] = await db.insert(numberLookupCache).values(record).returning();
+      res.json(inserted);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── SBC Hosts ─────────────────────────────────────────────────────────────────
+
+  app.get('/api/sbc-hosts', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { sbcHosts } = await import('../shared/schema');
+      const { asc } = await import('drizzle-orm');
+      const hosts = await db.select().from(sbcHosts).orderBy(asc(sbcHosts.name));
+      res.json(hosts);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post('/api/sbc-hosts', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { sbcHosts } = await import('../shared/schema');
+      const { name, host, port, vendor, snmpCommunity, apiUrl, apiKey } = req.body;
+      if (!name || !host) return res.status(400).json({ message: 'name and host are required' });
+      const [h] = await db.insert(sbcHosts).values({
+        name: name.trim(), host: host.trim(),
+        port: Number(port ?? 5060),
+        vendor: vendor ?? 'generic',
+        snmpCommunity: snmpCommunity || null,
+        apiUrl: apiUrl || null,
+        apiKey: apiKey || null,
+      }).returning();
+      res.json(h);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch('/api/sbc-hosts/:id', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { sbcHosts } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      const patch: Record<string, any> = {};
+      const allowed = ['name','host','port','vendor','enabled','snmpCommunity','apiUrl','apiKey','lastStatus','lastCheckedAt'];
+      for (const k of allowed) { if (req.body[k] !== undefined) patch[k] = req.body[k]; }
+      const [updated] = await db.update(sbcHosts).set(patch).where(eq(sbcHosts.id, id)).returning();
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete('/api/sbc-hosts/:id', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { sbcHosts } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      await db.delete(sbcHosts).where(eq(sbcHosts.id, id));
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get('/api/sbc-hosts/:id/metrics', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { sbcHosts } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      const [host] = await db.select().from(sbcHosts).where(eq(sbcHosts.id, id));
+      if (!host) return res.status(404).json({ message: 'Host not found' });
+
+      // Simulated metrics — replace with real SNMP/REST polling per vendor
+      const metrics = {
+        activeSessions: Math.floor(Math.random() * 80),
+        cpuPercent: Math.floor(Math.random() * 45) + 5,
+        transcodingLoad: Math.floor(Math.random() * 30),
+        registrations: Math.floor(Math.random() * 200) + 10,
+        mediaBypassRate: Math.floor(Math.random() * 30) + 60,
+        optionsResponseMs: Math.floor(Math.random() * 80) + 20,
+      };
+
+      await db.update(sbcHosts).set({ lastStatus: 'ok', lastCheckedAt: new Date() }).where(eq(sbcHosts.id, id));
+      res.json(metrics);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Reseller Profiles ─────────────────────────────────────────────────────────
+
+  app.get('/api/resellers', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { resellerProfiles } = await import('../shared/schema');
+      const { desc } = await import('drizzle-orm');
+      const resellers = await db.select().from(resellerProfiles).orderBy(desc(resellerProfiles.createdAt));
+      res.json(resellers);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post('/api/resellers', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { resellerProfiles } = await import('../shared/schema');
+      const { name, contactEmail, markupPercent, iCustomer, brandName, notes } = req.body;
+      if (!name) return res.status(400).json({ message: 'name is required' });
+      const [r] = await db.insert(resellerProfiles).values({
+        name: name.trim(),
+        contactEmail: contactEmail || null,
+        markupPercent: Number(markupPercent ?? 0),
+        iCustomer: iCustomer ? Number(iCustomer) : null,
+        brandName: brandName || null,
+        notes: notes || null,
+      }).returning();
+      res.json(r);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch('/api/resellers/:id', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { resellerProfiles } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      const patch: Record<string, any> = {};
+      const allowed = ['name','contactEmail','markupPercent','iCustomer','brandName','active','notes'];
+      for (const k of allowed) { if (req.body[k] !== undefined) patch[k] = req.body[k]; }
+      const [updated] = await db.update(resellerProfiles).set(patch).where(eq(resellerProfiles.id, id)).returning();
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete('/api/resellers/:id', isAuthenticated, async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { resellerProfiles } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      await db.delete(resellerProfiles).where(eq(resellerProfiles.id, id));
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   return httpServer;
 }

@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
@@ -128,6 +128,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/calls",             label: "Live Calls",        icon: Phone,     roles: ['admin','management','viewer'], hasSubmenu: 'calls'      },
       { href: "/alerts",            label: "Alerts",            icon: Bell,      roles: ['admin','management']                                    },
       { href: "/server-monitoring", label: "Server Monitoring", icon: Server,    roles: ['admin','management'],          hasSubmenu: 'monitoring' },
+      { href: "/sbc-monitor",       label: "SBC Monitor",       icon: Network,   roles: ['admin','management']                                    },
     ],
   },
   {
@@ -205,6 +206,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/vendor-sla-scorecard", label: "Vendor SLA",   icon: ShieldCheck, roles: ['admin','management'] },
       { href: "/sla-breaches",         label: "SLA Breaches", icon: Bell,        roles: ['admin','management'] },
       { href: "/firewall",             label: "Firewall Mgr", icon: Shield,      roles: ['admin','management'] },
+      { href: "/compliance",           label: "Compliance",   icon: FileCheck2,  roles: ['admin','management'] },
     ],
   },
   {
@@ -212,10 +214,31 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Client & Vendor',
     roles: ['admin','management'],
     items: [
-      { href: "/vendors",          label: "Vendor Connections", icon: Building2,    roles: ['admin','management'], status: 'live' },
-      { href: "/clients",          label: "Client / Vendor",    icon: Users,        roles: ['admin','management'] },
-      { href: "/company-profile",  label: "Rateplan",           icon: ContactRound, roles: ['admin','management'] },
-      { href: "/tools",            label: "Tools",              icon: Wrench,       roles: ['admin','management'], hasSubmenu: 'tools' as SubmenuType },
+      { href: "/vendors",           label: "Vendor Connections", icon: Building2,    roles: ['admin','management'], status: 'live' },
+      { href: "/clients",           label: "Client / Vendor",    icon: Users,        roles: ['admin','management'] },
+      { href: "/company-profile",   label: "Rateplan",           icon: ContactRound, roles: ['admin','management'] },
+      { href: "/tools",             label: "Tools",              icon: Wrench,       roles: ['admin','management'], hasSubmenu: 'tools' as SubmenuType },
+      { href: "/client-portal",     label: "Client Portal",      icon: Globe,        roles: ['admin','management'] },
+      { href: "/reseller",          label: "Reseller Mgmt",      icon: Layers,       roles: ['admin','management'] },
+    ],
+  },
+  {
+    key: 'ai_automation',
+    label: 'AI & Automation',
+    roles: ['admin','management'],
+    items: [
+      { href: "/ai-ops",               label: "AI Ops Center",        icon: Bot,      roles: ['admin','management'] },
+      { href: "/routing-intelligence", label: "Routing Intelligence", icon: Workflow,  roles: ['admin','management'] },
+      { href: "/sip-trace",            label: "SIP Trace Viewer",     icon: GitBranch, roles: ['admin','management'] },
+      { href: "/number-intelligence",  label: "Number Intelligence",  icon: ScanSearch,roles: ['admin','management'] },
+    ],
+  },
+  {
+    key: 'communications',
+    label: 'Communications',
+    roles: ['admin','management'],
+    items: [
+      { href: "/sms-monitor", label: "SMS / A2P Monitor", icon: MessageCircle, roles: ['admin','management'] },
     ],
   },
   {

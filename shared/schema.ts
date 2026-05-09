@@ -980,3 +980,82 @@ export type ProductDoc = typeof productDocs.$inferSelect;
 export type InsertProductDoc = typeof productDocs.$inferInsert;
 export const insertProductDocSchema = createInsertSchema(productDocs).omit({ id: true, createdAt: true, updatedAt: true });
 export const updateProductDocSchema = insertProductDocSchema.partial();
+
+// ── Routing Intelligence — automated rule engine ───────────────────────────────
+
+export const routingRules = pgTable("routing_rules", {
+  id:                   serial("id").primaryKey(),
+  name:                 varchar("name",                 { length: 128 }).notNull(),
+  enabled:              boolean("enabled").notNull().default(true),
+  conditionMetric:      varchar("condition_metric",      { length: 64 }).notNull(),  // asr|acd|concurrent_calls|cost_per_min|mos|pdd|packet_loss
+  conditionOperator:    varchar("condition_operator",    { length: 16 }).notNull(),  // lt|gt|lte|gte
+  conditionThreshold:   real("condition_threshold").notNull(),
+  conditionDurationMin: integer("condition_duration_min").notNull().default(5),
+  scopeVendor:          varchar("scope_vendor",          { length: 128 }),
+  scopeDestination:     varchar("scope_destination",     { length: 64 }),
+  actionType:           varchar("action_type",           { length: 64 }).notNull(),  // alert|deprioritise|flag_approval|block
+  actionPayload:        text("action_payload"),
+  lastTriggeredAt:      timestamp("last_triggered_at"),
+  triggerCount:         integer("trigger_count").notNull().default(0),
+  createdAt:            timestamp("created_at").defaultNow().notNull(),
+});
+export type RoutingRule = typeof routingRules.$inferSelect;
+export type InsertRoutingRule = typeof routingRules.$inferInsert;
+export const insertRoutingRuleSchema = createInsertSchema(routingRules).omit({ id: true, lastTriggeredAt: true, triggerCount: true, createdAt: true });
+
+// ── Number Intelligence — lookup cache ────────────────────────────────────────
+
+export const numberLookupCache = pgTable("number_lookup_cache", {
+  id:              serial("id").primaryKey(),
+  number:          varchar("number",       { length: 32  }).notNull().unique(),
+  country:         varchar("country",      { length: 64  }),
+  countryCode:     varchar("country_code", { length: 4   }),
+  carrier:         varchar("carrier",      { length: 128 }),
+  lineType:        varchar("line_type",    { length: 32  }),  // mobile|fixed|voip|toll_free|unknown
+  ported:          boolean("ported"),
+  active:          boolean("active"),
+  roaming:         boolean("roaming"),
+  cnam:            varchar("cnam",         { length: 128 }),
+  stirShaken:      varchar("stir_shaken",  { length: 8   }),  // A|B|C|unsigned|unknown
+  reputationScore: integer("reputation_score"),               // 0–100
+  rawJson:         text("raw_json"),
+  lookedUpAt:      timestamp("looked_up_at").defaultNow(),
+});
+export type NumberLookup = typeof numberLookupCache.$inferSelect;
+
+// ── SBC Monitor — session border controller hosts ─────────────────────────────
+
+export const sbcHosts = pgTable("sbc_hosts", {
+  id:             serial("id").primaryKey(),
+  name:           varchar("name",           { length: 128 }).notNull(),
+  host:           varchar("host",           { length: 255 }).notNull(),
+  port:           integer("port").notNull().default(5060),
+  vendor:         varchar("vendor",         { length: 64  }).notNull().default('generic'),
+  snmpCommunity:  varchar("snmp_community", { length: 64  }),
+  apiUrl:         varchar("api_url",        { length: 255 }),
+  apiKey:         varchar("api_key",        { length: 255 }),
+  enabled:        boolean("enabled").notNull().default(true),
+  lastStatus:     varchar("last_status",    { length: 32  }).default('unknown'),  // ok|degraded|down|unknown
+  lastCheckedAt:  timestamp("last_checked_at"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+});
+export type SbcHost = typeof sbcHosts.$inferSelect;
+export type InsertSbcHost = typeof sbcHosts.$inferInsert;
+export const insertSbcHostSchema = createInsertSchema(sbcHosts).omit({ id: true, lastStatus: true, lastCheckedAt: true, createdAt: true });
+
+// ── Reseller Management ───────────────────────────────────────────────────────
+
+export const resellerProfiles = pgTable("reseller_profiles", {
+  id:            serial("id").primaryKey(),
+  name:          varchar("name",          { length: 128 }).notNull(),
+  contactEmail:  varchar("contact_email", { length: 255 }),
+  markupPercent: real("markup_percent").notNull().default(0),
+  iCustomer:     integer("i_customer"),
+  brandName:     varchar("brand_name",    { length: 128 }),
+  active:        boolean("active").notNull().default(true),
+  notes:         text("notes"),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+});
+export type ResellerProfile = typeof resellerProfiles.$inferSelect;
+export type InsertResellerProfile = typeof resellerProfiles.$inferInsert;
+export const insertResellerProfileSchema = createInsertSchema(resellerProfiles).omit({ id: true, createdAt: true });

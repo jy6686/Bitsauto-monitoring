@@ -86,6 +86,15 @@ import ApprovalQueuePage from "@/pages/approval-queue";
 import VendorsPage from "@/pages/vendors";
 import ApprovalSettingsPage from "@/pages/approval-settings";
 import CompanyProfilePage from "@/pages/company-profile";
+import SipTracePage from "@/pages/sip-trace";
+import RoutingIntelligencePage from "@/pages/routing-intelligence";
+import NumberIntelligencePage from "@/pages/number-intelligence";
+import SbcMonitorPage from "@/pages/sbc-monitor";
+import ClientPortalPage from "@/pages/client-portal";
+import ResellerPage from "@/pages/reseller";
+import CompliancePage from "@/pages/compliance";
+import SmsMonitorPage from "@/pages/sms-monitor";
+import AiOpsPage from "@/pages/ai-ops";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -334,6 +343,33 @@ function Router() {
       </Route>
       <Route path="/company-profile">
         {() => <ProtectedRoute component={CompanyProfilePage} requiredRoles={['admin', 'management']} mgmtFeature="clients" />}
+      </Route>
+      <Route path="/sip-trace">
+        {() => <ProtectedRoute component={SipTracePage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/routing-intelligence">
+        {() => <ProtectedRoute component={RoutingIntelligencePage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/number-intelligence">
+        {() => <ProtectedRoute component={NumberIntelligencePage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/sbc-monitor">
+        {() => <ProtectedRoute component={SbcMonitorPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/client-portal">
+        {() => <ProtectedRoute component={ClientPortalPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/reseller">
+        {() => <ProtectedRoute component={ResellerPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/compliance">
+        {() => <ProtectedRoute component={CompliancePage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/sms-monitor">
+        {() => <ProtectedRoute component={SmsMonitorPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/ai-ops">
+        {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route component={NotFound} />
     </Switch>
