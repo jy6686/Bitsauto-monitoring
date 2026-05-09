@@ -846,6 +846,47 @@ export const testCampaignResults = pgTable("test_campaign_results", {
 export type TestCampaignResult = typeof testCampaignResults.$inferSelect;
 export type InsertTestCampaignResult = typeof testCampaignResults.$inferInsert;
 
+// ── Route Decision Traces — per-call routing resolution log ──────────────────
+export const routeDecisionTraces = pgTable("route_decision_traces", {
+  id:                serial("id").primaryKey(),
+  campaignId:        integer("campaign_id"),
+  runId:             integer("run_id"),
+  cld:               varchar("cld",    { length: 64 }).notNull(),
+  cli:               varchar("cli",    { length: 64 }),
+  selectedCarrier:   varchar("selected_carrier",   { length: 128 }),
+  selectedCarrierId: integer("selected_carrier_id"),
+  candidateRoutes:   text("candidate_routes"),       // JSON: [{groupId, groupName, carrierId, carrierName, priority}]
+  decisionReason:    varchar("decision_reason",      { length: 255 }),
+  outcome:           varchar("outcome",              { length: 20 }),
+  sipCode:           integer("sip_code"),
+  pddMs:             real("pdd_ms"),
+  durationSec:       real("duration_sec"),
+  failureCategory:   varchar("failure_category",     { length: 64 }),  // user_not_found|no_route|timeout|network|fas|other
+  createdAt:         timestamp("created_at").defaultNow().notNull(),
+});
+export type RouteDecisionTrace    = typeof routeDecisionTraces.$inferSelect;
+export type InsertRouteDecisionTrace = typeof routeDecisionTraces.$inferInsert;
+
+// ── Carrier Quality Scores — rolling metric aggregation per carrier ───────────
+export const carrierQualityScores = pgTable("carrier_quality_scores", {
+  id:             serial("id").primaryKey(),
+  carrierId:      varchar("carrier_id",   { length: 64  }).notNull(),
+  carrierName:    varchar("carrier_name", { length: 128 }).notNull(),
+  windowHours:    integer("window_hours").notNull().default(24),
+  sampleCount:    integer("sample_count").notNull().default(0),
+  connectedCount: integer("connected_count").notNull().default(0),
+  failedCount:    integer("failed_count").notNull().default(0),
+  rollingAsr:     real("rolling_asr"),
+  avgPddMs:       real("avg_pdd_ms"),
+  p95PddMs:       real("p95_pdd_ms"),
+  failureRate:    real("failure_rate"),
+  stabilityScore: real("stability_score"),   // 0–100 composite
+  trend:          varchar("trend", { length: 16 }),  // improving|stable|degrading
+  lastComputedAt: timestamp("last_computed_at").defaultNow().notNull(),
+});
+export type CarrierQualityScore    = typeof carrierQualityScores.$inferSelect;
+export type InsertCarrierQualityScore = typeof carrierQualityScores.$inferInsert;
+
 // ── Scheduled Reports — auto-email report configurations ─────────────────────
 export const scheduledReports = pgTable("scheduled_reports", {
   id:          serial("id").primaryKey(),

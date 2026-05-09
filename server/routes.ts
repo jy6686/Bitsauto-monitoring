@@ -20,6 +20,7 @@ import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
 import { initSyntheticScheduler } from "./synthetic-scheduler";
+import { initCarrierScoringEngine, recomputeCarrierScores } from "./carrier-scoring-engine";
 import { APPROVAL_POLICY, type Role } from "@shared/schema";
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode } from "./dial-lookup";
@@ -14498,6 +14499,35 @@ export async function registerRoutes(
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE GROUP G2: Route Decision Traces + Carrier Quality Scores
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // GET /api/route-traces — all recent traces (optional ?campaignId=)
+  app.get('/api/route-traces', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const campaignId = req.query.campaignId ? Number(req.query.campaignId) : undefined;
+      const limit      = req.query.limit      ? Number(req.query.limit)      : 200;
+      res.json(await storage.getRouteDecisionTraces({ campaignId, limit }));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/carrier-scores?window=24 — carrier quality scores
+  app.get('/api/carrier-scores', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const window = req.query.window ? Number(req.query.window) : 24;
+      res.json(await storage.getCarrierQualityScores(window));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/carrier-scores/recompute — trigger manual recompute
+  app.post('/api/carrier-scores/recompute', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res) => {
+    try {
+      await recomputeCarrierScores();
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // FEATURE GROUP H: Scheduled Reports
   // ─────────────────────────────────────────────────────────────────────────
   app.get('/api/scheduled-reports', async (req: any, res) => {
@@ -14861,6 +14891,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // Synthetic Testing Scheduler — ticks every 60s
   initSyntheticScheduler(storage);
+
+  // Carrier Quality Scoring Engine — scores every 30 min
+  initCarrierScoringEngine();
 
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();

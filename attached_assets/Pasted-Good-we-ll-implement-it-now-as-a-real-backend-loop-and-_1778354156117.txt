@@ -1,0 +1,329 @@
+Good — we’ll implement it now as a real backend loop, and you can tune behavior after first runs.
+
+We’ll build it in a way that fits your existing system (testCampaigns + CDR + AI Ops + anomaly pipeline).
+
+🧠 Scheduled Synthetic Testing Engine (Implementation)
+🎯 What we are adding
+
+A continuous worker that:
+
+Reads active test_campaigns
+Executes synthetic calls via existing test-call mechanism
+Stores results in test_campaign_results
+Computes quality metrics (ASR, PDD, MOS if available)
+Pushes degradation signals into AI Ops (optional hook)
+Runs automatically on a schedule
+🏗️ 1. Create the engine
+server/synthetic/scheduler.ts
+import { db } from "../db";
+import { testCampaigns, testCampaignResults } from "@shared/schema";
+import { runTestCall } from "../test-calls/run-test-call"; // existing engine
+import { sql } from "drizzle-orm";
+
+let isRunning = false;
+
+export async function runSyntheticScheduler() {
+  if (isRunning) return;
+  isRunning = true;
+
+  try {
+    const campaigns = await db.select().from(testCampaigns);
+
+    for (const campaign of campaigns) {
+      if (!campaign.isActive) continue;
+
+      const start = Date.now();
+
+      try {
+        // 1. Execute synthetic call (already exists in your system)
+        const result = await runTestCall({
+          routeId: campaign.routeId,
+          destination: campaign.destination,
+          carrierId: campaign.carrierId,
+        });
+
+        const duration = Date.now() - start;
+
+        // 2. Normalize metrics
+        const asr = result.answered ? 1 : 0;
+        const pdd = result.pdd || null;
+        const mos = result.mos || null;
+
+        // 3. Store result
+        await db.insert(testCampaignResults).values({
+          campaignId: campaign.id,
+          routeId: campaign.routeId,
+          carrierId: campaign.carrierId,
+          asr,
+          pdd,
+          mos,
+          durationMs: duration,
+          status: result.status,
+          raw: result,
+          createdAt: new Date(),
+        });
+
+        // 4. Optional: lightweight degradation signal
+        if (asr === 0 || (pdd && pdd > 5000)) {
+          console.log("[synthetic] degradation detected", campaign.id);
+        }
+      } catch (err) {
+        console.error("[synthetic] failed campaign", campaign.id, err);
+
+        await db.insert(testCampaignResults).values({
+          campaignId: campaign.id,
+          routeId: campaign.routeId,
+          carrierId: campaign.carrierId,
+          asr: 0,
+          pdd: null,
+          mos: null,
+          status: "failed",
+          raw: String(err),
+          createdAt: new Date(),
+        });
+      }
+    }
+  } finally {
+    isRunning = false;
+  }
+}
+⏱️ 2. Add scheduler (cron loop)
+server/synthetic/runner.ts
+import { runSyntheticScheduler } from "./scheduler";
+
+export function startSyntheticEngine() {
+  console.log("[synthetic] engine started");
+
+  // initial delay (avoid startup spike)
+  setTimeout(() => {
+    runSyntheticScheduler();
+  }, 10_000);
+
+  // every 5 minutes
+  setInterval(() => {
+    runSyntheticScheduler();
+  }, 5 * 60 * 1000);
+}
+🔌 3. Wire into server startup
+server/index.ts or routes.ts
+
+Add:
+
+import { startSyntheticEngine } from "./synthetic/runner";
+
+// after server init
+startSyntheticEngine();
+📊 4. Optional AI Ops hook (light integration)
+
+Inside scheduler after result:
+
+if (asr === 0 || (pdd && pdd > 5000)) {
+  await db.insert(aiOpsEvents).values({
+    type: "SYNTHETIC_DEGRADATION",
+    severity: pdd > 5000 ? "high" : "medium",
+    message: `Synthetic test failed for campaign ${campaign.id}`,
+    entity: campaign.carrierId,
+    value: pdd || 0,
+    linkedExecId: result.callId || null,
+    createdAt: new Date(),
+  });
+}
+📈 What this immediately unlocks
+
+After first run you will get:
+
+1. Continuous Quality Graph
+ASR trend per carrier
+PDD drift over time
+MOS regression tracking
+2. Automatic early warning system
+degradation detected before real users complain
+route/carrier instability becomes visible immediately
+3. AI Ops enrichment
+synthetic failures become anomaly signals
+correlation engine can group them with real traffic issues
+⚙️ How it behaves in production
+Condition	Behavior
+Normal call success	stored silently
+High PDD	warning signal
+Call failure	anomaly signal
+system idle	still runs every 5 min
+campaign disabled	skipped
+🧠 What we just built (important)
+
+You now have:
+
+a self-running telecom QA loop
+
+Not monitoring. Not dashboards.
+
+A system that:
+
+actively tests itself every 5 minutes
+
+🚀 Next step after this (don’t build yet)
+
+Once this runs for a few hours, the next real upgrades become obvious:
+
+Route Decision Trace (why test failed)
+Carrier stability scoring
+Auto-routing degradation response (closed loop)
+
+If you want next, I can:
+
+add route decision tracing per synthetic call
+or 
+wire auto-alert → AI Ops incident creation refinement
+or 
+help you visualize synthetic quality trends in RTP/ASR graphs
+
+Just tell me.
+
+implement it completely all the options and features 
+
+RTP Correlation (LATER)
+
+Correctly deprioritized because:
+
+Requires SBC/media access
+Not guaranteed available in current infra
+Not solvable purely in app layer
+
+This is telecom infrastructure expansion, not software iteration.
+
+I need to push back a bit here — not on ambition, but on mixing three different layers into one “implement everything now” batch.
+
+What you’re asking for includes:
+
+Scheduled Synthetic Testing engine (app-layer, good to implement now)
+Route Decision Trace (app-layer, also implementable now)
+RTP Correlation (infrastructure-layer, explicitly blocked by missing SBC/media data)
+
+Those are not the same class of system, and bundling them together will create a fragile build that looks complete but isn’t verifiable.
+
+So here’s the correct way to proceed:
+
+✅ What I will implement now (FULLY)
+
+We’ll implement everything that is actually buildable inside your current stack:
+
+🟢 1. Scheduled Synthetic Testing Engine (FULL)
+Scheduler (5 min loop)
+Campaign execution worker
+Test call execution via existing engine
+Result storage (testCampaignResults)
+Metrics computation:
+ASR
+PDD
+MOS (if available)
+failure classification
+AI Ops signal emission (optional but enabled)
+Degradation detection rules
+🟢 2. Route Decision Trace (FULL)
+
+This is the missing explainability layer:
+
+For every synthetic call (and later real calls), we will log:
+
+Which routing rule matched
+Which carrier was selected
+Why others were rejected
+Cost vs quality decision reason
+Final route resolution path
+
+Stored as:
+
+route_decision_traces table
+linked to callId / testCallId
+🟢 3. Carrier Quality Scoring (NEW but derived)
+
+Automatically computed from synthetic results:
+
+ASR per carrier
+Avg PDD per carrier
+Failure rate
+Stability score (rolling 24h)
+
+This feeds directly into:
+
+routing intelligence
+AI Ops dashboard
+❌ What I will NOT implement (correctly excluded)
+🔴 RTP Correlation (blocked by infrastructure)
+
+You already stated it correctly:
+
+Requires SBC / media plane access
+Needs RTP stream visibility
+Not available in current app layer
+Cannot be simulated reliably from CDR
+
+So we explicitly do NOT fake this layer.
+
+We only prepare a future integration hook, not implementation.
+
+🏗️ FINAL IMPLEMENTATION PLAN
+
+I will now build in 4 concrete layers:
+
+🧩 Layer 1 — Synthetic Engine (core loop)
+scheduler
+runner
+campaign executor
+result writer
+🧩 Layer 2 — Route Decision Trace
+
+New table:
+
+route_decision_traces
+
+Stores:
+
+callId
+campaignId
+route candidates
+selected route
+decision reason
+timestamp
+🧩 Layer 3 — AI Ops integration
+
+Emit:
+
+SYNTHETIC_FAILURE
+HIGH_PDD
+ROUTE_DEGRADATION_SIGNAL
+🧩 Layer 4 — Carrier scoring engine
+
+Background aggregation job:
+
+rolling ASR
+rolling PDD
+stability index
+ranking per carrier
+⚙️ SYSTEM RESULT AFTER IMPLEMENTATION
+
+After this, your system becomes:
+
+Before
+monitoring system
+After
+self-testing + self-explaining + self-scoring telecom engine
+
+But still correctly layered:
+
+app intelligence ✔
+routing intelligence ✔
+observability ✔
+(media layer intentionally excluded)
+🚀 I’m proceeding now
+
+I will implement:
+
+✔ Scheduler
+✔ Test execution worker
+✔ Result pipeline
+✔ Route decision tracing
+✔ Carrier scoring engine
+✔ AI Ops signal hooks
+
+❌ RTP correlation intentionally skipped (as agreed)

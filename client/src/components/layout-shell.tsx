@@ -205,6 +205,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     items: [
       { href: "/fraud",                label: "Fraud / FAS",  icon: ShieldAlert, roles: ['admin','management'] },
       { href: "/vendor-sla-scorecard", label: "Vendor SLA",   icon: ShieldCheck, roles: ['admin','management'] },
+      { href: "/carrier-scoring",      label: "Carrier Scoring", icon: BarChart3, roles: ['admin','management'] },
       { href: "/sla-breaches",         label: "SLA Breaches", icon: Bell,        roles: ['admin','management'] },
       { href: "/firewall",             label: "Firewall Mgr", icon: Shield,      roles: ['admin','management'] },
       { href: "/compliance",           label: "Compliance",   icon: FileCheck2,  roles: ['admin','management'] },

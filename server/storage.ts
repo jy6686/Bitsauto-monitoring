@@ -6,7 +6,8 @@ import {
   sippyChangeEvents,
   watcherRecipients, irsfEvents, blacklistRules, rateCards, rateCardEntries, mosHourly,
   apiKeys, dashboardWidgetPrefs, callTestLogs, whatsappAlertLog,
-  simboxScores, billingDisputes, slaBreachLog, testCampaigns, testCampaignResults, syntheticTestRuns, scheduledReports,
+  simboxScores, billingDisputes, slaBreachLog, testCampaigns, testCampaignResults, syntheticTestRuns,
+  routeDecisionTraces, carrierQualityScores, scheduledReports,
   chatRooms, chatMessages,
   productDocs,
   approvalRequests, approvalAuditLog,
@@ -45,6 +46,8 @@ import {
   type TestCampaign, type InsertTestCampaign,
   type TestCampaignResult, type InsertTestCampaignResult,
   type SyntheticTestRun, type InsertSyntheticTestRun,
+  type RouteDecisionTrace, type InsertRouteDecisionTrace,
+  type CarrierQualityScore, type InsertCarrierQualityScore,
   type ScheduledReport, type InsertScheduledReport,
   type ChatRoom, type InsertChatRoom,
   type ChatMessage, type InsertChatMessage,
@@ -252,6 +255,13 @@ export interface IStorage {
   getCampaignsDueForRun(): Promise<TestCampaign[]>;
   getSyntheticTestRuns(campaignId: number, limit?: number): Promise<SyntheticTestRun[]>;
   addSyntheticTestRun(run: InsertSyntheticTestRun): Promise<SyntheticTestRun>;
+
+  // Route Decision Traces
+  addRouteDecisionTrace(trace: InsertRouteDecisionTrace): Promise<RouteDecisionTrace>;
+  getRouteDecisionTraces(opts: { campaignId?: number; limit?: number }): Promise<RouteDecisionTrace[]>;
+
+  // Carrier Quality Scores
+  getCarrierQualityScores(windowHours?: number): Promise<CarrierQualityScore[]>;
 
   // Scheduled Reports
   getScheduledReports(): Promise<ScheduledReport[]>;
@@ -1384,6 +1394,29 @@ export class DatabaseStorage implements IStorage {
   async addSyntheticTestRun(run: InsertSyntheticTestRun): Promise<SyntheticTestRun> {
     const [row] = await db.insert(syntheticTestRuns).values(run).returning();
     return row;
+  }
+
+  // ── Route Decision Traces ─────────────────────────────────────────────────
+  async addRouteDecisionTrace(trace: InsertRouteDecisionTrace): Promise<RouteDecisionTrace> {
+    const [row] = await db.insert(routeDecisionTraces).values(trace).returning();
+    return row;
+  }
+
+  async getRouteDecisionTraces({ campaignId, limit = 200 }: { campaignId?: number; limit?: number }): Promise<RouteDecisionTrace[]> {
+    const { and, eq: deq } = await import('drizzle-orm');
+    const q = db.select().from(routeDecisionTraces);
+    if (campaignId != null) {
+      return q.where(deq(routeDecisionTraces.campaignId, campaignId))
+        .orderBy(desc(routeDecisionTraces.createdAt)).limit(limit);
+    }
+    return q.orderBy(desc(routeDecisionTraces.createdAt)).limit(limit);
+  }
+
+  // ── Carrier Quality Scores ────────────────────────────────────────────────
+  async getCarrierQualityScores(windowHours = 24): Promise<CarrierQualityScore[]> {
+    return db.select().from(carrierQualityScores)
+      .where(eq(carrierQualityScores.windowHours, windowHours))
+      .orderBy(desc(carrierQualityScores.stabilityScore));
   }
 
   // ── Scheduled Reports ─────────────────────────────────────────────────────
