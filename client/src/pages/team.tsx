@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth, type AuthUser } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
+import ApprovalSettingsPage from "./approval-settings";
 import {
   Shield, Users, Loader2, CheckCircle2, UserCog, Search,
   Crown, Eye, Briefcase, Calendar, ChevronDown, XCircle, UserCheck,
@@ -1429,7 +1430,7 @@ export default function TeamPage() {
   const [assignResult, setAssignResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [showKamDialog, setShowKamDialog] = useState(false);
   const [editKam, setEditKam] = useState<Kam | undefined>();
-  const [activeTab, setActiveTab] = useState<'members'|'role-assign'|'monitoring'|'kam'|'org'|'alerts'|'access'>('members');
+  const [activeTab, setActiveTab] = useState<'members'|'role-assign'|'monitoring'|'kam'|'org'|'alerts'|'access'|'approval'>('members');
 
   const { data: members = [], isLoading } = useQuery<TeamMember[]>({
     queryKey: ["/api/team"],
@@ -1583,6 +1584,7 @@ export default function TeamPage() {
           { id: 'org',         label: 'Org Hierarchy',   icon: Building2,   badge: undefined                  },
           { id: 'alerts',      label: 'Traffic Alerts',  icon: Bell,        badge: openAlerts.length || undefined },
           { id: 'access',      label: 'Access Control',  icon: ToggleRight, badge: undefined                  },
+          { id: 'approval',    label: 'Approval Settings', icon: Shield,    badge: undefined                  },
         ] as const).map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -2475,6 +2477,13 @@ export default function TeamPage() {
       </div>
 
       </div>)}{/* ══ end Access Control Tab ══════════════════════════════════════════════ */}
+
+      {/* ══ Approval Settings Tab ═══════════════════════════════════════════════ */}
+      {activeTab === 'approval' && (
+        <div>
+          <ApprovalSettingsPage />
+        </div>
+      )}{/* ══ end Approval Settings Tab ═══════════════════════════════════════════ */}
 
     </div>
   );
