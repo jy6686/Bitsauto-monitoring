@@ -395,11 +395,35 @@ export default function NetworkTopologyPage() {
     refetchInterval: 120_000,
   });
 
-  const scores24   = scores;
-  const selected   = scores24.find(s => s.carrierName === selectedCarrier) ?? null;
-  const healthy    = scores24.filter(s => (s.stabilityScore ?? 0) >= 75).length;
-  const degraded   = scores24.filter(s => { const v = s.stabilityScore ?? 100; return v >= 50 && v < 75; }).length;
-  const critical   = scores24.filter(s => (s.stabilityScore ?? 100) < 50).length;
+  const { data: vendorData, isLoading: vendorsLoading } = useQuery<{ vendors: any[] }>({
+    queryKey: ["/api/sippy/vendors"],
+    staleTime: 300_000,
+    enabled: scores.length === 0,
+  });
+
+  // When no carrier scores exist, synthesise nodes from live Sippy vendors
+  const vendorScores: CarrierScore[] = useMemo(() => {
+    if (scores.length > 0) return [];
+    return (vendorData?.vendors ?? []).map((v: any, i: number) => ({
+      id: v.iVendor ?? i,
+      carrierId: String(v.iVendor ?? v.name ?? i),
+      carrierName: v.name ?? v.vendorName ?? `Vendor ${i + 1}`,
+      stabilityScore: null,
+      rollingAsr: null,
+      avgPddMs: null,
+      failureRate: null,
+      trend: null,
+      sampleCount: 0,
+    }));
+  }, [scores.length, vendorData]);
+
+  const displayScores = scores.length > 0 ? scores : vendorScores;
+  const usingVendorFallback = scores.length === 0 && vendorScores.length > 0;
+
+  const selected   = displayScores.find(s => s.carrierName === selectedCarrier) ?? null;
+  const healthy    = displayScores.filter(s => (s.stabilityScore ?? 0) >= 75).length;
+  const degraded   = displayScores.filter(s => { const v = s.stabilityScore ?? 100; return v >= 50 && v < 75; }).length;
+  const critical   = displayScores.filter(s => (s.stabilityScore ?? 100) < 50).length;
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -432,7 +456,7 @@ export default function NetworkTopologyPage() {
 
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Info className="h-3.5 w-3.5" />
-          <span>Drag to rotate · Scroll to zoom · Click node for detail</span>
+          <span>{usingVendorFallback ? "Showing Sippy vendors (no quality scores yet)" : "Drag to rotate · Scroll to zoom · Click node for detail"}</span>
         </div>
 
         <button
@@ -445,17 +469,22 @@ export default function NetworkTopologyPage() {
 
       {/* Canvas */}
       <div className="flex-1 relative bg-[#06080f]">
-        {scores24.length === 0 && !isLoading ? (
+        {displayScores.length === 0 && !isLoading && !vendorsLoading ? (
           <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
-            No carrier scores yet — run a synthetic test campaign to populate the topology
+            No vendor data — check Sippy connection
           </div>
         ) : (
           <>
+            {usingVendorFallback && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2 text-xs text-amber-300 text-center pointer-events-none">
+                Showing live Sippy vendor connections — run a synthetic test campaign to add quality scores
+              </div>
+            )}
             <Canvas camera={{ position: [0, 4, 12], fov: 55 }} gl={{ antialias: true, alpha: false }}>
               <color attach="background" args={["#06080f"]} />
               <Suspense fallback={null}>
                 <Scene
-                  scores={scores24}
+                  scores={displayScores}
                   selectedCarrier={selectedCarrier}
                   setSelectedCarrier={setSelectedCarrier}
                   setTooltip={setTooltip}

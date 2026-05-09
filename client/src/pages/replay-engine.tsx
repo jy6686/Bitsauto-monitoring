@@ -638,6 +638,32 @@ function groupByRun(traces: RouteTrace[]): Map<string, RouteTrace[]> {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+// ── Convert a CDR record into a synthetic RouteTrace for display ───────────────
+
+function cdrToTrace(cdr: any, idx: number): RouteTrace {
+  const duration = cdr.duration || cdr.totalDuration || 0;
+  const outcome  = duration > 0 ? "connected" : "failed";
+  const rawResult = String(cdr.result || "");
+  const sipCodeNum = parseInt(rawResult);
+  const sipCode = !isNaN(sipCodeNum) && sipCodeNum >= 100 ? sipCodeNum : (outcome === "connected" ? 200 : null);
+  return {
+    id: idx + 100000,
+    campaignId: null,
+    runId: null,
+    cld: cdr.callee || cdr.cld || "—",
+    cli: cdr.caller || cdr.cli || null,
+    selectedCarrier: cdr.vendor || cdr.remoteIp || null,
+    candidateRoutes: null,
+    decisionReason: cdr.country ? `via ${cdr.country}` : (cdr.description || null),
+    outcome,
+    sipCode,
+    pddMs: cdr.pdd ? cdr.pdd * 1000 : null,
+    durationSec: duration > 0 ? Math.round(duration) : null,
+    failureCategory: outcome === "failed" ? (rawResult || null) : null,
+    createdAt: cdr.startTime || cdr.connectTime || new Date().toISOString(),
+  };
+}
+
 export default function ReplayEnginePage() {
   const [selectedKey, setSelectedKey]   = useState<string | null>(null);
   const [filter, setFilter]             = useState("");
@@ -649,7 +675,30 @@ export default function ReplayEnginePage() {
     refetchInterval: 60_000,
   });
 
-  const groups  = groupByRun(traces);
+  // CDR fallback — shown when no route traces exist yet
+  const { data: cdrData, isLoading: cdrLoading } = useQuery<{ cdrs: any[] }>({
+    queryKey: ["/api/sippy/cdr", "replay-fallback"],
+    queryFn: () => {
+      const end   = new Date();
+      const start = new Date(end.getTime() - 24 * 3600 * 1000);
+      const p = new URLSearchParams({
+        startDate: start.toISOString(),
+        endDate:   end.toISOString(),
+        type: "all", limit: "100",
+      });
+      return fetch(`/api/sippy/cdr?${p}`).then(r => r.json());
+    },
+    enabled: !isLoading && traces.length === 0,
+    staleTime: 60_000,
+  });
+
+  const usingCdrFallback = !isLoading && traces.length === 0;
+
+  // Synthetic route traces built from CDRs when no real traces exist
+  const cdrTraces: RouteTrace[] = (cdrData?.cdrs ?? []).map(cdrToTrace);
+
+  const activeTraces = usingCdrFallback ? cdrTraces : traces;
+  const groups  = groupByRun(activeTraces);
   const keys    = Array.from(groups.keys());
 
   const filtered = filter
@@ -695,7 +744,10 @@ export default function ReplayEnginePage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
               <Activity className="h-4 w-4 text-violet-400" />
-              Route Sessions
+              {usingCdrFallback ? "Call Records (CDR)" : "Route Sessions"}
+              {usingCdrFallback && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">LIVE CDR</span>
+              )}
               <span className="ml-auto text-xs font-normal text-muted-foreground">{filtered.length}</span>
             </CardTitle>
             <div className="flex items-center gap-2 mt-1">
@@ -711,12 +763,12 @@ export default function ReplayEnginePage() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {isLoading ? (
+            {isLoading || cdrLoading ? (
               <div className="space-y-2 p-4">
                 {[1,2,3].map(i => <div key={i} className="h-12 bg-muted/20 rounded animate-pulse" />)}
               </div>
             ) : filtered.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-6">No route sessions yet</p>
+              <p className="text-xs text-muted-foreground text-center py-6">No route sessions — check back after calls are placed</p>
             ) : (
               <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
                 {filtered.map(k => {

@@ -365,7 +365,7 @@ async function withSippyCredsRaw<T>(
 // rate-limits or blocks connections after too many failed attempts.
 let _xmlRpcFailStreak = 0;
 let _xmlRpcBlockedUntil = 0; // epoch ms
-const XML_RPC_FAIL_THRESHOLD = 3;            // open circuit after 3 consecutive full-sweep failures
+const XML_RPC_FAIL_THRESHOLD = 10;           // open circuit after 10 consecutive full-sweep failures
 const XML_RPC_COOLDOWN_MS   = 2 * 60 * 1000; // stay open for 2 minutes then auto-retry
 
 function xmlRpcIsBlocked(): boolean {
@@ -629,7 +629,7 @@ export async function registerRoutes(
           cdrs = await sippy.getSippyCDRs(username, password, 500, { startDate, endDate }, fasPortalUrl);
           if (cdrs.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
         }
-        if (allFailed && cdrs.length === 0) xmlRpcRecordAllFailed('fas-analysis: no CDRs from any pair');
+        // empty CDR result is not a circuit failure — Sippy may have no calls in this window
       }
 
       let saved = 0;
@@ -2747,7 +2747,7 @@ export async function registerRoutes(
             if (rows.length > 0) { recentCdrs = rows; xmlRpcRecordSuccess(); allFailed = false; break; }
           } catch { continue; }
         }
-        if (allFailed) xmlRpcRecordAllFailed('dashboard-stats: no CDRs from any pair');
+        // empty CDR result is not a circuit failure
       }
 
       // ── CK (Call-Back) Ratio from CDRs ─────────────────────────────────────
@@ -2937,7 +2937,7 @@ export async function registerRoutes(
             if (rows.length > 0) { cdrs = rows; xmlRpcRecordSuccess(); allFailed = false; break; }
           } catch { continue; }
         }
-        if (allFailed) xmlRpcRecordAllFailed('asr-report: no CDRs from any pair');
+        // empty CDR result is not a circuit failure
       }
 
       // If still empty, fall back to portal scraping
@@ -3021,7 +3021,7 @@ export async function registerRoutes(
             if (fetched && fetched.length > 0) { cdrs = fetched; xmlRpcRecordSuccess(); allFailed = false; break; }
           } catch { continue; }
         }
-        if (allFailed) xmlRpcRecordAllFailed('per-acct-stats: no CDRs from any pair');
+        // empty CDR result is not a circuit failure
       }
 
       // Helper: compute a stat row from a CDR slice
@@ -3162,7 +3162,7 @@ export async function registerRoutes(
           batch = await sippy.getSippyCDRs(username, password, 500, {}, pUrl);
           if (batch.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
         }
-        if (allFailed && batch.length === 0) xmlRpcRecordAllFailed('cdr-cache: no CDRs from any pair');
+        // empty CDR result is not a circuit failure
       }
 
       // Fallback: portal scrape
@@ -3435,7 +3435,7 @@ export async function registerRoutes(
           cdrs = await sippy.getSippyCDRs(username, password, limit, opts, portalUrl);
           if (cdrs.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
         }
-        if (allFailed) xmlRpcRecordAllFailed('cdr-route: no CDRs from any pair');
+        // empty CDR result is not a circuit failure
       }
       // Enrich with clientName from account cache and vendorName from connection cache
       cdrs = cdrs.map(c => ({
@@ -3516,7 +3516,7 @@ export async function registerRoutes(
           }, portalUrl);
           if (rawCdrs.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
         }
-        if (allFailed) xmlRpcRecordAllFailed('vendor-cdr-route: no CDRs from any pair');
+        // empty CDR result is not a circuit failure
       }
 
       // Fallback: XML-RPC returned nothing → scrape admin portal HTML
@@ -4252,7 +4252,7 @@ export async function registerRoutes(
           cdrs = await sippy.getSippyCDRs(username, password, limit, { ...opts });
           if (cdrs.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
         }
-        if (allFailed) xmlRpcRecordAllFailed('asr-report-route: no CDRs from any pair');
+        // empty CDR result is not a circuit failure
       }
       if (cdrs.length === 0) return res.json({ rows: [], source: 'sippy-cdr', count: 0 });
 
