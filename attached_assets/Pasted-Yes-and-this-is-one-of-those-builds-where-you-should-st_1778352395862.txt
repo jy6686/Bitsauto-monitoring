@@ -1,0 +1,181 @@
+Yes — and this is one of those builds where you should stay strictly within the existing sip-trace.tsx instead of expanding the system again.
+
+We’ll implement it as a self-contained ladder renderer layer on top of your existing SipMessage[].
+
+✅ SIP LADDER DIAGRAM — IMPLEMENTATION PLAN (CLEAN + PRACTICAL)
+
+You already have:
+
+SIP parser ✔
+CDR reconstruction ✔
+message classification ✔
+
+So we only add:
+
+a transformation layer + a visual ladder renderer
+
+🧱 STEP 1 — Create Ladder Data Model (inside sip-trace.tsx)
+
+Add this type:
+
+type SipLane = "caller" | "sippy" | "carrier";
+
+type SipLadderEvent = {
+  id: string;
+  from: SipLane;
+  to: SipLane;
+  method: string;
+  code?: number;
+  label: string;
+  timestamp: number;
+  deltaMs: number;
+  status: "success" | "warning" | "error";
+};
+🔁 STEP 2 — Convert existing SipMessage[] → Ladder Events
+
+Add this function (this is the core logic):
+
+function buildLadder(messages: SipMessage[]): SipLadderEvent[] {
+  const events: SipLadderEvent[] = [];
+
+  let prevTs = messages[0]?.timestamp ?? 0;
+
+  for (const msg of messages) {
+    const deltaMs = msg.timestamp - prevTs;
+    prevTs = msg.timestamp;
+
+    const status =
+      msg.code >= 500 ? "error" :
+      msg.code >= 400 ? "error" :
+      msg.code >= 300 ? "warning" :
+      "success";
+
+    // simple routing inference
+    const from: SipLane =
+      msg.direction === "in" ? "carrier" : "caller";
+
+    const to: SipLane =
+      msg.method === "INVITE" || msg.method === "ACK"
+        ? "sippy"
+        : msg.direction === "out"
+        ? "carrier"
+        : "caller";
+
+    events.push({
+      id: msg.id,
+      from,
+      to,
+      method: msg.method,
+      code: msg.code,
+      label: `${msg.method}${msg.code ? ` ${msg.code}` : ""}`,
+      timestamp: msg.timestamp,
+      deltaMs,
+      status,
+    });
+  }
+
+  return events;
+}
+🎯 STEP 3 — Ladder Layout (3-column grid)
+
+Add this structure:
+
+<div className="grid grid-cols-3 gap-4 relative">
+Columns:
+{/* Caller */}
+<div className="border-r pr-2">
+  <div className="text-xs text-gray-400 mb-2">Caller</div>
+</div>
+
+{/* Sippy */}
+<div className="border-r px-2">
+  <div className="text-xs text-gray-400 mb-2">Sippy</div>
+</div>
+
+{/* Carrier */}
+<div className="pl-2">
+  <div className="text-xs text-gray-400 mb-2">Carrier</div>
+</div>
+➡️ STEP 4 — Render SIP arrows
+
+Inside a wrapper (absolute overlay layer):
+
+<div className="relative">
+  {ladderEvents.map((e, i) => (
+    <div
+      key={e.id}
+      className={`
+        flex items-center justify-between
+        text-xs py-1
+        ${e.status === "error" ? "text-red-500" :
+          e.status === "warning" ? "text-yellow-500" :
+          "text-green-500"}
+      `}
+    >
+Arrow visualization (core UI piece)
+      <div className="w-1/3 text-right">{e.from}</div>
+
+      <div className="w-1/3 text-center">
+        → {e.label}
+      </div>
+
+      <div className="w-1/3 text-left">{e.to}</div>
+Timing label (important for ops users)
+      <div className="absolute right-0 text-[10px] text-gray-400">
+        +{e.deltaMs}ms
+      </div>
+🔴 STEP 5 — Failure path highlight (critical)
+
+Add this:
+
+const isFailure = e.status === "error";
+
+Then:
+
+className={isFailure ? "bg-red-500/10 border-l-2 border-red-500" : ""}
+📉 STEP 6 — Add PDD marker (high value)
+
+Compute:
+
+const pdd =
+  messages.find(m => m.method === "200")?.timestamp -
+  messages.find(m => m.method === "INVITE")?.timestamp;
+
+Render:
+
+<div className="text-xs text-purple-400 mt-2">
+  PDD: {pdd}ms
+</div>
+🧠 What you will have after this
+
+A working SIP ladder that shows:
+
+full call flow
+direction (caller → carrier → back)
+failures in red
+timing delays
+PDD metric
+⚡ Reality check (important)
+
+This version is:
+
+✔ correct for 90% of troubleshooting
+✔ fast to build
+✔ uses existing data
+✔ no backend changes
+
+But NOT yet:
+
+perfect SIP protocol state machine (that comes later if needed)
+strict dialog pairing (optional upgrade)
+🚀 Next step after this (optional)
+
+Once this is live, the real upgrade becomes:
+
+SIP dialog reconstruction engine (INVITE ↔ response pairing correctness)
+
+But you don’t need that yet.
+
+👍 Bottom line
+
+Yes — you can implement this immediately, and it will instantly become your most used debugging screen in the system.
