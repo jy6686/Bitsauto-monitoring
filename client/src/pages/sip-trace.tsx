@@ -148,74 +148,202 @@ function fmtCurrency(v: number) {
 
 // ── SIP Ladder — CDR mode ─────────────────────────────────────────────────────
 
-function SipLadder({ events, uaLabel }: { events: SipEvent[]; uaLabel: string }) {
+// Whether a SIP event traverses the carrier leg (not just Sippy-local)
+function eventInvolvesCarrier(ev: SipEvent | SipMessage): boolean {
+  const m = (ev.method ?? '').toUpperCase();
+  const code = (ev as any).code as number | undefined;
+  if (['INVITE', 'BYE', 'CANCEL', 'ACK', 'UPDATE', 'PRACK'].includes(m)) return true;
+  if (code && code >= 180) return true;
+  return false;
+}
+
+// Parse a SIP timestamp string → ms epoch (best-effort)
+function tsToMs(ts: string): number {
+  if (!ts) return 0;
+  const n = Number(ts);
+  if (!isNaN(n)) return n;
+  const d = new Date(ts.replace(' ', 'T'));
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function SipLadder({ events, uaLabel, cdr }: { events: SipEvent[]; uaLabel: string; cdr?: CdrInfo }) {
   const [expanded, setExpanded] = useState<number | null>(null);
 
+  // PDD: INVITE → 200 OK delta (prefer CDR field, fall back to event timestamps)
+  const pddMs: number | null = (() => {
+    if (cdr?.pdd != null && cdr.pdd > 0) return Math.round(cdr.pdd * 1000);
+    const invite = events.find(e => e.method === 'INVITE' && !e.code);
+    const ok     = events.find(e => e.code === 200);
+    if (!invite || !ok) return null;
+    const diff = tsToMs(ok.ts) - tsToMs(invite.ts);
+    return diff > 0 ? diff : null;
+  })();
+
+  const isAnswered = (cdr?.totalDuration ?? cdr?.duration ?? 0) > 0;
+
+  // Grid template — 6 cols: Caller | left-lane | Sippy-dot | right-lane | Carrier | Δms
+  const GRID = 'grid grid-cols-[88px_1fr_44px_1fr_88px_46px]';
+
   return (
-    <div className="font-mono text-xs space-y-0.5">
+    <div className="font-mono text-xs">
+      {/* PDD + result summary bar */}
+      {(pddMs !== null || cdr?.result) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 pb-2.5 border-b border-border/40 text-[11px]">
+          {pddMs !== null && (
+            <span className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">PDD</span>
+              <span className={cn("font-semibold tabular-nums",
+                pddMs > 5000 ? "text-red-400" : pddMs > 2000 ? "text-amber-400" : "text-emerald-400")}>
+                {pddMs >= 1000 ? `${(pddMs / 1000).toFixed(2)}s` : `${pddMs}ms`}
+              </span>
+            </span>
+          )}
+          {cdr?.result && (
+            <span className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Result</span>
+              <span className={cn("font-semibold capitalize",
+                isAnswered ? "text-emerald-400" : "text-red-400")}>
+                {cdr.result}
+              </span>
+            </span>
+          )}
+          {cdr?.pdd != null && cdr.pdd > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">PDD (1xx)</span>
+              <span className="font-semibold tabular-nums text-purple-400">
+                {cdr.pdd1xx != null ? `${cdr.pdd1xx.toFixed(2)}s` : '—'}
+              </span>
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Header row */}
-      <div className="grid grid-cols-[80px_1fr_80px] gap-2 pb-2 border-b border-border/40 mb-2">
-        <div className="text-center text-muted-foreground font-semibold truncate" title={uaLabel}>
+      <div className={cn(GRID, "gap-1 pb-2 border-b border-border/40 mb-1")}>
+        <div className="text-center text-muted-foreground font-semibold truncate text-[11px] px-1"
+          title={uaLabel}>
           {uaLabel.length > 12 ? uaLabel.slice(0, 10) + '…' : uaLabel}
         </div>
-        <div className="text-center text-muted-foreground/50 text-[10px]">← messages →</div>
-        <div className="text-center text-muted-foreground font-semibold">Sippy</div>
+        <div />
+        <div className="text-center">
+          <span className="text-[11px] font-semibold text-blue-400 bg-blue-500/10 border border-blue-500/25 rounded px-1.5 py-0.5">
+            Sippy
+          </span>
+        </div>
+        <div />
+        <div className="text-center text-muted-foreground font-semibold text-[11px]">Carrier</div>
+        <div className="text-center text-muted-foreground/40 text-[9px] uppercase tracking-wide">Δ</div>
       </div>
 
-      {events.map((ev, i) => {
-        const isExpanded = expanded === i;
-        const label = evLabel(ev);
-        const colorClass = evColor(ev);
+      <div className="space-y-0">
+        {events.map((ev, i) => {
+          const isExpanded = expanded === i;
+          const label      = evLabel(ev);
+          const colorClass = evColor(ev);
+          const isError    = (ev.code ?? 0) >= 400;
+          const carrier    = eventInvolvesCarrier(ev);
 
-        return (
-          <div key={i} className="group">
-            <button
-              onClick={() => setExpanded(isExpanded ? null : i)}
-              className="w-full text-left hover:bg-muted/10 rounded transition-colors"
-              data-testid={`sip-event-${i}`}
-            >
-              <div className="grid grid-cols-[80px_1fr_80px] gap-2 items-center py-1">
-                {/* Left (UA) column */}
-                <div className={cn(
-                  "text-center text-[10px] px-1 py-0.5 rounded border truncate",
-                  ev.direction === 'lr' ? colorClass : 'opacity-0'
-                )}>
-                  {ev.direction === 'lr' ? label : ''}
+          // Delta from previous event
+          let deltaMs: number | null = null;
+          if (i > 0) {
+            const t1 = tsToMs(events[i - 1].ts);
+            const t2 = tsToMs(ev.ts);
+            if (t1 > 0 && t2 > 0) deltaMs = t2 - t1;
+          }
+
+          const arrowColor = isError
+            ? 'text-red-400'
+            : 'text-muted-foreground/70 group-hover:text-muted-foreground';
+          const lineColor = isError
+            ? 'bg-red-500/35'
+            : 'bg-border/40 group-hover:bg-border/60';
+
+          return (
+            <div key={i} className={cn(
+              "group rounded transition-colors",
+              isError && "bg-red-500/8 border-l-2 border-red-500/50 pl-0.5"
+            )}>
+              <button
+                onClick={() => setExpanded(isExpanded ? null : i)}
+                className="w-full text-left hover:bg-muted/10 rounded transition-colors"
+                data-testid={`sip-event-${i}`}
+              >
+                <div className={cn(GRID, "gap-1 items-center py-1.5")}>
+                  {/* Caller column */}
+                  <div className={cn(
+                    "text-center text-[10px] px-1 py-0.5 rounded border truncate transition-opacity",
+                    ev.direction === 'lr' ? colorClass : 'opacity-0'
+                  )}>
+                    {ev.direction === 'lr' ? label : '·'}
+                  </div>
+
+                  {/* Left arrow lane: Caller ↔ Sippy */}
+                  <div className="flex items-center relative min-h-[18px]">
+                    <div className={cn("flex-1 h-px transition-colors", lineColor)} />
+                    {ev.direction === 'lr'
+                      ? <ArrowRight className={cn("h-3 w-3 flex-shrink-0 transition-colors", arrowColor)} />
+                      : <ArrowLeft  className={cn("h-3 w-3 flex-shrink-0 transition-colors", arrowColor)} />}
+                    <div className={cn("flex-1 h-px transition-colors", lineColor)} />
+                    <span className="text-[9px] text-muted-foreground/40 absolute left-1/2 -translate-x-1/2 -top-3.5 whitespace-nowrap pointer-events-none">
+                      {ev.ts ? ev.ts.slice(11) : ''}
+                    </span>
+                  </div>
+
+                  {/* Sippy center node */}
+                  <div className="flex justify-center">
+                    <div className={cn(
+                      "h-3.5 w-3.5 rounded-full border-2 transition-colors",
+                      isError
+                        ? "bg-red-500/30 border-red-500/60"
+                        : "bg-blue-500/20 border-blue-500/40"
+                    )} />
+                  </div>
+
+                  {/* Right arrow lane: Sippy ↔ Carrier */}
+                  <div className="flex items-center min-h-[18px]">
+                    {carrier ? (
+                      <>
+                        <div className={cn("flex-1 h-px", isError ? "bg-red-500/30" : "bg-border/30")} />
+                        {ev.direction === 'lr'
+                          ? <ArrowRight className={cn("h-3 w-3 flex-shrink-0", isError ? "text-red-400/70" : "text-muted-foreground/50")} />
+                          : <ArrowLeft  className={cn("h-3 w-3 flex-shrink-0", isError ? "text-red-400/70" : "text-muted-foreground/50")} />}
+                        <div className={cn("flex-1 h-px", isError ? "bg-red-500/30" : "bg-border/30")} />
+                      </>
+                    ) : (
+                      <div className="flex-1 border-dashed border-t border-border/15" />
+                    )}
+                  </div>
+
+                  {/* Carrier column */}
+                  <div className={cn(
+                    "text-center text-[10px] px-1 py-0.5 rounded border truncate transition-opacity",
+                    !carrier
+                      ? 'opacity-0'
+                      : ev.direction === 'rl'
+                        ? colorClass
+                        : 'border-border/20 text-muted-foreground/35'
+                  )}>
+                    {!carrier ? '·' : ev.direction === 'rl' ? label : '→fwd'}
+                  </div>
+
+                  {/* Delta ms */}
+                  <div className="text-center text-[9px] tabular-nums text-muted-foreground/45">
+                    {deltaMs !== null ? (deltaMs >= 1000 ? `+${(deltaMs / 1000).toFixed(1)}s` : `+${deltaMs}`) : '—'}
+                  </div>
                 </div>
+              </button>
 
-                {/* Middle arrow */}
-                <div className="flex items-center gap-1 relative">
-                  <div className="flex-1 h-px bg-border/40 group-hover:bg-border/60 transition-colors" />
-                  <span className="text-[10px] text-muted-foreground/50 absolute left-1/2 -translate-x-1/2 -top-3.5 whitespace-nowrap">
-                    {ev.ts}
-                  </span>
-                  {ev.direction === 'lr'
-                    ? <ArrowRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                    : <ArrowLeft  className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />}
-                  <div className="flex-1 h-px bg-border/40 group-hover:bg-border/60 transition-colors" />
+              {isExpanded && (
+                <div className="mx-2 mb-1.5 p-3 bg-muted/10 border border-border/30 rounded-lg">
+                  <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap break-all leading-relaxed">
+                    {ev.detail}
+                  </pre>
                 </div>
-
-                {/* Right (Sippy) column */}
-                <div className={cn(
-                  "text-center text-[10px] px-1 py-0.5 rounded border truncate",
-                  ev.direction === 'rl' ? colorClass : 'opacity-0'
-                )}>
-                  {ev.direction === 'rl' ? label : ''}
-                </div>
-              </div>
-            </button>
-
-            {/* Expanded detail */}
-            {isExpanded && (
-              <div className="mx-2 mb-2 p-3 bg-muted/10 border border-border/30 rounded-lg">
-                <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap break-all leading-relaxed">
-                  {ev.detail}
-                </pre>
-              </div>
-            )}
-          </div>
-        );
-      })}
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -224,49 +352,143 @@ function SipLadder({ events, uaLabel }: { events: SipEvent[]; uaLabel: string })
 
 function PasteLadder({ messages }: { messages: SipMessage[] }) {
   const [expanded, setExpanded] = useState<number | null>(null);
+
+  // PDD: INVITE → 200 OK
+  const pddMs: number | null = (() => {
+    const invite = messages.find(m => m.method === 'INVITE' && !m.code);
+    const ok     = messages.find(m => m.code === 200);
+    if (!invite || !ok) return null;
+    const diff = tsToMs(ok.timestamp) - tsToMs(invite.timestamp);
+    return diff > 0 ? diff : null;
+  })();
+
+  const GRID = 'grid grid-cols-[88px_1fr_44px_1fr_88px_46px]';
+
   return (
-    <div className="font-mono text-xs space-y-0.5">
-      <div className="grid grid-cols-[80px_1fr_80px] gap-2 pb-2 border-b border-border/40 mb-2">
-        <div className="text-center text-muted-foreground font-semibold">UA / Client</div>
-        <div className="text-center text-muted-foreground/50 text-[10px]">← messages →</div>
-        <div className="text-center text-muted-foreground font-semibold">Sippy</div>
+    <div className="font-mono text-xs">
+      {/* PDD summary */}
+      {pddMs !== null && (
+        <div className="flex items-center gap-2 mb-3 pb-2.5 border-b border-border/40 text-[11px]">
+          <span className="text-muted-foreground">PDD</span>
+          <span className={cn("font-semibold tabular-nums",
+            pddMs > 5000 ? "text-red-400" : pddMs > 2000 ? "text-amber-400" : "text-emerald-400")}>
+            {pddMs >= 1000 ? `${(pddMs / 1000).toFixed(2)}s` : `${pddMs}ms`}
+          </span>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className={cn(GRID, "gap-1 pb-2 border-b border-border/40 mb-1")}>
+        <div className="text-center text-muted-foreground font-semibold text-[11px]">UA / Caller</div>
+        <div />
+        <div className="text-center">
+          <span className="text-[11px] font-semibold text-blue-400 bg-blue-500/10 border border-blue-500/25 rounded px-1.5 py-0.5">
+            Sippy
+          </span>
+        </div>
+        <div />
+        <div className="text-center text-muted-foreground font-semibold text-[11px]">Carrier</div>
+        <div className="text-center text-muted-foreground/40 text-[9px] uppercase tracking-wide">Δ</div>
       </div>
-      {messages.map((msg, i) => {
-        const isLeft  = msg.from === 'UA';
-        const colorClass = evColor(msg);
-        const label = msg.code ? `${msg.code} ${msg.method}` : msg.method;
-        return (
-          <div key={i} className="group">
-            <button onClick={() => setExpanded(expanded === i ? null : i)}
-              className="w-full text-left hover:bg-muted/10 rounded transition-colors"
-              data-testid={`paste-event-${i}`}>
-              <div className="grid grid-cols-[80px_1fr_80px] gap-2 items-center py-1">
-                <div className={cn("text-center text-[10px] px-1 py-0.5 rounded border truncate",
-                  isLeft ? colorClass : 'opacity-0')}>{isLeft ? label : ''}</div>
-                <div className="flex items-center gap-1 relative">
-                  <div className="flex-1 h-px bg-border/40" />
-                  {msg.timestamp && (
-                    <span className="text-[10px] text-muted-foreground/50 absolute left-1/2 -translate-x-1/2 -top-3.5 whitespace-nowrap">
-                      {msg.timestamp.slice(11) || msg.timestamp}
-                    </span>
-                  )}
-                  {isLeft
-                    ? <ArrowRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                    : <ArrowLeft  className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />}
-                  <div className="flex-1 h-px bg-border/40" />
+
+      <div className="space-y-0">
+        {messages.map((msg, i) => {
+          const isLeft     = msg.from === 'UA';
+          const colorClass = evColor(msg);
+          const label      = msg.code ? `${msg.code} ${msg.method}` : msg.method;
+          const isError    = (msg.code ?? 0) >= 400;
+          const carrier    = eventInvolvesCarrier(msg);
+
+          let deltaMs: number | null = null;
+          if (i > 0) {
+            const t1 = tsToMs(messages[i - 1].timestamp);
+            const t2 = tsToMs(msg.timestamp);
+            if (t1 > 0 && t2 > 0) deltaMs = t2 - t1;
+          }
+
+          const lineColor = isError ? 'bg-red-500/35' : 'bg-border/40 group-hover:bg-border/60';
+          const arrowColor = isError ? 'text-red-400' : 'text-muted-foreground/70 group-hover:text-muted-foreground';
+
+          return (
+            <div key={i} className={cn(
+              "group rounded transition-colors",
+              isError && "bg-red-500/8 border-l-2 border-red-500/50 pl-0.5"
+            )}>
+              <button
+                onClick={() => setExpanded(expanded === i ? null : i)}
+                className="w-full text-left hover:bg-muted/10 rounded transition-colors"
+                data-testid={`paste-event-${i}`}
+              >
+                <div className={cn(GRID, "gap-1 items-center py-1.5")}>
+                  {/* Caller column */}
+                  <div className={cn("text-center text-[10px] px-1 py-0.5 rounded border truncate",
+                    isLeft ? colorClass : 'opacity-0')}>
+                    {isLeft ? label : '·'}
+                  </div>
+
+                  {/* Left arrow lane */}
+                  <div className="flex items-center relative min-h-[18px]">
+                    <div className={cn("flex-1 h-px transition-colors", lineColor)} />
+                    {isLeft
+                      ? <ArrowRight className={cn("h-3 w-3 flex-shrink-0 transition-colors", arrowColor)} />
+                      : <ArrowLeft  className={cn("h-3 w-3 flex-shrink-0 transition-colors", arrowColor)} />}
+                    <div className={cn("flex-1 h-px transition-colors", lineColor)} />
+                    {msg.timestamp && (
+                      <span className="text-[9px] text-muted-foreground/40 absolute left-1/2 -translate-x-1/2 -top-3.5 whitespace-nowrap pointer-events-none">
+                        {msg.timestamp.slice(11) || msg.timestamp}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Sippy center node */}
+                  <div className="flex justify-center">
+                    <div className={cn(
+                      "h-3.5 w-3.5 rounded-full border-2 transition-colors",
+                      isError ? "bg-red-500/30 border-red-500/60" : "bg-blue-500/20 border-blue-500/40"
+                    )} />
+                  </div>
+
+                  {/* Right arrow lane */}
+                  <div className="flex items-center min-h-[18px]">
+                    {carrier ? (
+                      <>
+                        <div className={cn("flex-1 h-px", isError ? "bg-red-500/30" : "bg-border/30")} />
+                        {isLeft
+                          ? <ArrowRight className={cn("h-3 w-3 flex-shrink-0", isError ? "text-red-400/70" : "text-muted-foreground/50")} />
+                          : <ArrowLeft  className={cn("h-3 w-3 flex-shrink-0", isError ? "text-red-400/70" : "text-muted-foreground/50")} />}
+                        <div className={cn("flex-1 h-px", isError ? "bg-red-500/30" : "bg-border/30")} />
+                      </>
+                    ) : (
+                      <div className="flex-1 border-dashed border-t border-border/15" />
+                    )}
+                  </div>
+
+                  {/* Carrier column */}
+                  <div className={cn("text-center text-[10px] px-1 py-0.5 rounded border truncate",
+                    !carrier
+                      ? 'opacity-0'
+                      : !isLeft
+                        ? colorClass
+                        : 'border-border/20 text-muted-foreground/35')}>
+                    {!carrier ? '·' : !isLeft ? label : '→fwd'}
+                  </div>
+
+                  {/* Delta ms */}
+                  <div className="text-center text-[9px] tabular-nums text-muted-foreground/45">
+                    {deltaMs !== null ? (deltaMs >= 1000 ? `+${(deltaMs / 1000).toFixed(1)}s` : `+${deltaMs}`) : '—'}
+                  </div>
                 </div>
-                <div className={cn("text-center text-[10px] px-1 py-0.5 rounded border truncate",
-                  !isLeft ? colorClass : 'opacity-0')}>{!isLeft ? label : ''}</div>
-              </div>
-            </button>
-            {expanded === i && (
-              <div className="mx-2 mb-2 p-3 bg-muted/10 border border-border/30 rounded-lg">
-                <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap break-all">{msg.raw}</pre>
-              </div>
-            )}
-          </div>
-        );
-      })}
+              </button>
+
+              {expanded === i && (
+                <div className="mx-2 mb-1.5 p-3 bg-muted/10 border border-border/30 rounded-lg">
+                  <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap break-all">{msg.raw}</pre>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -492,7 +714,7 @@ export default function SipTracePage() {
                   </div>
                 </div>
                 <div className="bg-muted/5 rounded-lg border border-border/30 p-4 overflow-x-auto">
-                  <SipLadder events={traceData.sipEvents} uaLabel={uaLabel} />
+                  <SipLadder events={traceData.sipEvents} uaLabel={uaLabel} cdr={traceData.cdr} />
                 </div>
                 <p className="text-[10px] text-muted-foreground/50 mt-3 flex items-center gap-1">
                   <Info className="h-3 w-3" />
