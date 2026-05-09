@@ -244,6 +244,19 @@ const GROUP_TINT: Record<string, string> = {
   platform:         'text-slate-400',
 };
 
+// ── Helper: find which nav group owns the current location ────────────────────
+function getActiveGroupKey(loc: string): string | null {
+  for (const group of SIDEBAR_GROUPS) {
+    const hit = group.items.some(item => {
+      const base = item.href.split('?')[0];
+      if (base === '/') return false;
+      return loc === base || loc.startsWith(base + '/') || loc.startsWith(base + '?');
+    });
+    if (hit) return group.key;
+  }
+  return null;
+}
+
 // ── Spring animation for accordion panels ─────────────────────────────────────
 const PANEL = {
   open:   { height: 'auto', opacity: 1,  transition: { type: 'spring' as const, stiffness: 420, damping: 36, mass: 0.7 } },
@@ -265,13 +278,16 @@ export function LayoutShell({ children }: LayoutShellProps) {
     try { return localStorage.getItem(SIDEBAR_KEY) === 'true'; } catch { return false; }
   });
 
-  // Platform collapsed by default
+  // Smart default: open only the group that owns the current route
   const [groupsExpanded, setGroupsExpanded] = useState<Record<string, boolean>>(() => {
     try {
       const s = localStorage.getItem(GROUPS_LS_KEY);
       if (s) return JSON.parse(s);
     } catch { /* */ }
-    return { platform: false };
+    const activeKey = getActiveGroupKey(window.location.pathname);
+    const defaults: Record<string, boolean> = {};
+    SIDEBAR_GROUPS.forEach(g => { defaults[g.key] = g.key === activeKey; });
+    return defaults;
   });
 
   const [groupOrder, setGroupOrder] = useState<string[]>(() => {
@@ -349,6 +365,14 @@ export function LayoutShell({ children }: LayoutShellProps) {
   useEffect(() => { if (isRoutingMgrActive) setRoutingMgrExpanded(true);  }, [isRoutingMgrActive]);
   useEffect(() => { if (isTestActive)       setTestExpanded(true);        }, [isTestActive]);
   useEffect(() => { if (isNotifActive)      setNotifExpanded(true);       }, [isNotifActive]);
+
+  // Auto-expand the sidebar group that owns the navigated-to route
+  useEffect(() => {
+    const activeKey = getActiveGroupKey(location);
+    if (activeKey) {
+      setGroupsExpanded(prev => prev[activeKey] === true ? prev : { ...prev, [activeKey]: true });
+    }
+  }, [location]);
 
   // ── Data queries ──────────────────────────────────────────────────────────────
   const { data: kamList = [] } = useQuery<Kam[]>({
@@ -876,16 +900,21 @@ export function LayoutShell({ children }: LayoutShellProps) {
               onDragOver={!mobile ? (e) => handleDragOver(e, group.key) : undefined}
               onDrop={!mobile ? (e) => handleDrop(e, group.key) : undefined}
             >
-              {/* Apple-style ALL CAPS ambient label */}
+              {/* Section dropdown header */}
               <button
                 data-testid={`sidebar-group-${group.key}`}
                 onClick={!mobile ? () => toggleGroup(group.key) : undefined}
-                className="group/grp w-full flex items-center gap-1.5 px-2 py-[3px] mb-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/35 hover:text-muted-foreground/60 transition-colors"
+                className={cn(
+                  "group/grp w-full flex items-center gap-2 px-2.5 py-1.5 mb-0.5 rounded-lg text-[11px] font-semibold uppercase tracking-[0.06em] transition-all duration-150",
+                  isOpen
+                    ? "bg-white/[0.06] text-foreground/65 border border-white/[0.08]"
+                    : "text-muted-foreground/40 hover:text-muted-foreground/65 hover:bg-white/[0.04] border border-transparent"
+                )}
               >
-                {!mobile && <GripVertical className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/grp:opacity-30 transition-opacity cursor-grab active:cursor-grabbing" />}
+                {!mobile && <GripVertical className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/grp:opacity-25 transition-opacity cursor-grab active:cursor-grabbing" />}
                 <span className="flex-1 text-left">{group.label}</span>
                 {!mobile && (
-                  <ChevronRight className={cn("h-3 w-3 flex-shrink-0 transition-transform duration-200", isOpen && "rotate-90")} />
+                  <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 transition-transform duration-200 text-muted-foreground/40", isOpen && "rotate-180 text-muted-foreground/60")} />
                 )}
               </button>
 
