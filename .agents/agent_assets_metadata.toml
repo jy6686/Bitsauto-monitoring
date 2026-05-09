@@ -84,3 +84,9 @@ id = "YhsFAtZqUdPypK8CScyzv"
 uri = "file://attached_assets/BITSAUTO_PLATFORM_FEATURES.md"
 type = "text"
 title = "Bitsauto Platform — Full Feature Registry"
+
+[[outputs]]
+id = "j3m3gk3diburmvkBErmId"
+uri = "file://PLATFORM_FEATURES.md"
+type = "text"
+title = "Bitsauto Platform — Full Feature Reference"
