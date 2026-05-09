@@ -10182,6 +10182,14 @@ export async function registerRoutes(
   // GET /api/dial-codes — serve raw dial-codes JSON for client-side prefix lookup
   app.get('/api/dial-codes', dialCodesHandler);
 
+  // GET /api/download/platform-features — serve the Full Feature Reference (PLATFORM_FEATURES.md)
+  app.get('/api/download/platform-features', (_req: any, res: any) => {
+    const filePath = _pathJoin(process.cwd(), 'PLATFORM_FEATURES.md');
+    res.download(filePath, 'Bitsauto_Platform_Full_Feature_Reference.md', (err: any) => {
+      if (err) res.status(404).json({ error: 'File not found' });
+    });
+  });
+
   // GET /api/download/feature-roadmap — serve the Feature Roadmap Word document (Vol I)
   app.get('/api/download/feature-roadmap', (_req: any, res: any) => {
     const filePath = require('path').join(process.cwd(), 'attached_assets', 'VoIP_Watcher_Feature_Roadmap.docx');
