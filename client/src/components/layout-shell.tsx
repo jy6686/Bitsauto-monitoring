@@ -239,7 +239,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Communications',
     roles: ['admin','management'],
     items: [
-      { href: "/sms-monitor", label: "SMS / A2P Monitor", icon: MessageCircle, roles: ['admin','management'] },
+      { href: "/sms-monitor", label: "SMS / A2P Monitor", icon: MessageCircle, roles: ['admin','management'], status: 'planned' },
     ],
   },
   {
