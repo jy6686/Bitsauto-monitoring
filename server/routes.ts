@@ -3165,17 +3165,32 @@ export async function registerRoutes(
         // empty CDR result is not a circuit failure
       }
 
-      // Fallback: portal scrape
+      // Fallback: portal scrape — try multiple credential combos because web-portal
+      // login uses adminWebPassword, not apiAdminPassword (which is for XML-RPC only).
       if (batch.length === 0 && settings) {
         const portalUrl = sippyPortalUrl(settings);
-        const adminUser = settings.apiAdminUsername ?? '';
-        const adminPass = settings.apiAdminPassword ?? '';
-        if (adminUser && adminPass) {
+        const scrapeAttempts: Array<{ user: string; pass: string; base: string }> = [];
+        const apiUser  = settings.apiAdminUsername  ?? '';
+        const apiPass  = settings.apiAdminPassword  ?? '';
+        const webPass  = (settings as any).adminWebPassword ?? '';
+        const portUser = settings.portalUsername    ?? '';
+        const portPass = settings.portalPassword    ?? '';
+        if (apiUser && webPass)  scrapeAttempts.push({ user: apiUser,  pass: webPass,  base: portalUrl });
+        if (apiUser && apiPass)  scrapeAttempts.push({ user: apiUser,  pass: apiPass,  base: portalUrl });
+        if (portUser && portPass) scrapeAttempts.push({ user: portUser, pass: portPass, base: portalUrl });
+        for (const { user, pass, base } of scrapeAttempts) {
           try {
-            const scraped = await sippy.scrapeAdminPortalCDRs(adminUser, adminPass, portalUrl, { limit: 500 });
-            if (scraped.length > 0) batch = scraped;
-          } catch { /* ignore */ }
+            const scraped = await sippy.scrapeAdminPortalCDRs(user, pass, base, { limit: 500 });
+            if (scraped.length > 0) {
+              console.log(`[cdr-cache] portal scrape OK via ${user}@${base} — ${scraped.length} CDRs`);
+              batch = scraped;
+              break;
+            }
+          } catch (scrapeErr: any) {
+            console.warn(`[cdr-cache] portal scrape failed (${user}@${base}): ${scrapeErr.message}`);
+          }
         }
+        if (batch.length === 0) console.warn('[cdr-cache] all portal scrape attempts returned 0 CDRs');
       }
 
       const cutoff = Date.now() - CDR_CACHE_MAX_HOURS * 3600 * 1000;
@@ -3389,6 +3404,44 @@ export async function registerRoutes(
           }
         }
       } catch { /* ignore — return 404 below */ }
+    }
+
+    // 3. FAS events fallback — CDR data exists in FAS table even when XML-RPC CDR API
+    //    is returning 401 (common when Sippy restricts getAccountCDRs/getCustomerCDRs
+    //    but the FAS background scanner captured the CDR earlier via a portal scrape).
+    if (!cdr) {
+      try {
+        const fasEvents = await storage.getFasEvents(5000);
+        const hit = fasEvents.find(e => {
+          if (callId) {
+            if (e.callId?.includes(callId)) return true;
+            if (e.caller?.includes(callId)) return true;
+            if (e.callee?.includes(callId)) return true;
+          }
+          const cliMatch = !cli || e.caller?.includes(cli);
+          const cldMatch = !cld || e.callee?.includes(cld);
+          return !!(cliMatch && cldMatch && (cli || cld));
+        });
+        if (hit) {
+          // Synthesise a CDR-compatible object from the FAS event record
+          cdr = {
+            callId:     hit.callId,
+            caller:     hit.caller   ?? '',
+            callee:     hit.callee   ?? '',
+            duration:   hit.billSecs ?? undefined,
+            pdd:        hit.pddSecs  ?? undefined,
+            pdd1xx:     hit.pddSecs  ?? undefined,
+            result:     String(hit.sipCode ?? 200),
+            startTime:  hit.detectedAt,
+            connectTime: hit.detectedAt,
+            clientName: hit.clientName ?? undefined,
+            vendor:     hit.vendor    ?? undefined,
+            iAccount:   undefined,
+            iCustomer:  undefined,
+          } as any;
+          console.log(`[cdr-trace] served from FAS events table — callId=${hit.callId}`);
+        }
+      } catch { /* ignore */ }
     }
 
     if (!cdr) return res.status(404).json({ error: 'No CDR found matching that identifier. Try broadening the search or waiting for the CDR cache to refresh.' });
