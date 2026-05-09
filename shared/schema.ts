@@ -1116,3 +1116,19 @@ export const aiOpsEvents = pgTable("ai_ops_events", {
 });
 export type AiOpsEvent = typeof aiOpsEvents.$inferSelect;
 export type InsertAiOpsEvent = typeof aiOpsEvents.$inferInsert;
+
+// AI Ops incident grouping layer — correlates signals + anomalies into root-cause events
+export const aiOpsIncidents = pgTable("ai_ops_incidents", {
+  id:             serial("id").primaryKey(),
+  title:          text("title").notNull(),
+  entity:         text("entity"),
+  severity:       varchar("severity", { length: 16 }).notNull(),
+  startTime:      timestamp("start_time").notNull(),
+  lastSeen:       timestamp("last_seen").notNull(),
+  signalsCount:   integer("signals_count").notNull().default(0),
+  anomaliesCount: integer("anomalies_count").notNull().default(0),
+  status:         text("status").notNull().default('active'),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+});
+export type AiOpsIncident = typeof aiOpsIncidents.$inferSelect;
+export type InsertAiOpsIncident = typeof aiOpsIncidents.$inferInsert;

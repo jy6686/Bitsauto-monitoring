@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck } from "lucide-react";
+import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +49,21 @@ interface AiOpsSignal {
   source: string;
   createdAt: string;
 }
+
+interface AiOpsIncident {
+  id: number;
+  title: string;
+  entity: string | null;
+  severity: string;
+  startTime: string;
+  lastSeen: string;
+  signalsCount: number;
+  anomaliesCount: number;
+  status: string;
+  createdAt: string;
+}
+
+type FeedTab = 'all' | 'anomalies' | 'signals' | 'incidents';
 
 const SIGNAL_TYPE_CONFIG: Record<string, { label: string; icon: any; bg: string; badge: string; color: string }> = {
   ROUTING_FAILURE:          { label: 'Routing Failure',       icon: AlertTriangle, bg: 'bg-rose-500/5 border-rose-500/30',     badge: 'bg-rose-500/15 text-rose-400 border-rose-500/30',   color: 'text-rose-400'   },
@@ -120,7 +135,7 @@ export default function AiOpsPage() {
   const [query, setQuery]           = useState('');
   const [queryResult, setQueryResult] = useState<string | null>(null);
   const [querying, setQuerying]     = useState(false);
-  const [showOnlyActive, setShowOnlyActive] = useState(false);
+  const [feedTab, setFeedTab] = useState<FeedTab>('all');
 
   // ── Live anomaly feed (statistical telemetry plane) ───────────────────────
   const { data: rawAnomalies = [], isLoading, dataUpdatedAt } = useQuery<AnomalyEvent[]>({
@@ -136,7 +151,23 @@ export default function AiOpsPage() {
     staleTime: 15_000,
   });
 
-  const anomalies      = showOnlyActive ? rawAnomalies.filter(a => !a.resolved) : rawAnomalies;
+  // ── Incidents (correlation layer) ─────────────────────────────────────────
+  const { data: incidents = [], isLoading: incidentsLoading } = useQuery<AiOpsIncident[]>({
+    queryKey: ['/api/aiops/incidents'],
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  const runCorrelationMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/aiops/incidents/run'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/aiops/incidents'] });
+      toast({ title: 'Correlation engine run complete' });
+    },
+    onError: () => toast({ title: 'Correlation engine error', variant: 'destructive' }),
+  });
+
+  const anomalies      = rawAnomalies;
   const activeCount    = rawAnomalies.filter(a => !a.resolved).length;
   const criticalCount  = rawAnomalies.filter(a => a.severity === 'critical' && !a.resolved).length;
   const predictions    = buildPredictions(rawAnomalies);
@@ -146,10 +177,16 @@ export default function AiOpsPage() {
     | { source: 'anomaly'; data: AnomalyEvent; ts: number }
     | { source: 'signal';  data: AiOpsSignal;  ts: number };
 
-  const unifiedFeed: FeedItem[] = [
-    ...anomalies.map(a  => ({ source: 'anomaly' as const, data: a,  ts: new Date(a.detectedAt).getTime() })),
-    ...rawSignals.map(s => ({ source: 'signal'  as const, data: s,  ts: new Date(s.createdAt).getTime()  })),
-  ].sort((a, b) => b.ts - a.ts);
+  const anomalyItems: FeedItem[] = anomalies.map(a => ({ source: 'anomaly' as const, data: a, ts: new Date(a.detectedAt).getTime() }));
+  const signalItems:  FeedItem[] = rawSignals.map(s => ({ source: 'signal'  as const, data: s, ts: new Date(s.createdAt).getTime()  }));
+
+  const unifiedFeed: FeedItem[] = feedTab === 'anomalies'
+    ? [...anomalyItems].sort((a, b) => b.ts - a.ts)
+    : feedTab === 'signals'
+    ? [...signalItems].sort((a, b) => b.ts - a.ts)
+    : [...anomalyItems, ...signalItems].sort((a, b) => b.ts - a.ts);
+
+  const activeIncidents = incidents.filter(i => i.status === 'active');
 
   // ── Resolve mutation ───────────────────────────────────────────────────────
   const resolveMutation = useMutation({
@@ -296,7 +333,7 @@ export default function AiOpsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Anomaly feed */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <h2 className="text-sm font-semibold flex items-center gap-2">
                 <Activity className="h-4 w-4 text-rose-400" /> Intelligence Feed
                 {dataUpdatedAt > 0 && (
@@ -304,22 +341,145 @@ export default function AiOpsPage() {
                     · updated {new Date(dataUpdatedAt).toLocaleTimeString()}
                   </span>
                 )}
-                <span className="text-[10px] text-muted-foreground/40 font-normal">
-                  {rawAnomalies.length > 0 && `${rawAnomalies.length} anomal${rawAnomalies.length === 1 ? 'y' : 'ies'}`}
-                  {rawAnomalies.length > 0 && rawSignals.length > 0 && ' · '}
-                  {rawSignals.length > 0 && `${rawSignals.length} signal${rawSignals.length === 1 ? '' : 's'}`}
-                </span>
               </h2>
-              <button
-                onClick={() => setShowOnlyActive(s => !s)}
-                className={cn("text-xs px-2 py-1 rounded-lg border transition-colors", showOnlyActive ? "bg-primary/10 border-primary/30 text-primary" : "border-border text-muted-foreground hover:text-foreground")}
-                data-testid="button-toggle-active-only"
-              >
-                Anomalies only
-              </button>
+              <div className="flex items-center gap-1">
+                {([
+                  { key: 'all',       label: 'All',       count: rawAnomalies.length + rawSignals.length },
+                  { key: 'anomalies', label: 'Anomalies', count: rawAnomalies.length },
+                  { key: 'signals',   label: 'Signals',   count: rawSignals.length },
+                  { key: 'incidents', label: 'Incidents', count: incidents.length, active: activeIncidents.length },
+                ] as Array<{ key: FeedTab; label: string; count: number; active?: number }>).map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setFeedTab(tab.key)}
+                    data-testid={`button-feed-tab-${tab.key}`}
+                    className={cn(
+                      "text-xs px-2.5 py-1 rounded-lg border transition-colors flex items-center gap-1.5",
+                      feedTab === tab.key
+                        ? tab.key === 'incidents'
+                          ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                          : "bg-primary/10 border-primary/30 text-primary"
+                        : "border-border text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {tab.label}
+                    {tab.key === 'incidents' && tab.active != null && tab.active > 0 && (
+                      <span className="text-[9px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-full px-1.5 py-0.5 leading-none">{tab.active}</span>
+                    )}
+                    {tab.key !== 'incidents' && tab.count > 0 && (
+                      <span className="text-[9px] text-muted-foreground/60">{tab.count}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {(isLoading || signalsLoading) ? (
+            {feedTab === 'incidents' ? (
+              // ── Incidents Tab ───────────────────────────────────────────────
+              incidentsLoading ? (
+                <div className="space-y-3">
+                  {[1,2].map(i => (
+                    <div key={i} className="bg-card border border-border rounded-xl p-5 animate-pulse">
+                      <div className="h-4 bg-muted/40 rounded w-2/3 mb-2" />
+                      <div className="h-3 bg-muted/30 rounded w-full" />
+                    </div>
+                  ))}
+                </div>
+              ) : incidents.length === 0 ? (
+                <div className="bg-card border border-border rounded-xl p-12 text-center">
+                  <CheckCircle2 className="h-10 w-10 text-emerald-400/50 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">No incidents detected</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">
+                    The correlation engine groups signals + anomalies into root-cause incidents.
+                    Run it manually or wait for the 5-minute scheduler.
+                  </p>
+                  <button
+                    onClick={() => runCorrelationMutation.mutate()}
+                    disabled={runCorrelationMutation.isPending}
+                    data-testid="button-run-correlation"
+                    className="mt-4 text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors flex items-center gap-1.5 mx-auto"
+                  >
+                    <Play className="h-3 w-3" />
+                    {runCorrelationMutation.isPending ? 'Running…' : 'Run now'}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground/50">
+                      {activeIncidents.length} active · {incidents.length - activeIncidents.length} resolved
+                    </span>
+                    <button
+                      onClick={() => runCorrelationMutation.mutate()}
+                      disabled={runCorrelationMutation.isPending}
+                      data-testid="button-run-correlation-refresh"
+                      className="text-[10px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                    >
+                      <RefreshCw className={cn("h-2.5 w-2.5", runCorrelationMutation.isPending && "animate-spin")} />
+                      {runCorrelationMutation.isPending ? 'Running…' : 'Re-run'}
+                    </button>
+                  </div>
+                  {incidents.map(inc => {
+                    const sev = (inc.severity in SEVERITY_CONFIG ? inc.severity : 'medium') as keyof typeof SEVERITY_CONFIG;
+                    const cfg = SEVERITY_CONFIG[sev];
+                    const isActive = inc.status === 'active';
+                    const lastSeenMs = new Date(inc.lastSeen).getTime();
+                    const minAgo = Math.round((Date.now() - lastSeenMs) / 60000);
+                    const timeLabel = minAgo < 60 ? `${minAgo}m ago` : `${Math.round(minAgo / 60)}h ago`;
+                    const durationMs = new Date(inc.lastSeen).getTime() - new Date(inc.startTime).getTime();
+                    const durationLabel = durationMs < 60000 ? '<1m' : durationMs < 3600000 ? `${Math.round(durationMs / 60000)}m` : `${Math.round(durationMs / 3600000)}h`;
+                    return (
+                      <div
+                        key={inc.id}
+                        data-testid={`incident-card-${inc.id}`}
+                        className={cn("rounded-xl border p-5 space-y-3", isActive ? cfg.bg : "opacity-60 bg-card border-border")}
+                      >
+                        <div className="flex items-start gap-3">
+                          <Layers className={cn("h-4 w-4 shrink-0 mt-0.5", isActive ? cfg.color : "text-muted-foreground")} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-muted/30 text-muted-foreground border-border">INCIDENT</span>
+                              <span className="font-semibold text-sm">{inc.title}</span>
+                              <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-full border", cfg.badge)}>
+                                {inc.severity.toUpperCase()}
+                              </span>
+                              {isActive
+                                ? <span className="text-[10px] text-rose-400 font-semibold flex items-center gap-0.5"><Activity className="h-2.5 w-2.5" /> Active</span>
+                                : <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-0.5"><CheckCheck className="h-2.5 w-2.5" /> Resolved</span>
+                              }
+                            </div>
+                            {inc.entity && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Entity: <span className="font-mono text-foreground/70">{inc.entity}</span>
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
+                              <Clock className="h-3 w-3" />{timeLabel}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-background/60 border border-border/50 p-3 grid grid-cols-3 gap-3 text-center">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1">Signals</p>
+                            <p className={cn("text-lg font-bold tabular-nums", inc.signalsCount > 0 ? cfg.color : "text-muted-foreground/40")}>{inc.signalsCount}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1">Anomalies</p>
+                            <p className={cn("text-lg font-bold tabular-nums", inc.anomaliesCount > 0 ? cfg.color : "text-muted-foreground/40")}>{inc.anomaliesCount}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1">Duration</p>
+                            <p className="text-lg font-bold tabular-nums text-muted-foreground">{durationLabel}</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : (isLoading || signalsLoading) ? (
               <div className="space-y-3">
                 {[1,2].map(i => (
                   <div key={i} className="bg-card border border-border rounded-xl p-5 animate-pulse">
@@ -331,9 +491,7 @@ export default function AiOpsPage() {
             ) : unifiedFeed.length === 0 ? (
               <div className="bg-card border border-border rounded-xl p-12 text-center">
                 <CheckCircle2 className="h-10 w-10 text-emerald-400/50 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">
-                  {showOnlyActive ? 'No active anomalies' : 'No events in the last 48 hours'}
-                </p>
+                <p className="text-sm text-muted-foreground">No events in the last 48 hours</p>
                 <p className="text-xs text-muted-foreground/60 mt-1">Network metrics are normal · No execution signals emitted</p>
               </div>
             ) : (

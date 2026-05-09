@@ -18,6 +18,7 @@ import { setupChatWebSocket } from "./chat-ws";
 import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, canSubmit, type OperationType } from "./approvals";
 import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
+import { runCorrelationEngine } from "./aiops/correlation-engine";
 import { APPROVAL_POLICY, type Role } from "@shared/schema";
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode } from "./dial-lookup";
@@ -14789,6 +14790,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     setInterval(_runAnomalyEngine, 15 * 60 * 1000);
   }, 300_000); // T+5 min stagger
 
+  // Correlation Engine — run every 5 minutes (T+6 min stagger)
+  setTimeout(() => {
+    const _runCorrelationEngine = async () => {
+      try {
+        const result = await runCorrelationEngine();
+        if (result.created > 0 || result.updated > 0 || result.resolved > 0) {
+          console.log(`[correlation-engine] created=${result.created} updated=${result.updated} resolved=${result.resolved}`);
+        }
+      } catch (e: any) { console.warn('[correlation-engine] run error:', e.message); }
+    };
+    _runCorrelationEngine();
+    setInterval(_runCorrelationEngine, 5 * 60 * 1000);
+  }, 360_000); // T+6 min stagger
+
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();
 
@@ -15148,7 +15163,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  // ── AI Ops Execution Signals ─────────────────────────────────────────────────
+  // ── AI Ops Execution Signals + Incidents ─────────────────────────────────────
 
   // GET /api/aiops/signals — execution-derived control-plane signals (last 48 h)
   app.get('/api/aiops/signals', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
@@ -15163,6 +15178,25 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         .where(gte(aiOpsEvents.createdAt, cutoff))
         .orderBy(desc(aiOpsEvents.createdAt));
       res.json(events);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/aiops/incidents — grouped incident feed (all time, newest first)
+  app.get('/api/aiops/incidents', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { aiOpsIncidents } = await import('../shared/schema');
+      const { desc } = await import('drizzle-orm');
+      const incidents = await db.select().from(aiOpsIncidents).orderBy(desc(aiOpsIncidents.lastSeen));
+      res.json(incidents);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/aiops/incidents/run — manually trigger the correlation engine
+  app.post('/api/aiops/incidents/run', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (req: any, res: any) => {
+    try {
+      const result = await runCorrelationEngine();
+      res.json({ success: true, ...result });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

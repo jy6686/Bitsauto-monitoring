@@ -1,0 +1,210 @@
+Yes — we can implement it, and this is the correct next layer. It’s also the first feature that actually changes the nature of your system, not just extends it.
+
+We’ll keep it simple, deterministic, and production-safe (no ML, no external infra).
+
+🧠 What we are building (final scope)
+🔥 Correlation Engine = Incident Builder
+
+It does ONE job:
+
+Convert scattered events → grouped incidents (root cause view)
+
+📦 1. New Table: ai_ops_incidents
+
+Create this first:
+
+CREATE TABLE ai_ops_incidents (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  entity TEXT,
+  severity TEXT NOT NULL,
+
+  start_time TIMESTAMP NOT NULL,
+  last_seen TIMESTAMP NOT NULL,
+
+  signals_count INT DEFAULT 0,
+  anomalies_count INT DEFAULT 0,
+
+  status TEXT DEFAULT 'active',
+
+  created_at TIMESTAMP DEFAULT NOW()
+);
+⚙️ 2. Core Engine (deterministic grouping)
+
+Create:
+
+server/aiops/correlation-engine.ts
+Logic (simple but powerful)
+export async function runCorrelationEngine(db: any) {
+  const windowMinutes = 30;
+
+  const since = new Date(Date.now() - windowMinutes * 60000);
+
+  const signals = await db.query.ai_ops_events.findMany({
+    where: (t, { gte }) => gte(t.created_at, since),
+  });
+
+  const anomalies = await db.query.anomaly_events.findMany({
+    where: (t, { gte }) => gte(t.created_at, since),
+  });
+
+  // GROUPING KEY: entity OR vendor OR operationType fallback
+  const groups: Record<string, any> = {};
+
+  function getKey(item: any) {
+    return item.entity || item.vendor || item.type || "unknown";
+  }
+
+  // 1. add signals
+  for (const s of signals) {
+    const key = getKey(s);
+
+    if (!groups[key]) {
+      groups[key] = {
+        entity: key,
+        signals: [],
+        anomalies: [],
+      };
+    }
+
+    groups[key].signals.push(s);
+  }
+
+  // 2. add anomalies
+  for (const a of anomalies) {
+    const key = getKey(a);
+
+    if (!groups[key]) {
+      groups[key] = {
+        entity: key,
+        signals: [],
+        anomalies: [],
+      };
+    }
+
+    groups[key].anomalies.push(a);
+  }
+
+  // 3. build incidents
+  for (const key of Object.keys(groups)) {
+    const g = groups[key];
+
+    if (g.signals.length === 0 && g.anomalies.length === 0) continue;
+
+    const severity =
+      g.signals.some((s: any) => s.severity === "high") ||
+      g.anomalies.some((a: any) => a.severity === "critical")
+        ? "high"
+        : "medium";
+
+    const title =
+      `Incident: ${key} degradation`;
+
+    await db.insert(ai_ops_incidents).values({
+      title,
+      entity: key,
+      severity,
+      start_time: new Date(),
+      last_seen: new Date(),
+
+      signals_count: g.signals.length,
+      anomalies_count: g.anomalies.length,
+
+      status: "active",
+    });
+  }
+}
+⏱️ 3. Background job
+
+Add in routes.ts or scheduler:
+
+setInterval(() => {
+  runCorrelationEngine(db).catch(console.error);
+}, 5 * 60 * 1000); // every 5 minutes
+🌐 4. API endpoint
+app.get("/api/aiops/incidents", async (req, res) => {
+  const incidents = await db
+    .select()
+    .from(ai_ops_incidents)
+    .orderBy(desc(ai_ops_incidents.last_seen));
+
+  res.json(incidents);
+});
+🎨 5. UI update (AI Ops page)
+
+Add a third feed tab:
+
+Tabs:
+Anomalies
+Signals
+🔴 Incidents (NEW)
+Incident card UI shows:
+Title
+Entity (vendor/route)
+Severity badge
+Signals count
+Anomalies count
+Time window
+
+Example:
+
+[HIGH] Incident: Vendor XYZ degradation
+
+Signals: 3
+Anomalies: 2
+
+Root: routing failures + ASR drop
+🧠 What this unlocks (IMPORTANT)
+
+Before:
+
+❌ 5 separate alerts
+
+After:
+
+✅ 1 incident with explanation
+🚀 What your system becomes now
+
+You are moving from:
+
+Stage 1
+
+Event logging (CDR + anomalies + execution signals)
+
+Stage 2
+
+Unified intelligence feed
+
+Stage 3 (NOW)
+
+👉 Incident-level reasoning system
+
+⚠️ Important design constraint (don’t skip this)
+
+Keep correlation:
+
+deterministic
+time-window based
+no ML
+no external dependencies
+🧭 What comes AFTER this (next evolution)
+
+Once this works, next step is:
+
+🔥 Root Cause Graph Engine
+
+That will:
+
+link incidents to upstream causes
+rank vendor impact
+predict blast radius
+✔ Final answer
+
+Yes — this is the correct next implementation.
+
+We will build:
+
+incidents table
+correlation engine
+5-min scheduler
+UI incident feed
