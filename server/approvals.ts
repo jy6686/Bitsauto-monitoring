@@ -138,6 +138,23 @@ export async function submitApprovalRequest(params: {
   return request;
 }
 
+// ─── Execution timeout wrapper ────────────────────────────────────────────────
+
+const EXEC_TIMEOUT_MS = 8_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Sippy XML-RPC timed out after ${ms / 1000}s (${label})`)),
+      ms,
+    );
+    promise.then(
+      v => { clearTimeout(timer); resolve(v); },
+      e => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 // ─── Approve a request (execute + mark) ─────────────────────────────────────
 
 export async function approveRequest(
@@ -151,15 +168,47 @@ export async function approveRequest(
   const { allowed, isSelfApproval, reason } = canApprove(request, actor.id, actor.role, actor.teamId);
   if (!allowed) return { success: false, error: reason };
 
-  // Execute the operation against Sippy
+  // Execute the operation against Sippy (with hard 8s timeout)
   let execResult: any;
+  let executionFailed = false;
+  let executionError: string | undefined;
+
   try {
-    execResult = await executeApprovedOperation(request);
+    execResult = await withTimeout(
+      executeApprovedOperation(request),
+      EXEC_TIMEOUT_MS,
+      request.operationType,
+    );
+
     if (!execResult.success) {
-      return { success: false, error: `Sippy execution failed: ${execResult.error ?? execResult.message ?? 'Unknown error'}` };
+      executionFailed = true;
+      executionError = execResult.error ?? execResult.message ?? 'Sippy returned a failure response';
     }
   } catch (err: any) {
-    return { success: false, error: `Execution error: ${err.message}` };
+    executionFailed = true;
+    executionError = err.message;
+    execResult = { success: false, error: err.message };
+  }
+
+  if (executionFailed) {
+    // Persist 'failed' status so it's visible in the UI and audit trail
+    await storage.updateApprovalRequest(requestId, {
+      status: 'failed' as any,
+      reviewedBy: actor.id,
+      reviewedByName: actor.name,
+      reviewedAt: new Date(),
+      selfApproval: isSelfApproval,
+      execResult: { success: false, error: executionError },
+    });
+    await storage.addApprovalAuditEntry({
+      requestId,
+      action: 'approved',
+      actorId: actor.id,
+      actorName: actor.name ?? null,
+      actorRole: actor.role,
+      note: `Execution FAILED: ${executionError}`,
+    });
+    return { success: false, error: `Sippy execution failed: ${executionError}` };
   }
 
   // Mark as approved and store Sippy execution result

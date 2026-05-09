@@ -19,9 +19,10 @@ import { useAuth } from "@/hooks/use-auth";
 type ApprovalRequestWithLog = ApprovalRequest & { auditLog?: ApprovalAuditEntry[] };
 
 const STATUS_BADGE: Record<string, { label: string; icon: any; className: string }> = {
-  pending:  { label: "Pending",  icon: Clock,        className: "bg-amber-500/10 text-amber-400 border-amber-500/20"  },
-  approved: { label: "Approved", icon: CheckCircle2, className: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
-  rejected: { label: "Rejected", icon: XCircle,      className: "bg-rose-500/10 text-rose-400 border-rose-500/20"   },
+  pending:  { label: "Pending",  icon: Clock,         className: "bg-amber-500/10 text-amber-400 border-amber-500/20"     },
+  approved: { label: "Executed", icon: CheckCircle2,  className: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+  rejected: { label: "Rejected", icon: XCircle,       className: "bg-rose-500/10 text-rose-400 border-rose-500/20"        },
+  failed:   { label: "Failed",   icon: AlertTriangle, className: "bg-rose-500/10 text-rose-400 border-rose-500/30"        },
 };
 
 const SOURCE_BADGE: Record<string, { label: string; className: string; icon: any }> = {
@@ -238,14 +239,23 @@ function RequestRow({ request, onApprove, onReject, onRollback, canAct }: {
                   <DiffView before={request.payloadBefore as any} after={request.payloadAfter as any} />
                 </div>
               )}
-              {(request as any).execResult && (
-                <div className="rounded border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
-                  <div className="text-xs font-semibold text-emerald-400 mb-1">Sippy Execution Result</div>
-                  <pre className="text-xs font-mono text-emerald-300/80 whitespace-pre-wrap break-all">
-                    {JSON.stringify((request as any).execResult, null, 2)}
-                  </pre>
-                </div>
-              )}
+              {(request as any).execResult && (() => {
+                const er = (request as any).execResult;
+                const isErr = er?.success === false || request.status === 'failed';
+                return (
+                  <div className={cn("rounded border px-3 py-2", isErr
+                    ? "border-rose-500/30 bg-rose-500/5"
+                    : "border-emerald-500/20 bg-emerald-500/5"
+                  )}>
+                    <div className={cn("text-xs font-semibold mb-1", isErr ? "text-rose-400" : "text-emerald-400")}>
+                      {isErr ? "Execution Failed" : "Sippy Execution Result"}
+                    </div>
+                    <pre className={cn("text-xs font-mono whitespace-pre-wrap break-all", isErr ? "text-rose-300/80" : "text-emerald-300/80")}>
+                      {JSON.stringify(er, null, 2)}
+                    </pre>
+                  </div>
+                );
+              })()}
               {request.status === 'rejected' && request.rejectionReason && (
                 <div className="flex items-start gap-2 rounded bg-rose-500/5 border border-rose-500/20 px-3 py-2">
                   <XCircle className="h-3.5 w-3.5 text-rose-400 mt-0.5 shrink-0" />
@@ -254,7 +264,7 @@ function RequestRow({ request, onApprove, onReject, onRollback, canAct }: {
               )}
               {request.status !== 'pending' && request.reviewedBy && (
                 <div className="text-xs text-muted-foreground">
-                  {request.status === 'approved' ? 'Approved' : 'Rejected'} by{" "}
+                  {request.status === 'approved' ? 'Executed' : request.status === 'failed' ? 'Attempted' : 'Rejected'} by{" "}
                   <span className="font-medium text-foreground">{request.reviewedByName ?? request.reviewedBy}</span>
                   {request.reviewedAt && <> · {formatRelative(request.reviewedAt)}</>}
                 </div>
@@ -353,9 +363,12 @@ export default function ApprovalQueuePage() {
   const handleRollback = (id: number) => { rollbackMut.mutate(id); };
   const submitReject   = () => { if (rejectTarget && rejectReason.trim()) rejectMut.mutate({ id: rejectTarget, reason: rejectReason.trim() }); };
 
+  const failedCount = (requests as any[]).filter((r: any) => r.status === 'failed').length;
+
   const tabs = [
     { value: "pending",  label: "Pending",  count: pendingCount },
-    { value: "approved", label: "Approved", count: 0 },
+    { value: "approved", label: "Executed", count: 0 },
+    { value: "failed",   label: "Failed",   count: failedCount  },
     { value: "rejected", label: "Rejected", count: 0 },
     { value: "all",      label: "All",      count: 0 },
   ];
