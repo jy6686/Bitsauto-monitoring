@@ -101,6 +101,7 @@ interface NavItem {
   roles: Role[];
   hasSubmenu?: SubmenuType;
   status?: 'live' | 'partial' | 'planned';
+  isNew?: boolean;
 }
 
 interface NavGroup {
@@ -205,7 +206,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     items: [
       { href: "/fraud",                label: "Fraud / FAS",  icon: ShieldAlert, roles: ['admin','management'] },
       { href: "/vendor-sla-scorecard", label: "Vendor SLA",   icon: ShieldCheck, roles: ['admin','management'] },
-      { href: "/carrier-scoring",      label: "Carrier Scoring", icon: BarChart3, roles: ['admin','management'] },
+      { href: "/carrier-scoring",      label: "Carrier Scoring", icon: BarChart3, roles: ['admin','management'], isNew: true },
       { href: "/sla-breaches",         label: "SLA Breaches", icon: Bell,        roles: ['admin','management'] },
       { href: "/firewall",             label: "Firewall Mgr", icon: Shield,      roles: ['admin','management'] },
       { href: "/compliance",           label: "Compliance",   icon: FileCheck2,  roles: ['admin','management'] },
@@ -229,9 +230,9 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'AI & Automation',
     roles: ['admin','management'],
     items: [
-      { href: "/ai-ops",               label: "AI Ops Center",        icon: Bot,      roles: ['admin','management'] },
+      { href: "/ai-ops",               label: "AI Ops Center",        icon: Bot,      roles: ['admin','management'], isNew: true },
       { href: "/routing-intelligence", label: "Routing Intelligence", icon: Workflow,  roles: ['admin','management'] },
-      { href: "/sip-trace",            label: "SIP Trace Viewer",     icon: GitBranch, roles: ['admin','management'] },
+      { href: "/sip-trace",            label: "SIP Trace Viewer",     icon: GitBranch, roles: ['admin','management'], isNew: true },
       { href: "/number-intelligence",  label: "Number Intelligence",  icon: ScanSearch,roles: ['admin','management'] },
     ],
   },
@@ -746,6 +747,11 @@ export function LayoutShell({ children }: LayoutShellProps) {
         {item.status === 'partial' && !isActive && (
           <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 tracking-wide">
             Partial
+          </span>
+        )}
+        {item.isNew && !isActive && (
+          <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30 tracking-wide">
+            New
           </span>
         )}
       </Link>
