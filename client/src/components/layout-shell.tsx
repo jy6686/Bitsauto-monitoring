@@ -75,9 +75,19 @@ const TOOLS_SUBITEMS = [
   { tab: 'translation', label: 'Translation',      icon: ArrowRightLeft,iconColor: 'text-blue-400'   },
 ] as const;
 
+const TEST_SUBITEMS = [
+  { href: '/test-call',      label: 'Test Call',  icon: PhoneCall,    iconColor: 'text-green-400'  },
+  { href: '/test-campaigns', label: 'Campaigns',  icon: FlaskConical, iconColor: 'text-violet-400' },
+] as const;
+
+const NOTIF_SUBITEMS = [
+  { href: '/email-centre',    label: 'Email',     icon: Mail,          iconColor: 'text-blue-400'  },
+  { href: '/whatsapp-alerts', label: 'WhatsApp',  icon: MessageSquare, iconColor: 'text-green-400' },
+] as const;
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type SubmenuType = 'calls' | 'bitseye' | 'cdr' | 'monitoring' | 'ratecards' | 'settings' | 'tools' | 'routingmgr';
+type SubmenuType = 'calls' | 'bitseye' | 'cdr' | 'monitoring' | 'ratecards' | 'settings' | 'tools' | 'routingmgr' | 'testing' | 'notifications';
 
 interface NavItem {
   href: string;
@@ -118,7 +128,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/alerts",        label: "Alerts",             icon: Bell,     roles: ['admin','management']          },
       { href: "/sbc-monitor",   label: "SBC Monitor",        icon: Network,  roles: ['admin','management']          },
       { href: "/ai-ops",        label: "AI Ops Center",      icon: Bot,      roles: ['admin','management'], isNew: true },
-      { href: "/noc-command",   label: "NOC Command Center", icon: Monitor,  roles: ['admin','management'], isNew: true },
+      { href: "/noc-command",   label: "NOC View",           icon: Monitor,  roles: ['admin','management'], isNew: true },
       { href: "/multi-switch",  label: "Multi-Switch View",  icon: Layers,   roles: ['admin','management']          },
     ],
   },
@@ -128,12 +138,9 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Routing & LCR',
     roles: ['admin','management'],
     items: [
-      { href: "/routing-manager",     label: "Routing Manager",     icon: Database,    roles: ['admin','management'], hasSubmenu: 'routingmgr' },
-      { href: "/lcr-analyser",        label: "LCR Analyser",        icon: GitBranch,   roles: ['admin','management']                           },
-      { href: "/approvals",           label: "Approval Queue",      icon: ShieldCheck, roles: ['admin','management','super_admin','noc_operator','team_lead'], status: 'live' },
-      { href: "/replay",              label: "Replay Engine",       icon: Rewind,      roles: ['admin','management'], isNew: true              },
-      { href: "/traffic-map",         label: "Traffic Map",         icon: Globe,       roles: ['admin','management']                           },
-      { href: "/call-flow-simulator", label: "Call Flow Simulator", icon: Workflow,    roles: ['admin','management']                           },
+      { href: "/routing-manager", label: "Routing Manager", icon: Database,    roles: ['admin','management'], hasSubmenu: 'routingmgr' },
+      { href: "/lcr-analyser",    label: "LCR Analyser",    icon: GitBranch,   roles: ['admin','management']                           },
+      { href: "/approvals",       label: "Approval Queue",  icon: ShieldCheck, roles: ['admin','management','super_admin','noc_operator','team_lead'], status: 'live' },
     ],
   },
   // ─── 3. Analytics ────────────────────────────────────────────────────────────
@@ -146,8 +153,9 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/analytics",   label: "Revenue Analytics", icon: TrendingUp,roles: ['admin','management']                        },
       { href: "/cdrs",        label: "CDR Viewer",        icon: FileText,  roles: ['admin','management'], hasSubmenu: 'cdr'     },
       { href: "/graphs",      label: "Graphs",            icon: LineChart, roles: ['admin','management']                        },
-      { href: "/reports",     label: "Reports",           icon: BarChart2, roles: ['admin','management']                        },
       { href: "/qos-heatmap", label: "QoS Heatmap",       icon: Activity,  roles: ['admin','management']                        },
+      { href: "/reports",     label: "Reports",           icon: BarChart2, roles: ['admin','management']                        },
+      { href: "/traffic-map", label: "Traffic Map",       icon: Globe,     roles: ['admin','management']                        },
     ],
   },
   // ─── 4. Intelligence ─────────────────────────────────────────────────────────
@@ -156,13 +164,13 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Intelligence',
     roles: ['admin','management'],
     items: [
-      { href: "/sip-trace",            label: "SIP Trace Viewer",    icon: GitBranch,  roles: ['admin','management'], isNew: true              },
-      { href: "/carrier-scoring",      label: "Carrier Scoring",     icon: BarChart3,  roles: ['admin','management'], isNew: true              },
-      { href: "/network-topology",     label: "Network Topology",    icon: Network,    roles: ['admin','management'], isNew: true              },
-      { href: "/rtp-analytics",        label: "RTP Analytics",       icon: Radio,      roles: ['admin','management']                           },
-      { href: "/number-intelligence",  label: "Number Intelligence", icon: ScanSearch, roles: ['admin','management']                           },
-      { href: "/routing-intelligence", label: "Routing Intelligence",icon: Workflow,   roles: ['admin','management']                           },
-      { href: "/server-monitoring",    label: "Server Monitoring",   icon: Server,     roles: ['admin','management'], hasSubmenu: 'monitoring' },
+      { href: "/sip-trace",           label: "SIP Trace Viewer",  icon: GitBranch,  roles: ['admin','management'], isNew: true              },
+      { href: "/carrier-scoring",     label: "Carrier Scoring",   icon: BarChart3,  roles: ['admin','management'], isNew: true              },
+      { href: "/network-topology",    label: "Network Topology",  icon: Network,    roles: ['admin','management'], isNew: true              },
+      { href: "/replay",              label: "Replay Engine",     icon: Rewind,     roles: ['admin','management'], isNew: true              },
+      { href: "/rtp-analytics",       label: "RTP Analytics",     icon: Radio,      roles: ['admin','management']                           },
+      { href: "/number-intelligence", label: "Number Intel",      icon: ScanSearch, roles: ['admin','management']                           },
+      { href: "/server-monitoring",   label: "Server Monitoring", icon: Server,     roles: ['admin','management'], hasSubmenu: 'monitoring' },
     ],
   },
   // ─── 5. Security & Finance ───────────────────────────────────────────────────
@@ -171,14 +179,13 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Security & Finance',
     roles: ['admin','management'],
     items: [
-      { href: "/fraud",                label: "Fraud / FAS",         icon: ShieldAlert, roles: ['admin','management'] },
-      { href: "/vendor-sla-scorecard", label: "Vendor SLA",          icon: ShieldCheck, roles: ['admin','management'] },
-      { href: "/sla-breaches",         label: "SLA Breaches",        icon: Bell,        roles: ['admin','management'] },
-      { href: "/firewall",             label: "Firewall Manager",    icon: Shield,      roles: ['admin','management'] },
-      { href: "/compliance",           label: "Compliance",          icon: FileCheck2,  roles: ['admin','management'] },
-      { href: "/balance",              label: "Balance Monitor",     icon: Wallet,      roles: ['admin','management'] },
-      { href: "/cost-optimisation",    label: "Cost Optimisation",   icon: Lightbulb,   roles: ['admin','management'] },
-      { href: "/billing-disputes",     label: "Billing Disputes",    icon: FileText,    roles: ['admin','management'] },
+      { href: "/fraud",                label: "Fraud / FAS",      icon: ShieldAlert, roles: ['admin','management'] },
+      { href: "/vendor-sla-scorecard", label: "SLA Management",   icon: ShieldCheck, roles: ['admin','management'] },
+      { href: "/firewall",             label: "Firewall Manager", icon: Shield,      roles: ['admin','management'] },
+      { href: "/compliance",           label: "Compliance",       icon: FileCheck2,  roles: ['admin','management'] },
+      { href: "/balance",              label: "Balance Monitor",  icon: Wallet,      roles: ['admin','management'] },
+      { href: "/cost-optimisation",    label: "Cost Optimisation",icon: Lightbulb,   roles: ['admin','management'] },
+      { href: "/billing-disputes",     label: "Billing Disputes", icon: FileText,    roles: ['admin','management'] },
     ],
   },
   // ─── 6. Platform (collapsed by default) ──────────────────────────────────────
@@ -187,26 +194,23 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Platform',
     roles: ['admin','management'],
     items: [
-      { href: "/settings",          label: "Settings",           icon: Settings,      roles: ['admin'],                                       hasSubmenu: 'settings' },
-      { href: "/team",              label: "Team & KAM",         icon: Users,         roles: ['admin']                                                               },
-      { href: "/vendors",           label: "Vendor Connections", icon: Building2,     roles: ['admin','management']                                                  },
-      { href: "/clients",           label: "Clients / Vendors",  icon: Users,         roles: ['admin','management']                                                  },
-      { href: "/dids",              label: "DID Management",     icon: PhoneIncoming, roles: ['admin','management']                                                  },
-      { href: "/rate-cards",        label: "Rate Cards",         icon: CreditCard,    roles: ['admin','management'],                          hasSubmenu: 'ratecards'},
-      { href: "/products",          label: "Products",           icon: Package,       roles: ['admin','management']                                                  },
-      { href: "/company-profile",   label: "Rateplan",           icon: ContactRound,  roles: ['admin','management']                                                  },
-      { href: "/client-portal",     label: "Client Portal",      icon: Globe,         roles: ['admin','management']                                                  },
-      { href: "/reseller",          label: "Reseller Mgmt",      icon: Layers,        roles: ['admin','management']                                                  },
-      { href: "/account-names",     label: "Account Names",      icon: Building2,     roles: ['admin']                                                               },
-      { href: "/api-keys",          label: "API Keys",           icon: Key,           roles: ['admin']                                                               },
-      { href: "/vpn-config",        label: "VPN Config",         icon: Lock,          roles: ['admin']                                                               },
-      { href: "/email-centre",      label: "Email Centre",       icon: Mail,          roles: ['admin']                                                               },
-      { href: "/whatsapp-alerts",   label: "WhatsApp Alerts",    icon: MessageSquare, roles: ['admin']                                                               },
-      { href: "/approval-settings", label: "Approval Settings",  icon: ShieldCheck,   roles: ['admin','super_admin'],                         status: 'live'         },
-      { href: "/test-call",         label: "Test Call",          icon: PhoneCall,     roles: ['admin','management']                                                  },
-      { href: "/test-campaigns",    label: "Test Campaigns",     icon: FlaskConical,  roles: ['admin','management']                                                  },
-      { href: "/tools",             label: "Tools",              icon: Wrench,        roles: ['admin','management'],                          hasSubmenu: 'tools' as SubmenuType },
-      { href: "/sms-monitor",       label: "SMS / A2P",          icon: MessageCircle, roles: ['admin','management'],                          status: 'planned'      },
+      { href: "/settings",            label: "Settings",          icon: Settings,      roles: ['admin'],              hasSubmenu: 'settings'       },
+      { href: "/team",                label: "Team & KAM",        icon: Users,         roles: ['admin']                                            },
+      { href: "/vendors",             label: "Vendors",           icon: Building2,     roles: ['admin','management']                               },
+      { href: "/clients",             label: "Accounts",          icon: Users,         roles: ['admin','management']                               },
+      { href: "/dids",                label: "DID Management",    icon: PhoneIncoming, roles: ['admin','management']                               },
+      { href: "/rate-cards",          label: "Rate Cards",        icon: CreditCard,    roles: ['admin','management'],  hasSubmenu: 'ratecards'      },
+      { href: "/products",            label: "Products",          icon: Package,       roles: ['admin','management']                               },
+      { href: "/company-profile",     label: "Rate Plan",         icon: ContactRound,  roles: ['admin','management']                               },
+      { href: "/client-portal",       label: "Client Portal",     icon: Globe,         roles: ['admin','management']                               },
+      { href: "/reseller",            label: "Reseller Mgmt",     icon: Layers,        roles: ['admin','management']                               },
+      { href: "/api-keys",            label: "API Keys",          icon: Key,           roles: ['admin']                                            },
+      { href: "/vpn-config",          label: "VPN Config",        icon: Lock,          roles: ['admin']                                            },
+      { href: "/call-flow-simulator", label: "Call Flow Sim",     icon: Workflow,      roles: ['admin','management']                               },
+      { href: "/test-call",           label: "Test Suite",        icon: PhoneCall,     roles: ['admin','management'],  hasSubmenu: 'testing'        },
+      { href: "/email-centre",        label: "Notifications",     icon: Mail,          roles: ['admin'],               hasSubmenu: 'notifications'  },
+      { href: "/tools",               label: "Tools",             icon: Wrench,        roles: ['admin','management'],  hasSubmenu: 'tools' as SubmenuType },
+      { href: "/sms-monitor",         label: "SMS / A2P",         icon: MessageCircle, roles: ['admin','management'],  status: 'planned'            },
     ],
   },
 ];
@@ -320,6 +324,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const isRateCardsActive   = location.startsWith('/rate-cards');
   const isToolsActive       = location.startsWith('/tools');
   const isRoutingMgrActive  = location.startsWith('/routing-manager');
+  const isTestActive        = location.startsWith('/test-call') || location.startsWith('/test-campaigns');
+  const isNotifActive       = location.startsWith('/email-centre') || location.startsWith('/whatsapp-alerts');
 
   // ── Submenu expand states ─────────────────────────────────────────────────────
   const [callsExpanded,      setCallsExpanded]      = useState(isCallsActive);
@@ -330,6 +336,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const [rateCardsExpanded,  setRateCardsExpanded]  = useState(isRateCardsActive);
   const [toolsExpanded,      setToolsExpanded]      = useState(isToolsActive);
   const [routingMgrExpanded, setRoutingMgrExpanded] = useState(isRoutingMgrActive);
+  const [testExpanded,       setTestExpanded]       = useState(isTestActive);
+  const [notifExpanded,      setNotifExpanded]      = useState(isNotifActive);
 
   useEffect(() => { if (isCallsActive)      setCallsExpanded(true);      }, [isCallsActive]);
   useEffect(() => { if (isMonitoringActive) setMonitoringExpanded(true);  }, [isMonitoringActive]);
@@ -339,6 +347,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
   useEffect(() => { if (isRateCardsActive)  setRateCardsExpanded(true);   }, [isRateCardsActive]);
   useEffect(() => { if (isToolsActive)      setToolsExpanded(true);       }, [isToolsActive]);
   useEffect(() => { if (isRoutingMgrActive) setRoutingMgrExpanded(true);  }, [isRoutingMgrActive]);
+  useEffect(() => { if (isTestActive)       setTestExpanded(true);        }, [isTestActive]);
+  useEffect(() => { if (isNotifActive)      setNotifExpanded(true);       }, [isNotifActive]);
 
   // ── Data queries ──────────────────────────────────────────────────────────────
   const { data: kamList = [] } = useQuery<Kam[]>({
@@ -719,6 +729,56 @@ export function LayoutShell({ children }: LayoutShellProps) {
               const sa = isToolsActive && toolsTab === sub.tab;
               return (
                 <Link key={sub.tab} href={`/tools?tab=${sub.tab}`} className={subItemCls(sa)}>
+                  <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.iconColor)} />
+                  {sub.label}
+                </Link>
+              );
+            })}
+          </SubPanel>
+        </div>
+      );
+    }
+
+    /* Test Suite */
+    if (item.hasSubmenu === 'testing') {
+      return (
+        <div key={item.href}>
+          <button onClick={() => setTestExpanded(o => !o)} className={navItemCls(isTestActive)}>
+            {isTestActive && <ActiveBar />}
+            <item.icon className={navIconCls(isTestActive, groupKey)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", testExpanded && "rotate-180")} />
+          </button>
+          <SubPanel open={testExpanded}>
+            {TEST_SUBITEMS.map(sub => {
+              const sa = location.startsWith(sub.href);
+              return (
+                <Link key={sub.href} href={sub.href} className={subItemCls(sa)}>
+                  <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.iconColor)} />
+                  {sub.label}
+                </Link>
+              );
+            })}
+          </SubPanel>
+        </div>
+      );
+    }
+
+    /* Notifications */
+    if (item.hasSubmenu === 'notifications') {
+      return (
+        <div key={item.href}>
+          <button onClick={() => setNotifExpanded(o => !o)} className={navItemCls(isNotifActive)}>
+            {isNotifActive && <ActiveBar />}
+            <item.icon className={navIconCls(isNotifActive, groupKey)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", notifExpanded && "rotate-180")} />
+          </button>
+          <SubPanel open={notifExpanded}>
+            {NOTIF_SUBITEMS.map(sub => {
+              const sa = location.startsWith(sub.href);
+              return (
+                <Link key={sub.href} href={sub.href} className={subItemCls(sa)}>
                   <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.iconColor)} />
                   {sub.label}
                 </Link>

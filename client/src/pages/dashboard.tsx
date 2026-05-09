@@ -77,6 +77,8 @@ import {
   Bar,
   BarChart,
   Line,
+  PieChart,
+  Pie,
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -389,6 +391,22 @@ export default function DashboardPage() {
     queryKey: ['/api/fas-events'],
     refetchInterval: 5 * 60_000,
     staleTime: 4 * 60_000,
+  });
+
+  const { data: weeklyVolumeData } = useQuery<{ hourly: any[]; topDestinations: any[]; topClients: any[] }>({
+    queryKey: ['/api/sippy/cdr/graphs', 168],
+    queryFn: () => fetch('/api/sippy/cdr/graphs?hours=168').then(r => r.json()),
+    refetchInterval: 15 * 60_000,
+    staleTime: 14 * 60_000,
+    enabled: isSippyReachable,
+  });
+
+  const { data: carrierScoresRaw } = useQuery<any[]>({
+    queryKey: ['/api/carrier-scores', 24],
+    queryFn: () => fetch('/api/carrier-scores?window=24').then(r => r.json()),
+    refetchInterval: 60_000,
+    staleTime: 55_000,
+    enabled: isSippyReachable,
   });
   const recentFasEvents = (fasEventsData?.events ?? []).slice(0, 5);
   const fasAll         = fasEventsData?.events ?? [];
@@ -1891,6 +1909,209 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* ── Dashboard Intelligence Row ──────────────────────────────────────── */}
+      {isSippyReachable && (() => {
+        // ── 7-day daily call volume (aggregate hourly buckets into days) ──────
+        const hourly: any[] = weeklyVolumeData?.hourly ?? [];
+        const dailyMap: Record<string, { answered: number; failed: number }> = {};
+        hourly.forEach(pt => {
+          const d = new Date(pt.ts * 1000);
+          const key = `${d.getUTCMonth()+1}/${d.getUTCDate()}`;
+          if (!dailyMap[key]) dailyMap[key] = { answered: 0, failed: 0 };
+          dailyMap[key].answered += pt.answeredCalls ?? pt.calls ?? 0;
+          dailyMap[key].failed   += pt.failedCalls ?? 0;
+        });
+        const weeklyBars = Object.entries(dailyMap).slice(-7).map(([day, v]) => ({ day, ...v }));
+
+        // ── Top clients donut (from 30-day analytics) ─────────────────────────
+        const topClients = (analyticsData?.byClient ?? [])
+          .slice(0, 6)
+          .map(c => ({ name: c.name.split(' ')[0], value: c.calls }));
+        const DONUT_COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'];
+
+        // ── Carrier health sparklines ─────────────────────────────────────────
+        const carriers = Array.isArray(carrierScoresRaw)
+          ? carrierScoresRaw.slice(0, 6)
+          : [];
+
+        // ── Top destinations by call volume ───────────────────────────────────
+        const topDests = (weeklyVolumeData?.topDestinations ?? [])
+          .slice(0, 8)
+          .map((d: any) => ({ name: d.country ?? d.destination ?? 'Unknown', calls: d.calls ?? 0 }));
+        const maxDestCalls = Math.max(1, ...topDests.map((d: any) => d.calls));
+
+        return (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
+            {/* ── 7-Day Call Volume ─────────────────────────────────────────── */}
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-sm flex items-center gap-2">
+                    <BarChart2 className="w-4 h-4 text-primary" />
+                    7-Day Call Volume
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Answered vs Failed calls per day</p>
+                </div>
+                <Link href="/graphs" className="text-xs text-primary/70 hover:text-primary flex items-center gap-1">
+                  Full graphs <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+              {weeklyBars.length > 0 ? (
+                <div className="h-[200px]">
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={weeklyBars} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barCategoryGap="25%">
+                      <CartesianGrid {...BSE_GRID_PROPS} />
+                      <XAxis dataKey="day" {...BSE_AXIS_PROPS} />
+                      <YAxis {...BSE_AXIS_PROPS} allowDecimals={false} />
+                      <Tooltip content={<BseTooltip formatter={(v, k) => [v.toLocaleString(), k === 'answered' ? 'Answered' : 'Failed']} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                      <Bar dataKey="answered" fill="#10b981" radius={[3,3,0,0]} stackId="a" />
+                      <Bar dataKey="failed"   fill="#ef4444" radius={[3,3,0,0]} stackId="a" fillOpacity={0.75} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-[200px] flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                  <BarChart2 className="w-8 h-8 opacity-20" />
+                  <p className="text-sm">No CDR volume data yet for last 7 days</p>
+                </div>
+              )}
+            </div>
+
+            {/* ── Top Clients Donut ────────────────────────────────────────── */}
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-sm flex items-center gap-2">
+                    <Users className="w-4 h-4 text-violet-400" />
+                    Top Clients by Volume
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">30-day call distribution</p>
+                </div>
+                <Link href="/analytics" className="text-xs text-primary/70 hover:text-primary flex items-center gap-1">
+                  Full analytics <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+              {topClients.length > 0 ? (
+                <div className="flex items-center gap-4">
+                  <div className="h-[160px] w-[160px] flex-shrink-0">
+                    <ResponsiveContainer width="100%" height={160}>
+                      <PieChart>
+                        <Pie data={topClients} dataKey="value" cx="50%" cy="50%" innerRadius={42} outerRadius={70} paddingAngle={2} strokeWidth={0}>
+                          {topClients.map((_e, i) => (
+                            <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} fillOpacity={0.9} />
+                          ))}
+                        </Pie>
+                        <Tooltip content={<BseTooltip formatter={(v, _k, props) => [v.toLocaleString() + ' calls', props?.payload?.name ?? '']} />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex-1 space-y-1.5 min-w-0">
+                    {topClients.map((c, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
+                        <span className="flex-1 truncate text-muted-foreground" title={c.name}>{c.name}</span>
+                        <span className="font-mono font-semibold text-foreground/80 flex-shrink-0">{c.value.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="h-[160px] flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                  <Users className="w-8 h-8 opacity-20" />
+                  <p className="text-sm">No client analytics available</p>
+                </div>
+              )}
+            </div>
+
+            {/* ── Carrier Health Sparklines ─────────────────────────────────── */}
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-sm flex items-center gap-2">
+                    <Signal className="w-4 h-4 text-cyan-400" />
+                    Carrier Health
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Last 24h stability scores</p>
+                </div>
+                <Link href="/carrier-scoring" className="text-xs text-primary/70 hover:text-primary flex items-center gap-1">
+                  Full scores <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+              {carriers.length > 0 ? (
+                <div className="space-y-3">
+                  {carriers.map((c: any, i: number) => {
+                    const score = Math.round(c.stabilityScore ?? c.score ?? 0);
+                    const asr   = c.asr != null ? parseFloat(c.asr).toFixed(1) : null;
+                    const color = score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-rose-500';
+                    const textColor = score >= 80 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-rose-400';
+                    return (
+                      <div key={i} className="flex items-center gap-3" data-testid={`carrier-health-${i}`}>
+                        <div className="w-28 flex-shrink-0 text-xs text-muted-foreground truncate" title={c.carrierName ?? c.name}>{c.carrierName ?? c.name ?? 'Carrier'}</div>
+                        <div className="flex-1 h-1.5 bg-muted/30 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${score}%` }} />
+                        </div>
+                        <div className={`w-10 text-right text-xs font-mono font-bold flex-shrink-0 ${textColor}`}>{score}</div>
+                        {asr && <div className="w-14 text-right text-xs text-muted-foreground flex-shrink-0">ASR {asr}%</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 gap-3 text-muted-foreground">
+                  <Signal className="w-8 h-8 opacity-20" />
+                  <p className="text-sm">No carrier scores available</p>
+                  <p className="text-xs opacity-60">Scores populate from live CDR data</p>
+                </div>
+              )}
+            </div>
+
+            {/* ── Top Destinations ─────────────────────────────────────────── */}
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-sm flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-amber-400" />
+                    Top Traffic Destinations
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Last 7 days by call volume</p>
+                </div>
+                <Link href="/traffic-map" className="text-xs text-primary/70 hover:text-primary flex items-center gap-1">
+                  Traffic map <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+              {topDests.length > 0 ? (
+                <div className="space-y-2.5">
+                  {topDests.map((d: any, i: number) => (
+                    <div key={i} className="flex items-center gap-3" data-testid={`dest-row-${i}`}>
+                      <div className="w-5 text-center text-xs text-muted-foreground/50 font-mono">{i+1}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs text-foreground/80 truncate mb-1">{d.name}</div>
+                        <div className="h-1.5 bg-muted/30 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-amber-500/70"
+                            style={{ width: `${Math.round(d.calls / maxDestCalls * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="w-16 text-right text-xs font-mono text-muted-foreground flex-shrink-0">
+                        {d.calls.toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 gap-3 text-muted-foreground">
+                  <Globe className="w-8 h-8 opacity-20" />
+                  <p className="text-sm">No destination data for last 7 days</p>
+                </div>
+              )}
+            </div>
+
+          </div>
+        );
+      })()}
 
       {/* ── CK Drill-down Sheet ─────────────────────────────────────────────── */}
       {(() => {
