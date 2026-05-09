@@ -6,7 +6,7 @@ import {
   sippyChangeEvents,
   watcherRecipients, irsfEvents, blacklistRules, rateCards, rateCardEntries, mosHourly,
   apiKeys, dashboardWidgetPrefs, callTestLogs, whatsappAlertLog,
-  simboxScores, billingDisputes, slaBreachLog, testCampaigns, testCampaignResults, scheduledReports,
+  simboxScores, billingDisputes, slaBreachLog, testCampaigns, testCampaignResults, syntheticTestRuns, scheduledReports,
   chatRooms, chatMessages,
   productDocs,
   approvalRequests, approvalAuditLog,
@@ -44,6 +44,7 @@ import {
   type SlaBreachEntry, type InsertSlaBreachEntry,
   type TestCampaign, type InsertTestCampaign,
   type TestCampaignResult, type InsertTestCampaignResult,
+  type SyntheticTestRun, type InsertSyntheticTestRun,
   type ScheduledReport, type InsertScheduledReport,
   type ChatRoom, type InsertChatRoom,
   type ChatMessage, type InsertChatMessage,
@@ -248,6 +249,9 @@ export interface IStorage {
   deleteTestCampaign(id: number): Promise<void>;
   addCampaignResult(result: InsertTestCampaignResult): Promise<TestCampaignResult>;
   getCampaignResults(campaignId: number, limit?: number): Promise<TestCampaignResult[]>;
+  getCampaignsDueForRun(): Promise<TestCampaign[]>;
+  getSyntheticTestRuns(campaignId: number, limit?: number): Promise<SyntheticTestRun[]>;
+  addSyntheticTestRun(run: InsertSyntheticTestRun): Promise<SyntheticTestRun>;
 
   // Scheduled Reports
   getScheduledReports(): Promise<ScheduledReport[]>;
@@ -1356,6 +1360,30 @@ export class DatabaseStorage implements IStorage {
       .where(eq(testCampaignResults.campaignId, campaignId))
       .orderBy(desc(testCampaignResults.runAt))
       .limit(limit);
+  }
+
+  async getCampaignsDueForRun(): Promise<TestCampaign[]> {
+    const { and, lte, isNotNull } = await import('drizzle-orm');
+    return db.select().from(testCampaigns).where(
+      and(
+        eq(testCampaigns.enabled, true),
+        isNotNull(testCampaigns.nextRunAt),
+        lte(testCampaigns.nextRunAt, new Date()),
+        // Avoid re-entering a campaign that is already running
+      )
+    );
+  }
+
+  async getSyntheticTestRuns(campaignId: number, limit = 50): Promise<SyntheticTestRun[]> {
+    return db.select().from(syntheticTestRuns)
+      .where(eq(syntheticTestRuns.campaignId, campaignId))
+      .orderBy(desc(syntheticTestRuns.startedAt))
+      .limit(limit);
+  }
+
+  async addSyntheticTestRun(run: InsertSyntheticTestRun): Promise<SyntheticTestRun> {
+    const [row] = await db.insert(syntheticTestRuns).values(run).returning();
+    return row;
   }
 
   // ── Scheduled Reports ─────────────────────────────────────────────────────

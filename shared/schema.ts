@@ -791,19 +791,42 @@ export type InsertSlaBreachEntry = typeof slaBreachLog.$inferInsert;
 
 // ── Test Campaigns — scheduled test call batches ─────────────────────────────
 export const testCampaigns = pgTable("test_campaigns", {
-  id:             serial("id").primaryKey(),
-  name:           varchar("name",        { length: 128 }).notNull(),
-  destinations:   text("destinations").notNull(),   // JSON: [{cld, cli, label}]
-  scheduleType:   varchar("schedule_type", { length: 20 }).notNull().default('once'), // once|daily|hourly
-  scheduledAt:    timestamp("scheduled_at"),   // for 'once' — when to run
-  cronHour:       integer("cron_hour"),         // for 'daily' — hour UTC (0-23)
-  status:         varchar("status",      { length: 20 }).notNull().default('pending'), // pending|running|done|failed
-  lastRunAt:      timestamp("last_run_at"),
-  createdAt:      timestamp("created_at").defaultNow().notNull(),
+  id:              serial("id").primaryKey(),
+  name:            varchar("name",         { length: 128 }).notNull(),
+  destinations:    text("destinations").notNull(),   // JSON: [{cld, cli, label}]
+  scheduleType:    varchar("schedule_type", { length: 20 }).notNull().default('once'), // once|interval|daily|hourly
+  scheduledAt:     timestamp("scheduled_at"),         // for 'once' — when to run
+  cronHour:        integer("cron_hour"),               // for 'daily' — hour UTC (0-23)
+  intervalMinutes: integer("interval_minutes"),        // for 'interval' — repeat every N minutes
+  nextRunAt:       timestamp("next_run_at"),           // computed: when scheduler fires next
+  enabled:         boolean("enabled").notNull().default(true),
+  baselineAsr:     real("baseline_asr"),              // rolling average ASR across last 10 runs (0–100)
+  baselinePdd:     real("baseline_pdd"),              // rolling average PDD ms
+  status:          varchar("status",       { length: 20 }).notNull().default('pending'), // pending|running|done|failed
+  lastRunAt:       timestamp("last_run_at"),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
 });
 export type TestCampaign = typeof testCampaigns.$inferSelect;
 export type InsertTestCampaign = typeof testCampaigns.$inferInsert;
-export const insertTestCampaignSchema = createInsertSchema(testCampaigns).omit({ id: true, createdAt: true, lastRunAt: true });
+export const insertTestCampaignSchema = createInsertSchema(testCampaigns).omit({ id: true, createdAt: true, lastRunAt: true, nextRunAt: true, baselineAsr: true, baselinePdd: true });
+
+// ── Synthetic Test Runs — one record per scheduled campaign execution ─────────
+export const syntheticTestRuns = pgTable("synthetic_test_runs", {
+  id:               serial("id").primaryKey(),
+  campaignId:       integer("campaign_id").notNull(),
+  startedAt:        timestamp("started_at").defaultNow().notNull(),
+  completedAt:      timestamp("completed_at"),
+  totalCalls:       integer("total_calls").notNull().default(0),
+  connectedCalls:   integer("connected_calls").notNull().default(0),
+  failedCalls:      integer("failed_calls").notNull().default(0),
+  asr:              real("asr"),                   // % connected for this run
+  avgPddMs:         real("avg_pdd_ms"),
+  baselineAsrAtRun: real("baseline_asr_at_run"),  // snapshot of baseline when run fired
+  anomalyFired:     boolean("anomaly_fired").notNull().default(false),
+  triggeredBy:      varchar("triggered_by", { length: 20 }).notNull().default('scheduler'), // scheduler|manual
+});
+export type SyntheticTestRun = typeof syntheticTestRuns.$inferSelect;
+export type InsertSyntheticTestRun = typeof syntheticTestRuns.$inferInsert;
 
 // ── Test Campaign Results — individual call outcomes per campaign run ─────────
 export const testCampaignResults = pgTable("test_campaign_results", {

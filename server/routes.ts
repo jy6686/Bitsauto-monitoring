@@ -19,6 +19,7 @@ import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, c
 import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
+import { initSyntheticScheduler } from "./synthetic-scheduler";
 import { APPROVAL_POLICY, type Role } from "@shared/schema";
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode } from "./dial-lookup";
@@ -14422,6 +14423,30 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/campaigns/:id/runs — synthetic test run history (one record per scheduled execution)
+  app.get('/api/campaigns/:id/runs', async (req: any, res) => {
+    try {
+      const runs = await storage.getSyntheticTestRuns(Number(req.params.id), 50);
+      res.json(runs);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/campaigns/:id/toggle — enable/disable scheduled execution
+  app.patch('/api/campaigns/:id/toggle', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const campaign = await storage.getTestCampaign(Number(req.params.id));
+      if (!campaign) return res.status(404).json({ error: 'Not found' });
+      const newEnabled = !(campaign as any).enabled;
+      // If re-enabling and intervalMinutes set, reset nextRunAt so it fires promptly
+      const extra: any = {};
+      if (newEnabled && (campaign as any).intervalMinutes) {
+        extra.nextRunAt = new Date(Date.now() + (campaign as any).intervalMinutes * 60_000);
+      }
+      const updated = await storage.updateTestCampaign(campaign.id, { enabled: newEnabled, ...extra } as any);
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // POST /api/campaigns/:id/run — trigger a campaign run immediately using Click-to-Call infrastructure
   app.post('/api/campaigns/:id/run', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
@@ -14833,6 +14858,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     _runCorrelationEngine();
     setInterval(_runCorrelationEngine, 5 * 60 * 1000);
   }, 360_000); // T+6 min stagger
+
+  // Synthetic Testing Scheduler — ticks every 60s
+  initSyntheticScheduler(storage);
 
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();
