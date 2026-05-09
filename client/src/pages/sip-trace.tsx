@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -259,10 +260,16 @@ function SipLadder({ events, uaLabel, cdr }: { events: SipEvent[]; uaLabel: stri
             : 'bg-border/40 group-hover:bg-border/60';
 
           return (
-            <div key={i} className={cn(
-              "group rounded transition-colors",
-              isError && "bg-red-500/8 border-l-2 border-red-500/50 pl-0.5"
-            )}>
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.18, delay: i * 0.035 }}
+              className={cn(
+                "group rounded transition-colors",
+                isError && "bg-red-500/8 border-l-2 border-red-500/50 pl-0.5"
+              )}
+            >
               <button
                 onClick={() => setExpanded(isExpanded ? null : i)}
                 className="w-full text-left hover:bg-muted/10 rounded transition-colors"
@@ -333,14 +340,22 @@ function SipLadder({ events, uaLabel, cdr }: { events: SipEvent[]; uaLabel: stri
                 </div>
               </button>
 
+              <AnimatePresence>
               {isExpanded && (
-                <div className="mx-2 mb-1.5 p-3 bg-muted/10 border border-border/30 rounded-lg">
-                  <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap break-all leading-relaxed">
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="overflow-hidden mx-2 mb-1.5"
+                >
+                  <pre className="p-3 bg-muted/10 border border-border/30 rounded-lg text-[11px] text-muted-foreground whitespace-pre-wrap break-all leading-relaxed">
                     {ev.detail}
                   </pre>
-                </div>
+                </motion.div>
               )}
-            </div>
+              </AnimatePresence>
+            </motion.div>
           );
         })}
       </div>
@@ -410,10 +425,16 @@ function PasteLadder({ messages }: { messages: SipMessage[] }) {
           const arrowColor = isError ? 'text-red-400' : 'text-muted-foreground/70 group-hover:text-muted-foreground';
 
           return (
-            <div key={i} className={cn(
-              "group rounded transition-colors",
-              isError && "bg-red-500/8 border-l-2 border-red-500/50 pl-0.5"
-            )}>
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.18, delay: i * 0.035 }}
+              className={cn(
+                "group rounded transition-colors",
+                isError && "bg-red-500/8 border-l-2 border-red-500/50 pl-0.5"
+              )}
+            >
               <button
                 onClick={() => setExpanded(expanded === i ? null : i)}
                 className="w-full text-left hover:bg-muted/10 rounded transition-colors"
@@ -480,12 +501,20 @@ function PasteLadder({ messages }: { messages: SipMessage[] }) {
                 </div>
               </button>
 
+              <AnimatePresence>
               {expanded === i && (
-                <div className="mx-2 mb-1.5 p-3 bg-muted/10 border border-border/30 rounded-lg">
-                  <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap break-all">{msg.raw}</pre>
-                </div>
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="overflow-hidden mx-2 mb-1.5"
+                >
+                  <pre className="p-3 bg-muted/10 border border-border/30 rounded-lg text-[11px] text-muted-foreground whitespace-pre-wrap break-all">{msg.raw}</pre>
+                </motion.div>
               )}
-            </div>
+              </AnimatePresence>
+            </motion.div>
           );
         })}
       </div>

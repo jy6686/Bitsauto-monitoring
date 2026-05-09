@@ -1217,7 +1217,25 @@ export const aiOpsIncidents = pgTable("ai_ops_incidents", {
   signalsCount:   integer("signals_count").notNull().default(0),
   anomaliesCount: integer("anomalies_count").notNull().default(0),
   status:         text("status").notNull().default('active'),
+  narrative:      text("narrative"),
+  timelineJson:   text("timeline_json"),
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
 export type AiOpsIncident = typeof aiOpsIncidents.$inferSelect;
 export type InsertAiOpsIncident = typeof aiOpsIncidents.$inferInsert;
+
+// ── Routing Suggestions — operator-facing recommendations ─────────────────────
+export const routingSuggestions = pgTable("routing_suggestions", {
+  id:              serial("id").primaryKey(),
+  carrierName:     varchar("carrier_name", { length: 256 }).notNull(),
+  entity:          varchar("entity",       { length: 256 }),
+  currentScore:    real("current_score"),
+  suggestedAction: text("suggested_action").notNull(),
+  reason:          text("reason").notNull(),
+  confidence:      real("confidence").notNull().default(0.5),
+  status:          varchar("status", { length: 32 }).notNull().default('pending'),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+  resolvedAt:      timestamp("resolved_at"),
+});
+export type RoutingSuggestion = typeof routingSuggestions.$inferSelect;
+export type InsertRoutingSuggestion = typeof routingSuggestions.$inferInsert;

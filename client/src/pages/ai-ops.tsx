@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle } from "lucide-react";
+import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, BellOff, Sparkles, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -60,7 +61,28 @@ interface AiOpsIncident {
   signalsCount: number;
   anomaliesCount: number;
   status: string;
+  narrative: string | null;
+  timelineJson: string | null;
   createdAt: string;
+}
+
+interface RoutingSuggestion {
+  id: number;
+  carrierName: string;
+  entity: string | null;
+  currentScore: number | null;
+  suggestedAction: string;
+  reason: string;
+  confidence: number;
+  status: string;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+interface TimelineEntry {
+  ts: string;
+  event: string;
+  type: 'signal' | 'score_drop' | 'escalation' | 'resolution';
 }
 
 type FeedTab = 'all' | 'anomalies' | 'signals' | 'incidents';
@@ -136,6 +158,7 @@ export default function AiOpsPage() {
   const [queryResult, setQueryResult] = useState<string | null>(null);
   const [querying, setQuerying]     = useState(false);
   const [feedTab, setFeedTab] = useState<FeedTab>('all');
+  const [expandedIncident, setExpandedIncident] = useState<number | null>(null);
 
   // ── Live anomaly feed (statistical telemetry plane) ───────────────────────
   const { data: rawAnomalies = [], isLoading, dataUpdatedAt } = useQuery<AnomalyEvent[]>({
@@ -166,6 +189,33 @@ export default function AiOpsPage() {
     },
     onError: () => toast({ title: 'Correlation engine error', variant: 'destructive' }),
   });
+
+  // ── Routing Suggestions ────────────────────────────────────────────────────
+  const { data: suggestions = [], isLoading: suggestionsLoading } = useQuery<RoutingSuggestion[]>({
+    queryKey: ['/api/routing-suggestions'],
+    refetchInterval: 120_000,
+    staleTime: 60_000,
+  });
+
+  const generateSuggestionsMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/routing-suggestions/generate'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/routing-suggestions'] });
+      toast({ title: 'Routing suggestions generated' });
+    },
+    onError: () => toast({ title: 'Failed to generate suggestions', variant: 'destructive' }),
+  });
+
+  const suggestionActionMutation = useMutation({
+    mutationFn: ({ id, action }: { id: number; action: 'approve' | 'reject' | 'snooze' }) =>
+      apiRequest('POST', `/api/routing-suggestions/${id}/${action}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/routing-suggestions'] });
+    },
+    onError: () => toast({ title: 'Action failed', variant: 'destructive' }),
+  });
+
+  const pendingSuggestions = suggestions.filter(s => s.status === 'pending');
 
   const anomalies      = rawAnomalies;
   const activeCount    = rawAnomalies.filter(a => !a.resolved).length;
@@ -419,7 +469,8 @@ export default function AiOpsPage() {
                       {runCorrelationMutation.isPending ? 'Running…' : 'Re-run'}
                     </button>
                   </div>
-                  {incidents.map(inc => {
+                  <AnimatePresence initial={false}>
+                  {incidents.map((inc, idx) => {
                     const sev = (inc.severity in SEVERITY_CONFIG ? inc.severity : 'medium') as keyof typeof SEVERITY_CONFIG;
                     const cfg = SEVERITY_CONFIG[sev];
                     const isActive = inc.status === 'active';
@@ -428,55 +479,154 @@ export default function AiOpsPage() {
                     const timeLabel = minAgo < 60 ? `${minAgo}m ago` : `${Math.round(minAgo / 60)}h ago`;
                     const durationMs = new Date(inc.lastSeen).getTime() - new Date(inc.startTime).getTime();
                     const durationLabel = durationMs < 60000 ? '<1m' : durationMs < 3600000 ? `${Math.round(durationMs / 60000)}m` : `${Math.round(durationMs / 3600000)}h`;
+                    const isExpanded = expandedIncident === inc.id;
+                    const timeline: TimelineEntry[] = inc.timelineJson ? (() => { try { return JSON.parse(inc.timelineJson); } catch { return []; } })() : [];
+                    const typeColor: Record<string, string> = {
+                      signal: 'text-violet-400',
+                      score_drop: 'text-amber-400',
+                      escalation: 'text-rose-400',
+                      resolution: 'text-emerald-400',
+                    };
                     return (
-                      <div
+                      <motion.div
                         key={inc.id}
                         data-testid={`incident-card-${inc.id}`}
-                        className={cn("rounded-xl border p-5 space-y-3", isActive ? cfg.bg : "opacity-60 bg-card border-border")}
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: isActive ? 1 : 0.65, y: 0 }}
+                        exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                        transition={{ duration: 0.25, delay: idx * 0.04 }}
+                        className={cn("rounded-xl border space-y-3 overflow-hidden", isActive ? cfg.bg : "bg-card border-border")}
                       >
-                        <div className="flex items-start gap-3">
-                          <Layers className={cn("h-4 w-4 shrink-0 mt-0.5", isActive ? cfg.color : "text-muted-foreground")} />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-muted/30 text-muted-foreground border-border">INCIDENT</span>
-                              <span className="font-semibold text-sm">{inc.title}</span>
-                              <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-full border", cfg.badge)}>
-                                {inc.severity.toUpperCase()}
-                              </span>
-                              {isActive
-                                ? <span className="text-[10px] text-rose-400 font-semibold flex items-center gap-0.5"><Activity className="h-2.5 w-2.5" /> Active</span>
-                                : <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-0.5"><CheckCheck className="h-2.5 w-2.5" /> Resolved</span>
-                              }
+                        {/* Pulse bar on active critical/high */}
+                        {isActive && (sev === 'critical' || sev === 'high') && (
+                          <motion.div
+                            className={cn("h-0.5 w-full", sev === 'critical' ? 'bg-rose-500/60' : 'bg-orange-500/50')}
+                            animate={{ opacity: [0.4, 1, 0.4] }}
+                            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                          />
+                        )}
+
+                        <div className="px-5 pt-4 pb-1">
+                          <div className="flex items-start gap-3">
+                            <Layers className={cn("h-4 w-4 shrink-0 mt-0.5", isActive ? cfg.color : "text-muted-foreground")} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-muted/30 text-muted-foreground border-border">INCIDENT</span>
+                                <span className="font-semibold text-sm">{inc.title}</span>
+                                <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-full border", cfg.badge)}>
+                                  {inc.severity.toUpperCase()}
+                                </span>
+                                {isActive
+                                  ? <span className="text-[10px] text-rose-400 font-semibold flex items-center gap-0.5"><Activity className="h-2.5 w-2.5" /> Active</span>
+                                  : <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-0.5"><CheckCheck className="h-2.5 w-2.5" /> Resolved</span>
+                                }
+                              </div>
+                              {inc.entity && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Entity: <span className="font-mono text-foreground/70">{inc.entity}</span>
+                                </p>
+                              )}
                             </div>
-                            {inc.entity && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Entity: <span className="font-mono text-foreground/70">{inc.entity}</span>
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end gap-1.5 shrink-0">
-                            <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
-                              <Clock className="h-3 w-3" />{timeLabel}
-                            </span>
+                            <div className="flex flex-col items-end gap-1.5 shrink-0">
+                              <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
+                                <Clock className="h-3 w-3" />{timeLabel}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                        <div className="rounded-lg bg-background/60 border border-border/50 p-3 grid grid-cols-3 gap-3 text-center">
-                          <div>
-                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1">Signals</p>
-                            <p className={cn("text-lg font-bold tabular-nums", inc.signalsCount > 0 ? cfg.color : "text-muted-foreground/40")}>{inc.signalsCount}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1">Anomalies</p>
-                            <p className={cn("text-lg font-bold tabular-nums", inc.anomaliesCount > 0 ? cfg.color : "text-muted-foreground/40")}>{inc.anomaliesCount}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1">Duration</p>
-                            <p className="text-lg font-bold tabular-nums text-muted-foreground">{durationLabel}</p>
+
+                        <div className="px-5">
+                          <div className="rounded-lg bg-background/60 border border-border/50 p-3 grid grid-cols-3 gap-3 text-center">
+                            <div>
+                              <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1">Signals</p>
+                              <motion.p
+                                key={`sig-${inc.id}-${inc.signalsCount}`}
+                                initial={{ scale: 1.3, opacity: 0.5 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                                className={cn("text-lg font-bold tabular-nums", inc.signalsCount > 0 ? cfg.color : "text-muted-foreground/40")}
+                              >{inc.signalsCount}</motion.p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1">Anomalies</p>
+                              <p className={cn("text-lg font-bold tabular-nums", inc.anomaliesCount > 0 ? cfg.color : "text-muted-foreground/40")}>{inc.anomaliesCount}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1">Duration</p>
+                              <p className="text-lg font-bold tabular-nums text-muted-foreground">{durationLabel}</p>
+                            </div>
                           </div>
                         </div>
-                      </div>
+
+                        {/* Expand / collapse toggle */}
+                        <div className="px-5 pb-3">
+                          <button
+                            data-testid={`incident-expand-${inc.id}`}
+                            onClick={() => setExpandedIncident(isExpanded ? null : inc.id)}
+                            className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                            {isExpanded ? 'Hide details' : 'Show narrative & timeline'}
+                          </button>
+                        </div>
+
+                        <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.22 }}
+                            className="overflow-hidden border-t border-border/40"
+                          >
+                            <div className="px-5 py-4 space-y-4">
+                              {/* Narrative */}
+                              {inc.narrative ? (
+                                <div className="space-y-1.5">
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 flex items-center gap-1.5">
+                                    <Sparkles className="h-3 w-3" /> Narrative
+                                  </p>
+                                  <p className="text-[12px] text-muted-foreground leading-relaxed">{inc.narrative}</p>
+                                </div>
+                              ) : (
+                                <p className="text-[11px] text-muted-foreground/50 italic">
+                                  No narrative yet — run the correlation engine to generate one.
+                                </p>
+                              )}
+
+                              {/* Root cause timeline */}
+                              {timeline.length > 0 && (
+                                <div className="space-y-1.5">
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 flex items-center gap-1.5">
+                                    <GitBranch className="h-3 w-3" /> Root Cause Timeline
+                                  </p>
+                                  <div className="space-y-1">
+                                    {timeline.map((entry, ti) => (
+                                      <motion.div
+                                        key={ti}
+                                        initial={{ opacity: 0, x: -6 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        transition={{ delay: ti * 0.04 }}
+                                        className="flex items-start gap-2.5"
+                                      >
+                                        <span className="text-[10px] tabular-nums text-muted-foreground/50 font-mono shrink-0 mt-0.5 w-10">{entry.ts}</span>
+                                        <div className="h-1.5 w-1.5 rounded-full bg-border shrink-0 mt-1.5" />
+                                        <span className={cn("text-[11px] leading-snug", typeColor[entry.type] ?? 'text-muted-foreground')}>
+                                          {entry.event}
+                                        </span>
+                                      </motion.div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                        </AnimatePresence>
+                      </motion.div>
                     );
                   })}
+                  </AnimatePresence>
                 </div>
               )
             ) : (isLoading || signalsLoading) ? (
@@ -708,6 +858,132 @@ export default function AiOpsPage() {
                   <span className="text-sm font-bold text-indigo-400">{rawSignals.length}</span>
                 </div>
               )}
+            </div>
+
+            {/* ── Routing Suggestions Panel ─────────────────────────────── */}
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1 rounded bg-amber-500/10 border border-amber-500/20">
+                    <Lightbulb className="h-3.5 w-3.5 text-amber-400" />
+                  </div>
+                  <span className="text-xs font-semibold">Routing Suggestions</span>
+                  {pendingSuggestions.length > 0 && (
+                    <span className="text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full px-1.5 py-0.5 leading-none">
+                      {pendingSuggestions.length}
+                    </span>
+                  )}
+                </div>
+                <button
+                  data-testid="button-generate-suggestions"
+                  onClick={() => generateSuggestionsMutation.mutate()}
+                  disabled={generateSuggestionsMutation.isPending}
+                  className="text-[10px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                >
+                  <RefreshCw className={cn("h-2.5 w-2.5", generateSuggestionsMutation.isPending && "animate-spin")} />
+                  {generateSuggestionsMutation.isPending ? 'Running…' : 'Generate'}
+                </button>
+              </div>
+
+              <div className="p-3 space-y-2.5">
+                {suggestionsLoading ? (
+                  <div className="space-y-2">
+                    {[1,2].map(i => <div key={i} className="h-12 bg-muted/20 rounded-lg animate-pulse" />)}
+                  </div>
+                ) : pendingSuggestions.length === 0 ? (
+                  <div className="py-4 text-center">
+                    <CheckCircle2 className="h-6 w-6 text-emerald-400/40 mx-auto mb-1.5" />
+                    <p className="text-[11px] text-muted-foreground/60">No pending suggestions</p>
+                    <p className="text-[10px] text-muted-foreground/40 mt-0.5">
+                      Run the engine to analyse carrier scores
+                    </p>
+                  </div>
+                ) : (
+                  <AnimatePresence>
+                  {pendingSuggestions.map((s, i) => {
+                    const conf = Math.round(s.confidence * 100);
+                    const confColor = conf >= 85 ? 'text-rose-400' : conf >= 70 ? 'text-amber-400' : 'text-blue-400';
+                    return (
+                      <motion.div
+                        key={s.id}
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, x: 20, height: 0 }}
+                        transition={{ duration: 0.2, delay: i * 0.05 }}
+                        data-testid={`suggestion-card-${s.id}`}
+                        className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 space-y-2"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-semibold leading-snug">{s.suggestedAction}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1 leading-snug">{s.reason}</p>
+                          </div>
+                          <span className={cn("text-[10px] font-bold tabular-nums shrink-0", confColor)}>
+                            {conf}%
+                          </span>
+                        </div>
+                        {s.currentScore != null && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] text-muted-foreground/50 uppercase tracking-widest">Score</span>
+                            <div className="flex-1 h-1 rounded-full bg-muted/30 overflow-hidden">
+                              <motion.div
+                                className={cn("h-full rounded-full", s.currentScore < 35 ? 'bg-rose-500' : s.currentScore < 55 ? 'bg-amber-500' : 'bg-blue-500')}
+                                initial={{ width: 0 }}
+                                animate={{ width: `${s.currentScore}%` }}
+                                transition={{ duration: 0.6, ease: 'easeOut' }}
+                              />
+                            </div>
+                            <span className="text-[9px] tabular-nums text-muted-foreground/60">{s.currentScore.toFixed(0)}</span>
+                          </div>
+                        )}
+                        <div className="flex gap-1.5 pt-0.5">
+                          <button
+                            data-testid={`suggestion-approve-${s.id}`}
+                            onClick={() => suggestionActionMutation.mutate({ id: s.id, action: 'approve' })}
+                            disabled={suggestionActionMutation.isPending}
+                            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                          >
+                            <ThumbsUp className="h-2.5 w-2.5" /> Approve
+                          </button>
+                          <button
+                            data-testid={`suggestion-reject-${s.id}`}
+                            onClick={() => suggestionActionMutation.mutate({ id: s.id, action: 'reject' })}
+                            disabled={suggestionActionMutation.isPending}
+                            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <ThumbsDown className="h-2.5 w-2.5" /> Reject
+                          </button>
+                          <button
+                            data-testid={`suggestion-snooze-${s.id}`}
+                            onClick={() => suggestionActionMutation.mutate({ id: s.id, action: 'snooze' })}
+                            disabled={suggestionActionMutation.isPending}
+                            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <BellOff className="h-2.5 w-2.5" /> Snooze
+                          </button>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                  </AnimatePresence>
+                )}
+
+                {suggestions.filter(s => s.status !== 'pending').length > 0 && (
+                  <div className="pt-1 border-t border-border/40">
+                    <p className="text-[10px] text-muted-foreground/40 uppercase tracking-widest mb-1.5">Resolved</p>
+                    {suggestions.filter(s => s.status !== 'pending').slice(0, 3).map(s => (
+                      <div key={s.id} className="flex items-center gap-2 py-1">
+                        <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-full border",
+                          s.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                          s.status === 'rejected' ? 'bg-muted/20 text-muted-foreground border-border' :
+                          'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        )}>{s.status}</span>
+                        <span className="text-[10px] text-muted-foreground/60 truncate">{s.suggestedAction}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 flex items-start gap-2">

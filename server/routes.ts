@@ -14882,6 +14882,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const result = await runCorrelationEngine();
         if (result.created > 0 || result.updated > 0 || result.resolved > 0) {
           console.log(`[correlation-engine] created=${result.created} updated=${result.updated} resolved=${result.resolved}`);
+          // Narrate any new/updated incidents
+          const { narrateAll } = await import('./incident-narrator');
+          await narrateAll();
         }
       } catch (e: any) { console.warn('[correlation-engine] run error:', e.message); }
     };
@@ -15287,7 +15290,74 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   app.post('/api/aiops/incidents/run', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (req: any, res: any) => {
     try {
       const result = await runCorrelationEngine();
+      // Narrate all incidents after correlation
+      const { narrateAll } = await import('./incident-narrator');
+      await narrateAll();
       res.json({ success: true, ...result });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/aiops/incidents/:id/narrate — regenerate narrative for one incident
+  app.post('/api/aiops/incidents/:id/narrate', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { narrateIncident } = await import('./incident-narrator');
+      await narrateIncident(Number(req.params.id));
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Routing Suggestions ──────────────────────────────────────────────────────
+
+  // GET /api/routing-suggestions — list suggestions (most recent first)
+  app.get('/api/routing-suggestions', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { routingSuggestions } = await import('../shared/schema');
+      const { desc } = await import('drizzle-orm');
+      const rows = await db.select().from(routingSuggestions).orderBy(desc(routingSuggestions.createdAt)).limit(50);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/routing-suggestions/generate — run suggestions engine
+  app.post('/api/routing-suggestions/generate', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { runRoutingSuggestionsEngine } = await import('./routing-suggestions-engine');
+      const result = await runRoutingSuggestionsEngine();
+      res.json({ success: true, ...result });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/routing-suggestions/:id/approve
+  app.post('/api/routing-suggestions/:id/approve', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { routingSuggestions } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      await db.update(routingSuggestions).set({ status: 'approved', resolvedAt: new Date() }).where(eq(routingSuggestions.id, Number(req.params.id)));
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/routing-suggestions/:id/reject
+  app.post('/api/routing-suggestions/:id/reject', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { routingSuggestions } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      await db.update(routingSuggestions).set({ status: 'rejected', resolvedAt: new Date() }).where(eq(routingSuggestions.id, Number(req.params.id)));
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/routing-suggestions/:id/snooze
+  app.post('/api/routing-suggestions/:id/snooze', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { routingSuggestions } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      await db.update(routingSuggestions).set({ status: 'snoozed', resolvedAt: new Date() }).where(eq(routingSuggestions.id, Number(req.params.id)));
+      res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
