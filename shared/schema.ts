@@ -1064,3 +1064,40 @@ export const resellerProfiles = pgTable("reseller_profiles", {
 export type ResellerProfile = typeof resellerProfiles.$inferSelect;
 export type InsertResellerProfile = typeof resellerProfiles.$inferInsert;
 export const insertResellerProfileSchema = createInsertSchema(resellerProfiles).omit({ id: true, createdAt: true });
+
+// ── Statistical Anomaly Engine ────────────────────────────────────────────────
+
+// Rolling per-vendor per-metric baseline statistics (computed from CDR cache)
+export const vendorMetricBaselines = pgTable("vendor_metric_baselines", {
+  id:          serial("id").primaryKey(),
+  vendor:      varchar("vendor",  { length: 128 }).notNull(),
+  metric:      varchar("metric",  { length: 32  }).notNull(),  // asr | acd | cps
+  mean:        real("mean").notNull(),
+  stddev:      real("stddev").notNull(),
+  sampleCount: integer("sample_count").notNull(),
+  windowHours: integer("window_hours").notNull().default(72),
+  computedAt:  timestamp("computed_at").defaultNow().notNull(),
+});
+export type VendorMetricBaseline = typeof vendorMetricBaselines.$inferSelect;
+
+// Detected anomaly events written by the statistical engine
+export const anomalyEvents = pgTable("anomaly_events", {
+  id:               serial("id").primaryKey(),
+  vendor:           varchar("vendor",     { length: 128 }),
+  metric:           varchar("metric",     { length: 32  }).notNull(),  // asr | acd | cps
+  severity:         varchar("severity",   { length: 16  }).notNull(),  // critical | high | medium | low
+  title:            text("title").notNull(),
+  description:      text("description").notNull(),
+  rootCause:        text("root_cause").notNull(),
+  recommendation:   text("recommendation").notNull(),
+  affectedEntities: text("affected_entities").array().notNull(),
+  currentValue:     real("current_value").notNull(),
+  baselineMean:     real("baseline_mean").notNull(),
+  baselineStddev:   real("baseline_stddev").notNull(),
+  deviationSigma:   real("deviation_sigma").notNull(),
+  resolved:         boolean("resolved").notNull().default(false),
+  resolvedAt:       timestamp("resolved_at"),
+  detectedAt:       timestamp("detected_at").defaultNow().notNull(),
+});
+export type AnomalyEvent = typeof anomalyEvents.$inferSelect;
+export type InsertAnomalyEvent = typeof anomalyEvents.$inferInsert;

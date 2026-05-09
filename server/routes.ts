@@ -17,6 +17,7 @@ import { initSippyWatcher, notifyNewClientTraffic, getWatcherStatus, sendTestWat
 import { setupChatWebSocket } from "./chat-ws";
 import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, canSubmit, type OperationType } from "./approvals";
 import { evaluateRules } from "./rule-engine";
+import { runAnomalyEngine } from "./anomaly-engine";
 import { APPROVAL_POLICY, type Role } from "@shared/schema";
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode } from "./dial-lookup";
@@ -14774,6 +14775,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     setInterval(_runRuleEngine, 5 * 60 * 1000);
   }, 240_000); // T+4 min stagger
 
+  // Statistical Anomaly Engine — run every 15 minutes (T+5 min stagger)
+  setTimeout(() => {
+    const _runAnomalyEngine = async () => {
+      try {
+        const result = await runAnomalyEngine(cdrCache);
+        if (result.detected > 0 || result.resolved > 0) {
+          console.log(`[anomaly-engine] detected=${result.detected} resolved=${result.resolved} baselines=${result.baselines}`);
+        }
+      } catch (e: any) { console.warn('[anomaly-engine] run error:', e.message); }
+    };
+    _runAnomalyEngine();
+    setInterval(_runAnomalyEngine, 15 * 60 * 1000);
+  }, 300_000); // T+5 min stagger
+
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();
 
@@ -15086,6 +15101,50 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const results = await evaluateRules(cdrCache, liveCallsCache);
       const fired = results.filter(r => r.fired).length;
       res.json({ success: true, evaluated: results.length, fired, results });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Anomaly Events API ───────────────────────────────────────────────────────
+
+  // GET /api/anomalies — list recent anomaly events (last 48 hours)
+  app.get('/api/anomalies', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { anomalyEvents } = await import('../shared/schema');
+      const { desc, gte } = await import('drizzle-orm');
+      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      const events = await db
+        .select()
+        .from(anomalyEvents)
+        .where(gte(anomalyEvents.detectedAt, cutoff))
+        .orderBy(desc(anomalyEvents.detectedAt));
+      res.json(events);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/anomalies/:id/resolve — manually mark an anomaly as resolved
+  app.post('/api/anomalies/:id/resolve', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { anomalyEvents } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      const [updated] = await db
+        .update(anomalyEvents)
+        .set({ resolved: true, resolvedAt: new Date() })
+        .where(eq(anomalyEvents.id, id))
+        .returning();
+      if (!updated) return res.status(404).json({ message: 'Anomaly not found' });
+      res.json({ success: true, event: updated });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/anomalies/run — manually trigger the anomaly engine
+  app.post('/api/anomalies/run', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (req: any, res: any) => {
+    try {
+      const result = await runAnomalyEngine(cdrCache);
+      res.json({ success: true, ...result });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
