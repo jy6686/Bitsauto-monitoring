@@ -3099,6 +3099,7 @@ export default function SettingsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {[
             { label: "Full Feature Reference", desc: "Every page, menu item, how each feature works, business impact, and complete 2D/3D animation effects list", href: "/api/download/platform-features", color: "text-pink-400", bg: "bg-pink-500/10 border-pink-500/20", ext: ".md" },
+            { label: "Features Explained (Deep-Dive)", desc: "All 30 features in structured narrative format — end-to-end flow, integration map, business impact, and limitations for each", href: "/api/download/platform-features-explained", color: "text-fuchsia-400", bg: "bg-fuchsia-500/10 border-fuchsia-500/20", ext: ".md" },
             { label: "User Manual", desc: "Full operator guide — all features, process flows & diagrams", href: "/api/download/user-manual", color: "text-violet-400", bg: "bg-violet-500/10 border-violet-500/20" },
             { label: "Sippy Dataflow Reference", desc: "Per-page breakdown of every Sippy API fetch & write — auto-updates on key changes", href: "/api/download/sippy-dataflow", color: "text-cyan-400", bg: "bg-cyan-500/10 border-cyan-500/20" },
             { label: "Troubleshooting Guide", desc: "All resolved issues, root-cause analyses, fix flowcharts & diagnostic procedures", href: "/api/download/troubleshooting-guide", color: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/20" },

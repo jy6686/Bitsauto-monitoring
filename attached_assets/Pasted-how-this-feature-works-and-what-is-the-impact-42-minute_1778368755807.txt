@@ -1,0 +1,41 @@
+how this feature works and what is the impact
+
+42 minutes ago
+
+Show less
+
+Planning Number Intelligence explanation (11 seconds)
+Number Intelligence — How It Works
+This feature is a unified phone number enrichment panel built entirely on top of your existing Sippy CDR data plus optional external HLR integration. Here's what happens end-to-end:
+
+What It Does
+When you enter any E.164 number and click Look Up, the system:
+
+Parses the number — normalizes it, strips formatting, resolves country code (Pakistan +92 in your screenshot)
+Queries Sippy CDR records — scans your own CDR history for that number to derive:
+Line type (Mobile / Fixed / VoIP) — inferred from how previous calls to/from it behaved
+Porting status (Ported / Not ported) — detected from routing anomalies and CDR patterns
+Roaming status — inferred from country mismatch in CDR routing
+STIR/SHAKEN attestation — taken from the most recent call's P-Attestation header in CDR data
+Runs internal reputation scoring — cross-references the number against your FAS event log, fraud flags, and CDR call patterns to produce a 0–100 risk score
+Caches results for 24 hours — subsequent lookups for the same number are instant
+Optionally calls an external HLR gateway — if you integrate Telnyx, Neustar or your own HLR, you get live carrier name and authoritative porting/line-type data
+The "Quick Lookup Sources" — Deep Integration
+The panel isn't just a standalone lookup. Any phone number anywhere in the platform becomes clickable and opens this panel:
+
+Source	What number gets looked up
+CDR Viewer	CLI or CLD column — click any number in a CDR row
+Live Calls	Caller or Callee fields on the live call list
+Fraud / FAS	Any flagged number in FAS detection events
+DID Management	Any DID in your number inventory
+Test Call Launcher	CLI / CLD fields before launching a test call
+Business Impact
+Benefit	Detail
+Fraud investigation	One click from a FAS event → see if the caller has a fraud reputation score, whether they're roaming anomalously, or whether their number was ported recently (common FAS signal)
+Routing decisions	Knowing a number is Mobile vs Fixed vs VoIP helps decide which vendor route to send it through for best ASR
+Porting detection	If a number is ported but your routing still sends it to the original carrier, you catch wasted PDD and failed calls early
+STIR/SHAKEN compliance	Seeing attestation level (A/B/C) directly on any number helps identify calls likely to fail robocall filters at termination
+Customer support	When a client complains about a specific number failing, your team can look it up instantly without leaving the platform
+Zero external cost (current mode)	All current data comes from your own Sippy CDRs — no API fees. Add HLR integration only when you need authoritative live data
+Current Limitation (shown in the banner)
+The Carrier name field shows "—" because resolving the actual carrier name (e.g. "Zong" vs "Jazz" vs "Telenor" for Pakistani numbers) requires an HLR dip to an external provider. Your CDRs tell you the number exists and how calls behave, but not which MNO owns the number today. Integrating Telnyx or Neustar would fill that gap.

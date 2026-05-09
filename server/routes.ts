@@ -10190,6 +10190,14 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/download/platform-features-explained — deep-dive feature document (same format as Number Intelligence)
+  app.get('/api/download/platform-features-explained', (_req: any, res: any) => {
+    const filePath = _pathJoin(process.cwd(), 'PLATFORM_FEATURES_EXPLAINED.md');
+    res.download(filePath, 'Bitsauto_Platform_Features_Explained.md', (err: any) => {
+      if (err) res.status(404).json({ error: 'File not found' });
+    });
+  });
+
   // GET /api/download/feature-roadmap — serve the Feature Roadmap Word document (Vol I)
   app.get('/api/download/feature-roadmap', (_req: any, res: any) => {
     const filePath = require('path').join(process.cwd(), 'attached_assets', 'VoIP_Watcher_Feature_Roadmap.docx');
