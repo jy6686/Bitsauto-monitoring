@@ -78,3 +78,9 @@ id = "qBfftD15OjOw1Ztxf03px"
 uri = "file://attached_assets/generated_videos/Bitsauto_Demo_Presentation.mp4"
 type = "video"
 title = "Bitsauto Monitoring Platform — Full Demo Presentation (1:23)"
+
+[[outputs]]
+id = "YhsFAtZqUdPypK8CScyzv"
+uri = "file://attached_assets/BITSAUTO_PLATFORM_FEATURES.md"
+type = "text"
+title = "Bitsauto Platform — Full Feature Registry"
