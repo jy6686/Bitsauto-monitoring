@@ -15148,6 +15148,24 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── AI Ops Execution Signals ─────────────────────────────────────────────────
+
+  // GET /api/aiops/signals — execution-derived control-plane signals (last 48 h)
+  app.get('/api/aiops/signals', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { aiOpsEvents } = await import('../shared/schema');
+      const { desc, gte } = await import('drizzle-orm');
+      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      const events = await db
+        .select()
+        .from(aiOpsEvents)
+        .where(gte(aiOpsEvents.createdAt, cutoff))
+        .orderBy(desc(aiOpsEvents.createdAt));
+      res.json(events);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── Number Intelligence Lookup ────────────────────────────────────────────────
 
   app.get('/api/number-lookup/:number', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {

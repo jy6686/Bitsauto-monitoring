@@ -1101,3 +1101,18 @@ export const anomalyEvents = pgTable("anomaly_events", {
 });
 export type AnomalyEvent = typeof anomalyEvents.$inferSelect;
 export type InsertAnomalyEvent = typeof anomalyEvents.$inferInsert;
+
+// AI Ops execution-derived control-plane signals
+export const aiOpsEvents = pgTable("ai_ops_events", {
+  id:           serial("id").primaryKey(),
+  type:         text("type").notNull(),                        // ROUTING_FAILURE | EXECUTION_LATENCY_HIGH | VENDOR_DEGRADATION_SIGNAL
+  severity:     varchar("severity", { length: 16 }).notNull(), // high | medium | low
+  message:      text("message").notNull(),
+  entity:       text("entity"),                                // operationType that produced the signal
+  value:        text("value"),                                 // e.g. durationMs as string
+  linkedExecId: text("linked_exec_id"),                        // approval request ID that triggered this signal
+  source:       text("source").notNull().default('execution'),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+});
+export type AiOpsEvent = typeof aiOpsEvents.$inferSelect;
+export type InsertAiOpsEvent = typeof aiOpsEvents.$inferInsert;

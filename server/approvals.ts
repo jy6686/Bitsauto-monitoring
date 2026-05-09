@@ -18,7 +18,8 @@ import { storage } from "./storage";
 import * as sippy from "./sippy";
 import { type Role, type ApprovalRequest, type InsertApprovalRequest, APPROVAL_POLICY } from "@shared/schema";
 import { db as _db } from "./db";
-import { approvalRequests as _arTable } from "../shared/schema";
+import { approvalRequests as _arTable, aiOpsEvents as _aiOpsEventsTable } from "../shared/schema";
+import { mapExecToSignals } from "./aiops/signal-mapper";
 
 // ─── Operation type registry ────────────────────────────────────────────────
 
@@ -224,6 +225,14 @@ export async function approveRequest(
       raw: err instanceof Error ? { name: err.name, message: err.message } : err,
     };
   }
+
+  // Emit AI Ops signals — non-critical; a failure here must not block the approval
+  try {
+    const signals = mapExecToSignals(execResult, request.operationType, requestId);
+    if (signals.length > 0) {
+      await _db.insert(_aiOpsEventsTable).values(signals);
+    }
+  } catch (_e) { /* intentionally silent */ }
 
   if (executionFailed) {
     // Persist 'failed' status so it's visible in the UI and audit trail

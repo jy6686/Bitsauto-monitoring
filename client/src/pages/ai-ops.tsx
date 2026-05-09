@@ -38,6 +38,24 @@ interface Prediction {
   confidence: number;
 }
 
+interface AiOpsSignal {
+  id: number;
+  type: string;
+  severity: string;
+  message: string;
+  entity: string | null;
+  value: string | null;
+  linkedExecId: string | null;
+  source: string;
+  createdAt: string;
+}
+
+const SIGNAL_TYPE_CONFIG: Record<string, { label: string; icon: any; bg: string; badge: string; color: string }> = {
+  ROUTING_FAILURE:          { label: 'Routing Failure',       icon: AlertTriangle, bg: 'bg-rose-500/5 border-rose-500/30',     badge: 'bg-rose-500/15 text-rose-400 border-rose-500/30',   color: 'text-rose-400'   },
+  EXECUTION_LATENCY_HIGH:   { label: 'High Execution Latency', icon: Activity,      bg: 'bg-amber-500/5 border-amber-500/30',   badge: 'bg-amber-500/15 text-amber-400 border-amber-500/30', color: 'text-amber-400'  },
+  VENDOR_DEGRADATION_SIGNAL:{ label: 'Vendor Degradation',    icon: TrendingDown,  bg: 'bg-orange-500/5 border-orange-500/30', badge: 'bg-orange-500/15 text-orange-400 border-orange-500/30', color: 'text-orange-400'},
+};
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const SEVERITY_CONFIG = {
@@ -104,17 +122,34 @@ export default function AiOpsPage() {
   const [querying, setQuerying]     = useState(false);
   const [showOnlyActive, setShowOnlyActive] = useState(false);
 
-  // ── Live anomaly feed ──────────────────────────────────────────────────────
+  // ── Live anomaly feed (statistical telemetry plane) ───────────────────────
   const { data: rawAnomalies = [], isLoading, dataUpdatedAt } = useQuery<AnomalyEvent[]>({
     queryKey: ['/api/anomalies'],
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
 
+  // ── AI Ops execution signals (control plane) ───────────────────────────────
+  const { data: rawSignals = [], isLoading: signalsLoading } = useQuery<AiOpsSignal[]>({
+    queryKey: ['/api/aiops/signals'],
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
   const anomalies      = showOnlyActive ? rawAnomalies.filter(a => !a.resolved) : rawAnomalies;
   const activeCount    = rawAnomalies.filter(a => !a.resolved).length;
   const criticalCount  = rawAnomalies.filter(a => a.severity === 'critical' && !a.resolved).length;
   const predictions    = buildPredictions(rawAnomalies);
+
+  // ── Unified feed: merge both planes, sorted newest-first ──────────────────
+  type FeedItem =
+    | { source: 'anomaly'; data: AnomalyEvent; ts: number }
+    | { source: 'signal';  data: AiOpsSignal;  ts: number };
+
+  const unifiedFeed: FeedItem[] = [
+    ...anomalies.map(a  => ({ source: 'anomaly' as const, data: a,  ts: new Date(a.detectedAt).getTime() })),
+    ...rawSignals.map(s => ({ source: 'signal'  as const, data: s,  ts: new Date(s.createdAt).getTime()  })),
+  ].sort((a, b) => b.ts - a.ts);
 
   // ── Resolve mutation ───────────────────────────────────────────────────────
   const resolveMutation = useMutation({
@@ -263,23 +298,28 @@ export default function AiOpsPage() {
           <div className="lg:col-span-2 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold flex items-center gap-2">
-                <Activity className="h-4 w-4 text-rose-400" /> Anomaly Feed
+                <Activity className="h-4 w-4 text-rose-400" /> Intelligence Feed
                 {dataUpdatedAt > 0 && (
                   <span className="text-[10px] text-muted-foreground/50 font-normal">
                     · updated {new Date(dataUpdatedAt).toLocaleTimeString()}
                   </span>
                 )}
+                <span className="text-[10px] text-muted-foreground/40 font-normal">
+                  {rawAnomalies.length > 0 && `${rawAnomalies.length} anomal${rawAnomalies.length === 1 ? 'y' : 'ies'}`}
+                  {rawAnomalies.length > 0 && rawSignals.length > 0 && ' · '}
+                  {rawSignals.length > 0 && `${rawSignals.length} signal${rawSignals.length === 1 ? '' : 's'}`}
+                </span>
               </h2>
               <button
                 onClick={() => setShowOnlyActive(s => !s)}
                 className={cn("text-xs px-2 py-1 rounded-lg border transition-colors", showOnlyActive ? "bg-primary/10 border-primary/30 text-primary" : "border-border text-muted-foreground hover:text-foreground")}
                 data-testid="button-toggle-active-only"
               >
-                Active only
+                Anomalies only
               </button>
             </div>
 
-            {isLoading ? (
+            {(isLoading || signalsLoading) ? (
               <div className="space-y-3">
                 {[1,2].map(i => (
                   <div key={i} className="bg-card border border-border rounded-xl p-5 animate-pulse">
@@ -288,88 +328,129 @@ export default function AiOpsPage() {
                   </div>
                 ))}
               </div>
-            ) : anomalies.length === 0 ? (
+            ) : unifiedFeed.length === 0 ? (
               <div className="bg-card border border-border rounded-xl p-12 text-center">
                 <CheckCircle2 className="h-10 w-10 text-emerald-400/50 mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground">
-                  {showOnlyActive ? 'No active anomalies' : 'No anomaly events in the last 48 hours'}
+                  {showOnlyActive ? 'No active anomalies' : 'No events in the last 48 hours'}
                 </p>
-                <p className="text-xs text-muted-foreground/60 mt-1">Network metrics are within normal statistical ranges</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">Network metrics are normal · No execution signals emitted</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {anomalies.map(a => {
-                  const sev = (a.severity in SEVERITY_CONFIG ? a.severity : 'low') as keyof typeof SEVERITY_CONFIG;
-                  const cfg = SEVERITY_CONFIG[sev];
-                  const minAgo = Math.round((Date.now() - new Date(a.detectedAt).getTime()) / 60000);
+                {unifiedFeed.map(item => {
+                  const minAgo = Math.round((Date.now() - item.ts) / 60000);
+                  const timeLabel = minAgo < 60 ? `${minAgo}m ago` : `${Math.round(minAgo / 60)}h ago`;
+
+                  if (item.source === 'anomaly') {
+                    const a = item.data;
+                    const sev = (a.severity in SEVERITY_CONFIG ? a.severity : 'low') as keyof typeof SEVERITY_CONFIG;
+                    const cfg = SEVERITY_CONFIG[sev];
+                    return (
+                      <div
+                        key={`anomaly-${a.id}`}
+                        data-testid={`anomaly-card-${a.id}`}
+                        className={cn("rounded-xl border p-5 space-y-3", a.resolved ? "opacity-60 bg-card border-border" : cfg.bg)}
+                      >
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className={cn("h-4 w-4 shrink-0 mt-0.5", a.resolved ? "text-muted-foreground" : cfg.color)} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-muted/30 text-muted-foreground border-border">ANOMALY</span>
+                              <span className="font-semibold text-sm">{a.title}</span>
+                              <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-full border", cfg.badge)}>
+                                {a.severity.toUpperCase()}
+                              </span>
+                              <span className="text-[10px] font-mono text-muted-foreground/60 bg-muted/30 px-1.5 py-0.5 rounded">
+                                {a.deviationSigma.toFixed(1)}σ
+                              </span>
+                              <span className="text-[10px] text-muted-foreground/50 font-mono uppercase">
+                                {METRIC_LABEL[a.metric] ?? a.metric}
+                              </span>
+                              {a.resolved && <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-0.5"><CheckCheck className="h-2.5 w-2.5" /> Resolved</span>}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">{a.description}</p>
+                          </div>
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
+                              <Clock className="h-3 w-3" />{timeLabel}
+                            </span>
+                            {!a.resolved && (
+                              <button
+                                onClick={() => resolveMutation.mutate(a.id)}
+                                disabled={resolveMutation.isPending}
+                                data-testid={`button-resolve-anomaly-${a.id}`}
+                                className="text-[10px] text-emerald-400/70 hover:text-emerald-300 border border-emerald-500/20 hover:border-emerald-500/40 rounded px-1.5 py-0.5 transition-colors"
+                              >
+                                Resolve
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-background/60 border border-border/50 p-3 space-y-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Baseline vs Current</p>
+                            <span className="text-[10px] font-mono text-muted-foreground/60">
+                              {a.currentValue.toFixed(a.metric === 'asr' ? 1 : 0)}
+                              {a.metric === 'asr' ? '%' : a.metric === 'acd' ? 's' : ''}
+                              {' '}vs{' '}
+                              {a.baselineMean.toFixed(a.metric === 'asr' ? 1 : 0)}
+                              {a.metric === 'asr' ? '%' : a.metric === 'acd' ? 's' : ''} avg
+                              {' '}±{a.baselineStddev.toFixed(1)}
+                            </span>
+                          </div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Root Cause</p>
+                          <p className="text-xs text-muted-foreground leading-relaxed">{a.rootCause}</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <Lightbulb className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
+                          <p className="text-xs text-amber-300/80 leading-relaxed">{a.recommendation}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {a.affectedEntities.map(e => (
+                            <span key={e} className="text-[10px] px-2 py-0.5 rounded-full bg-muted/30 border border-border text-muted-foreground font-mono">{e}</span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // ── Execution Signal Card ─────────────────────────────────
+                  const s = item.data;
+                  const scfg = SIGNAL_TYPE_CONFIG[s.type] ?? SIGNAL_TYPE_CONFIG.ROUTING_FAILURE;
+                  const SIcon = scfg.icon;
                   return (
                     <div
-                      key={a.id}
-                      data-testid={`anomaly-card-${a.id}`}
-                      className={cn("rounded-xl border p-5 space-y-3", a.resolved ? "opacity-60 bg-card border-border" : cfg.bg)}
+                      key={`signal-${s.id}`}
+                      data-testid={`signal-card-${s.id}`}
+                      className={cn("rounded-xl border p-4", scfg.bg)}
                     >
                       <div className="flex items-start gap-3">
-                        <AlertTriangle className={cn("h-4 w-4 shrink-0 mt-0.5", a.resolved ? "text-muted-foreground" : cfg.color)} />
+                        <SIcon className={cn("h-4 w-4 shrink-0 mt-0.5", scfg.color)} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold text-sm">{a.title}</span>
-                            <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-full border", cfg.badge)}>
-                              {a.severity.toUpperCase()}
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-indigo-500/10 text-indigo-400 border-indigo-500/30">SIGNAL</span>
+                            <span className="font-semibold text-sm">{scfg.label}</span>
+                            <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-full border", scfg.badge)}>
+                              {s.severity.toUpperCase()}
                             </span>
-                            <span className="text-[10px] font-mono text-muted-foreground/60 bg-muted/30 px-1.5 py-0.5 rounded">
-                              {a.deviationSigma.toFixed(1)}σ
-                            </span>
-                            <span className="text-[10px] text-muted-foreground/50 font-mono uppercase">
-                              {METRIC_LABEL[a.metric] ?? a.metric}
-                            </span>
-                            {a.resolved && <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-0.5"><CheckCheck className="h-2.5 w-2.5" /> Resolved</span>}
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1">{a.description}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{s.message}</p>
+                          <div className="flex items-center gap-3 mt-2 flex-wrap">
+                            {s.entity && (
+                              <span className="text-[10px] font-mono text-muted-foreground/60 bg-muted/30 px-1.5 py-0.5 rounded">{s.entity}</span>
+                            )}
+                            {s.linkedExecId && (
+                              <span className="text-[10px] text-muted-foreground/50">approval #{s.linkedExecId}</span>
+                            )}
+                            {s.value && s.type === 'EXECUTION_LATENCY_HIGH' && (
+                              <span className="text-[10px] font-mono text-amber-400/70">{parseInt(s.value).toLocaleString()}ms</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex flex-col items-end gap-1.5 shrink-0">
-                          <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {minAgo < 60 ? `${minAgo}m ago` : `${Math.round(minAgo / 60)}h ago`}
-                          </span>
-                          {!a.resolved && (
-                            <button
-                              onClick={() => resolveMutation.mutate(a.id)}
-                              disabled={resolveMutation.isPending}
-                              data-testid={`button-resolve-anomaly-${a.id}`}
-                              className="text-[10px] text-emerald-400/70 hover:text-emerald-300 border border-emerald-500/20 hover:border-emerald-500/40 rounded px-1.5 py-0.5 transition-colors"
-                            >
-                              Resolve
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Baseline comparison bar */}
-                      <div className="rounded-lg bg-background/60 border border-border/50 p-3 space-y-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Baseline vs Current</p>
-                          <span className="text-[10px] font-mono text-muted-foreground/60">
-                            {a.currentValue.toFixed(a.metric === 'asr' ? 1 : 0)}
-                            {a.metric === 'asr' ? '%' : a.metric === 'acd' ? 's' : ''}
-                            {' '}vs{' '}
-                            {a.baselineMean.toFixed(a.metric === 'asr' ? 1 : 0)}
-                            {a.metric === 'asr' ? '%' : a.metric === 'acd' ? 's' : ''} avg
-                            {' '}±{a.baselineStddev.toFixed(1)}
-                          </span>
-                        </div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Root Cause</p>
-                        <p className="text-xs text-muted-foreground leading-relaxed">{a.rootCause}</p>
-                      </div>
-
-                      <div className="flex items-start gap-2">
-                        <Lightbulb className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
-                        <p className="text-xs text-amber-300/80 leading-relaxed">{a.recommendation}</p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-1.5">
-                        {a.affectedEntities.map(e => (
-                          <span key={e} className="text-[10px] px-2 py-0.5 rounded-full bg-muted/30 border border-border text-muted-foreground font-mono">{e}</span>
-                        ))}
+                        <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1 shrink-0">
+                          <Clock className="h-3 w-3" />{timeLabel}
+                        </span>
                       </div>
                     </div>
                   );
@@ -454,7 +535,7 @@ export default function AiOpsPage() {
                 {[
                   { label: 'Active',   value: activeCount,                                      color: activeCount > 0 ? 'text-amber-400' : 'text-emerald-400' },
                   { label: 'Critical', value: criticalCount,                                    color: criticalCount > 0 ? 'text-rose-400' : 'text-muted-foreground' },
-                  { label: 'Total',    value: rawAnomalies.length,                              color: 'text-foreground' },
+                  { label: 'Anomalies',value: rawAnomalies.length,                              color: 'text-foreground' },
                   { label: 'Resolved', value: rawAnomalies.filter(a => a.resolved).length,     color: 'text-emerald-400' },
                 ].map(s => (
                   <div key={s.label} className="rounded-lg bg-muted/20 border border-border/40 p-2.5 text-center">
@@ -463,6 +544,12 @@ export default function AiOpsPage() {
                   </div>
                 ))}
               </div>
+              {rawSignals.length > 0 && (
+                <div className="rounded-lg bg-indigo-500/5 border border-indigo-500/20 p-2.5 flex items-center justify-between">
+                  <span className="text-[10px] text-indigo-400 font-semibold uppercase tracking-widest">Execution Signals</span>
+                  <span className="text-sm font-bold text-indigo-400">{rawSignals.length}</span>
+                </div>
+              )}
             </div>
 
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 flex items-start gap-2">
