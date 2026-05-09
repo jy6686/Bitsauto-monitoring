@@ -2017,6 +2017,7 @@ export default function SettingsPage() {
   const [troubleshootRegeneratedAt, setTroubleshootRegeneratedAt] = useState<string | null>(null);
   const [orgHierarchyRegeneratedAt, setOrgHierarchyRegeneratedAt] = useState<string | null>(null);
   const [routingFeaturesRegeneratedAt, setRoutingFeaturesRegeneratedAt] = useState<string | null>(null);
+  const [featureRegistryRegeneratedAt, setFeatureRegistryRegeneratedAt] = useState<string | null>(null);
   const [allDocsUpdating, setAllDocsUpdating] = useState(false);
   const [allDocsProgress, setAllDocsProgress] = useState<string | null>(null);
   const { toast } = useToast();
@@ -2093,6 +2094,18 @@ export default function SettingsPage() {
     },
   });
 
+  const regenFeatureRegistryMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/download/regenerate-feature-registry'),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setFeatureRegistryRegeneratedAt(data.regeneratedAt);
+      toast({ title: 'Feature Registry updated', description: 'The Platform Feature Registry has been regenerated with all current feature statuses. Download it now.' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Update failed', description: err.message ?? 'Could not regenerate the Feature Registry.', variant: 'destructive' });
+    },
+  });
+
   async function updateAllDocs() {
     setAllDocsUpdating(true);
     const steps: { label: string; endpoint: string; setter: (v: string) => void }[] = [
@@ -2101,6 +2114,7 @@ export default function SettingsPage() {
       { label: 'Troubleshooting Guide',      endpoint: '/api/download/regenerate-troubleshoot',   setter: setTroubleshootRegeneratedAt },
       { label: 'Org Hierarchy',              endpoint: '/api/download/regenerate-org-hierarchy',      setter: setOrgHierarchyRegeneratedAt },
       { label: 'Routing Features Plan',      endpoint: '/api/download/regenerate-routing-features',   setter: setRoutingFeaturesRegeneratedAt },
+      { label: 'Feature Registry',           endpoint: '/api/download/regenerate-feature-registry',   setter: setFeatureRegistryRegeneratedAt },
       { label: 'Status Report',              endpoint: '/api/download/regenerate',                    setter: setRegeneratedAt },
     ];
     let failed = 0;
@@ -2121,7 +2135,7 @@ export default function SettingsPage() {
     setAllDocsUpdating(false);
     setAllDocsProgress(null);
     if (failed === 0) {
-      toast({ title: 'All documents updated', description: 'All 6 documents have been regenerated with the latest platform data. Download them below.' });
+      toast({ title: 'All documents updated', description: 'All 7 documents have been regenerated with the latest platform data. Download them below.' });
     } else {
       toast({ title: `${steps.length - failed}/${steps.length} documents updated`, description: `${failed} document(s) failed to regenerate. Try updating them individually.`, variant: 'destructive' });
     }
@@ -3036,6 +3050,18 @@ export default function SettingsPage() {
             {regenRoutingFeaturesMutation.isPending ? 'Building…' : 'Update Routing Features Doc'}
           </button>
           <button
+            data-testid="button-regenerate-feature-registry"
+            onClick={() => regenFeatureRegistryMutation.mutate()}
+            disabled={regenFeatureRegistryMutation.isPending || allDocsUpdating}
+            title="Regenerate Platform Feature Registry"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {regenFeatureRegistryMutation.isPending
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <RefreshCcw className="h-3 w-3" />}
+            {regenFeatureRegistryMutation.isPending ? 'Building…' : 'Update Feature Registry'}
+          </button>
+          <button
             data-testid="button-regenerate-docs"
             onClick={() => regenMutation.mutate()}
             disabled={regenMutation.isPending || allDocsUpdating}
@@ -3080,6 +3106,7 @@ export default function SettingsPage() {
             { label: "Feature Roadmap", desc: "Full platform feature roadmap", href: "/api/download/feature-roadmap", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
             { label: "Extended Features Vol II", desc: "Proposed Tier 2 & Tier 3 features", href: "/api/download/feature-roadmap-v2", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
             { label: "Routing Features Plan", desc: "All 9 Sippy routing features — descriptions, API methods, status & effort estimates", href: "/api/download/routing-features", color: "text-teal-400", bg: "bg-teal-500/10 border-teal-500/20" },
+            { label: "Platform Feature Registry", desc: "Complete feature audit — every module, status (REAL/PARTIAL/SHELL/NOT BUILT), DB tables, hooks, and remaining roadmap", href: "/api/download/feature-registry", color: "text-indigo-400", bg: "bg-indigo-500/10 border-indigo-500/20" },
             { label: "API Reference", desc: "All 200+ endpoints across 21 categories", href: "/api/download/api-reference", color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
           ].map(doc => (
             <a

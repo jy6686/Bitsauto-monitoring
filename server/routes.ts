@@ -30,6 +30,7 @@ import { generateSippyDataflowDoc, SIPPY_DATAFLOW_PATH } from "./sippy-dataflow-
 import { generateTroubleshootGuide, TROUBLESHOOT_GUIDE_PATH } from "./troubleshoot-generator";
 import { generateOrgHierarchyDoc, ORG_HIERARCHY_PATH } from "./org-hierarchy-generator";
 import { generateRoutingFeaturesDoc, ROUTING_FEATURES_PATH } from "./routing-features-generator";
+import { generateFeatureRegistryDoc, FEATURE_REGISTRY_PATH } from "./feature-registry-generator";
 import {
   syncRoutingCache, getCachedRoutingGroups, getCachedDestinationSets,
   getCachedConnections, getRoutingCacheMeta,
@@ -10365,6 +10366,35 @@ export async function registerRoutes(
       if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
       await generateRoutingFeaturesDoc(ROUTING_FEATURES_PATH);
       res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'Bitsauto_Routing_Features_Plan.docx' });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/download/feature-registry — serve the Platform Feature Registry .docx
+  app.get('/api/download/feature-registry', async (_req: any, res: any) => {
+    try {
+      const { existsSync } = await import('fs');
+      if (!existsSync(FEATURE_REGISTRY_PATH)) {
+        await generateFeatureRegistryDoc(FEATURE_REGISTRY_PATH);
+      }
+      res.download(FEATURE_REGISTRY_PATH, 'Bitsauto_Platform_Feature_Registry.docx', (err: any) => {
+        if (err && !res.headersSent) res.status(500).json({ message: 'Download error' });
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: `Failed to generate feature registry: ${e.message}` });
+    }
+  });
+
+  // POST /api/download/regenerate-feature-registry — rebuild on demand (admin)
+  app.post('/api/download/regenerate-feature-registry', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user.claims?.sub;
+      const role = await storage.getUserRole(userId);
+      if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+      await generateFeatureRegistryDoc(FEATURE_REGISTRY_PATH);
+      res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'Bitsauto_Platform_Feature_Registry.docx' });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
