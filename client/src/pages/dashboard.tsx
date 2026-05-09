@@ -321,11 +321,15 @@ export default function DashboardPage() {
   }, [currentOrder, widgetPrefs, savePrefsMutation]);
 
   const DASHBOARD_WIDGETS = [
-    { id: 'live_metrics',       label: 'Live Metrics Cards',      description: 'Active Calls, MOS, ASR, ACD, Traffic Score, CPS' },
-    { id: 'revenue_analytics',  label: 'Revenue & Margin Analytics', description: '30-day P&L summary, per-client and per-vendor breakdown' },
-    { id: 'live_calls_table',   label: 'Live Calls Table',         description: 'Real-time active call list with quality metrics' },
+    { id: 'live_metrics',       label: 'Live Metrics Cards',           description: 'Active Calls, MOS, ASR, ACD, Traffic Score, CPS' },
+    { id: 'revenue_analytics',  label: 'Revenue & Margin Analytics',   description: '30-day P&L summary, per-client and per-vendor breakdown' },
+    { id: 'live_calls_table',   label: 'Live Calls Table',             description: 'Real-time active call list with quality metrics' },
     { id: 'asr_trend',          label: 'ASR/ACD Trend & Call Back Ratio', description: 'Historical ASR/ACD charts and FAS deduction graph' },
-    { id: 'fas_events',         label: 'FAS Events & Stats',       description: 'False Answer Supervision detection log and summary' },
+    { id: 'fas_events',         label: 'FAS Events & Stats',           description: 'False Answer Supervision detection log and summary' },
+    { id: 'weekly_volume',      label: '7-Day Call Volume',            description: 'Daily answered vs failed call bar chart for the last 7 days' },
+    { id: 'top_clients',        label: 'Top Clients by Volume',        description: '30-day client call distribution donut chart' },
+    { id: 'carrier_health',     label: 'Carrier Health',               description: '24h stability scores per carrier with progress bars' },
+    { id: 'top_destinations',   label: 'Top Traffic Destinations',     description: 'Last 7 days call volume ranked by country / destination' },
   ] as const;
 
   const SECTION_CHIPS = [
@@ -334,6 +338,9 @@ export default function DashboardPage() {
     { id: 'asr_trend',         label: 'ASR / ACD' },
     { id: 'revenue_analytics', label: 'Revenue & P&L' },
     { id: 'fas_events',        label: 'FAS Events' },
+    { id: 'weekly_volume',     label: '7-Day Volume' },
+    { id: 'carrier_health',    label: 'Carrier Health' },
+    { id: 'top_destinations',  label: 'Top Destinations' },
   ] as const;
 
   // NOC WebSocket — push tick arrives every ~60s when background poller refreshes.
@@ -1911,7 +1918,7 @@ export default function DashboardPage() {
       )}
 
       {/* ── Dashboard Intelligence Row ──────────────────────────────────────── */}
-      {isSippyReachable && (() => {
+      {isSippyReachable && (sectionVisible('weekly_volume') || sectionVisible('top_clients') || sectionVisible('carrier_health') || sectionVisible('top_destinations')) && (() => {
         // ── 7-day daily call volume (aggregate hourly buckets into days) ──────
         const hourly: any[] = weeklyVolumeData?.hourly ?? [];
         const dailyMap: Record<string, { answered: number; failed: number }> = {};
@@ -1945,7 +1952,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
             {/* ── 7-Day Call Volume ─────────────────────────────────────────── */}
-            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            {sectionVisible('weekly_volume') && <div className="rounded-xl border border-border bg-card p-6 shadow-sm" data-testid="widget-weekly-volume">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="font-semibold text-sm flex items-center gap-2">
@@ -1977,10 +1984,10 @@ export default function DashboardPage() {
                   <p className="text-sm">No CDR volume data yet for last 7 days</p>
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* ── Top Clients Donut ────────────────────────────────────────── */}
-            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            {sectionVisible('top_clients') && <div className="rounded-xl border border-border bg-card p-6 shadow-sm" data-testid="widget-top-clients">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="font-semibold text-sm flex items-center gap-2">
@@ -2023,10 +2030,10 @@ export default function DashboardPage() {
                   <p className="text-sm">No client analytics available</p>
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* ── Carrier Health Sparklines ─────────────────────────────────── */}
-            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            {sectionVisible('carrier_health') && <div className="rounded-xl border border-border bg-card p-6 shadow-sm" data-testid="widget-carrier-health">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="font-semibold text-sm flex items-center gap-2">
@@ -2065,10 +2072,10 @@ export default function DashboardPage() {
                   <p className="text-xs opacity-60">Scores populate from live CDR data</p>
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* ── Top Destinations ─────────────────────────────────────────── */}
-            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            {sectionVisible('top_destinations') && <div className="rounded-xl border border-border bg-card p-6 shadow-sm" data-testid="widget-top-destinations">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="font-semibold text-sm flex items-center gap-2">
@@ -2107,7 +2114,7 @@ export default function DashboardPage() {
                   <p className="text-sm">No destination data for last 7 days</p>
                 </div>
               )}
-            </div>
+            </div>}
 
           </div>
         );
