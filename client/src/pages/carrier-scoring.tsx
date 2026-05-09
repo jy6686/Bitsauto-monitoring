@@ -5,6 +5,7 @@ import {
   Activity, RefreshCw, TrendingUp, TrendingDown, Minus,
   ChevronDown, ChevronUp, XCircle, Clock, BarChart3, Wifi,
   Filter, ArrowDown, CheckCircle2, AlertTriangle, Sparkles, Play,
+  ArrowUpDown, MoveUp, MoveDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -342,6 +343,13 @@ export default function CarrierScoringPage() {
     refetchInterval: 60_000,
   });
 
+  const [deltaOpen, setDeltaOpen] = useState(false);
+  const { data: deltaData = [] } = useQuery<any[]>({
+    queryKey: ["/api/carrier-scores/delta"],
+    refetchInterval: 300_000,
+    enabled: deltaOpen,
+  });
+
   const recompute = useMutation({
     mutationFn: () => apiRequest("POST", "/api/carrier-scores/recompute"),
     onSuccess: () => {
@@ -596,6 +604,97 @@ export default function CarrierScoringPage() {
             </div>
           )}
         </CardContent>
+      </Card>
+
+      {/* What Changed? Delta Panel */}
+      <Card className="border-border/50">
+        <CardHeader className="pb-3">
+          <button
+            data-testid="btn-delta-toggle"
+            onClick={() => setDeltaOpen(v => !v)}
+            className="flex items-center gap-2 w-full text-left"
+          >
+            <CardTitle className="text-base flex items-center gap-2">
+              <ArrowUpDown className="h-4 w-4 text-violet-400" />
+              What Changed?
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30 tracking-wide">New</span>
+              <span className="text-xs font-normal text-muted-foreground ml-1">— 24h vs 7d comparison per carrier</span>
+            </CardTitle>
+            <div className="flex-1" />
+            {deltaOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          </button>
+        </CardHeader>
+        <AnimatePresence>
+          {deltaOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              className="overflow-hidden"
+            >
+              <CardContent>
+                {deltaData.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    No delta data yet — scores require both 24h and 7d windows populated.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Column headers */}
+                    <div className="grid grid-cols-[1fr_repeat(4,minmax(80px,auto))] gap-3 px-2 text-[10px] uppercase tracking-widest text-muted-foreground/60 font-mono">
+                      <span>Carrier</span>
+                      <span className="text-center">Stability Δ</span>
+                      <span className="text-center">ASR Δ</span>
+                      <span className="text-center">PDD Δ</span>
+                      <span className="text-center">Fail Rate Δ</span>
+                    </div>
+                    {deltaData.map((d: any) => {
+                      function DeltaCell({ value, suffix = "", invert = false }: { value: number | null; suffix?: string; invert?: boolean }) {
+                        if (value == null) return <span className="text-muted-foreground/40 text-xs text-center block">—</span>;
+                        const improved = invert ? value < 0 : value > 0;
+                        const degraded = invert ? value > 0 : value < 0;
+                        const neutral  = Math.abs(value) < 0.5;
+                        return (
+                          <div className={cn("flex items-center justify-center gap-0.5 text-xs font-bold tabular-nums",
+                            neutral  ? "text-muted-foreground"  :
+                            improved ? "text-green-400"          : "text-red-400")}>
+                            {!neutral && (improved
+                              ? <MoveUp className="h-3 w-3" />
+                              : <MoveDown className="h-3 w-3" />)}
+                            {value > 0 ? "+" : ""}{value.toFixed(1)}{suffix}
+                          </div>
+                        );
+                      }
+                      return (
+                        <motion.div
+                          key={d.carrierId}
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="grid grid-cols-[1fr_repeat(4,minmax(80px,auto))] gap-3 items-center px-3 py-2.5 rounded-lg bg-muted/20 hover:bg-muted/30 transition-colors"
+                        >
+                          <div>
+                            <p className="text-sm font-medium truncate">{d.carrierName}</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {d.stability24 != null ? `Now: ${d.stability24.toFixed(0)}` : "—"}
+                              {d.stability168 != null ? ` / 7d avg: ${d.stability168.toFixed(0)}` : ""}
+                            </p>
+                          </div>
+                          <DeltaCell value={d.stabilityDelta} />
+                          <DeltaCell value={d.asrDelta} suffix="%" />
+                          <DeltaCell value={d.pddDelta} suffix="ms" invert />
+                          <DeltaCell value={d.failRateDelta} suffix="%" invert />
+                        </motion.div>
+                      );
+                    })}
+                    <p className="text-[10px] text-muted-foreground/50 text-right pt-1">
+                      Δ = 24h window minus 7d window · green = improvement · red = degradation
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </Card>
 
       {/* Route Decision Trace Table */}

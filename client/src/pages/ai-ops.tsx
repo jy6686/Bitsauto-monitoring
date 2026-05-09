@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, BellOff, Sparkles, GitBranch } from "lucide-react";
+import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, BellOff, Sparkles, GitBranch, Volume2, VolumeX, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { AiCopilot } from "@/components/ai-copilot";
+import { useAudioAlerts } from "@/hooks/use-audio-alerts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -314,8 +316,12 @@ export default function AiOpsPage() {
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────
+  const { enabled: audioEnabled, toggle: toggleAudio, play: playAlert } = useAudioAlerts();
+  const [copilotOpen, setCopilotOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-background">
+      <AiCopilot open={copilotOpen} onClose={() => setCopilotOpen(false)} />
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
 
         {/* Header */}
@@ -330,6 +336,26 @@ export default function AiOpsPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={copilotOpen ? "default" : "outline"}
+              onClick={() => setCopilotOpen(v => !v)}
+              data-testid="button-copilot-toggle"
+              className={cn("gap-1.5", copilotOpen && "bg-violet-600 hover:bg-violet-700 border-violet-600 text-white")}
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              AI Copilot
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={toggleAudio}
+              data-testid="button-audio-toggle"
+              title={audioEnabled ? "Disable audio alerts" : "Enable audio alerts"}
+              className={cn("gap-1.5", audioEnabled && "border-green-500/50 text-green-400 bg-green-500/8")}
+            >
+              {audioEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+            </Button>
             <Button
               size="sm" variant="outline"
               onClick={() => runMutation.mutate()}

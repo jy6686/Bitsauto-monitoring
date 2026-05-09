@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2 } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
@@ -230,10 +230,13 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'AI & Automation',
     roles: ['admin','management'],
     items: [
-      { href: "/ai-ops",               label: "AI Ops Center",        icon: Bot,      roles: ['admin','management'], isNew: true },
-      { href: "/routing-intelligence", label: "Routing Intelligence", icon: Workflow,  roles: ['admin','management'] },
-      { href: "/sip-trace",            label: "SIP Trace Viewer",     icon: GitBranch, roles: ['admin','management'], isNew: true },
-      { href: "/number-intelligence",  label: "Number Intelligence",  icon: ScanSearch,roles: ['admin','management'] },
+      { href: "/ai-ops",               label: "AI Ops Center",        icon: Bot,       roles: ['admin','management'], isNew: true  },
+      { href: "/routing-intelligence", label: "Routing Intelligence", icon: Workflow,   roles: ['admin','management']               },
+      { href: "/sip-trace",            label: "SIP Trace Viewer",     icon: GitBranch,  roles: ['admin','management'], isNew: true  },
+      { href: "/number-intelligence",  label: "Number Intelligence",  icon: ScanSearch, roles: ['admin','management']               },
+      { href: "/replay",               label: "Replay Engine",        icon: Rewind,     roles: ['admin','management'], isNew: true  },
+      { href: "/network-topology",     label: "Network Topology",     icon: Network,    roles: ['admin','management'], isNew: true  },
+      { href: "/noc-command",          label: "NOC Command Center",   icon: Monitor,    roles: ['admin','management'], isNew: true  },
     ],
   },
   {

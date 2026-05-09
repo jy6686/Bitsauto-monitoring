@@ -97,6 +97,9 @@ import CompliancePage from "@/pages/compliance";
 import SmsMonitorPage from "@/pages/sms-monitor";
 import AiOpsPage from "@/pages/ai-ops";
 import RtpAnalyticsPage from "@/pages/rtp-analytics";
+import ReplayEnginePage from "@/pages/replay-engine";
+import NetworkTopologyPage from "@/pages/network-topology";
+import NocCommandPage from "@/pages/noc-command";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -378,6 +381,15 @@ function Router() {
       </Route>
       <Route path="/rtp-analytics">
         {() => <ProtectedRoute component={RtpAnalyticsPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/replay">
+        {() => <ProtectedRoute component={ReplayEnginePage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/network-topology">
+        {() => <ProtectedRoute component={NetworkTopologyPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/noc-command">
+        {() => <ProtectedRoute component={NocCommandPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route component={NotFound} />
     </Switch>

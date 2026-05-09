@@ -14527,6 +14527,38 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/carrier-scores/delta — compare 24h vs 168h per carrier (What Changed?)
+  app.get('/api/carrier-scores/delta', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res) => {
+    try {
+      const all24  = await storage.getCarrierQualityScores(24);
+      const all168 = await storage.getCarrierQualityScores(168);
+      const map168 = new Map(all168.map((s: any) => [s.carrierName, s]));
+      const delta  = all24.map((s: any) => {
+        const h = map168.get(s.carrierName) as any | undefined;
+        return {
+          carrierId:      s.carrierId,
+          carrierName:    s.carrierName,
+          stability24:    s.stabilityScore,
+          stability168:   h?.stabilityScore ?? null,
+          stabilityDelta: h?.stabilityScore != null && s.stabilityScore != null ? s.stabilityScore - h.stabilityScore : null,
+          asr24:          s.rollingAsr,
+          asr168:         h?.rollingAsr ?? null,
+          asrDelta:       h?.rollingAsr != null && s.rollingAsr != null ? s.rollingAsr - h.rollingAsr : null,
+          pdd24:          s.avgPddMs,
+          pdd168:         h?.avgPddMs ?? null,
+          pddDelta:       h?.avgPddMs != null && s.avgPddMs != null ? s.avgPddMs - h.avgPddMs : null,
+          failRate24:     s.failureRate,
+          failRate168:    h?.failureRate ?? null,
+          failRateDelta:  h?.failureRate != null && s.failureRate != null ? s.failureRate - h.failureRate : null,
+          sampleCount24:  s.sampleCount,
+          sampleCount168: h?.sampleCount ?? null,
+          trend:          s.trend,
+        };
+      });
+      res.json(delta);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ─────────────────────────────────────────────────────────────────────────
   // FEATURE GROUP H: Scheduled Reports
   // ─────────────────────────────────────────────────────────────────────────
