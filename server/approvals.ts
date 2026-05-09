@@ -169,25 +169,60 @@ export async function approveRequest(
   if (!allowed) return { success: false, error: reason };
 
   // Execute the operation against Sippy (with hard 8s timeout)
-  let execResult: any;
+  // All results are normalized into a single contract shape before touching the DB.
+  let execResult: {
+    success: boolean;
+    status: 'success' | 'failed';
+    message: string;
+    method: string;
+    durationMs: number;
+    raw: any;
+  };
   let executionFailed = false;
-  let executionError: string | undefined;
+
+  const execStart = Date.now();
 
   try {
-    execResult = await withTimeout(
+    const rawResult = await withTimeout(
       executeApprovedOperation(request),
       EXEC_TIMEOUT_MS,
       request.operationType,
     );
 
-    if (!execResult.success) {
+    const durationMs = Date.now() - execStart;
+
+    if (!rawResult.success) {
       executionFailed = true;
-      executionError = execResult.error ?? execResult.message ?? 'Sippy returned a failure response';
+      const msg = rawResult.error ?? rawResult.message ?? 'Sippy returned a failure response';
+      execResult = {
+        success: false,
+        status: 'failed',
+        message: msg,
+        method: request.operationType,
+        durationMs,
+        raw: rawResult,
+      };
+    } else {
+      execResult = {
+        success: true,
+        status: 'success',
+        message: 'Operation completed successfully',
+        method: request.operationType,
+        durationMs,
+        raw: rawResult,
+      };
     }
   } catch (err: any) {
+    const durationMs = Date.now() - execStart;
     executionFailed = true;
-    executionError = err.message;
-    execResult = { success: false, error: err.message };
+    execResult = {
+      success: false,
+      status: 'failed',
+      message: err.message ?? 'Execution failed',
+      method: request.operationType,
+      durationMs,
+      raw: err instanceof Error ? { name: err.name, message: err.message } : err,
+    };
   }
 
   if (executionFailed) {
@@ -198,7 +233,7 @@ export async function approveRequest(
       reviewedByName: actor.name,
       reviewedAt: new Date(),
       selfApproval: isSelfApproval,
-      execResult: { success: false, error: executionError },
+      execResult,
     });
     await storage.addApprovalAuditEntry({
       requestId,
@@ -206,9 +241,9 @@ export async function approveRequest(
       actorId: actor.id,
       actorName: actor.name ?? null,
       actorRole: actor.role,
-      note: `Execution FAILED: ${executionError}`,
+      note: `Execution FAILED: ${execResult.message}`,
     });
-    return { success: false, error: `Sippy execution failed: ${executionError}` };
+    return { success: false, error: `Sippy execution failed: ${execResult.message}` };
   }
 
   // Mark as approved and store Sippy execution result
