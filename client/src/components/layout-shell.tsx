@@ -1,5 +1,6 @@
 import { Link, useLocation, useSearch } from "wouter";
 import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
@@ -22,9 +23,7 @@ const BITSEYE_FIXED = [
   { view: 'countries',    label: 'Countries',     iconColor: 'text-sky-400'    },
 ] as const;
 
-interface LayoutShellProps {
-  children: React.ReactNode;
-}
+interface LayoutShellProps { children: React.ReactNode; }
 
 const ROLE_BADGE: Record<Role, { label: string; color: string }> = {
   super_admin:  { label: "Super Admin",  color: "text-violet-400 bg-violet-500/10" },
@@ -35,64 +34,50 @@ const ROLE_BADGE: Record<Role, { label: string; color: string }> = {
   viewer:       { label: "Viewer",       color: "text-blue-400 bg-blue-500/10"     },
 };
 
+// ── Sub-item arrays ────────────────────────────────────────────────────────────
+
 const CALLS_SUBITEMS = [
-  { view: 'summary', label: 'Active Call Summary', icon: BarChart3,  iconColor: 'text-violet-400', itemId: 'live_summary'  },
-  { view: 'details', label: 'Active Call Details',  icon: List,       iconColor: 'text-cyan-400',   itemId: 'live_details'  },
-  { view: 'quality', label: 'Quality Monitoring',   icon: HeartPulse, iconColor: 'text-rose-400',   itemId: 'live_quality'  },
-  { view: 'history', label: 'Call History',         icon: History,    iconColor: 'text-amber-400',  itemId: 'call_history'  },
+  { view: 'summary', label: 'Call Summary',    icon: BarChart3,  iconColor: 'text-violet-400', itemId: 'live_summary' },
+  { view: 'details', label: 'Call Details',    icon: List,       iconColor: 'text-cyan-400',   itemId: 'live_details' },
+  { view: 'quality', label: 'Quality Monitor', icon: HeartPulse, iconColor: 'text-rose-400',   itemId: 'live_quality' },
+  { view: 'history', label: 'Call History',    icon: History,    iconColor: 'text-amber-400',  itemId: 'call_history' },
 ] as const;
 
 const CDR_SUBITEMS = [
-  { view: 'client', label: 'Client CDRs',  iconColor: 'text-amber-400' },
-  { view: 'vendor', label: 'Vendor CDRs',  iconColor: 'text-cyan-400'  },
+  { view: 'client', label: 'Client CDRs', iconColor: 'text-amber-400' },
+  { view: 'vendor', label: 'Vendor CDRs', iconColor: 'text-cyan-400'  },
 ] as const;
 
 const MONITORING_SUBITEMS = [
-  { tab: 'reachability',  label: 'Reachability / Outage', icon: Wifi,        iconColor: 'text-emerald-400' },
-  { tab: 'bandwidth',     label: 'Bandwidth (RTP)',        icon: Activity,    iconColor: 'text-cyan-400'    },
-  { tab: 'disk-memory',   label: 'Disk & Memory',         icon: HardDrive,   iconColor: 'text-amber-400'   },
-  { tab: 'carrier-asr',   label: 'Carrier ASR Alerts',    icon: TrendingDown,iconColor: 'text-violet-400'  },
-  { tab: 'alert-rules',   label: 'Email / Webhook Alerts',icon: Bell,        iconColor: 'text-blue-400'    },
-  { tab: 'registrations', label: 'Reg Storm Detection',   icon: Radio,       iconColor: 'text-rose-400'    },
+  { tab: 'reachability',  label: 'Reachability',     icon: Wifi,        iconColor: 'text-emerald-400' },
+  { tab: 'bandwidth',     label: 'Bandwidth (RTP)',  icon: Activity,    iconColor: 'text-cyan-400'    },
+  { tab: 'disk-memory',   label: 'Disk & Memory',    icon: HardDrive,   iconColor: 'text-amber-400'   },
+  { tab: 'carrier-asr',   label: 'Carrier ASR',      icon: TrendingDown,iconColor: 'text-violet-400'  },
+  { tab: 'alert-rules',   label: 'Alert Rules',      icon: Bell,        iconColor: 'text-blue-400'    },
+  { tab: 'registrations', label: 'Reg Storm',        icon: Radio,       iconColor: 'text-rose-400'    },
+] as const;
+
+const ROUTING_MGR_SUBITEMS = [
+  { tab: 'routing-groups',   label: 'Routing Groups',   icon: Database,    iconColor: 'text-violet-400' },
+  { tab: 'destination-sets', label: 'Destination Sets', icon: Layers,      iconColor: 'text-cyan-400'   },
+  { tab: 'connections',      label: 'Connections',      icon: Network,     iconColor: 'text-emerald-400'},
+  { tab: 'on-net',           label: 'On-Net Routing',  icon: Wifi,        iconColor: 'text-blue-400'   },
+  { tab: 'qbr',              label: 'QBR Dashboard',   icon: ShieldCheck, iconColor: 'text-amber-400'  },
+  { tab: 'policy-sim',       label: 'Policy Sim',      icon: Calculator,  iconColor: 'text-rose-400'   },
 ] as const;
 
 const TOOLS_SUBITEMS = [
-  { tab: 'carrier',     label: 'Carrier Quality',   icon: Star,          iconColor: 'text-amber-400'   },
-  { tab: 'capacity',    label: 'SIP Capacity',       icon: Calculator,    iconColor: 'text-cyan-400'    },
-  { tab: 'bandwidth',   label: 'Bandwidth Planner',  icon: Wifi,          iconColor: 'text-emerald-400' },
-  { tab: 'burst',       label: 'Burst Simulator',    icon: Zap,           iconColor: 'text-yellow-400'  },
-  { tab: 'route',       label: 'Route Tester',       icon: Route,         iconColor: 'text-violet-400'  },
-  { tab: 'translation', label: 'Translation Tester', icon: ArrowRightLeft,iconColor: 'text-blue-400'    },
+  { tab: 'carrier',     label: 'Carrier Quality',  icon: Star,          iconColor: 'text-amber-400'  },
+  { tab: 'capacity',    label: 'SIP Capacity',     icon: Calculator,    iconColor: 'text-cyan-400'   },
+  { tab: 'bandwidth',   label: 'Bandwidth Plan',   icon: Wifi,          iconColor: 'text-emerald-400'},
+  { tab: 'burst',       label: 'Burst Simulator',  icon: Zap,           iconColor: 'text-yellow-400' },
+  { tab: 'route',       label: 'Route Tester',     icon: Route,         iconColor: 'text-violet-400' },
+  { tab: 'translation', label: 'Translation',      icon: ArrowRightLeft,iconColor: 'text-blue-400'   },
 ] as const;
 
-const ITEM_NAV_MAP: Record<string, string> = {
-  live_summary:      '/calls',
-  live_details:      '/calls',
-  live_quality:      '/calls',
-  call_history:      '/calls',
-  balance_monitor:   '/balance',
-  alerts:            '/alerts',
-  fraud_fas:         '/fraud',
-  traffic_map:       '/traffic-map',
-  graphs:            '/graphs',
-  bitseye:           '/bitseye',
-  server_monitoring: '/server-monitoring',
-  cdr_viewer:        '/cdrs',
-  reports:           '/reports',
-  route_quality:     '/reports',
-  did_management:    '/dids',
-};
+// ── Types ──────────────────────────────────────────────────────────────────────
 
-// Reverse map: route path → MGMT_CONFIGURABLE_FEATURES key
-const MGMT_ROUTE_TO_KEY: Record<string, string> = Object.fromEntries(
-  MGMT_CONFIGURABLE_FEATURES.map(f => [f.route, f.key])
-);
-
-const SIDEBAR_KEY       = 'voip-sidebar-collapsed';
-const GROUPS_LS_KEY     = 'voip-sidebar-groups';
-const GROUPS_ORDER_KEY  = 'voip-sidebar-group-order';
-
-type SubmenuType = 'calls' | 'bitseye' | 'cdr' | 'monitoring' | 'ratecards' | 'settings' | 'tools';
+type SubmenuType = 'calls' | 'bitseye' | 'cdr' | 'monitoring' | 'ratecards' | 'settings' | 'tools' | 'routingmgr';
 
 interface NavItem {
   href: string;
@@ -111,9 +96,11 @@ interface NavGroup {
   items: NavItem[];
 }
 
+// ── Navigation structure — 6 groups ───────────────────────────────────────────
+
 const NAV_PINNED_TOP: NavItem[] = [
-  { href: "/",      label: "Dashboard",  icon: LayoutDashboard, roles: ['admin','management','viewer'] },
-  { href: "/chat",  label: "Team Chat",  icon: MessageSquare,   roles: ['admin','management','viewer'] },
+  { href: "/",     label: "Dashboard", icon: LayoutDashboard, roles: ['admin','management','viewer'] },
+  { href: "/chat", label: "Team Chat", icon: MessageSquare,   roles: ['admin','management','viewer'] },
 ];
 
 const NAV_PINNED_BOTTOM: NavItem[] = [
@@ -121,240 +108,220 @@ const NAV_PINNED_BOTTOM: NavItem[] = [
 ];
 
 const SIDEBAR_GROUPS: NavGroup[] = [
+  // ─── 1. Live Operations ──────────────────────────────────────────────────────
   {
-    key: 'monitoring',
-    label: 'Monitoring',
+    key: 'live_ops',
+    label: 'Live Operations',
     roles: ['admin','management','viewer'],
     items: [
-      { href: "/calls",             label: "Live Calls",        icon: Phone,     roles: ['admin','management','viewer'], hasSubmenu: 'calls'      },
-      { href: "/alerts",            label: "Alerts",            icon: Bell,      roles: ['admin','management']                                    },
-      { href: "/server-monitoring", label: "Server Monitoring", icon: Server,    roles: ['admin','management'],          hasSubmenu: 'monitoring' },
-      { href: "/sbc-monitor",       label: "SBC Monitor",       icon: Network,   roles: ['admin','management']                                    },
-      { href: "/rtp-analytics",     label: "RTP Analytics",     icon: Radio,     roles: ['admin','management']                                    },
+      { href: "/calls",         label: "Live Calls",         icon: Phone,    roles: ['admin','management','viewer'], hasSubmenu: 'calls', status: 'live' },
+      { href: "/alerts",        label: "Alerts",             icon: Bell,     roles: ['admin','management']          },
+      { href: "/sbc-monitor",   label: "SBC Monitor",        icon: Network,  roles: ['admin','management']          },
+      { href: "/ai-ops",        label: "AI Ops Center",      icon: Bot,      roles: ['admin','management'], isNew: true },
+      { href: "/noc-command",   label: "NOC Command Center", icon: Monitor,  roles: ['admin','management'], isNew: true },
+      { href: "/multi-switch",  label: "Multi-Switch View",  icon: Layers,   roles: ['admin','management']          },
     ],
   },
-  {
-    key: 'operations',
-    label: 'Operations',
-    roles: ['admin','management'],
-    items: [
-      { href: "/dids",           label: "DID Management",    icon: PhoneIncoming, roles: ['admin','management'] },
-      { href: "/traffic-map",    label: "Traffic Map",       icon: Globe,         roles: ['admin','management'] },
-      { href: "/multi-switch",   label: "Multi-Switch View", icon: Layers,        roles: ['admin','management'] },
-      { href: "/test-call",      label: "Test Call",         icon: PhoneCall,     roles: ['admin','management'] },
-      { href: "/test-campaigns", label: "Test Campaigns",    icon: FlaskConical,  roles: ['admin','management'] },
-    ],
-  },
+  // ─── 2. Routing & LCR ────────────────────────────────────────────────────────
   {
     key: 'routing',
-    label: 'Routing',
+    label: 'Routing & LCR',
     roles: ['admin','management'],
     items: [
-      { href: "/approvals",                              label: "Approval Queue",          icon: ShieldCheck,   roles: ['admin','management','super_admin','noc_operator','team_lead'], status: 'live' },
-      { href: "/lcr-analyser",                          label: "LCR Analyser",            icon: GitBranch,     roles: ['admin','management']                    },
-      { href: "/call-flow-simulator",                   label: "Call Flow Simulator",     icon: Workflow,      roles: ['admin','management']                    },
-      // ── 9 tracked routing features ────────────────────────────────────────────
-      { href: "/routing-manager?tab=routing-groups",   label: "Routing Group Manager",   icon: Database,      roles: ['admin','management'], status: 'live'     },
-      { href: "/routing-manager?tab=destination-sets", label: "Destination Set Explorer",icon: Layers,        roles: ['admin','management'], status: 'live'     },
-      { href: "/routing-manager?tab=qbr",              label: "QBR Dashboard",           icon: ShieldCheck,   roles: ['admin','management'] },
-      { href: "/call-flow-simulator",                  label: "Routing Audit Trail",     icon: History,       roles: ['admin','management'], status: 'live'     },
-      { href: "/routing-manager?tab=connections",      label: "Connection Coverage Map", icon: Network,       roles: ['admin','management'] },
-      { href: "/rate-cards",                           label: "Bulk Rate / Route Upload",icon: Upload,        roles: ['admin','management']  },
-      { href: "/routing-manager?tab=on-net",           label: "On-Net Routing Viewer",   icon: Wifi,          roles: ['admin','management']                    },
-      { href: "/routing-manager?tab=policy-sim",       label: "Routing Policy Simulator",icon: Calculator,    roles: ['admin','management']                    },
-      { href: "/tools?tab=coverage",                   label: "Prefix Coverage Checker", icon: Search,        roles: ['admin','management']                    },
-      { href: "/tools?tab=route",                      label: "Route Tester",            icon: Route,         roles: ['admin','management']                    },
-      { href: "/tools?tab=translation",                label: "Translation Tester",      icon: ArrowRightLeft,roles: ['admin','management']                    },
+      { href: "/routing-manager",     label: "Routing Manager",     icon: Database,    roles: ['admin','management'], hasSubmenu: 'routingmgr' },
+      { href: "/lcr-analyser",        label: "LCR Analyser",        icon: GitBranch,   roles: ['admin','management']                           },
+      { href: "/approvals",           label: "Approval Queue",      icon: ShieldCheck, roles: ['admin','management','super_admin','noc_operator','team_lead'], status: 'live' },
+      { href: "/replay",              label: "Replay Engine",       icon: Rewind,      roles: ['admin','management'], isNew: true              },
+      { href: "/traffic-map",         label: "Traffic Map",         icon: Globe,       roles: ['admin','management']                           },
+      { href: "/call-flow-simulator", label: "Call Flow Simulator", icon: Workflow,    roles: ['admin','management']                           },
     ],
   },
+  // ─── 3. Analytics ────────────────────────────────────────────────────────────
   {
     key: 'analytics',
-    label: 'Analytics & Reports',
+    label: 'Analytics',
     roles: ['admin','management'],
     items: [
-      { href: "/graphs",      label: "Graphs",            icon: LineChart,  roles: ['admin','management']                        },
-      { href: "/bitseye",     label: "BitsEye",           icon: Eye,        roles: ['admin','management'], hasSubmenu: 'bitseye' },
-      { href: "/reports",     label: "Reports",           icon: BarChart2,  roles: ['admin','management']                        },
-      { href: "/cdrs",        label: "CDR Viewer",        icon: FileText,   roles: ['admin','management'], hasSubmenu: 'cdr'     },
-      { href: "/analytics",   label: "Revenue Analytics", icon: TrendingUp, roles: ['admin','management']                        },
-      { href: "/qos-heatmap", label: "QoS Heatmap",       icon: Activity,   roles: ['admin','management']                        },
+      { href: "/bitseye",     label: "BitsEye",           icon: Eye,       roles: ['admin','management'], hasSubmenu: 'bitseye' },
+      { href: "/analytics",   label: "Revenue Analytics", icon: TrendingUp,roles: ['admin','management']                        },
+      { href: "/cdrs",        label: "CDR Viewer",        icon: FileText,  roles: ['admin','management'], hasSubmenu: 'cdr'     },
+      { href: "/graphs",      label: "Graphs",            icon: LineChart, roles: ['admin','management']                        },
+      { href: "/reports",     label: "Reports",           icon: BarChart2, roles: ['admin','management']                        },
+      { href: "/qos-heatmap", label: "QoS Heatmap",       icon: Activity,  roles: ['admin','management']                        },
     ],
   },
+  // ─── 4. Intelligence ─────────────────────────────────────────────────────────
   {
-    key: 'products',
-    label: 'Products',
+    key: 'intelligence',
+    label: 'Intelligence',
     roles: ['admin','management'],
     items: [
-      { href: "/products", label: "Product Classification", icon: Package, roles: ['admin','management'] },
+      { href: "/sip-trace",            label: "SIP Trace Viewer",    icon: GitBranch,  roles: ['admin','management'], isNew: true              },
+      { href: "/carrier-scoring",      label: "Carrier Scoring",     icon: BarChart3,  roles: ['admin','management'], isNew: true              },
+      { href: "/network-topology",     label: "Network Topology",    icon: Network,    roles: ['admin','management'], isNew: true              },
+      { href: "/rtp-analytics",        label: "RTP Analytics",       icon: Radio,      roles: ['admin','management']                           },
+      { href: "/number-intelligence",  label: "Number Intelligence", icon: ScanSearch, roles: ['admin','management']                           },
+      { href: "/routing-intelligence", label: "Routing Intelligence",icon: Workflow,   roles: ['admin','management']                           },
+      { href: "/server-monitoring",    label: "Server Monitoring",   icon: Server,     roles: ['admin','management'], hasSubmenu: 'monitoring' },
     ],
   },
+  // ─── 5. Security & Finance ───────────────────────────────────────────────────
   {
-    key: 'finance',
-    label: 'Finance',
+    key: 'security_finance',
+    label: 'Security & Finance',
     roles: ['admin','management'],
     items: [
-      { href: "/balance",           label: "Balance Monitor",   icon: Wallet,    roles: ['admin','management']                          },
-      { href: "/rate-cards",        label: "Rate Cards",        icon: CreditCard,roles: ['admin','management'], hasSubmenu: 'ratecards' },
-      { href: "/cost-optimisation", label: "Cost Optimisation", icon: Lightbulb, roles: ['admin','management']                          },
-      { href: "/billing-disputes",  label: "Billing Disputes",  icon: FileText,  roles: ['admin','management']                          },
+      { href: "/fraud",                label: "Fraud / FAS",         icon: ShieldAlert, roles: ['admin','management'] },
+      { href: "/vendor-sla-scorecard", label: "Vendor SLA",          icon: ShieldCheck, roles: ['admin','management'] },
+      { href: "/sla-breaches",         label: "SLA Breaches",        icon: Bell,        roles: ['admin','management'] },
+      { href: "/firewall",             label: "Firewall Manager",    icon: Shield,      roles: ['admin','management'] },
+      { href: "/compliance",           label: "Compliance",          icon: FileCheck2,  roles: ['admin','management'] },
+      { href: "/balance",              label: "Balance Monitor",     icon: Wallet,      roles: ['admin','management'] },
+      { href: "/cost-optimisation",    label: "Cost Optimisation",   icon: Lightbulb,   roles: ['admin','management'] },
+      { href: "/billing-disputes",     label: "Billing Disputes",    icon: FileText,    roles: ['admin','management'] },
     ],
   },
+  // ─── 6. Platform (collapsed by default) ──────────────────────────────────────
   {
-    key: 'security',
-    label: 'Security & Fraud',
+    key: 'platform',
+    label: 'Platform',
     roles: ['admin','management'],
     items: [
-      { href: "/fraud",                label: "Fraud / FAS",  icon: ShieldAlert, roles: ['admin','management'] },
-      { href: "/vendor-sla-scorecard", label: "Vendor SLA",   icon: ShieldCheck, roles: ['admin','management'] },
-      { href: "/carrier-scoring",      label: "Carrier Scoring", icon: BarChart3, roles: ['admin','management'], isNew: true },
-      { href: "/sla-breaches",         label: "SLA Breaches", icon: Bell,        roles: ['admin','management'] },
-      { href: "/firewall",             label: "Firewall Mgr", icon: Shield,      roles: ['admin','management'] },
-      { href: "/compliance",           label: "Compliance",   icon: FileCheck2,  roles: ['admin','management'] },
-    ],
-  },
-  {
-    key: 'clients_vendors',
-    label: 'Client & Vendor',
-    roles: ['admin','management'],
-    items: [
-      { href: "/vendors",           label: "Vendor Connections", icon: Building2,    roles: ['admin','management'], status: 'live' },
-      { href: "/clients",           label: "Client / Vendor",    icon: Users,        roles: ['admin','management'] },
-      { href: "/company-profile",   label: "Rateplan",           icon: ContactRound, roles: ['admin','management'] },
-      { href: "/tools",             label: "Tools",              icon: Wrench,       roles: ['admin','management'], hasSubmenu: 'tools' as SubmenuType },
-      { href: "/client-portal",     label: "Client Portal",      icon: Globe,        roles: ['admin','management'] },
-      { href: "/reseller",          label: "Reseller Mgmt",      icon: Layers,       roles: ['admin','management'] },
-    ],
-  },
-  {
-    key: 'ai_automation',
-    label: 'AI & Automation',
-    roles: ['admin','management'],
-    items: [
-      { href: "/ai-ops",               label: "AI Ops Center",        icon: Bot,       roles: ['admin','management'], isNew: true  },
-      { href: "/routing-intelligence", label: "Routing Intelligence", icon: Workflow,   roles: ['admin','management']               },
-      { href: "/sip-trace",            label: "SIP Trace Viewer",     icon: GitBranch,  roles: ['admin','management'], isNew: true  },
-      { href: "/number-intelligence",  label: "Number Intelligence",  icon: ScanSearch, roles: ['admin','management']               },
-      { href: "/replay",               label: "Replay Engine",        icon: Rewind,     roles: ['admin','management'], isNew: true  },
-      { href: "/network-topology",     label: "Network Topology",     icon: Network,    roles: ['admin','management'], isNew: true  },
-      { href: "/noc-command",          label: "NOC Command Center",   icon: Monitor,    roles: ['admin','management'], isNew: true  },
-    ],
-  },
-  {
-    key: 'communications',
-    label: 'Communications',
-    roles: ['admin','management'],
-    items: [
-      { href: "/sms-monitor", label: "SMS / A2P Monitor", icon: MessageCircle, roles: ['admin','management'], status: 'planned' },
-    ],
-  },
-  {
-    key: 'admin',
-    label: 'Administration',
-    roles: ['admin'],
-    items: [
-      { href: "/settings",          label: "Settings",          icon: Settings,      roles: ['admin'], hasSubmenu: 'settings' },
-      { href: "/whatsapp-alerts",   label: "WhatsApp Alerts",   icon: MessageSquare, roles: ['admin']                        },
-      { href: "/team",              label: "Team & KAM",        icon: Users,         roles: ['admin']                        },
-      { href: "/approval-settings", label: "Approval Settings", icon: ShieldCheck,   roles: ['admin', 'super_admin'], status: 'live' },
-      { href: "/account-names",     label: "Account Names",     icon: Building2,     roles: ['admin']                        },
-      { href: "/api-keys",          label: "API Keys",          icon: Key,           roles: ['admin']                        },
-      { href: "/vpn-config",        label: "VPN Config",        icon: Lock,          roles: ['admin']                        },
-      { href: "/email-centre",      label: "Email Centre",      icon: Mail,          roles: ['admin']                        },
+      { href: "/settings",          label: "Settings",           icon: Settings,      roles: ['admin'],                                       hasSubmenu: 'settings' },
+      { href: "/team",              label: "Team & KAM",         icon: Users,         roles: ['admin']                                                               },
+      { href: "/vendors",           label: "Vendor Connections", icon: Building2,     roles: ['admin','management']                                                  },
+      { href: "/clients",           label: "Clients / Vendors",  icon: Users,         roles: ['admin','management']                                                  },
+      { href: "/dids",              label: "DID Management",     icon: PhoneIncoming, roles: ['admin','management']                                                  },
+      { href: "/rate-cards",        label: "Rate Cards",         icon: CreditCard,    roles: ['admin','management'],                          hasSubmenu: 'ratecards'},
+      { href: "/products",          label: "Products",           icon: Package,       roles: ['admin','management']                                                  },
+      { href: "/company-profile",   label: "Rateplan",           icon: ContactRound,  roles: ['admin','management']                                                  },
+      { href: "/client-portal",     label: "Client Portal",      icon: Globe,         roles: ['admin','management']                                                  },
+      { href: "/reseller",          label: "Reseller Mgmt",      icon: Layers,        roles: ['admin','management']                                                  },
+      { href: "/account-names",     label: "Account Names",      icon: Building2,     roles: ['admin']                                                               },
+      { href: "/api-keys",          label: "API Keys",           icon: Key,           roles: ['admin']                                                               },
+      { href: "/vpn-config",        label: "VPN Config",         icon: Lock,          roles: ['admin']                                                               },
+      { href: "/email-centre",      label: "Email Centre",       icon: Mail,          roles: ['admin']                                                               },
+      { href: "/whatsapp-alerts",   label: "WhatsApp Alerts",    icon: MessageSquare, roles: ['admin']                                                               },
+      { href: "/approval-settings", label: "Approval Settings",  icon: ShieldCheck,   roles: ['admin','super_admin'],                         status: 'live'         },
+      { href: "/test-call",         label: "Test Call",          icon: PhoneCall,     roles: ['admin','management']                                                  },
+      { href: "/test-campaigns",    label: "Test Campaigns",     icon: FlaskConical,  roles: ['admin','management']                                                  },
+      { href: "/tools",             label: "Tools",              icon: Wrench,        roles: ['admin','management'],                          hasSubmenu: 'tools' as SubmenuType },
+      { href: "/sms-monitor",       label: "SMS / A2P",          icon: MessageCircle, roles: ['admin','management'],                          status: 'planned'      },
     ],
   },
 ];
 
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const ITEM_NAV_MAP: Record<string, string> = {
+  live_summary: '/calls', live_details: '/calls', live_quality: '/calls', call_history: '/calls',
+  balance_monitor: '/balance', alerts: '/alerts', fraud_fas: '/fraud',
+  traffic_map: '/traffic-map', graphs: '/graphs', bitseye: '/bitseye',
+  server_monitoring: '/server-monitoring', cdr_viewer: '/cdrs',
+  reports: '/reports', route_quality: '/reports', did_management: '/dids',
+};
+
+const MGMT_ROUTE_TO_KEY: Record<string, string> = Object.fromEntries(
+  MGMT_CONFIGURABLE_FEATURES.map(f => [f.route, f.key])
+);
+
+const SIDEBAR_KEY      = 'voip-sidebar-collapsed';
+const GROUPS_LS_KEY    = 'voip-sidebar-groups';
+const GROUPS_ORDER_KEY = 'voip-sidebar-group-order';
 const DEFAULT_GROUP_ORDER = SIDEBAR_GROUPS.map(g => g.key);
 
+// ── Icon accent per group ──────────────────────────────────────────────────────
+const GROUP_TINT: Record<string, string> = {
+  live_ops:         'text-emerald-400',
+  routing:          'text-blue-400',
+  analytics:        'text-violet-400',
+  intelligence:     'text-cyan-400',
+  security_finance: 'text-rose-400',
+  platform:         'text-slate-400',
+};
+
+// ── Spring animation for accordion panels ─────────────────────────────────────
+const PANEL = {
+  open:   { height: 'auto', opacity: 1,  transition: { type: 'spring' as const, stiffness: 420, damping: 36, mass: 0.7 } },
+  closed: { height: 0,      opacity: 0,  transition: { type: 'spring' as const, stiffness: 420, damping: 36, mass: 0.7 } },
+};
+
+// ── Component ──────────────────────────────────────────────────────────────────
+
 export function LayoutShell({ children }: LayoutShellProps) {
-  const [location] = useLocation();
-  const search = useSearch();
-  const { user, logout, role, isAdmin, isManagement } = useAuth();
+  const [location]  = useLocation();
+  const search      = useSearch();
+  const { user, logout, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const orgScope = useOrgScope();
+  useOrgScope();
+
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem(SIDEBAR_KEY) === 'true'; } catch { return false; }
   });
 
+  // Platform collapsed by default
   const [groupsExpanded, setGroupsExpanded] = useState<Record<string, boolean>>(() => {
     try {
-      const stored = localStorage.getItem(GROUPS_LS_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch { /* ignore */ }
-    return {};
+      const s = localStorage.getItem(GROUPS_LS_KEY);
+      if (s) return JSON.parse(s);
+    } catch { /* */ }
+    return { platform: false };
   });
 
   const [groupOrder, setGroupOrder] = useState<string[]>(() => {
     try {
-      const stored = localStorage.getItem(GROUPS_ORDER_KEY);
-      if (stored) {
-        const parsed: string[] = JSON.parse(stored);
-        // Merge: keep stored order, append any new groups not yet in storage
-        const known = new Set(parsed);
-        const merged = [...parsed.filter(k => DEFAULT_GROUP_ORDER.includes(k)),
-                        ...DEFAULT_GROUP_ORDER.filter(k => !known.has(k))];
-        return merged;
+      const s = localStorage.getItem(GROUPS_ORDER_KEY);
+      if (s) {
+        const p: string[] = JSON.parse(s);
+        const known = new Set(p);
+        return [...p.filter(k => DEFAULT_GROUP_ORDER.includes(k)), ...DEFAULT_GROUP_ORDER.filter(k => !known.has(k))];
       }
-    } catch { /* ignore */ }
+    } catch { /* */ }
     return DEFAULT_GROUP_ORDER;
   });
 
-  const dragSrcKey = useRef<string | null>(null);
+  const dragSrcKey  = useRef<string | null>(null);
   const dragOverKey = useRef<string | null>(null);
 
   function handleDragStart(key: string) { dragSrcKey.current = key; }
-  function handleDragOver(e: React.DragEvent, key: string) {
-    e.preventDefault();
-    dragOverKey.current = key;
-  }
+  function handleDragOver(e: React.DragEvent, key: string) { e.preventDefault(); dragOverKey.current = key; }
   function handleDrop(e: React.DragEvent, key: string) {
     e.preventDefault();
     const src = dragSrcKey.current;
     if (!src || src === key) return;
     setGroupOrder(prev => {
       const arr = [...prev];
-      const fromIdx = arr.indexOf(src);
-      const toIdx   = arr.indexOf(key);
-      if (fromIdx === -1 || toIdx === -1) return prev;
-      arr.splice(fromIdx, 1);
-      arr.splice(toIdx, 0, src);
+      const fi = arr.indexOf(src), ti = arr.indexOf(key);
+      if (fi === -1 || ti === -1) return prev;
+      arr.splice(fi, 1); arr.splice(ti, 0, src);
       return arr;
     });
-    dragSrcKey.current  = null;
-    dragOverKey.current = null;
+    dragSrcKey.current = dragOverKey.current = null;
   }
   function resetGroupOrder() { setGroupOrder(DEFAULT_GROUP_ORDER); }
   const isOrderCustomized = groupOrder.join(',') !== DEFAULT_GROUP_ORDER.join(',');
+  const orderedGroups = groupOrder.map(k => SIDEBAR_GROUPS.find(g => g.key === k)).filter((g): g is NavGroup => !!g);
 
-  const orderedGroups = groupOrder
-    .map(key => SIDEBAR_GROUPS.find(g => g.key === key))
-    .filter((g): g is NavGroup => !!g);
+  useEffect(() => { try { localStorage.setItem(SIDEBAR_KEY, String(collapsed)); } catch { /* */ } }, [collapsed]);
+  useEffect(() => { try { localStorage.setItem(GROUPS_LS_KEY, JSON.stringify(groupsExpanded)); } catch { /* */ } }, [groupsExpanded]);
+  useEffect(() => { try { localStorage.setItem(GROUPS_ORDER_KEY, JSON.stringify(groupOrder)); } catch { /* */ } }, [groupOrder]);
 
-  useEffect(() => {
-    try { localStorage.setItem(SIDEBAR_KEY, String(collapsed)); } catch { /* ignore */ }
-  }, [collapsed]);
+  const isGroupOpen = (key: string) => groupsExpanded[key] !== false;
+  const toggleGroup = (key: string) => setGroupsExpanded(prev => ({ ...prev, [key]: !isGroupOpen(key) }));
 
-  useEffect(() => {
-    try { localStorage.setItem(GROUPS_LS_KEY, JSON.stringify(groupsExpanded)); } catch { /* ignore */ }
-  }, [groupsExpanded]);
+  // ── Active route helpers ──────────────────────────────────────────────────────
+  const isCallsActive       = location.startsWith('/calls');
+  const isMonitoringActive  = location.startsWith('/server-monitoring');
+  const isBitseyeActive     = location.startsWith('/bitseye');
+  const isCdrActive         = location.startsWith('/cdrs');
+  const isSettingsActive    = location.startsWith('/settings');
+  const isRateCardsActive   = location.startsWith('/rate-cards');
+  const isToolsActive       = location.startsWith('/tools');
+  const isRoutingMgrActive  = location.startsWith('/routing-manager');
 
-  useEffect(() => {
-    try { localStorage.setItem(GROUPS_ORDER_KEY, JSON.stringify(groupOrder)); } catch { /* ignore */ }
-  }, [groupOrder]);
-
-  const isGroupOpen  = (key: string) => groupsExpanded[key] !== false;
-  const toggleGroup  = (key: string) => setGroupsExpanded(prev => ({ ...prev, [key]: !isGroupOpen(key) }));
-
-  const isCallsActive        = location.startsWith('/calls');
-  const isMonitoringActive   = location.startsWith('/server-monitoring');
-  const isBitseyeActive      = location.startsWith('/bitseye');
-  const isCdrActive          = location.startsWith('/cdrs');
-  const isSettingsActive     = location.startsWith('/settings');
-  const isRateCardsActive    = location.startsWith('/rate-cards');
-  const isToolsActive        = location.startsWith('/tools');
-
+  // ── Submenu expand states ─────────────────────────────────────────────────────
   const [callsExpanded,      setCallsExpanded]      = useState(isCallsActive);
   const [monitoringExpanded, setMonitoringExpanded] = useState(isMonitoringActive);
   const [bitseyeExpanded,    setBitseyeExpanded]    = useState(isBitseyeActive);
@@ -362,6 +329,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const [settingsExpanded,   setSettingsExpanded]   = useState(isSettingsActive);
   const [rateCardsExpanded,  setRateCardsExpanded]  = useState(isRateCardsActive);
   const [toolsExpanded,      setToolsExpanded]      = useState(isToolsActive);
+  const [routingMgrExpanded, setRoutingMgrExpanded] = useState(isRoutingMgrActive);
 
   useEffect(() => { if (isCallsActive)      setCallsExpanded(true);      }, [isCallsActive]);
   useEffect(() => { if (isMonitoringActive) setMonitoringExpanded(true);  }, [isMonitoringActive]);
@@ -370,19 +338,19 @@ export function LayoutShell({ children }: LayoutShellProps) {
   useEffect(() => { if (isSettingsActive)   setSettingsExpanded(true);    }, [isSettingsActive]);
   useEffect(() => { if (isRateCardsActive)  setRateCardsExpanded(true);   }, [isRateCardsActive]);
   useEffect(() => { if (isToolsActive)      setToolsExpanded(true);       }, [isToolsActive]);
+  useEffect(() => { if (isRoutingMgrActive) setRoutingMgrExpanded(true);  }, [isRoutingMgrActive]);
 
+  // ── Data queries ──────────────────────────────────────────────────────────────
   const { data: kamList = [] } = useQuery<Kam[]>({
     queryKey: ['/api/kam'],
     enabled: (role === 'admin' || role === 'management') && bitseyeExpanded,
     staleTime: 120_000,
   });
-
-  const { data: viewerKamData } = useQuery<{ kamId: number | null; kamName: string | null; accountIds: string[]; clientNames: string[] }>({
+  const { data: viewerKamData } = useQuery<{ kamId: number|null; kamName: string|null; accountIds: string[]; clientNames: string[] }>({
     queryKey: ['/api/user/assigned-accounts'],
     enabled: role === 'viewer' && bitseyeExpanded,
     staleTime: 60_000,
   });
-
   const { data: viewerAssignmentsData } = useQuery<{ items: string[] }>({
     queryKey: ['/api/user/monitoring-assignments'],
     enabled: role === 'viewer',
@@ -393,33 +361,50 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const { data: pendingCountData } = useQuery<{ count: number }>({
     queryKey: ['/api/approvals/pending-count'],
     enabled: role === 'admin' || role === 'management' || role === 'super_admin' || role === 'team_lead',
-    refetchInterval: 30_000,
-    staleTime: 15_000,
+    refetchInterval: 30_000, staleTime: 15_000,
   });
   const pendingApprovalCount = pendingCountData?.count ?? 0;
 
-  // Management: fetch which features have been enabled for the management role
   const { data: mgmtPermsData } = useQuery<{ enabledFeatures: string[] }>({
     queryKey: ['/api/settings/mgmt-permissions'],
     enabled: role === 'management',
     staleTime: 60_000,
   });
-  // null = still loading (show all); Set = loaded (filter by enabled)
-  const mgmtEnabledFeatures: Set<string> | null = mgmtPermsData
-    ? new Set(mgmtPermsData.enabledFeatures ?? [])
-    : null;
+  const mgmtEnabledFeatures: Set<string> | null = mgmtPermsData ? new Set(mgmtPermsData.enabledFeatures ?? []) : null;
 
+  // ── KPI strip data ────────────────────────────────────────────────────────────
+  const { data: liveCallsRaw } = useQuery<any>({
+    queryKey: ['/api/sippy/live-calls'],
+    refetchInterval: 30_000, staleTime: 15_000,
+    enabled: role !== 'viewer',
+  });
+  const { data: incidentsRaw } = useQuery<any[]>({
+    queryKey: ['/api/ai/incidents'],
+    refetchInterval: 60_000, staleTime: 30_000,
+    enabled: role !== 'viewer',
+  });
+  const { data: carrierScoresRaw } = useQuery<any[]>({
+    queryKey: ['/api/carrier-scores'],
+    refetchInterval: 120_000, staleTime: 60_000,
+    enabled: role !== 'viewer',
+  });
+
+  const liveCallCount   = Array.isArray(liveCallsRaw) ? liveCallsRaw.length : (liveCallsRaw?.calls?.length ?? liveCallsRaw?.count ?? 0);
+  const activeIncidents = Array.isArray(incidentsRaw) ? incidentsRaw.filter((i: any) => i.status === 'active' || !i.resolvedAt).length : 0;
+  const avgAsr = Array.isArray(carrierScoresRaw) && carrierScoresRaw.length > 0
+    ? carrierScoresRaw.reduce((s: number, c: any) => s + (c.rollingAsr ?? 0), 0) / carrierScoresRaw.length : null;
+  const hasDegradedCarrier = Array.isArray(carrierScoresRaw) && carrierScoresRaw.some((c: any) => (c.stabilityScore ?? 100) < 45);
+
+  // ── Visibility gate ───────────────────────────────────────────────────────────
   const VIEWER_ALWAYS_SHOW = new Set(['/', '/account', '/chat']);
-
   const isItemVisible = (item: NavItem): boolean => {
     if (role === 'viewer') {
       if (VIEWER_ALWAYS_SHOW.has(item.href)) return true;
       return [...assignedItemSet].some(id => ITEM_NAV_MAP[id] === item.href);
     }
     if (!item.roles.includes(role)) return false;
-    // Management: additionally gate by mgmtFeaturePermissions
     if (role === 'management' && mgmtEnabledFeatures !== null) {
-      const routeBase = item.href.split('?')[0]; // strip query params
+      const routeBase = item.href.split('?')[0];
       const featureKey = MGMT_ROUTE_TO_KEY[routeBase];
       if (featureKey && !mgmtEnabledFeatures.has(featureKey)) return false;
     }
@@ -430,31 +415,10 @@ export function LayoutShell({ children }: LayoutShellProps) {
     ? CALLS_SUBITEMS.filter(sub => assignedItemSet.has(sub.itemId))
     : CALLS_SUBITEMS;
 
-  const badge = ROLE_BADGE[role];
+  const badge       = ROLE_BADGE[role];
+  const currentView = isCallsActive ? (new URLSearchParams(search).get('view') ?? 'summary') : null;
 
-  const currentView = isCallsActive
-    ? (new URLSearchParams(search).get('view') ?? 'summary')
-    : null;
-
-  const navItemClass = (isActive: boolean) => cn(
-    "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group",
-    collapsed && "justify-center px-0",
-    isActive
-      ? "bg-primary text-primary-foreground shadow-md shadow-primary/10"
-      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-  );
-
-  const navIconClass = (isActive: boolean) => cn(
-    "h-4 w-4 transition-colors flex-shrink-0",
-    isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground"
-  );
-
-  const subItemClass = (isActive: boolean) => cn(
-    "flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
-    isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-  );
-
-  // Compute active state for a nav item — supports ?param=value matching
+  // ── Active route check ────────────────────────────────────────────────────────
   const isNavItemActive = (href: string): boolean => {
     if (href === '/') return location === '/';
     const [hrefPath, hrefQuery] = href.split('?');
@@ -465,665 +429,614 @@ export function LayoutShell({ children }: LayoutShellProps) {
     return [...hrefParams.entries()].every(([k, v]) => curParams.get(k) === v);
   };
 
-  // Render a single nav item with any applicable submenu (desktop expanded mode)
-  const renderNavItem = (item: NavItem) => {
-    const isActive = isNavItemActive(item.href);
+  // ── Style helpers ─────────────────────────────────────────────────────────────
+  const navItemCls = (active: boolean) => cn(
+    "relative w-full flex items-center gap-2.5 px-3 py-[7px] rounded-lg text-[13px] font-medium transition-all duration-150 group select-none",
+    active ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/[0.05]"
+  );
+  const navIconCls = (active: boolean, groupKey?: string) => cn(
+    "h-[15px] w-[15px] flex-shrink-0 transition-colors",
+    active ? (groupKey ? GROUP_TINT[groupKey] : 'text-primary') : "text-muted-foreground/55 group-hover:text-muted-foreground"
+  );
+  const subItemCls = (active: boolean) => cn(
+    "flex items-center gap-2 px-2.5 py-[5px] rounded-md text-[12px] font-medium transition-all duration-100",
+    active ? "bg-white/[0.08] text-foreground" : "text-muted-foreground/65 hover:text-foreground hover:bg-white/[0.04]"
+  );
 
-    /* ── Live Calls submenu ── */
+  // Gradient left accent bar on active items
+  const ActiveBar = () => (
+    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[65%] rounded-r-full bg-gradient-to-b from-violet-400 via-indigo-500 to-blue-500 opacity-90" />
+  );
+
+  // Pulse dot (green/amber/red)
+  const PulseDot = ({ color }: { color: 'green'|'amber'|'red' }) => (
+    <span className="relative flex h-2 w-2 flex-shrink-0">
+      <span className={cn("animate-ping absolute inline-flex h-full w-full rounded-full opacity-60",
+        color === 'green' ? 'bg-emerald-400' : color === 'amber' ? 'bg-amber-400' : 'bg-rose-400')} />
+      <span className={cn("relative inline-flex h-2 w-2 rounded-full",
+        color === 'green' ? 'bg-emerald-400' : color === 'amber' ? 'bg-amber-400' : 'bg-rose-400')} />
+    </span>
+  );
+
+  // Count badge
+  const CountBadge = ({ n, color }: { n: number; color: 'red'|'amber' }) => (
+    <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none",
+      color === 'red' ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white')}>
+      {n > 99 ? '99+' : n}
+    </span>
+  );
+
+  // Spring-animated accordion panel
+  const SubPanel = ({ open, children }: { open: boolean; children: React.ReactNode }) => (
+    <AnimatePresence initial={false}>
+      {open && (
+        <motion.div key="p" initial="closed" animate="open" exit="closed" variants={PANEL} className="overflow-hidden">
+          <div className="mt-0.5 ml-[14px] pl-3 border-l border-white/[0.08] space-y-0.5 pb-1">
+            {children}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
+  // Per-item right-side adornment
+  const RightAdornment = ({ item, isActive }: { item: NavItem; isActive: boolean }) => {
+    if (item.href === '/approvals' && pendingApprovalCount > 0) return <CountBadge n={pendingApprovalCount} color="amber" />;
+    if (item.href === '/alerts' && activeIncidents > 0)         return <CountBadge n={activeIncidents} color="red" />;
+    if (item.href === '/calls'   && liveCallCount > 0)          return <PulseDot color="green" />;
+    if (item.href === '/ai-ops'  && activeIncidents > 0)        return <PulseDot color="red" />;
+    if ((item.href === '/sbc-monitor' || item.href === '/carrier-scoring') && hasDegradedCarrier) return <PulseDot color="amber" />;
+    if (item.status === 'live' && !isActive)   return <PulseDot color="green" />;
+    if (item.isNew && !isActive)               return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-400 border border-violet-500/30 tracking-wide leading-none">New</span>;
+    if (item.status === 'planned' && !isActive) return <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted/40 text-muted-foreground/50 border border-border/20 leading-none">Soon</span>;
+    return null;
+  };
+
+  // ── Render a single nav item ──────────────────────────────────────────────────
+  const renderNavItem = (item: NavItem, groupKey?: string) => {
+    const active = isNavItemActive(item.href);
+
+    /* Live Calls */
     if (item.hasSubmenu === 'calls') {
       if (role === 'viewer' && visibleCallsSubitems.length === 0) return null;
       return (
         <div key={item.href}>
-          <button onClick={() => setCallsExpanded(o => !o)} className={navItemClass(isActive)}>
-            <item.icon className={navIconClass(isActive)} />
+          <button onClick={() => setCallsExpanded(o => !o)} className={navItemCls(active)}>
+            {active && <ActiveBar />}
+            <item.icon className={navIconCls(active, groupKey)} />
             <span className="flex-1 text-left">{item.label}</span>
-            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-              callsExpanded ? "rotate-180" : "",
-              isActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+            {liveCallCount > 0 && <PulseDot color="green" />}
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", callsExpanded && "rotate-180")} />
           </button>
-          {callsExpanded && (
-            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-              {visibleCallsSubitems.map(sub => {
-                const subActive = isActive && currentView === sub.view;
-                return (
-                  <Link key={sub.view} href={`/calls?view=${sub.view}`} className={subItemClass(subActive)}>
-                    <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
-                    {sub.label}
-                  </Link>
-                );
-              })}
-            </div>
-          )}
+          <SubPanel open={callsExpanded}>
+            {visibleCallsSubitems.map(sub => {
+              const sa = active && currentView === sub.view;
+              return (
+                <Link key={sub.view} href={`/calls?view=${sub.view}`} className={subItemCls(sa)}>
+                  <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.iconColor)} />
+                  {sub.label}
+                </Link>
+              );
+            })}
+          </SubPanel>
         </div>
       );
     }
 
-    /* ── BitsEye submenu ── */
-    if (item.hasSubmenu === 'bitseye') {
-      const bsParams = new URLSearchParams(search);
-      const bsView   = isBitseyeActive ? (bsParams.get('view') ?? 'clients') : null;
-      const bsKamId  = isBitseyeActive ? bsParams.get('kamId') : null;
+    /* Routing Manager */
+    if (item.hasSubmenu === 'routingmgr') {
+      const curTab = isRoutingMgrActive ? (new URLSearchParams(search).get('tab') ?? 'routing-groups') : null;
       return (
         <div key={item.href}>
-          <button onClick={() => setBitseyeExpanded(o => !o)} className={navItemClass(isBitseyeActive)}>
-            <item.icon className={navIconClass(isBitseyeActive)} />
+          <button onClick={() => setRoutingMgrExpanded(o => !o)} className={navItemCls(active)}>
+            {active && <ActiveBar />}
+            <item.icon className={navIconCls(active, groupKey)} />
             <span className="flex-1 text-left">{item.label}</span>
-            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-              bitseyeExpanded ? "rotate-180" : "",
-              isBitseyeActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", routingMgrExpanded && "rotate-180")} />
           </button>
-          {bitseyeExpanded && (
-            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-              {BITSEYE_FIXED.map(sub => {
-                const subActive = isBitseyeActive && bsView === sub.view && !bsKamId;
-                return (
-                  <Link key={sub.view} href={`/bitseye?view=${sub.view}`} className={subItemClass(subActive)}>
-                    <BarChart3 className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
-                    {sub.label}
-                  </Link>
-                );
-              })}
-              <div className="flex items-center gap-2 pt-1 pb-0.5 px-2">
-                <ContactRound className="h-3 w-3 text-violet-400/60 flex-shrink-0" />
-                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/35">KAM</span>
-              </div>
-              {/* Org-scoped users (SVP/VP/Manager/TeamLead/KAM) get a "My Portfolio" link */}
-              {orgScope.isScoped && orgScope.kamId ? (
-                <Link href={`/bitseye?view=kam&kamId=${orgScope.kamId}`}
-                  className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
-                    (isBitseyeActive && bsView === 'kam' && bsKamId === String(orgScope.kamId)) ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
-                  <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", (isBitseyeActive && bsView === 'kam' && bsKamId === String(orgScope.kamId)) ? "text-violet-300" : "text-violet-400/70")} />
-                  <span className="flex-1 truncate">
-                    {orgScope.kamName ?? 'My Portfolio'}
-                    {orgScope.orgRole && (
-                      <span className="ml-1.5 text-[9px] opacity-60">({orgScope.orgRole})</span>
-                    )}
-                  </span>
+          <SubPanel open={routingMgrExpanded}>
+            {ROUTING_MGR_SUBITEMS.map(sub => {
+              const sa = isRoutingMgrActive && curTab === sub.tab;
+              return (
+                <Link key={sub.tab} href={`/routing-manager?tab=${sub.tab}`} className={subItemCls(sa)}>
+                  <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.iconColor)} />
+                  {sub.label}
                 </Link>
-              ) : role === 'viewer' ? (
-                viewerKamData?.kamId ? (
-                  <Link href={`/bitseye?view=kam&kamId=${viewerKamData.kamId}`}
-                    className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
-                      (isBitseyeActive && bsView === 'kam' && bsKamId === String(viewerKamData.kamId)) ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
-                    <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", (isBitseyeActive && bsView === 'kam' && bsKamId === String(viewerKamData.kamId)) ? "text-violet-300" : "text-violet-400/70")} />
-                    <span className="flex-1 truncate">{viewerKamData.kamName ?? 'My Portfolio'}</span>
-                  </Link>
-                ) : (
-                  <p className="text-[10px] text-muted-foreground/30 px-3 py-1">No KAM assigned</p>
-                )
-              ) : (
-                <>
-                  <Link href="/bitseye?view=kam"
-                    className={cn("flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150",
-                      (isBitseyeActive && bsView === 'kam' && !bsKamId) ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
-                    <ContactRound className={cn("h-3.5 w-3.5 flex-shrink-0", (isBitseyeActive && bsView === 'kam' && !bsKamId) ? "text-primary" : "text-violet-400/70")} />
-                    All KAMs
-                  </Link>
-                  {kamList.map(kam => {
-                    const kamActive = isBitseyeActive && bsView === 'kam' && bsKamId === String(kam.id);
-                    return (
-                      <Link key={kam.id} href={`/bitseye?view=kam&kamId=${kam.id}`}
-                        className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
-                          kamActive ? "bg-violet-500/10 text-violet-300" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/40")}>
-                        <ChevronRight className="h-2.5 w-2.5 flex-shrink-0 text-muted-foreground/30" />
-                        <span className="flex-1 truncate">{kam.name}</span>
-                      </Link>
-                    );
-                  })}
-                </>
-              )}
-            </div>
-          )}
+              );
+            })}
+          </SubPanel>
         </div>
       );
     }
 
-    /* ── CDR submenu ── */
+    /* BitsEye */
+    if (item.hasSubmenu === 'bitseye') {
+      const bsView  = isBitseyeActive ? (new URLSearchParams(search).get('view') ?? 'clients') : null;
+      const bsKamId = isBitseyeActive ? new URLSearchParams(search).get('kamId') : null;
+      const kams    = role === 'viewer'
+        ? (viewerKamData ? [{ id: viewerKamData.kamId!, name: viewerKamData.kamName ?? 'My Accounts', active: true }] : [])
+        : kamList.filter(k => k.active);
+      return (
+        <div key={item.href}>
+          <button onClick={() => setBitseyeExpanded(o => !o)} className={navItemCls(active)}>
+            {active && <ActiveBar />}
+            <item.icon className={navIconCls(active, groupKey)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", bitseyeExpanded && "rotate-180")} />
+          </button>
+          <SubPanel open={bitseyeExpanded}>
+            {BITSEYE_FIXED.map(sub => {
+              const sa = isBitseyeActive && bsView === sub.view && !bsKamId;
+              return (
+                <Link key={sub.view} href={`/bitseye?view=${sub.view}`} className={subItemCls(sa)}>
+                  <span className={cn("h-2 w-2 rounded-full flex-shrink-0", sa ? "bg-primary" : sub.iconColor.replace('text-','bg-'))} />
+                  {sub.label}
+                </Link>
+              );
+            })}
+            {kams.length > 0 && (
+              <>
+                <div className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/30 px-2.5 pt-2 pb-0.5">KAM View</div>
+                {kams.map(k => {
+                  const sa = isBitseyeActive && bsKamId === String(k.id);
+                  return (
+                    <Link key={k.id} href={`/bitseye?view=clients&kamId=${k.id}`} className={subItemCls(sa)}>
+                      <span className={cn("h-2 w-2 rounded-full flex-shrink-0", sa ? "bg-primary" : "bg-violet-400")} />
+                      <span className="truncate">{k.name}</span>
+                    </Link>
+                  );
+                })}
+              </>
+            )}
+          </SubPanel>
+        </div>
+      );
+    }
+
+    /* CDR Viewer */
     if (item.hasSubmenu === 'cdr') {
       const cdrView = isCdrActive ? (new URLSearchParams(search).get('view') ?? 'client') : null;
       return (
         <div key={item.href}>
-          <button onClick={() => setCdrExpanded(o => !o)} className={navItemClass(isCdrActive)}>
-            <item.icon className={navIconClass(isCdrActive)} />
+          <button onClick={() => setCdrExpanded(o => !o)} className={navItemCls(active)}>
+            {active && <ActiveBar />}
+            <item.icon className={navIconCls(active, groupKey)} />
             <span className="flex-1 text-left">{item.label}</span>
-            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-              cdrExpanded ? "rotate-180" : "",
-              isCdrActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", cdrExpanded && "rotate-180")} />
           </button>
-          {cdrExpanded && (
-            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-              {CDR_SUBITEMS.map(sub => {
-                const subActive = isCdrActive && cdrView === sub.view;
-                return (
-                  <Link key={sub.view} href={`/cdrs?view=${sub.view}`} className={subItemClass(subActive)}>
-                    <FileText className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
-                    {sub.label}
-                  </Link>
-                );
-              })}
-            </div>
-          )}
+          <SubPanel open={cdrExpanded}>
+            {CDR_SUBITEMS.map(sub => {
+              const sa = isCdrActive && cdrView === sub.view;
+              return (
+                <Link key={sub.view} href={`/cdrs?view=${sub.view}`} className={subItemCls(sa)}>
+                  <span className={cn("h-2 w-2 rounded-full flex-shrink-0", sa ? "bg-primary" : sub.iconColor.replace('text-','bg-'))} />
+                  {sub.label}
+                </Link>
+              );
+            })}
+          </SubPanel>
         </div>
       );
     }
 
-    /* ── Server Monitoring submenu ── */
+    /* Server Monitoring */
     if (item.hasSubmenu === 'monitoring') {
-      const currentMonTab = isMonitoringActive
-        ? (new URLSearchParams(search).get('tab') ?? 'reachability')
-        : null;
+      const curTab = isMonitoringActive ? (new URLSearchParams(search).get('tab') ?? 'reachability') : null;
       return (
         <div key={item.href}>
-          <button onClick={() => setMonitoringExpanded(o => !o)} className={navItemClass(isActive)}>
-            <item.icon className={navIconClass(isActive)} />
+          <button onClick={() => setMonitoringExpanded(o => !o)} className={navItemCls(active)}>
+            {active && <ActiveBar />}
+            <item.icon className={navIconCls(active, groupKey)} />
             <span className="flex-1 text-left">{item.label}</span>
-            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-              monitoringExpanded ? "rotate-180" : "",
-              isActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", monitoringExpanded && "rotate-180")} />
           </button>
-          {monitoringExpanded && (
-            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-              {MONITORING_SUBITEMS.map(sub => {
-                const subActive = isMonitoringActive && currentMonTab === sub.tab;
-                return (
-                  <Link key={sub.tab} href={`/server-monitoring?tab=${sub.tab}`} className={subItemClass(subActive)}>
-                    <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
-                    {sub.label}
-                  </Link>
-                );
-              })}
-            </div>
-          )}
+          <SubPanel open={monitoringExpanded}>
+            {MONITORING_SUBITEMS.map(sub => {
+              const sa = isMonitoringActive && curTab === sub.tab;
+              return (
+                <Link key={sub.tab} href={`/server-monitoring?tab=${sub.tab}`} className={subItemCls(sa)}>
+                  <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.iconColor)} />
+                  {sub.label}
+                </Link>
+              );
+            })}
+          </SubPanel>
         </div>
       );
     }
 
-    /* ── Rate Cards submenu ── */
+    /* Rate Cards */
     if (item.hasSubmenu === 'ratecards') {
       const rcType = isRateCardsActive ? new URLSearchParams(search).get('type') : null;
       return (
         <div key={item.href}>
-          <button onClick={() => setRateCardsExpanded(o => !o)} className={navItemClass(isRateCardsActive)}>
-            <item.icon className={navIconClass(isRateCardsActive)} />
+          <button onClick={() => setRateCardsExpanded(o => !o)} className={navItemCls(isRateCardsActive)}>
+            {isRateCardsActive && <ActiveBar />}
+            <item.icon className={navIconCls(isRateCardsActive, groupKey)} />
             <span className="flex-1 text-left">{item.label}</span>
-            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-              rateCardsExpanded ? "rotate-180" : "",
-              isRateCardsActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", rateCardsExpanded && "rotate-180")} />
           </button>
-          {rateCardsExpanded && (
-            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-              {([
-                { type: 'client', label: 'Client Rate Cards',  icon: Building2, iconColor: 'text-amber-400' },
-                { type: 'vendor', label: 'Vendor Rate Cards',   icon: Wallet,    iconColor: 'text-cyan-400'  },
-              ] as const).map(sub => {
-                const subActive = isRateCardsActive && rcType === sub.type;
-                return (
-                  <Link key={sub.type} href={`/rate-cards?type=${sub.type}`} className={subItemClass(subActive)}>
-                    <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
-                    {sub.label}
-                  </Link>
-                );
-              })}
-            </div>
-          )}
+          <SubPanel open={rateCardsExpanded}>
+            {([
+              { type: 'client', label: 'Client Rate Cards', icon: Building2, iconColor: 'text-amber-400' },
+              { type: 'vendor', label: 'Vendor Rate Cards',  icon: Wallet,    iconColor: 'text-cyan-400'  },
+            ] as const).map(sub => {
+              const sa = isRateCardsActive && rcType === sub.type;
+              return (
+                <Link key={sub.type} href={`/rate-cards?type=${sub.type}`} className={subItemCls(sa)}>
+                  <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.iconColor)} />
+                  {sub.label}
+                </Link>
+              );
+            })}
+          </SubPanel>
         </div>
       );
     }
 
-    /* ── Settings submenu ── */
+    /* Settings */
     if (item.hasSubmenu === 'settings') {
-      const settingsSearch = isSettingsActive ? new URLSearchParams(search).get('section') : null;
+      const section = isSettingsActive ? new URLSearchParams(search).get('section') : null;
       return (
         <div key={item.href}>
-          <button onClick={() => setSettingsExpanded(o => !o)} className={navItemClass(isSettingsActive)}>
-            <item.icon className={navIconClass(isSettingsActive)} />
+          <button onClick={() => setSettingsExpanded(o => !o)} className={navItemCls(isSettingsActive)}>
+            {isSettingsActive && <ActiveBar />}
+            <item.icon className={navIconCls(isSettingsActive, groupKey)} />
             <span className="flex-1 text-left">{item.label}</span>
-            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-              settingsExpanded ? "rotate-180" : "",
-              isSettingsActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", settingsExpanded && "rotate-180")} />
           </button>
-          {settingsExpanded && (
-            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-              {[
-                { href: '/settings',                 label: 'General Settings', icon: Settings,   color: 'text-blue-400', section: null      },
-                { href: '/settings?section=watcher', label: 'Sippy Watcher',   icon: ScanSearch,  color: 'text-cyan-400', section: 'watcher' },
-              ].map(sub => {
-                const subActive = isSettingsActive && settingsSearch === sub.section;
-                return (
-                  <Link key={sub.href} href={sub.href} className={subItemClass(subActive)}>
-                    <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.color)} />
-                    {sub.label}
-                  </Link>
-                );
-              })}
-            </div>
-          )}
+          <SubPanel open={settingsExpanded}>
+            {([
+              { href: '/settings',                 label: 'General',       icon: Settings,  color: 'text-blue-400', section: null      },
+              { href: '/settings?section=watcher', label: 'Sippy Watcher', icon: ScanSearch,color: 'text-cyan-400', section: 'watcher' },
+            ]).map(sub => {
+              const sa = isSettingsActive && section === sub.section;
+              return (
+                <Link key={sub.href} href={sub.href} className={subItemCls(sa)}>
+                  <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.color)} />
+                  {sub.label}
+                </Link>
+              );
+            })}
+          </SubPanel>
         </div>
       );
     }
 
-    /* ── Tools submenu ── */
+    /* Tools */
     if (item.hasSubmenu === 'tools') {
       const toolsTab = isToolsActive ? (new URLSearchParams(search).get('tab') ?? 'carrier') : null;
       return (
         <div key={item.href}>
-          <button onClick={() => setToolsExpanded(o => !o)} className={navItemClass(isToolsActive)}>
-            <item.icon className={navIconClass(isToolsActive)} />
+          <button onClick={() => setToolsExpanded(o => !o)} className={navItemCls(isToolsActive)}>
+            {isToolsActive && <ActiveBar />}
+            <item.icon className={navIconCls(isToolsActive, groupKey)} />
             <span className="flex-1 text-left">{item.label}</span>
-            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0",
-              toolsExpanded ? "rotate-180" : "",
-              isToolsActive ? "text-primary-foreground/70" : "text-muted-foreground/50")} />
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", toolsExpanded && "rotate-180")} />
           </button>
-          {toolsExpanded && (
-            <div className="mt-0.5 ml-4 pl-3 border-l border-border/40 space-y-0.5">
-              {TOOLS_SUBITEMS.map(sub => {
-                const subActive = isToolsActive && toolsTab === sub.tab;
-                return (
-                  <Link key={sub.tab} href={`/tools?tab=${sub.tab}`} className={subItemClass(subActive)}>
-                    <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", subActive ? "text-primary" : sub.iconColor)} />
-                    {sub.label}
-                  </Link>
-                );
-              })}
-            </div>
-          )}
+          <SubPanel open={toolsExpanded}>
+            {TOOLS_SUBITEMS.map(sub => {
+              const sa = isToolsActive && toolsTab === sub.tab;
+              return (
+                <Link key={sub.tab} href={`/tools?tab=${sub.tab}`} className={subItemCls(sa)}>
+                  <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.iconColor)} />
+                  {sub.label}
+                </Link>
+              );
+            })}
+          </SubPanel>
         </div>
       );
     }
 
-    /* ── Plain nav item ── */
-    const isApprovalQueue = item.href === '/approvals';
+    /* Plain item */
     return (
-      <Link key={item.href + (item.label)} href={item.href} className={navItemClass(isActive)}>
-        <item.icon className={navIconClass(isActive)} />
-        <span className="flex-1 leading-tight">{item.label}</span>
-        {isApprovalQueue && pendingApprovalCount > 0 && (
-          <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white min-w-[18px] text-center" data-testid="badge-approval-count">
-            {pendingApprovalCount > 99 ? '99+' : pendingApprovalCount}
-          </span>
-        )}
-        {item.status === 'planned' && !isActive && (
-          <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-muted/60 text-muted-foreground/60 border border-border/30 tracking-wide">
-            Soon
-          </span>
-        )}
-        {item.status === 'partial' && !isActive && (
-          <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 tracking-wide">
-            Partial
-          </span>
-        )}
-        {item.isNew && !isActive && (
-          <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30 tracking-wide">
-            New
-          </span>
-        )}
+      <Link key={item.href + item.label} href={item.href} data-testid={`nav-${item.href.replace(/\//g,'-').slice(1)}`} className={navItemCls(active)}>
+        {active && <ActiveBar />}
+        <item.icon className={navIconCls(active, groupKey)} />
+        <span className="flex-1 truncate leading-tight">{item.label}</span>
+        <RightAdornment item={item} isActive={active} />
       </Link>
     );
   };
 
-  // All items as a flat list for collapsed (icon-only) mode
+  // ── Collapsed icon-only list ──────────────────────────────────────────────────
   const allFlatItems: NavItem[] = [
     ...NAV_PINNED_TOP,
     ...SIDEBAR_GROUPS.flatMap(g => g.items),
     ...NAV_PINNED_BOTTOM,
   ];
 
+  // ── KPI strip (shared) ────────────────────────────────────────────────────────
+  const KpiStrip = () => role === 'viewer' ? null : (
+    <div className="mx-3 mb-2 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.07]">
+      <div className="flex items-center justify-between gap-1">
+        {([
+          { label: 'Calls',  val: liveCallCount,  color: liveCallCount > 0 ? 'text-emerald-400' : 'text-muted-foreground/50' },
+          { label: 'Alerts', val: activeIncidents, color: activeIncidents > 0 ? 'text-rose-400' : 'text-muted-foreground/50'  },
+          { label: 'ASR',    val: avgAsr != null ? `${avgAsr.toFixed(1)}%` : '—',
+            color: avgAsr == null ? 'text-muted-foreground/50' : avgAsr >= 95 ? 'text-emerald-400' : avgAsr >= 85 ? 'text-amber-400' : 'text-rose-400' },
+        ] as const).map(k => (
+          <div key={k.label} className="flex-1 text-center">
+            <div className={cn("text-[13px] font-bold tabular-nums leading-tight", k.color)}>{k.val}</div>
+            <div className="text-[9px] text-muted-foreground/40 uppercase tracking-wider leading-tight">{k.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ── Sidebar nav content (shared desktop + mobile) ─────────────────────────────
+  const NavContent = ({ mobile = false }: { mobile?: boolean }) => (
+    <>
+      <KpiStrip />
+
+      {/* ⌘K search row */}
+      <button
+        onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))}
+        className="mx-3 mb-3 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-[12px] text-muted-foreground/50 hover:text-muted-foreground hover:bg-white/[0.06] transition-colors"
+        data-testid="button-command-palette"
+      >
+        <Search className="h-3 w-3 flex-shrink-0" />
+        <span className="flex-1 text-left">Search anything…</span>
+        <span className="flex items-center gap-0.5 font-mono text-[10px] text-muted-foreground/30">
+          <Command className="h-2.5 w-2.5" />K
+        </span>
+      </button>
+
+      <nav className={cn("flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:transparent")}>
+        {/* Pinned top */}
+        {NAV_PINNED_TOP.filter(isItemVisible).map(item => {
+          const active = item.href === '/' ? location === '/' : location.startsWith(item.href);
+          return (
+            <Link key={item.href} href={item.href}
+              onClick={mobile ? () => setMobileOpen(false) : undefined}
+              className={navItemCls(active)}
+            >
+              {active && <ActiveBar />}
+              <item.icon className={navIconCls(active)} />
+              <span className="flex-1">{item.label}</span>
+              {item.href === '/chat' && activeIncidents > 0 && <CountBadge n={activeIncidents} color="red" />}
+            </Link>
+          );
+        })}
+
+        <div className="my-2 border-t border-white/[0.05]" />
+
+        {/* Groups */}
+        {(mobile ? SIDEBAR_GROUPS : orderedGroups).map(group => {
+          const visibleItems = group.items.filter(isItemVisible);
+          if (visibleItems.length === 0) return null;
+          const isOpen = mobile ? true : isGroupOpen(group.key);
+
+          return (
+            <div key={group.key} className="pt-1.5"
+              draggable={!mobile}
+              onDragStart={!mobile ? () => handleDragStart(group.key) : undefined}
+              onDragOver={!mobile ? (e) => handleDragOver(e, group.key) : undefined}
+              onDrop={!mobile ? (e) => handleDrop(e, group.key) : undefined}
+            >
+              {/* Apple-style ALL CAPS ambient label */}
+              <button
+                data-testid={`sidebar-group-${group.key}`}
+                onClick={!mobile ? () => toggleGroup(group.key) : undefined}
+                className="group/grp w-full flex items-center gap-1.5 px-2 py-[3px] mb-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/35 hover:text-muted-foreground/60 transition-colors"
+              >
+                {!mobile && <GripVertical className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/grp:opacity-30 transition-opacity cursor-grab active:cursor-grabbing" />}
+                <span className="flex-1 text-left">{group.label}</span>
+                {!mobile && (
+                  <ChevronRight className={cn("h-3 w-3 flex-shrink-0 transition-transform duration-200", isOpen && "rotate-90")} />
+                )}
+              </button>
+
+              {/* Items with spring animation */}
+              <AnimatePresence initial={false}>
+                {(mobile || isOpen) && (
+                  <motion.div
+                    key="items"
+                    initial={mobile ? false : "closed"}
+                    animate="open" exit="closed"
+                    variants={PANEL}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-0.5">
+                      {visibleItems.map(item => {
+                        if (mobile) {
+                          const active = item.href === '/' ? location === '/' : location.startsWith(item.href.split('?')[0]);
+                          return (
+                            <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)} className={navItemCls(active)}>
+                              {active && <ActiveBar />}
+                              <item.icon className={navIconCls(active, group.key)} />
+                              <span className="flex-1 truncate">{item.label}</span>
+                            </Link>
+                          );
+                        }
+                        return renderNavItem(item, group.key);
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
+
+        {isOrderCustomized && !mobile && (
+          <button onClick={resetGroupOrder}
+            className="w-full flex items-center gap-1 px-2 py-0.5 mt-1 text-[9px] text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors">
+            <RotateCcw className="h-2.5 w-2.5" /> Reset menu order
+          </button>
+        )}
+
+        {/* Pinned bottom */}
+        <div className="mt-3 pt-2 border-t border-white/[0.05] space-y-0.5">
+          {NAV_PINNED_BOTTOM.filter(isItemVisible).map(item => {
+            const active = location.startsWith(item.href);
+            return (
+              <Link key={item.href} href={item.href}
+                onClick={mobile ? () => setMobileOpen(false) : undefined}
+                className={navItemCls(active)}>
+                {active && <ActiveBar />}
+                <item.icon className={navIconCls(active)} />
+                <span className="flex-1">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+    </>
+  );
+
+  // ── User footer ───────────────────────────────────────────────────────────────
+  const UserFooter = ({ slim = false }: { slim?: boolean }) => !user ? null : (
+    slim ? (
+      <div className="flex flex-col items-center gap-2">
+        <div title={`${user.firstName || user.email} — ${badge.label}`}
+          className="h-7 w-7 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-xs">
+          {user.firstName?.[0] || user.email?.[0]?.toUpperCase() || "U"}
+        </div>
+        <button onClick={toggleTheme} title={theme === 'dark' ? 'Light' : 'Dark'} data-testid="button-theme-toggle-collapsed"
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors">
+          {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+        </button>
+        <button onClick={() => logout()}
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors">
+          <LogOut className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    ) : (
+      <div className="flex items-center gap-2.5 px-1">
+        <div className="h-7 w-7 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-xs flex-shrink-0">
+          {user.firstName?.[0] || user.email?.[0]?.toUpperCase() || "U"}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] font-medium truncate leading-tight">{user.firstName || user.email}</p>
+          <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded-full", badge.color)}>{badge.label}</span>
+        </div>
+        <div className="flex gap-0.5 flex-shrink-0">
+          <button onClick={toggleTheme} title={theme === 'dark' ? 'Light' : 'Dark'} data-testid="button-theme-toggle"
+            className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-foreground hover:bg-white/[0.06] transition-colors">
+            {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+          </button>
+          <button onClick={() => logout()}
+            className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-rose-400 hover:bg-rose-500/10 transition-colors">
+            <LogOut className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    )
+  );
+
+  // ── Logo header ───────────────────────────────────────────────────────────────
+  const Logo = () => (
+    <div className="flex items-center gap-2.5">
+      <div className="bg-indigo-600/25 p-1.5 rounded-lg flex-shrink-0 border border-indigo-500/20">
+        <Activity className="h-4 w-4 text-indigo-400" />
+      </div>
+      <div>
+        <h1 className="font-bold text-[13px] tracking-tight leading-tight">BITSAUTO</h1>
+        <p className="text-[9px] text-muted-foreground/50 font-mono tracking-wide">NOC Platform</p>
+      </div>
+    </div>
+  );
+
+  // ── Shared sidebar CSS class ──────────────────────────────────────────────────
+  const sidebarCls = "border-r border-white/[0.05] bg-[hsl(var(--background)/0.75)] backdrop-blur-xl";
+
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
 
-      {/* ── Sidebar ──────────────────────────────────────────────────────────── */}
-      <aside
-        className={cn(
-          "hidden md:flex flex-col border-r border-border bg-card/50 backdrop-blur-xl flex-shrink-0 z-50 transition-all duration-300 overflow-hidden",
-          collapsed ? "w-[68px]" : "w-64"
-        )}
-      >
+      {/* ── Desktop Sidebar ─────────────────────────────────────────────────── */}
+      <aside className={cn(
+        "hidden md:flex flex-col flex-shrink-0 z-50 transition-all duration-300 overflow-hidden",
+        sidebarCls,
+        collapsed ? "w-[64px]" : "w-[240px]"
+      )}>
         {/* Header */}
         <div className={cn(
-          "border-b border-border/50 flex items-center flex-shrink-0 transition-all duration-300",
-          collapsed ? "p-3 justify-center" : "p-4"
+          "border-b border-white/[0.05] flex items-center flex-shrink-0 transition-all duration-300",
+          collapsed ? "p-3 justify-center" : "px-4 py-3"
         )}>
           {collapsed ? (
-            <button
-              onClick={() => setCollapsed(false)}
-              title="Expand sidebar"
-              data-testid="sidebar-expand-btn"
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-            >
+            <button onClick={() => setCollapsed(false)} title="Expand sidebar" data-testid="sidebar-expand-btn"
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors">
               <PanelLeftOpen className="h-5 w-5" />
             </button>
           ) : (
-            <div className="flex items-center gap-3 w-full">
-              <div className="bg-blue-600/20 p-2 rounded-lg flex-shrink-0">
-                <Activity className="h-5 w-5 text-blue-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h1 className="font-bold text-base tracking-tight leading-tight">Bitsauto Monitoring</h1>
-                <p className="text-[10px] text-muted-foreground font-mono">v2.5.0-stable</p>
-              </div>
-              <button
-                onClick={() => setCollapsed(true)}
-                title="Collapse sidebar"
-                data-testid="sidebar-collapse-btn"
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex-shrink-0"
-              >
+            <div className="flex items-center w-full">
+              <div className="flex-1"><Logo /></div>
+              <button onClick={() => setCollapsed(true)} title="Collapse sidebar" data-testid="sidebar-collapse-btn"
+                className="p-1.5 rounded-lg text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.06] transition-colors">
                 <PanelLeftClose className="h-4 w-4" />
               </button>
             </div>
           )}
         </div>
 
-        {/* Nav */}
-        <nav className={cn("flex-1 overflow-y-auto py-3", collapsed ? "px-2 space-y-0.5" : "px-3")}>
+        {/* Collapsed icon strip */}
+        {collapsed && (
+          <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+            {allFlatItems.filter(isItemVisible).map(item => {
+              const active = item.href === '/' ? location === '/' : location.startsWith(item.href.split('?')[0]);
+              return (
+                <Link key={item.href} href={item.href} title={item.label}
+                  className={cn(
+                    "relative flex items-center justify-center w-full p-2.5 rounded-lg transition-all duration-150",
+                    active ? "bg-white/[0.08] text-foreground" : "text-muted-foreground/55 hover:text-foreground hover:bg-white/[0.05]"
+                  )}>
+                  {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] rounded-r-full bg-gradient-to-b from-violet-400 to-indigo-500" />}
+                  <item.icon className="h-[15px] w-[15px]" />
+                </Link>
+              );
+            })}
+          </nav>
+        )}
 
-          {/* ── COLLAPSED: flat icon list ── */}
-          {collapsed && allFlatItems.filter(isItemVisible).map(item => {
-            const isActive = isNavItemActive(item.href);
-            return (
-              <Link key={item.href} href={item.href} title={item.label} className={navItemClass(isActive)}>
-                <item.icon className={navIconClass(isActive)} />
-              </Link>
-            );
-          })}
+        {/* Expanded nav */}
+        {!collapsed && (
+          <div className="flex flex-col flex-1 min-h-0 pt-3">
+            <NavContent />
+          </div>
+        )}
 
-          {/* ── EXPANDED: pinned top + collapsible groups + pinned bottom ── */}
-          {!collapsed && (
-            <>
-              {/* Pinned top (Dashboard) */}
-              <div className="space-y-0.5 mb-1">
-                {NAV_PINNED_TOP.filter(isItemVisible).map(item => {
-                  const isActive = location === '/';
-                  return (
-                    <Link key={item.href} href={item.href} className={navItemClass(isActive)}>
-                      <item.icon className={navIconClass(isActive)} />
-                      <span>{item.label}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-
-              {/* Collapsible groups — drag grip to reorder */}
-              {isOrderCustomized && (
-                <button
-                  onClick={resetGroupOrder}
-                  title="Reset to default order"
-                  className="w-full flex items-center gap-1 px-2 py-0.5 text-[9px] text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors"
-                >
-                  <RotateCcw className="h-2.5 w-2.5" />
-                  Reset menu order
-                </button>
-              )}
-              {orderedGroups.map(group => {
-                const visibleItems = group.items.filter(isItemVisible);
-                if (visibleItems.length === 0) return null;
-                const isOpen = isGroupOpen(group.key);
-                const isGroupActive = visibleItems.some(item => isNavItemActive(item.href));
-
-                return (
-                  <div
-                    key={group.key}
-                    className="mt-3"
-                    draggable
-                    onDragStart={() => handleDragStart(group.key)}
-                    onDragOver={e => handleDragOver(e, group.key)}
-                    onDrop={e => handleDrop(e, group.key)}
-                  >
-                    {/* Group header */}
-                    <button
-                      data-testid={`sidebar-group-${group.key}`}
-                      onClick={() => toggleGroup(group.key)}
-                      className={cn(
-                        "group/grp w-full flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors",
-                        isGroupActive
-                          ? "text-muted-foreground/80 hover:text-muted-foreground"
-                          : "text-muted-foreground/40 hover:text-muted-foreground/70"
-                      )}
-                    >
-                      <GripVertical className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/grp:opacity-40 transition-opacity cursor-grab active:cursor-grabbing" />
-                      <span className="flex-1 text-left">{group.label}</span>
-                      <ChevronRight className={cn(
-                        "h-3 w-3 transition-transform duration-200 flex-shrink-0",
-                        isOpen && "rotate-90"
-                      )} />
-                    </button>
-
-                    {/* Group items */}
-                    {isOpen && (
-                      <div className="mt-0.5 space-y-0.5">
-                        {visibleItems.map(item => renderNavItem(item))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {/* Pinned bottom (My Account) */}
-              <div className="mt-3 space-y-0.5">
-                {NAV_PINNED_BOTTOM.filter(isItemVisible).map(item => {
-                  const isActive = location.startsWith(item.href);
-                  return (
-                    <Link key={item.href} href={item.href} className={navItemClass(isActive)}>
-                      <item.icon className={navIconClass(isActive)} />
-                      <span>{item.label}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </nav>
-
-        {/* Sippy API Health indicator — shown above user footer */}
-        <div className={cn("border-t border-border/30 flex-shrink-0", collapsed ? "px-2 py-1.5" : "px-3 py-1.5")}>
+        {/* Sippy health */}
+        <div className={cn("border-t border-white/[0.05] flex-shrink-0", collapsed ? "px-2 py-1.5" : "px-3 py-1.5")}>
           <SippyHealthBadge collapsed={collapsed} />
         </div>
 
         {/* User footer */}
-        <div className={cn("border-t border-border/50 flex-shrink-0", collapsed ? "p-2" : "p-3")}>
-          {user && (
-            collapsed ? (
-              <div className="flex flex-col items-center gap-2">
-                <div
-                  title={`${user.firstName || user.email} — ${badge.label}`}
-                  className="h-8 w-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500 font-bold text-xs flex-shrink-0 cursor-default"
-                >
-                  {user.firstName?.[0] || user.email?.[0]?.toUpperCase() || "U"}
-                </div>
-                <button
-                  onClick={toggleTheme}
-                  title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                  data-testid="button-theme-toggle-collapsed"
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                >
-                  {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-                </button>
-                <button
-                  onClick={() => logout()}
-                  title="Sign Out"
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 px-2">
-                  <button
-                    onClick={toggleTheme}
-                    title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                    data-testid="button-theme-toggle"
-                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted/50 transition-colors"
-                  >
-                    {theme === 'dark'
-                      ? <><Sun className="h-3.5 w-3.5" /><span>Light</span></>
-                      : <><Moon className="h-3.5 w-3.5" /><span>Dark</span></>
-                    }
-                  </button>
-                  <div className="flex-1" />
-                  <button
-                    onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))}
-                    title="Open command palette (Ctrl+K)"
-                    data-testid="button-command-palette"
-                    className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground px-1.5 py-1 rounded hover:bg-muted/30 transition-colors font-mono"
-                  >
-                    <Command className="h-3 w-3" />
-                    <span>K</span>
-                  </button>
-                </div>
-                <div className="flex items-center gap-3 px-2 py-1">
-                  <div className="h-8 w-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500 font-bold text-xs flex-shrink-0">
-                    {user.firstName?.[0] || user.email?.[0]?.toUpperCase() || "U"}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{user.firstName || user.email}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className={cn("text-xs font-medium px-1.5 py-0.5 rounded-full", badge.color)}>
-                        {badge.label}
-                      </span>
-                      {role === 'viewer' && assignedItemSet.size > 0 && (
-                        <span className="text-xs text-muted-foreground/60">{assignedItemSet.size} items</span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => logout()}
-                      className="text-xs text-muted-foreground hover:text-red-400 transition-colors mt-0.5"
-                    >
-                      Sign Out
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )
-          )}
+        <div className={cn("border-t border-white/[0.05] flex-shrink-0", collapsed ? "p-2" : "p-3")}>
+          <UserFooter slim={collapsed} />
         </div>
       </aside>
 
-      {/* ── Mobile top bar + slide-out sidebar ── */}
+      {/* ── Mobile ──────────────────────────────────────────────────────────── */}
       <div className="md:hidden flex flex-col flex-1 min-h-0">
-        <header className="h-14 border-b border-border/50 flex items-center px-4 gap-3 bg-background/80 backdrop-blur-sm sticky top-0 z-40">
+        <header className="h-14 border-b border-border/40 flex items-center px-4 gap-3 bg-background/80 backdrop-blur-md sticky top-0 z-40">
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
-              <button
-                className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                aria-label="Open menu"
-                data-testid="button-mobile-menu"
-              >
+              <button className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors" aria-label="Open menu" data-testid="button-mobile-menu">
                 <Menu className="h-5 w-5" />
               </button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-72 p-0 border-r border-border bg-card/95 backdrop-blur-xl">
-              <div className="flex items-center gap-3 p-4 border-b border-border/50">
-                <div className="bg-blue-600/20 p-2 rounded-lg flex-shrink-0">
-                  <Activity className="h-5 w-5 text-blue-500" />
-                </div>
-                <div className="flex-1">
-                  <h1 className="font-bold text-base tracking-tight">Bitsauto Monitoring</h1>
-                  <p className="text-[10px] text-muted-foreground font-mono">v2.5.0-stable</p>
-                </div>
+            <SheetContent side="left" className={cn("w-[256px] p-0 flex flex-col", sidebarCls)}>
+              <div className="flex items-center gap-2.5 px-4 py-3 border-b border-white/[0.05]">
+                <Logo />
               </div>
-              <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-                {/* Mobile: pinned top */}
-                {NAV_PINNED_TOP.filter(isItemVisible).map(item => {
-                  const isActive = location === '/';
-                  return (
-                    <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)}
-                      className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
-                        isActive ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
-                      <item.icon className="h-4 w-4 flex-shrink-0" />
-                      {item.label}
-                    </Link>
-                  );
-                })}
-
-                {/* Mobile: groups with section labels */}
-                {SIDEBAR_GROUPS.map(group => {
-                  const visibleItems = group.items.filter(isItemVisible);
-                  if (visibleItems.length === 0) return null;
-                  return (
-                    <div key={group.key} className="pt-3">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 px-3 pb-1">{group.label}</p>
-                      {visibleItems.map(item => {
-                        const isActive = item.href === '/' ? location === '/' : location.startsWith(item.href);
-                        if (item.hasSubmenu === 'ratecards') {
-                          return (
-                            <div key={item.href}>
-                              {([
-                                { type: 'client', label: 'Client Rate Cards', icon: Building2, color: 'text-amber-400' },
-                                { type: 'vendor', label: 'Vendor Rate Cards',  icon: Wallet,    color: 'text-cyan-400'  },
-                              ] as const).map(sub => {
-                                const subActive = isRateCardsActive && new URLSearchParams(search).get('type') === sub.type;
-                                return (
-                                  <Link key={sub.type} href={`/rate-cards?type=${sub.type}`}
-                                    onClick={() => setMobileOpen(false)}
-                                    className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
-                                      subActive ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
-                                    <sub.icon className="h-4 w-4 flex-shrink-0" />
-                                    {sub.label}
-                                  </Link>
-                                );
-                              })}
-                            </div>
-                          );
-                        }
-                        if (item.hasSubmenu && item.hasSubmenu !== 'ratecards') return null;
-                        return (
-                          <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)}
-                            className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
-                              isActive ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
-                            <item.icon className="h-4 w-4 flex-shrink-0" />
-                            {item.label}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-
-                {/* Mobile: pinned bottom */}
-                {NAV_PINNED_BOTTOM.filter(isItemVisible).map(item => {
-                  const isActive = location.startsWith(item.href);
-                  return (
-                    <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)}
-                      className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all mt-2",
-                        isActive ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
-                      <item.icon className="h-4 w-4 flex-shrink-0" />
-                      {item.label}
-                    </Link>
-                  );
-                })}
-              </nav>
-              <div className="border-t border-border/50 p-3 space-y-2">
-                <div className="flex items-center gap-2 px-2">
-                  <button onClick={toggleTheme} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted/50 transition-colors">
-                    {theme === 'dark' ? <><Sun className="h-3.5 w-3.5" /><span>Light mode</span></> : <><Moon className="h-3.5 w-3.5" /><span>Dark mode</span></>}
-                  </button>
-                </div>
-                {user && (
-                  <div className="flex items-center gap-3 px-2 py-1">
-                    <div className="h-7 w-7 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500 font-bold text-xs">
-                      {user.firstName?.[0] || user.email?.[0]?.toUpperCase() || "U"}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{user.firstName || user.email}</p>
-                      <span className={cn("text-xs font-medium px-1.5 py-0.5 rounded-full", badge.color)}>{badge.label}</span>
-                    </div>
-                    <button onClick={() => logout()} className="text-xs text-muted-foreground hover:text-red-400 transition-colors">
-                      <LogOut className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
+              <div className="flex flex-col flex-1 min-h-0 pt-3">
+                <NavContent mobile />
               </div>
+              {user && (
+                <div className="border-t border-white/[0.05] p-3">
+                  <UserFooter />
+                </div>
+              )}
             </SheetContent>
           </Sheet>
-
-          <Activity className="h-5 w-5 text-primary" />
-          <span className="font-bold flex-1">Bitsauto Monitoring</span>
-
-          <button
-            onClick={toggleTheme}
-            data-testid="button-theme-toggle-mobile"
-            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-          >
+          <Activity className="h-5 w-5 text-indigo-400" />
+          <span className="font-bold flex-1 text-sm tracking-tight">BITSAUTO</span>
+          <button onClick={toggleTheme} data-testid="button-theme-toggle-mobile"
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors">
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
         </header>
@@ -1134,7 +1047,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
         </main>
       </div>
 
-      {/* ── Desktop main content ── */}
+      {/* ── Desktop main content ─────────────────────────────────────────────── */}
       <main className="hidden md:flex flex-1 flex-col min-h-0 overflow-hidden">
         <div className="flex-1 overflow-y-auto p-6 md:p-8 relative scroll-smooth">
           <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -1143,12 +1056,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
         </div>
       </main>
 
-      {/* ── Global Command Palette (Cmd+K / Ctrl+K) ── */}
+      {/* ── Globals ──────────────────────────────────────────────────────────── */}
       <CommandBar />
-
-      {/* ── Global Fix Button (Admin + Management only — auto-hidden for Viewer) ── */}
       <FixButton />
-
     </div>
   );
 }
