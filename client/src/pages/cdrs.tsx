@@ -14,7 +14,7 @@ import {
   RefreshCw, Download, Phone, PhoneOff, PhoneMissed,
   ChevronLeft, ChevronRight, Filter, X, Clock,
   DollarSign, Globe, Activity, FileSpreadsheet, Users, Building2, PhoneCall,
-  SlidersHorizontal, Plus, Check,
+  SlidersHorizontal, Plus, Check, GitBranch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -666,6 +666,17 @@ export default function CDRsPage() {
                             className="text-primary/40 hover:text-primary transition-colors opacity-0 group-hover/cld:opacity-100"
                           >
                             <PhoneCall className="h-3 w-3" />
+                          </Link>
+                        )}
+                        {cdr.callId && (
+                          <Link
+                            href={`/sip-trace?callId=${encodeURIComponent(cdr.callId)}`}
+                            data-testid={`link-siptrace-${i}`}
+                            title="View SIP trace"
+                            onClick={e => e.stopPropagation()}
+                            className="text-blue-400/40 hover:text-blue-400 transition-colors opacity-0 group-hover/cld:opacity-100"
+                          >
+                            <GitBranch className="h-3 w-3" />
                           </Link>
                         )}
                       </span>

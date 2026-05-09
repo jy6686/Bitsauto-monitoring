@@ -129,6 +129,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/alerts",            label: "Alerts",            icon: Bell,      roles: ['admin','management']                                    },
       { href: "/server-monitoring", label: "Server Monitoring", icon: Server,    roles: ['admin','management'],          hasSubmenu: 'monitoring' },
       { href: "/sbc-monitor",       label: "SBC Monitor",       icon: Network,   roles: ['admin','management']                                    },
+      { href: "/rtp-analytics",     label: "RTP Analytics",     icon: Radio,     roles: ['admin','management']                                    },
     ],
   },
   {

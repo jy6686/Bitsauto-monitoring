@@ -3266,6 +3266,136 @@ export async function registerRoutes(
     }
   });
 
+  // ── CDR Trace: map Sippy disconnect reason → SIP response code ───────────
+  function sippy_resultToSipCode(result: string): { code: number; phrase: string } {
+    const r = (result || '').toUpperCase();
+    if (r.includes('USER_BUSY') || r.includes('BUSY'))                                    return { code: 486, phrase: 'Busy Here' };
+    if (r.includes('NO_ANSWER') || r.includes('ALLOTTED_TIMEOUT') || r.includes('RECOVERY_ON_TIMER') || r.includes('EXPIRE')) return { code: 408, phrase: 'Request Timeout' };
+    if (r.includes('NOT_FOUND') || r.includes('UNALLOCATED') || r.includes('INVALID_NUMBER_FORMAT'))  return { code: 404, phrase: 'Not Found' };
+    if (r.includes('FORBIDDEN') || r.includes('UNAUTHORIZED'))                             return { code: 403, phrase: 'Forbidden' };
+    if (r.includes('SERVICE_UNAVAILABLE') || r.includes('CONGESTION') || r.includes('NETWORK_ERROR') || r.includes('SYSTEM_SHUTDOWN')) return { code: 503, phrase: 'Service Unavailable' };
+    if (r.includes('NO_ROUTE') || r.includes('INVALID_DESTINATION'))                      return { code: 502, phrase: 'Bad Gateway' };
+    if (r.includes('INCOMPATIBLE') || r.includes('UNACCEPTABLE'))                         return { code: 488, phrase: 'Not Acceptable Here' };
+    if (r.includes('REJECT') || r.includes('DECLINE') || r.includes('DO_NOT_DISTURB'))    return { code: 603, phrase: 'Decline' };
+    if (r.includes('SUBSCRIBER_ABSENT') || r.includes('UNAVAILABLE'))                     return { code: 480, phrase: 'Temporarily Unavailable' };
+    if (r.includes('NOT_IMPL'))                                                            return { code: 501, phrase: 'Not Implemented' };
+    if (r.includes('NORMAL_CLEARING') || r.includes('NORMAL'))                            return { code: 200, phrase: 'OK' };
+    return { code: 480, phrase: 'Temporarily Unavailable' };
+  }
+
+  // ── CDR Trace: reconstruct SIP dialog from CDR timing fields ─────────────
+  function sippy_reconstructDialog(cdr: sippy.SippyCDR) {
+    type SipEv = { ts: string; method: string; code?: number; from: string; to: string; direction: 'lr' | 'rl'; detail: string };
+    const events: SipEv[] = [];
+    const startMs    = cdr.startTime      ? new Date(cdr.startTime).getTime()      : Date.now();
+    const connectMs  = cdr.connectTime    ? new Date(cdr.connectTime).getTime()    : null;
+    const disconnectMs = cdr.disconnectTime ? new Date(cdr.disconnectTime).getTime() : null;
+    const ua         = cdr.remoteIp || 'UA';
+    const fmtTs = (ms: number) => new Date(ms).toISOString().slice(11, 23);
+
+    // INVITE (UA → Sippy)
+    events.push({ ts: fmtTs(startMs), method: 'INVITE', from: ua, to: 'Sippy', direction: 'lr',
+      detail: `INVITE sip:${cdr.callee}@sippy SIP/2.0\nFrom: <sip:${cdr.caller}@${ua}>\nTo: <sip:${cdr.callee}@sippy>\nCall-ID: ${cdr.callId}${cdr.userAgent ? `\nUser-Agent: ${cdr.userAgent}` : ''}` });
+
+    // 100 Trying (Sippy → UA) — almost immediate
+    events.push({ ts: fmtTs(startMs + 50), method: '100', code: 100, from: 'Sippy', to: ua, direction: 'rl',
+      detail: 'SIP/2.0 100 Trying' });
+
+    // 180 Ringing — only if we have PDD timing
+    const pdd1xxMs = cdr.pdd1xx ? cdr.pdd1xx * 1000 : (cdr.pdd ? cdr.pdd * 400 : 0);
+    if (pdd1xxMs > 100) {
+      events.push({ ts: fmtTs(startMs + pdd1xxMs), method: '180', code: 180, from: 'Sippy', to: ua, direction: 'rl',
+        detail: `SIP/2.0 180 Ringing\nRinging time: ${(pdd1xxMs / 1000).toFixed(2)}s` });
+    }
+
+    const isAnswered = ((cdr.totalDuration ?? cdr.duration ?? 0) > 0) && connectMs !== null;
+    if (isAnswered && connectMs) {
+      const pddTotal = cdr.pdd ? cdr.pdd * 1000 : (connectMs - startMs);
+      events.push({ ts: fmtTs(connectMs), method: '200', code: 200, from: 'Sippy', to: ua, direction: 'rl',
+        detail: `SIP/2.0 200 OK\nPDD: ${(pddTotal / 1000).toFixed(2)}s\nConnect-Time: ${cdr.connectTime}` });
+      events.push({ ts: fmtTs(connectMs + 10), method: 'ACK', from: ua, to: 'Sippy', direction: 'lr',
+        detail: `ACK sip:${cdr.callee}@sippy SIP/2.0` });
+      if (disconnectMs) {
+        const releaseIsDestination = (cdr.releaseSource || '').toLowerCase().includes('dest');
+        const byeFrom = releaseIsDestination ? 'Sippy' : ua;
+        const byeTo   = byeFrom === ua ? 'Sippy' : ua;
+        events.push({ ts: fmtTs(disconnectMs - 20), method: 'BYE', from: byeFrom, to: byeTo, direction: byeFrom === ua ? 'lr' : 'rl',
+          detail: `BYE sip:sippy SIP/2.0\nRelease-Source: ${cdr.releaseSource || 'unknown'}\nCall-Duration: ${((disconnectMs - connectMs) / 1000).toFixed(1)}s` });
+        events.push({ ts: fmtTs(disconnectMs), method: '200', code: 200, from: byeTo, to: byeFrom, direction: byeTo === ua ? 'lr' : 'rl',
+          detail: 'SIP/2.0 200 OK' });
+      }
+    } else {
+      const sipErr = sippy_resultToSipCode(cdr.result);
+      const errMs  = startMs + Math.max(pdd1xxMs || 0, connectMs ? connectMs - startMs : 1500);
+      events.push({ ts: fmtTs(errMs), method: String(sipErr.code), code: sipErr.code, from: 'Sippy', to: ua, direction: 'rl',
+        detail: `SIP/2.0 ${sipErr.code} ${sipErr.phrase}\nDisconnect-Reason: ${cdr.result}` });
+      if (sipErr.code >= 400) {
+        events.push({ ts: fmtTs(errMs + 10), method: 'ACK', from: ua, to: 'Sippy', direction: 'lr',
+          detail: 'ACK sip:sippy SIP/2.0' });
+      }
+    }
+    return events;
+  }
+
+  // GET /api/sippy/cdr-trace?callId=xxx&cli=yyy&cld=zzz
+  // Looks up a call from the in-memory CDR cache (or fresh Sippy fetch) and returns
+  // the full CDR record plus a reconstructed SIP dialog timeline.
+  app.get('/api/sippy/cdr-trace', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    const callId = ((req.query.callId as string) || '').trim();
+    const cli    = ((req.query.cli    as string) || '').trim();
+    const cld    = ((req.query.cld    as string) || '').trim();
+    if (!callId && !cli && !cld) {
+      return res.status(400).json({ error: 'Provide callId, cli, or cld to search.' });
+    }
+
+    // 1. In-memory CDR cache search (fast O(n) with early exit)
+    let cdr: sippy.SippyCDR | undefined;
+    if (callId) {
+      cdr = cdrCache.get(callId);
+      if (!cdr) {
+        for (const [, c] of cdrCache) {
+          if (c.callId?.includes(callId) || c.iCdr === callId || c.iCall === callId) { cdr = c; break; }
+        }
+      }
+    }
+    if (!cdr && (cli || cld)) {
+      for (const [, c] of cdrCache) {
+        const cliMatch = !cli || c.caller?.includes(cli) || (c as any).callerIn?.includes(cli);
+        const cldMatch = !cld || c.callee?.includes(cld) || (c as any).calleeIn?.includes(cld);
+        if (cliMatch && cldMatch) { cdr = c; break; }
+      }
+    }
+
+    // 2. Live Sippy fetch fallback
+    if (!cdr) {
+      try {
+        const settings = await storage.getSettings();
+        const credPairs = sippyXmlCredsPairs(settings);
+        const pUrl = sippyPortalUrl(settings!);
+        for (const { username, password } of credPairs) {
+          const opts: Parameters<typeof sippy.getSippyCDRs>[3] = {};
+          if (cli) opts.cli = cli;
+          if (cld) opts.cld = cld;
+          const fresh = await sippy.getSippyCDRs(username, password, 10, opts, pUrl);
+          if (fresh.length > 0) {
+            cdr = callId ? (fresh.find(c => c.callId?.includes(callId)) ?? fresh[0]) : fresh[0];
+            if (cdr) { cdrCache.set(cdr.callId || `${cdr.startTime}:${cdr.caller}:${cdr.callee}`, cdr); break; }
+          }
+        }
+      } catch { /* ignore — return 404 below */ }
+    }
+
+    if (!cdr) return res.status(404).json({ error: 'No CDR found matching that identifier. Try broadening the search or waiting for the CDR cache to refresh.' });
+
+    const enriched = {
+      ...cdr,
+      clientName:  cdr.clientName  || accountNameCache.get(String(cdr.iAccount ?? ''))                                        || (cdr.iAccount ? `Acct.${cdr.iAccount}` : undefined),
+      vendorName: (cdr as any).vendorName || connectionVendorCache.get(String((cdr as any).iConnection ?? '')) || (cdr as any).vendor || undefined,
+    };
+
+    res.json({ cdr: enriched, sipEvents: sippy_reconstructDialog(cdr) });
+  });
+
   // GET /api/sippy/cdr — CDR records from Sippy
   // Query params: limit, startDate (ISO/Sippy), endDate, iCustomer, iAccount, type,
   //               cli, cld, offset, iWholesaler, iCdrsCustomer
@@ -12806,6 +12936,122 @@ export async function registerRoutes(
       res.json(report);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/analytics/rtp-quality?hours=24
+  // Aggregates quality and call-outcome stats from the rolling CDR cache.
+  // Returns: fleet-wide ASR/PDD, per-vendor breakdown, disconnect reasons,
+  //          PDD buckets, hourly timeline, and suspect one-way audio calls.
+  app.get('/api/analytics/rtp-quality', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const hours    = Math.min(Number(req.query.hours) || 24, 72);
+      const now      = Date.now();
+      const cutoffMs = now - hours * 3600 * 1000;
+
+      const cdrs = Array.from(cdrCache.values()).filter(c => {
+        const ts = c.startTime ? new Date(c.startTime).getTime() : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+        return ts >= cutoffMs;
+      }).map(c => ({
+        ...c,
+        clientName:  c.clientName  || accountNameCache.get(String(c.iAccount ?? '')) || undefined,
+        vendorName: (c as any).vendorName || connectionVendorCache.get(String((c as any).iConnection ?? '')) || (c as any).vendor || undefined,
+      }));
+
+      const total    = cdrs.length;
+      const answered = cdrs.filter(c => (c.totalDuration ?? c.duration ?? 0) > 0).length;
+      const avgPdd   = total > 0 ? cdrs.reduce((s, c) => s + (c.pdd ?? 0), 0) / total : 0;
+
+      // ── Per-vendor breakdown ───────────────────────────────────────────────
+      const vendorMap = new Map<string, { total: number; answered: number; pddSum: number; shortCalls: number }>();
+      for (const c of cdrs) {
+        const vendor = (c as any).vendorName || 'Unknown';
+        if (!vendorMap.has(vendor)) vendorMap.set(vendor, { total: 0, answered: 0, pddSum: 0, shortCalls: 0 });
+        const v = vendorMap.get(vendor)!;
+        v.total++;
+        const dur = c.totalDuration ?? c.duration ?? 0;
+        if (dur > 0) { v.answered++; if (dur < 30) v.shortCalls++; }
+        v.pddSum += c.pdd ?? 0;
+      }
+      const perVendor = Array.from(vendorMap.entries())
+        .map(([vendor, v]) => ({
+          vendor, total: v.total, answered: v.answered,
+          asr:    v.total > 0 ? Math.round((v.answered / v.total) * 100) : 0,
+          avgPdd: v.total > 0 ? +(v.pddSum / v.total).toFixed(2) : 0,
+          shortCalls: v.shortCalls,
+        }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 20);
+
+      // ── Disconnect reason distribution ─────────────────────────────────────
+      const reasonMap: Record<string, number> = {};
+      for (const c of cdrs) { const r = c.result || 'UNKNOWN'; reasonMap[r] = (reasonMap[r] || 0) + 1; }
+      const disconnectReasons = Object.entries(reasonMap)
+        .sort((a, b) => b[1] - a[1]).slice(0, 10)
+        .map(([reason, count]) => ({ reason, count }));
+
+      // ── PDD distribution buckets ───────────────────────────────────────────
+      const pddBuckets = { fast: 0, normal: 0, slow: 0, verySlow: 0 };
+      for (const c of cdrs) {
+        const p = c.pdd ?? 0;
+        if (p < 1) pddBuckets.fast++;
+        else if (p < 3) pddBuckets.normal++;
+        else if (p < 6) pddBuckets.slow++;
+        else pddBuckets.verySlow++;
+      }
+
+      // ── Hourly timeline ────────────────────────────────────────────────────
+      const hourlyBuckets: Record<string, { total: number; answered: number; pddSum: number }> = {};
+      for (let h = hours - 1; h >= 0; h--) {
+        const t = new Date(now - h * 3600 * 1000);
+        hourlyBuckets[`${String(t.getUTCHours()).padStart(2, '0')}:00`] = { total: 0, answered: 0, pddSum: 0 };
+      }
+      for (const c of cdrs) {
+        const ts = c.startTime ? new Date(c.startTime) : c.connectTime ? new Date(c.connectTime) : null;
+        if (!ts) continue;
+        const label = `${String(ts.getUTCHours()).padStart(2, '0')}:00`;
+        if (hourlyBuckets[label]) {
+          hourlyBuckets[label].total++;
+          if ((c.totalDuration ?? c.duration ?? 0) > 0) hourlyBuckets[label].answered++;
+          hourlyBuckets[label].pddSum += c.pdd ?? 0;
+        }
+      }
+      const hourlyTimeline = Object.entries(hourlyBuckets).map(([hour, v]) => ({
+        hour, total: v.total, answered: v.answered,
+        asr:    v.total > 0 ? Math.round((v.answered / v.total) * 100) : 0,
+        avgPdd: v.total > 0 ? +(v.pddSum / v.total).toFixed(2) : 0,
+      }));
+
+      // ── Suspect one-way audio: connected but very short (<30s) ────────────
+      const suspectOneWay = cdrs
+        .filter(c => {
+          const dur = c.totalDuration ?? c.duration ?? 0;
+          return dur > 0 && dur < 30 && c.connectTime != null;
+        })
+        .sort((a, b) => (a.totalDuration ?? a.duration ?? 0) - (b.totalDuration ?? b.duration ?? 0))
+        .slice(0, 25)
+        .map(c => ({
+          callId:     c.callId,
+          caller:     c.caller,
+          callee:     c.callee,
+          startTime:  c.startTime,
+          duration:   c.totalDuration ?? c.duration ?? 0,
+          result:     c.result,
+          remoteIp:   c.remoteIp,
+          clientName: c.clientName,
+          vendorName: (c as any).vendorName,
+        }));
+
+      res.json({
+        hours, total, answered, failed: total - answered,
+        asr:    total > 0 ? Math.round((answered / total) * 100) : 0,
+        avgPdd: +avgPdd.toFixed(2),
+        perVendor, disconnectReasons, pddBuckets, hourlyTimeline, suspectOneWay,
+        cacheUpdatedAt: cdrCacheUpdatedAt?.toISOString() ?? null,
+      });
+    } catch (err: any) {
+      console.error('[rtp-quality]', err.message);
+      res.status(500).json({ error: err.message });
     }
   });
 

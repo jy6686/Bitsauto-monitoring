@@ -95,6 +95,7 @@ import ResellerPage from "@/pages/reseller";
 import CompliancePage from "@/pages/compliance";
 import SmsMonitorPage from "@/pages/sms-monitor";
 import AiOpsPage from "@/pages/ai-ops";
+import RtpAnalyticsPage from "@/pages/rtp-analytics";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -370,6 +371,9 @@ function Router() {
       </Route>
       <Route path="/ai-ops">
         {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/rtp-analytics">
+        {() => <ProtectedRoute component={RtpAnalyticsPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route component={NotFound} />
     </Switch>
