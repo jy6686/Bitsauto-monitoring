@@ -1138,6 +1138,38 @@ export const numberLookupCache = pgTable("number_lookup_cache", {
 });
 export type NumberLookup = typeof numberLookupCache.$inferSelect;
 
+// ── GDPR / Compliance — Data Retention Policy ─────────────────────────────────
+
+export const dataRetentionPolicy = pgTable("data_retention_policy", {
+  id:            serial("id").primaryKey(),
+  dataType:      varchar("data_type",  { length: 64  }).notNull().unique(), // fas_events|number_lookup|cdrs
+  label:         varchar("label",      { length: 128 }).notNull(),
+  retentionDays: integer("retention_days").notNull().default(90),
+  enabled:       boolean("enabled").notNull().default(true),
+  lastPurgedAt:  timestamp("last_purged_at"),
+  purgedCount:   integer("purged_count").default(0),
+  updatedAt:     timestamp("updated_at").defaultNow(),
+});
+export type DataRetentionPolicy = typeof dataRetentionPolicy.$inferSelect;
+
+// ── GDPR / Compliance — Deletion Requests ─────────────────────────────────────
+
+export const deletionRequests = pgTable("deletion_requests", {
+  id:             serial("id").primaryKey(),
+  requestedBy:    varchar("requested_by",  { length: 128 }).notNull(),
+  dataSubject:    varchar("data_subject",  { length: 255 }).notNull(),
+  dataType:       varchar("data_type",     { length: 64  }).notNull(), // fas_events|number_lookup|cdrs|all
+  reason:         text("reason"),
+  status:         varchar("status",        { length: 20  }).notNull().default('pending'), // pending|in_progress|completed|rejected|failed
+  requestedAt:    timestamp("requested_at").defaultNow().notNull(),
+  completedAt:    timestamp("completed_at"),
+  executedBy:     varchar("executed_by",   { length: 128 }),
+  recordsDeleted: integer("records_deleted").default(0),
+  auditNote:      text("audit_note"),
+});
+export type DeletionRequest = typeof deletionRequests.$inferSelect;
+export type InsertDeletionRequest = typeof deletionRequests.$inferInsert;
+
 // ── SBC Monitor — session border controller hosts ─────────────────────────────
 
 export const sbcHosts = pgTable("sbc_hosts", {

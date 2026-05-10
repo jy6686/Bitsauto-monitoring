@@ -503,10 +503,43 @@ function _classifyFailureCategory(sipCode?: number): string {
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
+
+/**
+ * Compute the NEXT run time after a campaign fires.
+ * 'once' schedules return null (no re-schedule).
+ * 'interval' / 'hourly' / 'daily' return the next occurrence.
+ */
 function _computeNextRunAt(campaign: any): Date | null {
+  const scheduleType = (campaign.scheduleType ?? 'interval') as string;
+
+  if (scheduleType === 'once') return null; // one-shot — never re-schedule
+
+  if (scheduleType === 'hourly') return new Date(Date.now() + 60 * 60_000);
+
+  if (scheduleType === 'daily') {
+    const hour = (campaign.cronHour as number | null) ?? 0;
+    const next = new Date();
+    next.setUTCHours(hour, 0, 0, 0);
+    if (next.getTime() <= Date.now()) next.setUTCDate(next.getUTCDate() + 1);
+    return next;
+  }
+
+  // default: 'interval'
   const mins = campaign.intervalMinutes as number | null;
   if (!mins || mins <= 0) return null;
   return new Date(Date.now() + mins * 60_000);
+}
+
+/**
+ * Compute the FIRST nextRunAt when a campaign is toggled on.
+ * 'once' schedules use scheduledAt directly.
+ */
+export function computeInitialNextRunAt(campaign: any): Date | null {
+  const scheduleType = (campaign.scheduleType ?? 'interval') as string;
+  if (scheduleType === 'once') {
+    return campaign.scheduledAt ? new Date(campaign.scheduledAt) : null;
+  }
+  return _computeNextRunAt(campaign);
 }
 
 function _sleep(ms: number): Promise<void> {

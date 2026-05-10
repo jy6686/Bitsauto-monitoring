@@ -19,7 +19,7 @@ import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, c
 import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
-import { initSyntheticScheduler } from "./synthetic-scheduler";
+import { initSyntheticScheduler, computeInitialNextRunAt } from "./synthetic-scheduler";
 import { initCarrierScoringEngine, recomputeCarrierScores, setCdrProvider } from "./carrier-scoring-engine";
 import { APPROVAL_POLICY, type Role } from "@shared/schema";
 import { broadcastNocTick } from "./noc-ws";
@@ -55,6 +55,31 @@ function dialCodesHandler(_req: any, res: any) {
 // ── Account name cache — populated dynamically from Sippy listAccounts() ──────
 // Maps iAccount string → username. No hardcoded IDs — always reflects the live switch.
 const accountNameCache: Map<string, string> = new Map();
+
+// ── Client Portal Scope Resolver ──────────────────────────────────────────────
+// Returns null = unrestricted (admin/management/super_admin/noc_operator).
+// Returns populated sets for KAM-role users scoped to their account subtree.
+const UNRESTRICTED_ROLES = new Set(['admin', 'super_admin', 'management', 'noc_operator']);
+async function resolveUserScope(req: any): Promise<{ accountIds: Set<string> | null; clis: Set<string> | null }> {
+  const role = req.user?.role as string | undefined;
+  if (!role || UNRESTRICTED_ROLES.has(role)) return { accountIds: null, clis: null };
+  const userId = req.user?.claims?.sub as string | undefined;
+  if (!userId) return { accountIds: null, clis: null };
+  try {
+    const kam = await storage.getKamByUserId(userId);
+    if (!kam) return { accountIds: null, clis: null };
+    const accountIds = await storage.getAccountsForSubtree(kam.id); // string[]
+    const idSet = new Set(accountIds);
+    // accountNameCache: iAccount(string) → username(CLI)
+    const cliSet = new Set<string>();
+    for (const [idStr, username] of accountNameCache) {
+      if (idSet.has(idStr)) cliSet.add(username);
+    }
+    return { accountIds: idSet, clis: cliSet.size > 0 ? cliSet : null };
+  } catch {
+    return { accountIds: null, clis: null };
+  }
+}
 
 // Ordered list of all known iAccount IDs — used for CDR batch fetching.
 // Refreshed every 30 min alongside connectionVendorCache.
@@ -3570,9 +3595,13 @@ export async function registerRoutes(
       const cutoffMs = now.getTime() - hours * 3600 * 1000;
 
       // Read from rolling CDR cache (populated by background refreshCdrCache every 5 min)
+      // Client Portal Scope — resolve before filtering to avoid extra await inside the .filter()
+      const _cdrScope = await resolveUserScope(req);
       const cdrs = Array.from(cdrCache.values()).filter(c => {
         const ts = sippy.parseSippyDate(c.startTime)?.getTime() ?? sippy.parseSippyDate(c.connectTime ?? null)?.getTime() ?? 0;
-        return ts >= cutoffMs;
+        if (ts < cutoffMs) return false;
+        if (_cdrScope.accountIds && c.iAccount != null && !_cdrScope.accountIds.has(String(c.iAccount))) return false;
+        return true;
       }).map(c => ({
         ...c,
         clientName: c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || (c.iAccount ? `Acct.${c.iAccount}` : 'Unknown'),
@@ -8151,7 +8180,13 @@ export async function registerRoutes(
         const vendor = e.vendor || firstVendorName;
         return { ...e, clientName, vendor };
       });
-      res.json({ events: resolved });
+
+      // Client Portal Scope — KAM-role users see only their assigned accounts' events
+      const scope = await resolveUserScope(req);
+      const scoped = scope.clis
+        ? resolved.filter(e => (e.caller && scope.clis!.has(e.caller)) || (e.callee && scope.clis!.has(e.callee)))
+        : resolved;
+      res.json({ events: scoped });
     } catch (e: any) { res.status(500).json({ events: [], error: e.message }); }
   });
 
@@ -15256,10 +15291,12 @@ export async function registerRoutes(
       const campaign = await storage.getTestCampaign(Number(req.params.id));
       if (!campaign) return res.status(404).json({ error: 'Not found' });
       const newEnabled = !(campaign as any).enabled;
-      // If re-enabling and intervalMinutes set, reset nextRunAt so it fires promptly
+      // Compute nextRunAt for all schedule types when re-enabling
       const extra: any = {};
-      if (newEnabled && (campaign as any).intervalMinutes) {
-        extra.nextRunAt = new Date(Date.now() + (campaign as any).intervalMinutes * 60_000);
+      if (newEnabled) {
+        const nextRun = computeInitialNextRunAt(campaign);
+        if (nextRun) extra.nextRunAt = nextRun;
+        else extra.nextRunAt = null;
       }
       const updated = await storage.updateTestCampaign(campaign.id, { enabled: newEnabled, ...extra } as any);
       res.json(updated);
@@ -15635,11 +15672,12 @@ export async function registerRoutes(
   // GET /api/compliance/report — live compliance metrics from FAS, CDR, blacklist, settings
   app.get('/api/compliance/report', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res) => {
     try {
-      const [settings, fasAll, blacklistAll, carrierScores24] = await Promise.all([
+      const [settings, fasAll, blacklistAll, carrierScores24, allDeletionRequests] = await Promise.all([
         storage.getSettings(),
         storage.getFasEvents(10000),
         storage.getBlacklistRules(),
         storage.getCarrierQualityScores(24),
+        storage.getDeletionRequests(),
       ]);
 
       const now   = Date.now();
@@ -15723,8 +15761,14 @@ export async function registerRoutes(
           category: 'GDPR / Privacy' },
         { id: 'gdpr_deletion',
           label: 'Data deletion SLA compliance',
-          status: 'ok',
-          detail: '0 pending deletion requests — within regulatory SLA',
+          status: allDeletionRequests.filter(r => r.status === 'pending').length === 0 ? 'ok' : 'warn',
+          detail: (() => {
+            const pending = allDeletionRequests.filter(r => r.status === 'pending').length;
+            const completed = allDeletionRequests.filter(r => r.status === 'completed').length;
+            if (pending === 0 && completed === 0) return '0 deletion requests — within regulatory SLA';
+            if (pending === 0) return `${completed} request(s) completed — within regulatory SLA`;
+            return `${pending} pending deletion request(s) — action required`;
+          })(),
           category: 'GDPR / Privacy' },
         { id: 'gdpr_blacklist',
           label: 'Number suppression list maintained',
@@ -15773,6 +15817,131 @@ export async function registerRoutes(
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE GROUP: GDPR / Compliance — Retention Policies & Deletion Requests
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // GET /api/gdpr/retention-policy — list all retention policies
+  app.get('/api/gdpr/retention-policy',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (_req, res) => {
+      try { res.json(await storage.getDataRetentionPolicies()); }
+      catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
+  // PATCH /api/gdpr/retention-policy/:dataType — update retentionDays or enabled
+  app.patch('/api/gdpr/retention-policy/:dataType',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req, res) => {
+      try {
+        const { dataType } = req.params;
+        const { retentionDays, enabled } = req.body as { retentionDays?: number; enabled?: boolean };
+        await storage.updateDataRetentionPolicy(dataType, { retentionDays, enabled } as any);
+        res.json({ success: true });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
+  // GET /api/gdpr/deletion-requests — list all deletion requests
+  app.get('/api/gdpr/deletion-requests',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (_req, res) => {
+      try { res.json(await storage.getDeletionRequests()); }
+      catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
+  // POST /api/gdpr/deletion-requests — submit a new deletion request
+  app.post('/api/gdpr/deletion-requests',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const { dataSubject, dataType, reason } = req.body as { dataSubject: string; dataType: string; reason?: string };
+        if (!dataSubject || !dataType) return res.status(400).json({ error: 'dataSubject and dataType are required' });
+        const requestedBy = req.user?.claims?.email ?? req.user?.claims?.sub ?? 'unknown';
+        const dr = await storage.createDeletionRequest({ requestedBy, dataSubject, dataType, reason: reason ?? null });
+        res.status(201).json(dr);
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
+  // POST /api/gdpr/deletion-requests/:id/execute — execute a deletion and record the audit trail
+  app.post('/api/gdpr/deletion-requests/:id/execute',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        const dr = await storage.getDeletionRequest(id);
+        if (!dr) return res.status(404).json({ error: 'Deletion request not found' });
+        if (dr.status !== 'pending') return res.status(409).json({ error: `Request is already ${dr.status}` });
+
+        const executedBy = req.user?.claims?.email ?? req.user?.claims?.sub ?? 'unknown';
+        await storage.updateDeletionRequest(id, { status: 'in_progress' });
+
+        let recordsDeleted = 0;
+        let auditNote = '';
+        try {
+          const { db: gdprDb } = await import('./db');
+          const { fasEvents: fasEventsTable, numberLookupCache: nlcTable } = await import('../shared/schema');
+          const { like, or, eq: deq } = await import('drizzle-orm');
+          const subject = dr.dataSubject;
+
+          if (dr.dataType === 'fas_events' || dr.dataType === 'all') {
+            const r = await gdprDb.delete(fasEventsTable)
+              .where(or(like(fasEventsTable.caller, `%${subject}%`), like(fasEventsTable.callee, `%${subject}%`)));
+            recordsDeleted += (r as any).rowCount ?? 0;
+          }
+          if (dr.dataType === 'number_lookup' || dr.dataType === 'all') {
+            const r = await gdprDb.delete(nlcTable).where(deq(nlcTable.number, subject));
+            recordsDeleted += (r as any).rowCount ?? 0;
+          }
+          if (dr.dataType === 'cdrs' || dr.dataType === 'all') {
+            let cleared = 0;
+            const subjectSuffix = subject.slice(-7);
+            for (const [k, c] of cdrCache) {
+              if ((c as any).caller === subject || (c as any).callee === subject ||
+                  (c as any).caller?.endsWith(subjectSuffix) || (c as any).callee?.endsWith(subjectSuffix)) {
+                cdrCache.delete(k); cleared++;
+              }
+            }
+            recordsDeleted += cleared;
+            auditNote += `${cleared} CDR(s) cleared from in-memory cache. `;
+          }
+
+          auditNote += `Executed by ${executedBy} at ${new Date().toISOString()}.`;
+          await storage.updateDeletionRequest(id, {
+            status: 'completed', completedAt: new Date(),
+            executedBy, recordsDeleted, auditNote,
+          });
+          res.json({ success: true, recordsDeleted, auditNote });
+        } catch (execErr: any) {
+          await storage.updateDeletionRequest(id, {
+            status: 'failed',
+            auditNote: `Execution failed: ${execErr.message}`,
+          });
+          throw execErr;
+        }
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
+  // PATCH /api/gdpr/deletion-requests/:id/reject — reject a pending deletion request
+  app.patch('/api/gdpr/deletion-requests/:id/reject',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        const executedBy = req.user?.claims?.email ?? req.user?.claims?.sub ?? 'unknown';
+        await storage.updateDeletionRequest(id, {
+          status: 'rejected', executedBy,
+          auditNote: (req.body?.reason as string | undefined) ?? 'Rejected by administrator',
+        });
+        res.json({ success: true });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
 
   // ─────────────────────────────────────────────────────────────────────────
   // FEATURE GROUP H: Scheduled Reports

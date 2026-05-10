@@ -12,6 +12,8 @@ import {
   productDocs,
   approvalRequests, approvalAuditLog,
   portalAccessTokens,
+  dataRetentionPolicy, deletionRequests,
+  type DataRetentionPolicy, type DeletionRequest, type InsertDeletionRequest,
   type PortalToken, type InsertPortalToken,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
@@ -305,6 +307,15 @@ export interface IStorage {
   getPortalToken(token: string): Promise<PortalToken | undefined>;
   deletePortalToken(id: number): Promise<void>;
   touchPortalToken(id: number): Promise<void>;
+
+  // GDPR / Compliance
+  getDeletionRequests(): Promise<DeletionRequest[]>;
+  getDeletionRequest(id: number): Promise<DeletionRequest | null>;
+  createDeletionRequest(req: InsertDeletionRequest): Promise<DeletionRequest>;
+  updateDeletionRequest(id: number, updates: Partial<DeletionRequest>): Promise<DeletionRequest>;
+  getDataRetentionPolicies(): Promise<DataRetentionPolicy[]>;
+  updateDataRetentionPolicy(dataType: string, updates: Partial<DataRetentionPolicy>): Promise<void>;
+  seedDefaultRetentionPolicies(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1620,6 +1631,51 @@ export class DatabaseStorage implements IStorage {
 
   async touchPortalToken(id: number): Promise<void> {
     await db.update(portalAccessTokens).set({ lastUsedAt: new Date() }).where(eq(portalAccessTokens.id, id));
+  }
+
+  // ── GDPR / Compliance ────────────────────────────────────────────────────────
+
+  async getDeletionRequests(): Promise<DeletionRequest[]> {
+    return db.select().from(deletionRequests).orderBy(desc(deletionRequests.requestedAt));
+  }
+
+  async getDeletionRequest(id: number): Promise<DeletionRequest | null> {
+    const [row] = await db.select().from(deletionRequests).where(eq(deletionRequests.id, id));
+    return row ?? null;
+  }
+
+  async createDeletionRequest(req: InsertDeletionRequest): Promise<DeletionRequest> {
+    const [row] = await db.insert(deletionRequests).values(req).returning();
+    return row;
+  }
+
+  async updateDeletionRequest(id: number, updates: Partial<DeletionRequest>): Promise<DeletionRequest> {
+    const [row] = await db.update(deletionRequests)
+      .set(updates).where(eq(deletionRequests.id, id)).returning();
+    return row;
+  }
+
+  async getDataRetentionPolicies(): Promise<DataRetentionPolicy[]> {
+    return db.select().from(dataRetentionPolicy).orderBy(dataRetentionPolicy.dataType);
+  }
+
+  async updateDataRetentionPolicy(dataType: string, updates: Partial<DataRetentionPolicy>): Promise<void> {
+    await db.update(dataRetentionPolicy)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(dataRetentionPolicy.dataType, dataType));
+  }
+
+  async seedDefaultRetentionPolicies(): Promise<void> {
+    const defaults = [
+      { dataType: 'fas_events',    label: 'FAS / Fraud Events',           retentionDays: 90  },
+      { dataType: 'number_lookup', label: 'Number Intelligence Cache',     retentionDays: 30  },
+      { dataType: 'audit_log',     label: 'Approval Audit Log',            retentionDays: 365 },
+    ];
+    for (const d of defaults) {
+      const existing = await db.select().from(dataRetentionPolicy)
+        .where(eq(dataRetentionPolicy.dataType, d.dataType));
+      if (!existing.length) await db.insert(dataRetentionPolicy).values(d);
+    }
   }
 }
 
