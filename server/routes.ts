@@ -34,6 +34,7 @@ import { generateTroubleshootGuide, TROUBLESHOOT_GUIDE_PATH } from "./troublesho
 import { generateOrgHierarchyDoc, ORG_HIERARCHY_PATH } from "./org-hierarchy-generator";
 import { generateRoutingFeaturesDoc, ROUTING_FEATURES_PATH } from "./routing-features-generator";
 import { generateFeatureRegistryDoc, FEATURE_REGISTRY_PATH } from "./feature-registry-generator";
+import { generatePlatformPresentation } from "./presentation-generator";
 import {
   syncRoutingCache, getCachedRoutingGroups, getCachedDestinationSets,
   getCachedConnections, getRoutingCacheMeta,
@@ -11189,6 +11190,18 @@ export async function registerRoutes(
       res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'Bitsauto_Platform_Feature_Registry.docx' });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/download/platform-presentation — self-contained interactive HTML slideshow
+  app.get('/api/download/platform-presentation', (_req: any, res: any) => {
+    try {
+      const html = generatePlatformPresentation();
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', 'inline; filename="Bitsauto_Top10_Features_Presentation.html"');
+      res.send(html);
+    } catch (e: any) {
+      res.status(500).json({ message: `Failed to generate presentation: ${e.message}` });
     }
   });
 
