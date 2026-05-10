@@ -114,8 +114,9 @@ export const settings = pgTable("settings", {
   // Sidebar visibility config — JSON array of hidden item hrefs (admin-controlled)
   sidebarHiddenItems: text("sidebar_hidden_items").default('[]'),
   // HLR / CNAM provider config
-  hlrProvider: varchar("hlr_provider", { length: 20 }).default('none'),  // 'telnyx' | 'none'
-  hlrApiKey:   varchar("hlr_api_key",  { length: 255 }),
+  hlrProvider:   varchar("hlr_provider",    { length: 20 }).default('none'),  // 'telnyx' | 'hlrlookup' | 'none'
+  hlrApiKey:     varchar("hlr_api_key",     { length: 255 }),
+  hlrApiSecret:  varchar("hlr_api_secret",  { length: 255 }),
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports

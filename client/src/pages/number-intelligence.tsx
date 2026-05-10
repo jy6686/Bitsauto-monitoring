@@ -34,8 +34,9 @@ interface NumberLookup {
 }
 
 interface HLRProviderStatus {
-  hlrProvider: string;
-  hlrApiKeySet: boolean;
+  hlrProvider:     string;
+  hlrApiKeySet:    boolean;
+  hlrApiSecretSet: boolean;
 }
 
 function LineTypeIcon({ type }: { type: string | null }) {
@@ -78,12 +79,14 @@ function ReputationBar({ score }: { score: number | null }) {
 function HlrSourceBadge({ source }: { source: string | null | undefined }) {
   if (!source) return null;
   const map: Record<string, { label: string; cls: string }> = {
-    telnyx:             { label: "Telnyx HLR",    cls: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
+    telnyx:             { label: "Telnyx HLR",      cls: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
+    hlrlookup:          { label: "HLR Lookup",       cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" },
+    hlrlookup_error:    { label: "HLR Lookup error", cls: "bg-rose-500/15 text-rose-400 border-rose-500/30" },
     'libphonenumber+sippy_cdr': { label: "Sippy CDR", cls: "bg-muted/30 text-muted-foreground border-border" },
-    sippy_cdr:          { label: "Sippy CDR",     cls: "bg-muted/30 text-muted-foreground border-border" },
-    cache:              { label: "Cached",         cls: "bg-muted/30 text-muted-foreground border-border" },
-    not_configured:     { label: "No HLR provider",cls: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
-    telnyx_error:       { label: "HLR error",     cls: "bg-rose-500/15 text-rose-400 border-rose-500/30" },
+    sippy_cdr:          { label: "Sippy CDR",        cls: "bg-muted/30 text-muted-foreground border-border" },
+    cache:              { label: "Cached",            cls: "bg-muted/30 text-muted-foreground border-border" },
+    not_configured:     { label: "No HLR provider",  cls: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
+    telnyx_error:       { label: "HLR error",        cls: "bg-rose-500/15 text-rose-400 border-rose-500/30" },
   };
   const c = map[source] ?? { label: source, cls: "bg-muted/30 text-muted-foreground border-border" };
   return <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border", c.cls)}>{c.label}</span>;
@@ -105,9 +108,10 @@ export default function NumberIntelligencePage() {
 
   // HLR provider config state
   const [showProviderForm, setShowProviderForm] = useState(false);
-  const [providerDraft, setProviderDraft] = useState('none');
-  const [apiKeyDraft, setApiKeyDraft]     = useState('');
-  const [savingProvider, setSavingProvider] = useState(false);
+  const [providerDraft, setProviderDraft]       = useState('none');
+  const [apiKeyDraft, setApiKeyDraft]           = useState('');
+  const [apiSecretDraft, setApiSecretDraft]     = useState('');
+  const [savingProvider, setSavingProvider]     = useState(false);
 
   const { data: providerStatus } = useQuery<HLRProviderStatus>({
     queryKey: ['/api/settings/hlr-provider'],
@@ -147,12 +151,15 @@ export default function NumberIntelligencePage() {
     try {
       await apiRequest('POST', '/api/settings/hlr-provider', {
         hlrProvider: providerDraft,
-        ...(apiKeyDraft ? { hlrApiKey: apiKeyDraft } : {}),
+        ...(apiKeyDraft    ? { hlrApiKey:    apiKeyDraft    } : {}),
+        ...(apiSecretDraft ? { hlrApiSecret: apiSecretDraft } : {}),
       });
       qc.invalidateQueries({ queryKey: ['/api/settings/hlr-provider'] });
       setApiKeyDraft('');
+      setApiSecretDraft('');
       setShowProviderForm(false);
-      toast({ title: "HLR provider saved", description: providerDraft === 'none' ? "Disabled" : "Telnyx enabled" });
+      const providerLabel = providerDraft === 'telnyx' ? 'Telnyx' : providerDraft === 'hlrlookup' ? 'HLR Lookup' : 'Disabled';
+      toast({ title: "HLR provider saved", description: providerDraft === 'none' ? "Disabled" : `${providerLabel} enabled` });
     } catch (e: any) {
       toast({ title: "Save failed", description: e.message, variant: "destructive" });
     } finally {
@@ -166,6 +173,13 @@ export default function NumberIntelligencePage() {
   }
 
   const isConfigured = providerStatus?.hlrProvider && providerStatus.hlrProvider !== 'none' && providerStatus.hlrApiKeySet;
+  const needsSecret  = providerDraft === 'hlrlookup';
+  const hlrlookupReady = providerDraft === 'hlrlookup' && (
+    (providerStatus?.hlrApiKeySet && providerStatus?.hlrApiSecretSet) ||
+    (!!apiKeyDraft && !!apiSecretDraft)
+  );
+  const telnyxReady  = providerDraft === 'telnyx' && (providerStatus?.hlrApiKeySet || !!apiKeyDraft);
+  const canSave      = providerDraft === 'none' || hlrlookupReady || telnyxReady;
 
   return (
     <div className="min-h-screen bg-background">
@@ -182,7 +196,8 @@ export default function NumberIntelligencePage() {
           <div className="ml-auto">
             {isConfigured ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                <Zap className="h-3 w-3" /> Telnyx HLR active
+                <Zap className="h-3 w-3" />
+                {providerStatus?.hlrProvider === 'hlrlookup' ? 'HLR Lookup active' : 'Telnyx HLR active'}
               </span>
             ) : (
               <button
@@ -210,12 +225,13 @@ export default function NumberIntelligencePage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground font-medium">Provider</label>
-                <Select value={providerDraft} onValueChange={setProviderDraft}>
+                <Select value={providerDraft} onValueChange={v => { setProviderDraft(v); setApiKeyDraft(''); setApiSecretDraft(''); }}>
                   <SelectTrigger data-testid="select-hlr-provider" className="h-9 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">None (CDR data only)</SelectItem>
+                    <SelectItem value="hlrlookup">HLR Lookup (hlrlookup.com)</SelectItem>
                     <SelectItem value="telnyx">Telnyx Number Lookup</SelectItem>
                   </SelectContent>
                 </Select>
@@ -237,19 +253,63 @@ export default function NumberIntelligencePage() {
                   />
                 </div>
               )}
+
+              {providerDraft === 'hlrlookup' && (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground font-medium">
+                      API Key
+                      {providerStatus?.hlrApiKeySet && providerStatus.hlrProvider === 'hlrlookup' && (
+                        <span className="ml-2 text-emerald-400">● saved</span>
+                      )}
+                    </label>
+                    <Input
+                      type="password"
+                      placeholder={providerStatus?.hlrApiKeySet && providerStatus.hlrProvider === 'hlrlookup' ? "Replace key…" : "Your API key"}
+                      value={apiKeyDraft}
+                      onChange={e => setApiKeyDraft(e.target.value)}
+                      className="h-9 text-sm font-mono"
+                      data-testid="input-hlr-api-key"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground font-medium">
+                      API Secret
+                      {providerStatus?.hlrApiSecretSet && providerStatus.hlrProvider === 'hlrlookup' && (
+                        <span className="ml-2 text-emerald-400">● saved</span>
+                      )}
+                    </label>
+                    <Input
+                      type="password"
+                      placeholder={providerStatus?.hlrApiSecretSet && providerStatus.hlrProvider === 'hlrlookup' ? "Replace secret…" : "Your API secret"}
+                      value={apiSecretDraft}
+                      onChange={e => setApiSecretDraft(e.target.value)}
+                      className="h-9 text-sm font-mono"
+                      data-testid="input-hlr-api-secret"
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             {providerDraft === 'telnyx' && (
               <p className="text-[11px] text-muted-foreground/70">
                 Get your API key from{" "}
-                <a
-                  href="https://portal.telnyx.com/#/app/api-keys"
-                  target="_blank" rel="noreferrer"
-                  className="text-blue-400 hover:underline"
-                >
+                <a href="https://portal.telnyx.com/#/app/api-keys" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
                   portal.telnyx.com <ExternalLink className="h-2.5 w-2.5 inline" />
                 </a>
-                {" "}— the Number Lookup product costs ~$0.001 per lookup (billed per use, no subscription).
+                {" "}— Number Lookup costs ~$0.001 per lookup (no subscription).
+              </p>
+            )}
+
+            {providerDraft === 'hlrlookup' && (
+              <p className="text-[11px] text-muted-foreground/70">
+                Get your credentials from{" "}
+                <a href="https://www.hlrlookup.com/account/api" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">
+                  hlrlookup.com/account/api <ExternalLink className="h-2.5 w-2.5 inline" />
+                </a>
+                {" "}— HLR lookups cover live status, carrier, line type, MCC/MNC, and porting. CNAM falls back to CDR-derived data.
+                Test without credits using key <code className="bg-muted/40 px-1 rounded">speedtest</code> / secret <code className="bg-muted/40 px-1 rounded">speedtest</code>.
               </p>
             )}
 
@@ -257,7 +317,7 @@ export default function NumberIntelligencePage() {
               <Button
                 size="sm"
                 onClick={saveProvider}
-                disabled={savingProvider || (providerDraft === 'telnyx' && !providerStatus?.hlrApiKeySet && !apiKeyDraft)}
+                disabled={savingProvider || !canSave}
                 data-testid="button-save-hlr-provider"
               >
                 {savingProvider ? "Saving…" : "Save Provider"}
