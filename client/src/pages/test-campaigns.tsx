@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FlaskConical, Plus, Play, Trash2, RefreshCw, CheckCircle2, Clock, X,
   ChevronDown, ChevronUp, AlertTriangle, Timer, ToggleLeft, ToggleRight,
-  Activity, TrendingDown, History, Zap, ArrowDown,
+  Activity, TrendingDown, History, Zap, ArrowDown, BarChart3, Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -438,6 +438,141 @@ function CampaignCard({ campaign }: { campaign: TestCampaign }) {
   );
 }
 
+// ── Carrier Quality Matrix ────────────────────────────────────────────────────
+
+interface CarrierMatrixRow {
+  carrier: string;
+  total: number;
+  connected: number;
+  failed: number;
+  asr: number | null;
+  avgPddMs: number | null;
+  avgDurSec: number | null;
+  estimatedMos: number | null;
+  grade: string;
+  topErrors: { code: number; count: number }[];
+}
+interface CarrierMatrix { rows: CarrierMatrixRow[]; total: number; windowDays: number; }
+
+function mosGradeColor(grade: string): string {
+  return grade === 'A' ? 'text-emerald-400' : grade === 'B' ? 'text-cyan-400' :
+    grade === 'C' ? 'text-amber-400' : grade === 'D' ? 'text-orange-400' :
+    grade === 'F' ? 'text-rose-400' : 'text-muted-foreground';
+}
+function mosColor(m: number | null): string {
+  if (m === null) return 'text-muted-foreground/50';
+  return m >= 4.0 ? 'text-emerald-400' : m >= 3.5 ? 'text-cyan-400' : m >= 3.0 ? 'text-amber-400' : 'text-rose-400';
+}
+
+function CarrierMatrixPanel() {
+  const [open, setOpen] = useState(true);
+  const { data, isLoading } = useQuery<CarrierMatrix>({
+    queryKey: ['/api/campaigns/carrier-matrix'],
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+
+  return (
+    <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+      <button
+        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-muted/5 transition-colors"
+        onClick={() => setOpen(v => !v)}
+        data-testid="button-toggle-carrier-matrix"
+      >
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-cyan-400" />
+          <h2 className="text-sm font-semibold">Carrier Quality Matrix</h2>
+          <span className="text-[10px] text-muted-foreground/60">
+            PESQ/MOS estimates from synthetic test results — last 30 days
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {data?.rows?.length ? (
+            <span className="text-[10px] text-muted-foreground">{data.rows.length} carriers · {data.total} traces</span>
+          ) : null}
+          {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </div>
+      </button>
+
+      {open && (
+        <>
+          {isLoading ? (
+            <div className="p-4 space-y-2 border-t border-border/30">
+              <div className="h-6 bg-muted/20 rounded w-full animate-pulse" />
+              <div className="h-6 bg-muted/20 rounded w-4/5 animate-pulse" />
+              <div className="h-6 bg-muted/20 rounded w-3/5 animate-pulse" />
+            </div>
+          ) : !data?.rows?.length ? (
+            <div className="border-t border-border/30 px-5 py-8 text-center">
+              <Star className="h-8 w-8 mx-auto text-muted-foreground/20 mb-3" />
+              <p className="text-sm text-muted-foreground">No carrier data yet.</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                Run interval campaigns to populate the quality matrix. Each carrier is scored on MOS estimated from post-dial delay.
+              </p>
+            </div>
+          ) : (
+            <div className="border-t border-border/30 overflow-x-auto">
+              {/* Info banner */}
+              <div className="flex items-center gap-2 px-5 py-2 bg-cyan-500/5 border-b border-cyan-500/10 text-[11px] text-cyan-300/70">
+                <Activity className="h-3 w-3 text-cyan-400 shrink-0" />
+                MOS estimated via E-model from synthetic call PDD · Grade A ≥4.0 · B ≥3.5 · C ≥3.0 · D ≥2.5 · F &lt;2.5
+              </div>
+              <table className="w-full text-xs">
+                <thead className="bg-muted/10">
+                  <tr>
+                    {["Grade","Carrier","Calls","ASR","Avg PDD","Avg Duration","Est. MOS","Top Errors"].map(h => (
+                      <th key={h} className="px-4 py-2.5 text-left text-muted-foreground font-medium">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/20">
+                  {data.rows.map(row => (
+                    <tr key={row.carrier} className="hover:bg-muted/5 transition-colors" data-testid={`row-carrier-matrix-${row.carrier}`}>
+                      <td className="px-4 py-2.5">
+                        <span className={cn("text-sm font-black", mosGradeColor(row.grade))}>
+                          {row.grade}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 font-medium max-w-[160px] truncate">{row.carrier || 'Unknown'}</td>
+                      <td className="px-4 py-2.5 font-mono text-muted-foreground">{row.total}</td>
+                      <td className="px-4 py-2.5 font-mono font-semibold">
+                        <span className={row.asr != null ? (row.asr >= 75 ? 'text-emerald-400' : row.asr >= 55 ? 'text-amber-400' : 'text-rose-400') : 'text-muted-foreground/40'}>
+                          {row.asr != null ? `${row.asr.toFixed(1)}%` : '—'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-muted-foreground">
+                        {row.avgPddMs != null ? `${row.avgPddMs.toFixed(0)}ms` : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-muted-foreground">
+                        {row.avgDurSec != null ? `${row.avgDurSec.toFixed(1)}s` : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono font-bold">
+                        <span className={mosColor(row.estimatedMos)}>
+                          {row.estimatedMos != null ? row.estimatedMos.toFixed(2) : '—'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex gap-1 flex-wrap">
+                          {row.topErrors.map(e => (
+                            <span key={e.code} className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                              {e.code}×{e.count}
+                            </span>
+                          ))}
+                          {row.topErrors.length === 0 && <span className="text-muted-foreground/30">—</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Create campaign modal ─────────────────────────────────────────────────────
 function CampaignModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -673,6 +808,9 @@ export default function TestCampaignsPage() {
       </div>
 
       {!isLoading && <SchedulerStatusBar campaigns={campaigns} />}
+
+      {/* Carrier Quality Matrix */}
+      <CarrierMatrixPanel />
 
       {isLoading && (
         <div className="flex items-center justify-center h-32 text-muted-foreground">

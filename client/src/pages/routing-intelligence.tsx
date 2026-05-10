@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Workflow, Plus, Trash2, ToggleLeft, ToggleRight, AlertTriangle, CheckCircle2, Clock, Zap, Bell, ShieldOff, ArrowDown, Info, ChevronDown, Play, RefreshCw, ExternalLink } from "lucide-react";
+import { Workflow, Plus, Trash2, ToggleLeft, ToggleRight, AlertTriangle, CheckCircle2, Clock, Zap, Bell, ShieldOff, ArrowDown, Info, ChevronDown, ChevronUp, Play, RefreshCw, ExternalLink, Activity, TrendingUp, TrendingDown, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
@@ -80,6 +81,127 @@ interface EvalResult {
   action: string;
   message: string;
   approvalRequestId?: number;
+}
+
+// ── Live Metrics Panel ────────────────────────────────────────────────────────
+
+interface VendorMetric {
+  vendor: string;
+  total: number;
+  answered: number;
+  asr: number | null;
+  acd: number | null;
+  pdd: number | null;
+  concurrent: number;
+}
+interface MetricsSnapshot {
+  window: number;
+  vendors: VendorMetric[];
+  generatedAt: string;
+}
+
+function LiveMetricsPanel() {
+  const [window, setWindow] = useState(15);
+  const { data, isLoading, refetch, isFetching } = useQuery<MetricsSnapshot>({
+    queryKey: ['/api/routing-rules/metrics', window],
+    queryFn: () => fetch(`/api/routing-rules/metrics?window=${window}`).then(r => r.json()),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  const asrColor = (v: number | null) => {
+    if (v === null) return 'text-muted-foreground/50';
+    return v >= 75 ? 'text-emerald-400' : v >= 55 ? 'text-amber-400' : 'text-rose-400';
+  };
+  const pddColor = (v: number | null) => {
+    if (v === null) return 'text-muted-foreground/50';
+    return v <= 2 ? 'text-emerald-400' : v <= 5 ? 'text-amber-400' : 'text-rose-400';
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-cyan-400" />
+          <h2 className="text-sm font-semibold">Live Carrier Metrics</h2>
+          {data?.generatedAt && (
+            <span className="text-[10px] text-muted-foreground/50">
+              as of {new Date(data.generatedAt).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={window}
+            onChange={e => setWindow(Number(e.target.value))}
+            className="text-xs bg-muted/30 border border-border/50 rounded px-2 py-1 text-foreground"
+          >
+            <option value={5}>Last 5 min</option>
+            <option value={15}>Last 15 min</option>
+            <option value={30}>Last 30 min</option>
+            <option value={60}>Last 1 hour</option>
+          </select>
+          <button onClick={() => refetch()} disabled={isFetching}
+            className="p-1.5 rounded hover:bg-muted/30 text-muted-foreground hover:text-foreground transition-colors"
+            data-testid="button-refresh-metrics">
+            <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="p-4 space-y-2">
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-8 w-3/4" />
+        </div>
+      ) : !data?.vendors?.length ? (
+        <div className="px-5 py-6 text-center text-xs text-muted-foreground">
+          <Radio className="h-5 w-5 mx-auto mb-2 opacity-30" />
+          No CDR traffic in the last {window} minutes. Metrics appear once calls are flowing through the system.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-muted/10">
+              <tr>
+                {["Carrier / Vendor","Calls","ASR","ACD","PDD","Live"].map(h => (
+                  <th key={h} className="px-4 py-2.5 text-left text-muted-foreground font-medium">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/30">
+              {data.vendors.slice(0, 12).map(v => (
+                <tr key={v.vendor} className="hover:bg-muted/5 transition-colors" data-testid={`row-vendor-metric-${v.vendor}`}>
+                  <td className="px-4 py-2.5 font-medium truncate max-w-[160px]">{v.vendor}</td>
+                  <td className="px-4 py-2.5 font-mono text-muted-foreground">{v.total}</td>
+                  <td className="px-4 py-2.5 font-mono font-semibold">
+                    <span className={asrColor(v.asr)}>{v.asr != null ? `${v.asr.toFixed(1)}%` : '—'}</span>
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-muted-foreground">
+                    {v.acd != null ? `${v.acd.toFixed(0)}s` : '—'}
+                  </td>
+                  <td className="px-4 py-2.5 font-mono font-semibold">
+                    <span className={pddColor(v.pdd)}>{v.pdd != null ? `${v.pdd.toFixed(1)}s` : '—'}</span>
+                  </td>
+                  <td className="px-4 py-2.5 font-mono">
+                    {v.concurrent > 0 ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-400">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        {v.concurrent}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/30">0</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function RoutingIntelligencePage() {
@@ -191,6 +313,9 @@ export default function RoutingIntelligencePage() {
             </div>
           ))}
         </div>
+
+        {/* Live Metrics */}
+        <LiveMetricsPanel />
 
         {/* How it works */}
         <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex items-start gap-3">

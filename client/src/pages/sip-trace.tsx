@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   GitBranch, Search, Upload, AlertTriangle, Clock, ArrowRight, ArrowLeft,
   Phone, PhoneOff, User, Globe, DollarSign, Monitor, Copy, Check,
-  ChevronDown, ChevronUp, Info, RefreshCw, Wifi, Radio,
+  ChevronDown, ChevronUp, Info, RefreshCw, Wifi, Radio, Music2, Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -522,6 +522,224 @@ function PasteLadder({ messages }: { messages: SipMessage[] }) {
   );
 }
 
+// ── SDP / Codec Negotiation Panel ────────────────────────────────────────────
+
+interface SdpRecord {
+  timeStamp?: string;
+  iCallsSdp?: number;
+  iCdrsConnection?: number;
+  sipMsgType?: string;
+  sdp?: string;
+}
+
+function parseSdpText(raw: string | undefined): { mediaType: string; codecs: string[]; connectionIp: string; direction: string } {
+  if (!raw) return { mediaType: '', codecs: [], connectionIp: '', direction: '' };
+  const lines = raw.split(/\r?\n/);
+  let mediaType = '';
+  let connectionIp = '';
+  let direction = '';
+  const codecs: string[] = [];
+  const ptNames: Record<string, string> = {};
+  const ptList: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith('m=')) {
+      const parts = line.slice(2).split(' ');
+      mediaType = parts[0] || '';
+      ptList.push(...parts.slice(3));
+    }
+    if (line.startsWith('c=IN IP4 ') || line.startsWith('c=IN IP6 ')) {
+      connectionIp = line.split(' ')[2] || '';
+    }
+    if (line.startsWith('a=rtpmap:')) {
+      const rest = line.slice(9);
+      const spIdx = rest.indexOf(' ');
+      if (spIdx !== -1) {
+        const pt = rest.slice(0, spIdx);
+        const name = rest.slice(spIdx + 1).split('/')[0];
+        ptNames[pt] = name;
+      }
+    }
+    if (line.startsWith('a=sendrecv')) direction = 'sendrecv';
+    if (line.startsWith('a=sendonly')) direction = 'sendonly';
+    if (line.startsWith('a=recvonly')) direction = 'recvonly';
+    if (line.startsWith('a=inactive')) direction = 'inactive';
+  }
+
+  for (const pt of ptList) {
+    const name = ptNames[pt];
+    if (name && !codecs.includes(name)) codecs.push(name);
+  }
+
+  return { mediaType, codecs, connectionIp, direction };
+}
+
+function SdpPanel({ iCall }: { iCall: string | undefined }) {
+  const { data, isLoading, isError } = useQuery<{ records: SdpRecord[] }>({
+    queryKey: ['/api/sippy/cdr/sdp', iCall],
+    queryFn: () => fetch(`/api/sippy/cdr/sdp?iCall=${iCall}`).then(r => r.json()),
+    enabled: !!iCall,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+
+  if (!iCall) return null;
+
+  if (isLoading) return (
+    <div className="rounded-xl border border-border/50 bg-card/50 p-4 space-y-2">
+      <Skeleton className="h-4 w-1/4" />
+      <Skeleton className="h-16 w-full" />
+    </div>
+  );
+
+  if (isError || !data?.records?.length) return (
+    <div className="rounded-xl border border-border/30 bg-card/30 p-4 flex items-center gap-3">
+      <Layers className="h-4 w-4 text-muted-foreground/40" />
+      <p className="text-xs text-muted-foreground/60">No SDP records available from Sippy for this call. SDP data is only stored for calls handled by modern Sippy versions with SDP logging enabled.</p>
+    </div>
+  );
+
+  const records = data.records;
+  const callerSdps = records.filter(r => r.iCallsSdp != null);
+  const calleeSdps = records.filter(r => r.iCdrsConnection != null);
+
+  const offer  = callerSdps[0] ?? records[0];
+  const answer = calleeSdps[0] ?? records[1];
+
+  const offerInfo  = parseSdpText(offer?.sdp);
+  const answerInfo = parseSdpText(answer?.sdp);
+
+  const negotiatedCodecs = offerInfo.codecs.filter(c => answerInfo.codecs.includes(c));
+
+  return (
+    <div className="rounded-xl border border-cyan-500/20 bg-card/50 p-4">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <Music2 className="h-4 w-4 text-cyan-400" />
+          Media Negotiation (SDP)
+        </h3>
+        <div className="flex items-center gap-2">
+          {negotiatedCodecs.length > 0 && (
+            <Badge className="text-[10px] bg-cyan-500/15 text-cyan-400 border-cyan-500/25">
+              Active: {negotiatedCodecs[0]}
+            </Badge>
+          )}
+          <Badge variant="outline" className="text-[10px]">
+            {records.length} SDP record{records.length !== 1 ? 's' : ''}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {/* Offer */}
+        <div className="rounded-lg border border-border/40 bg-muted/10 p-3">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <ArrowRight className="h-3 w-3 text-blue-400" />
+            SDP Offer (Caller)
+          </p>
+          {offerInfo.mediaType ? (
+            <dl className="space-y-1.5">
+              <div>
+                <dt className="text-[10px] text-muted-foreground/60">Media type</dt>
+                <dd className="text-xs font-mono text-foreground">{offerInfo.mediaType}</dd>
+              </div>
+              {offerInfo.codecs.length > 0 && (
+                <div>
+                  <dt className="text-[10px] text-muted-foreground/60">Codecs offered</dt>
+                  <dd className="flex flex-wrap gap-1 mt-0.5">
+                    {offerInfo.codecs.map(c => (
+                      <span key={c} className={cn(
+                        "px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold",
+                        negotiatedCodecs.includes(c) ? "bg-emerald-500/15 text-emerald-400" : "bg-muted/30 text-muted-foreground"
+                      )}>{c}</span>
+                    ))}
+                  </dd>
+                </div>
+              )}
+              {offerInfo.connectionIp && (
+                <div>
+                  <dt className="text-[10px] text-muted-foreground/60">Media IP</dt>
+                  <dd className="text-xs font-mono text-foreground">{offerInfo.connectionIp}</dd>
+                </div>
+              )}
+              {offerInfo.direction && (
+                <div>
+                  <dt className="text-[10px] text-muted-foreground/60">Direction</dt>
+                  <dd className="text-xs font-mono text-foreground">{offerInfo.direction}</dd>
+                </div>
+              )}
+            </dl>
+          ) : (
+            <p className="text-xs text-muted-foreground/50 italic">No media data</p>
+          )}
+        </div>
+
+        {/* Answer */}
+        <div className="rounded-lg border border-border/40 bg-muted/10 p-3">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <ArrowLeft className="h-3 w-3 text-emerald-400" />
+            SDP Answer (Carrier)
+          </p>
+          {answerInfo.mediaType ? (
+            <dl className="space-y-1.5">
+              <div>
+                <dt className="text-[10px] text-muted-foreground/60">Media type</dt>
+                <dd className="text-xs font-mono text-foreground">{answerInfo.mediaType}</dd>
+              </div>
+              {answerInfo.codecs.length > 0 && (
+                <div>
+                  <dt className="text-[10px] text-muted-foreground/60">Codecs accepted</dt>
+                  <dd className="flex flex-wrap gap-1 mt-0.5">
+                    {answerInfo.codecs.map(c => (
+                      <span key={c} className={cn(
+                        "px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold",
+                        negotiatedCodecs.includes(c) ? "bg-emerald-500/15 text-emerald-400" : "bg-muted/30 text-muted-foreground"
+                      )}>{c}</span>
+                    ))}
+                  </dd>
+                </div>
+              )}
+              {answerInfo.connectionIp && (
+                <div>
+                  <dt className="text-[10px] text-muted-foreground/60">Media IP</dt>
+                  <dd className="text-xs font-mono text-foreground">{answerInfo.connectionIp}</dd>
+                </div>
+              )}
+              {answerInfo.direction && (
+                <div>
+                  <dt className="text-[10px] text-muted-foreground/60">Direction</dt>
+                  <dd className="text-xs font-mono text-foreground">{answerInfo.direction}</dd>
+                </div>
+              )}
+            </dl>
+          ) : answer ? (
+            <p className="text-xs text-muted-foreground/50 italic">Carrier SDP not stored</p>
+          ) : (
+            <p className="text-xs text-muted-foreground/50 italic">Call not answered — no SDP answer</p>
+          )}
+        </div>
+      </div>
+
+      {/* Full SDP details accordion for offer */}
+      {offer?.sdp && (
+        <details className="mt-3">
+          <summary className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground cursor-pointer select-none">
+            View raw SDP ({records.length} records)
+          </summary>
+          <div className="mt-2 space-y-2">
+            {records.map((r, i) => (
+              <pre key={i} className="text-[10px] font-mono bg-muted/20 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all border border-border/30">
+                {r.sipMsgType && <span className="text-cyan-400/80 block mb-1">[{r.sipMsgType}] {r.timeStamp}</span>}
+                {r.sdp}
+              </pre>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 // ── CDR Metadata Panel ────────────────────────────────────────────────────────
 
 function CdrMetaPanel({ cdr }: { cdr: CdrInfo }) {
@@ -754,6 +972,9 @@ export default function SipTracePage() {
 
               {/* CDR Metadata */}
               <CdrMetaPanel cdr={traceData.cdr} />
+
+              {/* SDP / Codec Negotiation */}
+              <SdpPanel iCall={traceData.cdr.iCall} />
             </div>
           )}
 

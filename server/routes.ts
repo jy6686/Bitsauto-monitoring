@@ -16933,6 +16933,124 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // GET /api/routing-rules/metrics?window=5 — live metric snapshot per vendor from CDR cache
+  app.get('/api/routing-rules/metrics', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (req: any, res: any) => {
+    try {
+      const windowMin = Math.min(120, Math.max(1, parseInt((req.query.window as string) || '15', 10)));
+      const cutoff = Date.now() - windowMin * 60_000;
+
+      // Group CDR cache by vendor
+      const vendorMap = new Map<string, { total: number; answered: number; durSum: number; pddSum: number; pddCount: number }>();
+      for (const c of cdrCache.values() as any) {
+        const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+        if (ts < cutoff) continue;
+        const vendor = (c.vendor as string) || 'Unknown';
+        const e = vendorMap.get(vendor) ?? { total: 0, answered: 0, durSum: 0, pddSum: 0, pddCount: 0 };
+        e.total++;
+        const dur = Number(c.duration ?? 0);
+        if (dur > 0) { e.answered++; e.durSum += dur; }
+        const pdd = Number(c.pdd ?? 0);
+        if (pdd > 0) { e.pddSum += pdd; e.pddCount++; }
+        vendorMap.set(vendor, e);
+      }
+
+      // Live concurrent calls per vendor from liveCallsCache
+      const liveByVendor = new Map<string, number>();
+      for (const lc of (liveCallsCache.calls ?? []) as any[]) {
+        const v = lc.vendor || lc.connectionName || 'Unknown';
+        liveByVendor.set(v, (liveByVendor.get(v) ?? 0) + 1);
+      }
+
+      const vendors = [...vendorMap.entries()]
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([vendor, m]) => {
+          const asr = m.total > 0 ? parseFloat(((m.answered / m.total) * 100).toFixed(2)) : null;
+          const acd = m.answered > 0 ? parseFloat((m.durSum / m.answered).toFixed(1)) : null;
+          const pdd = m.pddCount > 0 ? parseFloat((m.pddSum / m.pddCount).toFixed(2)) : null;
+          const concurrent = liveByVendor.get(vendor) ?? 0;
+          return { vendor, total: m.total, answered: m.answered, asr, acd, pdd, concurrent };
+        });
+
+      res.json({ window: windowMin, vendors, generatedAt: new Date().toISOString() });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/campaigns/carrier-matrix — per-carrier MOS quality matrix from synthetic test results
+  app.get('/api/campaigns/carrier-matrix', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { routeDecisionTraces } = await import('../shared/schema');
+      const { desc } = await import('drizzle-orm');
+
+      const cutoff = new Date(Date.now() - 30 * 86_400_000); // last 30 days
+      const traces = await db.select().from(routeDecisionTraces)
+        .where((await import('drizzle-orm')).gte(routeDecisionTraces.createdAt, cutoff))
+        .orderBy(desc(routeDecisionTraces.createdAt))
+        .limit(5000);
+
+      // Group by selectedCarrier
+      const matrix = new Map<string, {
+        total: number; connected: number; failed: number;
+        pddSum: number; pddCount: number; durSum: number; durCount: number;
+        recentPdds: number[]; sipCodes: Map<number, number>;
+      }>();
+
+      for (const t of traces) {
+        const carrier = t.selectedCarrier || 'Unknown';
+        const e = matrix.get(carrier) ?? {
+          total: 0, connected: 0, failed: 0,
+          pddSum: 0, pddCount: 0, durSum: 0, durCount: 0,
+          recentPdds: [], sipCodes: new Map(),
+        };
+        e.total++;
+        if (t.outcome === 'connected') {
+          e.connected++;
+          if (t.pddMs && t.pddMs > 0) { e.pddSum += t.pddMs; e.pddCount++; e.recentPdds.push(t.pddMs); }
+          if (t.durationSec && t.durationSec > 0) { e.durSum += t.durationSec; e.durCount++; }
+        } else {
+          e.failed++;
+        }
+        if (t.sipCode) { e.sipCodes.set(t.sipCode, (e.sipCodes.get(t.sipCode) ?? 0) + 1); }
+        matrix.set(carrier, e);
+      }
+
+      // Estimate MOS from PDD using simplified E-model
+      function estimateMOS(pddMs: number): number {
+        const pddSec = pddMs / 1000;
+        const Id = pddSec < 0.15 ? 0 : pddSec < 0.4 ? (pddSec - 0.15) * 80 : 20 + (pddSec - 0.4) * 60;
+        const R = Math.max(0, Math.min(100, 93.2 - Id));
+        const mos = 1 + 0.035 * R + R * (R - 60) * (100 - R) * 7e-6;
+        return parseFloat(Math.max(1.0, Math.min(4.5, mos)).toFixed(2));
+      }
+      function mosGrade(m: number): string {
+        return m >= 4.0 ? 'A' : m >= 3.5 ? 'B' : m >= 3.0 ? 'C' : m >= 2.5 ? 'D' : 'F';
+      }
+
+      const rows = [...matrix.entries()]
+        .filter(([, e]) => e.total >= 2)
+        .map(([carrier, e]) => {
+          const asr = e.total > 0 ? parseFloat(((e.connected / e.total) * 100).toFixed(2)) : null;
+          const avgPddMs = e.pddCount > 0 ? parseFloat((e.pddSum / e.pddCount).toFixed(1)) : null;
+          const avgDurSec = e.durCount > 0 ? parseFloat((e.durSum / e.durCount).toFixed(1)) : null;
+          const estimatedMos = avgPddMs ? estimateMOS(avgPddMs) : null;
+          const grade = estimatedMos ? mosGrade(estimatedMos) : 'N/A';
+          // Top SIP error codes
+          const topErrors = [...e.sipCodes.entries()]
+            .filter(([code]) => code >= 400)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([code, count]) => ({ code, count }));
+          return {
+            carrier, total: e.total, connected: e.connected, failed: e.failed,
+            asr, avgPddMs, avgDurSec, estimatedMos, grade, topErrors,
+          };
+        })
+        .sort((a, b) => (b.estimatedMos ?? 0) - (a.estimatedMos ?? 0));
+
+      res.json({ rows, total: traces.length, windowDays: 30 });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // GET /api/resellers/:id/stats?days=30 — CDR-based usage, revenue, and margin for one reseller
   app.get('/api/resellers/:id/stats', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
