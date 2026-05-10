@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Play, Pause, RotateCcw, ChevronDown, ChevronUp, CheckCircle2,
   XCircle, AlertTriangle, Clock, Rewind, Filter, RefreshCw,
-  Zap, Phone, Radio,
+  Zap, Phone, Radio, MinusCircle, BarChart2, GitBranch,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,8 @@ interface RouteTrace {
   pddMs: number | null;
   durationSec: number | null;
   failureCategory: string | null;
+  failureType: string | null;
+  carrierScoresSnapshot: string | null;
   createdAt: string;
 }
 
@@ -51,12 +53,9 @@ function groupByRun(traces: RouteTrace[]): RunGroup[] {
     arr.push(t);
     map.set(key, arr);
   }
-
   const groups: RunGroup[] = [];
-  for (const [, legs] of map) {
-    const sorted = [...legs].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
+  for (const [, legs] of Array.from(map.entries())) {
+    const sorted = [...legs].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     const finalLeg = sorted[sorted.length - 1];
     groups.push({
       runId: sorted[0].runId,
@@ -64,12 +63,10 @@ function groupByRun(traces: RouteTrace[]): RunGroup[] {
       legs: sorted,
       firstAt: new Date(sorted[0].createdAt).getTime(),
       lastAt: new Date(finalLeg.createdAt).getTime(),
-      finalOutcome:
-        finalLeg.outcome === "connected" ? "connected" : finalLeg.outcome === "failed" ? "failed" : "unknown",
-      carrierCount: new Set(sorted.map((l) => l.selectedCarrier).filter(Boolean)).size,
+      finalOutcome: finalLeg.outcome === "connected" ? "connected" : finalLeg.outcome === "failed" ? "failed" : "unknown",
+      carrierCount: new Set(sorted.map(l => l.selectedCarrier).filter(Boolean)).size,
     });
   }
-
   return groups.sort((a, b) => b.firstAt - a.firstAt);
 }
 
@@ -77,13 +74,14 @@ function parseCandidates(raw: string | null): string[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed.map((c: any) =>
-        typeof c === "string" ? c : c.name ?? c.carrierId ?? JSON.stringify(c),
-      );
-    }
+    if (Array.isArray(parsed)) return parsed.map((c: any) => typeof c === "string" ? c : c.name ?? c.carrierName ?? JSON.stringify(c));
   } catch { /* no-op */ }
   return [];
+}
+
+function parseScores(raw: string | null): Record<string, number> {
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
 }
 
 function formatDuration(ms: number): string {
@@ -99,7 +97,7 @@ function relativeTime(ts: number): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-// ── Step icon & colour ─────────────────────────────────────────────────────────
+// ── Outcome display config ────────────────────────────────────────────────────
 
 const OUTCOME_ICON: Record<string, React.ReactNode> = {
   connected: <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />,
@@ -113,11 +111,95 @@ const OUTCOME_BG: Record<string, string> = {
   unknown:   "bg-amber-500/10 border-amber-500/20",
 };
 
-const OUTCOME_TEXT: Record<string, string> = {
-  connected: "text-green-400",
-  failed:    "text-red-400",
-  unknown:   "text-amber-400",
-};
+// ── LCR Evaluation Panel ──────────────────────────────────────────────────────
+
+function LCRPanel({ candidates, scores, selected, outcome, active, visible }: {
+  candidates: string[];
+  scores: Record<string, number>;
+  selected: string;
+  outcome: string;
+  active: boolean;
+  visible: boolean;
+}) {
+  const allNames = Array.from(new Set([...candidates, ...Object.keys(scores)]));
+  if (allNames.length === 0) return null;
+
+  // Sort by score descending — highest score = most preferred
+  const ranked = allNames
+    .map(n => ({ name: n, score: scores[n] ?? null, isSelected: n === selected }))
+    .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+
+  const maxScore = Math.max(...ranked.map(r => r.score ?? 0), 1);
+  const isConnected = outcome === "connected";
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/30">
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <BarChart2 className="h-3 w-3 text-violet-400" />
+        <span className="text-[9px] text-violet-400/80 uppercase tracking-[0.14em] font-bold">LCR Evaluation</span>
+        <span className="ml-auto text-[9px] text-muted-foreground/40">{ranked.length} carrier{ranked.length !== 1 ? "s" : ""} scored</span>
+      </div>
+
+      <div className="space-y-1.5">
+        {ranked.map((r, i) => {
+          const isWinner = r.isSelected && isConnected;
+          const isFailed = r.isSelected && !isConnected;
+          const isElim   = !r.isSelected;
+          const pct      = r.score != null ? Math.max((r.score / maxScore) * 100, 2) : 6;
+
+          return (
+            <motion.div
+              key={r.name}
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: visible ? (r.isSelected ? 1 : 0.4) : 0.08, x: 0 }}
+              transition={{ delay: active ? i * 0.1 : 0, duration: 0.22 }}
+              className="flex items-center gap-2"
+            >
+              {/* Carrier name */}
+              <span className={cn(
+                "text-[10px] font-mono w-[88px] truncate",
+                isWinner ? "text-green-400 font-semibold" :
+                isFailed ? "text-red-400 font-semibold" :
+                "text-muted-foreground/50 line-through decoration-muted-foreground/25",
+              )}>
+                {r.name}
+              </span>
+
+              {/* Score bar */}
+              <div className="flex-1 h-1.5 bg-muted/25 rounded-full overflow-hidden">
+                <motion.div
+                  className={cn(
+                    "h-full rounded-full",
+                    isWinner ? "bg-green-500" :
+                    isFailed ? "bg-red-500/70" :
+                    "bg-slate-600/50",
+                  )}
+                  initial={{ width: 0 }}
+                  animate={{ width: visible ? `${pct}%` : "0%" }}
+                  transition={{ delay: active ? i * 0.1 + 0.07 : 0.03, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                />
+              </div>
+
+              {/* Score value */}
+              <span className={cn(
+                "text-[10px] font-bold tabular-nums w-6 text-right",
+                isWinner ? "text-green-400" : isFailed ? "text-red-400/80" : "text-muted-foreground/35",
+              )}>
+                {r.score?.toFixed(0) ?? "—"}
+              </span>
+
+              {/* Result icon */}
+              {isWinner  ? <CheckCircle2 className="h-3 w-3 text-green-400 shrink-0" /> :
+               isFailed  ? <XCircle     className="h-3 w-3 text-red-400   shrink-0" /> :
+               isElim    ? <MinusCircle className="h-3 w-3 text-muted-foreground/25 shrink-0" /> :
+               <span className="w-3 h-3 shrink-0" />}
+            </motion.div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // ── Leg Step Row ───────────────────────────────────────────────────────────────
 
@@ -127,11 +209,14 @@ interface LegStepProps {
   total: number;
   visible: boolean;
   active: boolean;
+  showLCR: boolean;
 }
 
-function LegStep({ leg, index, total, visible, active }: LegStepProps) {
-  const outcome = (leg.outcome ?? "unknown") as "connected" | "failed" | "unknown";
+function LegStep({ leg, index, total, visible, active, showLCR }: LegStepProps) {
+  const outcome    = (leg.outcome ?? "unknown") as "connected" | "failed" | "unknown";
   const candidates = parseCandidates(leg.candidateRoutes);
+  const scores     = parseScores(leg.carrierScoresSnapshot);
+  const hasLCR     = showLCR && (candidates.length > 1 || Object.keys(scores).length > 1);
 
   return (
     <motion.div
@@ -142,50 +227,32 @@ function LegStep({ leg, index, total, visible, active }: LegStepProps) {
     >
       {/* Timeline connector */}
       <div className="flex flex-col items-center shrink-0 pt-0.5">
-        <div
-          className={cn(
-            "w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all duration-300",
-            active
-              ? "border-violet-500 bg-violet-500/20 text-violet-300"
-              : outcome === "connected"
-              ? "border-green-500/60 bg-green-500/10 text-green-400"
-              : outcome === "failed"
-              ? "border-red-500/60 bg-red-500/10 text-red-400"
-              : "border-border bg-muted/30 text-muted-foreground",
-          )}
-        >
+        <div className={cn(
+          "w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all duration-300",
+          active ? "border-violet-500 bg-violet-500/20 text-violet-300"
+            : outcome === "connected" ? "border-green-500/60 bg-green-500/10 text-green-400"
+            : outcome === "failed"    ? "border-red-500/60 bg-red-500/10 text-red-400"
+            : "border-border bg-muted/30 text-muted-foreground",
+        )}>
           {active ? (
-            <motion.div
-              animate={{ scale: [1, 1.3, 1] }}
-              transition={{ duration: 0.6, repeat: Infinity }}
-              className="w-2 h-2 rounded-full bg-violet-400"
-            />
-          ) : (
-            index + 1
-          )}
+            <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
+              className="w-2 h-2 rounded-full bg-violet-400" />
+          ) : index + 1}
         </div>
         {index < total - 1 && (
-          <div
-            className={cn(
-              "w-px mt-1 transition-all duration-500",
-              visible ? "h-full min-h-[32px] bg-border/60" : "h-4 bg-border/20",
-            )}
-          />
+          <div className={cn("w-px mt-1 transition-all duration-500",
+            visible ? "h-full min-h-[32px] bg-border/60" : "h-4 bg-border/20")} />
         )}
       </div>
 
-      {/* Content */}
-      <div
-        className={cn(
-          "flex-1 rounded-xl border p-3 mb-3 transition-all duration-300",
-          active ? "border-violet-500/40 bg-violet-500/5 shadow-[0_0_12px_rgba(139,92,246,0.1)]" : OUTCOME_BG[outcome],
-        )}
-      >
+      {/* Content card */}
+      <div className={cn(
+        "flex-1 rounded-xl border p-3 mb-3 transition-all duration-300",
+        active ? "border-violet-500/40 bg-violet-500/5 shadow-[0_0_12px_rgba(139,92,246,0.1)]" : OUTCOME_BG[outcome],
+      )}>
         {/* Row 1: carrier + outcome + SIP */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-sm">
-            {leg.selectedCarrier ?? "Unknown Carrier"}
-          </span>
+          <span className="font-semibold text-sm">{leg.selectedCarrier ?? "Unknown Carrier"}</span>
           {OUTCOME_ICON[outcome]}
           {leg.sipCode && (
             <Badge className="bg-muted/40 text-muted-foreground border-border text-[10px] px-1.5 py-0">
@@ -194,14 +261,12 @@ function LegStep({ leg, index, total, visible, active }: LegStepProps) {
           )}
           {leg.pddMs != null && leg.pddMs > 0 && (
             <span className={cn("text-xs flex items-center gap-1", leg.pddMs > 5000 ? "text-amber-400" : "text-muted-foreground")}>
-              <Clock className="h-3 w-3" />
-              {formatDuration(leg.pddMs)} PDD
+              <Clock className="h-3 w-3" />{formatDuration(leg.pddMs)} PDD
             </span>
           )}
           {leg.durationSec != null && leg.durationSec > 0 && (
             <span className="text-xs text-green-400 flex items-center gap-1">
-              <Phone className="h-3 w-3" />
-              {leg.durationSec}s
+              <Phone className="h-3 w-3" />{leg.durationSec}s
             </span>
           )}
           <span className="ml-auto text-[10px] text-muted-foreground/50">
@@ -211,15 +276,12 @@ function LegStep({ leg, index, total, visible, active }: LegStepProps) {
 
         {/* Row 2: CLD + CLI */}
         <div className="text-xs text-muted-foreground mt-1 font-mono">
-          {leg.cld}
-          {leg.cli && <span className="text-muted-foreground/40"> ← {leg.cli}</span>}
+          {leg.cld}{leg.cli && <span className="text-muted-foreground/40"> ← {leg.cli}</span>}
         </div>
 
         {/* Row 3: Decision reason */}
         {leg.decisionReason && (
-          <div className="text-[11px] text-muted-foreground/70 mt-1.5 italic">
-            "{leg.decisionReason}"
-          </div>
+          <div className="text-[11px] text-muted-foreground/70 mt-1.5 italic">"{leg.decisionReason}"</div>
         )}
 
         {/* Row 4: Failure category */}
@@ -230,43 +292,140 @@ function LegStep({ leg, index, total, visible, active }: LegStepProps) {
           </div>
         )}
 
-        {/* Row 5: Candidates */}
-        {candidates.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {candidates.map((c, ci) => (
-              <span
-                key={ci}
-                className={cn(
-                  "text-[10px] px-1.5 py-0.5 rounded border",
-                  c === (leg.selectedCarrier ?? "") ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "bg-muted/30 border-border text-muted-foreground",
-                )}
-              >
-                {c}
-              </span>
-            ))}
-          </div>
+        {/* LCR Evaluation Panel */}
+        {hasLCR && (
+          <LCRPanel
+            candidates={candidates}
+            scores={scores}
+            selected={leg.selectedCarrier ?? ""}
+            outcome={outcome}
+            active={active}
+            visible={visible}
+          />
         )}
       </div>
     </motion.div>
   );
 }
 
-// ── Run card with animation engine ────────────────────────────────────────────
+// ── LCR Analysis summary (top of expanded card) ───────────────────────────────
+
+function LCRSummaryPanel({ group }: { group: RunGroup }) {
+  // Aggregate scores across all legs (use first leg with snapshot data)
+  const legWithData = group.legs.find(l => l.carrierScoresSnapshot);
+  if (!legWithData) return null;
+
+  const scores     = parseScores(legWithData.carrierScoresSnapshot);
+  const candidates = parseCandidates(legWithData.candidateRoutes);
+  const allNames   = Array.from(new Set([...candidates, ...Object.keys(scores)]));
+  if (allNames.length <= 1) return null;
+
+  const ranked = allNames
+    .map(n => ({ name: n, score: scores[n] ?? null }))
+    .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+
+  const maxScore = Math.max(...ranked.map(r => r.score ?? 0), 1);
+  const selected = group.legs[group.legs.length - 1].selectedCarrier ?? "";
+  const isConnected = group.finalOutcome === "connected";
+
+  return (
+    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <GitBranch className="h-3.5 w-3.5 text-violet-400" />
+        <span className="text-xs font-semibold text-violet-300">Carrier Evaluation Matrix</span>
+        <span className="text-[10px] text-muted-foreground/50 ml-auto">{ranked.length} carriers compared</span>
+      </div>
+
+      <div className="space-y-2">
+        {ranked.map((r, i) => {
+          const isWinner = r.name === selected && isConnected;
+          const isFailed = r.name === selected && !isConnected;
+          const pct      = r.score != null ? Math.max((r.score / maxScore) * 100, 2) : 5;
+          return (
+            <motion.div
+              key={r.name}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.06, duration: 0.2 }}
+              className="flex items-center gap-3"
+            >
+              {/* Rank badge */}
+              <span className={cn(
+                "w-5 h-5 rounded-full text-[9px] font-bold flex items-center justify-center shrink-0 border",
+                isWinner ? "bg-green-500/20 border-green-500/40 text-green-400" :
+                isFailed ? "bg-red-500/20 border-red-500/40 text-red-400" :
+                "bg-muted/30 border-border/50 text-muted-foreground/50",
+              )}>
+                {i + 1}
+              </span>
+
+              {/* Name */}
+              <span className={cn(
+                "text-xs font-mono w-24 truncate",
+                isWinner ? "text-green-400 font-semibold" :
+                isFailed ? "text-red-400" :
+                "text-muted-foreground/50",
+              )}>
+                {r.name}
+              </span>
+
+              {/* Bar */}
+              <div className="flex-1 h-2 bg-muted/30 rounded-full overflow-hidden">
+                <motion.div
+                  className={cn(
+                    "h-full rounded-full",
+                    isWinner ? "bg-green-500" : isFailed ? "bg-red-500/60" : "bg-slate-600/50",
+                  )}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${pct}%` }}
+                  transition={{ delay: i * 0.06 + 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                />
+              </div>
+
+              {/* Score */}
+              <span className={cn(
+                "text-xs font-bold tabular-nums w-8 text-right",
+                isWinner ? "text-green-400" : isFailed ? "text-red-400/80" : "text-muted-foreground/40",
+              )}>
+                {r.score?.toFixed(0) ?? "—"}<span className="text-[9px] font-normal">/100</span>
+              </span>
+
+              {isWinner && <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0" />}
+              {isFailed  && <XCircle     className="h-3.5 w-3.5 text-red-400   shrink-0" />}
+              {!isWinner && !isFailed && <MinusCircle className="h-3.5 w-3.5 text-muted-foreground/25 shrink-0" />}
+            </motion.div>
+          );
+        })}
+      </div>
+
+      <p className="text-[10px] text-muted-foreground/50 mt-3 pt-2.5 border-t border-border/30">
+        Stability scores at time of routing — higher = preferred by LCR engine
+      </p>
+    </div>
+  );
+}
+
+// ── Run card with animation engine ───────────────────────────────────────────
 
 interface RunCardProps {
   group: RunGroup;
   initialExpanded?: boolean;
 }
 
+type ViewMode = "timeline" | "lcr";
+
 function RunCard({ group, initialExpanded = false }: RunCardProps) {
-  const [expanded, setExpanded] = useState(initialExpanded);
-  const [playing, setPlaying] = useState(false);
-  const [activeStep, setActiveStep] = useState(-1);
-  const [visibleCount, setVisibleCount] = useState(group.legs.length); // all visible by default
+  const [expanded,    setExpanded]    = useState(initialExpanded);
+  const [playing,     setPlaying]     = useState(false);
+  const [activeStep,  setActiveStep]  = useState(-1);
+  const [visibleCount,setVisibleCount]= useState(group.legs.length);
+  const [viewMode,    setViewMode]    = useState<ViewMode>("timeline");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const totalLegs = group.legs.length;
-  const STEP_MS = 700;
+  const STEP_MS   = 700;
+
+  const hasLCRData = group.legs.some(l => l.carrierScoresSnapshot && parseCandidates(l.candidateRoutes).length > 1);
 
   const stopPlayback = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -279,26 +438,14 @@ function RunCard({ group, initialExpanded = false }: RunCardProps) {
     setVisibleCount(0);
     setActiveStep(0);
     setPlaying(true);
-
     for (let i = 0; i < totalLegs; i++) {
-      const t = setTimeout(() => {
-        setVisibleCount(i + 1);
-        setActiveStep(i);
-      }, i * STEP_MS);
+      const t = setTimeout(() => { setVisibleCount(i + 1); setActiveStep(i); }, i * STEP_MS);
       if (i === 0) timerRef.current = t;
     }
-
-    setTimeout(() => {
-      setActiveStep(-1);
-      setPlaying(false);
-      setVisibleCount(totalLegs);
-    }, totalLegs * STEP_MS + 200);
+    setTimeout(() => { setActiveStep(-1); setPlaying(false); setVisibleCount(totalLegs); }, totalLegs * STEP_MS + 200);
   }, [totalLegs]);
 
-  const reset = useCallback(() => {
-    stopPlayback();
-    setVisibleCount(totalLegs);
-  }, [stopPlayback, totalLegs]);
+  const reset = useCallback(() => { stopPlayback(); setVisibleCount(totalLegs); }, [stopPlayback, totalLegs]);
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
@@ -319,12 +466,8 @@ function RunCard({ group, initialExpanded = false }: RunCardProps) {
         playing && "shadow-[0_0_24px_rgba(139,92,246,0.12)]",
       )}
     >
-      {/* Card header */}
       <CardHeader className="pb-3">
-        <div
-          className="flex items-center gap-3 cursor-pointer select-none"
-          onClick={() => !playing && setExpanded(v => !v)}
-        >
+        <div className="flex items-center gap-3 cursor-pointer select-none" onClick={() => !playing && setExpanded(v => !v)}>
           {/* Run ID badge */}
           <div className="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex flex-col items-center justify-center shrink-0">
             <span className="text-[9px] text-violet-400/60 font-mono uppercase tracking-widest leading-none">Run</span>
@@ -334,97 +477,87 @@ function RunCard({ group, initialExpanded = false }: RunCardProps) {
           {/* Meta */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-semibold text-sm truncate">
-                {group.legs[0]?.cld ?? "Unknown destination"}
-              </span>
-              <Badge className={cn("text-[10px] px-1.5 py-0 border", outcomeBadge)}>
-                {outcomeLabel}
-              </Badge>
+              <span className="font-semibold text-sm truncate">{group.legs[0]?.cld ?? "Unknown destination"}</span>
+              <Badge className={cn("text-[10px] px-1.5 py-0 border", outcomeBadge)}>{outcomeLabel}</Badge>
               {group.legs.length > 1 && (
                 <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px] px-1.5 py-0">
                   {group.legs.length} legs
                 </Badge>
               )}
-              {group.campaignId && (
-                <span className="text-[10px] text-muted-foreground/50 font-mono">
-                  camp #{group.campaignId}
-                </span>
+              {hasLCRData && (
+                <Badge className="bg-violet-500/10 text-violet-400 border-violet-500/20 text-[10px] px-1.5 py-0">
+                  LCR data
+                </Badge>
               )}
             </div>
             <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
               <span>{group.carrierCount} carrier{group.carrierCount !== 1 ? "s" : ""} evaluated</span>
               <span>·</span>
               <span>{relativeTime(group.firstAt)}</span>
-              {group.legs[0]?.cli && (
-                <>
-                  <span>·</span>
-                  <span className="font-mono">{group.legs[0].cli}</span>
-                </>
-              )}
+              {group.legs[0]?.cli && <><span>·</span><span className="font-mono">{group.legs[0].cli}</span></>}
             </div>
           </div>
 
           {/* Controls */}
           <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+            {/* View mode toggle */}
+            {hasLCRData && expanded && !playing && (
+              <div className="flex items-center gap-0.5 rounded-lg border border-border/50 p-0.5 mr-1">
+                <button
+                  onClick={() => setViewMode("timeline")}
+                  className={cn("px-2 py-1 rounded-md text-[10px] font-medium transition-colors flex items-center gap-1",
+                    viewMode === "timeline" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground")}
+                >
+                  <GitBranch className="h-2.5 w-2.5" />Timeline
+                </button>
+                <button
+                  onClick={() => setViewMode("lcr")}
+                  className={cn("px-2 py-1 rounded-md text-[10px] font-medium transition-colors flex items-center gap-1",
+                    viewMode === "lcr" ? "bg-violet-500/15 text-violet-400" : "text-muted-foreground hover:text-foreground")}
+                >
+                  <BarChart2 className="h-2.5 w-2.5" />LCR
+                </button>
+              </div>
+            )}
+
             {playing ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={stopPlayback}
+              <Button variant="outline" size="sm" onClick={stopPlayback}
                 data-testid={`btn-pause-${group.runId}`}
-                className="gap-1 border-violet-500/40 text-violet-400 bg-violet-500/8 hover:bg-violet-500/20 h-8"
-              >
+                className="gap-1 border-violet-500/40 text-violet-400 bg-violet-500/8 hover:bg-violet-500/20 h-8">
                 <Pause className="h-3.5 w-3.5" /> Pause
               </Button>
             ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={startPlayback}
-                data-testid={`btn-play-${group.runId}`}
-                className="gap-1 h-8"
-              >
+              <Button variant="outline" size="sm" onClick={startPlayback}
+                data-testid={`btn-play-${group.runId}`} className="gap-1 h-8">
                 <Play className="h-3.5 w-3.5" /> Replay
               </Button>
             )}
             {(visibleCount < totalLegs || activeStep >= 0) && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={reset}
-                data-testid={`btn-reset-${group.runId}`}
-                className="h-8 w-8 p-0"
-              >
+              <Button variant="ghost" size="sm" onClick={reset}
+                data-testid={`btn-reset-${group.runId}`} className="h-8 w-8 p-0">
                 <RotateCcw className="h-3.5 w-3.5" />
               </Button>
             )}
             {!playing && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setExpanded(v => !v)}
-                className="h-8 w-8 p-0 text-muted-foreground"
-              >
+              <Button variant="ghost" size="sm" onClick={() => setExpanded(v => !v)} className="h-8 w-8 p-0 text-muted-foreground">
                 {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </Button>
             )}
           </div>
         </div>
 
-        {/* Animated progress bar */}
+        {/* Progress bar during playback */}
         {playing && (
           <div className="mt-3 h-1 bg-muted rounded-full overflow-hidden">
-            <motion.div
-              className="h-full bg-violet-500 rounded-full"
+            <motion.div className="h-full bg-violet-500 rounded-full"
               initial={{ width: "0%" }}
               animate={{ width: `${((activeStep + 1) / totalLegs) * 100}%` }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
-            />
+              transition={{ duration: 0.3, ease: "easeOut" }} />
           </div>
         )}
       </CardHeader>
 
-      {/* Expanded timeline */}
+      {/* Expanded content */}
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
@@ -435,7 +568,11 @@ function RunCard({ group, initialExpanded = false }: RunCardProps) {
           >
             <CardContent className="pt-0 pb-4">
               <div className="border-t border-border/40 pt-4">
-                {group.legs.map((leg, i) => (
+                {/* LCR Analysis view */}
+                {viewMode === "lcr" && !playing && <LCRSummaryPanel group={group} />}
+
+                {/* Timeline view */}
+                {(viewMode === "timeline" || playing) && group.legs.map((leg, i) => (
                   <LegStep
                     key={leg.id}
                     leg={leg}
@@ -443,6 +580,7 @@ function RunCard({ group, initialExpanded = false }: RunCardProps) {
                     total={totalLegs}
                     visible={i < visibleCount}
                     active={i === activeStep}
+                    showLCR={viewMode === "timeline"}
                   />
                 ))}
               </div>
@@ -454,7 +592,7 @@ function RunCard({ group, initialExpanded = false }: RunCardProps) {
   );
 }
 
-// ── Stat pill ──────────────────────────────────────────────────────────────────
+// ── Stat pill ─────────────────────────────────────────────────────────────────
 
 function Stat({ label, value, color }: { label: string; value: string | number; color?: string }) {
   return (
@@ -465,29 +603,27 @@ function Stat({ label, value, color }: { label: string; value: string | number; 
   );
 }
 
-// ── Live pulse dot ─────────────────────────────────────────────────────────────
+// ── Live pulse dot ────────────────────────────────────────────────────────────
 
 function LiveDot() {
   return (
     <span className="relative inline-flex">
-      <motion.span
-        className="absolute inline-flex rounded-full bg-violet-400/30 h-2 w-2"
+      <motion.span className="absolute inline-flex rounded-full bg-violet-400/30 h-2 w-2"
         animate={{ scale: [1, 2.2, 1], opacity: [0.6, 0, 0.6] }}
-        transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
-      />
+        transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }} />
       <span className="relative inline-flex rounded-full bg-violet-500 h-2 w-2" />
     </span>
   );
 }
 
-// ── Filter bar ─────────────────────────────────────────────────────────────────
+// ── Filter bar ────────────────────────────────────────────────────────────────
 
 type OutcomeFilter = "all" | "connected" | "failed";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ReplayEnginePage() {
-  const [filter, setFilter] = useState<OutcomeFilter>("all");
+  const [filter,      setFilter]      = useState<OutcomeFilter>("all");
   const [runIdFilter, setRunIdFilter] = useState("");
 
   const { data: traces = [], isLoading, refetch, isFetching } = useQuery<RouteTrace[]>({
@@ -497,20 +633,20 @@ export default function ReplayEnginePage() {
     staleTime: 30_000,
   });
 
-  const allGroups = groupByRun(traces);
-
+  const allGroups      = groupByRun(traces);
   const filteredGroups = allGroups.filter(g => {
     if (filter === "connected" && g.finalOutcome !== "connected") return false;
-    if (filter === "failed" && g.finalOutcome !== "failed") return false;
+    if (filter === "failed"    && g.finalOutcome !== "failed")    return false;
     if (runIdFilter && g.runId != null && !String(g.runId).includes(runIdFilter)) return false;
     return true;
   });
 
-  const totalRuns      = allGroups.length;
-  const connectedRuns  = allGroups.filter(g => g.finalOutcome === "connected").length;
-  const failedRuns     = allGroups.filter(g => g.finalOutcome === "failed").length;
-  const multiLegRuns   = allGroups.filter(g => g.legs.length > 1).length;
-  const connRate       = totalRuns > 0 ? Math.round((connectedRuns / totalRuns) * 100) : 0;
+  const totalRuns     = allGroups.length;
+  const connectedRuns = allGroups.filter(g => g.finalOutcome === "connected").length;
+  const failedRuns    = allGroups.filter(g => g.finalOutcome === "failed").length;
+  const multiLegRuns  = allGroups.filter(g => g.legs.length > 1).length;
+  const connRate      = totalRuns > 0 ? Math.round((connectedRuns / totalRuns) * 100) : 0;
+  const lcrRuns       = allGroups.filter(g => g.legs.some(l => l.carrierScoresSnapshot)).length;
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -525,78 +661,70 @@ export default function ReplayEnginePage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-2">
             <LiveDot />
-            Animated fallback-chain replay — every routing decision, leg by leg
+            Step-by-step LCR evaluation replay — every routing decision, carrier by carrier
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="btn-refresh-replay"
-          className="gap-1.5"
-        >
+        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}
+          data-testid="btn-refresh-replay" className="gap-1.5">
           <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
           Refresh
         </Button>
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Stat label="Total Runs"       value={totalRuns}           />
-        <Stat label="Connection Rate"  value={`${connRate}%`}      color="text-green-400" />
-        <Stat label="Connected"        value={connectedRuns}        color="text-green-400" />
-        <Stat label="Failed"           value={failedRuns}           color="text-red-400"   />
-        <Stat label="Multi-Leg"        value={multiLegRuns}         color="text-amber-400" />
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <Stat label="Total Runs"        value={totalRuns}                        />
+        <Stat label="Connect Rate"      value={`${connRate}%`}  color="text-green-400"  />
+        <Stat label="Connected"         value={connectedRuns}   color="text-green-400"  />
+        <Stat label="Failed"            value={failedRuns}      color="text-red-400"    />
+        <Stat label="Multi-Leg"         value={multiLegRuns}    color="text-amber-400"  />
+        <Stat label="LCR Analysis"      value={lcrRuns}         color="text-violet-400" />
       </div>
+
+      {/* LCR explainer banner (shown when LCR data is available) */}
+      {lcrRuns > 0 && (
+        <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4 flex items-start gap-3">
+          <Zap className="h-4 w-4 text-violet-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-violet-300">{lcrRuns} run{lcrRuns !== 1 ? "s" : ""} with LCR evaluation data</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Expand any run and switch to <span className="text-violet-400 font-medium">LCR view</span> to see how the routing engine scored each carrier candidate.
+              During Replay, the per-leg LCR bars animate in step-by-step.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
           {(["all", "connected", "failed"] as OutcomeFilter[]).map(f => (
-            <button
-              key={f}
-              data-testid={`filter-${f}`}
-              onClick={() => setFilter(f)}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-xs font-medium transition-colors capitalize",
+            <button key={f} data-testid={`filter-${f}`} onClick={() => setFilter(f)}
+              className={cn("px-3 py-1.5 rounded-md text-xs font-medium transition-colors capitalize",
                 filter === f
                   ? f === "connected" ? "bg-green-500/15 text-green-400"
                   : f === "failed"    ? "bg-red-500/15 text-red-400"
                   : "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
+                  : "text-muted-foreground hover:text-foreground")}>
               {f}
             </button>
           ))}
         </div>
-
         <div className="flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-sm">
           <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Filter by run ID…"
-            value={runIdFilter}
-            onChange={e => setRunIdFilter(e.target.value)}
-            data-testid="input-run-filter"
-            className="bg-transparent text-xs outline-none placeholder:text-muted-foreground/50 w-32"
-          />
+          <input type="text" placeholder="Filter by run ID…" value={runIdFilter}
+            onChange={e => setRunIdFilter(e.target.value)} data-testid="input-run-filter"
+            className="bg-transparent text-xs outline-none placeholder:text-muted-foreground/50 w-32" />
         </div>
-
         {filteredGroups.length !== allGroups.length && (
-          <span className="text-xs text-muted-foreground">
-            Showing {filteredGroups.length} of {allGroups.length} runs
-          </span>
+          <span className="text-xs text-muted-foreground">Showing {filteredGroups.length} of {allGroups.length} runs</span>
         )}
       </div>
 
       {/* Run list */}
       {isLoading ? (
         <div className="space-y-4">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-24 rounded-xl border border-border bg-muted/10 animate-pulse" />
-          ))}
+          {[1, 2, 3].map(i => <div key={i} className="h-24 rounded-xl border border-border bg-muted/10 animate-pulse" />)}
         </div>
       ) : filteredGroups.length === 0 ? (
         <div className="rounded-2xl border border-border/50 bg-card p-16 text-center space-y-3">
@@ -605,19 +733,16 @@ export default function ReplayEnginePage() {
           </div>
           <p className="text-sm font-medium">No route traces found</p>
           <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-            Route decision traces are recorded when synthetic test campaigns run. Start a test campaign to generate replay data.
+            Route traces are generated from CDR data. Make sure the switch is connected and CDR cache is populated.
           </p>
         </div>
       ) : (
         <div className="space-y-4">
           <AnimatePresence initial={false}>
             {filteredGroups.slice(0, 50).map((group, i) => (
-              <motion.div
-                key={group.runId ?? `norun-${group.legs[0]?.id}`}
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.18, delay: Math.min(i * 0.04, 0.3) }}
-              >
+              <motion.div key={group.runId ?? `norun-${group.legs[0]?.id}`}
+                initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18, delay: Math.min(i * 0.04, 0.3) }}>
                 <RunCard group={group} initialExpanded={i === 0 && filteredGroups.length === 1} />
               </motion.div>
             ))}

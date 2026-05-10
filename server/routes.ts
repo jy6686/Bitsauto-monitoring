@@ -15133,6 +15133,17 @@ export async function registerRoutes(
       if (campaignId) return res.json([]); // campaign-scoped queries don't fall back
       const cutoff = Date.now() - 72 * 3600_000;
       const vendorFallback = (() => { for (const v of connectionVendorCache.values()) if (!/^\d+$/.test(v)) return v; })();
+
+      // Fetch carrier quality scores once to enrich all virtual traces with real LCR data
+      const lcrScores = await storage.getCarrierQualityScores(24);
+      const lcrScoreMap: Record<string, number> = Object.fromEntries(
+        lcrScores.map(s => [s.carrierName, s.stabilityScore ?? 0])
+      );
+      // All known carriers become the candidate list — gives the LCR panel real comparison data
+      const lcrCandidates = lcrScores.map(s => s.carrierName);
+      const lcrCandidatesJson = lcrCandidates.length > 0 ? JSON.stringify(lcrCandidates) : null;
+      const lcrSnapshotJson   = lcrCandidates.length > 0 ? JSON.stringify(lcrScoreMap)   : null;
+
       const cdrs = [...cdrCache.values()]
         .filter(c => (sippy.parseSippyDate(c.startTime)?.getTime() ?? 0) >= cutoff)
         .sort((a, b) => (sippy.parseSippyDate(b.startTime)?.getTime() ?? 0) - (sippy.parseSippyDate(a.startTime)?.getTime() ?? 0))
@@ -15147,18 +15158,23 @@ export async function registerRoutes(
         const answered = (c.duration ?? 0) > 0;
         const rawSip   = parseInt(String(c.result ?? '')) || 0;
         const sipCode  = answered ? 200 : (rawSip >= 400 && rawSip < 700 ? rawSip : 503);
+        const vendorScore = lcrScoreMap[vendor];
+        const decisionReason = vendorScore != null
+          ? `${vendor} selected — stability ${vendorScore.toFixed(0)}/100${answered ? ', call completed' : ', call failed'}`
+          : `Routed via ${vendor}`;
         return {
           id: vId--, campaignId: null, runId: null,
           cld: c.callee ?? '', cli: c.caller ?? null,
           selectedCarrier: vendor, selectedCarrierId: null,
-          candidateRoutes: JSON.stringify([vendor]),
-          decisionReason: `Routed via ${vendor}`,
+          candidateRoutes: lcrCandidatesJson ?? JSON.stringify([vendor]),
+          decisionReason,
           outcome: answered ? 'connected' : 'failed',
           sipCode: answered ? 200 : sipCode,
           pddMs: c.pdd ? Math.round(c.pdd * 1000) : null,
           durationSec: c.duration ?? null,
           failureCategory: answered ? null : 'carrier_failure',
-          failureType: null, carrierScoresSnapshot: null,
+          failureType: null,
+          carrierScoresSnapshot: lcrSnapshotJson,
           createdAt: ts.toISOString(),
         };
       });
