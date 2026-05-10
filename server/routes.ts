@@ -11200,7 +11200,7 @@ export async function registerRoutes(
     try {
       const html = generatePlatformPresentation();
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Content-Disposition', 'inline; filename="Bitsauto_Top10_Features_Presentation.html"');
+      res.setHeader('Content-Disposition', 'attachment; filename="Bitsauto_Top10_Features_Presentation.html"');
       res.send(html);
     } catch (e: any) {
       res.status(500).json({ message: `Failed to generate presentation: ${e.message}` });
