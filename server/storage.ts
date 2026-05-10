@@ -11,6 +11,8 @@ import {
   chatRooms, chatMessages,
   productDocs,
   approvalRequests, approvalAuditLog,
+  portalAccessTokens,
+  type PortalToken, type InsertPortalToken,
   type Call, type InsertCall, type InsertMetric, 
   type Alert, type InsertAlert, type Settings, type InsertSettings,
   type UpdateSettingsRequest, type DashboardStats, type CallWithLatestMetric,
@@ -296,6 +298,13 @@ export interface IStorage {
   getApprovalAuditLog(requestId: number): Promise<ApprovalAuditEntry[]>;
   getPendingApprovalCount(opts: { userId: string; role: Role; teamId?: string | null }): Promise<number>;
   getUserTeamId(userId: string): Promise<string | null>;
+
+  // Portal Access Tokens
+  createPortalToken(data: InsertPortalToken): Promise<PortalToken>;
+  listPortalTokens(): Promise<PortalToken[]>;
+  getPortalToken(token: string): Promise<PortalToken | undefined>;
+  deletePortalToken(id: number): Promise<void>;
+  touchPortalToken(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1587,6 +1596,30 @@ export class DatabaseStorage implements IStorage {
       .from(approvalRequests)
       .where(and(...conditions));
     return Number(row?.count ?? 0);
+  }
+
+  // ── Portal Access Tokens ──────────────────────────────────────────────────────
+
+  async createPortalToken(data: InsertPortalToken): Promise<PortalToken> {
+    const [row] = await db.insert(portalAccessTokens).values(data).returning();
+    return row;
+  }
+
+  async listPortalTokens(): Promise<PortalToken[]> {
+    return db.select().from(portalAccessTokens).orderBy(desc(portalAccessTokens.createdAt));
+  }
+
+  async getPortalToken(token: string): Promise<PortalToken | undefined> {
+    const [row] = await db.select().from(portalAccessTokens).where(eq(portalAccessTokens.token, token));
+    return row;
+  }
+
+  async deletePortalToken(id: number): Promise<void> {
+    await db.delete(portalAccessTokens).where(eq(portalAccessTokens.id, id));
+  }
+
+  async touchPortalToken(id: number): Promise<void> {
+    await db.update(portalAccessTokens).set({ lastUsedAt: new Date() }).where(eq(portalAccessTokens.id, id));
   }
 }
 

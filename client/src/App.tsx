@@ -102,6 +102,7 @@ import NetworkTopologyPage from "@/pages/network-topology";
 import NocCommandPage from "@/pages/noc-command";
 import StirShakenPage from "@/pages/stir-shaken";
 import CallRecordingsPage from "@/pages/call-recordings";
+import PortalViewPage from "@/pages/portal-view";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -398,6 +399,9 @@ function Router() {
       </Route>
       <Route path="/call-recordings">
         {() => <ProtectedRoute component={CallRecordingsPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/portal/:token">
+        {(params) => <PortalViewPage />}
       </Route>
       <Route component={NotFound} />
     </Switch>

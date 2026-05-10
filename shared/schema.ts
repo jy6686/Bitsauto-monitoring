@@ -1257,3 +1257,19 @@ export const routingSuggestions = pgTable("routing_suggestions", {
 });
 export type RoutingSuggestion = typeof routingSuggestions.$inferSelect;
 export type InsertRoutingSuggestion = typeof routingSuggestions.$inferInsert;
+
+// ── Portal Access Tokens — shareable links for client self-service view ────────
+export const portalAccessTokens = pgTable("portal_access_tokens", {
+  id:          serial("id").primaryKey(),
+  token:       varchar("token",        { length: 64  }).notNull().unique(),
+  accountId:   varchar("account_id",   { length: 32  }).notNull(),
+  accountName: varchar("account_name", { length: 128 }).notNull(),
+  label:       varchar("label",        { length: 128 }),
+  createdBy:   varchar("created_by",   { length: 255 }),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+  expiresAt:   timestamp("expires_at"),
+  lastUsedAt:  timestamp("last_used_at"),
+});
+export type PortalToken = typeof portalAccessTokens.$inferSelect;
+export type InsertPortalToken = typeof portalAccessTokens.$inferInsert;
+export const insertPortalTokenSchema = createInsertSchema(portalAccessTokens).omit({ id: true, createdAt: true });

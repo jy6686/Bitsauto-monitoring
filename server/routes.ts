@@ -1785,6 +1785,89 @@ export async function registerRoutes(
     }
   });
 
+  // ── Portal Access Tokens (client self-service shareable links) ────────────────
+
+  app.get('/api/portal-tokens', (req: any, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    try {
+      const tokens = await storage.listPortalTokens();
+      res.json(tokens);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/portal-tokens', (req: any, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    try {
+      const { accountId, accountName, label } = req.body as { accountId: string; accountName: string; label?: string };
+      if (!accountId || !accountName) return res.status(400).json({ error: 'accountId and accountName are required' });
+      const crypto = await import('crypto');
+      const token  = crypto.randomBytes(24).toString('hex');
+      const user   = (req as any).user;
+      const created = await storage.createPortalToken({
+        token,
+        accountId,
+        accountName,
+        label: label ?? null,
+        createdBy: user?.id ?? null,
+        expiresAt: null,
+        lastUsedAt: null,
+      });
+      res.json(created);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete('/api/portal-tokens/:id', (req: any, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    try {
+      await storage.deletePortalToken(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/portal/view?token=xxx&startDate=...&endDate=... — public, no auth
+  app.get('/api/portal/view', async (req: any, res) => {
+    try {
+      const tokenStr = req.query.token as string;
+      if (!tokenStr) return res.status(400).json({ error: 'token is required' });
+
+      const tok = await storage.getPortalToken(tokenStr);
+      if (!tok) return res.status(403).json({ error: 'Invalid or revoked access token' });
+      if (tok.expiresAt && new Date(tok.expiresAt) < new Date()) {
+        return res.status(403).json({ error: 'This portal link has expired' });
+      }
+
+      // Touch last used timestamp (don't await — fire and forget)
+      storage.touchPortalToken(tok.id).catch(() => {});
+
+      // Fetch CDRs for this account from Sippy
+      const settings = await storage.getSettings();
+      const startDate = req.query.startDate as string | undefined;
+      const endDate   = req.query.endDate   as string | undefined;
+
+      let cdrs: any[] = [];
+      try {
+        const portalUrl = settings.portalUrl || '';
+        const creds = sippyXmlCredsPairs(settings as any);
+        for (const { username, password } of creds) {
+          const rows = await sippy.getSippyCDRs(username, password, 200, { startDate, endDate }, portalUrl);
+          if (rows.length > 0) { cdrs = rows; break; }
+        }
+      } catch { /* use empty cdrs fallback */ }
+
+      // Filter to this account's CDRs only
+      const accountIdStr = String(tok.accountId);
+      if (cdrs.length > 0) {
+        cdrs = cdrs.filter(c =>
+          String(c.iAccount ?? c.accountId ?? '') === accountIdStr ||
+          String(c.accountId ?? '') === accountIdStr
+        );
+      }
+
+      res.json({
+        accountName: tok.accountName,
+        accountId: tok.accountId,
+        cdrs,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Push a rate for a specific profile/destination to one or more switches ──
 
   app.post('/api/portal/push-rate', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
