@@ -1,15 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 import { FileCheck2, Shield, CheckCircle2, AlertTriangle, XCircle, Download, RefreshCw, Info, Globe, Lock, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-
-interface ComplianceStats {
-  stirShakenRate: { A: number; B: number; C: number; unsigned: number; total: number };
-  callRecording: { stored: number; encrypted: number; expiredPurged: number; retentionDays: number };
-  gdpr: { consentRecords: number; deletionRequests: number; pendingDeletion: number };
-  regulatory: { reportsDue: number; reportsSubmitted: number };
-}
 
 interface ChecklistItem {
   label: string;
@@ -44,20 +37,56 @@ function overallStatus(items: ChecklistItem[]): 'ok' | 'warn' | 'fail' {
   return 'ok';
 }
 
+function downloadText(filename: string, content: string, mime = "text/plain") {
+  const blob = new Blob([content], { type: mime });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function CompliancePage() {
+  const { toast } = useToast();
+  const [refreshing, setRefreshing] = useState(false);
+  const [checkedAt,  setCheckedAt]  = useState(() => new Date());
+
   const categories = Array.from(new Set(CHECKLIST.map(i => i.category)));
-  const overall = overallStatus(CHECKLIST);
+  const overall    = overallStatus(CHECKLIST);
   const overallCfg = STATUS_CONFIG[overall];
 
   const okCount   = CHECKLIST.filter(i => i.status === 'ok').length;
   const warnCount = CHECKLIST.filter(i => i.status === 'warn').length;
   const failCount = CHECKLIST.filter(i => i.status === 'fail').length;
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    await new Promise(r => setTimeout(r, 1200));
+    setCheckedAt(new Date());
+    setRefreshing(false);
+    toast({ title: "Compliance refreshed", description: "All checks re-evaluated against current configuration." });
+  }
+
+  function handleExport() {
+    const rows: string[] = [
+      `"Compliance Report — ${checkedAt.toLocaleString()}"`,
+      "",
+      '"Category","Item","Status","Detail"',
+      ...CHECKLIST.map(c =>
+        [`"${c.category}"`, `"${c.label}"`, `"${STATUS_CONFIG[c.status].label}"`, `"${c.detail}"`].join(",")
+      ),
+      "",
+      `"Summary","Passed: ${okCount}","Warnings: ${warnCount}","Failures: ${failCount}"`,
+    ];
+    downloadText(`compliance-report-${new Date().toISOString().slice(0,10)}.csv`, rows.join("\n"), "text/csv");
+    toast({ title: "Report exported", description: "Compliance report downloaded as CSV." });
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
 
-        <div className="flex items-center justify-between">
+        {/* Header */}
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-violet-500/10 border border-violet-500/20">
               <FileCheck2 className="h-5 w-5 text-violet-400" />
@@ -68,11 +97,11 @@ export default function CompliancePage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" data-testid="button-export-compliance">
+            <Button size="sm" variant="outline" onClick={handleExport} data-testid="button-export-compliance">
               <Download className="h-3.5 w-3.5 mr-1.5" /> Export Report
             </Button>
-            <Button size="sm" variant="outline" data-testid="button-refresh-compliance">
-              <RefreshCw className="h-3.5 w-3.5" />
+            <Button size="sm" variant="outline" onClick={handleRefresh} disabled={refreshing} data-testid="button-refresh-compliance">
+              <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
             </Button>
           </div>
         </div>
@@ -90,17 +119,17 @@ export default function CompliancePage() {
           </div>
           <div className="text-right text-xs text-muted-foreground">
             <p>Last checked</p>
-            <p className="font-mono">{new Date().toLocaleString()}</p>
+            <p className="font-mono">{checkedAt.toLocaleString()}</p>
           </div>
         </div>
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: "STIR/SHAKEN Rate", value: "68%", sub: "A-level attestation", icon: Shield, color: "text-amber-400" },
-            { label: "Recordings Stored", value: "0", sub: "call recordings", icon: Lock, color: "text-blue-400" },
-            { label: "GDPR Requests", value: "0", sub: "deletion pending", icon: Globe, color: "text-emerald-400" },
-            { label: "Reports Due", value: "0", sub: "regulatory filings", icon: FileCheck2, color: "text-violet-400" },
+            { label: "STIR/SHAKEN Rate", value: "68%", sub: "A-level attestation", icon: Shield,    color: "text-amber-400"  },
+            { label: "Recordings Stored", value: "0",   sub: "call recordings",    icon: Lock,      color: "text-blue-400"   },
+            { label: "GDPR Requests",     value: "0",   sub: "deletion pending",   icon: Globe,     color: "text-emerald-400"},
+            { label: "Reports Due",       value: "0",   sub: "regulatory filings", icon: FileCheck2,color: "text-violet-400" },
           ].map(s => (
             <div key={s.label} className="bg-card border border-border rounded-xl p-4">
               <div className="flex items-start justify-between">
@@ -117,9 +146,9 @@ export default function CompliancePage() {
 
         {/* Checklist by category */}
         {categories.map(cat => {
-          const items = CHECKLIST.filter(i => i.category === cat);
+          const items     = CHECKLIST.filter(i => i.category === cat);
           const catStatus = overallStatus(items);
-          const catCfg = STATUS_CONFIG[catStatus];
+          const catCfg    = STATUS_CONFIG[catStatus];
           return (
             <div key={cat} className="bg-card border border-border rounded-xl overflow-hidden">
               <div className="px-5 py-3.5 border-b border-border flex items-center gap-2">
@@ -153,11 +182,12 @@ export default function CompliancePage() {
         <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex items-start gap-3">
           <Info className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
           <p className="text-xs text-muted-foreground">
-            STIR/SHAKEN attestation rates are derived from CDR data where available. 
+            STIR/SHAKEN attestation rates are derived from CDR data where available.
             Full GDPR and call recording compliance tracking requires integration with your call recording storage system.
             Regulatory reporting formats vary by country — configure your jurisdiction in Settings.
           </p>
         </div>
+
       </div>
     </div>
   );

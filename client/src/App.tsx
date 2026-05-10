@@ -101,6 +101,7 @@ import ReplayEnginePage from "@/pages/replay";
 import NetworkTopologyPage from "@/pages/network-topology";
 import NocCommandPage from "@/pages/noc-command";
 import StirShakenPage from "@/pages/stir-shaken";
+import CallRecordingsPage from "@/pages/call-recordings";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -394,6 +395,9 @@ function Router() {
       </Route>
       <Route path="/stir-shaken">
         {() => <ProtectedRoute component={StirShakenPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/call-recordings">
+        {() => <ProtectedRoute component={CallRecordingsPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route component={NotFound} />
     </Switch>
