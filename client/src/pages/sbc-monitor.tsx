@@ -46,6 +46,7 @@ const METHOD_LABEL: Record<string, string> = {
   'http+tcp':      'HTTP + TCP',
   'snmp+tcp':      'SNMP + TCP',
   'http+snmp+tcp': 'HTTP + SNMP + TCP',
+  'reachability':  'IP reachability',
 };
 
 function StatusIcon({ status }: { status: string }) {
@@ -150,10 +151,16 @@ function SbcCard({ host }: { host: SbcHost }) {
         </div>
       </div>
 
-      {/* Error banner */}
+      {/* Error / warning banner */}
       {metrics?.error && displayStatus === 'down' && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">
           <XCircle className="h-3.5 w-3.5 shrink-0" />
+          {metrics.error}
+        </div>
+      )}
+      {metrics?.error && displayStatus === 'degraded' && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           {metrics.error}
         </div>
       )}

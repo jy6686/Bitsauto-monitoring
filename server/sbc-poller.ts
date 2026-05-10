@@ -60,6 +60,43 @@ function tcpProbe(host: string, port: number, timeoutMs = 3000): Promise<number 
   });
 }
 
+// ── Host reachability probe ───────────────────────────────────────────────────
+// When TCP SIP probe fails, probe common admin ports to distinguish
+// "host is down" from "SIP TCP is blocked / UDP-only" (very common for Sippy).
+// ECONNREFUSED counts as reachable — the host sent a TCP RST, meaning IP connectivity works.
+function hostReachable(host: string, timeoutMs = 2500): Promise<boolean> {
+  const FALLBACK_PORTS = [443, 80, 8443, 8080, 8090, 8181, 22, 21];
+  return new Promise(resolve => {
+    let resolved = false;
+    let pending   = FALLBACK_PORTS.length;
+
+    const markDone = (reachable: boolean) => {
+      if (resolved) return;
+      if (reachable) { resolved = true; resolve(true); return; }
+      pending--;
+      if (pending === 0) resolve(false);
+    };
+
+    for (const port of FALLBACK_PORTS) {
+      const sock = new net.Socket();
+      sock.setTimeout(timeoutMs);
+      sock.connect(port, host, () => {
+        try { sock.destroy(); } catch { /* ignore */ }
+        markDone(true);   // connected — definitely reachable
+      });
+      sock.on('error', (err: any) => {
+        try { sock.destroy(); } catch { /* ignore */ }
+        // ECONNREFUSED = host sent TCP RST → IP layer reachable, port just closed
+        markDone(err?.code === 'ECONNREFUSED');
+      });
+      sock.on('timeout', () => {
+        try { sock.destroy(); } catch { /* ignore */ }
+        markDone(false);
+      });
+    }
+  });
+}
+
 // ── HTTP REST probe — vendor-specific ─────────────────────────────────────────
 async function httpProbe(
   apiUrl: string,
@@ -215,7 +252,21 @@ export async function pollSbcHost(host: {
   const tcpMs = await tcpProbe(host.host, host.port ?? 5060);
 
   if (tcpMs === null) {
-    const result = { ...base, status: 'down' as const, error: `TCP SIP port ${host.port ?? 5060} unreachable` };
+    // TCP SIP failed — check if the host IP is reachable at all on any common port.
+    // ECONNREFUSED on any fallback port means IP-layer connectivity exists; the SIP
+    // port is just blocked/filtered (most Sippy switches use UDP SIP, not TCP SIP).
+    const reachable = await hostReachable(host.host);
+    if (reachable) {
+      const result = {
+        ...base,
+        status: 'degraded' as const,
+        method: 'reachability',
+        error: `SIP TCP port ${host.port ?? 5060} blocked — host is reachable (Sippy uses UDP SIP; TCP SIP may be disabled or firewalled)`,
+      };
+      _cache.set(host.id, result);
+      return result;
+    }
+    const result = { ...base, status: 'down' as const, error: `Host unreachable — TCP SIP port ${host.port ?? 5060} and all fallback ports timed out` };
     _cache.set(host.id, result);
     return result;
   }
