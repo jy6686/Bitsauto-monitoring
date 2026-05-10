@@ -16933,5 +16933,164 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // GET /api/resellers/:id/stats?days=30 — CDR-based usage, revenue, and margin for one reseller
+  app.get('/api/resellers/:id/stats', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { resellerProfiles } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      const [reseller] = await db.select().from(resellerProfiles).where(eq(resellerProfiles.id, id));
+      if (!reseller) return res.status(404).json({ message: 'Reseller not found' });
+
+      const days = Math.min(90, Math.max(1, parseInt(req.query.days as string || '30', 10)));
+      const cutoff = Date.now() - days * 86_400_000;
+      const markup = reseller.markupPercent ?? 0;
+
+      // Filter CDR cache: match iCustomer if set, else return empty (no PII leak)
+      const matchCdr = (c: any): boolean => {
+        if (!reseller.iCustomer) return false;
+        const ts = c.startTime ? new Date(c.startTime).getTime()
+                 : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+        if (ts < cutoff) return false;
+        return Number(c.iCustomer) === reseller.iCustomer;
+      };
+
+      const cdrs = [...cdrCache.values()].filter(matchCdr);
+
+      let totalCalls = 0, answeredCalls = 0, totalSec = 0, totalCost = 0;
+      const destMap = new Map<string, { calls: number; secs: number; cost: number }>();
+      const dayMap  = new Map<string, { calls: number; answered: number; mins: number; cost: number }>();
+
+      for (const c of cdrs as any[]) {
+        totalCalls++;
+        const answered = (c.duration ?? 0) > 0;
+        if (answered) { answeredCalls++; totalSec += c.duration ?? 0; }
+        totalCost += c.cost ?? 0;
+
+        // Top destinations
+        const dest = (c.callee ?? '').replace(/\d{4,}$/, 'XXXX'); // anonymise last digits
+        const dEntry = destMap.get(dest) ?? { calls: 0, secs: 0, cost: 0 };
+        dEntry.calls++; if (answered) dEntry.secs += c.duration ?? 0; dEntry.cost += c.cost ?? 0;
+        destMap.set(dest, dEntry);
+
+        // Daily breakdown
+        const ts = c.startTime || c.connectTime;
+        if (ts) {
+          const day = new Date(ts).toISOString().slice(0, 10);
+          const dDay = dayMap.get(day) ?? { calls: 0, answered: 0, mins: 0, cost: 0 };
+          dDay.calls++; if (answered) { dDay.answered++; dDay.mins += (c.duration ?? 0) / 60; }
+          dDay.cost += c.cost ?? 0;
+          dayMap.set(day, dDay);
+        }
+      }
+
+      const totalMins   = totalSec / 60;
+      const revenue     = totalCost * (1 + markup / 100);
+      const margin      = revenue - totalCost;
+      const marginPct   = revenue > 0 ? (margin / revenue) * 100 : 0;
+      const asr         = totalCalls > 0 ? (answeredCalls / totalCalls) * 100 : 0;
+      const acd         = answeredCalls > 0 ? totalSec / answeredCalls : 0;
+
+      const topDestinations = [...destMap.entries()]
+        .sort((a, b) => b[1].secs - a[1].secs)
+        .slice(0, 12)
+        .map(([dest, d]) => ({
+          dest, calls: d.calls, mins: +(d.secs / 60).toFixed(2),
+          cost: +d.cost.toFixed(4), revenue: +(d.cost * (1 + markup / 100)).toFixed(4),
+        }));
+
+      // Fill daily series for the window (last 30 days at most for chart)
+      const chartDays = Math.min(days, 30);
+      const dailySeries = [];
+      for (let i = chartDays - 1; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+        const entry = dayMap.get(d) ?? { calls: 0, answered: 0, mins: 0, cost: 0 };
+        dailySeries.push({ date: d, calls: entry.calls, answered: entry.answered, mins: +entry.mins.toFixed(2), cost: +entry.cost.toFixed(4), revenue: +(entry.cost * (1 + markup / 100)).toFixed(4) });
+      }
+
+      res.json({
+        resellerId: id, days, markup,
+        totalCalls, answeredCalls, totalMins: +totalMins.toFixed(2),
+        cost: +totalCost.toFixed(4), revenue: +revenue.toFixed(4),
+        margin: +margin.toFixed(4), marginPct: +marginPct.toFixed(2),
+        asr: +asr.toFixed(2), acd: +acd.toFixed(1),
+        topDestinations, dailySeries,
+        cdrSource: reseller.iCustomer ? 'cdr_cache' : 'no_customer_linked',
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/resellers/:id/statement?month=YYYY-MM — monthly invoice/statement data
+  app.get('/api/resellers/:id/statement', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db } = await import('./db');
+      const { resellerProfiles } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      const [reseller] = await db.select().from(resellerProfiles).where(eq(resellerProfiles.id, id));
+      if (!reseller) return res.status(404).json({ message: 'Reseller not found' });
+
+      // Parse month (default = current month)
+      const monthStr = (req.query.month as string) || new Date().toISOString().slice(0, 7);
+      const [yy, mm] = monthStr.split('-').map(Number);
+      const monthStart = new Date(yy, mm - 1, 1).getTime();
+      const monthEnd   = new Date(yy, mm, 1).getTime(); // exclusive
+
+      const markup = reseller.markupPercent ?? 0;
+
+      const cdrs = [...cdrCache.values()].filter((c: any) => {
+        if (!reseller.iCustomer) return false;
+        if (Number(c.iCustomer) !== reseller.iCustomer) return false;
+        const ts = c.startTime ? new Date(c.startTime).getTime()
+                 : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+        return ts >= monthStart && ts < monthEnd;
+      }) as any[];
+
+      // Build line items grouped by destination prefix (first 4 digits)
+      const lineMap = new Map<string, { calls: number; answered: number; secs: number; cost: number }>();
+      let totalCalls = 0, answeredCalls = 0, totalSec = 0, totalCost = 0;
+
+      for (const c of cdrs) {
+        totalCalls++;
+        const answered = (c.duration ?? 0) > 0;
+        if (answered) { answeredCalls++; totalSec += c.duration ?? 0; }
+        totalCost += c.cost ?? 0;
+
+        const prefix = (c.callee ?? '').slice(0, 6) || 'Unknown';
+        const e = lineMap.get(prefix) ?? { calls: 0, answered: 0, secs: 0, cost: 0 };
+        e.calls++; if (answered) { e.answered++; e.secs += c.duration ?? 0; } e.cost += c.cost ?? 0;
+        lineMap.set(prefix, e);
+      }
+
+      const lineItems = [...lineMap.entries()]
+        .sort((a, b) => b[1].secs - a[1].secs)
+        .map(([prefix, e]) => ({
+          prefix, calls: e.calls, answered: e.answered,
+          mins: +(e.secs / 60).toFixed(4),
+          cost: +e.cost.toFixed(6),
+          revenue: +(e.cost * (1 + markup / 100)).toFixed(6),
+          margin: +(e.cost * (markup / 100)).toFixed(6),
+        }));
+
+      const revenue = totalCost * (1 + markup / 100);
+
+      res.json({
+        resellerId: id, month: monthStr, markup,
+        resellerName: reseller.name, brandName: reseller.brandName,
+        contactEmail: reseller.contactEmail,
+        totalCalls, answeredCalls,
+        totalMins: +(totalSec / 60).toFixed(4),
+        cost: +totalCost.toFixed(6), revenue: +revenue.toFixed(6),
+        margin: +(revenue - totalCost).toFixed(6),
+        asr: totalCalls > 0 ? +((answeredCalls / totalCalls) * 100).toFixed(2) : 0,
+        lineItems,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   return httpServer;
 }
