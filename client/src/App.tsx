@@ -104,6 +104,7 @@ import StirShakenPage from "@/pages/stir-shaken";
 import CallRecordingsPage from "@/pages/call-recordings";
 import PortalViewPage from "@/pages/portal-view";
 import SelfHealPage from "@/pages/self-heal";
+import SidebarSettingsPage from "@/pages/sidebar-settings";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -406,6 +407,9 @@ function Router() {
       </Route>
       <Route path="/self-heal">
         {() => <ProtectedRoute component={SelfHealPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/sidebar-settings">
+        {() => <ProtectedRoute component={SidebarSettingsPage} requiredRoles={['admin']} />}
       </Route>
       <Route component={NotFound} />
     </Switch>

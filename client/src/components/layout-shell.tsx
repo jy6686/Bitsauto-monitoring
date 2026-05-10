@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -117,7 +117,7 @@ const NAV_PINNED_BOTTOM: NavItem[] = [
   { href: "/account", label: "My Account", icon: UserCog, roles: ['admin','management','viewer'] },
 ];
 
-const SIDEBAR_GROUPS: NavGroup[] = [
+export const SIDEBAR_GROUPS: NavGroup[] = [
   // ─── 1. Live Operations ──────────────────────────────────────────────────────
   {
     key: 'live_ops',
@@ -209,11 +209,12 @@ const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/reseller",            label: "Reseller Mgmt",     icon: Layers,        roles: ['admin','management']                               },
       { href: "/api-keys",            label: "API Keys",          icon: Key,           roles: ['admin']                                            },
       { href: "/vpn-config",          label: "VPN Config",        icon: Lock,          roles: ['admin']                                            },
-      { href: "/call-flow-simulator", label: "Call Flow Sim",     icon: Workflow,      roles: ['admin','management']                               },
-      { href: "/test-call",           label: "Test Suite",        icon: PhoneCall,     roles: ['admin','management'],  hasSubmenu: 'testing'        },
-      { href: "/email-centre",        label: "Notifications",     icon: Mail,          roles: ['admin'],               hasSubmenu: 'notifications'  },
-      { href: "/tools",               label: "Tools",             icon: Wrench,        roles: ['admin','management'],  hasSubmenu: 'tools' as SubmenuType },
-      { href: "/sms-monitor",         label: "SMS / A2P",         icon: MessageCircle, roles: ['admin','management'],  status: 'planned'            },
+      { href: "/call-flow-simulator", label: "Call Flow Sim",     icon: Workflow,          roles: ['admin','management']                               },
+      { href: "/test-call",           label: "Test Suite",        icon: PhoneCall,         roles: ['admin','management'],  hasSubmenu: 'testing'        },
+      { href: "/email-centre",        label: "Notifications",     icon: Mail,              roles: ['admin'],               hasSubmenu: 'notifications'  },
+      { href: "/tools",               label: "Tools",             icon: Wrench,            roles: ['admin','management'],  hasSubmenu: 'tools' as SubmenuType },
+      { href: "/sms-monitor",         label: "SMS / A2P",         icon: MessageCircle,     roles: ['admin','management'],  status: 'planned'            },
+      { href: "/sidebar-settings",    label: "Sidebar Menu",      icon: SlidersHorizontal, roles: ['admin']                                            },
     ],
   },
 ];
@@ -409,6 +410,13 @@ export function LayoutShell({ children }: LayoutShellProps) {
   });
   const mgmtEnabledFeatures: Set<string> | null = mgmtPermsData ? new Set(mgmtPermsData.enabledFeatures ?? []) : null;
 
+  // Sidebar visibility config — admin-controlled hide list
+  const { data: sidebarVisData } = useQuery<{ hiddenItems: string[] }>({
+    queryKey: ['/api/settings/sidebar-visibility'],
+    staleTime: 60_000,
+  });
+  const sidebarHiddenSet = new Set<string>(sidebarVisData?.hiddenItems ?? []);
+
   // ── KPI strip data ────────────────────────────────────────────────────────────
   const { data: liveCallsRaw } = useQuery<any>({
     queryKey: ['/api/sippy/live-calls'],
@@ -433,7 +441,10 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const hasDegradedCarrier = Array.isArray(carrierScoresRaw) && carrierScoresRaw.some((c: any) => (c.stabilityScore ?? 100) < 45);
 
   // ── Visibility gate ───────────────────────────────────────────────────────────
-  const VIEWER_ALWAYS_SHOW = new Set(['/', '/account', '/chat']);
+  const VIEWER_ALWAYS_SHOW   = new Set(['/', '/account', '/chat']);
+  // Items that can never be hidden by the admin config
+  const SIDEBAR_ALWAYS_SHOW  = new Set(['/', '/account', '/chat', '/sidebar-settings']);
+
   const isItemVisible = (item: NavItem): boolean => {
     if (role === 'viewer') {
       if (VIEWER_ALWAYS_SHOW.has(item.href)) return true;
@@ -445,6 +456,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
       const featureKey = MGMT_ROUTE_TO_KEY[routeBase];
       if (featureKey && !mgmtEnabledFeatures.has(featureKey)) return false;
     }
+    // Admin sidebar visibility config filter
+    if (!SIDEBAR_ALWAYS_SHOW.has(item.href) && sidebarHiddenSet.has(item.href)) return false;
     return true;
   };
 

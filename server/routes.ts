@@ -1071,6 +1071,28 @@ export async function registerRoutes(
     res.json({ enabledFeatures });
   });
 
+  // ── Sidebar Visibility Config ─────────────────────────────────────────────
+  // GET — any authenticated user can read (sidebar needs it to filter items)
+  app.get('/api/settings/sidebar-visibility', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    const s = await storage.getSettings();
+    let hiddenItems: string[] = [];
+    try { hiddenItems = JSON.parse(s.sidebarHiddenItems ?? '[]'); } catch { hiddenItems = []; }
+    res.json({ hiddenItems });
+  });
+
+  // POST — admin only: update the hidden items list
+  app.post('/api/settings/sidebar-visibility',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req: any, res: any) => {
+      const { hiddenItems } = req.body;
+      if (!Array.isArray(hiddenItems)) return res.status(400).json({ error: 'hiddenItems must be an array' });
+      await storage.updateSettings({ sidebarHiddenItems: JSON.stringify(hiddenItems) });
+      res.json({ success: true, hiddenItems });
+    }
+  );
+
   // ── Approval Settings API ─────────────────────────────────────────────────
   const DEFAULT_APPROVAL_SETTINGS = {
     routing_group:        { create: false, edit: true,  delete: true  },

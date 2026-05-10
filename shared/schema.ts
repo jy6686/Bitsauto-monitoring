@@ -111,6 +111,8 @@ export const settings = pgTable("settings", {
   grafanaPanelHeight:  integer("grafana_panel_height").default(480),        // iframe height in px
   // Configurable approval settings — JSON map of feature → { create, edit, delete } booleans
   approvalSettings: text("approval_settings"),
+  // Sidebar visibility config — JSON array of hidden item hrefs (admin-controlled)
+  sidebarHiddenItems: text("sidebar_hidden_items").default('[]'),
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports
