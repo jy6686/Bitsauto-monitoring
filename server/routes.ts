@@ -17055,8 +17055,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const { sbcHosts } = await import('../shared/schema');
       const { name, host, port, vendor, snmpCommunity, apiUrl, apiKey } = req.body;
       if (!name || !host) return res.status(400).json({ message: 'name and host are required' });
+      // Sanitise host — strip accidental protocol prefix and trailing slash so TCP probes work
+      const cleanHost = host.trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim();
       const [h] = await db.insert(sbcHosts).values({
-        name: name.trim(), host: host.trim(),
+        name: name.trim(), host: cleanHost,
         port: Number(port ?? 5060),
         vendor: vendor ?? 'generic',
         snmpCommunity: snmpCommunity || null,
@@ -17077,6 +17079,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const patch: Record<string, any> = {};
       const allowed = ['name','host','port','vendor','enabled','snmpCommunity','apiUrl','apiKey','lastStatus','lastCheckedAt'];
       for (const k of allowed) { if (req.body[k] !== undefined) patch[k] = req.body[k]; }
+      // Sanitise host field if present — strip accidental protocol prefix and trailing slash
+      if (patch.host) patch.host = patch.host.trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim();
       const [updated] = await db.update(sbcHosts).set(patch).where(eq(sbcHosts.id, id)).returning();
       res.json(updated);
     } catch (e: any) { res.status(500).json({ message: e.message }); }

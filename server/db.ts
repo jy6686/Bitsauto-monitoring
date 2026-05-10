@@ -100,6 +100,19 @@ export async function runSafeMigrations(): Promise<void> {
       ON CONFLICT DO NOTHING
     `);
 
+    // ── Self-heal: strip accidental https:// prefix from sbc_hosts.host ─────────
+    // If a user saves a URL (e.g. "https://191.101.30.107/") instead of a bare IP,
+    // the TCP probe gets an invalid hostname. This one-time idempotent UPDATE fixes
+    // any such rows automatically at startup.
+    await client.query(`
+      UPDATE sbc_hosts
+      SET host = regexp_replace(
+                   regexp_replace(host, '^https?://', '', 'i'),
+                   '/.*$', ''
+                 )
+      WHERE host ~ '^https?://'
+    `);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

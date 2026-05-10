@@ -230,11 +230,23 @@ async function snmpProbe(host: string, community: string): Promise<{ cpuPercent:
   });
 }
 
+// ── Host sanitiser ────────────────────────────────────────────────────────────
+// Strips accidental protocol prefixes (https://, http://) and trailing slashes
+// so net.Socket.connect() always receives a bare hostname or IP address.
+function sanitizeHost(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^https?:\/\//i, '')   // strip http:// or https://
+    .replace(/\/.*$/, '')            // strip path component and trailing slash
+    .trim();
+}
+
 // ── Main poll function ────────────────────────────────────────────────────────
 export async function pollSbcHost(host: {
   id: number; host: string; port: number; vendor: string;
   snmpCommunity?: string | null; apiUrl?: string | null; apiKey?: string | null;
 }): Promise<SbcPollResult> {
+  const cleanHost = sanitizeHost(host.host);
   const base: SbcPollResult = {
     hostId: host.id,
     status: 'down',
@@ -249,13 +261,13 @@ export async function pollSbcHost(host: {
   };
 
   // 1. TCP SIP-port probe — authoritative for up/down
-  const tcpMs = await tcpProbe(host.host, host.port ?? 5060);
+  const tcpMs = await tcpProbe(cleanHost, host.port ?? 5060);
 
   if (tcpMs === null) {
     // TCP SIP failed — check if the host IP is reachable at all on any common port.
     // ECONNREFUSED on any fallback port means IP-layer connectivity exists; the SIP
     // port is just blocked/filtered (most Sippy switches use UDP SIP, not TCP SIP).
-    const reachable = await hostReachable(host.host);
+    const reachable = await hostReachable(cleanHost);
     if (reachable) {
       const result = {
         ...base,
@@ -291,7 +303,7 @@ export async function pollSbcHost(host: {
   // 3. SNMP probe — fills CPU if not already fetched via HTTP
   if (host.snmpCommunity && base.cpuPercent === 0) {
     try {
-      const snmpData = await snmpProbe(host.host, host.snmpCommunity);
+      const snmpData = await snmpProbe(cleanHost, host.snmpCommunity);
       if (snmpData.cpuPercent > 0) base.cpuPercent = snmpData.cpuPercent;
       base.method = host.apiUrl ? 'http+snmp+tcp' : 'snmp+tcp';
     } catch { /* ignore */ }
@@ -317,7 +329,7 @@ export async function startSbcPoller(getHosts: () => Promise<any[]>, updateStatu
       try {
         const result = await pollSbcHost(h);
         await updateStatus(h.id, result.status).catch(() => {});
-        console.log(`[sbc-poller] ${h.name} (${h.host}:${h.port}) → ${result.status} via ${result.method} ${result.optionsResponseMs}ms RTT`);
+        console.log(`[sbc-poller] ${h.name} (${sanitizeHost(h.host)}:${h.port}) → ${result.status} via ${result.method} ${result.optionsResponseMs}ms RTT`);
       } catch (e: any) {
         console.warn(`[sbc-poller] ${h.name} poll error:`, e.message);
       }

@@ -126,7 +126,7 @@ function SbcCard({ host }: { host: SbcHost }) {
         <StatusIcon status={displayStatus} />
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-sm">{host.name}</p>
-          <p className="text-xs font-mono text-muted-foreground">{host.host}:{host.port}</p>
+          <p className="text-xs font-mono text-muted-foreground">{host.host.replace(/^https?:\/\//i,'').replace(/\/.*$/,'') }:{host.port}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <Badge variant="outline" className="text-[10px] capitalize">{host.vendor}</Badge>
