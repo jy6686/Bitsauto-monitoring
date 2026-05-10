@@ -103,6 +103,7 @@ import NocCommandPage from "@/pages/noc-command";
 import StirShakenPage from "@/pages/stir-shaken";
 import CallRecordingsPage from "@/pages/call-recordings";
 import PortalViewPage from "@/pages/portal-view";
+import SelfHealPage from "@/pages/self-heal";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -402,6 +403,9 @@ function Router() {
       </Route>
       <Route path="/portal/:token">
         {(params) => <PortalViewPage />}
+      </Route>
+      <Route path="/self-heal">
+        {() => <ProtectedRoute component={SelfHealPage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route component={NotFound} />
     </Switch>

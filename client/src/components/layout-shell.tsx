@@ -140,6 +140,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     items: [
       { href: "/routing-manager", label: "Routing Manager", icon: Database,    roles: ['admin','management'], hasSubmenu: 'routingmgr' },
       { href: "/lcr-analyser",    label: "LCR Analyser",    icon: GitBranch,   roles: ['admin','management']                           },
+      { href: "/self-heal",       label: "Self-Heal Routes", icon: HeartPulse,  roles: ['admin','management'], isNew: true              },
       { href: "/approvals",       label: "Approval Queue",  icon: ShieldCheck, roles: ['admin','management','super_admin','noc_operator','team_lead'], status: 'live' },
     ],
   },

@@ -1796,7 +1796,10 @@ export async function registerRoutes(
 
   app.post('/api/portal-tokens', (req: any, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
     try {
-      const { accountId, accountName, label } = req.body as { accountId: string; accountName: string; label?: string };
+      const { accountId, accountName, label, permissions, clientProfileId, expiresAt } = req.body as {
+        accountId: string; accountName: string; label?: string;
+        permissions?: string[]; clientProfileId?: number; expiresAt?: string;
+      };
       if (!accountId || !accountName) return res.status(400).json({ error: 'accountId and accountName are required' });
       const crypto = await import('crypto');
       const token  = crypto.randomBytes(24).toString('hex');
@@ -1807,9 +1810,11 @@ export async function registerRoutes(
         accountName,
         label: label ?? null,
         createdBy: user?.id ?? null,
-        expiresAt: null,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
         lastUsedAt: null,
-      });
+        permissions: permissions ? JSON.stringify(permissions) : '["cdrs","usage","billing"]',
+        clientProfileId: clientProfileId ?? null,
+      } as any);
       res.json(created);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -1880,6 +1885,46 @@ export async function registerRoutes(
         }
       } catch { /* leave balance null — will show N/A */ }
 
+      // Compute usage stats from the already-fetched CDRs
+      const totalCalls    = cdrs.length;
+      const connectedCdrs = cdrs.filter((c: any) => (c.duration ?? 0) > 0);
+      const connectedCalls = connectedCdrs.length;
+      const totalMinutes  = connectedCdrs.reduce((sum: number, c: any) => sum + (c.duration ?? 0), 0) / 60;
+      const asr           = totalCalls > 0 ? Math.round((connectedCalls / totalCalls) * 1000) / 10 : 0;
+
+      // Get client rate for billing segregation
+      let ratePerMin = 0.025;
+      const cpId = (tok as any).clientProfileId;
+      if (cpId) {
+        try {
+          const profiles = await storage.getClientProfiles();
+          const profile  = profiles.find((p: any) => p.id === cpId);
+          if (profile?.revenuePerMin) ratePerMin = profile.revenuePerMin;
+          else if (profile?.ratePerMin) ratePerMin = profile.ratePerMin;
+        } catch { /* use default */ }
+      }
+      const totalBilling = totalMinutes * ratePerMin;
+
+      // Parse what this token permits
+      let permissions: string[] = ['cdrs', 'usage', 'billing'];
+      try { permissions = JSON.parse((tok as any).permissions ?? '["cdrs","usage","billing"]'); } catch {}
+
+      // Daily usage breakdown (last 30 days)
+      const dailyMap = new Map<string, { calls: number; minutes: number; cost: number }>();
+      for (const c of connectedCdrs) {
+        const d = c.startTime
+          ? new Date(c.startTime).toISOString().slice(0, 10)
+          : 'unknown';
+        const entry = dailyMap.get(d) ?? { calls: 0, minutes: 0, cost: 0 };
+        entry.calls++;
+        entry.minutes += (c.duration ?? 0) / 60;
+        entry.cost    += ((c.duration ?? 0) / 60) * ratePerMin;
+        dailyMap.set(d, entry);
+      }
+      const daily = Array.from(dailyMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, data]) => ({ date, ...data }));
+
       res.json({
         accountName: tok.accountName,
         accountId: tok.accountId,
@@ -1887,6 +1932,112 @@ export async function registerRoutes(
         balance,
         creditLimit,
         currency,
+        // RBAC-scoped extras
+        permissions,
+        totalCalls,
+        connectedCalls,
+        totalMinutes,
+        asr,
+        totalBilling,
+        ratePerMin,
+        daily,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/portal/usage?token=xxx — lightweight usage stats (no CDR payload)
+  app.get('/api/portal/usage', async (req: any, res) => {
+    try {
+      const tokenStr = req.query.token as string;
+      if (!tokenStr) return res.status(400).json({ error: 'token required' });
+      const tok = await storage.getPortalToken(tokenStr);
+      if (!tok) return res.status(403).json({ error: 'Invalid or revoked token' });
+      if (tok.expiresAt && new Date(tok.expiresAt) < new Date()) {
+        return res.status(403).json({ error: 'Token expired' });
+      }
+      let perms: string[] = ['cdrs', 'usage', 'billing'];
+      try { perms = JSON.parse((tok as any).permissions ?? '[]'); } catch {}
+      if (!perms.includes('usage')) return res.status(403).json({ error: 'Permission denied: usage not enabled for this token' });
+
+      const accountIdStr = String(tok.accountId);
+      const days = Math.min(90, parseInt(req.query.days as string || '30'));
+      const cutoff = Date.now() - days * 86_400_000;
+
+      // Pull from CDR cache
+      const accountCdrs = [...cdrCache.values()].filter((c: any) => {
+        const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+        if (ts < cutoff) return false;
+        return (
+          String(c.iAccount   ?? '') === accountIdStr ||
+          String(c.accountId  ?? '') === accountIdStr
+        );
+      });
+
+      const totalCalls     = accountCdrs.length;
+      const connectedCdrs  = accountCdrs.filter((c: any) => (c.duration ?? 0) > 0);
+      const connectedCalls = connectedCdrs.length;
+      const totalMinutes   = connectedCdrs.reduce((s: number, c: any) => s + (c.duration ?? 0), 0) / 60;
+      const asr            = totalCalls > 0 ? Math.round((connectedCalls / totalCalls) * 1000) / 10 : 0;
+
+      res.json({ totalCalls, connectedCalls, totalMinutes, asr, days, accountId: tok.accountId, accountName: tok.accountName });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/portal/billing?token=xxx — billing summary scoped to this account
+  app.get('/api/portal/billing', async (req: any, res) => {
+    try {
+      const tokenStr = req.query.token as string;
+      if (!tokenStr) return res.status(400).json({ error: 'token required' });
+      const tok = await storage.getPortalToken(tokenStr);
+      if (!tok) return res.status(403).json({ error: 'Invalid or revoked token' });
+      if (tok.expiresAt && new Date(tok.expiresAt) < new Date()) {
+        return res.status(403).json({ error: 'Token expired' });
+      }
+      let perms: string[] = ['cdrs', 'usage', 'billing'];
+      try { perms = JSON.parse((tok as any).permissions ?? '[]'); } catch {}
+      if (!perms.includes('billing')) return res.status(403).json({ error: 'Permission denied: billing not enabled for this token' });
+
+      let ratePerMin = 0.025;
+      const cpId = (tok as any).clientProfileId;
+      if (cpId) {
+        try {
+          const profiles = await storage.getClientProfiles();
+          const profile  = profiles.find((p: any) => p.id === cpId);
+          if (profile?.revenuePerMin) ratePerMin = profile.revenuePerMin;
+          else if (profile?.ratePerMin) ratePerMin = profile.ratePerMin;
+        } catch {}
+      }
+
+      const accountIdStr = String(tok.accountId);
+      const days = Math.min(90, parseInt(req.query.days as string || '30'));
+      const cutoff = Date.now() - days * 86_400_000;
+
+      const accountCdrs = [...cdrCache.values()].filter((c: any) => {
+        const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+        if (ts < cutoff) return false;
+        return String(c.iAccount ?? c.accountId ?? '') === accountIdStr;
+      });
+
+      const connectedCdrs  = accountCdrs.filter((c: any) => (c.duration ?? 0) > 0);
+      const totalMinutes   = connectedCdrs.reduce((s: number, c: any) => s + (c.duration ?? 0), 0) / 60;
+      const totalBilling   = totalMinutes * ratePerMin;
+
+      const dailyMap = new Map<string, { calls: number; minutes: number; cost: number }>();
+      for (const c of connectedCdrs) {
+        const d = c.startTime ? new Date(c.startTime).toISOString().slice(0, 10) : 'unknown';
+        const entry = dailyMap.get(d) ?? { calls: 0, minutes: 0, cost: 0 };
+        entry.calls++;
+        entry.minutes += (c.duration ?? 0) / 60;
+        entry.cost    += ((c.duration ?? 0) / 60) * ratePerMin;
+        dailyMap.set(d, entry);
+      }
+      const daily = Array.from(dailyMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, data]) => ({ date, ...data }));
+
+      res.json({
+        totalMinutes, totalBilling, ratePerMin, currency: 'USD', days,
+        daily, accountId: tok.accountId, accountName: tok.accountName,
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -15264,6 +15415,172 @@ export async function registerRoutes(
       res.json(delta);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+
+  // ── Self-Healing Routing Engine ──────────────────────────────────────────────
+  // GET /api/routing/self-heal/status — carrier health + routing group analysis + proposals
+  app.get('/api/routing/self-heal/status',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        // 1. Load carrier quality scores (fast, DB-only)
+        const scores = await storage.getCarrierQualityScores(24);
+        const scoreMap = new Map(scores.map((s: any) => [s.carrierName.toLowerCase().trim(), s]));
+
+        // 2. Build carrier health view
+        const carrierHealth = scores.map((s: any) => {
+          const stability = s.stabilityScore ?? 100;
+          return {
+            carrierName:    s.carrierName,
+            stabilityScore: stability,
+            rollingAsr:     s.rollingAsr,
+            failureRate:    s.failureRate,
+            trend:          s.trend,
+            sampleCount:    s.sampleCount,
+            status:         stability >= 75 ? 'healthy' : stability >= 50 ? 'degraded' : 'critical',
+          };
+        });
+
+        // 3. Load routing group cache + connections for member analysis
+        const settings = await storage.getSippySettings();
+        if (!settings) {
+          return res.json({ carrierHealth, proposals: [], routingGroupsChecked: 0, lastCheckedAt: new Date().toISOString(), warning: 'Sippy not configured' });
+        }
+        const { username, password } = sippyXmlCreds(settings);
+        const pUrl     = sippyPortalUrl(settings);
+        const cachedRGs    = await getCachedRoutingGroups();
+        const cachedConns  = await getCachedConnections();
+        const connMap = new Map((cachedConns as any[]).map((c: any) => [c.i_connection, c]));
+
+        // 4. Fetch members for each routing group (parallel, best-effort)
+        const filterRgId = req.query.routingGroupId ? parseInt(req.query.routingGroupId as string) : null;
+        const rgsToCheck = filterRgId
+          ? (cachedRGs as any[]).filter((rg: any) => rg.i_routing_group === filterRgId)
+          : (cachedRGs as any[]).slice(0, 12); // Cap to avoid Sippy overload
+
+        const memberResults = await Promise.allSettled(
+          rgsToCheck.map(async (rg: any) => {
+            const mResult = await sippy.listRoutingGroupMembers(username, password, rg.i_routing_group, { portalUrl: pUrl });
+            return { rg, members: mResult.members ?? [] };
+          })
+        );
+
+        const proposals: any[] = [];
+
+        for (const result of memberResults) {
+          if (result.status !== 'fulfilled') continue;
+          const { rg, members } = result.value;
+          const sortedMembers = [...members].sort((a: any, b: any) => (a.preference ?? 99) - (b.preference ?? 99));
+          const maxPref = sortedMembers.length > 0
+            ? Math.max(...sortedMembers.map((m: any) => m.preference ?? 1))
+            : 1;
+
+          for (const m of members) {
+            const conn = m.iConnection ? connMap.get(m.iConnection) : null;
+            const vendorName: string = conn?.vendor_name ?? conn?.name ?? '';
+            if (!vendorName) continue;
+
+            const score = scoreMap.get(vendorName.toLowerCase().trim());
+            if (!score) continue;
+
+            const stability = (score as any).stabilityScore ?? 100;
+            if (stability >= 50) continue; // Only flag critical/degraded
+
+            const currentPref   = m.preference ?? 1;
+            const currentWeight = m.weight ?? 1;
+            const isBypass      = stability < 25;
+            const proposedPref  = isBypass ? maxPref + 10 : maxPref + 1;
+            const proposedWeight = isBypass ? 1 : Math.max(1, Math.floor(currentWeight * 0.5));
+
+            // Find alternative healthy routes in this group
+            const healthyAlternatives = sortedMembers
+              .filter((sm: any) => {
+                if (sm.iRoutingGroupMember === m.iRoutingGroupMember) return false;
+                const c = sm.iConnection ? connMap.get(sm.iConnection) : null;
+                const vn: string = c?.vendor_name ?? c?.name ?? '';
+                const sc = vn ? scoreMap.get(vn.toLowerCase().trim()) : null;
+                return ((sc as any)?.stabilityScore ?? 50) >= 50;
+              })
+              .map((sm: any) => {
+                const c = sm.iConnection ? connMap.get(sm.iConnection) : null;
+                return c?.vendor_name ?? c?.name ?? `Connection #${sm.iConnection}`;
+              });
+
+            proposals.push({
+              id:                  `${rg.i_routing_group}-${m.iRoutingGroupMember}`,
+              carrierName:         vendorName,
+              stabilityScore:      stability,
+              rollingAsr:          (score as any).rollingAsr,
+              failureRate:         (score as any).failureRate,
+              trend:               (score as any).trend,
+              iRoutingGroup:       rg.i_routing_group,
+              groupName:           rg.name ?? `Group ${rg.i_routing_group}`,
+              iRoutingGroupMember: m.iRoutingGroupMember,
+              iConnection:         m.iConnection,
+              currentPreference:   currentPref,
+              currentWeight:       currentWeight,
+              proposedPreference:  proposedPref,
+              proposedWeight:      proposedWeight,
+              action:              isBypass ? 'bypass' : 'deprioritize',
+              healthyAlternatives,
+              risk:                healthyAlternatives.length === 0 ? 'high' : 'low',
+            });
+          }
+        }
+
+        res.json({
+          carrierHealth,
+          proposals,
+          routingGroupsChecked: rgsToCheck.length,
+          lastCheckedAt: new Date().toISOString(),
+        });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
+  // POST /api/routing/self-heal/propose — generate approval requests for selected proposals
+  app.post('/api/routing/self-heal/propose',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { proposals }: { proposals: any[] } = req.body;
+        if (!Array.isArray(proposals) || proposals.length === 0) {
+          return res.status(400).json({ error: 'proposals array is required and must not be empty' });
+        }
+
+        const actorId   = (req as any).user?.id   ?? 'rule_engine';
+        const actorName = (req as any).user?.name ?? 'Self-Heal Engine';
+        const submitted: { requestId: number; carrierName: string; groupName: string }[] = [];
+
+        for (const p of proposals) {
+          const ar = await submitApprovalRequest({
+            operationType:   'routing_group_member.update',
+            action:          'update',
+            entityId:        p.iRoutingGroupMember,
+            entityName:      `${p.carrierName} in ${p.groupName}`,
+            payloadBefore: {
+              iRoutingGroupMember: p.iRoutingGroupMember,
+              iRoutingGroup:       p.iRoutingGroup,
+              preference:          p.currentPreference,
+              weight:              p.currentWeight,
+            },
+            payloadAfter: {
+              iRoutingGroupMember: p.iRoutingGroupMember,
+              iRoutingGroup:       p.iRoutingGroup,
+              preference:          p.proposedPreference,
+              weight:              p.proposedWeight,
+            },
+            requestedBy:     actorId,
+            requestedByName: actorName,
+            source:          'rule_engine',
+            ruleId:          null,
+          });
+          submitted.push({ requestId: ar.id, carrierName: p.carrierName, groupName: p.groupName });
+        }
+
+        res.json({ submitted: submitted.length, details: submitted });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
 
   // GET /api/compliance/report — live compliance metrics from FAS, CDR, blacklist, settings
   app.get('/api/compliance/report', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res) => {

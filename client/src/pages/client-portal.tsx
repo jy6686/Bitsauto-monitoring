@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Globe, Phone, TrendingUp, DollarSign, Clock, CheckCircle2,
   AlertTriangle, Download, BarChart3, Shield, Link2, Plus,
-  Trash2, Copy, RefreshCw, Key,
+  Trash2, Copy, RefreshCw, Key, Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,8 @@ interface PortalToken {
   createdAt: string;
   expiresAt?: string;
   lastUsedAt?: string;
+  permissions?: string;
+  clientProfileId?: number | null;
 }
 
 function fmtDur(s?: number) {
@@ -119,6 +121,8 @@ export default function ClientPortalPage() {
   const [selectedAccount, setSelectedAccount] = useState("1");
   const [timeRange, setTimeRange] = useState("today");
   const [activeTab, setActiveTab] = useState<"usage" | "access">("usage");
+  const [newTokenPerms, setNewTokenPerms] = useState<string[]>(["cdrs", "usage", "billing"]);
+  const [showPermPanel, setShowPermPanel] = useState(false);
 
   // ── Accounts list ──
   const { data: accountsResp } = useQuery<{ accounts: any[] }>({
@@ -159,6 +163,7 @@ export default function ClientPortalPage() {
         accountId: selectedAccount,
         accountName: name,
         label: `${name} — created ${new Date().toLocaleDateString()}`,
+        permissions: newTokenPerms,
       }).then(r => r.json());
     },
     onSuccess: (tok: PortalToken) => {
@@ -166,6 +171,7 @@ export default function ClientPortalPage() {
       const link = `${window.location.origin}/portal/${tok.token}`;
       navigator.clipboard.writeText(link).catch(() => {});
       toast({ title: "Link created & copied!", description: link });
+      setShowPermPanel(false);
     },
     onError: () => toast({ title: "Failed to create link", variant: "destructive" }),
   });
@@ -423,18 +429,69 @@ export default function ClientPortalPage() {
               </div>
             </div>
 
-            {/* Generate button */}
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Active Access Links</h3>
-              <Button
-                size="sm"
-                onClick={() => createTokenMut.mutate()}
-                disabled={createTokenMut.isPending}
-                data-testid="button-create-portal-link"
-              >
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
-                {createTokenMut.isPending ? "Generating…" : "Generate Link for Selected Account"}
-              </Button>
+            {/* Generate button + permissions config */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Active Access Links</h3>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm" variant="outline"
+                    onClick={() => setShowPermPanel(p => !p)}
+                    data-testid="button-toggle-perms"
+                  >
+                    <Settings className="h-3.5 w-3.5 mr-1.5" />Permissions
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => createTokenMut.mutate()}
+                    disabled={createTokenMut.isPending || newTokenPerms.length === 0}
+                    data-testid="button-create-portal-link"
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1.5" />
+                    {createTokenMut.isPending ? "Generating…" : "Generate Link"}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Permissions config panel */}
+              {showPermPanel && (
+                <div className="bg-muted/20 border border-border rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Client permissions for new link</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { key: "cdrs",    label: "Call History",   desc: "Access CDRs with download" },
+                      { key: "usage",   label: "Usage Stats",    desc: "Calls, minutes, ASR"       },
+                      { key: "billing", label: "Billing",        desc: "Cost breakdown & rates"     },
+                    ].map(p => {
+                      const active = newTokenPerms.includes(p.key);
+                      return (
+                        <button
+                          key={p.key}
+                          onClick={() => setNewTokenPerms(prev =>
+                            active ? prev.filter(x => x !== p.key) : [...prev, p.key]
+                          )}
+                          data-testid={`toggle-perm-${p.key}`}
+                          className={cn(
+                            "rounded-lg border p-3 text-left transition-all text-xs",
+                            active
+                              ? "border-primary/60 bg-primary/5 text-foreground"
+                              : "border-border text-muted-foreground hover:border-border/80",
+                          )}
+                        >
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <div className={cn("w-2 h-2 rounded-full", active ? "bg-emerald-400" : "bg-muted-foreground/30")} />
+                            <span className="font-medium">{p.label}</span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">{p.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {newTokenPerms.length === 0 && (
+                    <p className="text-xs text-amber-400">Select at least one permission to generate a link.</p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Token list */}
@@ -448,45 +505,61 @@ export default function ClientPortalPage() {
                   <thead>
                     <tr className="border-b border-border bg-muted/10 text-xs font-medium text-muted-foreground">
                       <th className="text-left px-4 py-2.5">Account</th>
-                      <th className="text-left px-4 py-2.5">Label</th>
+                      <th className="text-left px-4 py-2.5">Permissions</th>
                       <th className="text-left px-4 py-2.5">Created</th>
                       <th className="text-left px-4 py-2.5">Last Used</th>
                       <th className="text-left px-4 py-2.5">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {tokens.map(tok => (
-                      <tr key={tok.id} className="border-b border-border/50 last:border-0 hover:bg-muted/5" data-testid={`row-token-${tok.id}`}>
-                        <td className="px-4 py-3 font-medium">{tok.accountName}</td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">{tok.label ?? "—"}</td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">
-                          {new Date(tok.createdAt).toLocaleDateString()}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">
-                          {tok.lastUsedAt ? new Date(tok.lastUsedAt).toLocaleString() : "Never"}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5">
-                            <Button
-                              size="sm" variant="outline"
-                              onClick={() => copyLink(tok.token)}
-                              data-testid={`button-copy-token-${tok.id}`}
-                            >
-                              <Copy className="h-3 w-3 mr-1" /> Copy Link
-                            </Button>
-                            <Button
-                              size="sm" variant="ghost"
-                              className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
-                              onClick={() => revokeTokenMut.mutate(tok.id)}
-                              disabled={revokeTokenMut.isPending}
-                              data-testid={`button-revoke-token-${tok.id}`}
-                            >
-                              <Trash2 className="h-3 w-3 mr-1" /> Revoke
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {tokens.map(tok => {
+                      let tokPerms: string[] = ["cdrs", "usage", "billing"];
+                      try { tokPerms = JSON.parse(tok.permissions ?? '["cdrs","usage","billing"]'); } catch {}
+                      const PERM_LABELS: Record<string, string> = { cdrs: "CDRs", usage: "Usage", billing: "Billing" };
+                      return (
+                        <tr key={tok.id} className="border-b border-border/50 last:border-0 hover:bg-muted/5" data-testid={`row-token-${tok.id}`}>
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-sm">{tok.accountName}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">ID {tok.accountId}</p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {tokPerms.map(p => (
+                                <Badge key={p} className="text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/20">
+                                  {PERM_LABELS[p] ?? p}
+                                </Badge>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground">
+                            {new Date(tok.createdAt).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground">
+                            {tok.lastUsedAt ? new Date(tok.lastUsedAt).toLocaleString() : "Never"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5">
+                              <Button
+                                size="sm" variant="outline"
+                                onClick={() => copyLink(tok.token)}
+                                data-testid={`button-copy-token-${tok.id}`}
+                              >
+                                <Copy className="h-3 w-3 mr-1" /> Copy Link
+                              </Button>
+                              <Button
+                                size="sm" variant="ghost"
+                                className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                                onClick={() => revokeTokenMut.mutate(tok.id)}
+                                disabled={revokeTokenMut.isPending}
+                                data-testid={`button-revoke-token-${tok.id}`}
+                              >
+                                <Trash2 className="h-3 w-3 mr-1" /> Revoke
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
