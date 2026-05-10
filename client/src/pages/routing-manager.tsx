@@ -3105,54 +3105,188 @@ function QbrTab() {
   );
 }
 
+// ── On-Net Topology SVG ────────────────────────────────────────────────────────
+
+function OnNetTopologyDiagram({ groups }: { groups: RoutingGroup[] }) {
+  const W = 580, H = 320;
+  const cx = W / 2, cy = H / 2;
+
+  const policyStroke = (policy: string | null) => {
+    if (!policy) return '#64748b';
+    if (policy.includes('least_cost')) return '#f59e0b';
+    if (policy.includes('weight') || policy.includes('random')) return '#8b5cf6';
+    return '#22d3ee';
+  };
+
+  const displayed = groups.slice(0, 10);
+  const radius = displayed.length <= 1 ? 0 : Math.min(130, Math.max(80, displayed.length * 20));
+
+  const nodes = displayed.map((g, i) => {
+    const angle = displayed.length === 1 ? 0 : (i / displayed.length) * 2 * Math.PI - Math.PI / 2;
+    return {
+      ...g,
+      x: displayed.length === 1 ? cx : cx + radius * Math.cos(angle),
+      y: displayed.length === 1 ? cy : cy + radius * Math.sin(angle),
+      color: policyStroke(g.policy),
+    };
+  });
+
+  return (
+    <div className="rounded-xl border border-cyan-500/20 bg-card/60 overflow-hidden">
+      <div className="flex items-center justify-between px-4 pt-3 pb-1">
+        <div className="flex items-center gap-2">
+          <Network className="h-4 w-4 text-cyan-400" />
+          <span className="text-sm font-semibold">On-Net Topology Map</span>
+        </div>
+        <span className="text-xs text-muted-foreground">{groups.length} group{groups.length !== 1 ? 's' : ''}{groups.length > 10 ? ' (showing 10)' : ''}</span>
+      </div>
+      <div className="px-4 pb-3">
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} className="overflow-visible">
+          {/* Hub background pulse */}
+          <circle cx={cx} cy={cy} r={44} fill="rgba(6,182,212,0.04)" stroke="rgba(6,182,212,0.15)" strokeWidth={1} strokeDasharray="3 3">
+            <animate attributeName="r" values="44;50;44" dur="3s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="1;0.4;1" dur="3s" repeatCount="indefinite" />
+          </circle>
+
+          {/* Edges from hub to each group */}
+          {nodes.map(n => (
+            <line
+              key={`edge-${n.i_routing_group}`}
+              x1={cx} y1={cy} x2={n.x} y2={n.y}
+              stroke={n.color}
+              strokeWidth={1.5}
+              strokeOpacity={0.3}
+              strokeDasharray="5 4"
+            />
+          ))}
+
+          {/* Central hub */}
+          <circle cx={cx} cy={cy} r={36} fill="rgba(6,182,212,0.08)" stroke="rgba(6,182,212,0.5)" strokeWidth={1.5} />
+          <text x={cx} y={cy - 5} textAnchor="middle" fill="#22d3ee" fontSize={11} fontWeight="700" fontFamily="monospace">ON-NET</text>
+          <text x={cx} y={cy + 9} textAnchor="middle" fill="#64748b" fontSize={9} fontFamily="monospace">MESH</text>
+
+          {/* Routing group nodes */}
+          {nodes.map(n => (
+            <g key={n.i_routing_group} data-testid={`topology-node-${n.i_routing_group}`}>
+              <circle cx={n.x} cy={n.y} r={28} fill={`${n.color}18`} stroke={`${n.color}`} strokeWidth={1.5} strokeOpacity={0.6} />
+              <text x={n.x} y={n.y - 6} textAnchor="middle" fill={n.color} fontSize={10} fontWeight="700" fontFamily="monospace">
+                #{n.i_routing_group}
+              </text>
+              <text x={n.x} y={n.y + 6} textAnchor="middle" fill="#94a3b8" fontSize={9} fontFamily="monospace">
+                {n.members_count}m
+              </text>
+              <text x={n.x} y={n.y + 46} textAnchor="middle" fill="#e2e8f0" fontSize={9} fontWeight="600">
+                {n.name.length > 15 ? n.name.slice(0, 14) + '…' : n.name}
+              </text>
+              <text x={n.x} y={n.y + 58} textAnchor="middle" fill="#64748b" fontSize={8}>
+                {policyLabel(n.policy)}
+              </text>
+            </g>
+          ))}
+        </svg>
+
+        {/* Legend */}
+        <div className="flex items-center gap-4 justify-center mt-1 flex-wrap">
+          {[
+            { color: '#22d3ee', label: 'Priority / Prefix' },
+            { color: '#f59e0b', label: 'Least Cost (LCR)' },
+            { color: '#8b5cf6', label: 'Weighted / Random' },
+          ].map(({ color, label }) => (
+            <div key={label} className="flex items-center gap-1.5">
+              <div className="h-2 w-2 rounded-full" style={{ background: color }} />
+              <span className="text-[10px] text-muted-foreground">{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── On-Net Routing Viewer ──────────────────────────────────────────────────────
 
 function OnNetTab() {
-  const [search, setSearch]   = useState("");
+  const [search, setSearch]     = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [view, setView]         = useState<'topology' | 'list'>('topology');
+
   const { data, isLoading } = useQuery<{ groups: RoutingGroup[] }>({
     queryKey: ["/api/routing-cache/routing-groups"],
   });
-  const allGroups  = data?.groups ?? [];
+  const allGroups   = data?.groups ?? [];
   const onNetGroups = allGroups.filter(g => g.on_net);
-  const groups = onNetGroups.filter(g =>
+  const totalMembers = onNetGroups.reduce((s, g) => s + g.members_count, 0);
+  const onNetRatio   = allGroups.length > 0 ? Math.round(onNetGroups.length / allGroups.length * 100) : 0;
+
+  const filtered = onNetGroups.filter(g =>
     !search || g.name.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Policy distribution
+  const policyDist = onNetGroups.reduce<Record<string, number>>((acc, g) => {
+    const label = policyLabel(g.policy);
+    acc[label] = (acc[label] || 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <div className="space-y-4">
-      {/* Summary bar */}
-      <div className="grid grid-cols-3 gap-3">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/8 px-4 py-3 text-center">
           <p className="text-2xl font-bold text-cyan-400">{onNetGroups.length}</p>
           <p className="text-xs text-muted-foreground mt-0.5">On-Net Groups</p>
         </div>
         <div className="rounded-xl border border-border/40 bg-muted/10 px-4 py-3 text-center">
-          <p className="text-2xl font-bold">{onNetGroups.reduce((s, g) => s + g.members_count, 0)}</p>
+          <p className="text-2xl font-bold">{totalMembers}</p>
           <p className="text-xs text-muted-foreground mt-0.5">Total Members</p>
         </div>
         <div className="rounded-xl border border-border/40 bg-muted/10 px-4 py-3 text-center">
           <p className="text-2xl font-bold">{allGroups.length - onNetGroups.length}</p>
           <p className="text-xs text-muted-foreground mt-0.5">Off-Net Groups</p>
         </div>
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-4 py-3 text-center">
+          <p className="text-2xl font-bold text-emerald-400">{onNetRatio}%</p>
+          <p className="text-xs text-muted-foreground mt-0.5">On-Net Ratio</p>
+        </div>
+      </div>
+
+      {/* Policy distribution pills */}
+      {Object.keys(policyDist).length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Policies:</span>
+          {Object.entries(policyDist).map(([label, count]) => (
+            <span key={label} className="text-[10px] px-2 py-0.5 rounded-full border border-border bg-muted/20 text-muted-foreground font-mono">
+              {label} × {count}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* View toggle */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setView('topology')}
+          data-testid="btn-view-topology"
+          className={cn("text-xs px-3 py-1.5 rounded-lg border transition-colors gap-1.5 flex items-center",
+            view === 'topology' ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400" : "border-border text-muted-foreground hover:text-foreground")}
+        >
+          <Network className="h-3 w-3" /> Topology
+        </button>
+        <button
+          onClick={() => setView('list')}
+          data-testid="btn-view-list"
+          className={cn("text-xs px-3 py-1.5 rounded-lg border transition-colors gap-1.5 flex items-center",
+            view === 'list' ? "bg-primary/10 border-primary/30 text-primary" : "border-border text-muted-foreground hover:text-foreground")}
+        >
+          <List className="h-3 w-3" /> Group List
+        </button>
       </div>
 
       {/* Info banner */}
       <div className="flex items-start gap-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-sm text-cyan-300">
         <Wifi className="h-4 w-4 mt-0.5 shrink-0 text-cyan-400" />
         <span>On-Net routing groups route traffic between known peers without traversing the PSTN — typically for direct inter-carrier interconnects and on-net call optimisation.</span>
-      </div>
-
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search on-net routing groups…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="pl-9 h-9"
-          data-testid="input-search-onnet"
-        />
       </div>
 
       {isLoading ? (
@@ -3166,51 +3300,69 @@ function OnNetTab() {
           <p className="font-medium">No on-net routing groups found</p>
           <p className="text-sm mt-1 opacity-70">Sync the routing cache to refresh data from Sippy.</p>
         </div>
-      ) : groups.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground text-sm">No groups match your search.</div>
+      ) : view === 'topology' ? (
+        <OnNetTopologyDiagram groups={onNetGroups} />
       ) : (
-        <div className="space-y-1.5">
-          {groups.map(rg => {
-            const isExpanded = expandedId === rg.i_routing_group;
-            return (
-              <div key={rg.i_routing_group} className="rounded-xl border border-cyan-500/20 bg-card/60 overflow-hidden" data-testid={`onnet-rg-${rg.i_routing_group}`}>
-                <button
-                  className="w-full flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
-                  onClick={() => setExpandedId(isExpanded ? null : rg.i_routing_group)}
-                  data-testid={`btn-expand-onnet-${rg.i_routing_group}`}
-                >
-                  <div className="h-9 w-9 rounded-lg bg-cyan-500/10 flex items-center justify-center shrink-0">
-                    <Wifi className="h-4 w-4 text-cyan-400" />
+        <>
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search on-net routing groups…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9 h-9"
+              data-testid="input-search-onnet"
+            />
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground text-sm">No groups match your search.</div>
+          ) : (
+            <div className="space-y-1.5">
+              {filtered.map(rg => {
+                const isExpanded = expandedId === rg.i_routing_group;
+                return (
+                  <div key={rg.i_routing_group} className="rounded-xl border border-cyan-500/20 bg-card/60 overflow-hidden" data-testid={`onnet-rg-${rg.i_routing_group}`}>
+                    <button
+                      className="w-full flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                      onClick={() => setExpandedId(isExpanded ? null : rg.i_routing_group)}
+                      data-testid={`btn-expand-onnet-${rg.i_routing_group}`}
+                    >
+                      <div className="h-9 w-9 rounded-lg bg-cyan-500/10 flex items-center justify-center shrink-0">
+                        <Wifi className="h-4 w-4 text-cyan-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold truncate">{rg.name}</span>
+                          <span className="text-xs text-muted-foreground font-mono">#{rg.i_routing_group}</span>
+                          <Badge variant="outline" className="h-4 text-[10px] border-cyan-500/40 text-cyan-400 px-1">On-Net</Badge>
+                        </div>
+                        <div className="flex items-center gap-3 mt-0.5">
+                          <span className={`text-xs font-medium ${policyColor(rg.policy)}`}>{policyLabel(rg.policy)}</span>
+                          <span className="text-xs text-muted-foreground">{rg.members_count} member{rg.members_count !== 1 ? 's' : ''}</span>
+                          {rg.media_relay && <span className="text-xs text-muted-foreground">{rg.media_relay}</span>}
+                        </div>
+                      </div>
+                      <ChevronRight className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200", isExpanded && "rotate-90")} />
+                    </button>
+                    {isExpanded && (
+                      <div className="border-t border-cyan-500/20 bg-muted/10 pb-1">
+                        <div className="px-4 py-2 flex items-center gap-2 border-b border-border/20">
+                          <Server className="h-3.5 w-3.5 text-muted-foreground/60" />
+                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">On-Net Members</span>
+                        </div>
+                        <div className="pt-2">
+                          <RgMembersPanel groupId={rg.i_routing_group} />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold truncate">{rg.name}</span>
-                      <span className="text-xs text-muted-foreground font-mono">#{rg.i_routing_group}</span>
-                      <Badge variant="outline" className="h-4 text-[10px] border-cyan-500/40 text-cyan-400 px-1">On-Net</Badge>
-                    </div>
-                    <div className="flex items-center gap-3 mt-0.5">
-                      <span className={`text-xs font-medium ${policyColor(rg.policy)}`}>{policyLabel(rg.policy)}</span>
-                      <span className="text-xs text-muted-foreground">{rg.members_count} member{rg.members_count !== 1 ? 's' : ''}</span>
-                      {rg.media_relay && <span className="text-xs text-muted-foreground">{rg.media_relay}</span>}
-                    </div>
-                  </div>
-                  <ChevronRight className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200", isExpanded && "rotate-90")} />
-                </button>
-                {isExpanded && (
-                  <div className="border-t border-cyan-500/20 bg-muted/10 pb-1">
-                    <div className="px-4 py-2 flex items-center gap-2 border-b border-border/20">
-                      <Server className="h-3.5 w-3.5 text-muted-foreground/60" />
-                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">On-Net Members</span>
-                    </div>
-                    <div className="pt-2">
-                      <RgMembersPanel groupId={rg.i_routing_group} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

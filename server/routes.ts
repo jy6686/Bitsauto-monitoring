@@ -3423,6 +3423,196 @@ export async function registerRoutes(
     }
   });
 
+  // ── Natural Language Query (NLQ) — CDR-cache pattern engine ─────────────
+  app.post('/api/nlq', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator','viewer','team_lead','super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const q = ((req.body?.q ?? '') as string).toLowerCase().trim();
+      if (!q) return res.status(400).json({ error: 'Query is required' });
+
+      // ── Time window ───────────────────────────────────────────────────────
+      const now = Date.now();
+      let windowMs = 24 * 3600 * 1000;
+      let windowLabel = 'the last 24 hours';
+      const hoursMatch = q.match(/last\s+(\d+)\s+hours?/);
+      const daysMatch  = q.match(/last\s+(\d+)\s+days?/);
+      if (hoursMatch) {
+        windowMs = parseInt(hoursMatch[1]) * 3600 * 1000;
+        windowLabel = `the last ${hoursMatch[1]} hour${parseInt(hoursMatch[1]) > 1 ? 's' : ''}`;
+      } else if (daysMatch) {
+        windowMs = parseInt(daysMatch[1]) * 86400 * 1000;
+        windowLabel = `the last ${daysMatch[1]} days`;
+      } else if (q.includes('today')) {
+        const sod = new Date(); sod.setUTCHours(0,0,0,0);
+        windowMs = now - sod.getTime(); windowLabel = 'today';
+      } else if (q.includes('yesterday')) {
+        windowMs = 48 * 3600 * 1000; windowLabel = 'yesterday';
+      } else if (q.includes('this week') || q.match(/\bweek\b/)) {
+        windowMs = 7 * 86400 * 1000; windowLabel = 'the last 7 days';
+      } else if (q.includes('this month') || q.match(/\bmonth\b/)) {
+        windowMs = 30 * 86400 * 1000; windowLabel = 'the last 30 days';
+      } else if (q.includes('last hour') || q.includes('past hour')) {
+        windowMs = 3600 * 1000; windowLabel = 'the last hour';
+      } else if (q.includes('2 hours') || q.includes('two hours')) {
+        windowMs = 2 * 3600 * 1000; windowLabel = 'the last 2 hours';
+      }
+      const cutoffMs = now - windowMs;
+
+      // ── Build CDR window from cache ───────────────────────────────────────
+      const allCdrs = [...cdrCache.values()].map(c => ({
+        ...c,
+        clientName: (c as any).clientName || accountNameCache.get(String((c as any).iAccount ?? '')) || ((c as any).iAccount ? `Acct.${(c as any).iAccount}` : 'Unknown'),
+      }));
+      const windowCdrs = allCdrs.filter(c => {
+        const ts = (c as any).startTime ? new Date((c as any).startTime).getTime() : (c as any).connectTime ? new Date((c as any).connectTime).getTime() : 0;
+        return ts >= cutoffMs;
+      });
+
+      // ── Helpers ───────────────────────────────────────────────────────────
+      const isAns   = (c: any) => (c.duration ?? 0) > 0 || String(c.result ?? '') === '0';
+      const calcASR = (t: number, a: number) => t > 0 ? Math.round(a / t * 1000) / 10 : 0;
+      const calcACD = (a: number, s: number) => a > 0 ? Math.round(s / a) : 0;
+      const fmtMin  = (s: number) => `${Math.floor(s / 60)}m ${s % 60}s`;
+
+      // ── Entity detection ──────────────────────────────────────────────────
+      const allCountries = [...new Set(windowCdrs.map((c: any) => c.country).filter(Boolean))] as string[];
+      const allVendors   = [...new Set(windowCdrs.map((c: any) => c.vendor).filter(Boolean))] as string[];
+      const allClients   = [...new Set(windowCdrs.map((c: any) => c.clientName).filter(Boolean))] as string[];
+      const mentionedCountry = allCountries.find(x => x && q.includes(x.toLowerCase()));
+      const mentionedVendor  = allVendors.find(x => x && q.includes(x.toLowerCase()));
+      const mentionedClient  = allClients.find(x => x && q.includes(x.toLowerCase()));
+
+      // ── Intent ────────────────────────────────────────────────────────────
+      const isFailed   = q.includes('fail') || q.includes('drop') || q.includes('unanswer');
+      const isTop      = q.includes('top') || q.includes('most') || q.includes('highest') || q.includes('worst') || q.includes('best');
+      const isTopDest  = isTop && (q.includes('dest') || q.includes('country') || q.includes('where') || q.includes('route') || q.includes('pakistan') || q.includes('india'));
+      const isTopVendor= (q.includes('carrier') || q.includes('vendor') || q.includes('provider')) && isTop;
+      const isTopClient= (q.includes('client') || q.includes('account') || q.includes('customer')) && (isTop || q.includes('who') || q.includes('which'));
+      const isASR      = q.includes('asr') || q.includes('success rate') || q.includes('answer seizure');
+      const isACD      = q.includes('acd') || q.includes('call duration') || q.includes('avg duration') || q.includes('average duration');
+      const isVolume   = q.includes('how many') || q.includes('count') || q.includes('total') || q.includes('volume');
+      const isFAS      = q.includes('fas') || q.includes('false answer') || q.includes('fraud');
+
+      let answer = '';
+      let headers: string[] = [];
+      let rows: Array<Record<string, string | number>> = [];
+
+      if (mentionedCountry) {
+        const cc = windowCdrs.filter((c: any) => c.country === mentionedCountry);
+        const ans = cc.filter(isAns);
+        const fail = cc.filter((c: any) => !isAns(c));
+        const totalSec = ans.reduce((s: number, c: any) => s + (c.duration ?? 0), 0);
+        const asr = calcASR(cc.length, ans.length);
+        if (isFailed) {
+          answer = `Failed calls to ${mentionedCountry} in ${windowLabel}:\n• Failed: ${fail.length} of ${cc.length} attempted\n• ASR: ${asr}% (${(100 - asr).toFixed(1)}% fail rate)\n• ACD: ${calcACD(ans.length, totalSec)}s`;
+          if (fail.length > 0) {
+            headers = ['Time', 'Caller', 'Callee'];
+            rows = fail.slice(0, 10).map((c: any) => ({ Time: c.startTime ? new Date(c.startTime).toLocaleString() : '-', Caller: c.caller ?? '-', Callee: c.callee ?? '-' }));
+          }
+        } else {
+          answer = `Calls to ${mentionedCountry} in ${windowLabel}:\n• Total: ${cc.length} · Answered: ${ans.length} · Failed: ${fail.length}\n• ASR: ${asr}% · ACD: ${calcACD(ans.length, totalSec)}s\n• Billed: ${fmtMin(totalSec)}`;
+        }
+      } else if (mentionedVendor) {
+        const vc = windowCdrs.filter((c: any) => c.vendor === mentionedVendor);
+        const ans = vc.filter(isAns);
+        const totalSec = ans.reduce((s: number, c: any) => s + (c.duration ?? 0), 0);
+        answer = `Carrier "${mentionedVendor}" in ${windowLabel}:\n• Total: ${vc.length} · Answered: ${ans.length} · Failed: ${vc.length - ans.length}\n• ASR: ${calcASR(vc.length, ans.length)}% · ACD: ${calcACD(ans.length, totalSec)}s\n• Billed: ${fmtMin(totalSec)}`;
+      } else if (mentionedClient) {
+        const cc2 = windowCdrs.filter((c: any) => c.clientName === mentionedClient);
+        const ans = cc2.filter(isAns);
+        const totalSec = ans.reduce((s: number, c: any) => s + (c.duration ?? 0), 0);
+        answer = `Account "${mentionedClient}" in ${windowLabel}:\n• Total: ${cc2.length} · Answered: ${ans.length} · Failed: ${cc2.length - ans.length}\n• ASR: ${calcASR(cc2.length, ans.length)}% · ACD: ${calcACD(ans.length, totalSec)}s\n• Billed: ${fmtMin(totalSec)}`;
+      } else if (isTopDest || (isTop && !isTopVendor && !isTopClient)) {
+        type DS = { total: number; answered: number; totalSec: number };
+        const dm: Record<string, DS> = {};
+        for (const c of windowCdrs) {
+          const dest = (c as any).country || ((c as any).callee ? (c as any).callee.slice(0, 3) : 'Unknown');
+          if (!dm[dest]) dm[dest] = { total: 0, answered: 0, totalSec: 0 };
+          dm[dest].total++;
+          if (isAns(c)) { dm[dest].answered++; dm[dest].totalSec += (c as any).duration ?? 0; }
+        }
+        const sorted = Object.entries(dm).sort((a, b) => b[1].total - a[1].total).slice(0, 10);
+        answer = `Top destinations in ${windowLabel} (${windowCdrs.length} total calls):`;
+        headers = ['Destination', 'Calls', 'Answered', 'ASR', 'ACD'];
+        rows = sorted.map(([d, s]) => ({ Destination: d, Calls: s.total, Answered: s.answered, ASR: `${calcASR(s.total, s.answered)}%`, ACD: `${calcACD(s.answered, s.totalSec)}s` }));
+      } else if (isTopVendor || isASR) {
+        type VS = { total: number; answered: number; totalSec: number };
+        const vm: Record<string, VS> = {};
+        for (const c of windowCdrs) {
+          const v = (c as any).vendor || 'Unknown';
+          if (!vm[v]) vm[v] = { total: 0, answered: 0, totalSec: 0 };
+          vm[v].total++;
+          if (isAns(c)) { vm[v].answered++; vm[v].totalSec += (c as any).duration ?? 0; }
+        }
+        const order = isFailed || q.includes('worst') ? 'asc' : 'desc';
+        const sorted = Object.entries(vm)
+          .filter(([, s]) => s.total >= 2)
+          .map(([v, s]) => ({ v, ...s, asr: calcASR(s.total, s.answered) }))
+          .sort((a, b) => order === 'asc' ? a.asr - b.asr : b.asr - a.asr)
+          .slice(0, 10);
+        const label = order === 'asc' ? 'worst ASR' : 'best ASR';
+        answer = `Carriers by ${label} in ${windowLabel}:`;
+        headers = ['Carrier', 'Calls', 'Answered', 'ASR', 'ACD'];
+        rows = sorted.map(r => ({ Carrier: r.v, Calls: r.total, Answered: r.answered, ASR: `${r.asr}%`, ACD: `${calcACD(r.answered, r.totalSec)}s` }));
+      } else if (isTopClient) {
+        type CS = { total: number; answered: number; totalSec: number };
+        const cm: Record<string, CS> = {};
+        for (const c of windowCdrs) {
+          const cl = (c as any).clientName || 'Unknown';
+          if (!cm[cl]) cm[cl] = { total: 0, answered: 0, totalSec: 0 };
+          cm[cl].total++;
+          if (isAns(c)) { cm[cl].answered++; cm[cl].totalSec += (c as any).duration ?? 0; }
+        }
+        const sorted = Object.entries(cm).sort((a, b) => b[1].total - a[1].total).slice(0, 10);
+        answer = `Top accounts in ${windowLabel}:`;
+        headers = ['Account', 'Calls', 'Answered', 'ASR', 'Billed (min)'];
+        rows = sorted.map(([cl, s]) => ({ Account: cl, Calls: s.total, Answered: s.answered, ASR: `${calcASR(s.total, s.answered)}%`, 'Billed (min)': Math.round(s.totalSec / 60) }));
+      } else if (isACD) {
+        type VS2 = { total: number; answered: number; totalSec: number };
+        const vm2: Record<string, VS2> = {};
+        for (const c of windowCdrs) {
+          const v = (c as any).vendor || (c as any).clientName || 'Unknown';
+          if (!vm2[v]) vm2[v] = { total: 0, answered: 0, totalSec: 0 };
+          vm2[v].total++;
+          if (isAns(c)) { vm2[v].answered++; vm2[v].totalSec += (c as any).duration ?? 0; }
+        }
+        const ans2 = windowCdrs.filter(isAns);
+        const totalSec2 = ans2.reduce((s: number, c: any) => s + (c.duration ?? 0), 0);
+        answer = `Call duration analysis in ${windowLabel}:\n• Overall ACD: ${calcACD(ans2.length, totalSec2)}s\n• Total billed: ${fmtMin(totalSec2)}\n• Answered calls: ${ans2.length}`;
+      } else if (isFAS) {
+        const fas = windowCdrs.filter((c: any) => (c as any).fasDetected || (c as any).fas);
+        const ans3 = windowCdrs.filter(isAns);
+        answer = `FAS / fraud detection in ${windowLabel}:\n• Calls flagged as FAS: ${fas.length}\n• Total answered: ${ans3.length}\n• FAS rate: ${ans3.length > 0 ? ((fas.length / ans3.length) * 100).toFixed(2) : 0}%`;
+        if (fas.length > 0) {
+          const dd: Record<string, number> = {};
+          for (const c of fas) { const d = (c as any).country || (c as any).callee?.slice(0,3) || 'Unknown'; dd[d] = (dd[d]||0)+1; }
+          headers = ['Destination', 'FAS Flags'];
+          rows = Object.entries(dd).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([d,n])=>({ Destination: d, 'FAS Flags': n }));
+        }
+      } else if (isFailed || isVolume) {
+        const ans4 = windowCdrs.filter(isAns);
+        const fail4 = windowCdrs.filter((c: any) => !isAns(c));
+        const totalSec4 = ans4.reduce((s: number, c: any) => s + (c.duration ?? 0), 0);
+        const asr4 = calcASR(windowCdrs.length, ans4.length);
+        if (isFailed && !isVolume) {
+          answer = `Failed calls in ${windowLabel}:\n• Failed: ${fail4.length} of ${windowCdrs.length} attempts\n• ASR: ${asr4}% (${(100-asr4).toFixed(1)}% fail rate)\n• Unique destinations tried: ${new Set(fail4.map((c: any) => c.callee?.slice(0,3))).size}`;
+        } else {
+          answer = `Call volume in ${windowLabel}:\n• Total: ${windowCdrs.length} · Answered: ${ans4.length} · Failed: ${fail4.length}\n• ASR: ${asr4}% · ACD: ${calcACD(ans4.length, totalSec4)}s\n• Billed: ${fmtMin(totalSec4)}`;
+        }
+      } else {
+        // Default: network summary
+        const ans5 = windowCdrs.filter(isAns);
+        const fail5 = windowCdrs.filter((c: any) => !isAns(c));
+        const totalSec5 = ans5.reduce((s: number, c: any) => s + (c.duration ?? 0), 0);
+        const asr5 = calcASR(windowCdrs.length, ans5.length);
+        answer = `Network summary for ${windowLabel}:\n• Total calls: ${windowCdrs.length} · Answered: ${ans5.length} · Failed: ${fail5.length}\n• ASR: ${asr5}% · ACD: ${calcACD(ans5.length, totalSec5)}s\n• Billed: ${fmtMin(totalSec5)}\n• Active accounts: ${new Set(windowCdrs.map((c: any)=>c.clientName).filter(Boolean)).size}\n• Active carriers: ${new Set(windowCdrs.map((c: any)=>c.vendor).filter(Boolean)).size}\n• Destinations reached: ${new Set(windowCdrs.map((c: any)=>c.country||(c as any).callee?.slice(0,3))).size}\n• Cache: ${cdrCache.size} records (72h rolling)`;
+      }
+
+      res.json({ query: q, windowLabel, cdrsAnalyzed: windowCdrs.length, answer, headers, rows, updatedAt: cdrCacheUpdatedAt?.toISOString() ?? null });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── CDR Trace: map Sippy disconnect reason → SIP response code ───────────
   function sippy_resultToSipCode(result: string): { code: number; phrase: string } {
     const r = (result || '').toUpperCase();

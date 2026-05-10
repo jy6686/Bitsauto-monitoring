@@ -267,52 +267,43 @@ export default function AiOpsPage() {
     onError: (e: any) => toast({ title: 'Engine run failed', description: e.message, variant: 'destructive' }),
   });
 
-  // ── NLQ (stub — future AI pipeline) ───────────────────────────────────────
+  // ── NLQ — backed by /api/nlq CDR-cache pattern engine ────────────────────
+  interface NlqResult {
+    query: string;
+    windowLabel: string;
+    cdrsAnalyzed: number;
+    answer: string;
+    headers: string[];
+    rows: Array<Record<string, string | number>>;
+    updatedAt: string | null;
+  }
+  const [nlqResult, setNlqResult] = useState<NlqResult | null>(null);
+
   async function handleQuery(e: React.FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
     setQuerying(true);
     setQueryResult(null);
-
-    // Build a data-aware response from live anomalies
-    await new Promise(r => setTimeout(r, 600));
-    const lowerQ = query.toLowerCase();
-    const mentionedVendor = rawAnomalies.find(a => a.vendor && lowerQ.includes(a.vendor.toLowerCase()));
-
-    if (mentionedVendor) {
-      setQueryResult(
-        `Query: "${query}"\n\n` +
-        `Live anomaly data for ${mentionedVendor.vendor}:\n` +
-        `• ${mentionedVendor.title}\n` +
-        `• Current ${METRIC_LABEL[mentionedVendor.metric] ?? mentionedVendor.metric}: ${mentionedVendor.currentValue.toFixed(2)} ` +
-        `(baseline: ${mentionedVendor.baselineMean.toFixed(2)}, deviation: ${mentionedVendor.deviationSigma.toFixed(1)}σ)\n` +
-        `• ${mentionedVendor.recommendation}`
-      );
-    } else if (lowerQ.includes('worst') || lowerQ.includes('asr') || lowerQ.includes('drop')) {
-      const asrEvents = rawAnomalies.filter(a => a.metric === 'asr' && !a.resolved);
-      if (asrEvents.length > 0) {
-        const worst = asrEvents.sort((a, b) => a.deviationSigma - b.deviationSigma)[0];
-        setQueryResult(
-          `Query: "${query}"\n\n` +
-          `Worst ASR anomaly in the last 48 hours:\n` +
-          `• ${worst.vendor}: ${worst.currentValue.toFixed(1)}% ASR (baseline: ${worst.baselineMean.toFixed(1)}%, deviation: ${worst.deviationSigma.toFixed(1)}σ)\n` +
-          `• Detected: ${new Date(worst.detectedAt).toLocaleString()}\n` +
-          `• ${worst.recommendation}`
-        );
+    setNlqResult(null);
+    try {
+      const res = await fetch('/api/nlq', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q: query }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        setQueryResult(`Error: ${err.error ?? 'Unknown error'}`);
       } else {
-        setQueryResult(`Query: "${query}"\n\nNo ASR anomalies detected in the last 48 hours. All vendors are within normal baseline ranges.`);
+        const data: NlqResult = await res.json();
+        setNlqResult(data);
+        setQueryResult(data.answer);
       }
-    } else {
-      setQueryResult(
-        `Query: "${query}"\n\nAI analysis running against your Sippy CDR data…\n\n` +
-        `Live summary:\n` +
-        `• ${activeCount} active anomal${activeCount === 1 ? 'y' : 'ies'} detected across all vendors\n` +
-        `• ${rawAnomalies.filter(a => a.resolved).length} resolved in the last 48 hours\n` +
-        `• Statistical baselines computed from rolling CDR cache\n\n` +
-        `Natural language SQL translation against the full CDR warehouse requires connecting the AI pipeline (future feature).`
-      );
+    } catch (err: any) {
+      setQueryResult(`Error: ${err.message}`);
+    } finally {
+      setQuerying(false);
     }
-    setQuerying(false);
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -862,9 +853,43 @@ export default function AiOpsPage() {
                 </Button>
               </form>
 
-              {queryResult && (
-                <div className="rounded-lg border border-border bg-muted/20 p-3">
-                  <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed">{queryResult}</pre>
+              {(queryResult || nlqResult) && (
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-border bg-muted/20 p-3">
+                    <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed">{queryResult}</pre>
+                    {nlqResult && (
+                      <div className="mt-2 pt-2 border-t border-border/40 flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] text-muted-foreground/50 font-mono">{nlqResult.cdrsAnalyzed} CDRs in {nlqResult.windowLabel}</span>
+                        {nlqResult.updatedAt && (
+                          <span className="text-[10px] text-muted-foreground/40">· cache {new Date(nlqResult.updatedAt).toLocaleTimeString()}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {nlqResult && nlqResult.headers.length > 0 && nlqResult.rows.length > 0 && (
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[11px]">
+                          <thead>
+                            <tr className="border-b border-border/60 bg-muted/30">
+                              {nlqResult.headers.map(h => (
+                                <th key={h} className="text-left px-2.5 py-1.5 font-semibold text-muted-foreground uppercase tracking-wider text-[9px]">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {nlqResult.rows.map((row, i) => (
+                              <tr key={i} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
+                                {nlqResult.headers.map(h => (
+                                  <td key={h} className="px-2.5 py-1.5 text-muted-foreground font-mono">{row[h]}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
