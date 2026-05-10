@@ -400,6 +400,12 @@ export function FixButton() {
         allowTaint: true,
         logging: false,
         backgroundColor: "#000",
+        x: window.scrollX,
+        y: window.scrollY,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        windowWidth: document.documentElement.scrollWidth,
+        windowHeight: document.documentElement.scrollHeight,
         ignoreElements: (el) => el.getAttribute("data-testid") === "dialog-fix-modal",
       });
       screenshotRef.current = canvas.toDataURL("image/jpeg", 0.55);
