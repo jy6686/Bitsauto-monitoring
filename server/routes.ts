@@ -3220,7 +3220,14 @@ export async function registerRoutes(
       const cutoff = Date.now() - CDR_CACHE_MAX_HOURS * 3600 * 1000;
       let added = 0;
       for (const c of batch) {
-        const key = c.callId || c.iCdr || `${c.startTime}:${c.caller}:${c.callee}`;
+        // Portal-scraped CDRs get sequential callIds (portal-cdr-0, portal-cdr-1, …) that
+        // reset to 0 on every refresh.  Using them as cache keys blocks new CDRs from entering
+        // the cache (key already exists) and causes silent deduplication failure.
+        // Fix: for portal/admin-scraped CDRs, derive the key from call data instead.
+        const isPortalScraped = typeof c.callId === 'string' &&
+          (c.callId.startsWith('portal-cdr-') || c.callId.startsWith('admin-cdr-'));
+        const key = (!isPortalScraped && (c.callId || c.iCdr)) ||
+          `${c.startTime}:${c.caller}:${c.callee}`;
         if (!key) continue;
         if (!cdrCache.has(key)) { cdrCache.set(key, c); added++; }
       }
@@ -3557,6 +3564,30 @@ export async function registerRoutes(
             });
             if (adminScraped.length > 0) cdrs = adminScraped;
           } catch { /* ignore */ }
+        }
+
+        // Final fallback: CDR cache (background 5-min rolling 72h window).
+        // Used when both XML-RPC and portal scrapes return 0 for this request's date range.
+        if (cdrs.length === 0 && cdrCache.size > 0) {
+          const startMs = startDate ? new Date(startDate).getTime() || 0 : 0;
+          const endMs   = endDate   ? new Date(endDate).getTime()   || Date.now() : Date.now();
+          const cliFilter = req.query.cli as string | undefined;
+          const cldFilter = req.query.cld as string | undefined;
+          let cacheHits = [...cdrCache.values()].filter(c => {
+            const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+            if (startMs && ts < startMs) return false;
+            if (ts > endMs) return false;
+            if (cliFilter && !c.caller?.includes(cliFilter)) return false;
+            if (cldFilter && !c.callee?.includes(cldFilter)) return false;
+            return true;
+          });
+          cacheHits.sort((a, b) => new Date(b.startTime || 0).getTime() - new Date(a.startTime || 0).getTime());
+          if (pageOffset) cacheHits = cacheHits.slice(pageOffset);
+          cacheHits = cacheHits.slice(0, limit);
+          if (cacheHits.length > 0) {
+            cdrs = cacheHits;
+            console.log(`[/api/sippy/cdr] cache fallback: ${cdrs.length} CDRs (cache size=${cdrCache.size})`);
+          }
         }
       }
       res.json({ cdrs });

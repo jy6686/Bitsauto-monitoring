@@ -2931,11 +2931,24 @@ export async function scrapePortalCDRs(
       const billedSec   = parseMMSS(billedRaw);
       const cost        = parseFloat(amountRaw) || 0;
 
-      // Parse setup time: "MM/DD/YYYY HH:MM:SS" → ISO
+      // Parse setup time — customer portal uses "DD Mon YYYY HH:MM:SS" (same as admin portal).
+      // Fall back to "MM/DD/YYYY HH:MM:SS" for Sippy instances that use the US date format.
+      const CUST_MONTHS: Record<string, string> = {
+        Jan:'01', Feb:'02', Mar:'03', Apr:'04', May:'05', Jun:'06',
+        Jul:'07', Aug:'08', Sep:'09', Oct:'10', Nov:'11', Dec:'12',
+      };
       let connectTime: string | undefined;
-      const dtMatch = setupTime.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
-      if (dtMatch) {
-        connectTime = `${dtMatch[3]}-${dtMatch[1]}-${dtMatch[2]}T${dtMatch[4]}Z`;
+      const dtMonMatch = setupTime.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+      if (dtMonMatch) {
+        const [, day, mon, year, time] = dtMonMatch;
+        const mo = CUST_MONTHS[mon] || '01';
+        connectTime = `${year}-${mo}-${day.padStart(2,'0')}T${time}Z`;
+      } else {
+        // Fallback: "MM/DD/YYYY HH:MM:SS"
+        const dtSlashMatch = setupTime.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+        if (dtSlashMatch) {
+          connectTime = `${dtSlashMatch[3]}-${dtSlashMatch[1]}-${dtSlashMatch[2]}T${dtSlashMatch[4]}Z`;
+        }
       }
 
       cdrs.push({
@@ -2945,7 +2958,7 @@ export async function scrapePortalCDRs(
         country:       country || undefined,
         description,
         connectTime,
-        startTime:     connectTime || setupTime || new Date().toISOString(),
+        startTime:     connectTime || new Date().toISOString(),
         duration:      billedSec,      // SippyCDR.duration = billed seconds
         totalDuration: durationSec,    // actual duration
         billedDuration: billedSec,

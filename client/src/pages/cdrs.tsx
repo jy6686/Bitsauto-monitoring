@@ -46,6 +46,17 @@ function parseSippyRawDate(raw: string): Date | null {
     d = new Date(`${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`);
     if (!isNaN(d.getTime())) return d;
   }
+  // Sippy portal format: "10 May 2026 00:39:29" (DD Mon YYYY HH:MM:SS)
+  const ddMon = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}:\d{2}:\d{2})/.exec(raw.trim());
+  if (ddMon) {
+    const monMap: Record<string, number> = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+    const mo = monMap[ddMon[2]];
+    if (mo !== undefined) {
+      const [hh, mm, ss] = ddMon[4].split(':').map(Number);
+      d = new Date(Date.UTC(+ddMon[3], mo, +ddMon[1], hh, mm, ss));
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
   // Sippy legacy GMT: "19:22:56.000 GMT Fri Apr 10 2026"
   const legacy = /^(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?\s+GMT\s+\w+\s+(\w+)\s+(\d+)\s+(\d{4})/.exec(raw.trim());
   if (legacy) {
