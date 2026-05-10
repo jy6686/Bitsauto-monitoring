@@ -180,6 +180,7 @@ const SIDEBAR_GROUPS: NavGroup[] = [
     roles: ['admin','management'],
     items: [
       { href: "/fraud",                label: "Fraud / FAS",      icon: ShieldAlert, roles: ['admin','management'] },
+      { href: "/stir-shaken",          label: "STIR/SHAKEN",      icon: Lock,        roles: ['admin','management'] },
       { href: "/vendor-sla-scorecard", label: "SLA Management",   icon: ShieldCheck, roles: ['admin','management'] },
       { href: "/firewall",             label: "Firewall Manager", icon: Shield,      roles: ['admin','management'] },
       { href: "/compliance",           label: "Compliance",       icon: FileCheck2,  roles: ['admin','management'] },

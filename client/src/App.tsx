@@ -100,6 +100,7 @@ import RtpAnalyticsPage from "@/pages/rtp-analytics";
 import ReplayEnginePage from "@/pages/replay";
 import NetworkTopologyPage from "@/pages/network-topology";
 import NocCommandPage from "@/pages/noc-command";
+import StirShakenPage from "@/pages/stir-shaken";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -390,6 +391,9 @@ function Router() {
       </Route>
       <Route path="/noc-command">
         {() => <ProtectedRoute component={NocCommandPage} requiredRoles={['admin','management']} mgmtFeature="noc_command" />}
+      </Route>
+      <Route path="/stir-shaken">
+        {() => <ProtectedRoute component={StirShakenPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route component={NotFound} />
     </Switch>
