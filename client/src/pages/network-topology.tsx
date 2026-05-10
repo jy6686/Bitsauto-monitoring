@@ -574,12 +574,13 @@ export default function NetworkTopologyPage() {
   });
 
   // FAS events — last 200 for incident feed + heat map
-  const { data: fasEvents = [] } = useQuery<FasEvent[]>({
+  const { data: fasEventsRaw } = useQuery<{ events: FasEvent[] }>({
     queryKey: ["/api/fas-events"],
-    queryFn: () => fetch("/api/fas-events?limit=200").then(r => r.json()).catch(() => []),
+    queryFn: () => fetch("/api/fas-events?limit=200").then(r => r.json()).catch(() => ({ events: [] })),
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
+  const fasEvents: FasEvent[] = Array.isArray(fasEventsRaw) ? fasEventsRaw : (fasEventsRaw?.events ?? []);
 
   // Live calls for traffic intensity
   const { data: liveCallsData } = useQuery<{ calls: LiveCall[] }>({
