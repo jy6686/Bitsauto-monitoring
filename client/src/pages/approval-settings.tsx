@@ -6,7 +6,8 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Shield, CheckCircle2, XCircle, AlertTriangle, Loader2,
   Settings2, Route, Server, Network, Lock, GitBranch,
-  ChevronDown, Info, Save,
+  ChevronDown, Info, Save, Phone, CreditCard, ShieldX,
+  UserCog, Ban,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ const FEATURES: {
   label: string;
   icon: React.ElementType;
   description: string;
-  category: "routing" | "network" | "auth" | "system";
+  category: "routing" | "network" | "auth" | "system" | "security";
 }[] = [
   {
     key: "routing_group",
@@ -72,6 +73,34 @@ const FEATURES: {
     description: "Manage API credentials, session tokens, and authentication settings",
     category: "auth",
   },
+  {
+    key: "sippy_account",
+    label: "Sippy Account",
+    icon: UserCog,
+    description: "Create, edit or delete customer accounts directly on the Sippy softswitch",
+    category: "system",
+  },
+  {
+    key: "rate_card",
+    label: "Rate Card",
+    icon: CreditCard,
+    description: "Add, modify or remove rate entries and rate card assignments for accounts",
+    category: "system",
+  },
+  {
+    key: "blacklist_rule",
+    label: "Blacklist / Auto-block",
+    icon: Ban,
+    description: "Add or remove entries from the IP / CLI blacklist and auto-blacklist engine",
+    category: "security",
+  },
+  {
+    key: "did_assignment",
+    label: "DID Assignment",
+    icon: Phone,
+    description: "Assign, reassign or release DID numbers to and from customer accounts",
+    category: "network",
+  },
 ];
 
 const DEFAULT_CONFIG: ApprovalConfig = {
@@ -82,19 +111,25 @@ const DEFAULT_CONFIG: ApprovalConfig = {
   vendor_connection:    { create: false, edit: false, delete: false },
   ip_management:        { create: true,  edit: true,  delete: true  },
   authentication:       { create: true,  edit: true,  delete: true  },
+  sippy_account:        { create: false, edit: true,  delete: true  },
+  rate_card:            { create: false, edit: true,  delete: true  },
+  blacklist_rule:       { create: true,  edit: true,  delete: true  },
+  did_assignment:       { create: false, edit: false, delete: true  },
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-  routing: "Routing",
-  network: "Network",
-  auth: "Access & Auth",
-  system: "System",
+  routing:  "Routing",
+  network:  "Network",
+  auth:     "Access & Auth",
+  system:   "Account & Billing",
+  security: "Security & Fraud",
 };
 const CATEGORY_COLORS: Record<string, string> = {
-  routing: "text-violet-400 bg-violet-500/10 border-violet-500/20",
-  network: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
-  auth: "text-amber-400 bg-amber-500/10 border-amber-500/20",
-  system: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  routing:  "text-violet-400 bg-violet-500/10 border-violet-500/20",
+  network:  "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+  auth:     "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  system:   "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  security: "text-rose-400 bg-rose-500/10 border-rose-500/20",
 };
 
 const ACTION_LABEL: Record<ActionKey, string> = { create: "Create", edit: "Edit", delete: "Delete" };
@@ -171,6 +206,7 @@ export default function ApprovalSettingsPage() {
     return on > 0 && on < total;
   };
 
+  const totalActions = FEATURES.length * 3;
   const totalEnabled = Object.values(cfg).reduce(
     (sum, f) => sum + Object.values(f).filter(Boolean).length,
     0,
@@ -226,9 +262,9 @@ export default function ApprovalSettingsPage() {
       {/* Stats strip */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "Approval Required",   value: totalEnabled,          color: "text-amber-400", icon: AlertTriangle  },
-          { label: "Direct (No Approval)", value: 21 - totalEnabled,    color: "text-emerald-400", icon: CheckCircle2  },
-          { label: "Total Actions",        value: 21,                   color: "text-violet-400", icon: Settings2      },
+          { label: "Approval Required",    value: totalEnabled,               color: "text-amber-400",  icon: AlertTriangle  },
+          { label: "Direct (No Approval)", value: totalActions - totalEnabled, color: "text-emerald-400", icon: CheckCircle2  },
+          { label: "Total Actions",         value: totalActions,               color: "text-violet-400", icon: Settings2      },
         ].map(({ label, value, color, icon: Icon }) => (
           <div key={label} className="bg-card border border-border/50 rounded-xl p-4 flex items-center gap-3">
             <Icon className={`w-5 h-5 ${color} shrink-0`} />
@@ -261,7 +297,7 @@ export default function ApprovalSettingsPage() {
           </div>
 
           {/* Category groupings */}
-          {(["routing", "network", "auth"] as const).map(cat => {
+          {(["routing", "network", "auth", "system", "security"] as const).map(cat => {
             const catFeatures = FEATURES.filter(f => f.category === cat);
             if (!catFeatures.length) return null;
             return (

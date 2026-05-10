@@ -774,6 +774,7 @@ const PERMISSIONS: PermEntry[] = [
   { label: 'Alerts',                    admin: 'full', mgmt: 'checkbox',  viewer: 'configurable', featureKey: 'alerts'             },
   { label: 'Server Monitoring',         admin: 'full', mgmt: 'checkbox',  viewer: 'configurable', featureKey: 'server_monitoring'  },
   { label: 'DID Management',            admin: 'full', mgmt: 'checkbox',  viewer: 'configurable', featureKey: 'did_management'     },
+  { label: 'Call Recordings',           admin: 'full', mgmt: 'full',      viewer: 'none',         note: 'Always accessible to Management — configure Recording Server URL in Settings → Monitoring' },
   { label: 'Test Call / Click-to-Call', admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'test_call'          },
   { label: 'Traffic Map',               admin: 'full', mgmt: 'checkbox',  viewer: 'configurable', featureKey: 'traffic_map'        },
   { label: 'Multi-Switch View',         admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'multi_switch'       },
