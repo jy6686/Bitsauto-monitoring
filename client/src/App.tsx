@@ -97,7 +97,7 @@ import CompliancePage from "@/pages/compliance";
 import SmsMonitorPage from "@/pages/sms-monitor";
 import AiOpsPage from "@/pages/ai-ops";
 import RtpAnalyticsPage from "@/pages/rtp-analytics";
-import ReplayEnginePage from "@/pages/replay-engine";
+import ReplayEnginePage from "@/pages/replay";
 import NetworkTopologyPage from "@/pages/network-topology";
 import NocCommandPage from "@/pages/noc-command";
 
@@ -350,46 +350,46 @@ function Router() {
         {() => <ProtectedRoute component={ApprovalSettingsPage} requiredRoles={['admin', 'super_admin']} />}
       </Route>
       <Route path="/company-profile">
-        {() => <ProtectedRoute component={CompanyProfilePage} requiredRoles={['admin', 'management']} mgmtFeature="clients" />}
+        {() => <ProtectedRoute component={CompanyProfilePage} requiredRoles={['admin', 'management']} mgmtFeature="company_profile" />}
       </Route>
       <Route path="/sip-trace">
-        {() => <ProtectedRoute component={SipTracePage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={SipTracePage} requiredRoles={['admin','management']} mgmtFeature="sip_trace" />}
       </Route>
       <Route path="/routing-intelligence">
-        {() => <ProtectedRoute component={RoutingIntelligencePage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={RoutingIntelligencePage} requiredRoles={['admin','management']} mgmtFeature="routing_intelligence" />}
       </Route>
       <Route path="/number-intelligence">
-        {() => <ProtectedRoute component={NumberIntelligencePage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={NumberIntelligencePage} requiredRoles={['admin','management']} mgmtFeature="number_intelligence" />}
       </Route>
       <Route path="/sbc-monitor">
-        {() => <ProtectedRoute component={SbcMonitorPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={SbcMonitorPage} requiredRoles={['admin','management']} mgmtFeature="sbc_monitor" />}
       </Route>
       <Route path="/client-portal">
-        {() => <ProtectedRoute component={ClientPortalPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={ClientPortalPage} requiredRoles={['admin','management']} mgmtFeature="client_portal" />}
       </Route>
       <Route path="/reseller">
-        {() => <ProtectedRoute component={ResellerPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={ResellerPage} requiredRoles={['admin','management']} mgmtFeature="reseller" />}
       </Route>
       <Route path="/compliance">
-        {() => <ProtectedRoute component={CompliancePage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={CompliancePage} requiredRoles={['admin','management']} mgmtFeature="compliance" />}
       </Route>
       <Route path="/sms-monitor">
         {() => <ProtectedRoute component={SmsMonitorPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/ai-ops">
-        {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management']} mgmtFeature="ai_ops" />}
       </Route>
       <Route path="/rtp-analytics">
-        {() => <ProtectedRoute component={RtpAnalyticsPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={RtpAnalyticsPage} requiredRoles={['admin','management']} mgmtFeature="rtp_analytics" />}
       </Route>
       <Route path="/replay">
-        {() => <ProtectedRoute component={ReplayEnginePage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={ReplayEnginePage} requiredRoles={['admin','management']} mgmtFeature="replay" />}
       </Route>
       <Route path="/network-topology">
-        {() => <ProtectedRoute component={NetworkTopologyPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={NetworkTopologyPage} requiredRoles={['admin','management']} mgmtFeature="network_topology" />}
       </Route>
       <Route path="/noc-command">
-        {() => <ProtectedRoute component={NocCommandPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={NocCommandPage} requiredRoles={['admin','management']} mgmtFeature="noc_command" />}
       </Route>
       <Route component={NotFound} />
     </Switch>

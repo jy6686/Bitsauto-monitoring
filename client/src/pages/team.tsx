@@ -11,7 +11,9 @@ import {
   Mail, Plus, Trash2, Edit2, X, TrendingUp, TrendingDown,
   UserPlus, PhoneCall, LinkIcon, Unlink, ShieldAlert, Check, Server, FileText,
   PieChart, CreditCard, GitBranch, Award, Zap, Layers, Settings2,
-  ToggleRight, Building2,
+  ToggleRight, Building2, Network, Radio, ScanSearch, Brain,
+  Monitor, Bot, Rewind, Globe, MessageSquare, FileCheck2,
+  ContactRound, Package, Cpu,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useState, useMemo } from "react";
@@ -778,14 +780,15 @@ const PERMISSIONS: PermEntry[] = [
   { label: 'Test Call Campaigns',       admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'test_campaigns'     },
 
   { section: 'Routing' },
-  { label: 'Approval Queue',            admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'approval_queue'     },
-  { label: 'LCR Analyser',              admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'lcr_analyser'       },
+  { label: 'Approval Queue',            admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'approval_queue'      },
+  { label: 'LCR Analyser',              admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'lcr_analyser'        },
   { label: 'Call Flow Simulator',       admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'call_flow_simulator' },
-  { label: 'Routing Manager',           admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'routing_manager',   note: 'Covers Routing Groups, Destination Sets, QBR, Connection Map, On-Net Viewer & Policy Simulator' },
-  { label: 'Routing Audit Trail',       admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'routing_audit'      },
-  { label: 'Prefix Coverage Checker',   admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'tools'              },
-  { label: 'Route Tester',              admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'tools'              },
-  { label: 'Translation Tester',        admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'tools'              },
+  { label: 'Routing Manager',           admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'routing_manager',    note: 'Covers Routing Groups, Destination Sets, QBR, Connection Map, On-Net Viewer & Policy Simulator' },
+  { label: 'Routing Audit Trail',       admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'routing_audit'       },
+  { label: 'Routing Intelligence',      admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'routing_intelligence'},
+  { label: 'Prefix Coverage Checker',   admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'tools'               },
+  { label: 'Route Tester',              admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'tools'               },
+  { label: 'Translation Tester',        admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'tools'               },
 
   { section: 'Analytics & Reports' },
   { label: 'Graphs',                    admin: 'full', mgmt: 'checkbox',  viewer: 'configurable', featureKey: 'graphs'             },
@@ -806,12 +809,30 @@ const PERMISSIONS: PermEntry[] = [
   { label: 'Vendor SLA Scorecard',      admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'vendor_sla'         },
   { label: 'SLA Breach Log',            admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'sla_breaches'       },
   { label: 'Firewall Manager',          admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'firewall'           },
+  { label: 'SBC Monitor',               admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'sbc_monitor'        },
+  { label: 'Compliance',                admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'compliance'         },
+
+  { section: 'Intelligence' },
+  { label: 'Carrier Scoring',           admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'carrier_scoring'    },
+  { label: 'SIP Trace Viewer',          admin: 'full', mgmt: 'checkbox',  viewer: 'configurable', featureKey: 'sip_trace'          },
+  { label: 'RTP Analytics',             admin: 'full', mgmt: 'checkbox',  viewer: 'configurable', featureKey: 'rtp_analytics'      },
+  { label: 'Number Intelligence',       admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'number_intelligence'},
+  { label: 'Network Topology',          admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'network_topology'   },
+  { label: 'Replay Engine',             admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'replay'             },
+
+  { section: 'AI & Operations' },
+  { label: 'AI Ops Center',             admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'ai_ops'             },
+  { label: 'NOC Command View',          admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'noc_command'        },
+  { label: 'Team Chat',                 admin: 'full', mgmt: 'checkbox',  viewer: 'full',         featureKey: 'chat'               },
 
   { section: 'Client & Vendor' },
   { label: 'Client & Vendor Profiles',  admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'clients'            },
   { label: 'Vendor Connections',        admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'vendor_connections' },
   { label: 'Product Classification',    admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'products'           },
   { label: 'Tools / Calculators',       admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'tools'              },
+  { label: 'Reseller Management',       admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'reseller'           },
+  { label: 'Client Portal',             admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'client_portal'      },
+  { label: 'Rate Plan',                 admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'company_profile'    },
   { label: 'KAM Management',            admin: 'full', mgmt: 'none',      viewer: 'none'                                           },
 
   { section: 'Administration' },
@@ -862,6 +883,26 @@ const MGMT_FEATURE_META: Record<string, { desc: string; icon: React.ComponentTyp
   vendor_connections:  { desc: 'Create and manage vendor trunk connections and parameters',     icon: Server       },
   tools:               { desc: 'Rate calculators, prefix tools and connectivity tests',         icon: Tv2          },
   products:            { desc: 'Classify and manage product types and service categories',      icon: Layers       },
+  // Routing
+  routing_intelligence: { desc: 'AI-assisted routing analysis, coverage checks and path tracing', icon: Brain     },
+  // Intelligence
+  carrier_scoring:     { desc: 'Carrier stability scores, ASR/PDD rankings and health trends',  icon: BarChart2   },
+  sip_trace:           { desc: 'SIP dialog trace viewer with per-leg call detail reconstruction',icon: GitBranch  },
+  network_topology:    { desc: '3D interactive carrier network map with live traffic edges',    icon: Network      },
+  replay:              { desc: 'Animated fallback-chain replay engine grouped by run ID',       icon: Rewind       },
+  rtp_analytics:       { desc: 'RTP stream quality metrics: jitter, packet loss and MOS scores',icon: Radio       },
+  number_intelligence: { desc: 'MSISDN / DID lookup, portability check and number risk score', icon: ScanSearch   },
+  // AI & Operations
+  ai_ops:              { desc: 'AI Ops Center with rule-based NLP copilot and audio alert engine', icon: Bot      },
+  noc_command:         { desc: 'Fullscreen cinematic NOC view with incident ticker and live metrics', icon: Monitor },
+  // Network & Security
+  sbc_monitor:         { desc: 'SBC registration storms, SIP OPTIONS monitor and reachability', icon: Cpu         },
+  compliance:          { desc: 'Regulatory compliance log, audit records and policy tracking',  icon: FileCheck2  },
+  // Platform
+  reseller:            { desc: 'Manage reseller accounts, sub-tenants and white-label configs', icon: Layers      },
+  client_portal:       { desc: 'Branded client-facing portal for account self-service',         icon: Globe       },
+  company_profile:     { desc: 'Rate plan, company profile and billing configuration',          icon: ContactRound },
+  chat:                { desc: 'Internal team messaging and incident collaboration channel',    icon: MessageSquare },
 };
 
 // ─── Small reusable pieces ────────────────────────────────────────────────────

@@ -451,8 +451,26 @@ export const MGMT_CONFIGURABLE_FEATURES = [
   { key: 'routing_manager',    label: 'Routing Manager',            route: '/routing-manager'        },
   { key: 'approval_queue',     label: 'Approval Queue',             route: '/approvals'              },
   { key: 'routing_audit',      label: 'Routing Audit Trail',        route: '/routing-audit'          },
+  { key: 'routing_intelligence',label: 'Routing Intelligence',      route: '/routing-intelligence'   },
   // Network & Security
   { key: 'firewall',           label: 'Firewall Manager',           route: '/firewall'               },
+  { key: 'compliance',         label: 'Compliance',                 route: '/compliance'             },
+  { key: 'sbc_monitor',        label: 'SBC Monitor',                route: '/sbc-monitor'            },
+  // Intelligence
+  { key: 'carrier_scoring',    label: 'Carrier Scoring',            route: '/carrier-scoring'        },
+  { key: 'sip_trace',          label: 'SIP Trace Viewer',           route: '/sip-trace'              },
+  { key: 'network_topology',   label: 'Network Topology',           route: '/network-topology'       },
+  { key: 'replay',             label: 'Replay Engine',              route: '/replay'                 },
+  { key: 'rtp_analytics',      label: 'RTP Analytics',              route: '/rtp-analytics'          },
+  { key: 'number_intelligence',label: 'Number Intelligence',        route: '/number-intelligence'    },
+  // AI & Operations
+  { key: 'ai_ops',             label: 'AI Ops Center',              route: '/ai-ops'                 },
+  { key: 'noc_command',        label: 'NOC Command View',           route: '/noc-command'            },
+  // Platform
+  { key: 'reseller',           label: 'Reseller Management',        route: '/reseller'               },
+  { key: 'client_portal',      label: 'Client Portal',              route: '/client-portal'          },
+  { key: 'company_profile',    label: 'Rate Plan',                  route: '/company-profile'        },
+  { key: 'chat',               label: 'Team Chat',                  route: '/chat'                   },
 ] as const;
 
 export type MgmtFeatureKey = typeof MGMT_CONFIGURABLE_FEATURES[number]['key'];
