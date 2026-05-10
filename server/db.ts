@@ -100,6 +100,18 @@ export async function runSafeMigrations(): Promise<void> {
       ON CONFLICT DO NOTHING
     `);
 
+    // ── Self-heal: purge number_lookup_cache entries with wrong country ──────────
+    // Numbers like "1923400593877" were cached as "United States / Canada" because
+    // the old lookup code didn't strip the Sippy routing-class prefix before parsing.
+    // Delete all 11+ digit cache entries whose first digit is 1/2/6/7 so they will
+    // be re-looked-up with the corrected logic on next access.
+    await client.query(`
+      DELETE FROM number_lookup_cache
+      WHERE length(number) >= 11
+        AND left(number, 1) IN ('1','2','6','7')
+        AND number ~ '^[0-9]'
+    `);
+
     // ── Self-heal: strip accidental https:// prefix from sbc_hosts.host ─────────
     // If a user saves a URL (e.g. "https://191.101.30.107/") instead of a bare IP,
     // the TCP probe gets an invalid hostname. This one-time idempotent UPDATE fixes

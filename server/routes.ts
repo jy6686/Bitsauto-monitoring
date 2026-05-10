@@ -16859,7 +16859,17 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
       // ── Parse number with libphonenumber-js ───────────────────────────────────
       const { parsePhoneNumber, isValidPhoneNumber, getNumberType } = await import('libphonenumber-js');
-      const e164 = number.startsWith('+') ? number : `+${number}`;
+
+      // Strip Sippy routing-class prefix (1/2/6/7) from CLD numbers before parsing.
+      // e.g. "1923400593877" → strip "1" (First Class) → "923400593877" = Pakistan (+92)
+      // Without this, libphonenumber-js reads "1" as the US/Canada country code (+1).
+      const SIPPY_TRUNK_PREFIXES = new Set(['1','2','6','7']);
+      const rawDigits = number.replace(/^\+/, '').replace(/\D/g, '');
+      const effectiveNumber =
+        rawDigits.length >= 11 && SIPPY_TRUNK_PREFIXES.has(rawDigits[0])
+          ? rawDigits.slice(1)   // strip the class prefix
+          : rawDigits;
+      const e164 = `+${effectiveNumber}`;
 
       let country: string | null         = null;
       let countryCode: string | null     = null;

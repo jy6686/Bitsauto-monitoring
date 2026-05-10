@@ -70,7 +70,10 @@ function fmtMin(seconds: number): string {
 
 function classifyNetwork(cld: string): 'Mobile' | 'Landline' | 'Premium' | 'Satellite' {
   if (!cld) return 'Landline';
-  const n = cld.replace(/\D/g, '');
+  let n = cld.replace(/\D/g, '');
+  // Strip Sippy routing-class prefix (1/2/6/7) before network detection.
+  // e.g. "1923400593877" → strip "1" (First Class) → "923400593877" = Pakistan Mobile
+  if (n.length >= 11 && ['1','2','6','7'].includes(n[0])) n = n.slice(1);
   // Premium / special
   if (/^(0900|1900|0800|0808|0845|0870|1800|1888|1877|1866|1855|1844|1833|1822)/.test(n)) return 'Premium';
   if (/^8810|^8811|^8812|^8813/.test(n)) return 'Satellite'; // Inmarsat
