@@ -3339,7 +3339,7 @@ export async function registerRoutes(
       }
       // Evict entries older than 72h
       for (const [k, c] of cdrCache) {
-        const ts = c.startTime ? new Date(c.startTime).getTime() : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+        const ts = sippy.parseSippyDate(c.startTime)?.getTime() ?? sippy.parseSippyDate(c.connectTime ?? null)?.getTime() ?? 0;
         if (ts && ts < cutoff) cdrCache.delete(k);
       }
       cdrCacheUpdatedAt = new Date();
@@ -3365,7 +3365,7 @@ export async function registerRoutes(
 
       // Read from rolling CDR cache (populated by background refreshCdrCache every 5 min)
       const cdrs = Array.from(cdrCache.values()).filter(c => {
-        const ts = c.startTime ? new Date(c.startTime).getTime() : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+        const ts = sippy.parseSippyDate(c.startTime)?.getTime() ?? sippy.parseSippyDate(c.connectTime ?? null)?.getTime() ?? 0;
         return ts >= cutoffMs;
       }).map(c => ({
         ...c,
@@ -3380,7 +3380,7 @@ export async function registerRoutes(
         buckets[label] = { total: 0, answered: 0 };
       }
       for (const c of cdrs) {
-        const ts = c.startTime ? new Date(c.startTime) : c.connectTime ? new Date(c.connectTime) : null;
+        const ts = sippy.parseSippyDate(c.startTime) ?? sippy.parseSippyDate(c.connectTime ?? null);
         if (!ts) continue;
         const label = `${String(ts.getUTCHours()).padStart(2, '0')}:00`;
         if (buckets[label]) {
@@ -3398,7 +3398,7 @@ export async function registerRoutes(
         dailyBuckets[t.toISOString().slice(0, 10)] = { answered: 0, failed: 0 };
       }
       for (const c of cdrs) {
-        const ts = c.startTime ? new Date(c.startTime) : c.connectTime ? new Date(c.connectTime) : null;
+        const ts = sippy.parseSippyDate(c.startTime) ?? sippy.parseSippyDate(c.connectTime ?? null);
         if (!ts) continue;
         const key = ts.toISOString().slice(0, 10);
         if (dailyBuckets[key]) {
@@ -13228,7 +13228,70 @@ export async function registerRoutes(
             _source: 'cdr-aggregation',
           });
         }
-        // If CDR scraping also returned nothing, fall through with empty data
+        // ── Strategy 3: aggregate directly from in-memory CDR cache ──────────
+        if (cdrs.length === 0) {
+          console.log('[analytics] portal CDR scrape returned 0 — using in-memory CDR cache');
+          const cachedCdrs = [...cdrCache.values()].filter(c => {
+            const ts = sippy.parseSippyDate(c.startTime)?.getTime() ?? 0;
+            return ts >= fromDate.getTime() && ts <= toDate.getTime();
+          });
+
+          if (cachedCdrs.length > 0) {
+            const clientMap = new Map<string, { calls: number; secs: number; revenue: number }>();
+            for (const c of cachedCdrs) {
+              const name = (c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || 'Unknown').trim();
+              const ex = clientMap.get(name) ?? { calls: 0, secs: 0, revenue: 0 };
+              clientMap.set(name, {
+                calls:   ex.calls   + 1,
+                secs:    ex.secs    + (c.totalDuration ?? c.duration ?? 0),
+                revenue: ex.revenue + (c.cost ?? 0),
+              });
+            }
+            const totalRevFromCache = [...clientMap.values()].reduce((s, v) => s + v.revenue, 0);
+
+            const latestSnap = vendorBalanceHistory.length > 0
+              ? vendorBalanceHistory[vendorBalanceHistory.length - 1] : null;
+            const totalVendorCost = latestSnap
+              ? latestSnap.vendors.reduce((s, v) => s + (v.balance ?? 0), 0)
+              : 0;
+
+            const byClientCache = [...clientMap.entries()]
+              .map(([name, d]) => {
+                const revenue   = parseFloat(d.revenue.toFixed(4));
+                const costShare = totalRevFromCache > 0 ? d.revenue / totalRevFromCache : 0;
+                const cost      = parseFloat((costShare * totalVendorCost).toFixed(4));
+                const profit    = parseFloat((revenue - cost).toFixed(4));
+                const margin    = revenue > 0 ? parseFloat(((profit / revenue) * 100).toFixed(2)) : 0;
+                return { name, calls: d.calls, minutes: Math.round(d.secs / 60), revenue, cost, profit, margin };
+              })
+              .sort((a, b) => b.revenue - a.revenue);
+
+            const byVendorCache = latestSnap
+              ? latestSnap.vendors
+                  .filter(v => (v.balance ?? 0) > 0)
+                  .map(v => ({ name: v.name, calls: 0, minutes: 0, cost: parseFloat((v.balance ?? 0).toFixed(4)) }))
+              : [];
+
+            const totalCostC   = parseFloat(totalVendorCost.toFixed(4));
+            const totalProfitC = parseFloat((totalRevFromCache - totalVendorCost).toFixed(4));
+            const totalMarginC = totalRevFromCache > 0 ? parseFloat(((totalRevFromCache - totalVendorCost) / totalRevFromCache * 100).toFixed(2)) : 0;
+
+            return res.json({
+              period: { days, since: fromDate.toISOString() },
+              summary: {
+                totalRevenue: parseFloat(totalRevFromCache.toFixed(4)),
+                totalCost:    totalCostC,
+                totalProfit:  totalProfitC,
+                margin:       totalMarginC,
+              },
+              byClient: byClientCache,
+              byVendor: byVendorCache,
+              vendorDataLimited: totalVendorCost === 0,
+              _source: 'cdr-cache',
+            });
+          }
+        }
+        // If CDR cache also returned nothing, fall through with empty data
       }
 
       if (!statsResult.ok) {
@@ -13534,7 +13597,7 @@ export async function registerRoutes(
       const cutoffMs = now - hours * 3600 * 1000;
 
       const cdrs = Array.from(cdrCache.values()).filter(c => {
-        const ts = c.startTime ? new Date(c.startTime).getTime() : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+        const ts = sippy.parseSippyDate(c.startTime)?.getTime() ?? sippy.parseSippyDate(c.connectTime ?? null)?.getTime() ?? 0;
         return ts >= cutoffMs;
       }).map(c => ({
         ...c,
@@ -13591,7 +13654,7 @@ export async function registerRoutes(
         hourlyBuckets[`${String(t.getUTCHours()).padStart(2, '0')}:00`] = { total: 0, answered: 0, pddSum: 0 };
       }
       for (const c of cdrs) {
-        const ts = c.startTime ? new Date(c.startTime) : c.connectTime ? new Date(c.connectTime) : null;
+        const ts = sippy.parseSippyDate(c.startTime) ?? sippy.parseSippyDate(c.connectTime ?? null);
         if (!ts) continue;
         const label = `${String(ts.getUTCHours()).padStart(2, '0')}:00`;
         if (hourlyBuckets[label]) {
