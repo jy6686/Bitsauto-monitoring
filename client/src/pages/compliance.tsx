@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   ShieldCheck, ShieldAlert, ShieldX,
@@ -432,7 +433,7 @@ export default function CompliancePage() {
               value={report.metrics.hasRecordingServer ? "Active" : "Not Set"}
               sub={report.metrics.hasRecordingServer
                 ? (report.metrics.recordingHttps ? "HTTPS encrypted" : "HTTP — unencrypted")
-                : "Configure in Settings"}
+                : <Link to="/settings?tab=monitoring" className="text-primary hover:underline">Configure in Settings →</Link>}
               color={report.metrics.hasRecordingServer
                 ? (report.metrics.recordingHttps ? "text-green-400" : "text-amber-400")
                 : "text-muted-foreground"}

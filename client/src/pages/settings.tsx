@@ -11,6 +11,7 @@ import {
   Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp, Users, UserPlus, X, AlertCircle,
   Radio, Activity, Mail, Bell, Send, MailCheck, MailX, UserCheck, Download, FileText,
   BellRing, BellOff, Smartphone, ShieldAlert, Check, History, ArrowRight, BarChart2,
+  Mic,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -2003,11 +2004,137 @@ function SnmpTestButton({ host, port, community, environments }: {
 }
 
 // ── Main Settings Page ────────────────────────────────────────────────────────
+// ── Call Recordings Panel ──────────────────────────────────────────────────────
+function CallRecordingsPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [url, setUrl] = useState("");
+  const [editing, setEditing] = useState(false);
+
+  const { data: config, isLoading } = useQuery<{ configured: boolean; url: string | null }>({
+    queryKey: ["/api/sippy/recording-config"],
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (config?.url && !editing) setUrl(config.url);
+  }, [config?.url, editing]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => apiRequest("PATCH", "/api/sippy/recording-config", { url: url.trim() || null }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/sippy/recording-config"] });
+      setEditing(false);
+      toast({ title: "Recording server saved", description: url.trim() ? `Server URL set to ${url.trim()}` : "Recording server URL cleared." });
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: () => apiRequest("PATCH", "/api/sippy/recording-config", { url: null }),
+    onSuccess: () => {
+      setUrl("");
+      setEditing(false);
+      qc.invalidateQueries({ queryKey: ["/api/sippy/recording-config"] });
+      toast({ title: "Recording server cleared" });
+    },
+  });
+
+  const configured = config?.configured ?? false;
+  const isHttps    = (config?.url ?? "").startsWith("https://");
+
+  return (
+    <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-border/50 bg-muted/20 flex items-center gap-3">
+        <Mic className="w-4 h-4 text-blue-400" />
+        <div className="flex-1">
+          <h3 className="font-semibold text-sm">Call Recordings</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Configure the recording server URL so the platform can link call recordings for playback and download.
+          </p>
+        </div>
+        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+          configured
+            ? isHttps
+              ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
+              : "bg-amber-500/10 border-amber-500/25 text-amber-400"
+            : "bg-muted border-border text-muted-foreground"
+        }`}>
+          {isLoading ? "…" : configured ? (isHttps ? "Configured · HTTPS" : "Configured · HTTP") : "Not configured"}
+        </span>
+      </div>
+
+      <div className="p-6 space-y-4">
+        {/* Info note */}
+        <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-4 py-3 text-xs text-blue-300 space-y-1">
+          <p className="font-semibold">How recording works</p>
+          <p>
+            Sippy writes audio files to a media/recording server. Enter the base URL of that server here.
+            The platform will construct download links as <code className="font-mono bg-blue-500/10 px-1 rounded">{"{url}"}/calls/{"{callId}"}.wav</code>.
+            You must enable call recording separately in the Sippy admin portal (System Configuration → call_recording).
+          </p>
+        </div>
+
+        <div className="grid gap-2">
+          <label className="text-sm font-medium">Recording Server Base URL</label>
+          <div className="flex gap-2">
+            <input
+              data-testid="input-recording-server-url"
+              type="url"
+              value={url}
+              onChange={e => { setUrl(e.target.value); setEditing(true); }}
+              placeholder="https://recordings.yourcompany.com"
+              className="flex-1 bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+            />
+            <button
+              type="button"
+              data-testid="button-save-recording-url"
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending || !editing}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 transition-colors hover:bg-primary/90"
+            >
+              {saveMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              Save
+            </button>
+            {configured && (
+              <button
+                type="button"
+                data-testid="button-clear-recording-url"
+                onClick={() => clearMutation.mutate()}
+                disabled={clearMutation.isPending}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-rose-500/40 text-xs text-rose-400 hover:bg-rose-500/10 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" /> Clear
+              </button>
+            )}
+          </div>
+          {url && !url.startsWith("https://") && (
+            <p className="text-xs text-amber-400 flex items-center gap-1.5">
+              <AlertCircle className="w-3 h-3" />
+              Use HTTPS to keep recordings encrypted in transit. HTTP connections will trigger a compliance warning.
+            </p>
+          )}
+        </div>
+
+        {/* Current value display */}
+        {configured && !editing && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground px-3 py-2 rounded-lg bg-muted/30 border border-border/40">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>Active: <span className="font-mono text-foreground">{config?.url}</span></span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
   const updateMutation = useUpdateSettings();
   const resetMutation = useResetSimulation();
-  const [activeTab, setActiveTab] = useState<'connection'|'monitoring'|'alerts'|'users'|'system'>('connection');
+  const _initialSearch = useSearch();
+  const _initialTab = (new URLSearchParams(_initialSearch).get('tab') as any) ?? 'connection';
+  const [activeTab, setActiveTab] = useState<'connection'|'monitoring'|'alerts'|'users'|'system'>(_initialTab);
   const [showPassword, setShowPassword] = useState(false);
   const [testResult, setTestResult] = useState<TestResult>(null);
   const [isTesting, setIsTesting] = useState(false);
@@ -2723,6 +2850,9 @@ export default function SettingsPage() {
 
         {/* ══ MONITORING TAB ══ */}
         <div className={activeTab !== 'monitoring' ? 'hidden' : 'space-y-6'}>
+
+        {/* ── Call Recordings ── */}
+        <CallRecordingsPanel />
 
         {/* ── Monitoring Thresholds ── */}
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
