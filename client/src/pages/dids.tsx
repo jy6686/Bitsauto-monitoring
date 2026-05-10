@@ -7,6 +7,7 @@ import {
   ArrowRightLeft, Link2, AlertTriangle, CheckCircle2, X,
   Filter, Download,
 } from "lucide-react";
+import { PhoneLink } from "@/components/number-intel-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -335,7 +336,7 @@ export default function DIDsPage() {
                     className={cn("border-b border-border/30 hover:bg-muted/10 transition-colors", i % 2 === 0 ? "" : "bg-muted/5")}
                   >
                     <td className="px-4 py-3">
-                      <span className="font-mono font-semibold text-blue-400">{d.did}</span>
+                      <PhoneLink number={d.did} className="font-semibold text-blue-400 hover:text-emerald-400" />
                       {d.didRangeEnd && (
                         <span className="text-xs text-muted-foreground ml-1">–{d.didRangeEnd}</span>
                       )}

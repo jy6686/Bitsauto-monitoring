@@ -5,6 +5,7 @@ import {
   Activity, Wifi, Info, HeartPulse, ShieldAlert, Timer, SignalHigh, History,
   TrendingUp, BarChart2, ThumbsUp, ThumbsDown, Mic2, Plus, Check, SlidersHorizontal,
 } from "lucide-react";
+import { PhoneLink } from "@/components/number-intel-panel";
 import { useState, useRef, useEffect, Fragment } from "react";
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
@@ -831,8 +832,12 @@ function SwitchPanel({
                               )}
                             </td>
                           )}
-                          <td className="px-4 py-3 font-mono text-foreground/80" data-testid={`cell-cli-${i}`}>{call.caller || '—'}</td>
-                          <td className="px-4 py-3 font-mono text-foreground/80" data-testid={`cell-cld-${i}`}>{call.callee || '—'}</td>
+                          <td className="px-4 py-3 font-mono text-foreground/80" data-testid={`cell-cli-${i}`}>
+                            <PhoneLink number={call.caller} className="text-foreground/80" />
+                          </td>
+                          <td className="px-4 py-3 font-mono text-foreground/80" data-testid={`cell-cld-${i}`}>
+                            <PhoneLink number={call.callee} className="text-foreground/80" />
+                          </td>
                           {col('origCountry') && (
                             <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-orig-country-${i}`}>
                               {origCountry ? (

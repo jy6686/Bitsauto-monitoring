@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { lookupCLD } from "@/lib/country-lookup";
+import { PhoneLink } from "@/components/number-intel-panel";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, Link } from "wouter";
 import * as XLSX from "xlsx";
@@ -644,7 +645,7 @@ export default function CDRsPage() {
                     </td>
                     <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cli-${i}`}>
                       <span className="flex items-center gap-1.5 group/cli flex-wrap">
-                        {cdr.caller || '-'}
+                        <PhoneLink number={cdr.caller} className="text-foreground/70 hover:text-emerald-400" />
                         {cdr.pAssertedId && cdr.pAssertedId !== cdr.caller && (
                           <span
                             className="inline-flex items-center gap-0.5 px-1 py-0 rounded text-[9px] font-bold bg-orange-500/15 text-orange-400 border border-orange-500/25"
@@ -668,7 +669,7 @@ export default function CDRsPage() {
                     </td>
                     <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cld-${i}`}>
                       <span className="flex items-center gap-1.5 group/cld">
-                        {cdr.callee || '-'}
+                        <PhoneLink number={cdr.callee} className="text-foreground/70 hover:text-emerald-400" />
                         {cdr.caller && cdr.callee && (
                           <Link
                             href={`/test-call?cli=${encodeURIComponent(cdr.caller)}&cld=${encodeURIComponent(cdr.callee)}`}

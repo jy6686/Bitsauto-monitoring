@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { ScanSearch, Search, Globe, Phone, Shield, AlertTriangle, CheckCircle2, Clock, Info, Smartphone, Building, Wifi, Hash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,12 +64,18 @@ const RECENT_KEY = 'number-intelligence-history';
 
 export default function NumberIntelligencePage() {
   const { toast } = useToast();
-  const [inputNumber, setInputNumber] = useState('');
+  const search = useSearch();
+  const qNumber = new URLSearchParams(search).get('number') ?? '';
+  const [inputNumber, setInputNumber] = useState(qNumber);
   const [result, setResult] = useState<NumberLookup | null>(null);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
   });
+
+  useEffect(() => {
+    if (qNumber) doLookup(qNumber);
+  }, [qNumber]);
 
   async function doLookup(num: string) {
     const clean = num.replace(/\s+/g, '').replace(/^00/, '+');

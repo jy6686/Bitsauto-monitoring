@@ -16592,76 +16592,190 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   app.get('/api/number-lookup/:number', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
     try {
-      const { db } = await import('./db');
+      const { db }               = await import('./db');
       const { numberLookupCache } = await import('../shared/schema');
-      const { eq } = await import('drizzle-orm');
-      const number = decodeURIComponent(req.params.number).trim();
+      const { eq }               = await import('drizzle-orm');
+      const number  = decodeURIComponent(req.params.number).trim();
+      const refresh = req.query.refresh === '1';
       if (!number) return res.status(400).json({ message: 'Number required' });
 
-      // Check cache first (24 hour TTL)
+      // ── Cache check (24-hour TTL, bypass on ?refresh=1) ──────────────────────
       const [cached] = await db.select().from(numberLookupCache).where(eq(numberLookupCache.number, number));
-      if (cached) {
+      if (cached && !refresh) {
         const ageMs = Date.now() - new Date(cached.lookedUpAt!).getTime();
-        if (ageMs < 86400000) return res.json(cached);
+        if (ageMs < 86400000) {
+          // Attach live counts that aren't persisted
+          const numE164 = number.startsWith('+') ? number : `+${number}`;
+          const last7   = number.slice(-7);
+          const cdrAll  = [...cdrCache.values()];
+          const cdrCount = cdrAll.filter(c =>
+            c.caller === number || c.callee === number ||
+            c.caller === numE164 || c.callee === numE164 ||
+            (last7.length >= 7 && (c.caller?.endsWith(last7) || c.callee?.endsWith(last7)))
+          ).length;
+          const fasAll = await storage.getFasEvents(5000);
+          const fasCount = fasAll.filter(e =>
+            e.caller === number || e.callee === number ||
+            e.caller === numE164 || e.callee === numE164 ||
+            (last7.length >= 7 && (e.caller?.endsWith(last7) || e.callee?.endsWith(last7)))
+          ).length;
+          return res.json({ ...cached, cdrCount, fasCount, hlrSource: 'cache' });
+        }
       }
 
-      // Derive basic info from number format
+      // ── Parse number with libphonenumber-js ───────────────────────────────────
+      const { parsePhoneNumber, isValidPhoneNumber, getNumberType } = await import('libphonenumber-js');
       const e164 = number.startsWith('+') ? number : `+${number}`;
-      let country: string | null = null;
-      let countryCode: string | null = null;
-      let lineType: string | null = 'unknown';
 
-      if (e164.startsWith('+1'))        { country = 'United States / Canada'; countryCode = '1'; }
-      else if (e164.startsWith('+44'))  { country = 'United Kingdom'; countryCode = '44'; }
-      else if (e164.startsWith('+92'))  { country = 'Pakistan'; countryCode = '92'; lineType = number.length >= 12 ? 'mobile' : 'fixed'; }
-      else if (e164.startsWith('+263')) { country = 'Zimbabwe'; countryCode = '263'; }
-      else if (e164.startsWith('+91'))  { country = 'India'; countryCode = '91'; }
-      else if (e164.startsWith('+61'))  { country = 'Australia'; countryCode = '61'; }
-      else if (e164.startsWith('+971')) { country = 'UAE'; countryCode = '971'; }
-      else if (e164.startsWith('+27'))  { country = 'South Africa'; countryCode = '27'; }
+      let country: string | null         = null;
+      let countryCode: string | null     = null;
+      let lineType: string | null        = null;
+      let networkCode: string | null     = null;
+      let hlrSource = 'sippy_cdr';
 
-      // Cross-reference FAS events + CDR cache for real-data enrichment
-      const [fasAll] = await Promise.all([storage.getFasEvents(5000)]);
-      const numE164 = number.startsWith('+') ? number : `+${number}`;
-      const last7 = number.slice(-7);
+      try {
+        if (isValidPhoneNumber(e164)) {
+          const parsed      = parsePhoneNumber(e164);
+          const numType     = getNumberType(e164);
+          country           = parsed.country
+            ? new Intl.DisplayNames(['en'], { type: 'region' }).of(parsed.country) ?? parsed.country
+            : null;
+          countryCode       = parsed.countryCallingCode?.toString() ?? null;
+          // Map phonenumber-js type to our schema values
+          const typeMap: Record<string, string> = {
+            MOBILE:       'mobile',
+            FIXED_LINE:   'fixed',
+            FIXED_LINE_OR_MOBILE: 'fixed',
+            VOIP:         'voip',
+            TOLL_FREE:    'toll_free',
+            PREMIUM_RATE: 'fixed',
+            PERSONAL_NUMBER: 'mobile',
+          };
+          lineType = numType ? (typeMap[numType] ?? 'unknown') : 'unknown';
+          hlrSource = 'libphonenumber+sippy_cdr';
+        }
+      } catch (_) { /* unparseable — fall through */ }
+
+      // Fallback prefix table for numbers that don't pass E.164 validation
+      if (!country) {
+        const prefixes: [string, string, string][] = [
+          ['+1',   'United States / Canada', '1'],
+          ['+44',  'United Kingdom',         '44'],
+          ['+92',  'Pakistan',               '92'],
+          ['+263', 'Zimbabwe',               '263'],
+          ['+91',  'India',                  '91'],
+          ['+61',  'Australia',              '61'],
+          ['+971', 'United Arab Emirates',   '971'],
+          ['+27',  'South Africa',           '27'],
+          ['+880', 'Bangladesh',             '880'],
+          ['+971', 'UAE',                    '971'],
+          ['+55',  'Brazil',                 '55'],
+          ['+7',   'Russia / Kazakhstan',    '7'],
+        ];
+        for (const [pfx, name, cc] of prefixes) {
+          if (e164.startsWith(pfx)) { country = name; countryCode = cc; break; }
+        }
+      }
+
+      // ── Deep CDR cache mining ─────────────────────────────────────────────────
+      const numE164 = e164;
+      const last7   = number.slice(-7);
+      const cdrAll  = [...cdrCache.values()];
+
+      const cdrMatches = cdrAll.filter(c =>
+        c.caller === number || c.callee === number ||
+        c.caller === numE164 || c.callee === numE164 ||
+        (last7.length >= 7 && (c.caller?.endsWith(last7) || c.callee?.endsWith(last7)))
+      );
+
+      // Extract LRN portability from CDR fields
+      const lrnPorted = cdrMatches.some(c => {
+        const lrnCldResult = (c as any).lrnCldResult;
+        const lrnCliResult = (c as any).lrnCliResult;
+        return (lrnCldResult !== undefined && lrnCldResult !== 0) ||
+               (lrnCliResult !== undefined && lrnCliResult !== 0);
+      });
+      const ported = cdrMatches.length > 0 ? lrnPorted : null;
+
+      // Carrier from connection vendor cache (most reliable source we have)
+      const detectedCarrier =
+        cdrMatches.find(c => c.vendor)?.vendor ??
+        (cdrMatches.find(c => c.iConnection)
+          ? connectionVendorCache.get(String(cdrMatches.find(c => c.iConnection)?.iConnection)) ?? null
+          : null);
+
+      // Network code (MCC-MNC) from LRN translated CLD
+      const lrnCld = (cdrMatches[0] as any)?.lrnCld ?? null;
+      if (lrnCld && /^\d{5,6}/.test(lrnCld)) networkCode = lrnCld.slice(0, 6);
+
+      // Active if seen in CDRs
+      const detectedActive = cdrMatches.length > 0 ? true : null;
+
+      // If libphonenumber-js couldn't determine line type, try from CDR data
+      if (!lineType || lineType === 'unknown') {
+        if (detectedCarrier) lineType = 'mobile'; // seen routing through mobile carrier
+        else lineType = null;
+      }
+
+      // ── CNAM: try Sippy account lookup by number ──────────────────────────────
+      let cnam: string | null = null;
+      try {
+        const accounts = [...accountCache.values()];
+        const matchAcct = accounts.find((a: any) =>
+          a.username === number ||
+          a.username === e164 ||
+          (a.cli_number && (a.cli_number === number || a.cli_number === e164))
+        );
+        if (matchAcct) {
+          cnam = (matchAcct as any).company_name ||
+                 (matchAcct as any).name ||
+                 (matchAcct as any).username || null;
+        }
+      } catch (_) { /* account cache may be empty */ }
+
+      // ── FAS events for reputation ─────────────────────────────────────────────
+      const fasAll = await storage.getFasEvents(5000);
       const relatedFas = fasAll.filter(e =>
         e.caller === number || e.callee === number ||
         e.caller === numE164 || e.callee === numE164 ||
-        (last7.length === 7 && (e.caller?.endsWith(last7) || e.callee?.endsWith(last7)))
+        (last7.length >= 7 && (e.caller?.endsWith(last7) || e.callee?.endsWith(last7)))
       );
-      const reputationScore = Math.min(95, relatedFas.length * 20);
-      const fasReasons = relatedFas.flatMap(e => (e.reason ?? '').split(',').map(r => r.trim()));
-      const derivedStirShaken: string =
-        fasReasons.includes('early_answer') || fasReasons.includes('high_pdd') ? 'unsigned' :
-        relatedFas.length > 0 ? 'C' : 'unknown';
+      const fasCount   = relatedFas.length;
+      const cdrCount   = cdrMatches.length;
+      const reputationScore = Math.min(95, fasCount * 20);
 
-      // Carrier + activity from CDR cache
-      const cdrMatches = [...cdrCache.values()].filter(c =>
-        c.caller === number || c.callee === number ||
-        c.caller === numE164 || c.callee === numE164
-      ).slice(0, 20);
-      const detectedCarrier = cdrMatches[0]?.vendor
-        || (cdrMatches[0]?.iConnection ? connectionVendorCache.get(String(cdrMatches[0].iConnection)) : null)
-        || null;
-      const detectedActive = cdrMatches.length > 0 ? true : null;
-      const derivedLineType = lineType !== 'unknown' ? lineType
-        : detectedCarrier ? 'fixed'
-        : cdrMatches.length > 0 ? 'unknown' : null;
+      // STIR/SHAKEN derived from CDR data and FAS reasons
+      const fasReasons = relatedFas.flatMap(e => (e.reason ?? '').split(',').map((r: string) => r.trim()));
+      const stirCdrs   = cdrMatches.filter(c => (c as any).stirShaken);
+      const derivedStirShaken: string =
+        stirCdrs.length > 0 ? ((stirCdrs[0] as any).stirShaken) :
+        fasReasons.includes('early_answer') || fasReasons.includes('high_pdd') ? 'unsigned' :
+        fasCount > 0 ? 'C' : 'unknown';
 
       const record = {
         number, country, countryCode,
-        carrier: detectedCarrier, lineType: derivedLineType, ported: null, active: detectedActive, roaming: null,
-        cnam: null, stirShaken: derivedStirShaken, reputationScore, rawJson: null,
+        carrier: detectedCarrier ?? null,
+        lineType,
+        ported,
+        active: detectedActive,
+        roaming: null,
+        cnam,
+        stirShaken: derivedStirShaken,
+        reputationScore,
+        rawJson: JSON.stringify({ networkCode, hlrSource, lrnCld }),
       };
 
+      let saved;
       if (cached) {
         await db.update(numberLookupCache).set({ ...record, lookedUpAt: new Date() }).where(eq(numberLookupCache.number, number));
         const [updated] = await db.select().from(numberLookupCache).where(eq(numberLookupCache.number, number));
-        return res.json(updated);
+        saved = updated;
+      } else {
+        const [inserted] = await db.insert(numberLookupCache).values(record).returning();
+        saved = inserted;
       }
 
-      const [inserted] = await db.insert(numberLookupCache).values(record).returning();
-      res.json(inserted);
+      res.json({ ...saved, cdrCount, fasCount, networkCode, hlrSource });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
