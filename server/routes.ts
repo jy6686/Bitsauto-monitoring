@@ -1860,10 +1860,33 @@ export async function registerRoutes(
         );
       }
 
+      // Fetch live balance for this account
+      let balance: number | null = null;
+      let creditLimit: number | null = null;
+      let currency: string | null = null;
+      try {
+        const creds = sippyXmlCredsPairs(settings as any);
+        for (const { username, password } of creds) {
+          const acctResp = await sippy.listSippyAccounts(username, password, {}, sippyPortalUrl(settings) || '');
+          if (!acctResp.error && acctResp.accounts.length > 0) {
+            const acct = acctResp.accounts.find(a => String(a.iAccount) === accountIdStr);
+            if (acct) {
+              balance = acct.balance;
+              creditLimit = acct.creditLimit;
+              currency = acct.currency ?? acct.baseCurrency ?? 'USD';
+              break;
+            }
+          }
+        }
+      } catch { /* leave balance null — will show N/A */ }
+
       res.json({
         accountName: tok.accountName,
         accountId: tok.accountId,
         cdrs,
+        balance,
+        creditLimit,
+        currency,
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -7611,6 +7634,34 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // GET /api/sippy/account-balance/:iAccount — live balance for a single account
+  // Returns { balance, creditLimit, currency } fetched via listAccounts from Sippy.
+  // Falls back to { balance: null } if Sippy is unavailable or account not found.
+  app.get('/api/sippy/account-balance/:iAccount', (req: any, res, next) => requireRole(['admin', 'management', 'viewer', 'noc_operator', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const iAccount = req.params.iAccount as string;
+      const settings = await storage.getSettings();
+      const portalUrl = sippyPortalUrl(settings) || '';
+      if (!portalUrl) return res.json({ balance: null, creditLimit: null, currency: 'USD', error: 'Sippy not configured' });
+
+      const creds = sippyXmlCredsPairs(settings as any);
+      for (const { username, password } of creds) {
+        const result = await sippy.listSippyAccounts(username, password, {}, portalUrl);
+        if (!result.error && result.accounts.length > 0) {
+          const acct = result.accounts.find(a => String(a.iAccount) === iAccount);
+          if (acct) {
+            return res.json({
+              balance:     acct.balance,
+              creditLimit: acct.creditLimit,
+              currency:    acct.currency ?? acct.baseCurrency ?? 'USD',
+            });
+          }
+        }
+      }
+      res.json({ balance: null, creditLimit: null, currency: 'USD', error: 'Account not found' });
+    } catch (e: any) { res.status(500).json({ balance: null, creditLimit: null, currency: 'USD', error: e.message }); }
+  });
+
   // ── Balance Daemon — XML-RPC management methods (docs 3000070859) ─────────
 
   // GET /api/sippy/balances?ids=1,2,3 — fetch balance entities by i_balance IDs
@@ -8127,6 +8178,42 @@ export async function registerRoutes(
         .map(([date, count]) => ({ date, count }));
       res.json({ trend, vendor: vendor ?? 'all', days });
     } catch (e: any) { res.status(500).json({ trend: [], error: e.message }); }
+  });
+
+  // GET /api/sippy/recording-download/:callId — redirect to real audio file on recording server
+  // Reads recordingServerUrl from settings. If configured, redirects to:
+  //   {recordingServerUrl}/calls/{callId}.wav
+  // If not configured, returns JSON { configured: false }.
+  app.get('/api/sippy/recording-download/:callId', (req: any, res, next) => requireRole(['admin', 'management', 'viewer', 'noc_operator', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { callId } = req.params;
+      const settings = await storage.getSettings();
+      const recUrl = (settings as any).recordingServerUrl?.trim();
+      if (!recUrl) {
+        return res.json({ configured: false, message: 'No recording server URL configured. Add one in Settings → Call Recordings.' });
+      }
+      const base = recUrl.replace(/\/+$/, '');
+      const fileUrl = `${base}/calls/${encodeURIComponent(callId)}.wav`;
+      res.redirect(302, fileUrl);
+    } catch (e: any) { res.status(500).json({ configured: false, error: e.message }); }
+  });
+
+  // GET /api/sippy/recording-config — return recording server URL status (configured/not)
+  app.get('/api/sippy/recording-config', (req: any, res, next) => requireRole(['admin', 'management', 'viewer', 'noc_operator', 'team_lead', 'super_admin'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const settings = await storage.getSettings();
+      const recUrl = (settings as any).recordingServerUrl?.trim() || null;
+      res.json({ configured: !!recUrl, url: recUrl ?? null });
+    } catch (e: any) { res.status(500).json({ configured: false, error: e.message }); }
+  });
+
+  // PATCH /api/sippy/recording-config — save recording server URL
+  app.patch('/api/sippy/recording-config', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { url } = req.body ?? {};
+      await storage.updateSettings({ recordingServerUrl: url?.trim() || null } as any);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
   // GET /api/sippy/recording-status — probe Sippy for call recording configuration

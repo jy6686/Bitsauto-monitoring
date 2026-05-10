@@ -103,6 +103,8 @@ export const settings = pgTable("settings", {
   whatsappApiKey:      varchar("whatsapp_api_key",     { length: 255 }), // CallMeBot apikey OR UltraMsg token
   whatsappInstanceId:  varchar("whatsapp_instance_id", { length: 128 }), // UltraMsg instance ID only
   whatsappAlertTypes:  text("whatsapp_alert_types").default('fas,balance,traffic,outage,auth'), // CSV
+  // Call Recordings
+  recordingServerUrl:  varchar("recording_server_url", { length: 512 }), // Base URL of recording server, e.g. https://rec.example.com
   // Grafana embed
   grafanaUrl:          varchar("grafana_url",           { length: 1024 }),  // panel or dashboard embed URL
   grafanaDefaultRange: varchar("grafana_default_range", { length: 20  }).default('1h'), // 1h|6h|24h|7d|30d

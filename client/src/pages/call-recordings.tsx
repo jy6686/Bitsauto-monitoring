@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Mic, Play, Download, Search, RefreshCw, Filter,
   Clock, PhoneIncoming, PhoneOutgoing, Calendar,
-  CheckCircle2, XCircle, AlertTriangle, Info,
+  CheckCircle2, XCircle, AlertTriangle, Info, Settings2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,16 @@ interface Recording {
   encrypted: boolean;
   retainUntil: string;
   status: "available" | "processing" | "expired";
+}
+
+// ── Recording config query hook ───────────────────────────────────────────────
+
+function useRecordingConfig() {
+  return useQuery<{ configured: boolean; url: string | null }>({
+    queryKey: ["/api/sippy/recording-config"],
+    queryFn: () => fetch("/api/sippy/recording-config").then(r => r.json()),
+    staleTime: 120_000,
+  });
 }
 
 // ── Sample data (Sippy does not expose recordings via XML-RPC) ────────────────
@@ -76,6 +86,8 @@ export default function CallRecordingsPage() {
   const [refreshing,setRefreshing]= useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
 
+  const { data: recConfig } = useRecordingConfig();
+
   const filtered = SAMPLE.filter(r => {
     const matchDir = direction === "all" || r.direction === direction;
     const matchSt  = status    === "all" || r.status    === status;
@@ -107,8 +119,19 @@ export default function CallRecordingsPage() {
       toast({ title: "Unavailable", description: "This recording cannot be downloaded right now.", variant: "destructive" });
       return;
     }
-    const stub = `# Call Recording Stub\n# ID: ${rec.id}\n# Call: ${rec.callId}\n# ${rec.caller} → ${rec.callee}\n# ${rec.startTime} · ${fmtDuration(rec.duration)} · ${rec.codec}\n# NOTE: Replace with actual audio file from your recording server.\n`;
-    downloadText(`${rec.id}.txt`, stub);
+    if (!recConfig?.configured) {
+      toast({
+        title: "Recording server not configured",
+        description: "Add a recording server URL in Settings → Call Recordings to enable downloads.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const url = `/api/sippy/recording-download/${encodeURIComponent(rec.callId)}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${rec.id}.wav`;
+    a.click();
     toast({ title: "Download started", description: `${rec.id} — ${rec.fileSize}` });
   }
 
@@ -307,15 +330,39 @@ export default function CallRecordingsPage() {
           </div>
         </div>
 
-        {/* Info note */}
-        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex items-start gap-3">
-          <Info className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
-          <p className="text-xs text-muted-foreground">
-            Call recordings are stored on the Sippy switch and retrieved via the recording API.
-            Recordings are AES-256 encrypted at rest and automatically purged after 60 days per your retention policy.
-            Playback and download links connect directly to the recording server.
-          </p>
-        </div>
+        {/* Recording server config banner */}
+        {recConfig && !recConfig.configured ? (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 flex items-start gap-3">
+            <Settings2 className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-amber-300 mb-0.5">Recording server not configured</p>
+              <p className="text-xs text-muted-foreground">
+                Playback and download are disabled until a recording server URL is set. Go to{" "}
+                <strong>Settings → Call Recordings</strong> and enter the base URL of your recording server
+                (e.g. <span className="font-mono text-amber-400/80">https://rec.yourdomain.com</span>).
+                The platform will construct download URLs as{" "}
+                <span className="font-mono text-amber-400/80">{"{base}"}/calls/{"{callId}"}.wav</span>.
+              </p>
+            </div>
+          </div>
+        ) : recConfig?.configured ? (
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 flex items-start gap-3">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-muted-foreground">
+              Recording server connected: <span className="font-mono text-emerald-400/80">{recConfig.url}</span>.
+              Download links connect directly to your recording server.
+              Recordings are AES-256 encrypted at rest and automatically purged after 60 days.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex items-start gap-3">
+            <Info className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-muted-foreground">
+              Call recordings are stored on the Sippy switch and retrieved via the recording API.
+              Recordings are AES-256 encrypted at rest and automatically purged after 60 days per your retention policy.
+            </p>
+          </div>
+        )}
 
       </div>
     </div>

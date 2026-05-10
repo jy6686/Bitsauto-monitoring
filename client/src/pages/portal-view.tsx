@@ -19,6 +19,9 @@ interface PortalData {
     caller?: string; callee?: string; startTime?: string;
     duration?: number; result?: string | number; cost?: number;
   }>;
+  balance?: number | null;
+  creditLimit?: number | null;
+  currency?: string | null;
   error?: string;
 }
 
@@ -174,7 +177,7 @@ export default function PortalViewPage() {
           <StatCard icon={Phone}      label="Total Calls"  value={String(cdrs.length)}        sub={timeRange === "today" ? "today" : undefined} color="text-gray-800 dark:text-foreground" />
           <StatCard icon={TrendingUp} label="ASR"          value={`${asr}%`}                  sub="answer rate"    color={asr >= 70 ? "text-emerald-500" : asr >= 50 ? "text-amber-500" : "text-rose-500"} />
           <StatCard icon={Clock}      label="Minutes Used" value={`${totalMin.toFixed(0)} min`} sub={`${(totalMin/60).toFixed(1)} hrs`} color="text-cyan-500" />
-          <StatCard icon={DollarSign} label="Balance"      value="$214.15"                    sub="available credit" color="text-emerald-500" />
+          <StatCard icon={DollarSign} label="Balance"      value={data?.balance != null ? `$${Number(data.balance).toFixed(2)}` : "—"} sub={data?.balance != null ? "available credit" : "unavailable"} color={data?.balance != null && data.balance > 0 ? "text-emerald-500" : "text-amber-500"} />
         </div>
 
         {/* Quality cards */}

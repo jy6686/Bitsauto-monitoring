@@ -68,6 +68,34 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
   );
 }
 
+function BalanceStatCard({ accountId }: { accountId: string }) {
+  const { data, isLoading } = useQuery<{ balance: number | null; creditLimit: number | null; currency: string }>({
+    queryKey: ["/api/sippy/account-balance", accountId],
+    queryFn: () => fetch(`/api/sippy/account-balance/${encodeURIComponent(accountId)}`).then(r => r.json()),
+    staleTime: 60_000,
+    enabled: !!accountId,
+  });
+  const balance = data?.balance ?? null;
+  const value = isLoading ? "…" : balance != null ? `$${balance.toFixed(2)}` : "N/A";
+  const color = isLoading ? "text-muted-foreground" : balance == null ? "text-muted-foreground" : balance > 50 ? "text-emerald-400" : balance > 10 ? "text-amber-400" : "text-rose-400";
+  return (
+    <div className="bg-card border border-border rounded-xl p-5" data-testid="card-account-balance">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground">Balance</p>
+          <p className={cn("text-2xl font-bold mt-1", color)}>{value}</p>
+          <p className="text-xs text-muted-foreground/60 mt-0.5">
+            {isLoading ? "fetching…" : balance != null ? "available credit" : "live data unavailable"}
+          </p>
+        </div>
+        <div className="p-2.5 rounded-xl bg-muted/30">
+          <DollarSign className={cn("h-5 w-5", color)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Date range helper ─────────────────────────────────────────────────────────
 
 function dateRange(range: string): { startDate: string; endDate: string } {
@@ -248,7 +276,7 @@ export default function ClientPortalPage() {
               <StatCard icon={Phone}       label="Total Calls"   value={String(cdrs.length)}    sub={timeRange === "today" ? "today" : undefined} color="text-foreground" />
               <StatCard icon={TrendingUp}  label="ASR"           value={`${asr}%`}              sub="answer rate"    color={asr >= 70 ? "text-emerald-400" : asr >= 50 ? "text-amber-400" : "text-rose-400"} />
               <StatCard icon={Clock}       label="Minutes Used"  value={`${totalMin.toFixed(0)} min`} sub={`${(totalMin / 60).toFixed(1)} hrs`} color="text-cyan-400" />
-              <StatCard icon={DollarSign}  label="Balance"       value="$214.15"               sub="available credit" color="text-emerald-400" />
+              <BalanceStatCard accountId={selectedAccount} />
             </div>
 
             {/* Quality + Traffic + Security */}
