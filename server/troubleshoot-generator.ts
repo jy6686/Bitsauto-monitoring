@@ -288,6 +288,7 @@ export async function generateTroubleshootGuide(outputPath?: string): Promise<Bu
           ['10', 'Deployment & Production Checklist'],
           ['11', 'Common API Error Reference'],
           ['12', 'Preventive Maintenance Procedures'],
+          ['13', 'SBC Monitor Probe Reference'],
         ] as [string, string][]).map(([n, t]) =>
           new Paragraph({
             spacing: { after: 80 },
@@ -417,6 +418,13 @@ export async function generateTroubleshootGuide(outputPath?: string): Promise<Bu
             severity: 'High',
             status: 'Resolved',
             fix: 'lookupDialCode() in server/dial-lookup.ts was trying a direct prefix match FIRST. For CLD 7923364335326, the direct match found prefix "792" = Russia/Kazakhstan MOBILE MEGAFON before ever trying to strip the Sippy trunk class digit "7". Since both "7" (Russia country code) and "7" (Sippy Special Charlie trunk class) share the same digit, the direct match always won. Fix: when the leading digit is a Sippy trunk class digit (1/2/6/7) and the number is 11+ digits, try the class-prefix-stripped match FIRST. If "923364335326" matches (Pakistan MOBILE UFONE via prefix 9233), return that with trunkClass populated. Only fall back to the direct match if the stripped number produces no result.',
+          },
+          {
+            id: 'ISS-017',
+            title: 'SBC Monitor reports SB7-107 (191.101.30.107:5060) as "Down" — false positive (host is operational)',
+            severity: 'High',
+            status: 'Resolved',
+            fix: 'TCP SIP probe to port 5060 timed out because Sippy softswitches use UDP SIP by default — TCP SIP is commonly disabled or firewall-filtered. The host was fully reachable (port 8080 returned ECONNREFUSED in 31 ms, confirming IP-layer connectivity). Added hostReachable() in sbc-poller.ts: when TCP SIP fails, 8 common admin ports (443, 80, 8443, 8080, 8090, 8181, 22, 21) are probed in parallel. ECONNREFUSED on any port counts as reachable. Result is now "Degraded — SIP TCP port 5060 blocked — host reachable (Sippy uses UDP SIP; TCP SIP may be disabled or firewalled)" instead of incorrectly reporting "Down". UI amber warning banner also added for degraded cards.',
           },
         ]),
         spacer(200),
@@ -776,6 +784,69 @@ export async function generateTroubleshootGuide(outputPath?: string): Promise<Bu
         bullet('Review FAS engine event log — tune thresholds if false positives are high', WHITE),
         bullet('Verify Sippy connection credentials still work after any Sippy software updates', WHITE),
         bullet('Check PostgreSQL database size — CDR records and alert logs accumulate over time', WHITE),
+        pageBreak(),
+
+        // ════════════════════════════════════════════════════
+        // 13. SBC MONITOR PROBE REFERENCE
+        // ════════════════════════════════════════════════════
+        h1('13. SBC Monitor — Probe Reference & Status Interpretation'),
+        p('The SBC / Media Plane Monitor page (/sbc-monitor) probes each registered Session Border Controller using a multi-stage strategy. Understanding the probe logic is essential for correctly interpreting status badges.', { size: 21 }),
+        spacer(80),
+
+        h2('13.1  Probe Strategy (ISS-017 — Updated)'),
+        p('Probes execute in the following order for each enabled SBC host, polling every 5 minutes:', { size: 20 }),
+        spacer(60),
+        ...flowDiagram([
+          { label: 'TCP SIP-port probe', detail: 'Connects to host:port (default 5060) via raw TCP socket with 3 s timeout. Measures round-trip time.' },
+          { label: 'If TCP success → status OK or Degraded', detail: 'OK = RTT < 500 ms. Degraded = RTT > 500 ms or CPU > 85% (if HTTP/SNMP metrics available). HTTP + SNMP probes run to enrich CPU/session data.' },
+          { label: 'If TCP fails → hostReachable() fallback probe', detail: 'Probes 8 common admin ports in parallel (443, 80, 8443, 8080, 8090, 8181, 22, 21) with 2.5 s timeout.' },
+          { label: 'ECONNREFUSED on any fallback port → status Degraded', detail: 'Host sent TCP RST — IP-layer reachable, SIP TCP just blocked. Amber badge. Message: "SIP TCP blocked — host reachable (Sippy uses UDP SIP; TCP SIP may be disabled or firewalled)".' },
+          { label: 'All fallback ports timeout → status Down', detail: 'Host is genuinely unreachable. Red badge. Message: "Host unreachable — TCP SIP port X and all fallback ports timed out".' },
+        ], ''),
+        spacer(80),
+
+        h2('13.2  Status Badge Meanings'),
+        defTable([
+          ['OK (green)',       'TCP SIP probe succeeded within 500 ms. SIP TCP is enabled and the host is healthy.'],
+          ['Degraded (amber)', 'One of two causes: (A) TCP SIP connected but RTT > 500 ms or CPU > 85%. (B) TCP SIP blocked/filtered but the host is reachable on another port — most common with Sippy softswitches using UDP-only SIP. Check the amber warning banner on the card for the specific message.'],
+          ['Down (red)',       'Host is genuinely unreachable — TCP SIP AND all 8 fallback ports timed out. Indicates a real outage, network partition, or firewall blocking all inbound connections.'],
+          ['No badge / unknown', 'Host is disabled (polling paused) or has never been polled since the last server restart.'],
+        ], 'Status', 20),
+        spacer(80),
+
+        h2('13.3  Why Sippy Hosts Commonly Show Degraded (Not Down)'),
+        p('Sippy softswitches use UDP SIP as the default transport. TCP SIP (port 5060) is optional and is frequently disabled in production Sippy deployments or blocked at the firewall level. This means:', { size: 20 }),
+        bullet('TCP probe to port 5060 times out (firewall silently drops it)', ORANGE),
+        bullet('But the server IS reachable — Sippy admin API (XML-RPC, HTTP) continues to work on other ports', GREEN),
+        bullet('hostReachable() detects this situation via ECONNREFUSED on port 8080 or similar', GREEN),
+        bullet('Result: Degraded (not Down) — correctly reflects "host is up, SIP TCP transport is not exposed"', GREEN),
+        spacer(80),
+        note('If a Sippy host consistently shows Degraded with "SIP TCP blocked", this is expected behaviour. The Sippy connection in Settings will still show Connected because XML-RPC uses the configured admin HTTPS port, not TCP SIP port 5060.'),
+        spacer(80),
+
+        h2('13.4  Method Badges'),
+        defTable([
+          ['TCP probe',            'Status determined solely from TCP SIP connection. No HTTP/SNMP enrichment configured.'],
+          ['HTTP + TCP',           'TCP SIP probe + HTTP REST API enrichment (CPU %, active sessions). Vendor-specific endpoint: AudioCodes /api/v1/system/performance, Kamailio /RPC, OpenSIPS /mi, Ribbon /rest/system/status.'],
+          ['SNMP + TCP',           'TCP SIP probe + SNMP HOST-RESOURCES-MIB hrProcessorLoad for CPU. Used when API URL is not configured but SNMP community is set.'],
+          ['HTTP + SNMP + TCP',    'All three enrichment methods active. Best coverage.'],
+          ['IP reachability',      'TCP SIP failed; status derived from hostReachable() fallback probe only. No RTT available. Shown as Degraded with explanation.'],
+        ], 'Method Badge', 25),
+        spacer(80),
+
+        h2('13.5  Troubleshooting SBC Probe Issues'),
+        defTable([
+          ['"SIP TCP blocked — host reachable"',
+           'Expected for most Sippy softswitches. Not a problem. The switch uses UDP SIP. Consider this host operational. If you need a green OK badge, enable TCP SIP transport on the Sippy switch (Sippy Admin → SIP → Transport Settings) or configure an API URL so the HTTP probe enriches the card instead.'],
+          ['"Host unreachable — all ports timed out"',
+           'Genuine connectivity failure. Check: (1) Network path between platform server and SBC host, (2) Firewall rules allow outbound TCP from the platform, (3) SBC is powered on and healthy, (4) IP address is correct in the SBC host record.'],
+          ['Card stuck on last known status (not refreshing)',
+           'Background poller runs every 5 minutes. Click the refresh icon on the card to trigger an immediate re-poll. If still stuck, check server logs for [sbc-poller] error entries.'],
+          ['HTTP REST metrics show zero values',
+           'API URL is either not configured or the vendor-specific endpoint is not responding. Verify the API URL in the SBC host record matches the vendor\'s management interface (e.g., https://sbc-ip:443 for AudioCodes).'],
+          ['SNMP probe returns zero CPU',
+           'Verify: (1) SNMP community string matches the SBC device config, (2) SNMP v2c is enabled on the SBC, (3) Firewall allows UDP 161 from the platform server to the SBC.'],
+        ], 'Issue', 38),
         spacer(200),
         divider(),
         p(`This document was auto-generated by VoIP Watcher on ${dateStr} at ${timeStr}. Regenerate it after resolving new issues using Settings > Documentation Downloads > Update Troubleshooting Guide.`, { color: DARK_GY, size: 17, italic: true }),

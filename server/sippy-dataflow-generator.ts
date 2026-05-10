@@ -462,6 +462,22 @@ const PAGE_FLOWS: PageFlow[] = [
     push: null,
     notes: ['All settings (credentials, thresholds, SMTP, SNMP) are stored in the local platform database. Sippy itself is not configured from this page.'],
   },
+  {
+    title: '23. SBC / Media Plane Monitor  (/sbc-monitor)',
+    description: 'Real-time health monitoring for Session Border Controllers using a multi-stage probe strategy. All operations are read-only — no configuration is written to any SBC.',
+    fetch: [
+      'TCP SIP-port probe (every 5 min, on-demand) — raw TCP connect to host:port (default 5060). Measures RTT, determines reachability.',
+      'hostReachable() fallback probe (when TCP SIP fails) — parallel TCP connects to 8 common admin ports (443, 80, 8443, 8080, 8090, 8181, 22, 21). ECONNREFUSED on any port means host is up, SIP TCP is just blocked. Result: Degraded (not Down).',
+      'HTTP REST probe (optional, if apiUrl configured) — vendor-specific management endpoints: AudioCodes /api/v1/system/performance, Kamailio JSON-RPC /RPC, OpenSIPS /mi, Ribbon/Sonus /rest/system/status. Enriches metrics: CPU %, active sessions, transcoding load.',
+      'SNMP probe (optional, if snmpCommunity configured) — HOST-RESOURCES-MIB hrProcessorLoad (.1.3.6.1.2.1.25.3.3.1.2.1). Fills CPU % if HTTP probe did not provide it.',
+    ],
+    push: null,
+    notes: [
+      'Status mapping: OK = TCP RTT < 500 ms and CPU <= 85%. Degraded = RTT > 500 ms, or CPU > 85%, or TCP SIP blocked but host reachable on fallback port. Down = host unreachable on all probes.',
+      'Sippy softswitches use UDP SIP by default. TCP SIP port 5060 is commonly disabled or firewall-filtered on Sippy servers. This is expected and causes a "Degraded" status with the message "SIP TCP blocked — host reachable". This is NOT an error condition — the Sippy switch is operational.',
+      'SBC host records (name, IP, port, vendor, API URL, SNMP community, API key) are stored in the local platform database only. Nothing is written to any SBC device.',
+    ],
+  },
 ];
 
 // -- Summary table rows --------------------------------------------------------
@@ -488,6 +504,7 @@ const SUMMARY_ROWS = [
   { page: 'API Keys',              fetchItems: 'Local DB only', pushItems: '✗ Read-only' },
   { page: 'WhatsApp Alerts',       fetchItems: 'Local DB only', pushItems: '✗ Read-only' },
   { page: 'Settings',              fetchItems: 'Connection validation only', pushItems: '✗ Read-only' },
+  { page: 'SBC Monitor',          fetchItems: 'TCP SIP probe + hostReachable() fallback + optional HTTP REST + SNMP', pushItems: '✗ Read-only' },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -732,7 +749,31 @@ export async function generateSippyDataflowDoc(outputPath?: string): Promise<Buf
         bullet('Frontend query key: ["/api/sippy/ck-drilldown", status, hours] — TanStack Query re-fetches when hours changes'),
         bullet('Backend: hours = parseInt(req.query.hours) || 6; used as CDR window'),
         spacer(100),
-        h2('7.3  Analytics 4-Tab Report Structure'),
+        h2('7.3  HLR Lookup — Number Intelligence Layer'),
+        p('A new HLR (Home Location Register) + MNP lookup capability was added to the Number Intelligence page (/number-intelligence), using the hlrlookup.com v2 API:', { size: 20 }),
+        bullet('Parallel HLR query and MNP (Mobile Number Portability) query are dispatched simultaneously to reduce latency'),
+        bullet('Dual credential model: api_key + api_secret stored in the local DB (hlrApiKey and hlrApiSecret columns in settings table)'),
+        bullet('Results include: current network name, original network, country code, subscriber status, roaming status, ported indicator, IMSI prefix'),
+        bullet('No data is sent to Sippy — HLR lookups are entirely external (hlrlookup.com API), read-only'),
+        spacer(100),
+
+        h2('7.4  SBC Monitor — Reachability Probe Upgrade (ISS-017)'),
+        p('The SBC Monitor probe strategy was updated to eliminate false "Down" reports for Sippy softswitches. Root cause: Sippy uses UDP SIP by default — TCP SIP port 5060 is commonly disabled or firewall-filtered on production Sippy servers.', { size: 20 }),
+        spacer(60),
+        p('Before (ISS-017):', { bold: true, color: RED_C, size: 20 }),
+        bullet('TCP SIP probe fails (timeout) → immediate "Down" status → red badge → operator alarm'),
+        bullet('Wrong result: host was fully reachable and Sippy XML-RPC was responding normally'),
+        spacer(60),
+        p('After (ISS-017 fix):', { bold: true, color: GREEN, size: 20 }),
+        bullet('TCP SIP probe fails → hostReachable() fires 8 parallel TCP probes (ports 443, 80, 8443, 8080, 8090, 8181, 22, 21)', GREEN),
+        bullet('ECONNREFUSED on any port = TCP RST from host = IP layer reachable = Degraded (amber)', GREEN),
+        bullet('All probes timeout = host genuinely unreachable = Down (red)', GREEN),
+        bullet('For SB7-107 (191.101.30.107): port 8080 returned ECONNREFUSED in 31 ms → correctly classified as Degraded', GREEN),
+        spacer(60),
+        note('ECONNREFUSED is a positive signal — it means the host sent a TCP RST, which proves IP-layer connectivity. Timeout is the absence of any response, which is the only true indicator of unreachability.'),
+        spacer(100),
+
+        h2('7.5  Analytics 4-Tab Report Structure'),
         p('The Analytics page was restructured to four tabs replacing the earlier single-page layout:', { size: 20 }),
         bullet('Tab 1: Overview — 6 KPI cards + rolling area chart (daily revenue / cost / profit)'),
         bullet('Tab 2: By Client — sortable table + Revenue/Cost/Profit bar chart per client'),
