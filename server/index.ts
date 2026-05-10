@@ -160,6 +160,20 @@ app.use((req, res, next) => {
   // NOC WebSocket — real-time live-call count push to all dashboard tabs
   setupNocWebSocket(httpServer);
 
+  // SBC background poller — real TCP/HTTP/SNMP probing every 5 min
+  const { startSbcPoller } = await import('./sbc-poller');
+  const { db: sbcDb } = await import('./db');
+  const { sbcHosts: sbcHostsTable } = await import('../shared/schema');
+  const { eq: sbcEq, asc: sbcAsc } = await import('drizzle-orm');
+  startSbcPoller(
+    async () => sbcDb.select().from(sbcHostsTable).orderBy(sbcAsc(sbcHostsTable.name)),
+    async (id: number, status: string) => {
+      await sbcDb.update(sbcHostsTable)
+        .set({ lastStatus: status, lastCheckedAt: new Date() })
+        .where(sbcEq(sbcHostsTable.id, id));
+    }
+  );
+
   // Start routing cache background sync (15-min intervals, first sync after 10s)
   startRoutingCacheSync();
 

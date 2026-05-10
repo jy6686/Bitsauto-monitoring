@@ -16841,23 +16841,38 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const { db } = await import('./db');
       const { sbcHosts } = await import('../shared/schema');
       const { eq } = await import('drizzle-orm');
+      const { pollSbcHost, getSbcMetricsCache } = await import('./sbc-poller');
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
       const [host] = await db.select().from(sbcHosts).where(eq(sbcHosts.id, id));
       if (!host) return res.status(404).json({ message: 'Host not found' });
 
-      // Simulated metrics — replace with real SNMP/REST polling per vendor
-      const metrics = {
-        activeSessions: Math.floor(Math.random() * 80),
-        cpuPercent: Math.floor(Math.random() * 45) + 5,
-        transcodingLoad: Math.floor(Math.random() * 30),
-        registrations: Math.floor(Math.random() * 200) + 10,
-        mediaBypassRate: Math.floor(Math.random() * 30) + 60,
-        optionsResponseMs: Math.floor(Math.random() * 80) + 20,
-      };
+      // Serve from in-memory cache if fresh (< 5 min), else poll now
+      const cached = getSbcMetricsCache(id);
+      const cacheAgeSec = cached ? (Date.now() - cached.polledAt.getTime()) / 1000 : Infinity;
 
-      await db.update(sbcHosts).set({ lastStatus: 'ok', lastCheckedAt: new Date() }).where(eq(sbcHosts.id, id));
-      res.json(metrics);
+      const metrics = (cacheAgeSec < 300 && cached)
+        ? cached
+        : await pollSbcHost(host);
+
+      // Persist status back to DB
+      await db.update(sbcHosts)
+        .set({ lastStatus: metrics.status, lastCheckedAt: new Date() })
+        .where(eq(sbcHosts.id, id))
+        .catch(() => {});
+
+      res.json({
+        activeSessions:    metrics.activeSessions,
+        cpuPercent:        metrics.cpuPercent,
+        transcodingLoad:   metrics.transcodingLoad,
+        registrations:     metrics.registrations,
+        mediaBypassRate:   metrics.mediaBypassRate,
+        optionsResponseMs: metrics.optionsResponseMs,
+        status:            metrics.status,
+        method:            metrics.method,
+        polledAt:          metrics.polledAt,
+        error:             metrics.error,
+      });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

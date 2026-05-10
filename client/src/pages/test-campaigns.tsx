@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FlaskConical, Plus, Play, Trash2, RefreshCw, CheckCircle2, Clock, X,
   ChevronDown, ChevronUp, AlertTriangle, Timer, ToggleLeft, ToggleRight,
-  Activity, TrendingDown, History, Zap,
+  Activity, TrendingDown, History, Zap, ArrowDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,7 +32,7 @@ interface SyntheticTestRun {
   id: number; campaignId: number; startedAt: string; completedAt: string | null;
   totalCalls: number; connectedCalls: number; failedCalls: number;
   asr: number | null; avgPddMs: number | null; baselineAsrAtRun: number | null;
-  anomalyFired: boolean; triggeredBy: string;
+  anomalyFired: boolean; degradedVsLastRun: boolean; triggeredBy: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -171,10 +171,11 @@ function RunHistoryPanel({ campaignId, baseline }: { campaignId: number; baselin
           <tbody>
             {runs.map(r => {
               const vs = r.baselineAsrAtRun != null && r.asr != null ? r.asr - r.baselineAsrAtRun : null;
+              const isProblematic = r.anomalyFired || r.degradedVsLastRun;
               return (
                 <tr key={r.id} className={cn(
                   "border-t border-border/20 hover:bg-muted/10",
-                  r.anomalyFired && "bg-rose-500/5"
+                  r.anomalyFired ? "bg-rose-500/5" : r.degradedVsLastRun ? "bg-amber-500/5" : ""
                 )}>
                   <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
                     {new Date(r.startedAt).toLocaleString()}
@@ -204,11 +205,26 @@ function RunHistoryPanel({ campaignId, baseline }: { campaignId: number; baselin
                     {r.avgPddMs != null ? `${r.avgPddMs.toFixed(0)}ms` : "—"}
                   </td>
                   <td className="px-3 py-2">
-                    {r.anomalyFired
-                      ? <span className="inline-flex items-center gap-1 text-rose-400 font-semibold text-[11px]">
-                          <TrendingDown className="w-3 h-3" />FIRED
+                    <div className="flex flex-col gap-0.5">
+                      {r.anomalyFired && (
+                        <span className="inline-flex items-center gap-1 text-rose-400 font-semibold text-[11px]">
+                          <TrendingDown className="w-3 h-3" />ANOMALY
                         </span>
-                      : <span className="text-muted-foreground/40">—</span>}
+                      )}
+                      {r.degradedVsLastRun && !r.anomalyFired && (
+                        <span className="inline-flex items-center gap-1 text-amber-400 font-semibold text-[11px]">
+                          <ArrowDown className="w-3 h-3" />DEGRADED
+                        </span>
+                      )}
+                      {r.degradedVsLastRun && r.anomalyFired && (
+                        <span className="inline-flex items-center gap-1 text-amber-400/70 text-[10px]">
+                          <ArrowDown className="w-2.5 h-2.5" />vs last run
+                        </span>
+                      )}
+                      {!isProblematic && (
+                        <span className="text-muted-foreground/40">—</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -226,6 +242,18 @@ function CampaignCard({ campaign }: { campaign: TestCampaign }) {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
   const [tab, setTab] = useState<"calls" | "runs">("calls");
+
+  // Fetch latest run to surface degradation at the card level
+  const { data: latestRuns = [] } = useQuery<SyntheticTestRun[]>({
+    queryKey: ["/api/campaigns", campaign.id, "runs"],
+    queryFn: () => fetch(`/api/campaigns/${campaign.id}/runs`).then(r => r.json()),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    enabled: campaign.scheduleType === "interval" && !!campaign.intervalMinutes,
+  });
+  const latestRun = latestRuns[0] ?? null;
+  const isDegradedLatest = latestRun?.degradedVsLastRun && !latestRun?.anomalyFired;
+  const isAnomalyLatest  = latestRun?.anomalyFired;
 
   const dests: CampaignDestination[] = (() => {
     try { return JSON.parse(campaign.destinations); } catch { return []; }
@@ -286,6 +314,19 @@ function CampaignCard({ campaign }: { campaign: TestCampaign }) {
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
                 <Activity className="w-2.5 h-2.5" />
                 Baseline {campaign.baselineAsr.toFixed(1)}%
+              </span>
+            )}
+
+            {isAnomalyLatest && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 border border-rose-500/40 text-rose-300 animate-pulse">
+                <TrendingDown className="w-2.5 h-2.5" />
+                ANOMALY — last run
+              </span>
+            )}
+            {isDegradedLatest && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                <ArrowDown className="w-2.5 h-2.5" />
+                DEGRADED vs prev run
               </span>
             )}
           </div>

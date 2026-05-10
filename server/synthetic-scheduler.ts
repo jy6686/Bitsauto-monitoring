@@ -235,6 +235,29 @@ async function _executeCampaign(campaign: any): Promise<void> {
   // ── 24h rolling baseline (Phase 4) — excludes infra-only runs ───────────────
   const newBaseline = await _compute24hBaseline(campaign.id, asr);
 
+  // ── Degraded vs last run (run-over-run regression) ───────────────────────
+  let degradedVsLastRun = false;
+  try {
+    const [prevRun] = await db.select({ asr: syntheticTestRuns.asr })
+      .from(syntheticTestRuns)
+      .where(and(
+        eq(syntheticTestRuns.campaignId, campaign.id),
+        // exclude current run
+        // (id < runRow.id is guaranteed since we just inserted runRow)
+      ))
+      .orderBy(desc(syntheticTestRuns.id))
+      .offset(1)
+      .limit(1);
+
+    if (prevRun?.asr != null && eligibleCalls >= 1) {
+      const drop = prevRun.asr - asr;
+      degradedVsLastRun = drop >= 10; // ≥10pp drop vs immediately previous run
+      if (degradedVsLastRun) {
+        console.warn(`[synthetic-scheduler] "${campaign.name}" degraded vs last run: ${asr.toFixed(1)}% (was ${prevRun.asr.toFixed(1)}%, Δ${(-drop).toFixed(1)}pp)`);
+      }
+    }
+  } catch { /* not fatal */ }
+
   // ── ASR drop anomaly signal ───────────────────────────────────────────────
   const baseline     = campaign.baselineAsr as number | null;
   const anomalyFired = eligibleCalls >= 2 && baseline != null && (baseline - asr) >= 15;
@@ -254,10 +277,11 @@ async function _executeCampaign(campaign: any): Promise<void> {
       classification: 'carrier_failure',
       dedupeKey:      `asrdrop:${campaign.id}:${_bucket15()}`,
     });
-    await db.update(syntheticTestRuns)
-      .set({ anomalyFired: true })
-      .where(eq(syntheticTestRuns.id, runRow.id));
   }
+
+  await db.update(syntheticTestRuns)
+    .set({ anomalyFired, degradedVsLastRun })
+    .where(eq(syntheticTestRuns.id, runRow.id));
 
   await _storage.updateTestCampaign(campaign.id, {
     status:      'done',

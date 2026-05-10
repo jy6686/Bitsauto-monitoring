@@ -844,8 +844,9 @@ export const syntheticTestRuns = pgTable("synthetic_test_runs", {
   asr:              real("asr"),                   // % connected for this run (excl. infra)
   avgPddMs:         real("avg_pdd_ms"),
   baselineAsrAtRun: real("baseline_asr_at_run"),  // snapshot of baseline when run fired
-  anomalyFired:     boolean("anomaly_fired").notNull().default(false),
-  triggeredBy:      varchar("triggered_by", { length: 20 }).notNull().default('scheduler'), // scheduler|manual
+  anomalyFired:        boolean("anomaly_fired").notNull().default(false),
+  degradedVsLastRun:   boolean("degraded_vs_last_run").notNull().default(false),
+  triggeredBy:         varchar("triggered_by", { length: 20 }).notNull().default('scheduler'), // scheduler|manual
 });
 export type SyntheticTestRun = typeof syntheticTestRuns.$inferSelect;
 export type InsertSyntheticTestRun = typeof syntheticTestRuns.$inferInsert;
