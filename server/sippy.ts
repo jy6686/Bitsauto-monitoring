@@ -2718,6 +2718,96 @@ function toSippyPortalDate(raw: string): string {
   } catch { return raw; }
 }
 
+// ── CDR table helpers ────────────────────────────────────────────────────────
+
+/**
+ * Finds the CDR data table in Sippy portal HTML using content-based detection.
+ *
+ * Problem: Using lastIndexOf('<TABLE') or Math.max(lastIndexOf('<TABLE'),
+ * lastIndexOf('<table')) is unreliable because:
+ *   - Admin portal uses uppercase <TABLE>, customer /c1/ portal uses lowercase <table>
+ *   - Navigation/footer <table> elements often appear AFTER the CDR data table
+ * Solution: scan ALL tables, return the last one with CDR-characteristic content
+ * (MM/DD/YYYY dates, HH:MM:SS times, or phone numbers inside cells).
+ */
+function findCdrTableHtml(html: string): string {
+  const htmlLc = html.toLowerCase();
+  const positions: number[] = [];
+  let pos = 0;
+  while ((pos = htmlLc.indexOf('<table', pos)) !== -1) {
+    positions.push(pos);
+    pos++;
+  }
+  // Scan backward from end — CDR table is near the bottom but not always last
+  for (let i = positions.length - 1; i >= 0; i--) {
+    const start = positions[i];
+    const lookahead  = html.slice(start, start + 8000);
+    const lookaheadLc = lookahead.toLowerCase();
+    const hasDate    = /\d{2}\/\d{2}\/\d{4}/.test(lookahead);    // MM/DD/YYYY
+    const hasTime    = /\d{2}:\d{2}:\d{2}/.test(lookahead);      // HH:MM:SS
+    const hasPhone   = />[\+]?\d{7,15}</.test(lookahead);         // phone number in cell
+    const hasCdrHdr  = lookaheadLc.includes('>cli') || lookaheadLc.includes('>cld');
+    if (hasDate || (hasTime && hasPhone) || hasCdrHdr) return html.slice(start);
+  }
+  // Fallback: absolute last table
+  const fallback = htmlLc.lastIndexOf('<table');
+  return fallback !== -1 ? html.slice(fallback) : '';
+}
+
+/**
+ * Strips nested <table>...</table> blocks from the INNER content of the CDR table.
+ *
+ * Problem 1: Sippy's portal embeds nested tables inside CDR cells (status icons,
+ * tooltips). The non-greedy /<tr[^>]*>([\s\S]*?)<\/tr>/gi regex matches these
+ * INNER <tr> elements (1-2 cells) BEFORE the outer CDR rows (9-10 cells), causing
+ * all rows to fail the cells.length < 7 check → 0 CDRs parsed.
+ *
+ * Problem 2 (fixed here): naive iterative stripping removes the outer CDR table
+ * itself on the last iteration (once all nested tables are gone, the CDR table
+ * becomes a "leaf" and gets stripped), leaving total=0 rows.
+ *
+ * Solution: extract the inner content of the outermost <table> using a depth
+ * counter, strip nested tables only from that inner content, then reassemble.
+ * The outer <table>...</table> wrapper is always preserved.
+ */
+function stripNestedTables(html: string): string {
+  const htmlLc = html.toLowerCase();
+
+  // Find the opening tag of the outermost table (html must start with <table)
+  const openTagMatch = /^(<table\b[^>]*>)/i.exec(html);
+  if (!openTagMatch) return html;   // not a table fragment — return as-is
+  const openTag = openTagMatch[1];
+
+  // Walk forward to find the matching </table> using a depth counter
+  let depth = 1;
+  let pos = openTag.length;
+  while (pos < html.length && depth > 0) {
+    const nextOpen  = htmlLc.indexOf('<table',   pos);
+    const nextClose = htmlLc.indexOf('</table>', pos);
+    if (nextClose === -1) break;                          // malformed HTML
+    if (nextOpen !== -1 && nextOpen < nextClose) {
+      depth++;
+      pos = nextOpen + 1;
+    } else {
+      depth--;
+      pos = (depth === 0) ? nextClose : nextClose + 8;   // sit on </table> or skip
+    }
+  }
+
+  // innerContent = everything between outer <table> and its matching </table>
+  const innerContent = html.slice(openTag.length, pos);
+
+  // Iteratively strip nested tables from innerContent only (never touches outer)
+  let cleaned = innerContent;
+  for (let iter = 0; iter < 6; iter++) {
+    const before = cleaned.length;
+    cleaned = cleaned.replace(/<table\b[^>]*>(?:(?!<table\b)[\s\S])*?<\/table>/gi, '');
+    if (cleaned.length === before) break;
+  }
+
+  return openTag + cleaned + '</table>';
+}
+
 // ── Portal CDR scraper ───────────────────────────────────────────────────────
 // Scrapes /c1/cdrs_customer.php from the Sippy customer portal (using RTST1 or
 // portal credentials). Used as fallback when XML-RPC CDR methods return 401.
@@ -2785,21 +2875,28 @@ export async function scrapePortalCDRs(
       return FAIL();
     }
 
-    // Find the CDR data table (after the navform)
-    const tableIdx = html.lastIndexOf('<TABLE');
-    const tableIdxLc = html.lastIndexOf('<table');
-    const tableStart = Math.max(tableIdx, tableIdxLc);
-    console.log(`[scrapePortalCDRs] tableStart=${tableStart} (bodyLen=${html.length}) listEmpty=${/list is empty/i.test(html)}`);
-    if (tableStart === -1) { console.log('[scrapePortalCDRs] no TABLE found'); return FAIL(); }
-    const tableHtml = html.slice(tableStart);
+    // Find the CDR data table using content-based detection (date/phone/header patterns).
+    // DO NOT use lastIndexOf or Math.max — nav/footer tables often appear AFTER the CDR
+    // data table and would be picked instead, yielding 0 parsed rows.
+    const rawTableHtml = findCdrTableHtml(html);
+    const isListEmpty  = /list is empty/i.test(html);
+    console.log(`[scrapePortalCDRs] tableFound=${rawTableHtml.length > 50} (bodyLen=${html.length}) listEmpty=${isListEmpty}`);
+    if (!rawTableHtml) { console.log('[scrapePortalCDRs] no CDR TABLE found'); return FAIL(); }
+
+    // Strip nested <table> blocks (status icons, tooltips inside CDR cells).
+    // Without this, the non-greedy <tr>...<\/tr> regex matches inner rows (1-2 cells)
+    // before outer CDR rows (9-10 cells), causing all rows to fail the ≥7-cells check.
+    const tableHtml = stripNestedTables(rawTableHtml);
 
     // Parse rows (skip header row and "List is Empty" row)
     const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
     let m: RegExpExecArray | null;
     const cdrs: SippyCDR[] = [];
     let rowIndex = 0;
+    let rowsTotal = 0, rowsTooFew = 0, rowsHeader = 0, rowsEmpty = 0, rowsNoCli = 0;
 
     while ((m = trRe.exec(tableHtml)) !== null) {
+      rowsTotal++;
       const rowHtml = m[1];
       // Extract cell texts
       const tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
@@ -2811,11 +2908,11 @@ export async function scrapePortalCDRs(
       }
 
       // Skip header row (contains "Caller" or "CLI") and empty/filler rows
-      if (cells.length < 7) continue;
-      if (/^(caller|cli|cld)/i.test(cells[1] || '') || /^(caller|cli|cld)/i.test(cells[0] || '')) continue;
-      if (/list is empty/i.test(cells.join(' '))) continue;
+      if (cells.length < 7) { rowsTooFew++; continue; }
+      if (/^(caller|cli|cld)/i.test(cells[1] || '') || /^(caller|cli|cld)/i.test(cells[0] || '')) { rowsHeader++; continue; }
+      if (/list is empty/i.test(cells.join(' '))) { rowsEmpty++; continue; }
       // Skip rows where cells[2] (CLI) looks non-numeric/empty and cells[3] (CLD) is empty
-      if (!cells[2] && !cells[3]) continue;
+      if (!cells[2] && !cells[3]) { rowsEmpty++; continue; }
 
       // Columns: [0]=rowNum [1]=Caller/Acct [2]=CLI [3]=CLD [4]=Country [5]=Desc [6]=SetupTime [7]=Dur [8]=BilledDur [9]=Amount
       const callerAcct  = cells[1] || '';
@@ -2828,7 +2925,7 @@ export async function scrapePortalCDRs(
       const billedRaw   = cells[8] || '0:00';
       const amountRaw   = cells[9] || '0';
 
-      if (!cli || cli === '-') continue;
+      if (!cli || cli === '-') { rowsNoCli++; continue; }
 
       const durationSec = parseMMSS(durationRaw);
       const billedSec   = parseMMSS(billedRaw);
@@ -2858,6 +2955,7 @@ export async function scrapePortalCDRs(
       });
     }
 
+    console.log(`[scrapePortalCDRs] rows: total=${rowsTotal} tooFewCells=${rowsTooFew} header=${rowsHeader} empty=${rowsEmpty} noCli=${rowsNoCli} parsed=${cdrs.length}`);
     return cdrs;
   } catch {
     return FAIL();
@@ -2929,13 +3027,15 @@ export async function scrapeAdminPortalCDRs(
       return FAIL();
     }
 
-    // Find the CDR data table (last TABLE element) — case-insensitive
-    const tblIdx   = html.lastIndexOf('<TABLE');
-    const tblIdxLc = html.lastIndexOf('<table');
-    const tableStart = Math.max(tblIdx, tblIdxLc);
-    console.log(`[scrapeAdminPortalCDRs] tableStart=${tableStart} (bodyLen=${html.length}) listEmpty=${/list is empty/i.test(html)}`);
-    if (tableStart === -1) { console.log('[scrapeAdminPortalCDRs] no TABLE found'); return FAIL(); }
-    const tableHtml = html.slice(tableStart);
+    // Find the CDR data table using content-based detection (same fix as scrapePortalCDRs).
+    // Math.max(lastIndexOf…) is unreliable when nav/footer tables appear after the CDR table.
+    const rawTableHtml = findCdrTableHtml(html);
+    const isListEmpty  = /list is empty/i.test(html);
+    console.log(`[scrapeAdminPortalCDRs] tableFound=${rawTableHtml.length > 50} (bodyLen=${html.length}) listEmpty=${isListEmpty}`);
+    if (!rawTableHtml) { console.log('[scrapeAdminPortalCDRs] no CDR TABLE found'); return FAIL(); }
+
+    // Strip nested tables before row parsing (same nested-TR fix as scrapePortalCDRs)
+    const tableHtml = stripNestedTables(rawTableHtml);
 
     // Extract status icon tooltip from td[0] (ext:qtip attribute or title)
     const getRowStatus = (rowHtml: string): string => {
@@ -2947,6 +3047,7 @@ export async function scrapeAdminPortalCDRs(
     let m: RegExpExecArray | null;
     const cdrs: SippyCDR[] = [];
     let rowIndex = 0;
+    let rowsTotal = 0, rowsTooFew = 0, rowsHeader = 0, rowsEmpty = 0, rowsNoCli = 0;
 
     // Month name map for admin portal date format "DD Mon YYYY HH:MM:SS"
     const MONTHS: Record<string, string> = {
@@ -2955,6 +3056,7 @@ export async function scrapeAdminPortalCDRs(
     };
 
     while ((m = trRe.exec(tableHtml)) !== null) {
+      rowsTotal++;
       const rowHtml = m[1];
       const statusTip = getRowStatus(rowHtml);
 
@@ -2966,11 +3068,11 @@ export async function scrapeAdminPortalCDRs(
         cells.push(txt);
       }
 
-      if (cells.length < 7) continue;
+      if (cells.length < 7) { rowsTooFew++; continue; }
       if (/^(caller|cli|cld|country|description|setup)/i.test(cells[1] || '') ||
-          /^(caller|cli|cld)/i.test(cells[0] || '')) continue;
-      if (/list is empty/i.test(cells.join(' '))) continue;
-      if (!cells[2] && !cells[3]) continue;
+          /^(caller|cli|cld)/i.test(cells[0] || '')) { rowsHeader++; continue; }
+      if (/list is empty/i.test(cells.join(' '))) { rowsEmpty++; continue; }
+      if (!cells[2] && !cells[3]) { rowsEmpty++; continue; }
 
       // Admin portal columns: [0]=status_icon [1]=Caller/Acct [2]=CLI [3]=CLD [4]=Country [5]=Desc [6]=SetupTime [7]=Dur [8]=BilledDur [9]=Amount
       const callerAcct  = cells[1] || '';
@@ -2983,7 +3085,7 @@ export async function scrapeAdminPortalCDRs(
       const billedRaw   = cells[8] || '0:00';
       const amountRaw   = cells[9] || '0';
 
-      if (!cli || cli === '-') continue;
+      if (!cli || cli === '-') { rowsNoCli++; continue; }
 
       const durationSec = parseMMSS(durationRaw);
       const billedSec   = parseMMSS(billedRaw);
@@ -3025,9 +3127,74 @@ export async function scrapeAdminPortalCDRs(
       });
     }
 
+    console.log(`[scrapeAdminPortalCDRs] rows: total=${rowsTotal} tooFewCells=${rowsTooFew} header=${rowsHeader} empty=${rowsEmpty} noCli=${rowsNoCli} parsed=${cdrs.length}`);
     return cdrs;
   } catch {
     return FAIL();
+  }
+}
+
+// ── CDR portal debug helper ──────────────────────────────────────────────────
+/**
+ * Fetch the raw CDR portal HTML for diagnostic inspection.
+ * Returns login result, HTTP status, body length, table count, and a 6KB sample.
+ * Used by the /api/sippy/cdr/debug admin endpoint.
+ */
+export async function debugCdrPortalHtml(
+  portalUsername: string,
+  portalPassword: string,
+  base: string,
+  opts: { startDate?: string; limit?: number } = {},
+): Promise<{
+  success: boolean; loginMessage: string;
+  statusCode?: number; bodyLength?: number;
+  tableCount?: number; tablePositions?: number[];
+  cdrTableFoundAt?: number; listEmpty?: boolean;
+  sample?: string;
+}> {
+  const loginRes = await portalLogin(base, portalUsername, portalPassword, 'customer');
+  if (!loginRes.success) return { success: false, loginMessage: loginRes.message };
+
+  const startDate = toSippyPortalDate(opts.startDate || '1 day ago');
+  const limit = opts.limit || 50;
+  const qs = [
+    'n=0', 'action=search', 'from_form=1',
+    'startDate=' + encodeURIComponent(startDate),
+    'endDate='   + encodeURIComponent(toSippyPortalDate('now')),
+    'calls_select=1', 'cdr_currency=USD', 'cli_clause=0', 'cld_clause=0',
+    'limit=' + limit, 'source=', 'destination=', 'caller=', 'result_filter_opt=0_0',
+    'bt_clause=0', 'bt_pattern=',
+  ].join('&');
+
+  try {
+    let resp = await rawRequest('GET', `${base}/c1/cdrs_customer.php?${qs}`, null, { 'User-Agent': PORTAL_USER_AGENT }, loginRes.cookies);
+    if (!resp.body || resp.body.length < 500) {
+      resp = await rawRequest('GET', `${base}/cdrs_customer.php?${qs}`, null, { 'User-Agent': PORTAL_USER_AGENT }, loginRes.cookies);
+    }
+    const html = resp.body ?? '';
+    const htmlLc = html.toLowerCase();
+
+    // Collect table positions
+    const positions: number[] = [];
+    let p = 0;
+    while ((p = htmlLc.indexOf('<table', p)) !== -1) { positions.push(p); p++; }
+
+    const cdrHtml = findCdrTableHtml(html);
+    const cdrTableFoundAt = cdrHtml ? html.length - cdrHtml.length : -1;
+
+    return {
+      success: true,
+      loginMessage: loginRes.message,
+      statusCode: resp.statusCode,
+      bodyLength: html.length,
+      tableCount: positions.length,
+      tablePositions: positions.slice(-10),  // last 10 table positions
+      cdrTableFoundAt,
+      listEmpty: /list is empty/i.test(html),
+      sample: cdrHtml.slice(0, 6000),
+    };
+  } catch (e: any) {
+    return { success: false, loginMessage: e.message };
   }
 }
 

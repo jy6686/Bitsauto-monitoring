@@ -3726,6 +3726,25 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, error: e.message, cdrs: [] }); }
   });
 
+  // GET /api/sippy/cdr/debug — dump raw CDR portal HTML for diagnostic inspection (admin only)
+  // Returns: login result, HTTP status, body length, table count, table positions, CDR table offset, 6KB sample
+  app.get('/api/sippy/cdr/debug', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const base = settings?.portalUrl || (sippy.getSippySessionStatus()?.portalUrl ?? '');
+      if (!base) return res.status(503).json({ success: false, loginMessage: 'No portal URL configured' });
+      const portalUsername = settings?.portalUsername || '';
+      const portalPassword = settings?.portalPassword || '';
+      if (!portalUsername || !portalPassword) {
+        return res.status(503).json({ success: false, loginMessage: 'Portal credentials not configured' });
+      }
+      const startDate = req.query.startDate as string | undefined;
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      const result = await sippy.debugCdrPortalHtml(portalUsername, portalPassword, base, { startDate, limit });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, loginMessage: e.message }); }
+  });
+
   // GET /api/sippy/cdr/sdp — retrieve SDP messages for a call (docs 3000039695)
   // Query params: iCall (required, integer), iCustomer (optional, trusted mode)
   // Returns: { records: SippyCDRSDPRecord[], iCustomer? }
