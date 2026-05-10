@@ -16914,7 +16914,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         return (lrnCldResult !== undefined && lrnCldResult !== 0) ||
                (lrnCliResult !== undefined && lrnCliResult !== 0);
       });
-      const ported = cdrMatches.length > 0 ? lrnPorted : null;
+      let ported = cdrMatches.length > 0 ? lrnPorted : null;
 
       // Carrier from connection vendor cache (most reliable source we have)
       const detectedCarrier =
