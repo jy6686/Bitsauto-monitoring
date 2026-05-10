@@ -20,7 +20,7 @@ import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
 import { initSyntheticScheduler } from "./synthetic-scheduler";
-import { initCarrierScoringEngine, recomputeCarrierScores } from "./carrier-scoring-engine";
+import { initCarrierScoringEngine, recomputeCarrierScores, setCdrProvider } from "./carrier-scoring-engine";
 import { APPROVAL_POLICY, type Role } from "@shared/schema";
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode } from "./dial-lookup";
@@ -3335,6 +3335,11 @@ export async function registerRoutes(
         const key = (!isPortalScraped && (c.callId || c.iCdr)) ||
           `${c.startTime}:${c.caller}:${c.callee}`;
         if (!key) continue;
+        // Enrich vendor from connectionVendorCache if the CDR record lacks it
+        if (!c.vendor && c.iConnection) {
+          const enriched = connectionVendorCache.get(String(c.iConnection));
+          if (enriched) c.vendor = enriched;
+        }
         if (!cdrCache.has(key)) { cdrCache.set(key, c); added++; }
       }
       // Evict entries older than 72h
@@ -15130,10 +15135,10 @@ export async function registerRoutes(
       const dbScores = await storage.getCarrierQualityScores(windowHours);
       if (dbScores.length > 0) return res.json(dbScores);
 
-      // Fallback: compute live from CDR cache grouped by destination prefix
+      // Fallback: compute live from CDR cache grouped by vendor name
       const cutoffMs = Date.now() - windowHours * 3600 * 1000;
       const recentCdrs = Array.from(cdrCache.values()).filter(c => {
-        const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+        const ts = sippy.parseSippyDate(c.startTime)?.getTime() ?? 0;
         return ts >= cutoffMs;
       });
       if (recentCdrs.length === 0) return res.json([]);
@@ -15576,6 +15581,36 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // Carrier Quality Scoring Engine — scores every 30 min
   initCarrierScoringEngine();
+
+  // Register CDR provider so the engine can persist real-traffic scores to DB
+  // even when simulation mode is off (route_decision_traces table stays empty).
+  // Cache the first non-numeric vendor name for fallback attribution.
+  // Sippy's getAccountCDRs often omits vendor_name/i_connection, so when only
+  // one carrier has activity (balance > 0) we attribute unresolved CDRs to it.
+  const _firstKnownVendor = (): string | undefined => {
+    for (const val of connectionVendorCache.values()) {
+      if (!/^\d+$/.test(val)) return val;
+    }
+    return undefined;
+  };
+
+  setCdrProvider((cutoffMs: number) => {
+    const fallbackVendor = _firstKnownVendor();
+    return [...cdrCache.values()]
+      .filter(c => (sippy.parseSippyDate(c.startTime)?.getTime() ?? 0) >= cutoffMs)
+      .map(c => {
+        const vendor = c.vendor
+          || (c.iConnection ? connectionVendorCache.get(String(c.iConnection)) : undefined)
+          || fallbackVendor;
+        return {
+          vendor,
+          duration:      c.duration,
+          totalDuration: c.totalDuration,
+          pdd:           c.pdd,
+          result:        c.result,
+        };
+      });
+  });
 
   // Start Sippy change-detection watcher (accounts, IPs, vendors)
   initSippyWatcher();
