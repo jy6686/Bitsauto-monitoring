@@ -28,6 +28,7 @@ import { readFileSync } from "fs";
 import { join as _pathJoin } from "path";
 import { generateStatusReport, STATUS_REPORT_PATH } from "./doc-generator";
 import { generateUserManual, USER_MANUAL_PATH } from "./manual-generator";
+import { convertMdToDocx } from "./md-to-docx";
 import { generateSippyDataflowDoc, SIPPY_DATAFLOW_PATH } from "./sippy-dataflow-generator";
 import { generateTroubleshootGuide, TROUBLESHOOT_GUIDE_PATH } from "./troubleshoot-generator";
 import { generateOrgHierarchyDoc, ORG_HIERARCHY_PATH } from "./org-hierarchy-generator";
@@ -10272,6 +10273,30 @@ export async function registerRoutes(
     res.download(filePath, 'Bitsauto_Platform_Features_Explained.md', (err: any) => {
       if (err) res.status(404).json({ error: 'File not found' });
     });
+  });
+
+  // GET /api/download/platform-features-docx — Full Feature Reference as Word (.docx)
+  app.get('/api/download/platform-features-docx', async (_req: any, res: any) => {
+    try {
+      const mdPath  = _pathJoin(process.cwd(), 'PLATFORM_FEATURES.md');
+      const outPath = _pathJoin(process.cwd(), 'attached_assets', 'Bitsauto_Full_Feature_Reference.docx');
+      await convertMdToDocx(mdPath, outPath, 'Full Feature Reference');
+      res.download(outPath, 'Bitsauto_Full_Feature_Reference.docx', (err: any) => {
+        if (err) res.status(404).json({ error: 'Conversion failed' });
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/download/platform-features-explained-docx — Deep-Dive as Word (.docx)
+  app.get('/api/download/platform-features-explained-docx', async (_req: any, res: any) => {
+    try {
+      const mdPath  = _pathJoin(process.cwd(), 'PLATFORM_FEATURES_EXPLAINED.md');
+      const outPath = _pathJoin(process.cwd(), 'attached_assets', 'Bitsauto_Features_Explained.docx');
+      await convertMdToDocx(mdPath, outPath, 'Features Explained (Deep-Dive)');
+      res.download(outPath, 'Bitsauto_Features_Explained.docx', (err: any) => {
+        if (err) res.status(404).json({ error: 'Conversion failed' });
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // GET /api/download/feature-roadmap — serve the Feature Roadmap Word document (Vol I)
