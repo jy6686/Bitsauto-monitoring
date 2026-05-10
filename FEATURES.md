@@ -185,6 +185,13 @@ Single-pane view across multiple Sippy softswitch instances.
 - Campaign history with trend charts
 - Alert integration on campaign failure
 
+### Carrier Quality Matrix (`/test-campaigns`)
+Collapsible panel above the campaign list, auto-populated from the last 30 days of route decision traces:
+- Per-carrier MOS score estimated via the ITU E-model from post-dial delay and failure rates
+- **Letter grades** — A (≥4.0 MOS) / B (≥3.5) / C (≥3.0) / D (≥2.5) / F (<2.5) — colour-coded
+- Per-carrier: ASR, average PDD, average call duration, top SIP error codes
+- **Backend**: `GET /api/campaigns/carrier-matrix` — aggregates `routeDecisionTraces` by carrier
+
 ---
 
 ## 9. SIP Trace Viewer
@@ -209,6 +216,18 @@ Interactive SIP signalling ladder diagram from raw trace input.
 
 ### Sippy Integration
 Sippy sends packet dumps by email — paste them directly into this viewer. Future: automatic CDR-linked capture retrieval.
+
+### SDP / Codec Negotiation Panel
+
+When a CDR `iCall` is loaded, an additional **Media Negotiation** panel automatically appears below the call metadata:
+
+- **Codec offer vs answer** — side-by-side view of what the originator offered (SDP offer) vs what the carrier accepted (SDP answer)
+- **Codec pills** — green pills for negotiated codecs (agreed by both sides), grey pills for offered-but-rejected codecs
+- **Connection details** — IP:port pairs from the `c=` and `m=` SDP lines
+- **Raw SDP accordion** — full SDP text for offer and answer, collapsible
+- Gracefully handles missing SDP data with an explanatory note
+
+**Backend**: `GET /api/sippy/cdr/sdp?iCall=xxx` — fetches SDP records from the Sippy CDR API.
 
 ---
 
@@ -242,6 +261,20 @@ Automated rule-based routing action engine evaluated against live Sippy metrics.
 
 ### Evaluation
 Rules are evaluated every 5 minutes against live Sippy data. `triggerCount` and `lastTriggeredAt` are recorded per rule.
+
+### Live Carrier Metrics Panel
+
+Real-time table showing current performance per active carrier, sourced from the live CDR and calls cache:
+
+| Column | Description |
+|--------|-------------|
+| **ASR** | Answer Seizure Ratio (%) — green ≥75%, amber ≥55%, red <55% |
+| **ACD** | Average Call Duration (seconds) |
+| **PDD** | Post-Dial Delay — green ≤2s, amber ≤5s, red >5s |
+| **Concurrent** | Live concurrent calls with animated pulse dot |
+
+**Time window selector**: 5 / 15 / 30 / 60 min lookback. Manual refresh. Auto-refreshes every 60 seconds.  
+**Backend**: `GET /api/routing-rules/metrics?window=N` — reads live CDR cache and `liveCallsCache` grouped by vendor.
 
 ---
 
@@ -545,4 +578,34 @@ WireGuard VPN configuration generation for secure Sippy API access.
 
 ---
 
-*Last updated: May 2026 · Bitsauto Monitoring Platform v2.5.0*
+---
+
+## 20. Sidebar Menu Configuration
+
+**Route:** `/sidebar-settings`  
+**Roles:** Admin only  
+**DB Table:** `settings` (`sidebar_hidden_items` column)  
+**API:** `GET /api/settings/sidebar-visibility`, `POST /api/settings/sidebar-visibility`
+
+Admin-controlled sidebar personalisation engine. Replaces the overloaded 50+ item sidebar with a configurable, business-relevant set of visible items.
+
+### Features
+
+| UI Component | Description |
+|---|---|
+| **Stats bar** | Live count of Visible / Hidden / Total features |
+| **Search** | Filter items by name or URL path |
+| **6 group sections** | All items grouped matching sidebar structure |
+| **Per-item toggle** | Enable / disable each item individually |
+| **Group bulk controls** | "All On" / "All Off" per section |
+| **Locked items** | Dashboard, Team Chat, My Account, Sidebar Menu always visible |
+| **Sticky save footer** | Always visible save button with current counts |
+
+### Behaviour
+- Hidden items disappear from the sidebar for **all users** immediately after save
+- Hidden items remain accessible via direct URL — this is a navigation filter, not access control
+- Role-based access controls still apply independently
+
+---
+
+*Last updated: May 2026 · Bitsauto Monitoring Platform v2.6.0*

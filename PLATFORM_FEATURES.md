@@ -21,6 +21,7 @@
    - 4.1 Routing Manager
    - 4.2 LCR Analyser
    - 4.3 Approval Queue
+   - 4.4 Self-Heal Routes
 5. [Analytics](#5-analytics)
    - 5.1 BitsEye
    - 5.2 Revenue Analytics
@@ -30,7 +31,7 @@
    - 5.6 Reports
    - 5.7 Traffic Map
 6. [Intelligence](#6-intelligence)
-   - 6.1 SIP Trace Viewer
+   - 6.1 SIP Trace Viewer (+ SDP/Codec Negotiation Panel)
    - 6.2 Carrier Scoring
    - 6.3 Network Topology (3D)
    - 6.4 Replay Engine
@@ -45,8 +46,10 @@
    - 7.5 Balance Monitor
    - 7.6 Cost Optimisation
    - 7.7 Billing Disputes
+   - 7.8 STIR/SHAKEN
+   - 7.9 Call Recordings
 8. [Platform](#8-platform)
-   - 8.1 Settings
+   - 8.1 Settings (+ Sidebar Menu Configuration)
    - 8.2 Team & KAM
    - 8.3 Vendors
    - 8.4 Accounts (Clients)
@@ -59,10 +62,11 @@
    - 8.11 API Keys
    - 8.12 VPN Config
    - 8.13 Call Flow Simulator
-   - 8.14 Test Suite
+   - 8.14 Test Suite (+ Carrier Quality Matrix)
    - 8.15 Notifications
    - 8.16 Tools
    - 8.17 SMS / A2P
+   - 8.18 Sidebar Menu Configuration
 9. [Global UX Systems](#9-global-ux-systems)
 10. [Animation & Visual Effects Reference](#10-animation--visual-effects-reference)
 
@@ -358,6 +362,31 @@ A **live count badge** on the sidebar nav item shows the number of pending reque
 
 ---
 
+### 4.4 Self-Heal Routes
+
+**Route**: `/self-heal`  
+**Access**: Admin, Management
+
+#### How It Works
+
+An automated diagnostic and remediation engine that proactively monitors platform health and applies corrective actions without manual intervention.
+
+- **Health checks**: continuous monitoring of Sippy reachability, polling job health, cache freshness, WebSocket connectivity, and database query latency
+- **Issue classification**: detected issues are categorised by severity (Critical / Warning / Info) and type (connectivity, data staleness, config drift)
+- **One-click fixes**: for each detected issue, a corresponding remediation action is available (reconnect, flush cache, restart polling job, clear stale data, re-authenticate)
+- **Auto-recovery rules**: configurable rules that apply fixes automatically when a condition is met — e.g. "if Sippy unreachable for >2 min, restart polling with exponential backoff"
+- **Fix history**: all applied fixes are logged to the `fix_history` table with timestamp, issue type, action taken, and outcome
+
+#### Relationship to the Fix Button
+
+Every page has a floating **Fix** button that triggers the same diagnostic engine in a page-scoped context. The Self-Heal Routes page (`/self-heal`) provides the global, cross-platform view of all current and historical issues.
+
+#### Impact
+
+Reduces mean time to recovery (MTTR) for common operational issues. NOC operators can resolve most platform connectivity problems in one click rather than escalating to the infrastructure team.
+
+---
+
 ## 5. Analytics
 
 ### 5.1 BitsEye
@@ -501,9 +530,26 @@ Visually highlights which geographies drive revenue and which have quality issue
 
 Displays SIP message traces for calls. Parses the SIP INVITE → 100 Trying → 180 Ringing → 200 OK / 4xx/5xx/6xx sequence and renders it as a sequence diagram. Supports filtering by Call-ID, CLI, or CLD.
 
+**Three-lane layout**: Caller (left) | Sippy centre node | Carrier (right). Timing delta column (Δms) between each consecutive event. Failure paths (4xx/5xx/6xx) highlighted in red. PDD metric bar colour-coded green (<2s) / amber (2–5s) / red (>5s).
+
+**SDP / Codec Negotiation Panel**
+
+When a CDR `iCall` ID is loaded, a **Media Negotiation** panel automatically appears below the call timeline:
+
+| Element | Description |
+|---------|-------------|
+| **Codec offer** | All codecs proposed in the SDP offer (originator side) |
+| **Codec answer** | Codecs accepted in the SDP answer (carrier side) |
+| **Negotiated pills** | Green pills = codecs both sides agreed on |
+| **Rejected pills** | Grey pills = offered but not accepted by carrier |
+| **Connection info** | IP:port from `c=` and `m=` SDP lines, both directions |
+| **Raw SDP accordion** | Full SDP text collapsible for each direction |
+
+**Backend**: `GET /api/sippy/cdr/sdp?iCall=xxx` — fetches SDP records from the Sippy CDR API. Gracefully shows an explanatory note when no SDP data is available (e.g. calls never progressed past the initial INVITE).
+
 #### Impact
 
-Network engineers can diagnose call setup failures (wrong codec negotiation, authentication failures, routing loops) without SSH access to the SBC.
+Network engineers can diagnose call setup failures (wrong codec negotiation, authentication failures, routing loops) without SSH access to the SBC. The SDP panel pinpoints codec mismatch as the root cause of audio issues in under 10 seconds.
 
 ---
 
@@ -828,6 +874,48 @@ Centralises dispute management. The ability to attach CDR exports and fraud anal
 
 ---
 
+### 7.8 STIR/SHAKEN
+
+**Route**: `/stir-shaken`  
+**Access**: Admin, Management
+
+#### How It Works
+
+Monitors STIR/SHAKEN call authentication attestation across the platform's call volume.
+
+- **Attestation breakdown**: per-period summary of calls by attestation level — Full (A), Partial (B), Gateway (C), and unsigned
+- **Carrier attestation rates**: which originating carriers are delivering fully-attested traffic vs unattested
+- **Failed verification log**: calls where the P-Attestation or P-Identity header was present but failed verification
+- **Risk scoring**: calls with low or missing attestation contribute to the Number Intelligence risk score
+- Integrates with the Compliance dashboard attestation health score
+
+#### Impact
+
+STIR/SHAKEN compliance is increasingly mandated by regulators (FCC in the US, Ofcom in the UK). Visibility into attestation rates allows operations teams to identify carriers delivering non-compliant traffic and take corrective action before regulatory penalties apply.
+
+---
+
+### 7.9 Call Recordings
+
+**Route**: `/call-recordings`  
+**Access**: Admin, Management
+
+#### How It Works
+
+Manages call recording metadata and playback for recorded calls passing through the platform.
+
+- **Recording index**: searchable list of all available recordings with caller, callee, duration, date, and recording quality indicator
+- **Metadata from CDRs**: recordings are linked to their CDR record, giving full routing context alongside the audio
+- **Playback**: in-browser audio playback with waveform visualisation where supported
+- **Retention management**: configurable retention period per recording category (regulatory, quality assurance, dispute evidence)
+- **Export**: individual or bulk download in WAV/MP3 format; export action is approval-queue gated for access-controlled environments
+
+#### Impact
+
+Provides the evidence layer required for dispute resolution, quality assurance audits, and regulatory compliance — accessible within the platform rather than requiring SSH access to recording storage.
+
+---
+
 ## 8. Platform
 
 ### 8.1 Settings
@@ -1062,9 +1150,25 @@ Allows pre-deployment validation of routing changes. Engineers can confirm that 
 
 **Test Campaigns tab**: batch test execution. Define a campaign as a set of (CLI, CLD, routing group) triplets and the system executes them sequentially or in parallel, collecting route traces for all. Campaign results feed the Replay Engine.
 
+**Carrier Quality Matrix**
+
+A collapsible panel displayed above the campaign list, automatically populated from the last 30 days of route decision traces:
+
+| Column | Description |
+|--------|-------------|
+| **Carrier** | Vendor name from route traces |
+| **Grade** | A / B / C / D / F — ITU E-model MOS estimate (A ≥4.0, B ≥3.5, C ≥3.0, D ≥2.5, F <2.5) |
+| **MOS** | Estimated mean opinion score |
+| **ASR** | Answer seizure ratio for this carrier over the window |
+| **Avg PDD** | Average post-dial delay (ms) |
+| **Avg Duration** | Average call duration (seconds) |
+| **Top Error** | Most common SIP error code seen from this carrier |
+
+**Backend**: `GET /api/campaigns/carrier-matrix` — aggregates `routeDecisionTraces` table grouped by carrier. The matrix auto-refreshes when campaign data changes.
+
 #### Impact
 
-Provides an objective, repeatable way to validate carrier quality before and after routing changes. Campaigns can be run after every routing configuration change as a regression test.
+Provides an objective, repeatable way to validate carrier quality before and after routing changes. The Carrier Quality Matrix surfaces systemic quality degradation trends across all campaigns at a glance — replacing manual campaign-by-campaign review.
 
 ---
 
@@ -1123,6 +1227,46 @@ Will monitor SMS and Application-to-Person messaging traffic through the platfor
 #### Impact
 
 Will extend the platform's monitoring capability beyond voice to SMS/messaging traffic.
+
+---
+
+### 8.18 Sidebar Menu Configuration
+
+**Route**: `/sidebar-settings`  
+**Access**: Admin only  
+**DB Table**: `settings` (`sidebar_hidden_items` column — JSON array of hidden href strings)  
+**API**: `GET /api/settings/sidebar-visibility`, `POST /api/settings/sidebar-visibility`
+
+#### How It Works
+
+Admin-controlled sidebar personalisation engine. Replaces the static 50+ item navigation with a fully configurable, business-relevant set of visible items.
+
+**Page Layout**:
+
+| UI Component | Description |
+|---|---|
+| **Stats bar** | Live count of Visible / Hidden / Total features, updates as toggles change |
+| **Search** | Filter all items by name or URL path in real time |
+| **6 group sections** | All sidebar items grouped to match the navigation structure |
+| **Per-item toggle** | Enable or disable each item individually; changes stage locally until saved |
+| **Group bulk controls** | "All On" / "All Off" buttons per section for fast bulk configuration |
+| **Locked items** | Dashboard, Team Chat, My Account, and Sidebar Menu Config are permanently visible |
+| **Sticky save footer** | Always-visible save button with current visible/hidden/total counts |
+
+**Persistence**: the hidden item list is stored as a JSON array of href strings in the `settings` table (`sidebar_hidden_items` column). The sidebar reads `GET /api/settings/sidebar-visibility` on each mount (60-second cache). Saving triggers `POST` which persists the new list and is reflected on the next sidebar load.
+
+**Data flow**: `layout-shell.tsx` exports `SIDEBAR_GROUPS` (the full canonical item list), fetches the visibility config, and filters items via a `sidebarHiddenSet` before rendering.
+
+#### Behaviour
+
+- Hidden items are removed from the sidebar for **all users** across all sessions immediately after save
+- Hidden items remain accessible via direct URL — this is a navigation filter, not an access-control system
+- Role-based access controls are enforced independently and are unaffected by visibility settings
+- Admin-locked items cannot be toggled (lock icon shown, toggle disabled)
+
+#### Impact
+
+Operations managers can reduce cognitive load for NOC operators by surfacing only the pages relevant to their daily workflow. A freshly deployed platform can be tailored to a specific team's use case in under two minutes.
 
 ---
 
@@ -1213,4 +1357,4 @@ A global context that loads the current user's KAM assignments and role on mount
 
 ---
 
-*Document generated: May 2026. Reflects all features implemented and live on the current build.*
+*Document generated: May 2026. Reflects all features implemented and live on the current build, including: SIP Trace SDP/Codec Negotiation Panel, Routing Intelligence Live Carrier Metrics, Test Campaign Carrier Quality Matrix, and Sidebar Menu Configuration.*
