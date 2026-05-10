@@ -3367,6 +3367,28 @@ export async function registerRoutes(
       }
       const hourly = Object.entries(buckets).map(([hour, v]) => ({ hour, ...v }));
 
+      // 1b) Daily aggregation with proper YYYY-MM-DD keys (no collision across days)
+      const windowDays = Math.ceil(hours / 24);
+      const dailyBuckets: Record<string, { answered: number; failed: number }> = {};
+      for (let d = windowDays - 1; d >= 0; d--) {
+        const t = new Date(now.getTime() - d * 86400 * 1000);
+        dailyBuckets[t.toISOString().slice(0, 10)] = { answered: 0, failed: 0 };
+      }
+      for (const c of cdrs) {
+        const ts = c.startTime ? new Date(c.startTime) : c.connectTime ? new Date(c.connectTime) : null;
+        if (!ts) continue;
+        const key = ts.toISOString().slice(0, 10);
+        if (dailyBuckets[key]) {
+          if ((c.duration ?? 0) > 0) dailyBuckets[key].answered++;
+          else dailyBuckets[key].failed++;
+        }
+      }
+      const daily = Object.entries(dailyBuckets).map(([day, v]) => ({
+        day: `${parseInt(day.slice(5, 7))}/${parseInt(day.slice(8, 10))}`,
+        answered: v.answered,
+        failed: v.failed,
+      }));
+
       // 2) Top destinations (by country or CLD prefix)
       const destMap: Record<string, number> = {};
       for (const c of cdrs) {
@@ -3390,7 +3412,7 @@ export async function registerRoutes(
         .map(([name, calls]) => ({ name, calls }));
 
       res.json({
-        hourly, byDestination, byClient,
+        hourly, daily, byDestination, topDestinations: byDestination, byClient, topClients: byClient,
         total: cdrs.length, windowHours: hours,
         cacheSize: cdrCache.size,
         cacheUpdatedAt: cdrCacheUpdatedAt?.toISOString() ?? null,
@@ -14764,8 +14786,43 @@ export async function registerRoutes(
   // GET /api/carrier-scores?window=24 — carrier quality scores
   app.get('/api/carrier-scores', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
-      const window = req.query.window ? Number(req.query.window) : 24;
-      res.json(await storage.getCarrierQualityScores(window));
+      const windowHours = req.query.window ? Number(req.query.window) : 24;
+      const dbScores = await storage.getCarrierQualityScores(windowHours);
+      if (dbScores.length > 0) return res.json(dbScores);
+
+      // Fallback: compute live from CDR cache grouped by destination prefix
+      const cutoffMs = Date.now() - windowHours * 3600 * 1000;
+      const recentCdrs = Array.from(cdrCache.values()).filter(c => {
+        const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+        return ts >= cutoffMs;
+      });
+      if (recentCdrs.length === 0) return res.json([]);
+
+      const prefixMap = new Map<string, { total: number; answered: number; pddSum: number; pddCount: number }>();
+      for (const c of recentCdrs) {
+        const raw = (c.callee ?? '').replace(/^\+/, '');
+        const prefix = raw.slice(0, 3) || 'UNK';
+        const ex = prefixMap.get(prefix) ?? { total: 0, answered: 0, pddSum: 0, pddCount: 0 };
+        ex.total++;
+        if ((c.duration ?? 0) > 0) ex.answered++;
+        if (c.pdd && c.pdd > 0) { ex.pddSum += c.pdd; ex.pddCount++; }
+        prefixMap.set(prefix, ex);
+      }
+      const liveScores = [...prefixMap.entries()]
+        .filter(([, v]) => v.total >= 2)
+        .sort((a, b) => b[1].total - a[1].total)
+        .slice(0, 8)
+        .map(([prefix, v]) => {
+          const asr         = Math.round(v.answered / v.total * 100);
+          const avgPddMs    = v.pddCount > 0 ? Math.round(v.pddSum / v.pddCount * 1000) : 0;
+          const pddPenalty  = avgPddMs > 5000 ? 20 : avgPddMs > 2000 ? 10 : 0;
+          const stabilityScore = Math.min(100, Math.round(asr * 0.75 + (100 - pddPenalty) * 0.25));
+          return {
+            carrierId: prefix, carrierName: `+${prefix}`,
+            stabilityScore, rollingAsr: asr, avgPddMs, failureRate: 100 - asr, sampleCount: v.total,
+          };
+        });
+      res.json(liveScores);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

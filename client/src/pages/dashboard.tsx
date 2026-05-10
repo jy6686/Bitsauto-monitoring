@@ -1919,22 +1919,14 @@ export default function DashboardPage() {
 
       {/* ── Dashboard Intelligence Row ──────────────────────────────────────── */}
       {isSippyReachable && (sectionVisible('weekly_volume') || sectionVisible('top_clients') || sectionVisible('carrier_health') || sectionVisible('top_destinations')) && (() => {
-        // ── 7-day daily call volume (aggregate hourly buckets into days) ──────
-        const hourly: any[] = weeklyVolumeData?.hourly ?? [];
-        const dailyMap: Record<string, { answered: number; failed: number }> = {};
-        hourly.forEach(pt => {
-          const d = new Date(pt.ts * 1000);
-          const key = `${d.getUTCMonth()+1}/${d.getUTCDate()}`;
-          if (!dailyMap[key]) dailyMap[key] = { answered: 0, failed: 0 };
-          dailyMap[key].answered += pt.answeredCalls ?? pt.calls ?? 0;
-          dailyMap[key].failed   += pt.failedCalls ?? 0;
-        });
-        const weeklyBars = Object.entries(dailyMap).slice(-7).map(([day, v]) => ({ day, ...v }));
+        // ── 7-day daily call volume (use server-computed daily buckets) ─────────
+        const weeklyBars: { day: string; answered: number; failed: number }[] =
+          (weeklyVolumeData as any)?.daily?.slice(-7) ?? [];
 
-        // ── Top clients donut (from 30-day analytics) ─────────────────────────
-        const topClients = (analyticsData?.byClient ?? [])
+        // ── Top clients donut (from CDR cache via graphs endpoint) ─────────────
+        const topClients = ((weeklyVolumeData as any)?.byClient ?? [])
           .slice(0, 6)
-          .map(c => ({ name: c.name.split(' ')[0], value: c.calls }));
+          .map((c: any) => ({ name: (c.name ?? 'Unknown').split(' ')[0], value: c.calls ?? 0 }));
         const DONUT_COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'];
 
         // ── Carrier health sparklines ─────────────────────────────────────────
@@ -1943,9 +1935,9 @@ export default function DashboardPage() {
           : [];
 
         // ── Top destinations by call volume ───────────────────────────────────
-        const topDests = (weeklyVolumeData?.topDestinations ?? [])
+        const topDests = ((weeklyVolumeData as any)?.byDestination ?? [])
           .slice(0, 8)
-          .map((d: any) => ({ name: d.country ?? d.destination ?? 'Unknown', calls: d.calls ?? 0 }));
+          .map((d: any) => ({ name: d.name ?? d.country ?? d.destination ?? 'Unknown', calls: d.calls ?? 0 }));
         const maxDestCalls = Math.max(1, ...topDests.map((d: any) => d.calls));
 
         return (
