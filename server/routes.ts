@@ -1093,6 +1093,34 @@ export async function registerRoutes(
     }
   );
 
+  // ── HLR / CNAM Provider Settings ─────────────────────────────────────────
+  app.get('/api/settings/hlr-provider',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const s = await storage.getSettings();
+        res.json({
+          hlrProvider: (s as any).hlrProvider ?? 'none',
+          hlrApiKeySet: !!((s as any).hlrApiKey),
+        });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  app.post('/api/settings/hlr-provider',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { hlrProvider, hlrApiKey } = req.body;
+        const patch: Record<string, any> = {};
+        if (hlrProvider !== undefined) patch.hlrProvider = hlrProvider;
+        if (hlrApiKey !== undefined) patch.hlrApiKey = hlrApiKey || null;
+        await storage.updateSettings(patch);
+        res.json({ success: true });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
   // ── Approval Settings API ─────────────────────────────────────────────────
   const DEFAULT_APPROVAL_SETTINGS = {
     routing_group:        { create: false, edit: true,  delete: true  },
@@ -16755,6 +16783,29 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         }
       } catch (_) { /* account cache may be empty */ }
 
+      // ── External HLR / CNAM provider call ────────────────────────────────────
+      const { performHlrLookup } = await import('./hlr-lookup');
+      const cfgSettings = await storage.getSettings();
+      const hlrResult = await performHlrLookup(
+        e164,
+        (cfgSettings as any).hlrProvider,
+        (cfgSettings as any).hlrApiKey,
+      );
+
+      // HLR wins over CDR-derived values for everything it provides
+      if (hlrResult.hlrSource !== 'not_configured' && hlrResult.hlrSource !== 'telnyx_error') {
+        if (hlrResult.carrier  !== null) detectedCarrier !== null ? null : undefined; // keep CDR fallback only if HLR gave carrier
+        if (hlrResult.lineType !== null) lineType = hlrResult.lineType;
+        if (hlrResult.ported   !== null) ported = hlrResult.ported;
+        if (hlrResult.networkCode !== null) networkCode = hlrResult.networkCode;
+        if (hlrResult.cnam !== null) cnam = hlrResult.cnam;
+        hlrSource = hlrResult.hlrSource;
+      }
+
+      const finalCarrier  = hlrResult.carrier  ?? detectedCarrier ?? null;
+      const finalActive   = hlrResult.active   ?? detectedActive;
+      const finalRoaming  = hlrResult.roaming;
+
       // ── FAS events for reputation ─────────────────────────────────────────────
       const fasAll = await storage.getFasEvents(5000);
       const relatedFas = fasAll.filter(e =>
@@ -16776,15 +16827,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
       const record = {
         number, country, countryCode,
-        carrier: detectedCarrier ?? null,
+        carrier: finalCarrier,
         lineType,
         ported,
-        active: detectedActive,
-        roaming: null,
+        active: finalActive,
+        roaming: finalRoaming,
         cnam,
         stirShaken: derivedStirShaken,
         reputationScore,
-        rawJson: JSON.stringify({ networkCode, hlrSource, lrnCld }),
+        rawJson: JSON.stringify({ networkCode, hlrSource, lrnCld, hlrRaw: hlrResult.rawJson }),
       };
 
       let saved;

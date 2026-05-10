@@ -1,10 +1,15 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "wouter";
-import { ScanSearch, Search, Globe, Phone, Shield, AlertTriangle, CheckCircle2, Clock, Info, Smartphone, Building, Wifi, Hash } from "lucide-react";
+import {
+  ScanSearch, Search, Globe, Phone, Shield, AlertTriangle, CheckCircle2,
+  Clock, Info, Smartphone, Building, Wifi, Hash, Settings2, Key, Zap,
+  ExternalLink, ChevronRight,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -22,14 +27,24 @@ interface NumberLookup {
   stirShaken: string | null;
   reputationScore: number | null;
   lookedUpAt: string;
+  hlrSource?: string | null;
+  networkCode?: string | null;
+  cdrCount?: number | null;
+  fasCount?: number | null;
+}
+
+interface HLRProviderStatus {
+  hlrProvider: string;
+  hlrApiKeySet: boolean;
 }
 
 function LineTypeIcon({ type }: { type: string | null }) {
   switch (type) {
-    case 'mobile': return <Smartphone className="h-4 w-4 text-emerald-400" />;
-    case 'fixed':  return <Phone className="h-4 w-4 text-blue-400" />;
-    case 'voip':   return <Wifi className="h-4 w-4 text-violet-400" />;
-    default:       return <Hash className="h-4 w-4 text-muted-foreground" />;
+    case 'mobile':    return <Smartphone className="h-4 w-4 text-emerald-400" />;
+    case 'fixed':     return <Phone className="h-4 w-4 text-blue-400" />;
+    case 'voip':      return <Wifi className="h-4 w-4 text-violet-400" />;
+    case 'toll_free': return <Phone className="h-4 w-4 text-amber-400" />;
+    default:          return <Hash className="h-4 w-4 text-muted-foreground" />;
   }
 }
 
@@ -60,10 +75,25 @@ function ReputationBar({ score }: { score: number | null }) {
   );
 }
 
+function HlrSourceBadge({ source }: { source: string | null | undefined }) {
+  if (!source) return null;
+  const map: Record<string, { label: string; cls: string }> = {
+    telnyx:             { label: "Telnyx HLR",    cls: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
+    'libphonenumber+sippy_cdr': { label: "Sippy CDR", cls: "bg-muted/30 text-muted-foreground border-border" },
+    sippy_cdr:          { label: "Sippy CDR",     cls: "bg-muted/30 text-muted-foreground border-border" },
+    cache:              { label: "Cached",         cls: "bg-muted/30 text-muted-foreground border-border" },
+    not_configured:     { label: "No HLR provider",cls: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
+    telnyx_error:       { label: "HLR error",     cls: "bg-rose-500/15 text-rose-400 border-rose-500/30" },
+  };
+  const c = map[source] ?? { label: source, cls: "bg-muted/30 text-muted-foreground border-border" };
+  return <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border", c.cls)}>{c.label}</span>;
+}
+
 const RECENT_KEY = 'number-intelligence-history';
 
 export default function NumberIntelligencePage() {
   const { toast } = useToast();
+  const qc = useQueryClient();
   const search = useSearch();
   const qNumber = new URLSearchParams(search).get('number') ?? '';
   const [inputNumber, setInputNumber] = useState(qNumber);
@@ -73,9 +103,25 @@ export default function NumberIntelligencePage() {
     try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
   });
 
+  // HLR provider config state
+  const [showProviderForm, setShowProviderForm] = useState(false);
+  const [providerDraft, setProviderDraft] = useState('none');
+  const [apiKeyDraft, setApiKeyDraft]     = useState('');
+  const [savingProvider, setSavingProvider] = useState(false);
+
+  const { data: providerStatus } = useQuery<HLRProviderStatus>({
+    queryKey: ['/api/settings/hlr-provider'],
+  });
+
   useEffect(() => {
     if (qNumber) doLookup(qNumber);
   }, [qNumber]);
+
+  useEffect(() => {
+    if (providerStatus) {
+      setProviderDraft(providerStatus.hlrProvider ?? 'none');
+    }
+  }, [providerStatus]);
 
   async function doLookup(num: string) {
     const clean = num.replace(/\s+/g, '').replace(/^00/, '+');
@@ -96,10 +142,30 @@ export default function NumberIntelligencePage() {
     }
   }
 
+  async function saveProvider() {
+    setSavingProvider(true);
+    try {
+      await apiRequest('POST', '/api/settings/hlr-provider', {
+        hlrProvider: providerDraft,
+        ...(apiKeyDraft ? { hlrApiKey: apiKeyDraft } : {}),
+      });
+      qc.invalidateQueries({ queryKey: ['/api/settings/hlr-provider'] });
+      setApiKeyDraft('');
+      setShowProviderForm(false);
+      toast({ title: "HLR provider saved", description: providerDraft === 'none' ? "Disabled" : "Telnyx enabled" });
+    } catch (e: any) {
+      toast({ title: "Save failed", description: e.message, variant: "destructive" });
+    } finally {
+      setSavingProvider(false);
+    }
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     doLookup(inputNumber);
   }
+
+  const isConfigured = providerStatus?.hlrProvider && providerStatus.hlrProvider !== 'none' && providerStatus.hlrApiKeySet;
 
   return (
     <div className="min-h-screen bg-background">
@@ -113,7 +179,103 @@ export default function NumberIntelligencePage() {
             <h1 className="text-xl font-bold">Number Intelligence</h1>
             <p className="text-sm text-muted-foreground">HLR lookup, carrier, line type, STIR/SHAKEN, CNAM and reputation in one click</p>
           </div>
+          <div className="ml-auto">
+            {isConfigured ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <Zap className="h-3 w-3" /> Telnyx HLR active
+              </span>
+            ) : (
+              <button
+                onClick={() => setShowProviderForm(v => !v)}
+                data-testid="button-configure-hlr"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
+              >
+                <Settings2 className="h-3 w-3" /> Configure HLR provider
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Provider Configuration Panel */}
+        {showProviderForm && (
+          <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <Key className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold">HLR / CNAM Provider</h3>
+              <span className="ml-auto text-[11px] text-muted-foreground">
+                Real carrier data — active status, portability, roaming, CNAM
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground font-medium">Provider</label>
+                <Select value={providerDraft} onValueChange={setProviderDraft}>
+                  <SelectTrigger data-testid="select-hlr-provider" className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None (CDR data only)</SelectItem>
+                    <SelectItem value="telnyx">Telnyx Number Lookup</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {providerDraft === 'telnyx' && (
+                <div className="sm:col-span-2 space-y-1.5">
+                  <label className="text-xs text-muted-foreground font-medium">
+                    Telnyx API Key
+                    {providerStatus?.hlrApiKeySet && <span className="ml-2 text-emerald-400">● key already saved</span>}
+                  </label>
+                  <Input
+                    type="password"
+                    placeholder={providerStatus?.hlrApiKeySet ? "Enter new key to replace existing…" : "KEY_…"}
+                    value={apiKeyDraft}
+                    onChange={e => setApiKeyDraft(e.target.value)}
+                    className="h-9 text-sm font-mono"
+                    data-testid="input-hlr-api-key"
+                  />
+                </div>
+              )}
+            </div>
+
+            {providerDraft === 'telnyx' && (
+              <p className="text-[11px] text-muted-foreground/70">
+                Get your API key from{" "}
+                <a
+                  href="https://portal.telnyx.com/#/app/api-keys"
+                  target="_blank" rel="noreferrer"
+                  className="text-blue-400 hover:underline"
+                >
+                  portal.telnyx.com <ExternalLink className="h-2.5 w-2.5 inline" />
+                </a>
+                {" "}— the Number Lookup product costs ~$0.001 per lookup (billed per use, no subscription).
+              </p>
+            )}
+
+            <div className="flex items-center gap-2 pt-1">
+              <Button
+                size="sm"
+                onClick={saveProvider}
+                disabled={savingProvider || (providerDraft === 'telnyx' && !providerStatus?.hlrApiKeySet && !apiKeyDraft)}
+                data-testid="button-save-hlr-provider"
+              >
+                {savingProvider ? "Saving…" : "Save Provider"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowProviderForm(false)}>
+                Cancel
+              </Button>
+              {isConfigured && (
+                <button
+                  onClick={() => setShowProviderForm(false)}
+                  className="ml-auto text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  Done
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Search */}
         <form onSubmit={handleSubmit}>
@@ -172,8 +334,11 @@ export default function NumberIntelligencePage() {
                     <p className="font-mono text-lg font-bold">{result.number}</p>
                     {result.cnam && <p className="text-xs text-muted-foreground">{result.cnam}</p>}
                   </div>
-                  <div className="ml-auto text-[10px] text-muted-foreground">
-                    Looked up {new Date(result.lookedUpAt).toLocaleString()}
+                  <div className="ml-auto flex items-center gap-2">
+                    <HlrSourceBadge source={result.hlrSource} />
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(result.lookedUpAt).toLocaleString()}
+                    </span>
                   </div>
                 </div>
 
@@ -192,8 +357,14 @@ export default function NumberIntelligencePage() {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Line Type</span>
-                        <span className="font-medium capitalize">{result.lineType || '—'}</span>
+                        <span className="font-medium capitalize">{result.lineType?.replace('_', ' ') || '—'}</span>
                       </div>
+                      {result.networkCode && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Network Code</span>
+                          <span className="font-mono font-medium">{result.networkCode}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -201,17 +372,29 @@ export default function NumberIntelligencePage() {
                   <div className="space-y-3">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Status</p>
                     <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Active</span>
-                        {result.active === null ? <span className="text-muted-foreground/60">Unknown</span> : result.active ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <AlertTriangle className="h-4 w-4 text-rose-400" />}
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Active (HLR)</span>
+                        {result.active === null
+                          ? <span className="text-muted-foreground/60">Unknown</span>
+                          : result.active
+                            ? <span className="flex items-center gap-1 text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> Active</span>
+                            : <span className="flex items-center gap-1 text-rose-400"><AlertTriangle className="h-3.5 w-3.5" /> Inactive</span>}
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Ported</span>
-                        {result.ported === null ? <span className="text-muted-foreground/60">Unknown</span> : result.ported ? <span className="text-amber-400 font-medium">Yes — ported</span> : <span className="text-muted-foreground">No</span>}
+                        {result.ported === null
+                          ? <span className="text-muted-foreground/60">Unknown</span>
+                          : result.ported
+                            ? <span className="text-amber-400 font-medium">Yes — ported</span>
+                            : <span className="text-muted-foreground">No</span>}
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Roaming</span>
-                        {result.roaming === null ? <span className="text-muted-foreground/60">Unknown</span> : result.roaming ? <span className="text-amber-400 font-medium">Yes</span> : <span className="text-muted-foreground">No</span>}
+                        {result.roaming === null
+                          ? <span className="text-muted-foreground/60">Unknown</span>
+                          : result.roaming
+                            ? <span className="text-amber-400 font-medium">Yes</span>
+                            : <span className="text-muted-foreground">No</span>}
                       </div>
                     </div>
                   </div>
@@ -220,7 +403,7 @@ export default function NumberIntelligencePage() {
                   <div className="space-y-3">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">STIR/SHAKEN</p>
                     <StirBadge level={result.stirShaken} />
-                    <p className="text-[10px] text-muted-foreground/60">Call attestation level for the most recent call from this number (from CDR data).</p>
+                    <p className="text-[10px] text-muted-foreground/60">Call attestation level from most recent CDR for this number.</p>
                   </div>
 
                   {/* Reputation */}
@@ -231,22 +414,63 @@ export default function NumberIntelligencePage() {
                   </div>
                 </div>
 
-                {/* Integration note */}
-                <div className="px-5 pb-5">
-                  <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 flex items-start gap-2">
-                    <Info className="h-3.5 w-3.5 text-blue-400 mt-0.5 shrink-0" />
-                    <p className="text-[11px] text-muted-foreground">
-                      Full HLR / CNAM data requires integration with an external provider (Telnyx, Neustar, or your own HLR gateway).
-                      Data shown here is derived from your Sippy CDR records and internal analysis.
-                    </p>
+                {/* CDR activity mini strip */}
+                {(result.cdrCount !== null && result.cdrCount !== undefined) && (
+                  <div className="px-5 pb-4 flex gap-3">
+                    <div className="flex-1 rounded-lg bg-muted/20 border border-border px-3 py-2 text-center">
+                      <p className="text-base font-bold">{result.cdrCount}</p>
+                      <p className="text-[10px] text-muted-foreground">CDR records</p>
+                    </div>
+                    <div className="flex-1 rounded-lg bg-muted/20 border border-border px-3 py-2 text-center">
+                      <p className={cn("text-base font-bold", (result.fasCount ?? 0) > 0 ? "text-rose-400" : "text-emerald-400")}>
+                        {result.fasCount ?? 0}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">FAS flags</p>
+                    </div>
                   </div>
+                )}
+
+                {/* Data source note */}
+                <div className="px-5 pb-5">
+                  {result.hlrSource === 'not_configured' ? (
+                    <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex items-start gap-2">
+                      <Info className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
+                      <div className="space-y-1 flex-1">
+                        <p className="text-[11px] text-muted-foreground">
+                          Data shown is derived from Sippy CDR records. For live carrier, active status, portability, roaming and CNAM, configure an HLR provider.
+                        </p>
+                        <button
+                          onClick={() => setShowProviderForm(true)}
+                          className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1"
+                        >
+                          Configure HLR provider <ChevronRight className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : result.hlrSource === 'telnyx_error' ? (
+                    <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 p-3 flex items-start gap-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-rose-400 mt-0.5 shrink-0" />
+                      <p className="text-[11px] text-muted-foreground">
+                        Telnyx lookup failed — showing CDR-derived data. Check your API key in the provider settings above.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-border/50 bg-muted/10 p-3 flex items-center gap-2">
+                      <Zap className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                      <p className="text-[11px] text-muted-foreground">
+                        Live data from <span className="text-foreground font-medium capitalize">{result.hlrSource?.replace('_', ' ')}</span>.
+                        Results cached for 24 hours — click Refresh on the panel to force a new lookup.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
           </div>
 
-          {/* History */}
+          {/* Sidebar */}
           <div className="space-y-4">
+            {/* History */}
             <div className="bg-card border border-border rounded-xl p-4">
               <h3 className="text-sm font-semibold mb-3">Recent Lookups</h3>
               {history.length === 0 ? (
@@ -279,6 +503,39 @@ export default function NumberIntelligencePage() {
                 <li>DID Management → DID list</li>
                 <li>Test Call Launcher → phone fields</li>
               </ul>
+            </div>
+
+            {/* Provider status mini-card */}
+            <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
+                HLR Provider
+              </h3>
+              {providerStatus ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Provider</span>
+                    <span className="text-xs font-medium capitalize">
+                      {providerStatus.hlrProvider === 'none' ? 'Not configured' : providerStatus.hlrProvider}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">API Key</span>
+                    <span className={cn("text-xs font-medium", providerStatus.hlrApiKeySet ? "text-emerald-400" : "text-muted-foreground/40")}>
+                      {providerStatus.hlrApiKeySet ? "Saved" : "Not set"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowProviderForm(v => !v)}
+                    data-testid="button-edit-provider"
+                    className="w-full mt-1 text-[11px] text-muted-foreground hover:text-foreground border border-border rounded-lg px-3 py-1.5 hover:bg-muted/30 transition-colors text-center"
+                  >
+                    {isConfigured ? "Change provider / key" : "Configure provider"}
+                  </button>
+                </div>
+              ) : (
+                <div className="h-12 animate-pulse bg-muted/20 rounded-lg" />
+              )}
             </div>
           </div>
         </div>
