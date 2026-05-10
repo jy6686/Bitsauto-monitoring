@@ -3165,31 +3165,54 @@ export async function registerRoutes(
         // empty CDR result is not a circuit failure
       }
 
-      // Fallback: portal scrape — try multiple credential combos because web-portal
-      // login uses adminWebPassword, not apiAdminPassword (which is for XML-RPC only).
+      // Fallback: portal scrape — this Sippy build only grants customer sessions
+      // (logins redirect to /c1/).  Try scrapePortalCDRs (customer portal) first with
+      // RTST1 credentials, then fall back to scrapeAdminPortalCDRs for each cred combo.
       if (batch.length === 0 && settings) {
         const portalUrl = sippyPortalUrl(settings);
-        const scrapeAttempts: Array<{ user: string; pass: string; base: string }> = [];
         const apiUser  = settings.apiAdminUsername  ?? '';
         const apiPass  = settings.apiAdminPassword  ?? '';
         const webPass  = (settings as any).adminWebPassword ?? '';
         const portUser = settings.portalUsername    ?? '';
         const portPass = settings.portalPassword    ?? '';
-        if (apiUser && webPass)  scrapeAttempts.push({ user: apiUser,  pass: webPass,  base: portalUrl });
-        if (apiUser && apiPass)  scrapeAttempts.push({ user: apiUser,  pass: apiPass,  base: portalUrl });
-        if (portUser && portPass) scrapeAttempts.push({ user: portUser, pass: portPass, base: portalUrl });
-        for (const { user, pass, base } of scrapeAttempts) {
+
+        // ── Attempt 1: RTST1 customer portal (most likely to have CDR data) ──
+        if (portUser && portPass) {
           try {
-            const scraped = await sippy.scrapeAdminPortalCDRs(user, pass, base, { limit: 500 });
+            const scraped = await sippy.scrapePortalCDRs(portUser, portPass, portalUrl, {
+              limit: 500,
+              fallbackUsername: apiUser,
+              fallbackPassword: webPass || apiPass,
+            });
             if (scraped.length > 0) {
-              console.log(`[cdr-cache] portal scrape OK via ${user}@${base} — ${scraped.length} CDRs`);
+              console.log(`[cdr-cache] portal scrape OK via ${portUser}@${portalUrl} (customer /c1/) — ${scraped.length} CDRs`);
               batch = scraped;
-              break;
             }
           } catch (scrapeErr: any) {
-            console.warn(`[cdr-cache] portal scrape failed (${user}@${base}): ${scrapeErr.message}`);
+            console.warn(`[cdr-cache] portal scrape (customer) failed (${portUser}@${portalUrl}): ${scrapeErr.message}`);
           }
         }
+
+        // ── Attempt 2: admin scrape with each credential combo ────────────────
+        if (batch.length === 0) {
+          const scrapeAttempts: Array<{ user: string; pass: string; base: string }> = [];
+          if (apiUser && webPass)  scrapeAttempts.push({ user: apiUser,  pass: webPass,  base: portalUrl });
+          if (apiUser && apiPass)  scrapeAttempts.push({ user: apiUser,  pass: apiPass,  base: portalUrl });
+          if (portUser && portPass) scrapeAttempts.push({ user: portUser, pass: portPass, base: portalUrl });
+          for (const { user, pass, base } of scrapeAttempts) {
+            try {
+              const scraped = await sippy.scrapeAdminPortalCDRs(user, pass, base, { limit: 500 });
+              if (scraped.length > 0) {
+                console.log(`[cdr-cache] portal scrape OK via ${user}@${base} (admin) — ${scraped.length} CDRs`);
+                batch = scraped;
+                break;
+              }
+            } catch (scrapeErr: any) {
+              console.warn(`[cdr-cache] portal scrape failed (${user}@${base}): ${scrapeErr.message}`);
+            }
+          }
+        }
+
         if (batch.length === 0) console.warn('[cdr-cache] all portal scrape attempts returned 0 CDRs');
       }
 

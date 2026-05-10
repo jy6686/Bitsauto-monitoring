@@ -2694,9 +2694,33 @@ export async function getMonitoringGraph(
   }
 }
 
+// ── Portal date conversion ───────────────────────────────────────────────────
+// Sippy's CDR search form accepts "MM/DD/YYYY HH:MM:SS" or natural-language
+// strings ("1 day ago", "now").  ISO 8601 strings sent by the frontend must be
+// converted; natural-language strings are passed through unchanged.
+function toSippyPortalDate(raw: string): string {
+  if (!raw) return raw;
+  // Already natural-language ("1 day ago", "now", "yesterday", etc.)
+  if (!/^\d{4}-\d{2}-\d{2}/.test(raw) && !/^\d{2}\/\d{2}\/\d{4}/.test(raw)) return raw;
+  // Already in Sippy format MM/DD/YYYY …
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) return raw;
+  // ISO 8601: YYYY-MM-DDTHH:MM:SS…
+  try {
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return raw;
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const yyyy = d.getUTCFullYear();
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const min = String(d.getUTCMinutes()).padStart(2, '0');
+    const ss = String(d.getUTCSeconds()).padStart(2, '0');
+    return `${mm}/${dd}/${yyyy} ${hh}:${min}:${ss}`;
+  } catch { return raw; }
+}
+
 // ── Portal CDR scraper ───────────────────────────────────────────────────────
-// Scrapes /cdrs_customer.php from the Sippy admin portal (using RTST1 or portal
-// credentials). Used as fallback when XML-RPC CDR methods return 401.
+// Scrapes /c1/cdrs_customer.php from the Sippy customer portal (using RTST1 or
+// portal credentials). Used as fallback when XML-RPC CDR methods return 401.
 //
 // CDR table columns (confirmed from portal HTML inspection):
 //  [0] row#  [1] Caller(acct) [2] CLI [3] CLD [4] Country [5] Description
@@ -2716,16 +2740,18 @@ export async function scrapePortalCDRs(
 ): Promise<SippyCDR[]> {
   const FAIL = (): SippyCDR[] => [];
 
-  const startDate = opts.startDate || '1 day ago';
-  const endDate   = opts.endDate   || 'now';
+  const startDate = toSippyPortalDate(opts.startDate || '1 day ago');
+  const endDate   = toSippyPortalDate(opts.endDate   || 'now');
   const limit     = opts.limit     || 100;
   const callsSel  = opts.callsSelect || '1';
 
   // Login with primary, then fallback credentials
   let loginRes = await portalLogin(base, portalUsername, portalPassword, 'customer');
+  console.log(`[scrapePortalCDRs] login ${portalUsername}: ${loginRes.success ? 'OK' : 'FAIL — ' + loginRes.message}`);
   if (!loginRes.success && opts.fallbackUsername && opts.fallbackPassword &&
       opts.fallbackUsername !== portalUsername) {
     loginRes = await portalLogin(base, opts.fallbackUsername, opts.fallbackPassword, 'customer');
+    console.log(`[scrapePortalCDRs] fallback login ${opts.fallbackUsername}: ${loginRes.success ? 'OK' : 'FAIL'}`);
   }
   if (!loginRes.success) return FAIL();
   const cookies = loginRes.cookies;
@@ -2743,13 +2769,28 @@ export async function scrapePortalCDRs(
       'limit=' + limit,
     ].join('&');
 
-    const resp = await rawRequest('GET', `${base}/cdrs_customer.php?${qs}`, null, cookies);
+    // Try /c1/cdrs_customer.php first (customer self-care portal — the only session type
+    // this Sippy build grants; logins always redirect to /c1/).  Fall back to the legacy
+    // admin path so the function still works on older multi-tenant Sippy installations.
+    // IMPORTANT: pass cookies as the 5th arg (jar), not 4th (extraHeaders).
+    let resp = await rawRequest('GET', `${base}/c1/cdrs_customer.php?${qs}`, null, {}, cookies);
+    console.log(`[scrapePortalCDRs] /c1/ → status=${resp.statusCode} bodyLen=${resp.body?.length ?? 0}`);
+    if (!resp.body || resp.body.length < 500) {
+      resp = await rawRequest('GET', `${base}/cdrs_customer.php?${qs}`, null, {}, cookies);
+      console.log(`[scrapePortalCDRs] /root/ → status=${resp.statusCode} bodyLen=${resp.body?.length ?? 0}`);
+    }
     const html = resp.body;
-    if (!html || html.length < 500) return FAIL();
+    if (!html || html.length < 500) {
+      console.log('[scrapePortalCDRs] response too short — aborting');
+      return FAIL();
+    }
 
     // Find the CDR data table (after the navform)
-    const tableStart = html.lastIndexOf('<TABLE');
-    if (tableStart === -1) return FAIL();
+    const tableIdx = html.lastIndexOf('<TABLE');
+    const tableIdxLc = html.lastIndexOf('<table');
+    const tableStart = Math.max(tableIdx, tableIdxLc);
+    console.log(`[scrapePortalCDRs] tableStart=${tableStart} (bodyLen=${html.length}) listEmpty=${/list is empty/i.test(html)}`);
+    if (tableStart === -1) { console.log('[scrapePortalCDRs] no TABLE found'); return FAIL(); }
     const tableHtml = html.slice(tableStart);
 
     // Parse rows (skip header row and "List is Empty" row)
@@ -2842,8 +2883,8 @@ export async function scrapeAdminPortalCDRs(
   } = {},
 ): Promise<SippyCDR[]> {
   const FAIL = (): SippyCDR[] => [];
-  const startDate = opts.startDate || '1 day ago';
-  const endDate   = opts.endDate   || 'now';
+  const startDate = toSippyPortalDate(opts.startDate || '1 day ago');
+  const endDate   = toSippyPortalDate(opts.endDate   || 'now');
   const limit     = opts.limit     || 100;
   const callsSel  = opts.callsSelect || '1';
   const offset    = opts.offset ?? 0;
@@ -2874,13 +2915,26 @@ export async function scrapeAdminPortalCDRs(
       'limit=' + limit,
     ].join('&');
 
-    const resp = await rawRequest('GET', `${base}/cdrs_customer.php?${qs}`, null, cookies);
+    // Try /c1/cdrs_customer.php first — this Sippy build grants customer sessions only
+    // (all logins redirect to /c1/).  Admin-level accounts can still see all CDRs via
+    // caller=0_0 from within the customer portal.  Fall back to the legacy admin path.
+    // IMPORTANT: pass cookies as the 5th arg (jar), not 4th (extraHeaders).
+    let resp = await rawRequest('GET', `${base}/c1/cdrs_customer.php?${qs}`, null, {}, cookies);
+    if (!resp.body || resp.body.length < 500) {
+      resp = await rawRequest('GET', `${base}/cdrs_customer.php?${qs}`, null, {}, cookies);
+    }
     const html = resp.body;
-    if (!html || html.length < 500) return FAIL();
+    if (!html || html.length < 500) {
+      console.log(`[scrapeAdminPortalCDRs] response too short (len=${html?.length ?? 0})`);
+      return FAIL();
+    }
 
-    // Find the CDR data table (last TABLE element)
-    const tableStart = html.lastIndexOf('<TABLE');
-    if (tableStart === -1) return FAIL();
+    // Find the CDR data table (last TABLE element) — case-insensitive
+    const tblIdx   = html.lastIndexOf('<TABLE');
+    const tblIdxLc = html.lastIndexOf('<table');
+    const tableStart = Math.max(tblIdx, tblIdxLc);
+    console.log(`[scrapeAdminPortalCDRs] tableStart=${tableStart} (bodyLen=${html.length}) listEmpty=${/list is empty/i.test(html)}`);
+    if (tableStart === -1) { console.log('[scrapeAdminPortalCDRs] no TABLE found'); return FAIL(); }
     const tableHtml = html.slice(tableStart);
 
     // Extract status icon tooltip from td[0] (ext:qtip attribute or title)
