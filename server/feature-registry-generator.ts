@@ -396,7 +396,7 @@ export async function generateFeatureRegistryDoc(outPath: string): Promise<void>
         makeDataRow([{ text: '1' }, { text: 'SIP Trace Viewer + Ladder Diagram' }, { text: 'REAL ✅', color: GREEN }, { text: '3-lane, PDD, deltas, failure highlighting + SDP/Codec Negotiation Panel' }]),
         makeDataRow([{ text: '2' }, { text: 'Automated Routing Intelligence' }, { text: 'REAL ✅', color: GREEN }, { text: 'Rule engine + approval gate + Live Carrier Metrics panel fully operational' }], '131929'),
         makeDataRow([{ text: '3' }, { text: 'Synthetic Call Testing (Scheduled)' }, { text: 'PARTIAL ⚠️', color: AMBER }, { text: 'Manual + Carrier Quality Matrix real; server-side scheduler + MOS baseline missing' }]),
-        makeDataRow([{ text: '4' }, { text: 'Number Intelligence Layer' }, { text: 'PARTIAL ⚠️', color: AMBER }, { text: 'cnam/hlr return null — no HLR/CNAM provider wired. STIR/SHAKEN monitor built separately.' }], '131929'),
+        makeDataRow([{ text: '4' }, { text: 'Number Intelligence Layer' }, { text: 'REAL ✅', color: GREEN }, { text: 'Full HLR Lookup integration via hlrlookup.com (v2) + Telnyx fallback. Populates live status, carrier, line type, MCC/MNC, porting (MNP endpoint). CNAM falls back to CDR-derived Sippy account name. Provider + dual credentials (api_key/api_secret) configured in Number Intelligence settings panel.' }], '131929'),
         makeDataRow([{ text: '5' }, { text: 'SBC / Media Plane Monitoring' }, { text: 'REAL ✅', color: GREEN }, { text: 'Signalling-layer metrics real; true RTP tap not yet' }]),
         makeDataRow([{ text: '6' }, { text: 'Client Self-Service Portal' }, { text: 'SHELL 🔲', color: ORANGE }, { text: 'UI exists; no tenant data isolation enforced' }], '131929'),
         makeDataRow([{ text: '7' }, { text: 'Reseller Management' }, { text: 'REAL ✅', color: GREEN }, { text: 'reseller_profiles table, full CRUD wired' }]),
@@ -442,7 +442,7 @@ export async function generateFeatureRegistryDoc(outPath: string): Promise<void>
       rows: [
         makeHeaderRow(['Priority', 'Feature', 'Effort', 'What\'s Needed']),
         makeDataRow([{ text: '🥇 1', color: GOLD }, { text: 'Scheduled Synthetic Testing' }, { text: 'Medium' }, { text: 'Server-side cron + existing test campaign tables + MOS baseline comparison → AI Ops' }]),
-        makeDataRow([{ text: '🥈 2', color: LIGHT_GY }, { text: 'Number Intelligence Enrichment' }, { text: 'Small' }, { text: 'One external provider API (Telnyx/Neustar) to populate cnam, hlr, stirShaken' }], '131929'),
+        makeDataRow([{ text: '✅ Done', color: GREEN }, { text: 'Number Intelligence Enrichment' }, { text: '—' }, { text: 'hlrlookup.com v2 integrated — live HLR status, carrier, line type, MCC/MNC, MNP porting via parallel API calls. Telnyx provider retained for CNAM. Dual-credential config in UI.' }], '131929'),
         makeDataRow([{ text: '🥉 3', color: AMBER }, { text: 'Route Decision Trace' }, { text: 'Small-Med' }, { text: 'Log which routing rule fired, which carrier was selected, and why — per call' }]),
         makeDataRow([{ text: '4', color: MID_GY }, { text: 'Client Portal Isolation' }, { text: 'Medium' }, { text: 'Role-scoped query filtering — customer role sees only their iAccount data' }], '131929'),
         makeDataRow([{ text: '5', color: MID_GY }, { text: 'Compliance Dashboard (full)' }, { text: 'Medium' }, { text: 'GDPR retention policy engine — STIR/SHAKEN monitor already built at /stir-shaken' }]),

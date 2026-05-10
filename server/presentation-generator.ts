@@ -4,7 +4,7 @@ export function generatePlatformPresentation(): string {
     {
       type: 'cover',
       title: 'Bitsauto VoIP Intelligence Platform',
-      subtitle: 'Top 10 High-Impact Commercial Features',
+      subtitle: 'Top 11 High-Impact Commercial Features',
       tagline: 'Built for carrier-grade operations, designed for commercial scale.',
       accent: '#7c3aed',
     },
@@ -217,6 +217,27 @@ export function generatePlatformPresentation(): string {
         { label: 'Negotiation Leverage', value: 91, color: '#f59e0b' },
       ],
       impact: 'In margin-compressed wholesale VoIP, recovering costs from SLA breaches and billing disputes has a direct, calculable dollar value. Finance committees approve platforms that pay for themselves.',
+    },
+
+    // ── FEATURE 11 ─────────────────────────────────────────────────────────────
+    {
+      type: 'feature',
+      num: '11',
+      color: '#10b981',
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>`,
+      title: 'Number Intelligence & HLR Lookup',
+      tagline: 'Real carrier data on any number — one click, zero guesswork',
+      how: [
+        'Parallel HLR + MNP API calls via hlrlookup.com v2 return live network status (LIVE/ABSENT/NO_COVERAGE), current carrier, line type (Mobile/Fixed/VoIP), MCC/MNC network code, and porting status in a single lookup — cached for 24 hours to control cost',
+        'STIR/SHAKEN attestation level (A/B/C/Unsigned), reputation score derived from FAS event history, CDR match count, and CDR-sourced CNAM are layered on top of the HLR result to give a complete number intelligence profile',
+        'Provider is configurable from the Number Intelligence page — supports hlrlookup.com (api_key + api_secret) or Telnyx; falls back to Sippy CDR data when no provider is set. Results are clickable from any number surface across the platform',
+      ],
+      metrics: [
+        { label: 'Fields Populated', value: 9, unit: ' data points', color: '#10b981', raw: true },
+        { label: 'Lookup Speed', value: 96, color: '#06b6d4' },
+        { label: 'Cache Hit Rate', value: 88, color: '#8b5cf6' },
+      ],
+      impact: 'Fraud investigation, CLI screening, and regulatory compliance all require knowing whether a number is real, active, and where it originates. This removes the manual carrier portal lookup and puts verified number intelligence directly in the hands of NOC and compliance teams.',
     },
 
     // ── CLOSER ─────────────────────────────────────────────────────────────────
