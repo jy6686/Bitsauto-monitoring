@@ -90,3 +90,9 @@ id = "j3m3gk3diburmvkBErmId"
 uri = "file://PLATFORM_FEATURES.md"
 type = "text"
 title = "Bitsauto Platform — Full Feature Reference"
+
+[[outputs]]
+id = "uOV89vQoHC6vEJXE6YrYK"
+uri = "file://client/public/downloads/Global_Country_Codes.xlsx"
+type = "table"
+title = "Global Country Codes — ISO2, ISO3, Numeric & Dialing Codes"
