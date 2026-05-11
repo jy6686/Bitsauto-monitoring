@@ -3240,7 +3240,8 @@ export default function SettingsPage() {
             { label: "Routing Features Plan", desc: "All 9 Sippy routing features — descriptions, API methods, status & effort estimates", href: "/api/download/routing-features", color: "text-teal-400", bg: "bg-teal-500/10 border-teal-500/20" },
             { label: "Platform Feature Registry", desc: "Complete feature audit — every module, status (REAL/PARTIAL/SHELL/NOT BUILT), DB tables, hooks, and remaining roadmap", href: "/api/download/feature-registry", color: "text-indigo-400", bg: "bg-indigo-500/10 border-indigo-500/20" },
             { label: "API Reference", desc: "All 200+ endpoints across 21 categories", href: "/api/download/api-reference", color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
-            { label: "Top 10 Features — Interactive Presentation", desc: "Animated HTML slideshow — top 10 commercial features with metrics, charts, and visual impact. Open the downloaded file in any browser.", href: "/api/download/platform-presentation", color: "text-violet-300", bg: "bg-violet-500/10 border-violet-500/25", ext: '.html' },
+            { label: "Top 11 Features — Interactive Presentation", desc: "Animated HTML slideshow — all 11 commercial features with metrics, charts, and visual impact. Open the downloaded file in any browser. Arrow keys, swipe, and click to navigate.", href: "/api/download/platform-presentation", color: "text-violet-300", bg: "bg-violet-500/10 border-violet-500/25", ext: '.html' },
+            { label: "Top 11 Features — PowerPoint Presentation", desc: "Native .pptx file — all 11 commercial features, fully compatible with Microsoft PowerPoint, Keynote, and Google Slides. Arrow keys navigate slides as expected.", href: "/downloads/Bitsauto_Top11_Features.pptx", color: "text-sky-300", bg: "bg-sky-500/10 border-sky-500/25", ext: '.pptx' },
           ].map(doc => (
             <a
               key={doc.href}

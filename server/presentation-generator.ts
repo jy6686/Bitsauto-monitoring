@@ -482,15 +482,37 @@ ${slidesHtml}
   document.getElementById('nextBtn').addEventListener('click',function(){go(Math.min(cur+1,total-1));});
   document.getElementById('prevBtn').addEventListener('click',function(){go(Math.max(cur-1,0));});
 
+  // Ensure the page captures key events immediately, even before any click
+  document.body.tabIndex = 0;
+  document.body.style.outline = 'none';
+  document.body.focus();
+
   document.addEventListener('keydown',function(e){
-    if(e.key==='ArrowRight'||e.key===' ')go(Math.min(cur+1,total-1));
-    if(e.key==='ArrowLeft')go(Math.max(cur-1,0));
+    // Prevent arrow / space from scrolling the overflow containers — we own navigation
+    if(['ArrowRight','ArrowLeft','ArrowUp','ArrowDown',' ','PageDown','PageUp','Home','End'].indexOf(e.key)>-1){
+      e.preventDefault();
+    }
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='ArrowDown'||e.key==='PageDown')go(Math.min(cur+1,total-1));
+    if(e.key==='ArrowLeft'||e.key==='ArrowUp'||e.key==='PageUp')go(Math.max(cur-1,0));
+    if(e.key==='Home')go(0);
+    if(e.key==='End')go(total-1);
   });
 
-  document.getElementById('deck').addEventListener('click',function(e){
-    if(e.target.closest('#controls'))return;
+  // Re-focus body after any click so key events keep working
+  document.addEventListener('click',function(e){
+    var t=e.target;
+    if(t&&t.closest&&t.closest('#controls'))return;
     go(Math.min(cur+1,total-1));
   });
+  document.addEventListener('mouseup',function(){document.body.focus();});
+
+  // Touch/swipe support
+  var tx=0;
+  document.addEventListener('touchstart',function(e){tx=e.touches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){
+    var dx=e.changedTouches[0].clientX-tx;
+    if(Math.abs(dx)>50){if(dx<0)go(Math.min(cur+1,total-1));else go(Math.max(cur-1,0));}
+  },{passive:true});
 
   // init
   animateBars(slides[0]);

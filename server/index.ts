@@ -157,6 +157,19 @@ app.use((req, res, next) => {
 
   await registerRoutes(httpServer, app);
 
+  // Pre-generate the PPTX at startup and write to the static downloads folder.
+  // Vite / the static server serves it directly — bypasses Express routing entirely.
+  import('./pptx-generator').then(async ({ generatePlatformPresentationPptx }) => {
+    const { writeFile } = await import('fs/promises');
+    const { resolve }   = await import('path');
+    const buf  = await generatePlatformPresentationPptx();
+    const dest = resolve(import.meta.dirname, '..', 'client', 'public', 'downloads', 'Bitsauto_Top11_Features.pptx');
+    await writeFile(dest, buf);
+    console.log(`[pptx] Pre-generated PPTX → ${dest} (${buf.length} bytes)`);
+  }).catch((e: any) => {
+    console.error('[pptx] Pre-generation failed (non-fatal):', e?.message);
+  });
+
   // NOC WebSocket — real-time live-call count push to all dashboard tabs
   setupNocWebSocket(httpServer);
 
