@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bitsauto — Partner Deployment Guide</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;font-size:15px;line-height:1.7;color:#1e293b;background:#f8fafc;padding:0}
+  .cover{background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#0d6e6e 100%);color:#fff;padding:80px 60px;min-height:220px}
+  .cover h1{font-size:2.4em;font-weight:700;letter-spacing:-0.5px;margin-bottom:10px}
+  .cover .sub{font-size:1.1em;color:#93c5fd;margin-bottom:6px}
+  .cover .date{font-size:0.9em;color:#64748b;margin-top:18px}
+  .toc{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:28px 36px;margin:36px auto;max-width:900px}
+  .toc h2{font-size:1em;font-weight:700;color:#1e3a5f;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
+  .toc ol{padding-left:20px;color:#3b82f6}
+  .toc li{margin-bottom:4px;font-size:0.97em}
+  .toc a{color:#2563eb;text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  .page{max-width:900px;margin:0 auto;padding:0 24px 60px}
+  section{margin-top:52px}
+  h2{font-size:1.45em;font-weight:700;color:#1e3a5f;border-bottom:2px solid #3b82f6;padding-bottom:8px;margin-bottom:20px}
+  h3{font-size:1.1em;font-weight:700;color:#0d6e6e;margin:28px 0 10px}
+  p{margin-bottom:12px;color:#334155}
+  ul,ol{padding-left:22px;margin-bottom:14px}
+  li{margin-bottom:6px;color:#334155}
+  code{background:#f1f5f9;color:#1d4ed8;padding:1px 6px;border-radius:4px;font-family:'Courier New',monospace;font-size:0.88em}
+  pre{background:#0f172a;color:#e2e8f0;padding:18px 22px;border-radius:8px;font-family:'Courier New',monospace;font-size:0.85em;margin:14px 0;overflow-x:auto;line-height:1.6}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:0.93em}
+  th{background:#1e3a5f;color:#fff;font-weight:600;text-align:left;padding:10px 14px}
+  td{padding:9px 14px;border-bottom:1px solid #e2e8f0;color:#334155}
+  tr:nth-child(even) td{background:#f8fafc}
+  tr:hover td{background:#eff6ff}
+  .callout{background:#eff6ff;border-left:4px solid #3b82f6;padding:14px 18px;border-radius:0 8px 8px 0;margin:16px 0;color:#1e40af;font-size:0.95em}
+  .highlight{background:#fef9c3;border-left:4px solid #eab308;padding:14px 18px;border-radius:0 8px 8px 0;margin:16px 0;color:#713f12;font-size:0.95em}
+  .cost-summary{background:linear-gradient(135deg,#ecfdf5,#d1fae5);border:1px solid #6ee7b7;border-radius:10px;padding:22px 28px;margin:20px 0}
+  .cost-summary h3{color:#065f46;margin-top:0}
+  .footer{text-align:center;padding:32px;color:#94a3b8;font-size:0.85em;border-top:1px solid #e2e8f0;margin-top:60px}
+  @media print{body{background:#fff}.cover{-webkit-print-color-adjust:exact;print-color-adjust:exact}th{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+  @media(max-width:640px){.cover{padding:40px 20px}.page{padding:0 12px 40px}}
+</style>
+</head>
+<body>
+<div class="cover">
+  <div style="max-width:900px;margin:0 auto">
+    <div style="font-size:0.85em;color:#93c5fd;margin-bottom:10px;text-transform:uppercase;letter-spacing:2px">Bitsauto Monitoring Platform</div>
+    <h1>Partner Deployment Guide</h1>
+    <div class="sub">Full Commercial Reference — Multi-Tenant, White-Label & Partner Access</div>
+    <div class="date">Prepared: 12 May 2026 &nbsp;·&nbsp; Confidential</div>
+  </div>
+</div>
+
+<div class="page">
+
+<div class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#s1">Multi-Domain Publishing Capability</a></li>
+    <li><a href="#s2">Partner Onboarding Process</a></li>
+    <li><a href="#s3">Demo Account Creation & Management</a></li>
+    <li><a href="#s4">Custom Domain Setup for Partners</a></li>
+    <li><a href="#s5">Role-Based & Limited Feature Access</a></li>
+    <li><a href="#s6">Multi-Tenant Architecture Overview</a></li>
+    <li><a href="#s7">Licensing & Access Control Strategy</a></li>
+    <li><a href="#s8">Hosting & Infrastructure Recommendations</a></li>
+    <li><a href="#s9">Security & SSL Management</a></li>
+    <li><a href="#s10">Scalability & Maintenance</a></li>
+    <li><a href="#s11">Per-Partner Cost Breakdown</a></li>
+    <li><a href="#s12">Recommended First Steps</a></li>
+  </ol>
+</div>
+
+<section id="s1">
+<h2>1 · Multi-Domain Publishing Capability</h2>
+<p>The Bitsauto platform can be published to an unlimited number of domains. Each partner deployment is an independent instance pointed at that partner's own Sippy softswitch, served under their own domain or subdomain.</p>
+<table>
+  <tr><th>Model</th><th>Domain Example</th><th>Use Case</th></tr>
+  <tr><td>Hosted subdomain</td><td>noc.bitsauto.com/partnerA</td><td>Shared hosting, lowest cost</td></tr>
+  <tr><td>Partner subdomain</td><td>noc.partnerA.com</td><td>White-label, partner owns DNS</td></tr>
+  <tr><td>Partner root domain</td><td>monitor.partnerA.net</td><td>Full white-label, dedicated</td></tr>
+  <tr><td>Demo portal</td><td>demo.bitsauto.com</td><td>Pre-sales trials</td></tr>
+</table>
+<p>Each domain maps to a separate running instance (container or process). A reverse proxy (Nginx or Caddy) routes incoming requests by hostname to the correct instance. SSL certificates are provisioned automatically per domain via Let's Encrypt. No code changes are needed between deployments — only configuration (Sippy credentials, branding, feature flags) differs per instance.</p>
+</section>
+
+<section id="s2">
+<h2>2 · Partner Onboarding Process</h2>
+<h3>Step-by-Step Flow</h3>
+<ol>
+  <li><strong>Partner Agreement</strong> — Sign commercial agreement covering licensing tier, feature set, support SLA, and billing model.</li>
+  <li><strong>Infrastructure Provisioning</strong> — Provision a server instance (VPS or container) for the partner. Takes 5–10 minutes with an automated deploy script.</li>
+  <li><strong>Configuration</strong> — Supply partner's Sippy credentials (XML-RPC user, admin web user, portal session). Configure feature flags and branding (logo, company name, colour scheme).</li>
+  <li><strong>Domain Setup</strong> — Partner points their DNS A record to the server IP. SSL certificate auto-provisioned via Let's Encrypt (2–5 minutes after DNS propagates).</li>
+  <li><strong>Admin Account Creation</strong> — Create the partner's first admin account. Credentials emailed to their designated technical contact.</li>
+  <li><strong>Handover & Training</strong> — Provide the auto-generated User Manual. Schedule a 1-hour walkthrough call for their NOC team.</li>
+</ol>
+<div class="callout">⏱ <strong>Total onboarding time:</strong> 2–4 hours technical work, plus 24–48 hours DNS propagation buffer.</div>
+</section>
+
+<section id="s3">
+<h2>3 · Demo Account Creation & Management</h2>
+<p>Demo accounts are time-limited, feature-capped instances using a shared demo Sippy switch (or simulated data) so no partner Sippy credentials are needed during evaluation.</p>
+<table>
+  <tr><th>Property</th><th>Value</th></tr>
+  <tr><td>Duration</td><td>14 days (configurable)</td></tr>
+  <tr><td>Data source</td><td>Shared demo switch or simulation mode</td></tr>
+  <tr><td>Enabled features</td><td>Live Calls, CDR Browser, Dashboard KPIs, BitsEye, Traffic Map</td></tr>
+  <tr><td>Disabled features</td><td>Fraud Engine, Rate Card Management, API Keys, Team Management</td></tr>
+  <tr><td>User limit</td><td>3 users per demo account</td></tr>
+  <tr><td>Auto-expiry</td><td>Account disabled automatically at day 14</td></tr>
+</table>
+<p>A demo is created in under 5 minutes: create a tenant record with demo flag and expiry date, create an admin user account, and send credentials by email. No infrastructure provisioning is needed if running on a shared demo environment.</p>
+</section>
+
+<section id="s4">
+<h2>4 · Custom Domain Setup for Partners</h2>
+<h3>DNS Configuration (Partner Side)</h3>
+<p>The partner adds one DNS record at their registrar:</p>
+<pre>Type:  A
+Name:  noc  (or monitor, or voip)
+Value: [your server IP]
+TTL:   300</pre>
+<h3>Server Side (Your Side)</h3>
+<p>Add a new virtual host block to Nginx or Caddy pointing to the partner's application port. SSL is provisioned automatically via Certbot or Caddy's built-in ACME client. The entire process takes under 10 minutes once DNS has propagated.</p>
+<div class="callout">💡 <strong>Wildcard domain option:</strong> For partners using subdomains of your domain (e.g., partnerA.bitsauto.com), a single wildcard SSL certificate (*.bitsauto.com) covers all partners at once — eliminating per-partner SSL management entirely.</div>
+</section>
+
+<section id="s5">
+<h2>5 · Role-Based & Limited Feature Access</h2>
+<h3>Role Hierarchy</h3>
+<table>
+  <tr><th>Role</th><th>Who Uses It</th><th>Access Level</th></tr>
+  <tr><td><code>super_admin</code></td><td>You (platform owner)</td><td>All tenants, all data, all config</td></tr>
+  <tr><td><code>admin</code></td><td>Partner's IT admin</td><td>Their own users, switch config, feature config</td></tr>
+  <tr><td><code>management</code></td><td>Partner's manager / KAM</td><td>Analytics, reports, alerts — no system config</td></tr>
+  <tr><td><code>viewer</code></td><td>Partner's NOC operator</td><td>Live calls, alerts, dashboards — read only</td></tr>
+  <tr><td><code>demo</code></td><td>Pre-sales prospect</td><td>Subset of features, synthetic data, time-limited</td></tr>
+</table>
+<h3>Feature Flag Matrix</h3>
+<table>
+  <tr><th>Feature</th><th>Internal</th><th>Standard</th><th>Lite</th><th>Demo</th></tr>
+  <tr><td>Live Call Monitor</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+  <tr><td>CDR Browser</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+  <tr><td>Dashboard KPIs</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+  <tr><td>BitsEye Analytics</td><td>✅</td><td>✅</td><td>❌</td><td>✅</td></tr>
+  <tr><td>Traffic Map</td><td>✅</td><td>✅</td><td>❌</td><td>✅</td></tr>
+  <tr><td>Revenue & Margin</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td></tr>
+  <tr><td>Fraud Engine (FAS)</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td></tr>
+  <tr><td>Rate Card Management</td><td>✅</td><td>✅</td><td>✅</td><td>❌</td></tr>
+  <tr><td>Routing Manager</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td></tr>
+  <tr><td>API Key Management</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td></tr>
+  <tr><td>Test Call Launcher</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td></tr>
+</table>
+</section>
+
+<section id="s6">
+<h2>6 · Multi-Tenant Architecture Overview</h2>
+<p>The recommended approach is a shared codebase with tenant-aware data isolation. Every database table includes a <code>tenant_id</code> column. All queries are automatically scoped to the requesting user's tenant — zero data leakage between tenants.</p>
+<pre>Internet
+    │
+Reverse Proxy (Nginx / Caddy / Cloudflare)
+    │
+    ├── noc.partnerA.com ────► App Instance (Port 3001) ──► DB Tenant A
+    ├── noc.partnerB.com ────► App Instance (Port 3002) ──► DB Tenant B
+    ├── demo.bitsauto.com ───► App Instance (Port 3003) ──► DB Demo
+    └── internal.bitsauto.com ► App Instance (Port 3000) ──► DB Internal</pre>
+<h3>Two Viable Models</h3>
+<table>
+  <tr><th>Model</th><th>Description</th><th>Best For</th></tr>
+  <tr><td><strong>Option A</strong> — One instance per tenant</td><td>Each tenant gets a fully isolated process and database. Maximum isolation, simplest to debug.</td><td>Up to 10 partners</td></tr>
+  <tr><td><strong>Option B</strong> — Shared instance, tenant-scoped data</td><td>One application process serves all tenants. Isolation enforced at the query layer. Cost-efficient at scale.</td><td>10+ partners</td></tr>
+</table>
+</section>
+
+<section id="s7">
+<h2>7 · Licensing & Access Control Strategy</h2>
+<table>
+  <tr><th>Tier</th><th>Monthly Price</th><th>Included Features</th><th>Switch Limit</th><th>User Limit</th></tr>
+  <tr><td>Lite</td><td>$199/mo</td><td>Core monitoring, CDR, dashboard</td><td>1 switch</td><td>5 users</td></tr>
+  <tr><td>Standard</td><td>$499/mo</td><td>All analytics, rate cards, BitsEye</td><td>3 switches</td><td>15 users</td></tr>
+  <tr><td>Professional</td><td>$999/mo</td><td>Full platform incl. fraud engine, routing</td><td>5 switches</td><td>Unlimited</td></tr>
+  <tr><td>Enterprise</td><td>Custom</td><td>Full platform, white-label, SLA, dedicated support</td><td>Unlimited</td><td>Unlimited</td></tr>
+</table>
+<div class="highlight">⚠️ When a subscription lapses, feature flags are <strong>downgraded</strong> (not deleted) — partners retain read access to historical data but cannot use premium features until renewed. This is commercially friendlier than hard lockouts.</div>
+</section>
+
+<section id="s8">
+<h2>8 · Hosting & Infrastructure Recommendations</h2>
+<table>
+  <tr><th>Scale</th><th>Setup</th><th>Estimated Monthly Cost</th></tr>
+  <tr><td>Up to 5 partners</td><td>Single VPS (4 vCPU, 8 GB RAM) — all instances on one server</td><td>$40–60/mo (Hetzner / DigitalOcean)</td></tr>
+  <tr><td>5–20 partners</td><td>Two VPS nodes — one for app, one for managed PostgreSQL</td><td>$80–120/mo</td></tr>
+  <tr><td>20+ partners</td><td>Managed Kubernetes (DO DOKS, AWS EKS, or GKE) with auto-scaling</td><td>$200–400/mo</td></tr>
+</table>
+<p>PostgreSQL is the right database choice at all scales. Backups run nightly to object storage (S3 or equivalent) — cost is under $5/month for most partner sizes. Each partner's database grows at approximately 500 MB–2 GB per month depending on CDR volume.</p>
+</section>
+
+<section id="s9">
+<h2>9 · Security & SSL Management</h2>
+<table>
+  <tr><th>Approach</th><th>Best For</th><th>Cost</th></tr>
+  <tr><td>Let's Encrypt via Certbot</td><td>Self-managed VPS, per-domain certs</td><td>Free</td></tr>
+  <tr><td>Cloudflare Proxy</td><td>All domains behind Cloudflare</td><td>Free (Cloudflare plan)</td></tr>
+  <tr><td>Wildcard certificate</td><td>All subdomains of your domain</td><td>Free via Let's Encrypt DNS challenge</td></tr>
+  <tr><td>DigiCert / Sectigo EV</td><td>Enterprise partners requiring EV SSL</td><td>$100–300/year per domain</td></tr>
+</table>
+<h3>Security Controls</h3>
+<ul>
+  <li>All API endpoints enforce role-based access at middleware layer</li>
+  <li>Secrets (Sippy credentials, API keys) stored encrypted at rest</li>
+  <li>Partner data never accessible across tenant boundaries</li>
+  <li>Rate limiting applied to all authentication endpoints</li>
+  <li>Session tokens expire after 8 hours of inactivity</li>
+  <li>Every significant action logged against the user and tenant (full audit trail)</li>
+</ul>
+<div class="callout">🔒 <strong>Recommendation:</strong> Before onboarding paying partners, run a basic automated security scan (OWASP ZAP or Burp Suite Community). A one-day exercise that dramatically increases partner confidence.</div>
+</section>
+
+<section id="s10">
+<h2>10 · Scalability & Maintenance Considerations</h2>
+<h3>Scaling Triggers</h3>
+<table>
+  <tr><th>Partner Count</th><th>Action Required</th></tr>
+  <tr><td>5 partners</td><td>Add dedicated database server, separate from application server</td></tr>
+  <tr><td>10 partners</td><td>Add second application server and load balancer</td></tr>
+  <tr><td>20 partners</td><td>Move to container orchestration (Docker Compose or Kubernetes)</td></tr>
+  <tr><td>50+ partners</td><td>Managed cloud platform (AWS, GCP) with auto-scaling and global CDN</td></tr>
+</table>
+<h3>Uptime SLA Targets</h3>
+<table>
+  <tr><th>Tier</th><th>SLA Target</th><th>Monitoring Tool</th></tr>
+  <tr><td>Lite / Standard</td><td>99.5% (3.6 hrs downtime/month)</td><td>Uptime Robot (free)</td></tr>
+  <tr><td>Professional</td><td>99.9% (44 min downtime/month)</td><td>Better Uptime or Pingdom</td></tr>
+  <tr><td>Enterprise</td><td>99.95%</td><td>Dedicated monitoring, PagerDuty</td></tr>
+</table>
+<p>Monthly maintenance takes 2–4 hours for up to 10 partners, covering dependency updates, SSL renewal verification, database optimisation, and backup integrity checks.</p>
+</section>
+
+<section id="s11">
+<h2>11 · Per-Partner Cost Breakdown</h2>
+<h3>One-Time Setup Cost Per Partner</h3>
+<table>
+  <tr><th>Item</th><th>Estimated Cost</th></tr>
+  <tr><td>Server provisioning and configuration</td><td>$50–100</td></tr>
+  <tr><td>Domain DNS setup and SSL provisioning</td><td>$0–50</td></tr>
+  <tr><td>Branding and white-label configuration</td><td>$100–200</td></tr>
+  <tr><td>Initial testing and handover</td><td>$50–100</td></tr>
+  <tr><td><strong>Total one-time setup</strong></td><td><strong>$200–450 per partner</strong></td></tr>
+</table>
+
+<h3>Monthly Operational Cost — Shared Infrastructure</h3>
+<table>
+  <tr><th>Item</th><th>Monthly Cost</th><th>Notes</th></tr>
+  <tr><td>Hosting / server share</td><td>$8–15</td><td>Proportional share of $40–60 VPS</td></tr>
+  <tr><td>Database storage</td><td>$1–3</td><td>500 MB–2 GB/month typical</td></tr>
+  <tr><td>Backup storage</td><td>$0.50–1</td><td>S3-compatible object storage</td></tr>
+  <tr><td>Domain (if you provide)</td><td>$1–2</td><td>$12–24/year amortised</td></tr>
+  <tr><td>SSL certificate</td><td>$0</td><td>Let's Encrypt — free</td></tr>
+  <tr><td>Email service (alerts)</td><td>$1–3</td><td>Resend / SendGrid free tiers</td></tr>
+  <tr><td>Uptime monitoring</td><td>$0–2</td><td>Uptime Robot free tier</td></tr>
+  <tr><td>Maintenance labour</td><td>$5–10</td><td>Shared across 10+ partners</td></tr>
+  <tr><td><strong>Total monthly (shared)</strong></td><td><strong>$17–36/month</strong></td><td></td></tr>
+</table>
+
+<h3>Monthly Operational Cost — Dedicated Instance</h3>
+<table>
+  <tr><th>Item</th><th>Monthly Cost</th><th>Notes</th></tr>
+  <tr><td>Dedicated VPS (2 vCPU, 4 GB RAM)</td><td>$20–25</td><td>Hetzner CX21 or DigitalOcean Basic</td></tr>
+  <tr><td>Managed PostgreSQL</td><td>$15–25</td><td>DigitalOcean managed DB smallest tier</td></tr>
+  <tr><td>Backup storage</td><td>$1–2</td><td></td></tr>
+  <tr><td>Domain and SSL</td><td>$1–2</td><td></td></tr>
+  <tr><td>Email service</td><td>$1–3</td><td></td></tr>
+  <tr><td>Monitoring</td><td>$2–5</td><td></td></tr>
+  <tr><td>Maintenance labour</td><td>$20–50</td><td>More isolation = more management</td></tr>
+  <tr><td><strong>Total monthly (dedicated)</strong></td><td><strong>$60–112/month</strong></td><td></td></tr>
+</table>
+
+<div class="cost-summary">
+<h3>📊 Yearly Cost & Margin Summary</h3>
+<table>
+  <tr><th>Model</th><th>Monthly Cost/Partner</th><th>Yearly Cost/Partner</th><th>Recommended Price</th><th>Gross Margin</th></tr>
+  <tr><td>Shared — Lite</td><td>$17–36</td><td>$204–432</td><td>$199/mo</td><td>~82%</td></tr>
+  <tr><td>Shared — Standard</td><td>$20–40</td><td>$240–480</td><td>$499/mo</td><td>~85%</td></tr>
+  <tr><td>Dedicated — Professional</td><td>$60–112</td><td>$720–1,344</td><td>$999/mo</td><td>~87%</td></tr>
+  <tr><td>Dedicated — Enterprise</td><td>$100–200</td><td>$1,200–2,400</td><td>Custom ($1,500+/mo)</td><td>~87%</td></tr>
+</table>
+</div>
+</section>
+
+<section id="s12">
+<h2>12 · Recommended First Steps</h2>
+<ol>
+  <li>Formalise one white-label partner deployment manually to validate the process end-to-end</li>
+  <li>Document the exact steps into a runbook — this becomes your deployment playbook</li>
+  <li>Build a simple partner admin page (super admin only) to manage tenant records, feature flags, and demo account expiry</li>
+  <li>Set up a shared demo environment with synthetic data for pre-sales trials</li>
+  <li>Establish a billing relationship (Stripe) before onboarding more than 2–3 paying partners</li>
+  <li>Run a basic security scan before any commercial partner goes live</li>
+</ol>
+</section>
+
+</div>
+<div class="footer">
+  Bitsauto Monitoring Platform &nbsp;·&nbsp; Partner Deployment Guide &nbsp;·&nbsp; Confidential &nbsp;·&nbsp; May 2026
+</div>
+</body>
+</html>
