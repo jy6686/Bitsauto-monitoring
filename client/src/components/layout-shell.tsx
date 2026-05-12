@@ -132,34 +132,59 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/multi-switch",  label: "Multi-Switch View",  icon: Layers,   roles: ['admin','management']          },
     ],
   },
-  // ─── 2. Routing & LCR ────────────────────────────────────────────────────────
+  // ─── 2. Client Operations ────────────────────────────────────────────────────
+  {
+    key: 'client_ops',
+    label: 'Client Operations',
+    roles: ['admin','management'],
+    items: [
+      { href: "/company-profile", label: "Rate Plan",      icon: ContactRound, roles: ['admin','management']                        },
+      { href: "/clients",         label: "Accounts",       icon: Users,        roles: ['admin','management']                        },
+      { href: "/balance",         label: "Balance",        icon: Wallet,       roles: ['admin','management']                        },
+      { href: "/client-portal",   label: "Client Portal",  icon: Globe,        roles: ['admin','management']                        },
+      { href: "/bitseye",         label: "BitsEye",        icon: Eye,          roles: ['admin','management'], hasSubmenu: 'bitseye' },
+      { href: "/traffic-map",     label: "Traffic Map",    icon: Globe,        roles: ['admin','management']                        },
+    ],
+  },
+  // ─── 3. Vendor Operations ────────────────────────────────────────────────────
+  {
+    key: 'vendor_ops',
+    label: 'Vendor Operations',
+    roles: ['admin','management'],
+    items: [
+      { href: "/vendors",                           label: "Vendors",          icon: Building2,  roles: ['admin','management']                         },
+      { href: "/routing-manager?tab=connections",   label: "Connections",      icon: Network,    roles: ['admin','management']                         },
+      { href: "/routing-manager?tab=destination-sets", label: "Destination Sets", icon: Layers,  roles: ['admin','management']                         },
+      { href: "/routing-manager?tab=routing-groups",label: "Routing Groups",   icon: Database,   roles: ['admin','management']                         },
+      { href: "/test-call",                         label: "Test Suite",       icon: PhoneCall,  roles: ['admin','management'], hasSubmenu: 'testing'  },
+    ],
+  },
+  // ─── 4. Routing & LCR ────────────────────────────────────────────────────────
   {
     key: 'routing',
     label: 'Routing & LCR',
     roles: ['admin','management'],
     items: [
-      { href: "/routing-manager", label: "Routing Manager", icon: Database,    roles: ['admin','management'], hasSubmenu: 'routingmgr' },
-      { href: "/lcr-analyser",    label: "LCR Analyser",    icon: GitBranch,   roles: ['admin','management']                           },
-      { href: "/self-heal",       label: "Self-Heal Routes", icon: HeartPulse,  roles: ['admin','management'], isNew: true              },
-      { href: "/approvals",       label: "Approval Queue",  icon: ShieldCheck, roles: ['admin','management','super_admin','noc_operator','team_lead'], status: 'live' },
+      { href: "/routing-manager", label: "Routing Manager",  icon: Database,    roles: ['admin','management'], hasSubmenu: 'routingmgr' },
+      { href: "/lcr-analyser",    label: "LCR Analyser",     icon: GitBranch,   roles: ['admin','management']                           },
+      { href: "/self-heal",       label: "Self-Heal Routes",  icon: HeartPulse,  roles: ['admin','management'], isNew: true              },
+      { href: "/approvals",       label: "Approval Queue",   icon: ShieldCheck, roles: ['admin','management','super_admin','noc_operator','team_lead'], status: 'live' },
     ],
   },
-  // ─── 3. Analytics ────────────────────────────────────────────────────────────
+  // ─── 5. Analytics ────────────────────────────────────────────────────────────
   {
     key: 'analytics',
     label: 'Analytics',
     roles: ['admin','management'],
     items: [
-      { href: "/bitseye",     label: "BitsEye",           icon: Eye,       roles: ['admin','management'], hasSubmenu: 'bitseye' },
-      { href: "/analytics",   label: "Revenue Analytics", icon: TrendingUp,roles: ['admin','management']                        },
-      { href: "/cdrs",        label: "CDR Viewer",        icon: FileText,  roles: ['admin','management'], hasSubmenu: 'cdr'     },
-      { href: "/graphs",      label: "Graphs",            icon: LineChart, roles: ['admin','management']                        },
-      { href: "/qos-heatmap", label: "QoS Heatmap",       icon: Activity,  roles: ['admin','management']                        },
-      { href: "/reports",     label: "Reports",           icon: BarChart2, roles: ['admin','management']                        },
-      { href: "/traffic-map", label: "Traffic Map",       icon: Globe,     roles: ['admin','management']                        },
+      { href: "/analytics",   label: "Revenue Analytics", icon: TrendingUp, roles: ['admin','management']                    },
+      { href: "/cdrs",        label: "CDR Viewer",        icon: FileText,   roles: ['admin','management'], hasSubmenu: 'cdr' },
+      { href: "/graphs",      label: "Graphs",            icon: LineChart,  roles: ['admin','management']                    },
+      { href: "/qos-heatmap", label: "QoS Heatmap",       icon: Activity,   roles: ['admin','management']                    },
+      { href: "/reports",     label: "Reports",           icon: BarChart2,  roles: ['admin','management']                    },
     ],
   },
-  // ─── 4. Intelligence ─────────────────────────────────────────────────────────
+  // ─── 6. Intelligence ─────────────────────────────────────────────────────────
   {
     key: 'intelligence',
     label: 'Intelligence',
@@ -174,47 +199,41 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/server-monitoring",   label: "Server Monitoring", icon: Server,     roles: ['admin','management'], hasSubmenu: 'monitoring' },
     ],
   },
-  // ─── 5. Security & Finance ───────────────────────────────────────────────────
+  // ─── 7. Security & Finance ───────────────────────────────────────────────────
   {
     key: 'security_finance',
     label: 'Security & Finance',
     roles: ['admin','management'],
     items: [
-      { href: "/fraud",                label: "Fraud / FAS",      icon: ShieldAlert, roles: ['admin','management'] },
-      { href: "/stir-shaken",          label: "STIR/SHAKEN",      icon: Lock,        roles: ['admin','management'] },
-      { href: "/call-recordings",      label: "Call Recordings",  icon: Mic,         roles: ['admin','management'] },
-      { href: "/vendor-sla-scorecard", label: "SLA Management",   icon: ShieldCheck, roles: ['admin','management'] },
-      { href: "/firewall",             label: "Firewall Manager", icon: Shield,      roles: ['admin','management'] },
-      { href: "/compliance",           label: "Compliance",       icon: FileCheck2,  roles: ['admin','management'] },
-      { href: "/balance",              label: "Balance Monitor",  icon: Wallet,      roles: ['admin','management'] },
-      { href: "/cost-optimisation",    label: "Cost Optimisation",icon: Lightbulb,   roles: ['admin','management'] },
-      { href: "/billing-disputes",     label: "Billing Disputes", icon: FileText,    roles: ['admin','management'] },
+      { href: "/fraud",                label: "Fraud / FAS",       icon: ShieldAlert, roles: ['admin','management'] },
+      { href: "/stir-shaken",          label: "STIR/SHAKEN",       icon: Lock,        roles: ['admin','management'] },
+      { href: "/call-recordings",      label: "Call Recordings",   icon: Mic,         roles: ['admin','management'] },
+      { href: "/vendor-sla-scorecard", label: "SLA Management",    icon: ShieldCheck, roles: ['admin','management'] },
+      { href: "/firewall",             label: "Firewall Manager",  icon: Shield,      roles: ['admin','management'] },
+      { href: "/compliance",           label: "Compliance",        icon: FileCheck2,  roles: ['admin','management'] },
+      { href: "/cost-optimisation",    label: "Cost Optimisation", icon: Lightbulb,   roles: ['admin','management'] },
+      { href: "/billing-disputes",     label: "Billing Disputes",  icon: FileText,    roles: ['admin','management'] },
     ],
   },
-  // ─── 6. Platform (collapsed by default) ──────────────────────────────────────
+  // ─── 8. Platform ─────────────────────────────────────────────────────────────
   {
     key: 'platform',
     label: 'Platform',
     roles: ['admin','management'],
     items: [
-      { href: "/settings",            label: "Settings",          icon: Settings,      roles: ['admin'],              hasSubmenu: 'settings'       },
-      { href: "/team",                label: "Team & KAM",        icon: Users,         roles: ['admin']                                            },
-      { href: "/vendors",             label: "Vendors",           icon: Building2,     roles: ['admin','management']                               },
-      { href: "/clients",             label: "Accounts",          icon: Users,         roles: ['admin','management']                               },
-      { href: "/dids",                label: "DID Management",    icon: PhoneIncoming, roles: ['admin','management']                               },
-      { href: "/rate-cards",          label: "Rate Cards",        icon: CreditCard,    roles: ['admin','management'],  hasSubmenu: 'ratecards'      },
-      { href: "/products",            label: "Products",          icon: Package,       roles: ['admin','management']                               },
-      { href: "/company-profile",     label: "Rate Plan",         icon: ContactRound,  roles: ['admin','management']                               },
-      { href: "/client-portal",       label: "Client Portal",     icon: Globe,         roles: ['admin','management']                               },
-      { href: "/reseller",            label: "Reseller Mgmt",     icon: Layers,        roles: ['admin','management']                               },
-      { href: "/api-keys",            label: "API Keys",          icon: Key,           roles: ['admin']                                            },
-      { href: "/vpn-config",          label: "VPN Config",        icon: Lock,          roles: ['admin']                                            },
-      { href: "/call-flow-simulator", label: "Call Flow Sim",     icon: Workflow,          roles: ['admin','management']                               },
-      { href: "/test-call",           label: "Test Suite",        icon: PhoneCall,         roles: ['admin','management'],  hasSubmenu: 'testing'        },
-      { href: "/email-centre",        label: "Notifications",     icon: Mail,              roles: ['admin'],               hasSubmenu: 'notifications'  },
-      { href: "/tools",               label: "Tools",             icon: Wrench,            roles: ['admin','management'],  hasSubmenu: 'tools' as SubmenuType },
-      { href: "/sms-monitor",         label: "SMS / A2P",         icon: MessageCircle,     roles: ['admin','management'],  status: 'planned'            },
-      { href: "/sidebar-settings",    label: "Sidebar Menu",      icon: SlidersHorizontal, roles: ['admin']                                            },
+      { href: "/settings",            label: "Settings",       icon: Settings,         roles: ['admin'],             hasSubmenu: 'settings'                    },
+      { href: "/team",                label: "Team & KAM",     icon: Users,            roles: ['admin']                                                        },
+      { href: "/dids",                label: "DID Management", icon: PhoneIncoming,    roles: ['admin','management']                                           },
+      { href: "/rate-cards",          label: "Rate Cards",     icon: CreditCard,       roles: ['admin','management'], hasSubmenu: 'ratecards'                  },
+      { href: "/products",            label: "Products",       icon: Package,          roles: ['admin','management']                                           },
+      { href: "/reseller",            label: "Reseller Mgmt",  icon: Layers,           roles: ['admin','management']                                           },
+      { href: "/api-keys",            label: "API Keys",       icon: Key,              roles: ['admin']                                                        },
+      { href: "/vpn-config",          label: "VPN Config",     icon: Lock,             roles: ['admin']                                                        },
+      { href: "/call-flow-simulator", label: "Call Flow Sim",  icon: Workflow,         roles: ['admin','management']                                           },
+      { href: "/email-centre",        label: "Notifications",  icon: Mail,             roles: ['admin'],              hasSubmenu: 'notifications'              },
+      { href: "/tools",               label: "Tools",          icon: Wrench,           roles: ['admin','management'], hasSubmenu: 'tools' as SubmenuType       },
+      { href: "/sms-monitor",         label: "SMS / A2P",      icon: MessageCircle,    roles: ['admin','management'], status: 'planned'                       },
+      { href: "/sidebar-settings",    label: "Sidebar Menu",   icon: SlidersHorizontal,roles: ['admin']                                                        },
     ],
   },
 ];
@@ -241,20 +260,33 @@ const DEFAULT_GROUP_ORDER = SIDEBAR_GROUPS.map(g => g.key);
 // ── Icon accent per group ──────────────────────────────────────────────────────
 const GROUP_TINT: Record<string, string> = {
   live_ops:         'text-emerald-400',
+  client_ops:       'text-amber-400',
+  vendor_ops:       'text-cyan-400',
   routing:          'text-blue-400',
   analytics:        'text-violet-400',
-  intelligence:     'text-cyan-400',
+  intelligence:     'text-sky-400',
   security_finance: 'text-rose-400',
   platform:         'text-slate-400',
 };
 
 // ── Helper: find which nav group owns the current location ────────────────────
-function getActiveGroupKey(loc: string): string | null {
+// Pass the full location including search string (loc + search) for best match.
+function getActiveGroupKey(loc: string, search = ''): string | null {
+  const fullLoc = search ? `${loc}${search}` : loc;
+  // Pass 1: exact full href match (handles query-param-differentiated items)
+  for (const group of SIDEBAR_GROUPS) {
+    const hit = group.items.some(item => {
+      if (item.href === '/') return false;
+      return fullLoc === item.href || fullLoc.startsWith(item.href + '/');
+    });
+    if (hit) return group.key;
+  }
+  // Pass 2: base-path match (ignore query params)
   for (const group of SIDEBAR_GROUPS) {
     const hit = group.items.some(item => {
       const base = item.href.split('?')[0];
       if (base === '/') return false;
-      return loc === base || loc.startsWith(base + '/') || loc.startsWith(base + '?');
+      return loc === base || loc.startsWith(base + '/');
     });
     if (hit) return group.key;
   }
@@ -288,7 +320,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
       const s = localStorage.getItem(GROUPS_LS_KEY);
       if (s) return JSON.parse(s);
     } catch { /* */ }
-    const activeKey = getActiveGroupKey(window.location.pathname);
+    const activeKey = getActiveGroupKey(window.location.pathname, window.location.search);
     const defaults: Record<string, boolean> = {};
     SIDEBAR_GROUPS.forEach(g => { defaults[g.key] = g.key === activeKey; });
     return defaults;
@@ -372,11 +404,11 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   // Auto-expand the sidebar group that owns the navigated-to route
   useEffect(() => {
-    const activeKey = getActiveGroupKey(location);
+    const activeKey = getActiveGroupKey(location, search ? `?${search}` : '');
     if (activeKey) {
       setGroupsExpanded(prev => prev[activeKey] === true ? prev : { ...prev, [activeKey]: true });
     }
-  }, [location]);
+  }, [location, search]);
 
   // ── Data queries ──────────────────────────────────────────────────────────────
   const { data: kamList = [] } = useQuery<Kam[]>({
