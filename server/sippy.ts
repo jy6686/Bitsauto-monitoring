@@ -8150,12 +8150,12 @@ export async function createSippyVendor(
   if (opts.cc               !== undefined) params.cc                 = opts.cc;
   if (opts.bcc              !== undefined) params.bcc                = opts.bcc;
   if (opts.balance          !== undefined) params.balance            = opts.balance;
-  if (opts.iLang            !== undefined) params.i_lang             = opts.iLang;
-  if (opts.iExportType      !== undefined) params.i_export_type      = opts.iExportType;
-  if (opts.iPasswordPolicy  !== undefined) params.i_password_policy  = opts.iPasswordPolicy;
-  if (opts.roundUp          !== undefined) params.round_up           = opts.roundUp;
-  if (opts.costRoundUp      !== undefined) params.cost_round_up      = opts.costRoundUp;
-  if (opts.decimalPrecision !== undefined) params.decimal_precision  = opts.decimalPrecision;
+  if (opts.iLang            !== undefined) params.i_lang             = String(opts.iLang);
+  if (opts.iExportType      !== undefined) params.i_export_type      = Number(opts.iExportType);
+  if (opts.iPasswordPolicy  !== undefined) params.i_password_policy  = Number(opts.iPasswordPolicy);
+  if (opts.roundUp          !== undefined) params.round_up           = Boolean(Number(opts.roundUp));
+  if (opts.costRoundUp      !== undefined) params.cost_round_up      = Boolean(Number(opts.costRoundUp));
+  if (opts.decimalPrecision !== undefined) params.decimal_precision  = Number(opts.decimalPrecision);
   if (opts.iCustomer        !== undefined) params.i_customer         = opts.iCustomer;
 
   try {

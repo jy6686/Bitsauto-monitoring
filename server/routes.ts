@@ -7063,7 +7063,10 @@ export async function registerRoutes(
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.createSippyVendor(username, password, req.body, sippyPortalUrl(settings));
-      if (!result.success) return res.status(400).json(result);
+      if (!result.success) {
+        console.error('[create-vendor] Sippy rejected vendor creation:', result.message, '| body keys:', Object.keys(req.body).join(', '));
+        return res.status(400).json(result);
+      }
       res.status(201).json(result);
       regenDataflowDoc();
     } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
