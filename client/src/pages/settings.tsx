@@ -3242,6 +3242,7 @@ export default function SettingsPage() {
             { label: "API Reference", desc: "All 200+ endpoints across 21 categories", href: "/api/download/api-reference", color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
             { label: "Top 11 Features — Interactive Presentation", desc: "Animated HTML slideshow — all 11 commercial features with metrics, charts, and visual impact. Open the downloaded file in any browser. Arrow keys, swipe, and click to navigate.", href: "/api/download/platform-presentation", color: "text-violet-300", bg: "bg-violet-500/10 border-violet-500/25", ext: '.html' },
             { label: "Top 11 Features — PowerPoint Presentation", desc: "Native .pptx file — all 11 commercial features, fully compatible with Microsoft PowerPoint, Keynote, and Google Slides. Arrow keys navigate slides as expected.", href: "/downloads/Bitsauto_Top11_Features.pptx", color: "text-sky-300", bg: "bg-sky-500/10 border-sky-500/25", ext: '.pptx' },
+            { label: "Partner Deployment Guide (Full Edition)", desc: "Multi-domain publishing, partner onboarding, demo accounts, custom domains, role-based access, multi-tenant architecture, licensing tiers, hosting costs, security, scalability & per-partner cost breakdown.", href: "/downloads/Bitsauto_Partner_Deployment_Guide_Full.docx", color: "text-green-400", bg: "bg-green-500/10 border-green-500/20" },
           ].map(doc => (
             <a
               key={doc.href}
