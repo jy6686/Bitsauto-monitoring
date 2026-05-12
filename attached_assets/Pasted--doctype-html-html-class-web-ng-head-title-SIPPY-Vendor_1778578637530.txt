@@ -1,0 +1,326 @@
+
+<!doctype html>
+<html class="web-ng">
+
+<head>
+  <title>SIPPY - Vendors</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="menu-title" content="SIPPY">
+  <link rel="stylesheet" href="/web_ng/css/roboto.css">
+  <link rel="stylesheet" href="/web_ng/css/material_design_icons.css">
+    <link rel="stylesheet" href="/static/css/fontawesome-all.min.css">
+  <link rel="stylesheet" href="/static/css/font-OpenSans.css">
+  <link rel="stylesheet" href="/static/css/menumaker.css">
+  <link rel="stylesheet" href="/web_ng/css/navigation_menu.css">
+    <link rel="stylesheet" href="styles.css"><!-- !!! should be removed later -->
+  <link rel="stylesheet" href="/web_ng/css/styles.css">
+  <link rel="stylesheet" href="/web_ng/css/vendors.css">
+  <link rel="stylesheet" href="/web_ng/css/vuetify_overrides.css">
+
+<link rel="stylesheet" type="text/css" href="/js/extjs/resources/css/ext-all.css">
+<script type="text/javascript" src="/js/extjs/ext-all.js"></script>
+
+<script language=javascript type=text/javascript>
+    // reference local blank image
+    Ext.BLANK_IMAGE_URL = '/js/extjs/resources/images/default/s.gif';
+</script>
+
+</head>
+
+<body>
+  
+  
+  
+      
+<div id="warning_setup_firewall" class="security_vulnerability">
+   Warning: For your security please review your <a href="firewall_rules.php">Firewall Rules</a>
+   and create rules to allow or deny access to your SoftSwitch. For some
+   suggestions visit our support documentation <a href="https://support.sippysoft.com/solution/articles/3000058057--security-management">here</a>.
+</div>
+  
+  <script src="/web_ng/js/vendor-bundle.js"></script>
+
+              <div id="cssmenu">
+            <ul>
+
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-users"></i> Customers</a>
+                    <ul>
+
+    
+                        <li class="has-sub"><a>My Customers</a>
+                            <ul>
+
+                                        <li><a href="accounts.php">Accounts</a></li>
+        
+                                        <li><a href="subcustomers.php">Customers</a></li>
+        
+                                        <li><a href="account_classes.php">Account Classes</a></li>
+        
+                                        <li><a href="access.php">Permissions</a></li>
+        
+                                        <li><a href="account_lookup.php">Account Lookup</a></li>
+        
+                            </ul>
+                        </li>
+    
+    
+                        <li class="has-sub"><a>
+                                                Tariffs &amp;
+                                                Currencies</a>
+                            <ul>
+                                    <li><a href="tariffs.php">Tariffs</a></li>
+                                    <li><a href="service_plans.php">Service Plans</a></li>
+                                <li><a href="xrates.php">Exchange Rates</a></li>
+                            </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Payments</a>
+                            <ul>
+                                    <li><a href="payment_processors.php">Payment Processors</a></li>
+    
+    
+                                    <li><a href="payments_history_root.php">Payments History</a></li>
+    
+                                    <li><a href="vouchers.php">Top-Up Vouchers</a></li>
+                                </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Invoicing</a>
+                            <ul>
+                                <li><a href="invoices.php">Invoices</a></li>
+                                <li><a href="invoice_templates.php">Invoice Templates</a></li>
+                                <li><a href="images.php">Images</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-exchange-alt"></i> Vendors</a>
+                    <ul>
+                            <li class="has-sub"><a>My Vendors</a>
+                            <ul>
+                                <li><a href="vendors.php">Vendors</a></li>
+                                <li><a href="registrations.php">Registrations</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a>Routing</a>
+                            <ul>
+                                <li><a href="destination_sets.php">Destination Sets</a></li>
+                                <li><a href="routing_groups.php">Routing Groups</a></li>
+                                    <li><a href="test_dialplan.php">Test Dialplan</a></li>
+                            </ul>
+                        </li>
+    
+                            <li class="has-sub"><a>DID Numbers</a>
+                            <ul>
+                                <li><a href="dids_charging_groups.php">Charging Groups</a></li>
+                                <li><a href="dids.php">DID Pool</a></li>
+                            </ul>
+                        </li>
+    
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-sliders-h"></i> System Management</a>
+                    <ul>
+
+                        <li><a href="web_users.php">Users</a></li>
+
+                        <li><a href="ivr_applications.php">IVR Applications</a></li>
+
+                        <li><a href="destinations.php">Destinations</a></li>
+                        <li class="has-sub"><a href="sip_features.php">SIP Features</a>
+                            <ul>
+                                <li><a href="system_parameters_sip.php">SIP, Media, LRN, HEP</a></li>
+                                <li><a href="connection_sip_tls.php?systemConnection=1">System Vendor Connection SIP TLS Options</a></li>
+                                <li><a href="incoming_sip_tls_connections.php">Incoming SIP TLS Connections</a></li>
+                                                            </ul>
+                        </li>
+                        <li class="has-sub"><a href="ssl_management.php">SSL Management</a>
+                            <ul>
+                                <li><a href="ssl_certificates.php">SSL Certificates</a></li>
+                                <li><a href="ca_lists.php">CA Lists</a></li>
+                                <li><a href="csrs.php">CSR Generator</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a href="system_parameters.php">System Parameters</a>
+                            <ul>
+                                <li><a href="system_parameters_data.php">Backup, Data Retention</a></li>
+                                <li><a href="system_parameters_ui.php">Web Interface, Security</a></li>
+                                <li><a href="system_parameters_billing.php">Billing, SMTP Server</a></li>
+                                <li><a href="firewall_rules.php">IP Firewall</a></li>
+                                <li><a href="network_services.php">Network Services</a></li>
+                                <li><a href="system_parameters_cdrs.php">CDRs Options</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="external_services.php">External Services</a></li>
+                        <li class="has-sub"><a href="javascript:void(0)">Result Code Translations</a>
+                            <ul>
+                                <li><a href="rcts_int.php">Internal</a></li>
+                                <li><a href="rcts_ext.php">External</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="show_graphs.php">Monitoring</a></li>
+
+                        <li><a href="activecalls.php">Active Calls</a></li>
+
+                        <li><a href="system_information.php">System Information</a></li>
+
+                        <li class="has-sub"><a href="tools.php">Tools</a>
+                            <ul>
+                                <li><a href="sip_logs.php">SIP Logs Viewer</a></li>
+                                <li><a href="tcpdump.php">Network Traffic Capture</a></li>
+                                <li><a href="audit_logs.php">Audit Logs Viewer</a></li>
+                                <li><a href="rerate_cdrs.php">Rerate CDRs</a></li>
+                                <li><a href="looking_glass.php">Looking Glass</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+                <li class="has-sub"><a><i class="fa fa-fw fa-file-excel"></i> Reports</a>
+                    <ul class="wide">
+
+                        <li><a href="cdrs_customer.php">Customers Call Records (CDRs)</a></li>
+                        <li><a href="customer_reports.php">Customer Summary Reports</a></li>
+
+                        <li><a href="profit_loss_report.php">Customer Profit &amp; Loss Reports</a></li>
+                        <li><a href="sales_report.php">Customer Sales Reports</a></li>
+
+                        <li><a href="cdrs_vend.php">Vendors Call Records (CDRs)</a></li>
+                        <li><a href="vendors_reports.php">Vendor Summary Reports</a></li>
+
+                        <li><a href="vendors_did_cdrs.php">Vendor DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="cdrs_dids.php">DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="asr_acd.php">ASR/ACD Reports</a></li>
+
+                    </ul>
+                </li>
+
+                <li class="has-sub align-right"><a class="none-text-transform"><i class="fa fa-fw fa-cogs"></i>&nbsp;
+                                                    ssp-root
+                                                </a>
+                    <ul class="wide">
+                        <li><a class="bold">Accounts balance: <span class="nav-menu__accounts-balance" dp="4">N/A</span>&nbsp;<i class="fas fa-sync-alt nav-menu__accounts-balance-reload"></i></a></li>
+                        <li><a class="bold">Customers balance: <span class="nav-menu__customers-balance" dp="4">N/A</span>&nbsp;<i class="fas fa-sync-alt nav-menu__customers-balance-reload"></i></a></li>
+                        <li><a href="customer_prefs.php">My Preferences</a></li>
+
+
+                        <li><a href="logout.php"><i class="fa fa-fw fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </li>
+
+<script>
+    function menu_search(event) {
+        var len = event.target.value.length;
+
+        var e = document.getElementById("menu-search");
+
+        var ul = document.getElementById('menu-search-results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+
+        if (len == 0) {
+            document.getElementById("menu-search-icon").classList.remove('fa-times-circle');
+            document.getElementById("menu-search-icon").classList.add('fas-search');
+            document.getElementById("menu-search-icon").removeEventListener('click', menu_search);
+            return;
+        } else if (len < 3) {
+            document.getElementById("menu-search-icon").classList.remove('fas-search');
+            document.getElementById("menu-search-icon").classList.add('fa-times-circle');
+            document.getElementById("menu-search-icon").addEventListener('click', function() {
+                document.getElementById("menu-search-pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu-search-pattern").dispatchEvent(event);
+            });
+            return;
+        } else {
+            document.getElementById("menu-search-icon").classList.remove('fas-search');
+            document.getElementById("menu-search-icon").classList.add('fa-times-circle');
+            document.getElementById("menu-search-icon").addEventListener('click', function() {
+                document.getElementById("menu-search-pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu-search-pattern").dispatchEvent(event);
+            });
+
+            ul = document.createElement("ul");
+            ul.setAttribute('id', 'menu-search-results');
+            ul.classList.add("wide");
+
+            var m, i;
+            try {
+                m = document.getElementById("cssmenu").getElementsByTagName('li');
+                for (i = 0; i < m.length; i++) {
+                    if (m[i].classList.contains("has-sub")) {
+                        continue;
+                    };
+
+                    var n, j;
+                    n = m[i].getElementsByTagName('a');
+                    for (j = 0; j < n.length; j++) {
+                        if (!n[j].hasAttribute('href')) {
+                            continue;
+                        }
+                        var re = new RegExp(event.target.value, 'i');
+                        if (n[j].innerText.match(re)) {
+                            ul.appendChild(m[i].cloneNode(true));
+                        }
+                    }
+                }
+            } finally {
+                if (ul.childNodes.length > 0) {
+                    e.appendChild(ul);
+                }
+            }
+        }
+    }
+
+    $(document).ready(function() {
+        var e = document.getElementById('menu-search-pattern');
+        e.addEventListener('input', menu_search);
+    });
+</script>
+
+
+                <li id="menu-search" class="has-sub align-right">
+                    <a>
+                        <input id="menu-search-pattern" type="text" name="menu-search-pattern">
+                        <i id="menu-search-icon" class="fas fa-search"></i>
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+    <div style="width: auto; height: 2px; background: #ff9900;"></div>
+  
+<table width="100%" cellpadding="5" cellspacing="0">
+  <tr>
+    <td class="Headline">
+      <a class="tit" href="vendors.php">Vendors</a>    </td>
+    <td class="Headline" style="text-align: right;">
+      12 May 2026 09:37:04 (Etc/UTC)
+    </td>
+  </tr>
+</table>
+
+  <div id="vue-app"></div>
+
+  <script>
+    var web_ng_config = JSON.parse('{"itemsPerPage":15,"timezone":"370","isRefundCharge":false,"costDecimalPrecision":"20","mfaEnabled":false,"baseC":"USD","rowPerPage":50,"offset":null,"language":"en","displayPrecision":"4","dicts":{"timezones":[{"i_time_zone":97,"name":"Africa\\/Abidjan"},{"i_time_zone":145,"name":"Africa\\/Accra"},{"i_time_zone":129,"name":"Africa\\/Addis_Ababa"},{"i_time_zone":119,"name":"Africa\\/Algiers"},{"i_time_zone":403,"name":"Africa\\/Asmara"},{"i_time_zone":213,"name":"Africa\\/Bamako"},{"i_time_zone":94,"name":"Africa\\/Bangui"},{"i_time_zone":150,"name":"Africa\\/Banjul"},{"i_time_zone":158,"name":"Africa\\/Bissau"},{"i_time_zone":226,"name":"Africa\\/Blantyre"},{"i_time_zone":95,"name":"Africa\\/Brazzaville"},{"i_time_zone":46,"name":"Africa\\/Bujumbura"},{"i_time_zone":123,"name":"Africa\\/Cairo"},{"i_time_zone":206,"name":"Africa\\/Casablanca"},{"i_time_zone":127,"name":"Africa\\/Ceuta"},{"i_time_zone":151,"name":"Africa\\/Conakry"},{"i_time_zone":300,"name":"Africa\\/Dakar"},{"i_time_zone":322,"name":"Africa\\/Dar_es_Salaam"},{"i_time_zone":115,"name":"Africa\\/Djibouti"},{"i_time_zone":101,"name":"Africa\\/Douala"},{"i_time_zone":124,"name":"Africa\\/El_Aaiun"},{"i_time_zone":298,"name":"Africa\\/Freetown"},{"i_time_zone":66,"name":"Africa\\/Gaborone"},{"i_time_zone":369,"name":"Africa\\/Harare"},{"i_time_zone":367,"name":"Africa\\/Johannesburg"},{"i_time_zone":371,"name":"Africa\\/Juba"},{"i_time_zone":327,"name":"Africa\\/Kampala"},{"i_time_zone":290,"name":"Africa\\/Khartoum"},{"i_time_zone":286,"name":"Africa\\/Kigali"},{"i_time_zone":92,"name":"Africa\\/Kinshasa"},{"i_time_zone":242,"name":"Africa\\/Lagos"},{"i_time_zone":139,"name":"Africa\\/Libreville"},{"i_time_zone":310,"name":"Africa\\/Lome"},{"i_time_zone":9,"name":"Africa\\/Luanda"},{"i_time_zone":93,"name":"Africa\\/Lubumbashi"},{"i_time_zone":368,"name":"Africa\\/Lusaka"},{"i_time_zone":153,"name":"Africa\\/Malabo"},{"i_time_zone":237,"name":"Africa\\/Maputo"},{"i_time_zone":201,"name":"Africa\\/Maseru"},{"i_time_zone":306,"name":"Africa\\/Mbabane"},{"i_time_zone":301,"name":"Africa\\/Mogadishu"},{"i_time_zone":200,"name":"Africa\\/Monrovia"},{"i_time_zone":180,"name":"Africa\\/Nairobi"},{"i_time_zone":308,"name":"Africa\\/Ndjamena"},{"i_time_zone":240,"name":"Africa\\/Niamey"},{"i_time_zone":221,"name":"Africa\\/Nouakchott"},{"i_time_zone":43,"name":"Africa\\/Ouagadougou"},{"i_time_zone":47,"name":"Africa\\/Porto-Novo"},{"i_time_zone":303,"name":"Africa\\/Sao_Tome"},{"i_time_zone":205,"name":"Africa\\/Tripoli"},{"i_time_zone":315,"name":"Africa\\/Tunis"},{"i_time_zone":238,"name":"Africa\\/Windhoek"},{"i_time_zone":350,"name":"America\\/Adak"},{"i_time_zone":346,"name":"America\\/Anchorage"},{"i_time_zone":5,"name":"America\\/Anguilla"},{"i_time_zone":4,"name":"America\\/Antigua"},{"i_time_zone":55,"name":"America\\/Araguaina"},{"i_time_zone":19,"name":"America\\/Argentina\\/Buenos_Aires"},{"i_time_zone":23,"name":"America\\/Argentina\\/Catamarca"},{"i_time_zone":21,"name":"America\\/Argentina\\/Cordoba"},{"i_time_zone":22,"name":"America\\/Argentina\\/Jujuy"},{"i_time_zone":415,"name":"America\\/Argentina\\/La_Rioja"},{"i_time_zone":24,"name":"America\\/Argentina\\/Mendoza"},{"i_time_zone":419,"name":"America\\/Argentina\\/Rio_Gallegos"},{"i_time_zone":392,"name":"America\\/Argentina\\/Salta"},{"i_time_zone":379,"name":"America\\/Argentina\\/San_Juan"},{"i_time_zone":413,"name":"America\\/Argentina\\/San_Luis"},{"i_time_zone":378,"name":"America\\/Argentina\\/Tucuman"},{"i_time_zone":384,"name":"America\\/Argentina\\/Ushuaia"},{"i_time_zone":37,"name":"America\\/Aruba"},{"i_time_zone":269,"name":"America\\/Asuncion"},{"i_time_zone":376,"name":"America\\/Atikokan"},{"i_time_zone":408,"name":"America\\/Bahia"},{"i_time_zone":382,"name":"America\\/Bahia_Banderas"},{"i_time_zone":40,"name":"America\\/Barbados"},{"i_time_zone":52,"name":"America\\/Belem"},{"i_time_zone":68,"name":"America\\/Belize"},{"i_time_zone":407,"name":"America\\/Blanc-Sablon"},{"i_time_zone":60,"name":"America\\/Boa_Vista"},{"i_time_zone":107,"name":"America\\/Bogota"},{"i_time_zone":342,"name":"America\\/Boise"},{"i_time_zone":81,"name":"America\\/Cambridge_Bay"},{"i_time_zone":389,"name":"America\\/Campo_Grande"},{"i_time_zone":228,"name":"America\\/Cancun"},{"i_time_zone":357,"name":"America\\/Caracas"},{"i_time_zone":144,"name":"America\\/Cayenne"},{"i_time_zone":191,"name":"America\\/Cayman"},{"i_time_zone":339,"name":"America\\/Chicago"},{"i_time_zone":232,"name":"America\\/Chihuahua"},{"i_time_zone":108,"name":"America\\/Costa_Rica"},{"i_time_zone":391,"name":"America\\/Creston"},{"i_time_zone":58,"name":"America\\/Cuiaba"},{"i_time_zone":8,"name":"America\\/Curacao"},{"i_time_zone":411,"name":"America\\/Danmarkshavn"},{"i_time_zone":90,"name":"America\\/Dawson"},{"i_time_zone":87,"name":"America\\/Dawson_Creek"},{"i_time_zone":341,"name":"America\\/Denver"},{"i_time_zone":332,"name":"America\\/Detroit"},{"i_time_zone":117,"name":"America\\/Dominica"},{"i_time_zone":84,"name":"America\\/Edmonton"},{"i_time_zone":62,"name":"America\\/Eirunepe"},{"i_time_zone":304,"name":"America\\/El_Salvador"},{"i_time_zone":385,"name":"America\\/Fort_Nelson"},{"i_time_zone":53,"name":"America\\/Fortaleza"},{"i_time_zone":71,"name":"America\\/Glace_Bay"},{"i_time_zone":148,"name":"America\\/Godthab"},{"i_time_zone":72,"name":"America\\/Goose_Bay"},{"i_time_zone":307,"name":"America\\/Grand_Turk"},{"i_time_zone":142,"name":"America\\/Grenada"},{"i_time_zone":152,"name":"America\\/Guadeloupe"},{"i_time_zone":156,"name":"America\\/Guatemala"},{"i_time_zone":120,"name":"America\\/Guayaquil"},{"i_time_zone":159,"name":"America\\/Guyana"},{"i_time_zone":70,"name":"America\\/Halifax"},{"i_time_zone":109,"name":"America\\/Havana"},{"i_time_zone":233,"name":"America\\/Hermosillo"},{"i_time_zone":335,"name":"America\\/Indiana\\/Indianapolis"},{"i_time_zone":337,"name":"America\\/Indiana\\/Knox"},{"i_time_zone":336,"name":"America\\/Indiana\\/Marengo"},{"i_time_zone":418,"name":"America\\/Indiana\\/Petersburg"},{"i_time_zone":381,"name":"America\\/Indiana\\/Tell_City"},{"i_time_zone":338,"name":"America\\/Indiana\\/Vevay"},{"i_time_zone":402,"name":"America\\/Indiana\\/Vincennes"},{"i_time_zone":430,"name":"America\\/Indiana\\/Winamac"},{"i_time_zone":86,"name":"America\\/Inuvik"},{"i_time_zone":77,"name":"America\\/Iqaluit"},{"i_time_zone":177,"name":"America\\/Jamaica"},{"i_time_zone":347,"name":"America\\/Juneau"},{"i_time_zone":333,"name":"America\\/Kentucky\\/Louisville"},{"i_time_zone":334,"name":"America\\/Kentucky\\/Monticello"},{"i_time_zone":383,"name":"America\\/Kralendijk"},{"i_time_zone":50,"name":"America\\/La_Paz"},{"i_time_zone":253,"name":"America\\/Lima"},{"i_time_zone":345,"name":"America\\/Los_Angeles"},{"i_time_zone":375,"name":"America\\/Lower_Princes"},{"i_time_zone":56,"name":"America\\/Maceio"},{"i_time_zone":243,"name":"America\\/Managua"},{"i_time_zone":61,"name":"America\\/Manaus"},{"i_time_zone":374,"name":"America\\/Marigot"},{"i_time_zone":220,"name":"America\\/Martinique"},{"i_time_zone":400,"name":"America\\/Matamoros"},{"i_time_zone":231,"name":"America\\/Mazatlan"},{"i_time_zone":340,"name":"America\\/Menominee"},{"i_time_zone":229,"name":"America\\/Merida"},{"i_time_zone":373,"name":"America\\/Metlakatla"},{"i_time_zone":227,"name":"America\\/Mexico_City"},{"i_time_zone":261,"name":"America\\/Miquelon"},{"i_time_zone":398,"name":"America\\/Moncton"},{"i_time_zone":230,"name":"America\\/Monterrey"},{"i_time_zone":352,"name":"America\\/Montevideo"},{"i_time_zone":222,"name":"America\\/Montserrat"},{"i_time_zone":64,"name":"America\\/Nassau"},{"i_time_zone":331,"name":"America\\/New_York"},{"i_time_zone":74,"name":"America\\/Nipigon"},{"i_time_zone":349,"name":"America\\/Nome"},{"i_time_zone":51,"name":"America\\/Noronha"},{"i_time_zone":417,"name":"America\\/North_Dakota\\/Beulah"},{"i_time_zone":394,"name":"America\\/North_Dakota\\/Center"},{"i_time_zone":426,"name":"America\\/North_Dakota\\/New_Salem"},{"i_time_zone":421,"name":"America\\/Ojinaga"},{"i_time_zone":252,"name":"America\\/Panama"},{"i_time_zone":76,"name":"America\\/Pangnirtung"},{"i_time_zone":302,"name":"America\\/Paramaribo"},{"i_time_zone":344,"name":"America\\/Phoenix"},{"i_time_zone":163,"name":"America\\/Port-au-Prince"},{"i_time_zone":319,"name":"America\\/Port_of_Spain"},{"i_time_zone":59,"name":"America\\/Porto_Velho"},{"i_time_zone":263,"name":"America\\/Puerto_Rico"},{"i_time_zone":80,"name":"America\\/Rainy_River"},{"i_time_zone":78,"name":"America\\/Rankin_Inlet"},{"i_time_zone":54,"name":"America\\/Recife"},{"i_time_zone":82,"name":"America\\/Regina"},{"i_time_zone":393,"name":"America\\/Resolute"},{"i_time_zone":63,"name":"America\\/Rio_Branco"},{"i_time_zone":404,"name":"America\\/Santarem"},{"i_time_zone":99,"name":"America\\/Santiago"},{"i_time_zone":118,"name":"America\\/Santo_Domingo"},{"i_time_zone":57,"name":"America\\/Sao_Paulo"},{"i_time_zone":147,"name":"America\\/Scoresbysund"},{"i_time_zone":422,"name":"America\\/Sitka"},{"i_time_zone":399,"name":"America\\/St_Barthelemy"},{"i_time_zone":69,"name":"America\\/St_Johns"},{"i_time_zone":187,"name":"America\\/St_Kitts"},{"i_time_zone":197,"name":"America\\/St_Lucia"},{"i_time_zone":359,"name":"America\\/St_Thomas"},{"i_time_zone":356,"name":"America\\/St_Vincent"},{"i_time_zone":83,"name":"America\\/Swift_Current"},{"i_time_zone":161,"name":"America\\/Tegucigalpa"},{"i_time_zone":149,"name":"America\\/Thule"},{"i_time_zone":75,"name":"America\\/Thunder_Bay"},{"i_time_zone":234,"name":"America\\/Tijuana"},{"i_time_zone":73,"name":"America\\/Toronto"},{"i_time_zone":358,"name":"America\\/Tortola"},{"i_time_zone":88,"name":"America\\/Vancouver"},{"i_time_zone":89,"name":"America\\/Whitehorse"},{"i_time_zone":79,"name":"America\\/Winnipeg"},{"i_time_zone":348,"name":"America\\/Yakutat"},{"i_time_zone":85,"name":"America\\/Yellowknife"},{"i_time_zone":15,"name":"Antarctica\\/Casey"},{"i_time_zone":14,"name":"Antarctica\\/Davis"},{"i_time_zone":17,"name":"Antarctica\\/DumontDUrville"},{"i_time_zone":380,"name":"Antarctica\\/Macquarie"},{"i_time_zone":13,"name":"Antarctica\\/Mawson"},{"i_time_zone":10,"name":"Antarctica\\/McMurdo"},{"i_time_zone":12,"name":"Antarctica\\/Palmer"},{"i_time_zone":414,"name":"Antarctica\\/Rothera"},{"i_time_zone":18,"name":"Antarctica\\/Syowa"},{"i_time_zone":387,"name":"Antarctica\\/Troll"},{"i_time_zone":16,"name":"Antarctica\\/Vostok"},{"i_time_zone":295,"name":"Arctic\\/Longyearbyen"},{"i_time_zone":364,"name":"Asia\\/Aden"},{"i_time_zone":192,"name":"Asia\\/Almaty"},{"i_time_zone":178,"name":"Asia\\/Amman"},{"i_time_zone":285,"name":"Asia\\/Anadyr"},{"i_time_zone":194,"name":"Asia\\/Aqtau"},{"i_time_zone":193,"name":"Asia\\/Aqtobe"},{"i_time_zone":314,"name":"Asia\\/Ashgabat"},{"i_time_zone":173,"name":"Asia\\/Baghdad"},{"i_time_zone":45,"name":"Asia\\/Bahrain"},{"i_time_zone":38,"name":"Asia\\/Baku"},{"i_time_zone":311,"name":"Asia\\/Bangkok"},{"i_time_zone":431,"name":"Asia\\/Barnaul"},{"i_time_zone":196,"name":"Asia\\/Beirut"},{"i_time_zone":181,"name":"Asia\\/Bishkek"},{"i_time_zone":49,"name":"Asia\\/Brunei"},{"i_time_zone":424,"name":"Asia\\/Chita"},{"i_time_zone":405,"name":"Asia\\/Choibalsan"},{"i_time_zone":199,"name":"Asia\\/Colombo"},{"i_time_zone":305,"name":"Asia\\/Damascus"},{"i_time_zone":41,"name":"Asia\\/Dhaka"},{"i_time_zone":317,"name":"Asia\\/Dili"},{"i_time_zone":2,"name":"Asia\\/Dubai"},{"i_time_zone":312,"name":"Asia\\/Dushanbe"},{"i_time_zone":264,"name":"Asia\\/Gaza"},{"i_time_zone":372,"name":"Asia\\/Hebron"},{"i_time_zone":360,"name":"Asia\\/Ho_Chi_Minh"},{"i_time_zone":160,"name":"Asia\\/Hong_Kong"},{"i_time_zone":217,"name":"Asia\\/Hovd"},{"i_time_zone":280,"name":"Asia\\/Irkutsk"},{"i_time_zone":165,"name":"Asia\\/Jakarta"},{"i_time_zone":168,"name":"Asia\\/Jayapura"},{"i_time_zone":170,"name":"Asia\\/Jerusalem"},{"i_time_zone":3,"name":"Asia\\/Kabul"},{"i_time_zone":284,"name":"Asia\\/Kamchatka"},{"i_time_zone":259,"name":"Asia\\/Karachi"},{"i_time_zone":246,"name":"Asia\\/Kathmandu"},{"i_time_zone":429,"name":"Asia\\/Khandyga"},{"i_time_zone":171,"name":"Asia\\/Kolkata"},{"i_time_zone":279,"name":"Asia\\/Krasnoyarsk"},{"i_time_zone":235,"name":"Asia\\/Kuala_Lumpur"},{"i_time_zone":236,"name":"Asia\\/Kuching"},{"i_time_zone":190,"name":"Asia\\/Kuwait"},{"i_time_zone":409,"name":"Asia\\/Macau"},{"i_time_zone":283,"name":"Asia\\/Magadan"},{"i_time_zone":420,"name":"Asia\\/Makassar"},{"i_time_zone":258,"name":"Asia\\/Manila"},{"i_time_zone":251,"name":"Asia\\/Muscat"},{"i_time_zone":112,"name":"Asia\\/Nicosia"},{"i_time_zone":428,"name":"Asia\\/Novokuznetsk"},{"i_time_zone":278,"name":"Asia\\/Novosibirsk"},{"i_time_zone":277,"name":"Asia\\/Omsk"},{"i_time_zone":388,"name":"Asia\\/Oral"},{"i_time_zone":182,"name":"Asia\\/Phnom_Penh"},{"i_time_zone":166,"name":"Asia\\/Pontianak"},{"i_time_zone":188,"name":"Asia\\/Pyongyang"},{"i_time_zone":270,"name":"Asia\\/Qatar"},{"i_time_zone":410,"name":"Asia\\/Qyzylorda"},{"i_time_zone":287,"name":"Asia\\/Riyadh"},{"i_time_zone":416,"name":"Asia\\/Sakhalin"},{"i_time_zone":353,"name":"Asia\\/Samarkand"},{"i_time_zone":189,"name":"Asia\\/Seoul"},{"i_time_zone":103,"name":"Asia\\/Shanghai"},{"i_time_zone":292,"name":"Asia\\/Singapore"},{"i_time_zone":401,"name":"Asia\\/Srednekolymsk"},{"i_time_zone":321,"name":"Asia\\/Taipei"},{"i_time_zone":354,"name":"Asia\\/Tashkent"},{"i_time_zone":143,"name":"Asia\\/Tbilisi"},{"i_time_zone":174,"name":"Asia\\/Tehran"},{"i_time_zone":65,"name":"Asia\\/Thimphu"},{"i_time_zone":179,"name":"Asia\\/Tokyo"},{"i_time_zone":433,"name":"Asia\\/Tomsk"},{"i_time_zone":216,"name":"Asia\\/Ulaanbaatar"},{"i_time_zone":105,"name":"Asia\\/Urumqi"},{"i_time_zone":386,"name":"Asia\\/Ust-Nera"},{"i_time_zone":195,"name":"Asia\\/Vientiane"},{"i_time_zone":282,"name":"Asia\\/Vladivostok"},{"i_time_zone":281,"name":"Asia\\/Yakutsk"},{"i_time_zone":215,"name":"Asia\\/Yangon"},{"i_time_zone":276,"name":"Asia\\/Yekaterinburg"},{"i_time_zone":7,"name":"Asia\\/Yerevan"},{"i_time_zone":267,"name":"Atlantic\\/Azores"},{"i_time_zone":48,"name":"Atlantic\\/Bermuda"},{"i_time_zone":128,"name":"Atlantic\\/Canary"},{"i_time_zone":110,"name":"Atlantic\\/Cape_Verde"},{"i_time_zone":137,"name":"Atlantic\\/Faroe"},{"i_time_zone":266,"name":"Atlantic\\/Madeira"},{"i_time_zone":175,"name":"Atlantic\\/Reykjavik"},{"i_time_zone":155,"name":"Atlantic\\/South_Georgia"},{"i_time_zone":293,"name":"Atlantic\\/St_Helena"},{"i_time_zone":132,"name":"Atlantic\\/Stanley"},{"i_time_zone":34,"name":"Australia\\/Adelaide"},{"i_time_zone":32,"name":"Australia\\/Brisbane"},{"i_time_zone":31,"name":"Australia\\/Broken_Hill"},{"i_time_zone":395,"name":"Australia\\/Currie"},{"i_time_zone":35,"name":"Australia\\/Darwin"},{"i_time_zone":427,"name":"Australia\\/Eucla"},{"i_time_zone":28,"name":"Australia\\/Hobart"},{"i_time_zone":33,"name":"Australia\\/Lindeman"},{"i_time_zone":27,"name":"Australia\\/Lord_Howe"},{"i_time_zone":29,"name":"Australia\\/Melbourne"},{"i_time_zone":36,"name":"Australia\\/Perth"},{"i_time_zone":30,"name":"Australia\\/Sydney"},{"i_time_zone":370,"name":"Etc\\/UTC"},{"i_time_zone":244,"name":"Europe\\/Amsterdam"},{"i_time_zone":1,"name":"Europe\\/Andorra"},{"i_time_zone":432,"name":"Europe\\/Astrakhan"},{"i_time_zone":154,"name":"Europe\\/Athens"},{"i_time_zone":366,"name":"Europe\\/Belgrade"},{"i_time_zone":114,"name":"Europe\\/Berlin"},{"i_time_zone":297,"name":"Europe\\/Bratislava"},{"i_time_zone":42,"name":"Europe\\/Brussels"},{"i_time_zone":272,"name":"Europe\\/Bucharest"},{"i_time_zone":164,"name":"Europe\\/Budapest"},{"i_time_zone":423,"name":"Europe\\/Busingen"},{"i_time_zone":208,"name":"Europe\\/Chisinau"},{"i_time_zone":116,"name":"Europe\\/Copenhagen"},{"i_time_zone":169,"name":"Europe\\/Dublin"},{"i_time_zone":146,"name":"Europe\\/Gibraltar"},{"i_time_zone":412,"name":"Europe\\/Guernsey"},{"i_time_zone":130,"name":"Europe\\/Helsinki"},{"i_time_zone":390,"name":"Europe\\/Isle_of_Man"},{"i_time_zone":318,"name":"Europe\\/Istanbul"},{"i_time_zone":396,"name":"Europe\\/Jersey"},{"i_time_zone":273,"name":"Europe\\/Kaliningrad"},{"i_time_zone":323,"name":"Europe\\/Kiev"},{"i_time_zone":435,"name":"Europe\\/Kirov"},{"i_time_zone":265,"name":"Europe\\/Lisbon"},{"i_time_zone":294,"name":"Europe\\/Ljubljana"},{"i_time_zone":140,"name":"Europe\\/London"},{"i_time_zone":203,"name":"Europe\\/Luxembourg"},{"i_time_zone":126,"name":"Europe\\/Madrid"},{"i_time_zone":223,"name":"Europe\\/Malta"},{"i_time_zone":397,"name":"Europe\\/Mariehamn"},{"i_time_zone":67,"name":"Europe\\/Minsk"},{"i_time_zone":207,"name":"Europe\\/Monaco"},{"i_time_zone":274,"name":"Europe\\/Moscow"},{"i_time_zone":245,"name":"Europe\\/Oslo"},{"i_time_zone":138,"name":"Europe\\/Paris"},{"i_time_zone":406,"name":"Europe\\/Podgorica"},{"i_time_zone":113,"name":"Europe\\/Prague"},{"i_time_zone":204,"name":"Europe\\/Riga"},{"i_time_zone":176,"name":"Europe\\/Rome"},{"i_time_zone":275,"name":"Europe\\/Samara"},{"i_time_zone":299,"name":"Europe\\/San_Marino"},{"i_time_zone":39,"name":"Europe\\/Sarajevo"},{"i_time_zone":326,"name":"Europe\\/Simferopol"},{"i_time_zone":212,"name":"Europe\\/Skopje"},{"i_time_zone":44,"name":"Europe\\/Sofia"},{"i_time_zone":291,"name":"Europe\\/Stockholm"},{"i_time_zone":122,"name":"Europe\\/Tallinn"},{"i_time_zone":6,"name":"Europe\\/Tirane"},{"i_time_zone":434,"name":"Europe\\/Ulyanovsk"},{"i_time_zone":324,"name":"Europe\\/Uzhgorod"},{"i_time_zone":198,"name":"Europe\\/Vaduz"},{"i_time_zone":355,"name":"Europe\\/Vatican"},{"i_time_zone":26,"name":"Europe\\/Vienna"},{"i_time_zone":202,"name":"Europe\\/Vilnius"},{"i_time_zone":425,"name":"Europe\\/Volgograd"},{"i_time_zone":260,"name":"Europe\\/Warsaw"},{"i_time_zone":162,"name":"Europe\\/Zagreb"},{"i_time_zone":325,"name":"Europe\\/Zaporozhye"},{"i_time_zone":96,"name":"Europe\\/Zurich"},{"i_time_zone":209,"name":"Indian\\/Antananarivo"},{"i_time_zone":172,"name":"Indian\\/Chagos"},{"i_time_zone":111,"name":"Indian\\/Christmas"},{"i_time_zone":91,"name":"Indian\\/Cocos"},{"i_time_zone":186,"name":"Indian\\/Comoro"},{"i_time_zone":309,"name":"Indian\\/Kerguelen"},{"i_time_zone":289,"name":"Indian\\/Mahe"},{"i_time_zone":225,"name":"Indian\\/Maldives"},{"i_time_zone":224,"name":"Indian\\/Mauritius"},{"i_time_zone":365,"name":"Indian\\/Mayotte"},{"i_time_zone":271,"name":"Indian\\/Reunion"},{"i_time_zone":363,"name":"Pacific\\/Apia"},{"i_time_zone":249,"name":"Pacific\\/Auckland"},{"i_time_zone":377,"name":"Pacific\\/Bougainville"},{"i_time_zone":250,"name":"Pacific\\/Chatham"},{"i_time_zone":134,"name":"Pacific\\/Chuuk"},{"i_time_zone":100,"name":"Pacific\\/Easter"},{"i_time_zone":361,"name":"Pacific\\/Efate"},{"i_time_zone":184,"name":"Pacific\\/Enderbury"},{"i_time_zone":313,"name":"Pacific\\/Fakaofo"},{"i_time_zone":131,"name":"Pacific\\/Fiji"},{"i_time_zone":320,"name":"Pacific\\/Funafuti"},{"i_time_zone":121,"name":"Pacific\\/Galapagos"},{"i_time_zone":256,"name":"Pacific\\/Gambier"},{"i_time_zone":288,"name":"Pacific\\/Guadalcanal"},{"i_time_zone":157,"name":"Pacific\\/Guam"},{"i_time_zone":351,"name":"Pacific\\/Honolulu"},{"i_time_zone":328,"name":"Pacific\\/Johnston"},{"i_time_zone":185,"name":"Pacific\\/Kiritimati"},{"i_time_zone":136,"name":"Pacific\\/Kosrae"},{"i_time_zone":211,"name":"Pacific\\/Kwajalein"},{"i_time_zone":210,"name":"Pacific\\/Majuro"},{"i_time_zone":255,"name":"Pacific\\/Marquesas"},{"i_time_zone":329,"name":"Pacific\\/Midway"},{"i_time_zone":247,"name":"Pacific\\/Nauru"},{"i_time_zone":248,"name":"Pacific\\/Niue"},{"i_time_zone":241,"name":"Pacific\\/Norfolk"},{"i_time_zone":239,"name":"Pacific\\/Noumea"},{"i_time_zone":25,"name":"Pacific\\/Pago_Pago"},{"i_time_zone":268,"name":"Pacific\\/Palau"},{"i_time_zone":262,"name":"Pacific\\/Pitcairn"},{"i_time_zone":135,"name":"Pacific\\/Pohnpei"},{"i_time_zone":257,"name":"Pacific\\/Port_Moresby"},{"i_time_zone":98,"name":"Pacific\\/Rarotonga"},{"i_time_zone":219,"name":"Pacific\\/Saipan"},{"i_time_zone":254,"name":"Pacific\\/Tahiti"},{"i_time_zone":183,"name":"Pacific\\/Tarawa"},{"i_time_zone":316,"name":"Pacific\\/Tongatapu"},{"i_time_zone":330,"name":"Pacific\\/Wake"},{"i_time_zone":362,"name":"Pacific\\/Wallis"}],"baseCurrencies":[{"iso_4217":"USD","name":"US Dollar"}],"languages":[{"i_lang":"ar","name":"Arabic"},{"i_lang":"zh","name":"Chinese"},{"i_lang":"en","name":"English"},{"i_lang":"fa","name":"Farsi"},{"i_lang":"fr","name":"French"},{"i_lang":"pt","name":"Portuguese"},{"i_lang":"ru","name":"Russian"},{"i_lang":"es","name":"Spanish"},{"i_lang":"tr","name":"Turkish"}],"downloadFormats":[{"i_export_type":1,"name":"CSV"},{"i_export_type":2,"name":"Excel"}],"passwordPolicy":[{"i_password_policy":"1","name":"Default"}],"accessLevels":{"i_access_level":"ADMINISTRATOR","name":"Administrator","full_access":true,"menu_template":"menu_customer.tpl","can_view_connections":true,"rights":{"i_page":"CONNECTIONS","add":false,"edit":false,"del":false}},"initData":{"vendors":[{"i_vendor":2,"name":"Callntalk","web_login":"Callntalk","base_currency":"USD","balance":232.300246666558,"credit_limit":0},{"i_vendor":3,"name":"TALK","web_login":"talkvendor","base_currency":"USD","balance":0,"credit_limit":0},{"i_vendor":4,"name":"YOU","web_login":"you","base_currency":"USD","balance":0,"credit_limit":0}],"count":"3"}}}')
+  </script>
+  <script src="/web_ng/legacy/js/apply_polyfills.js"></script>
+  <script src="/static/js/menumaker.min.js"></script>
+  <script src="/static/js/menumaker.local.js"></script>
+  <script>
+    window.loadWebNgScript('navigation_menu')
+  </script>
+  <script src="/web_ng/js/vue.runtime.js"></script>
+  <script>
+    window.loadWebNgScript('vendors')
+  </script>
+</body>
+
+</html>

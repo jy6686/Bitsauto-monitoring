@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import {
   Plus, Search, Trash2, Settings2, Wifi, ChevronRight, ChevronLeft,
   Building2, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
-  DollarSign, Network, ArrowLeft, Eye, Pencil,
+  DollarSign, Network, ArrowLeft, Eye, EyeOff, Copy, Pencil,
 } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
@@ -98,6 +98,19 @@ function Field({ label, children, className }: { label: string; children: React.
   );
 }
 
+// ── Vendor Form Helpers ─────────────────────────────────────────────────────────
+
+function generatePassword(len = 12): string {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&";
+  let pwd = "";
+  for (let i = 0; i < len; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+  return pwd;
+}
+
+function deriveLogin(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+}
+
 // ── Vendor Form (Add / Edit) ────────────────────────────────────────────────────
 
 type VendorFormData = {
@@ -155,11 +168,37 @@ function VendorDialog({
   const { toast } = useToast();
   const qc = useQueryClient();
   const [form, setForm] = useState<VendorFormData>(EMPTY_VENDOR_FORM);
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginEdited, setLoginEdited] = useState(false);
 
   const set = (k: keyof VendorFormData) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
   const setV = (k: keyof VendorFormData, v: string) =>
     setForm(f => ({ ...f, [k]: v }));
+
+  function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const name = e.target.value;
+    setForm(f => ({
+      ...f,
+      name,
+      webLogin: loginEdited ? f.webLogin : deriveLogin(name),
+    }));
+  }
+
+  function handleLoginChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setLoginEdited(true);
+    setForm(f => ({ ...f, webLogin: e.target.value }));
+  }
+
+  function regeneratePassword() {
+    setForm(f => ({ ...f, webPassword: generatePassword() }));
+  }
+
+  function copyToClipboard(text: string, label: string) {
+    navigator.clipboard.writeText(text).then(() =>
+      toast({ title: `${label} copied to clipboard` })
+    );
+  }
 
   const createMut = useMutation({
     mutationFn: async (body: object) => (await apiRequest("POST", "/api/sippy/vendors", body)).json(),
@@ -193,14 +232,22 @@ function VendorDialog({
   const isPending = createMut.isPending || updateMut.isPending;
 
   function handleOpen(o: boolean) {
-    if (o) setForm(editVendor ? {
-      ...EMPTY_VENDOR_FORM,
-      name: editVendor.name || "",
-      baseCurrency: editVendor.baseCurrency || "USD",
-      balance: editVendor.balance?.toFixed(7) ?? "0.0000000",
-      email: editVendor.email || "",
-      companyName: editVendor.companyName || "",
-    } : EMPTY_VENDOR_FORM);
+    if (o) {
+      setLoginEdited(false);
+      setShowPassword(false);
+      if (editVendor) {
+        setForm({
+          ...EMPTY_VENDOR_FORM,
+          name: editVendor.name || "",
+          baseCurrency: editVendor.baseCurrency || "USD",
+          balance: editVendor.balance?.toFixed(7) ?? "0.0000000",
+          email: editVendor.email || "",
+          companyName: editVendor.companyName || "",
+        });
+      } else {
+        setForm({ ...EMPTY_VENDOR_FORM, webPassword: generatePassword() });
+      }
+    }
   }
 
   function handleSave() {
@@ -250,7 +297,7 @@ function VendorDialog({
           {sectionHeader("Basic Parameters")}
 
           <Field label="Vendor Name *">
-            <Input value={form.name} onChange={set("name")} placeholder="e.g. BICS-PR-PR" data-testid="input-vendor-name" />
+            <Input value={form.name} onChange={handleNameChange} placeholder="e.g. BICS-PR-PR" data-testid="input-vendor-name" />
           </Field>
           <Field label={`Base Currency${isEdit ? " (read-only)" : ""}`}>
             <Select value={form.baseCurrency} onValueChange={v => setV("baseCurrency", v)} disabled={isEdit}>
@@ -265,7 +312,26 @@ function VendorDialog({
 
           {!isEdit && (
             <Field label="Web Login *">
-              <Input value={form.webLogin} onChange={set("webLogin")} data-testid="input-vendor-login" />
+              <div className="relative">
+                <Input
+                  value={form.webLogin}
+                  onChange={handleLoginChange}
+                  placeholder="auto-generated from name"
+                  data-testid="input-vendor-login"
+                  className="pr-8"
+                />
+                {form.webLogin && (
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(form.webLogin, "Web Login")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                    title="Copy login"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </Field>
           )}
           <Field label="Time Zone">
@@ -282,7 +348,44 @@ function VendorDialog({
 
           {!isEdit && (
             <Field label="Web Password *">
-              <Input type="password" value={form.webPassword} onChange={set("webPassword")} data-testid="input-vendor-pass" />
+              <div className="relative flex items-center gap-1">
+                <div className="relative flex-1">
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    value={form.webPassword}
+                    onChange={set("webPassword")}
+                    data-testid="input-vendor-pass"
+                    className="pr-8 font-mono text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                    title={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(form.webPassword, "Password")}
+                  className="shrink-0 text-muted-foreground hover:text-foreground p-1.5 rounded border border-input bg-background"
+                  title="Copy password"
+                  data-testid="btn-copy-password"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={regeneratePassword}
+                  className="shrink-0 text-muted-foreground hover:text-foreground p-1.5 rounded border border-input bg-background"
+                  title="Generate new password"
+                  data-testid="btn-regen-password"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </Field>
           )}
           <Field label="Language">
