@@ -6009,29 +6009,48 @@ export async function createSippyServicePlan(
   // NOTE: do NOT include i_billing_plan — empty string crashes Sippy's PHP (HTTP 500).
   // account/admin sessions include i_customer='1' in both the URL and POST body so
   // Sippy's PHP knows which customer context to create the plan under.
+  // Field order and values match a real browser POST captured from service_plans.php.
+  // Missing or mis-valued fields cause Sippy PHP to reject the form silently or crash.
   const basePostFields = {
     bp_name:                     planName,
     i_tariff:                    String(iTariff),
     i_onnet_tariff:              '-1',
-    billing_cycle:               String(billingCycle ?? 3),
-    i_billing_day:               '',
-    _billing_day:                '',
+    billing_cycle:               String(billingCycle ?? 1),
+    i_billing_day:               '-1',
     description:                 description ?? '',
     i_billing_plan_suspend_mode: '1',
-    prepaid:                     '0',
-    round_up:                    '0',
+    prepaid:                     '1',
+    round_up:                    '1',
+    // Service charge block
+    sc_description:              '',
+    sc_price:                    '0.0000',
+    // Accessibility surcharge block
+    as_cld:                      '',
+    as_connect_fee:              '0.0000',
+    as_free_seconds:             '0',
+    as_grace_period:             '0',
+    as_price_1:                  '0.0000',
+    as_price_n:                  '0.0000',
+    as_interval_1:               '1',
+    as_interval_n:               '1',
+    // Service package block
+    sp_description:              '',
+    sp_seconds_total:            'Unlimited',
+    sp_price:                    '0.0000',
+    sp_interval_1:               '0',
+    sp_interval_n:               '1',
+    sp_grace_period_enable:      '1',
+    // Control fields
     action:                      'add',
+    n:                           '',
+    name:                        '',
+    name_clause:                 '',
     save_and_close:              'Save & Close',
-    links:                       '',
+    links:                       '0',
     keep_db_history:             '1',
     i_service_charge:            '',
     i_accessibility_surcharge:   '',
     i_service_plan:              '',
-    sc_description:              '',
-    sc_price:                    '0.0000',
-    n:                           '',
-    name:                        '',
-    name_clause:                 '',
   };
 
   let resp!: Awaited<ReturnType<typeof rawRequest>>;
