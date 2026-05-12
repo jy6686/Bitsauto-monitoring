@@ -148,7 +148,7 @@ type VendorFormData = {
 
 const EMPTY_VENDOR_FORM: VendorFormData = {
   name: "", webLogin: "", webPassword: "", baseCurrency: "USD",
-  balance: "0.0000000", iTimeZone: "Etc/UTC", iLang: "1", iExportType: "1",
+  balance: "0.0000000", iTimeZone: "1", iLang: "1", iExportType: "1",
   roundUp: "1", costRoundUp: "1", decimalPrecision: "20", iPasswordPolicy: "1",
   companyName: "", salutation: "", firstName: "", midInit: "", lastName: "",
   streetAddr: "", state: "", postalCode: "", city: "", country: "",
@@ -256,7 +256,7 @@ function VendorDialog({
     if (!isEdit && !form.webPassword.trim()) { toast({ title: "Web Password is required.", variant: "destructive" }); return; }
     const body: Record<string, any> = {
       name: form.name, baseCurrency: form.baseCurrency,
-      iTimeZone: parseInt(form.iTimeZone) || 0,
+      iTimeZone: parseInt(form.iTimeZone) || 1,
       iLang: parseInt(form.iLang) || 1,
       iExportType: parseInt(form.iExportType) || 1,
       roundUp: parseInt(form.roundUp) || 1,
@@ -338,10 +338,16 @@ function VendorDialog({
             <Select value={form.iTimeZone} onValueChange={v => setV("iTimeZone", v)}>
               <SelectTrigger data-testid="select-vendor-tz"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="Etc/UTC">Etc/UTC</SelectItem>
-                <SelectItem value="America/New_York">America/New_York</SelectItem>
-                <SelectItem value="Europe/London">Europe/London</SelectItem>
-                <SelectItem value="Asia/Dubai">Asia/Dubai</SelectItem>
+                <SelectItem value="1">Etc/UTC (1)</SelectItem>
+                <SelectItem value="2">US/Eastern (2)</SelectItem>
+                <SelectItem value="3">US/Central (3)</SelectItem>
+                <SelectItem value="4">US/Mountain (4)</SelectItem>
+                <SelectItem value="5">US/Pacific (5)</SelectItem>
+                <SelectItem value="6">Europe/London (6)</SelectItem>
+                <SelectItem value="7">Europe/Paris (7)</SelectItem>
+                <SelectItem value="8">Asia/Dubai (8)</SelectItem>
+                <SelectItem value="9">Asia/Kolkata (9)</SelectItem>
+                <SelectItem value="10">Asia/Singapore (10)</SelectItem>
               </SelectContent>
             </Select>
           </Field>
