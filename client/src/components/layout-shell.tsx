@@ -298,6 +298,19 @@ const GROUP_TINT: Record<string, string> = {
   platform:        'text-slate-400',
 };
 
+// Static bg mapping — must be explicit so Tailwind includes them in the bundle
+const GROUP_DOT_BG: Record<string, string> = {
+  live_ops:        'bg-emerald-400',
+  client_ops:      'bg-amber-400',
+  vendor_ops:      'bg-cyan-400',
+  routing:         'bg-blue-400',
+  analytics:       'bg-violet-400',
+  troubleshooting: 'bg-orange-400',
+  security:        'bg-rose-400',
+  finance:         'bg-green-400',
+  platform:        'bg-slate-400',
+};
+
 // ── Helper: find which nav group owns the current location ────────────────────
 // Pass the full location including search string (loc + search) for best match.
 function getActiveGroupKey(loc: string, search = ''): string | null {
@@ -1157,6 +1170,11 @@ export function LayoutShell({ children }: LayoutShellProps) {
                 )}
               >
                 {!mobile && <GripVertical className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/grp:opacity-25 transition-opacity cursor-grab active:cursor-grabbing" />}
+                <span className={cn(
+                  "h-1.5 w-1.5 rounded-full flex-shrink-0 transition-opacity duration-150",
+                  GROUP_DOT_BG[group.key] ?? 'bg-slate-400',
+                  isOpen ? 'opacity-90' : 'opacity-35'
+                )} />
                 <span className="flex-1 text-left">{group.label}</span>
                 {!mobile && (
                   <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 transition-transform duration-200 text-muted-foreground/40", isOpen && "rotate-180 text-muted-foreground/60")} />
