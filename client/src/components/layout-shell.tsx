@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -104,6 +104,13 @@ interface NavGroup {
   label: string;
   roles: Role[];
   items: NavItem[];
+}
+
+interface CustomGroup {
+  id: string;
+  label: string;
+  tint: string;
+  itemHrefs: string[];
 }
 
 // ── Navigation structure — 6 groups ───────────────────────────────────────────
@@ -252,9 +259,21 @@ const MGMT_ROUTE_TO_KEY: Record<string, string> = Object.fromEntries(
   MGMT_CONFIGURABLE_FEATURES.map(f => [f.route, f.key])
 );
 
-const SIDEBAR_KEY      = 'voip-sidebar-collapsed';
-const GROUPS_LS_KEY    = 'voip-sidebar-groups';
-const GROUPS_ORDER_KEY = 'voip-sidebar-group-order';
+const SIDEBAR_KEY           = 'voip-sidebar-collapsed';
+const GROUPS_LS_KEY         = 'voip-sidebar-groups';
+const GROUPS_ORDER_KEY      = 'voip-sidebar-group-order';
+const CUSTOM_GROUPS_LS_KEY  = 'voip-sidebar-custom-groups';
+
+const TINT_OPTIONS = [
+  { label: 'Indigo',  value: 'text-indigo-400',  bg: 'bg-indigo-400'  },
+  { label: 'Violet',  value: 'text-violet-400',  bg: 'bg-violet-400'  },
+  { label: 'Cyan',    value: 'text-cyan-400',    bg: 'bg-cyan-400'    },
+  { label: 'Emerald', value: 'text-emerald-400', bg: 'bg-emerald-400' },
+  { label: 'Amber',   value: 'text-amber-400',   bg: 'bg-amber-400'   },
+  { label: 'Rose',    value: 'text-rose-400',    bg: 'bg-rose-400'    },
+  { label: 'Sky',     value: 'text-sky-400',     bg: 'bg-sky-400'     },
+  { label: 'Fuchsia', value: 'text-fuchsia-400', bg: 'bg-fuchsia-400' },
+] as const;
 const DEFAULT_GROUP_ORDER = SIDEBAR_GROUPS.map(g => g.key);
 
 // ── Icon accent per group ──────────────────────────────────────────────────────
@@ -301,6 +320,150 @@ const PANEL = {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
+// ── All pickable items (flat list from every sidebar group) ───────────────────
+const ALL_PICKABLE_ITEMS: NavItem[] = SIDEBAR_GROUPS.flatMap(g => g.items);
+
+// ── Group+ dialog ─────────────────────────────────────────────────────────────
+function GroupPlusDialog({ open, onClose, onCreate }: {
+  open: boolean;
+  onClose: () => void;
+  onCreate: (g: CustomGroup) => void;
+}) {
+  const [name, setName] = useState('');
+  const [tint, setTint] = useState<string>(TINT_OPTIONS[0].value);
+  const [q, setQ] = useState('');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+
+  function reset() { setName(''); setTint(TINT_OPTIONS[0].value); setQ(''); setPicked(new Set()); }
+  function handleClose() { reset(); onClose(); }
+
+  function handleCreate() {
+    const label = name.trim();
+    if (!label || picked.size === 0) return;
+    onCreate({ id: `custom_${Date.now()}`, label, tint, itemHrefs: [...picked] });
+    reset();
+    onClose();
+  }
+
+  const filtered = ALL_PICKABLE_ITEMS.filter(it =>
+    it.label.toLowerCase().includes(q.toLowerCase())
+  );
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleClose} />
+      <div className="relative z-10 w-full max-w-sm bg-[hsl(var(--background))] border border-white/[0.1] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06]">
+          <FolderPlus className="h-4 w-4 text-muted-foreground/60" />
+          <span className="font-semibold text-sm flex-1">New Group</span>
+          <button onClick={handleClose} className="p-1 rounded-lg text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.06] transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+          {/* Name */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50 mb-1.5">Group Name</label>
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. Finance Ops"
+              maxLength={32}
+              className="w-full px-3 py-2 text-sm rounded-lg bg-white/[0.04] border border-white/[0.08] text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-white/[0.18] transition-colors"
+              autoFocus
+            />
+          </div>
+
+          {/* Color */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50 mb-1.5">Accent Colour</label>
+            <div className="flex flex-wrap gap-2">
+              {TINT_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setTint(opt.value)}
+                  title={opt.label}
+                  className={cn(
+                    "h-6 w-6 rounded-full transition-all duration-150 ring-offset-2 ring-offset-background",
+                    opt.bg,
+                    tint === opt.value ? "ring-2 ring-white/70 scale-110" : "opacity-50 hover:opacity-80 hover:scale-105"
+                  )}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Item picker */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50 mb-1.5">
+              Add Items <span className="normal-case font-normal text-muted-foreground/30">({picked.size} selected)</span>
+            </label>
+            <div className="relative mb-2">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/40 pointer-events-none" />
+              <input
+                value={q}
+                onChange={e => setQ(e.target.value)}
+                placeholder="Search items…"
+                className="w-full pl-7 pr-3 py-1.5 text-[12px] rounded-lg bg-white/[0.04] border border-white/[0.08] text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-white/[0.18] transition-colors"
+              />
+            </div>
+            <div className="max-h-[220px] overflow-y-auto space-y-0.5 pr-1 [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-thumb]:bg-white/10">
+              {filtered.map(item => {
+                const sel = picked.has(item.href);
+                return (
+                  <button
+                    key={item.href}
+                    onClick={() => setPicked(prev => {
+                      const s = new Set(prev);
+                      sel ? s.delete(item.href) : s.add(item.href);
+                      return s;
+                    })}
+                    className={cn(
+                      "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] transition-all duration-100 text-left",
+                      sel
+                        ? "bg-white/[0.08] text-foreground"
+                        : "text-muted-foreground/60 hover:bg-white/[0.04] hover:text-foreground"
+                    )}
+                  >
+                    <div className={cn(
+                      "h-3.5 w-3.5 rounded flex-shrink-0 border transition-colors",
+                      sel ? "bg-primary border-primary" : "border-white/[0.2]"
+                    )}>
+                      {sel && <svg viewBox="0 0 10 10" className="w-full h-full p-[1.5px]"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="white" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    </div>
+                    <item.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sel ? tint : "text-muted-foreground/40")} />
+                    <span className="flex-1 truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+              {filtered.length === 0 && (
+                <p className="text-center text-[11px] text-muted-foreground/30 py-4">No items match</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex gap-2 px-4 py-3 border-t border-white/[0.06]">
+          <button onClick={handleClose}
+            className="flex-1 px-3 py-2 text-[12px] font-medium rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-muted-foreground hover:text-foreground transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleCreate}
+            disabled={!name.trim() || picked.size === 0}
+            className="flex-1 px-3 py-2 text-[12px] font-semibold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+            Create Group
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function LayoutShell({ children }: LayoutShellProps) {
   const [location]  = useLocation();
   const search      = useSearch();
@@ -337,6 +500,30 @@ export function LayoutShell({ children }: LayoutShellProps) {
     } catch { /* */ }
     return DEFAULT_GROUP_ORDER;
   });
+
+  const [customGroups, setCustomGroups] = useState<CustomGroup[]>(() => {
+    try {
+      const s = localStorage.getItem(CUSTOM_GROUPS_LS_KEY);
+      if (s) return JSON.parse(s);
+    } catch { /* */ }
+    return [];
+  });
+
+  const [groupPlusOpen, setGroupPlusOpen] = useState(false);
+
+  useEffect(() => {
+    try { localStorage.setItem(CUSTOM_GROUPS_LS_KEY, JSON.stringify(customGroups)); } catch { /* */ }
+  }, [customGroups]);
+
+  function handleCreateCustomGroup(g: CustomGroup) {
+    setCustomGroups(prev => [...prev, g]);
+    setGroupsExpanded(prev => ({ ...prev, [g.id]: true }));
+  }
+
+  function handleDeleteCustomGroup(id: string) {
+    setCustomGroups(prev => prev.filter(g => g.id !== id));
+    setGroupsExpanded(prev => { const n = { ...prev }; delete n[id]; return n; });
+  }
 
   const dragSrcKey  = useRef<string | null>(null);
   const dragOverKey = useRef<string | null>(null);
@@ -1005,6 +1192,70 @@ export function LayoutShell({ children }: LayoutShellProps) {
           </button>
         )}
 
+        {/* Custom groups */}
+        {customGroups.map(cg => {
+          const cgItems = ALL_PICKABLE_ITEMS.filter(it => cg.itemHrefs.includes(it.href));
+          const isOpen = mobile ? true : isGroupOpen(cg.id);
+          return (
+            <div key={cg.id} className="pt-1.5">
+              <div className={cn(
+                "group/cg w-full flex items-center gap-2 px-2.5 py-1.5 mb-0.5 rounded-lg text-[11px] font-semibold uppercase tracking-[0.06em] transition-all duration-150",
+                isOpen
+                  ? "bg-white/[0.06] text-foreground/65 border border-white/[0.08]"
+                  : "text-muted-foreground/40 hover:text-muted-foreground/65 hover:bg-white/[0.04] border border-transparent"
+              )}>
+                <button className="flex-1 flex items-center gap-2 text-left" onClick={!mobile ? () => toggleGroup(cg.id) : undefined}>
+                  <FolderPlus className={cn("h-3 w-3 flex-shrink-0 opacity-60", cg.tint)} />
+                  <span className="flex-1">{cg.label}</span>
+                </button>
+                {!mobile && (
+                  <>
+                    <button onClick={() => handleDeleteCustomGroup(cg.id)}
+                      className="opacity-0 group-hover/cg:opacity-100 p-0.5 rounded text-muted-foreground/40 hover:text-rose-400 transition-all"
+                      title="Delete group">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                    <ChevronDown onClick={() => toggleGroup(cg.id)}
+                      className={cn("h-3.5 w-3.5 flex-shrink-0 transition-transform duration-200 text-muted-foreground/40 cursor-pointer", isOpen && "rotate-180 text-muted-foreground/60")} />
+                  </>
+                )}
+              </div>
+              <AnimatePresence initial={false}>
+                {(mobile || isOpen) && (
+                  <motion.div key="items" initial={mobile ? false : "closed"} animate="open" exit="closed" variants={PANEL} className="overflow-hidden">
+                    <div className="space-y-0.5">
+                      {cgItems.map(item => {
+                        const active = location.startsWith(item.href.split('?')[0]);
+                        return (
+                          <Link key={item.href} href={item.href}
+                            onClick={mobile ? () => setMobileOpen(false) : undefined}
+                            className={navItemCls(active)}>
+                            {active && <ActiveBar />}
+                            <item.icon className={navIconCls(active, cg.id)} />
+                            <span className="flex-1 truncate">{item.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
+
+        {/* Group+ button */}
+        {!mobile && role === 'admin' && (
+          <button
+            onClick={() => setGroupPlusOpen(true)}
+            data-testid="button-group-plus"
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 mt-1 rounded-lg text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/30 hover:text-muted-foreground/60 hover:bg-white/[0.04] border border-dashed border-white/[0.06] hover:border-white/[0.14] transition-all duration-150"
+          >
+            <Plus className="h-3 w-3 flex-shrink-0" />
+            <span>New Group</span>
+          </button>
+        )}
+
         {/* Pinned bottom */}
         <div className="mt-3 pt-2 border-t border-white/[0.05] space-y-0.5">
           {NAV_PINNED_BOTTOM.filter(isItemVisible).map(item => {
@@ -1196,6 +1447,11 @@ export function LayoutShell({ children }: LayoutShellProps) {
       {/* ── Globals ──────────────────────────────────────────────────────────── */}
       <CommandBar />
       <FixButton />
+      <GroupPlusDialog
+        open={groupPlusOpen}
+        onClose={() => setGroupPlusOpen(false)}
+        onCreate={handleCreateCustomGroup}
+      />
     </div>
   );
 }
