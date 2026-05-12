@@ -149,7 +149,7 @@ type VendorFormData = {
 const EMPTY_VENDOR_FORM: VendorFormData = {
   name: "", webLogin: "", webPassword: "", baseCurrency: "USD",
   balance: "0.0000000", iTimeZone: "Etc/UTC", iLang: "1", iExportType: "1",
-  roundUp: "1", costRoundUp: "1", decimalPrecision: "20", iPasswordPolicy: "0",
+  roundUp: "1", costRoundUp: "1", decimalPrecision: "20", iPasswordPolicy: "1",
   companyName: "", salutation: "", firstName: "", midInit: "", lastName: "",
   streetAddr: "", state: "", postalCode: "", city: "", country: "",
   contact: "", phone: "", fax: "", altPhone: "", altContact: "",
@@ -262,7 +262,7 @@ function VendorDialog({
       roundUp: parseInt(form.roundUp) || 1,
       costRoundUp: parseInt(form.costRoundUp) || 1,
       decimalPrecision: parseInt(form.decimalPrecision) || 20,
-      iPasswordPolicy: parseInt(form.iPasswordPolicy) || 0,
+      iPasswordPolicy: parseInt(form.iPasswordPolicy) || 1,
     };
     if (!isEdit) { body.webLogin = form.webLogin; body.webPassword = form.webPassword; }
     if (form.companyName) body.companyName = form.companyName;
@@ -425,8 +425,8 @@ function VendorDialog({
             <Select value={form.iPasswordPolicy} onValueChange={v => setV("iPasswordPolicy", v)}>
               <SelectTrigger data-testid="select-vendor-pwpolicy"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="0">Default</SelectItem>
-                <SelectItem value="1">Strong</SelectItem>
+                <SelectItem value="1">Default</SelectItem>
+                <SelectItem value="2">Strong</SelectItem>
               </SelectContent>
             </Select>
           </Field>
