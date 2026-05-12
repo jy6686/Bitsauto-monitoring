@@ -8077,7 +8077,7 @@ export interface CreateVendorOpts {
   name:              string;
   webPassword:       string;
   webLogin:          string;
-  iTimeZone:         number;
+  iTimeZone?:        number;
   // Optional
   baseCurrency?:     string;
   companyName?:      string;
@@ -8125,11 +8125,11 @@ export async function createSippyVendor(
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
   const params: Record<string, string | number | boolean> = {
-    name:        opts.name,
+    name:         opts.name,
     web_password: opts.webPassword,
-    web_login:   opts.webLogin,
-    i_time_zone: opts.iTimeZone,
+    web_login:    opts.webLogin,
   };
+  if (opts.iTimeZone !== undefined) params.i_time_zone = opts.iTimeZone;
   if (opts.baseCurrency     !== undefined) params.base_currency      = opts.baseCurrency;
   if (opts.companyName      !== undefined) params.company_name       = opts.companyName;
   if (opts.salutation       !== undefined) params.salutation         = opts.salutation;
@@ -8159,8 +8159,11 @@ export async function createSippyVendor(
   if (opts.iCustomer        !== undefined) params.i_customer         = opts.iCustomer;
 
   try {
-    const resp = await sippyPost(apiUrl, xmlRpcCall('createVendor', params), username, password);
+    const xmlBody = xmlRpcCall('createVendor', params);
+    console.log('[createVendor] XML sent to Sippy:', xmlBody);
+    const resp = await sippyPost(apiUrl, xmlBody, username, password);
     const text = resp.body;
+    console.log('[createVendor] Sippy response (HTTP', resp.statusCode, '):', text.substring(0, 500));
     if (resp.statusCode !== 200 || text.includes('<fault>')) {
       const fault = extractFaultString(text) || 'createVendor failed.';
       return { success: false, message: fault };

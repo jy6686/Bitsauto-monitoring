@@ -7055,16 +7055,47 @@ export async function registerRoutes(
   // Returns: { success, iVendor, message }
   app.post('/api/sippy/vendors', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
-      const { name, webPassword, webLogin, iTimeZone } = req.body ?? {};
-      if (!name || !webPassword || !webLogin || iTimeZone === undefined) {
-        return res.status(400).json({ success: false, error: 'name, webPassword, webLogin, and iTimeZone are required.' });
+      const b = req.body ?? {};
+      const { name, webPassword, webLogin } = b;
+      if (!name || !webPassword || !webLogin) {
+        return res.status(400).json({ success: false, error: 'name, webPassword, and webLogin are required.' });
       }
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.createSippyVendor(username, password, req.body, sippyPortalUrl(settings));
+
+      // Build a whitelist of safe params for createVendor.
+      // iTimeZone, iLang, iExportType, iPasswordPolicy, roundUp, costRoundUp, decimalPrecision
+      // are excluded on creation — they either cause Fatal errors on some Sippy versions
+      // or can be set via updateVendor after the vendor is created.
+      const opts: sippy.CreateVendorOpts = {
+        name,
+        webLogin,
+        webPassword,
+      };
+      if (b.baseCurrency)  opts.baseCurrency  = b.baseCurrency;
+      if (b.companyName)   opts.companyName   = b.companyName;
+      if (b.salutation)    opts.salutation    = b.salutation;
+      if (b.firstName)     opts.firstName     = b.firstName;
+      if (b.midInit)       opts.midInit       = b.midInit;
+      if (b.lastName)      opts.lastName      = b.lastName;
+      if (b.streetAddr)    opts.streetAddr    = b.streetAddr;
+      if (b.state)         opts.state         = b.state;
+      if (b.postalCode)    opts.postalCode    = b.postalCode;
+      if (b.city)          opts.city          = b.city;
+      if (b.country)       opts.country       = b.country;
+      if (b.contact)       opts.contact       = b.contact;
+      if (b.phone)         opts.phone         = b.phone;
+      if (b.fax)           opts.fax           = b.fax;
+      if (b.altPhone)      opts.altPhone      = b.altPhone;
+      if (b.altContact)    opts.altContact    = b.altContact;
+      if (b.email)         opts.email         = b.email;
+      if (b.cc)            opts.cc            = b.cc;
+      if (b.bcc)           opts.bcc           = b.bcc;
+
+      const result = await sippy.createSippyVendor(username, password, opts, sippyPortalUrl(settings));
       if (!result.success) {
-        console.error('[create-vendor] Sippy rejected vendor creation:', result.message, '| body keys:', Object.keys(req.body).join(', '));
+        console.error('[create-vendor] Sippy rejected:', result.message, '| opts keys:', Object.keys(opts).join(', '));
         return res.status(400).json(result);
       }
       res.status(201).json(result);
