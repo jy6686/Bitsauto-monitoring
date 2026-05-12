@@ -10980,6 +10980,18 @@ export async function registerRoutes(
     res.send(_countryCodesJson);
   });
 
+  // GET /api/download/partner-initial-cost-docx — Partner Initial Cost Estimate as Word (.docx)
+  app.get('/api/download/partner-initial-cost-docx', async (_req: any, res: any) => {
+    try {
+      const mdPath  = _pathJoin(process.cwd(), 'PARTNER_INITIAL_COST.md');
+      const outPath = _pathJoin(process.cwd(), 'attached_assets', 'Bitsauto_Partner_Initial_Cost_Estimate.docx');
+      await convertMdToDocx(mdPath, outPath, 'White-Label Partner Deployment — Initial Cost Estimate');
+      res.download(outPath, 'Bitsauto_Partner_Initial_Cost_Estimate.docx', (err: any) => {
+        if (err && !res.headersSent) res.status(404).json({ error: 'Conversion failed' });
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/download/country-codes-xlsx — download the Global Country & Mobile Codes Excel sheet
   app.get('/api/download/country-codes-xlsx', (_req: any, res: any) => {
     const filePath = _pathJoin(process.cwd(), 'client', 'public', 'downloads', 'Global_Country_Mobile_Codes.xlsx');
