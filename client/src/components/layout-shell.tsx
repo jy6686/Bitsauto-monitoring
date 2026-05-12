@@ -159,11 +159,12 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Vendor Operations',
     roles: ['admin','management'],
     items: [
-      { href: "/vendors",                           label: "Vendors",          icon: Building2,  roles: ['admin','management']                         },
-      { href: "/routing-manager?tab=connections",   label: "Connections",      icon: Network,    roles: ['admin','management']                         },
-      { href: "/routing-manager?tab=destination-sets", label: "Destination Sets", icon: Layers,  roles: ['admin','management']                         },
-      { href: "/routing-manager?tab=routing-groups",label: "Routing Groups",   icon: Database,   roles: ['admin','management']                         },
-      { href: "/test-call",                         label: "Test Suite",       icon: PhoneCall,  roles: ['admin','management'], hasSubmenu: 'testing'  },
+      { href: "/vendors",                              label: "Vendors",             icon: Building2,     roles: ['admin','management']                        },
+      { href: "/routing-manager?tab=connections",    label: "Connections",         icon: Network,       roles: ['admin','management']                        },
+      { href: "/routing-manager?tab=destination-sets", label: "Destination Sets",  icon: Layers,        roles: ['admin','management']                        },
+      { href: "/routing-manager?tab=routing-groups", label: "Routing Groups",      icon: Database,      roles: ['admin','management']                        },
+      { href: "/tools?tab=translation",              label: "Translation Tester",  icon: ArrowRightLeft,roles: ['admin','management']                        },
+      { href: "/test-call",                          label: "Test Suite",          icon: PhoneCall,     roles: ['admin','management'], hasSubmenu: 'testing' },
     ],
   },
   // ─── 4. Routing & LCR ────────────────────────────────────────────────────────
