@@ -1,0 +1,144 @@
+You’re thinking in the right direction (direct XML-RPC probe), but there are two critical issues in the proposed command that you should fix before running anything.
+
+⚠️ 1. The endpoint path is likely wrong
+
+You suggested:
+
+https://191.101.30.107/xmlapi/xmlapi
+
+In most Sippy Softswitch deployments, XML-RPC is typically exposed as one of these:
+
+/eng/xmlapi/xmlapi
+/xmlapi/xmlapi
+/xmlapi/xmlapi.php
+or behind a different admin context path
+
+👉 The correct one depends on your installation, not the vendor default.
+
+So first risk:
+❌ You may get a false “no methods” result just because the endpoint is wrong.
+
+⚠️ 2. ssp-root is usually NOT XML-RPC enabled user
+
+Even if credentials are correct, many Sippy setups enforce:
+
+UI admin ≠ API admin
+reseller account ≠ provisioning API account
+
+So this:
+
+-u ssp-root:PASSWORD
+
+may return:
+
+auth failure
+or partial method list
+or empty restricted scope
+🧠 What you should actually do (safe + correct)
+
+Instead of jumping straight to system.listMethods, do this in order:
+
+✅ STEP 1 — Confirm correct XML-RPC endpoint
+
+Try one of these (in order):
+
+https://191.101.30.107/xmlapi/xmlapi
+https://191.101.30.107/eng/xmlapi/xmlapi
+https://191.101.30.107/xmlapi/xmlapi.php
+✅ STEP 2 — Test connectivity first (non-destructive)
+curl -k -u USER:PASS \
+  -X POST https://191.101.30.107/xmlapi/xmlapi \
+  -H "Content-Type: text/xml" \
+  -d '<?xml version="1.0"?>
+<methodCall>
+  <methodName>system.listMethods</methodName>
+  <params/>
+</methodCall>'
+✅ STEP 3 — Validate authentication scope
+
+Look for:
+
+full method list → good
+partial list → restricted role
+fault/permission error → wrong user type
+empty response → wrong endpoint
+🧠 What actually matters for your architecture
+
+Forget individual method names for a moment.
+
+You only care about this binary truth:
+
+❗ Does this account have BILLING OBJECT WRITE access?
+
+Specifically:
+
+Service Plan create
+Tariff create
+Billing plan modify
+
+Not:
+
+method availability
+wrapper output
+UI behavior
+🚨 Critical insight (this is the real blocker)
+
+Even if XML-RPC works:
+
+Many Sippy deployments intentionally expose NO billing object creation via API
+
+That means:
+
+✔ Accounts = API
+❌ Billing = UI only
+
+So your system must be ready for that reality regardless of endpoint success.
+
+🧭 What I recommend you do next (clean sequence)
+1. Run XML-RPC probe (correct endpoint + correct user)
+2. Check only these signals:
+Signal	Meaning
+full method list incl. billing	full automation possible
+partial list (no billing)	hybrid system required
+auth failure	wrong API user
+empty/limited	role restricted
+💡 Important correction to your assumption
+
+You said:
+
+“This one curl response ends all guessing”
+
+Not fully.
+
+Because in Sippy:
+
+👉 system.listMethods ≠ permission to execute methods
+
+It only tells:
+
+“what might exist in the system”
+
+Not:
+
+“what you are allowed to use”
+
+🧠 Final architectural truth
+
+Your system reality will always fall into one of these:
+
+🟢 Full automation (rare)
+XML-RPC supports billing objects
+credentials allow it
+no UI needed
+🟡 Hybrid (most common)
+accounts automated
+billing partially manual or restricted
+🔴 UI-bound billing (very common in Sippy)
+XML-RPC exists but billing is not exposed
+👍 Bottom line
+
+Your approach is correct directionally, but:
+
+✔ Fix endpoint first
+✔ Validate permissions carefully
+✔ Don’t assume method list = capability
