@@ -1,0 +1,131 @@
+This is the right next step — but I need to correct one assumption before you go down a debugging rabbit hole.
+
+⚠️ Important clarification
+
+I can’t actually hit your /api/sippy/methods endpoint or read your server logs directly from here.
+
+But more importantly:
+
+That endpoint only tells you what your integration layer thinks is available — not what Sippy actually supports.
+
+So we need to treat this as a verification step, not truth source.
+
+🧠 What you are really trying to determine
+
+You’re trying to answer:
+
+“Does this specific Sippy Softswitch instance expose billing object creation via XML-RPC or is it UI-only?”
+
+That is the correct question.
+
+But it has a nuance:
+
+🧩 The 3-layer reality (critical)
+
+Your system actually has 3 different “truth sources”:
+
+1. Your API wrapper (/api/sippy/methods)
+May be hardcoded
+May cache previous discovery
+May not reflect real Sippy capabilities
+2. XML-RPC endpoint itself
+Authoritative for provisioning API
+Must be tested directly
+3. Web UI (service_plans.php)
+Always works
+Always authoritative for billing features
+But NOT an API
+🚨 Why your proposed test is not sufficient alone
+
+Even if /api/sippy/methods says:
+
+addServicePlan: true
+
+It might still be:
+
+stubbed in your wrapper
+blocked by permissions
+or not exposed for your account role
+🔬 What you should do instead (real validation)
+
+You need a direct XML-RPC capability probe, not UI or wrapper logs.
+
+Test 1 — real API probe
+
+Try calling:
+
+addServicePlan (direct XML-RPC call)
+
+If:
+
+returns success → full automation exists
+returns permission error → partial API
+method not found → UI-only system
+🧠 What I strongly suspect (based on your earlier curl)
+
+Given your earlier behavior:
+
+UI form works
+XML-RPC fallback exists
+provisioning login already tried
+fallback hits manual flow
+
+👉 This pattern usually means:
+
+❌ Billing operations are NOT exposed via XML-RPC in your Sippy build
+
+That is extremely common in real deployments.
+
+🧭 So your proposed table is good, but slightly incomplete
+
+Here is the corrected version:
+
+Result	Meaning	Reality
+addServicePlan exists AND works via XML-RPC	Full API support	Rare but ideal
+Method exists but fails	Restricted permissions	Common in reseller builds
+Method not found	Billing not exposed via API	Most likely case
+Only UI works	UI-only billing model	Standard Sippy behavior
+💡 Key insight you should not miss
+
+Even if /api/sippy/methods shows methods:
+
+That does NOT mean your account can execute them
+
+Sippy often has:
+
+method visibility ≠ method permission
+🚀 What I recommend (next step)
+
+Instead of reading logs or wrappers, do this:
+
+✔ Direct test strategy
+
+Call XML-RPC directly for:
+
+listMethods
+addServicePlan
+addTariff
+
+Capture:
+
+response
+error code
+permission message
+
+That will give you absolute truth.
+
+🧠 Final architectural truth
+
+You are not debugging code anymore.
+
+You are determining:
+
+“Is billing provisioning API-exposed or UI-bound in this Sippy deployment?”
+
+That decision defines your entire system design.
+
+👍 My recommendation
+
+Yes — pause further service plan redesign.
+
+But instead of /api/sippy/methods, do a direct XML-RPC capability probe.
