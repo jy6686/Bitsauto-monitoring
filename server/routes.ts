@@ -10969,6 +10969,25 @@ export async function registerRoutes(
   // GET /api/dial-codes — serve raw dial-codes JSON for client-side prefix lookup
   app.get('/api/dial-codes', dialCodesHandler);
 
+  // GET /api/country-codes — serve structured global country + mobile codes (452 entries)
+  let _countryCodesJson: string | null = null;
+  app.get('/api/country-codes', (_req: any, res: any) => {
+    if (!_countryCodesJson) {
+      const p = _pathJoin(process.cwd(), 'server', 'country-codes.json');
+      _countryCodesJson = readFileSync(p, 'utf-8');
+    }
+    res.setHeader('Content-Type', 'application/json');
+    res.send(_countryCodesJson);
+  });
+
+  // GET /api/download/country-codes-xlsx — download the Global Country & Mobile Codes Excel sheet
+  app.get('/api/download/country-codes-xlsx', (_req: any, res: any) => {
+    const filePath = _pathJoin(process.cwd(), 'client', 'public', 'downloads', 'Global_Country_Mobile_Codes.xlsx');
+    res.download(filePath, 'Bitsauto_Global_Country_Mobile_Codes.xlsx', (err: any) => {
+      if (err && !res.headersSent) res.status(404).json({ error: 'File not found' });
+    });
+  });
+
   // GET /api/download/platform-features — serve the Full Feature Reference (PLATFORM_FEATURES.md)
   app.get('/api/download/platform-features', (_req: any, res: any) => {
     const filePath = _pathJoin(process.cwd(), 'PLATFORM_FEATURES.md');

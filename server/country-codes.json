@@ -1,0 +1,4522 @@
+[
+  {
+    "country": "Afghanistan",
+    "iso2": "AF",
+    "iso3": "AFG",
+    "numeric": "004",
+    "prefix": "93",
+    "type": "Landline",
+    "operator": "",
+    "label": "Afghanistan LandLine"
+  },
+  {
+    "country": "Albania",
+    "iso2": "AL",
+    "iso3": "ALB",
+    "numeric": "008",
+    "prefix": "355",
+    "type": "Landline",
+    "operator": "",
+    "label": "Albania LandLine"
+  },
+  {
+    "country": "Algeria",
+    "iso2": "DZ",
+    "iso3": "DZA",
+    "numeric": "012",
+    "prefix": "213",
+    "type": "Landline",
+    "operator": "",
+    "label": "Algeria LandLine"
+  },
+  {
+    "country": "Andorra",
+    "iso2": "AD",
+    "iso3": "AND",
+    "numeric": "020",
+    "prefix": "376",
+    "type": "Landline",
+    "operator": "",
+    "label": "Andorra LandLine"
+  },
+  {
+    "country": "Angola",
+    "iso2": "AO",
+    "iso3": "AGO",
+    "numeric": "024",
+    "prefix": "244",
+    "type": "Landline",
+    "operator": "",
+    "label": "Angola LandLine"
+  },
+  {
+    "country": "Argentina",
+    "iso2": "AR",
+    "iso3": "ARG",
+    "numeric": "032",
+    "prefix": "54",
+    "type": "Landline",
+    "operator": "",
+    "label": "Argentina LandLine"
+  },
+  {
+    "country": "Armenia",
+    "iso2": "AM",
+    "iso3": "ARM",
+    "numeric": "051",
+    "prefix": "374",
+    "type": "Landline",
+    "operator": "",
+    "label": "Armenia LandLine"
+  },
+  {
+    "country": "Australia",
+    "iso2": "AU",
+    "iso3": "AUS",
+    "numeric": "036",
+    "prefix": "61",
+    "type": "Landline",
+    "operator": "",
+    "label": "Australia LandLine"
+  },
+  {
+    "country": "Austria",
+    "iso2": "AT",
+    "iso3": "AUT",
+    "numeric": "040",
+    "prefix": "43",
+    "type": "Landline",
+    "operator": "",
+    "label": "Austria LandLine"
+  },
+  {
+    "country": "Azerbaijan",
+    "iso2": "AZ",
+    "iso3": "AZE",
+    "numeric": "031",
+    "prefix": "994",
+    "type": "Landline",
+    "operator": "",
+    "label": "Azerbaijan LandLine"
+  },
+  {
+    "country": "Bahrain",
+    "iso2": "BH",
+    "iso3": "BHR",
+    "numeric": "048",
+    "prefix": "973",
+    "type": "Landline",
+    "operator": "",
+    "label": "Bahrain LandLine"
+  },
+  {
+    "country": "Bahrain",
+    "iso2": "BH",
+    "iso3": "BHR",
+    "numeric": "048",
+    "prefix": "9733",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Bahrain Mobile"
+  },
+  {
+    "country": "Bahrain",
+    "iso2": "BH",
+    "iso3": "BHR",
+    "numeric": "048",
+    "prefix": "97332",
+    "type": "Mobile Operator",
+    "operator": "Batelco",
+    "label": "Bahrain Mobile Batelco"
+  },
+  {
+    "country": "Bahrain",
+    "iso2": "BH",
+    "iso3": "BHR",
+    "numeric": "048",
+    "prefix": "97333",
+    "type": "Mobile Operator",
+    "operator": "Batelco",
+    "label": "Bahrain Mobile Batelco"
+  },
+  {
+    "country": "Bahrain",
+    "iso2": "BH",
+    "iso3": "BHR",
+    "numeric": "048",
+    "prefix": "97336",
+    "type": "Mobile Operator",
+    "operator": "Zain Bahrain",
+    "label": "Bahrain Mobile Zain Bahrain"
+  },
+  {
+    "country": "Bahrain",
+    "iso2": "BH",
+    "iso3": "BHR",
+    "numeric": "048",
+    "prefix": "97338",
+    "type": "Mobile Operator",
+    "operator": "STC Bahrain",
+    "label": "Bahrain Mobile STC Bahrain"
+  },
+  {
+    "country": "Bahrain",
+    "iso2": "BH",
+    "iso3": "BHR",
+    "numeric": "048",
+    "prefix": "97339",
+    "type": "Mobile Operator",
+    "operator": "Batelco",
+    "label": "Bahrain Mobile Batelco"
+  },
+  {
+    "country": "Bangladesh",
+    "iso2": "BD",
+    "iso3": "BGD",
+    "numeric": "050",
+    "prefix": "880",
+    "type": "Landline",
+    "operator": "",
+    "label": "Bangladesh LandLine"
+  },
+  {
+    "country": "Bangladesh",
+    "iso2": "BD",
+    "iso3": "BGD",
+    "numeric": "050",
+    "prefix": "8801",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Bangladesh Mobile"
+  },
+  {
+    "country": "Bangladesh",
+    "iso2": "BD",
+    "iso3": "BGD",
+    "numeric": "050",
+    "prefix": "88011",
+    "type": "Mobile Operator",
+    "operator": "Teletalk",
+    "label": "Bangladesh Mobile Teletalk"
+  },
+  {
+    "country": "Bangladesh",
+    "iso2": "BD",
+    "iso3": "BGD",
+    "numeric": "050",
+    "prefix": "88013",
+    "type": "Mobile Operator",
+    "operator": "Grameenphone",
+    "label": "Bangladesh Mobile Grameenphone"
+  },
+  {
+    "country": "Bangladesh",
+    "iso2": "BD",
+    "iso3": "BGD",
+    "numeric": "050",
+    "prefix": "88014",
+    "type": "Mobile Operator",
+    "operator": "Grameenphone",
+    "label": "Bangladesh Mobile Grameenphone"
+  },
+  {
+    "country": "Bangladesh",
+    "iso2": "BD",
+    "iso3": "BGD",
+    "numeric": "050",
+    "prefix": "88015",
+    "type": "Mobile Operator",
+    "operator": "Teletalk",
+    "label": "Bangladesh Mobile Teletalk"
+  },
+  {
+    "country": "Bangladesh",
+    "iso2": "BD",
+    "iso3": "BGD",
+    "numeric": "050",
+    "prefix": "88016",
+    "type": "Mobile Operator",
+    "operator": "Airtel/Robi",
+    "label": "Bangladesh Mobile Airtel/Robi"
+  },
+  {
+    "country": "Bangladesh",
+    "iso2": "BD",
+    "iso3": "BGD",
+    "numeric": "050",
+    "prefix": "88017",
+    "type": "Mobile Operator",
+    "operator": "Grameenphone",
+    "label": "Bangladesh Mobile Grameenphone"
+  },
+  {
+    "country": "Bangladesh",
+    "iso2": "BD",
+    "iso3": "BGD",
+    "numeric": "050",
+    "prefix": "88018",
+    "type": "Mobile Operator",
+    "operator": "Robi",
+    "label": "Bangladesh Mobile Robi"
+  },
+  {
+    "country": "Bangladesh",
+    "iso2": "BD",
+    "iso3": "BGD",
+    "numeric": "050",
+    "prefix": "88019",
+    "type": "Mobile Operator",
+    "operator": "Banglalink",
+    "label": "Bangladesh Mobile Banglalink"
+  },
+  {
+    "country": "Barbados",
+    "iso2": "BB",
+    "iso3": "BRB",
+    "numeric": "052",
+    "prefix": "1-246",
+    "type": "Landline",
+    "operator": "",
+    "label": "Barbados LandLine"
+  },
+  {
+    "country": "Belarus",
+    "iso2": "BY",
+    "iso3": "BLR",
+    "numeric": "112",
+    "prefix": "375",
+    "type": "Landline",
+    "operator": "",
+    "label": "Belarus LandLine"
+  },
+  {
+    "country": "Belgium",
+    "iso2": "BE",
+    "iso3": "BEL",
+    "numeric": "056",
+    "prefix": "32",
+    "type": "Landline",
+    "operator": "",
+    "label": "Belgium LandLine"
+  },
+  {
+    "country": "Belize",
+    "iso2": "BZ",
+    "iso3": "BLZ",
+    "numeric": "084",
+    "prefix": "501",
+    "type": "Landline",
+    "operator": "",
+    "label": "Belize LandLine"
+  },
+  {
+    "country": "Benin",
+    "iso2": "BJ",
+    "iso3": "BEN",
+    "numeric": "204",
+    "prefix": "229",
+    "type": "Landline",
+    "operator": "",
+    "label": "Benin LandLine"
+  },
+  {
+    "country": "Bhutan",
+    "iso2": "BT",
+    "iso3": "BTN",
+    "numeric": "064",
+    "prefix": "975",
+    "type": "Landline",
+    "operator": "",
+    "label": "Bhutan LandLine"
+  },
+  {
+    "country": "Bolivia",
+    "iso2": "BO",
+    "iso3": "BOL",
+    "numeric": "068",
+    "prefix": "591",
+    "type": "Landline",
+    "operator": "",
+    "label": "Bolivia LandLine"
+  },
+  {
+    "country": "Bosnia and Herzegovina",
+    "iso2": "BA",
+    "iso3": "BIH",
+    "numeric": "070",
+    "prefix": "387",
+    "type": "Landline",
+    "operator": "",
+    "label": "Bosnia and Herzegovina LandLine"
+  },
+  {
+    "country": "Botswana",
+    "iso2": "BW",
+    "iso3": "BWA",
+    "numeric": "072",
+    "prefix": "267",
+    "type": "Landline",
+    "operator": "",
+    "label": "Botswana LandLine"
+  },
+  {
+    "country": "Brazil",
+    "iso2": "BR",
+    "iso3": "BRA",
+    "numeric": "076",
+    "prefix": "55",
+    "type": "Landline",
+    "operator": "",
+    "label": "Brazil LandLine"
+  },
+  {
+    "country": "Brazil",
+    "iso2": "BR",
+    "iso3": "BRA",
+    "numeric": "076",
+    "prefix": "5511",
+    "type": "Mobile Operator",
+    "operator": "Vivo/Claro/TIM (São Paulo)",
+    "label": "Brazil Mobile Vivo/Claro/TIM (São Paulo)"
+  },
+  {
+    "country": "Brazil",
+    "iso2": "BR",
+    "iso3": "BRA",
+    "numeric": "076",
+    "prefix": "5521",
+    "type": "Mobile Operator",
+    "operator": "Claro/TIM (Rio de Janeiro)",
+    "label": "Brazil Mobile Claro/TIM (Rio de Janeiro)"
+  },
+  {
+    "country": "Brazil",
+    "iso2": "BR",
+    "iso3": "BRA",
+    "numeric": "076",
+    "prefix": "5531",
+    "type": "Mobile Operator",
+    "operator": "Vivo/TIM (Belo Horizonte)",
+    "label": "Brazil Mobile Vivo/TIM (Belo Horizonte)"
+  },
+  {
+    "country": "Brazil",
+    "iso2": "BR",
+    "iso3": "BRA",
+    "numeric": "076",
+    "prefix": "5541",
+    "type": "Mobile Operator",
+    "operator": "TIM/Claro (Curitiba)",
+    "label": "Brazil Mobile TIM/Claro (Curitiba)"
+  },
+  {
+    "country": "Brazil",
+    "iso2": "BR",
+    "iso3": "BRA",
+    "numeric": "076",
+    "prefix": "5561",
+    "type": "Mobile Operator",
+    "operator": "Vivo/Claro (Brasília)",
+    "label": "Brazil Mobile Vivo/Claro (Brasília)"
+  },
+  {
+    "country": "Brazil",
+    "iso2": "BR",
+    "iso3": "BRA",
+    "numeric": "076",
+    "prefix": "5571",
+    "type": "Mobile Operator",
+    "operator": "TIM/Vivo (Salvador)",
+    "label": "Brazil Mobile TIM/Vivo (Salvador)"
+  },
+  {
+    "country": "Brazil",
+    "iso2": "BR",
+    "iso3": "BRA",
+    "numeric": "076",
+    "prefix": "559",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Brazil Mobile"
+  },
+  {
+    "country": "Bulgaria",
+    "iso2": "BG",
+    "iso3": "BGR",
+    "numeric": "100",
+    "prefix": "359",
+    "type": "Landline",
+    "operator": "",
+    "label": "Bulgaria LandLine"
+  },
+  {
+    "country": "Burkina Faso",
+    "iso2": "BF",
+    "iso3": "BFA",
+    "numeric": "854",
+    "prefix": "226",
+    "type": "Landline",
+    "operator": "",
+    "label": "Burkina Faso LandLine"
+  },
+  {
+    "country": "Burundi",
+    "iso2": "BI",
+    "iso3": "BDI",
+    "numeric": "108",
+    "prefix": "257",
+    "type": "Landline",
+    "operator": "",
+    "label": "Burundi LandLine"
+  },
+  {
+    "country": "Cambodia",
+    "iso2": "KH",
+    "iso3": "KHM",
+    "numeric": "116",
+    "prefix": "855",
+    "type": "Landline",
+    "operator": "",
+    "label": "Cambodia LandLine"
+  },
+  {
+    "country": "Cameroon",
+    "iso2": "CM",
+    "iso3": "CMR",
+    "numeric": "120",
+    "prefix": "237",
+    "type": "Landline",
+    "operator": "",
+    "label": "Cameroon LandLine"
+  },
+  {
+    "country": "Canada",
+    "iso2": "CA",
+    "iso3": "CAN",
+    "numeric": "124",
+    "prefix": "1",
+    "type": "Landline",
+    "operator": "",
+    "label": "Canada LandLine"
+  },
+  {
+    "country": "Chile",
+    "iso2": "CL",
+    "iso3": "CHL",
+    "numeric": "152",
+    "prefix": "56",
+    "type": "Landline",
+    "operator": "",
+    "label": "Chile LandLine"
+  },
+  {
+    "country": "China",
+    "iso2": "CN",
+    "iso3": "CHN",
+    "numeric": "156",
+    "prefix": "86",
+    "type": "Landline",
+    "operator": "",
+    "label": "China LandLine"
+  },
+  {
+    "country": "China",
+    "iso2": "CN",
+    "iso3": "CHN",
+    "numeric": "156",
+    "prefix": "861",
+    "type": "Mobile",
+    "operator": "",
+    "label": "China Mobile"
+  },
+  {
+    "country": "China",
+    "iso2": "CN",
+    "iso3": "CHN",
+    "numeric": "156",
+    "prefix": "8613",
+    "type": "Mobile Operator",
+    "operator": "China Unicom",
+    "label": "China Mobile China Unicom"
+  },
+  {
+    "country": "China",
+    "iso2": "CN",
+    "iso3": "CHN",
+    "numeric": "156",
+    "prefix": "8615",
+    "type": "Mobile Operator",
+    "operator": "China Telecom",
+    "label": "China Mobile China Telecom"
+  },
+  {
+    "country": "China",
+    "iso2": "CN",
+    "iso3": "CHN",
+    "numeric": "156",
+    "prefix": "8617",
+    "type": "Mobile Operator",
+    "operator": "China Mobile",
+    "label": "China Mobile China Mobile"
+  },
+  {
+    "country": "China",
+    "iso2": "CN",
+    "iso3": "CHN",
+    "numeric": "156",
+    "prefix": "8618",
+    "type": "Mobile Operator",
+    "operator": "China Mobile",
+    "label": "China Mobile China Mobile"
+  },
+  {
+    "country": "China",
+    "iso2": "CN",
+    "iso3": "CHN",
+    "numeric": "156",
+    "prefix": "8619",
+    "type": "Mobile Operator",
+    "operator": "China Telecom",
+    "label": "China Mobile China Telecom"
+  },
+  {
+    "country": "Colombia",
+    "iso2": "CO",
+    "iso3": "COL",
+    "numeric": "170",
+    "prefix": "57",
+    "type": "Landline",
+    "operator": "",
+    "label": "Colombia LandLine"
+  },
+  {
+    "country": "Congo DR",
+    "iso2": "CD",
+    "iso3": "COD",
+    "numeric": "180",
+    "prefix": "243",
+    "type": "Landline",
+    "operator": "",
+    "label": "Congo DR LandLine"
+  },
+  {
+    "country": "Costa Rica",
+    "iso2": "CR",
+    "iso3": "CRI",
+    "numeric": "188",
+    "prefix": "506",
+    "type": "Landline",
+    "operator": "",
+    "label": "Costa Rica LandLine"
+  },
+  {
+    "country": "Croatia",
+    "iso2": "HR",
+    "iso3": "HRV",
+    "numeric": "191",
+    "prefix": "385",
+    "type": "Landline",
+    "operator": "",
+    "label": "Croatia LandLine"
+  },
+  {
+    "country": "Cuba",
+    "iso2": "CU",
+    "iso3": "CUB",
+    "numeric": "192",
+    "prefix": "53",
+    "type": "Landline",
+    "operator": "",
+    "label": "Cuba LandLine"
+  },
+  {
+    "country": "Cyprus",
+    "iso2": "CY",
+    "iso3": "CYP",
+    "numeric": "196",
+    "prefix": "357",
+    "type": "Landline",
+    "operator": "",
+    "label": "Cyprus LandLine"
+  },
+  {
+    "country": "Czech Republic",
+    "iso2": "CZ",
+    "iso3": "CZE",
+    "numeric": "203",
+    "prefix": "420",
+    "type": "Landline",
+    "operator": "",
+    "label": "Czech Republic LandLine"
+  },
+  {
+    "country": "Denmark",
+    "iso2": "DK",
+    "iso3": "DNK",
+    "numeric": "208",
+    "prefix": "45",
+    "type": "Landline",
+    "operator": "",
+    "label": "Denmark LandLine"
+  },
+  {
+    "country": "Ecuador",
+    "iso2": "EC",
+    "iso3": "ECU",
+    "numeric": "218",
+    "prefix": "593",
+    "type": "Landline",
+    "operator": "",
+    "label": "Ecuador LandLine"
+  },
+  {
+    "country": "Egypt",
+    "iso2": "EG",
+    "iso3": "EGY",
+    "numeric": "818",
+    "prefix": "20",
+    "type": "Landline",
+    "operator": "",
+    "label": "Egypt LandLine"
+  },
+  {
+    "country": "Egypt",
+    "iso2": "EG",
+    "iso3": "EGY",
+    "numeric": "818",
+    "prefix": "201",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Egypt Mobile"
+  },
+  {
+    "country": "Egypt",
+    "iso2": "EG",
+    "iso3": "EGY",
+    "numeric": "818",
+    "prefix": "2010",
+    "type": "Mobile Operator",
+    "operator": "Vodafone Egypt",
+    "label": "Egypt Mobile Vodafone Egypt"
+  },
+  {
+    "country": "Egypt",
+    "iso2": "EG",
+    "iso3": "EGY",
+    "numeric": "818",
+    "prefix": "2011",
+    "type": "Mobile Operator",
+    "operator": "Etisalat/e&",
+    "label": "Egypt Mobile Etisalat/e&"
+  },
+  {
+    "country": "Egypt",
+    "iso2": "EG",
+    "iso3": "EGY",
+    "numeric": "818",
+    "prefix": "2012",
+    "type": "Mobile Operator",
+    "operator": "Orange Egypt",
+    "label": "Egypt Mobile Orange Egypt"
+  },
+  {
+    "country": "Egypt",
+    "iso2": "EG",
+    "iso3": "EGY",
+    "numeric": "818",
+    "prefix": "2015",
+    "type": "Mobile Operator",
+    "operator": "WE (Telecom Egypt)",
+    "label": "Egypt Mobile WE (Telecom Egypt)"
+  },
+  {
+    "country": "El Salvador",
+    "iso2": "SV",
+    "iso3": "SLV",
+    "numeric": "222",
+    "prefix": "503",
+    "type": "Landline",
+    "operator": "",
+    "label": "El Salvador LandLine"
+  },
+  {
+    "country": "Eritrea",
+    "iso2": "ER",
+    "iso3": "ERI",
+    "numeric": "232",
+    "prefix": "291",
+    "type": "Landline",
+    "operator": "",
+    "label": "Eritrea LandLine"
+  },
+  {
+    "country": "Estonia",
+    "iso2": "EE",
+    "iso3": "EST",
+    "numeric": "233",
+    "prefix": "372",
+    "type": "Landline",
+    "operator": "",
+    "label": "Estonia LandLine"
+  },
+  {
+    "country": "Eswatini",
+    "iso2": "SZ",
+    "iso3": "SWZ",
+    "numeric": "748",
+    "prefix": "268",
+    "type": "Landline",
+    "operator": "",
+    "label": "Eswatini LandLine"
+  },
+  {
+    "country": "Ethiopia",
+    "iso2": "ET",
+    "iso3": "ETH",
+    "numeric": "231",
+    "prefix": "251",
+    "type": "Landline",
+    "operator": "",
+    "label": "Ethiopia LandLine"
+  },
+  {
+    "country": "Ethiopia",
+    "iso2": "ET",
+    "iso3": "ETH",
+    "numeric": "231",
+    "prefix": "2519",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Ethiopia Mobile"
+  },
+  {
+    "country": "Ethiopia",
+    "iso2": "ET",
+    "iso3": "ETH",
+    "numeric": "231",
+    "prefix": "25191",
+    "type": "Mobile Operator",
+    "operator": "Ethio Telecom",
+    "label": "Ethiopia Mobile Ethio Telecom"
+  },
+  {
+    "country": "Ethiopia",
+    "iso2": "ET",
+    "iso3": "ETH",
+    "numeric": "231",
+    "prefix": "25192",
+    "type": "Mobile Operator",
+    "operator": "Safaricom Ethiopia",
+    "label": "Ethiopia Mobile Safaricom Ethiopia"
+  },
+  {
+    "country": "Ethiopia",
+    "iso2": "ET",
+    "iso3": "ETH",
+    "numeric": "231",
+    "prefix": "25193",
+    "type": "Mobile Operator",
+    "operator": "Ethio Telecom",
+    "label": "Ethiopia Mobile Ethio Telecom"
+  },
+  {
+    "country": "Ethiopia",
+    "iso2": "ET",
+    "iso3": "ETH",
+    "numeric": "231",
+    "prefix": "25194",
+    "type": "Mobile Operator",
+    "operator": "Ethio Telecom",
+    "label": "Ethiopia Mobile Ethio Telecom"
+  },
+  {
+    "country": "Finland",
+    "iso2": "FI",
+    "iso3": "FIN",
+    "numeric": "246",
+    "prefix": "358",
+    "type": "Landline",
+    "operator": "",
+    "label": "Finland LandLine"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "33",
+    "type": "Landline",
+    "operator": "",
+    "label": "France LandLine"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "336",
+    "type": "Mobile",
+    "operator": "",
+    "label": "France Mobile"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "3360",
+    "type": "Mobile Operator",
+    "operator": "Bouygues Telecom",
+    "label": "France Mobile Bouygues Telecom"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "3361",
+    "type": "Mobile Operator",
+    "operator": "SFR",
+    "label": "France Mobile SFR"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "3362",
+    "type": "Mobile Operator",
+    "operator": "Free Mobile",
+    "label": "France Mobile Free Mobile"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "3363",
+    "type": "Mobile Operator",
+    "operator": "Orange FR",
+    "label": "France Mobile Orange FR"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "3364",
+    "type": "Mobile Operator",
+    "operator": "Bouygues Telecom",
+    "label": "France Mobile Bouygues Telecom"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "3365",
+    "type": "Mobile Operator",
+    "operator": "SFR",
+    "label": "France Mobile SFR"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "3366",
+    "type": "Mobile Operator",
+    "operator": "Free Mobile",
+    "label": "France Mobile Free Mobile"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "3367",
+    "type": "Mobile Operator",
+    "operator": "Orange FR",
+    "label": "France Mobile Orange FR"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "3368",
+    "type": "Mobile Operator",
+    "operator": "Orange FR",
+    "label": "France Mobile Orange FR"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "3369",
+    "type": "Mobile Operator",
+    "operator": "Bouygues Telecom",
+    "label": "France Mobile Bouygues Telecom"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "337",
+    "type": "Mobile",
+    "operator": "",
+    "label": "France Mobile"
+  },
+  {
+    "country": "France",
+    "iso2": "FR",
+    "iso3": "FRA",
+    "numeric": "250",
+    "prefix": "3370",
+    "type": "Mobile Operator",
+    "operator": "Bouygues Telecom",
+    "label": "France Mobile Bouygues Telecom"
+  },
+  {
+    "country": "Gambia",
+    "iso2": "GM",
+    "iso3": "GMB",
+    "numeric": "270",
+    "prefix": "220",
+    "type": "Landline",
+    "operator": "",
+    "label": "Gambia LandLine"
+  },
+  {
+    "country": "Georgia",
+    "iso2": "GE",
+    "iso3": "GEO",
+    "numeric": "268",
+    "prefix": "995",
+    "type": "Landline",
+    "operator": "",
+    "label": "Georgia LandLine"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49",
+    "type": "Landline",
+    "operator": "",
+    "label": "Germany LandLine"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "491",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Germany Mobile"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "4915",
+    "type": "Mobile Operator",
+    "operator": "Telekom DE",
+    "label": "Germany Mobile Telekom DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49150",
+    "type": "Mobile Operator",
+    "operator": "Telekom DE",
+    "label": "Germany Mobile Telekom DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49151",
+    "type": "Mobile Operator",
+    "operator": "Telekom DE",
+    "label": "Germany Mobile Telekom DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49152",
+    "type": "Mobile Operator",
+    "operator": "Vodafone DE",
+    "label": "Germany Mobile Vodafone DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49157",
+    "type": "Mobile Operator",
+    "operator": "O2 DE",
+    "label": "Germany Mobile O2 DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49159",
+    "type": "Mobile Operator",
+    "operator": "1&1 Drillisch",
+    "label": "Germany Mobile 1&1 Drillisch"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "4916",
+    "type": "Mobile Operator",
+    "operator": "Vodafone DE",
+    "label": "Germany Mobile Vodafone DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49160",
+    "type": "Mobile Operator",
+    "operator": "Telekom DE",
+    "label": "Germany Mobile Telekom DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49162",
+    "type": "Mobile Operator",
+    "operator": "Vodafone DE",
+    "label": "Germany Mobile Vodafone DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49163",
+    "type": "Mobile Operator",
+    "operator": "Telekom DE",
+    "label": "Germany Mobile Telekom DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "4917",
+    "type": "Mobile Operator",
+    "operator": "O2 DE",
+    "label": "Germany Mobile O2 DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49170",
+    "type": "Mobile Operator",
+    "operator": "Telekom DE",
+    "label": "Germany Mobile Telekom DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49171",
+    "type": "Mobile Operator",
+    "operator": "Telekom DE",
+    "label": "Germany Mobile Telekom DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49172",
+    "type": "Mobile Operator",
+    "operator": "Vodafone DE",
+    "label": "Germany Mobile Vodafone DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49173",
+    "type": "Mobile Operator",
+    "operator": "Vodafone DE",
+    "label": "Germany Mobile Vodafone DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49174",
+    "type": "Mobile Operator",
+    "operator": "Vodafone DE",
+    "label": "Germany Mobile Vodafone DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49175",
+    "type": "Mobile Operator",
+    "operator": "Telekom DE",
+    "label": "Germany Mobile Telekom DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49176",
+    "type": "Mobile Operator",
+    "operator": "O2 DE",
+    "label": "Germany Mobile O2 DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49177",
+    "type": "Mobile Operator",
+    "operator": "O2 DE",
+    "label": "Germany Mobile O2 DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49178",
+    "type": "Mobile Operator",
+    "operator": "O2 DE",
+    "label": "Germany Mobile O2 DE"
+  },
+  {
+    "country": "Germany",
+    "iso2": "DE",
+    "iso3": "DEU",
+    "numeric": "276",
+    "prefix": "49179",
+    "type": "Mobile Operator",
+    "operator": "Vodafone DE",
+    "label": "Germany Mobile Vodafone DE"
+  },
+  {
+    "country": "Ghana",
+    "iso2": "GH",
+    "iso3": "GHA",
+    "numeric": "288",
+    "prefix": "233",
+    "type": "Landline",
+    "operator": "",
+    "label": "Ghana LandLine"
+  },
+  {
+    "country": "Ghana",
+    "iso2": "GH",
+    "iso3": "GHA",
+    "numeric": "288",
+    "prefix": "2332",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Ghana Mobile"
+  },
+  {
+    "country": "Ghana",
+    "iso2": "GH",
+    "iso3": "GHA",
+    "numeric": "288",
+    "prefix": "23320",
+    "type": "Mobile Operator",
+    "operator": "Vodafone Ghana",
+    "label": "Ghana Mobile Vodafone Ghana"
+  },
+  {
+    "country": "Ghana",
+    "iso2": "GH",
+    "iso3": "GHA",
+    "numeric": "288",
+    "prefix": "23323",
+    "type": "Mobile Operator",
+    "operator": "MTN Ghana",
+    "label": "Ghana Mobile MTN Ghana"
+  },
+  {
+    "country": "Ghana",
+    "iso2": "GH",
+    "iso3": "GHA",
+    "numeric": "288",
+    "prefix": "23324",
+    "type": "Mobile Operator",
+    "operator": "MTN Ghana",
+    "label": "Ghana Mobile MTN Ghana"
+  },
+  {
+    "country": "Ghana",
+    "iso2": "GH",
+    "iso3": "GHA",
+    "numeric": "288",
+    "prefix": "23325",
+    "type": "Mobile Operator",
+    "operator": "Airtel/Tigo",
+    "label": "Ghana Mobile Airtel/Tigo"
+  },
+  {
+    "country": "Ghana",
+    "iso2": "GH",
+    "iso3": "GHA",
+    "numeric": "288",
+    "prefix": "23326",
+    "type": "Mobile Operator",
+    "operator": "Airtel/Tigo",
+    "label": "Ghana Mobile Airtel/Tigo"
+  },
+  {
+    "country": "Ghana",
+    "iso2": "GH",
+    "iso3": "GHA",
+    "numeric": "288",
+    "prefix": "23327",
+    "type": "Mobile Operator",
+    "operator": "Vodafone Ghana",
+    "label": "Ghana Mobile Vodafone Ghana"
+  },
+  {
+    "country": "Ghana",
+    "iso2": "GH",
+    "iso3": "GHA",
+    "numeric": "288",
+    "prefix": "23328",
+    "type": "Mobile Operator",
+    "operator": "Glo Ghana",
+    "label": "Ghana Mobile Glo Ghana"
+  },
+  {
+    "country": "Ghana",
+    "iso2": "GH",
+    "iso3": "GHA",
+    "numeric": "288",
+    "prefix": "23329",
+    "type": "Mobile Operator",
+    "operator": "Airtel Ghana",
+    "label": "Ghana Mobile Airtel Ghana"
+  },
+  {
+    "country": "Greece",
+    "iso2": "GR",
+    "iso3": "GRC",
+    "numeric": "300",
+    "prefix": "30",
+    "type": "Landline",
+    "operator": "",
+    "label": "Greece LandLine"
+  },
+  {
+    "country": "Guatemala",
+    "iso2": "GT",
+    "iso3": "GTM",
+    "numeric": "320",
+    "prefix": "502",
+    "type": "Landline",
+    "operator": "",
+    "label": "Guatemala LandLine"
+  },
+  {
+    "country": "Guinea",
+    "iso2": "GN",
+    "iso3": "GIN",
+    "numeric": "324",
+    "prefix": "224",
+    "type": "Landline",
+    "operator": "",
+    "label": "Guinea LandLine"
+  },
+  {
+    "country": "Hong Kong",
+    "iso2": "HK",
+    "iso3": "HKG",
+    "numeric": "344",
+    "prefix": "852",
+    "type": "Landline",
+    "operator": "",
+    "label": "Hong Kong LandLine"
+  },
+  {
+    "country": "Hungary",
+    "iso2": "HU",
+    "iso3": "HUN",
+    "numeric": "348",
+    "prefix": "36",
+    "type": "Landline",
+    "operator": "",
+    "label": "Hungary LandLine"
+  },
+  {
+    "country": "Iceland",
+    "iso2": "IS",
+    "iso3": "ISL",
+    "numeric": "352",
+    "prefix": "354",
+    "type": "Landline",
+    "operator": "",
+    "label": "Iceland LandLine"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "91",
+    "type": "Landline",
+    "operator": "",
+    "label": "India LandLine"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "917",
+    "type": "Mobile",
+    "operator": "",
+    "label": "India Mobile"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9170",
+    "type": "Mobile Operator",
+    "operator": "Jio",
+    "label": "India Mobile Jio"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9172",
+    "type": "Mobile Operator",
+    "operator": "Airtel",
+    "label": "India Mobile Airtel"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9173",
+    "type": "Mobile Operator",
+    "operator": "Airtel",
+    "label": "India Mobile Airtel"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9174",
+    "type": "Mobile Operator",
+    "operator": "Vi (Vodafone Idea)",
+    "label": "India Mobile Vi (Vodafone Idea)"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9175",
+    "type": "Mobile Operator",
+    "operator": "Vi (Vodafone Idea)",
+    "label": "India Mobile Vi (Vodafone Idea)"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9176",
+    "type": "Mobile Operator",
+    "operator": "BSNL",
+    "label": "India Mobile BSNL"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "918",
+    "type": "Mobile",
+    "operator": "",
+    "label": "India Mobile"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9180",
+    "type": "Mobile Operator",
+    "operator": "Airtel",
+    "label": "India Mobile Airtel"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9182",
+    "type": "Mobile Operator",
+    "operator": "Jio",
+    "label": "India Mobile Jio"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9183",
+    "type": "Mobile Operator",
+    "operator": "Jio",
+    "label": "India Mobile Jio"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9184",
+    "type": "Mobile Operator",
+    "operator": "Jio",
+    "label": "India Mobile Jio"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "919",
+    "type": "Mobile",
+    "operator": "",
+    "label": "India Mobile"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9190",
+    "type": "Mobile Operator",
+    "operator": "Airtel",
+    "label": "India Mobile Airtel"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9191",
+    "type": "Mobile Operator",
+    "operator": "Airtel",
+    "label": "India Mobile Airtel"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9192",
+    "type": "Mobile Operator",
+    "operator": "BSNL",
+    "label": "India Mobile BSNL"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9193",
+    "type": "Mobile Operator",
+    "operator": "Jio",
+    "label": "India Mobile Jio"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9194",
+    "type": "Mobile Operator",
+    "operator": "Vi (Vodafone Idea)",
+    "label": "India Mobile Vi (Vodafone Idea)"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9195",
+    "type": "Mobile Operator",
+    "operator": "Vi (Vodafone Idea)",
+    "label": "India Mobile Vi (Vodafone Idea)"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9196",
+    "type": "Mobile Operator",
+    "operator": "Airtel",
+    "label": "India Mobile Airtel"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9197",
+    "type": "Mobile Operator",
+    "operator": "Jio",
+    "label": "India Mobile Jio"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9198",
+    "type": "Mobile Operator",
+    "operator": "Airtel",
+    "label": "India Mobile Airtel"
+  },
+  {
+    "country": "India",
+    "iso2": "IN",
+    "iso3": "IND",
+    "numeric": "356",
+    "prefix": "9199",
+    "type": "Mobile Operator",
+    "operator": "Jio",
+    "label": "India Mobile Jio"
+  },
+  {
+    "country": "Indonesia",
+    "iso2": "ID",
+    "iso3": "IDN",
+    "numeric": "360",
+    "prefix": "62",
+    "type": "Landline",
+    "operator": "",
+    "label": "Indonesia LandLine"
+  },
+  {
+    "country": "Indonesia",
+    "iso2": "ID",
+    "iso3": "IDN",
+    "numeric": "360",
+    "prefix": "628",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Indonesia Mobile"
+  },
+  {
+    "country": "Indonesia",
+    "iso2": "ID",
+    "iso3": "IDN",
+    "numeric": "360",
+    "prefix": "6281",
+    "type": "Mobile Operator",
+    "operator": "Telkomsel",
+    "label": "Indonesia Mobile Telkomsel"
+  },
+  {
+    "country": "Indonesia",
+    "iso2": "ID",
+    "iso3": "IDN",
+    "numeric": "360",
+    "prefix": "6282",
+    "type": "Mobile Operator",
+    "operator": "Indosat Ooredoo",
+    "label": "Indonesia Mobile Indosat Ooredoo"
+  },
+  {
+    "country": "Indonesia",
+    "iso2": "ID",
+    "iso3": "IDN",
+    "numeric": "360",
+    "prefix": "6283",
+    "type": "Mobile Operator",
+    "operator": "XL Axiata",
+    "label": "Indonesia Mobile XL Axiata"
+  },
+  {
+    "country": "Indonesia",
+    "iso2": "ID",
+    "iso3": "IDN",
+    "numeric": "360",
+    "prefix": "6285",
+    "type": "Mobile Operator",
+    "operator": "Telkomsel",
+    "label": "Indonesia Mobile Telkomsel"
+  },
+  {
+    "country": "Indonesia",
+    "iso2": "ID",
+    "iso3": "IDN",
+    "numeric": "360",
+    "prefix": "6287",
+    "type": "Mobile Operator",
+    "operator": "XL Axiata",
+    "label": "Indonesia Mobile XL Axiata"
+  },
+  {
+    "country": "Indonesia",
+    "iso2": "ID",
+    "iso3": "IDN",
+    "numeric": "360",
+    "prefix": "6288",
+    "type": "Mobile Operator",
+    "operator": "Smartfren",
+    "label": "Indonesia Mobile Smartfren"
+  },
+  {
+    "country": "Indonesia",
+    "iso2": "ID",
+    "iso3": "IDN",
+    "numeric": "360",
+    "prefix": "6289",
+    "type": "Mobile Operator",
+    "operator": "Three (Tri)",
+    "label": "Indonesia Mobile Three (Tri)"
+  },
+  {
+    "country": "Iran",
+    "iso2": "IR",
+    "iso3": "IRN",
+    "numeric": "364",
+    "prefix": "98",
+    "type": "Landline",
+    "operator": "",
+    "label": "Iran LandLine"
+  },
+  {
+    "country": "Iran",
+    "iso2": "IR",
+    "iso3": "IRN",
+    "numeric": "364",
+    "prefix": "989",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Iran Mobile"
+  },
+  {
+    "country": "Iran",
+    "iso2": "IR",
+    "iso3": "IRN",
+    "numeric": "364",
+    "prefix": "9891",
+    "type": "Mobile Operator",
+    "operator": "Irancell (MCI)",
+    "label": "Iran Mobile Irancell (MCI)"
+  },
+  {
+    "country": "Iran",
+    "iso2": "IR",
+    "iso3": "IRN",
+    "numeric": "364",
+    "prefix": "98910",
+    "type": "Mobile Operator",
+    "operator": "MCI (Hamrah-e-Aval)",
+    "label": "Iran Mobile MCI (Hamrah-e-Aval)"
+  },
+  {
+    "country": "Iran",
+    "iso2": "IR",
+    "iso3": "IRN",
+    "numeric": "364",
+    "prefix": "9893",
+    "type": "Mobile Operator",
+    "operator": "Irancell",
+    "label": "Iran Mobile Irancell"
+  },
+  {
+    "country": "Iran",
+    "iso2": "IR",
+    "iso3": "IRN",
+    "numeric": "364",
+    "prefix": "98930",
+    "type": "Mobile Operator",
+    "operator": "MTN Irancell",
+    "label": "Iran Mobile MTN Irancell"
+  },
+  {
+    "country": "Iran",
+    "iso2": "IR",
+    "iso3": "IRN",
+    "numeric": "364",
+    "prefix": "98933",
+    "type": "Mobile Operator",
+    "operator": "MTN Irancell",
+    "label": "Iran Mobile MTN Irancell"
+  },
+  {
+    "country": "Iran",
+    "iso2": "IR",
+    "iso3": "IRN",
+    "numeric": "364",
+    "prefix": "98935",
+    "type": "Mobile Operator",
+    "operator": "MTN Irancell",
+    "label": "Iran Mobile MTN Irancell"
+  },
+  {
+    "country": "Iran",
+    "iso2": "IR",
+    "iso3": "IRN",
+    "numeric": "364",
+    "prefix": "98936",
+    "type": "Mobile Operator",
+    "operator": "MTN Irancell",
+    "label": "Iran Mobile MTN Irancell"
+  },
+  {
+    "country": "Iran",
+    "iso2": "IR",
+    "iso3": "IRN",
+    "numeric": "364",
+    "prefix": "98937",
+    "type": "Mobile Operator",
+    "operator": "MTN Irancell",
+    "label": "Iran Mobile MTN Irancell"
+  },
+  {
+    "country": "Iran",
+    "iso2": "IR",
+    "iso3": "IRN",
+    "numeric": "364",
+    "prefix": "9899",
+    "type": "Mobile Operator",
+    "operator": "Rightel",
+    "label": "Iran Mobile Rightel"
+  },
+  {
+    "country": "Iraq",
+    "iso2": "IQ",
+    "iso3": "IRQ",
+    "numeric": "368",
+    "prefix": "964",
+    "type": "Landline",
+    "operator": "",
+    "label": "Iraq LandLine"
+  },
+  {
+    "country": "Iraq",
+    "iso2": "IQ",
+    "iso3": "IRQ",
+    "numeric": "368",
+    "prefix": "9647",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Iraq Mobile"
+  },
+  {
+    "country": "Iraq",
+    "iso2": "IQ",
+    "iso3": "IRQ",
+    "numeric": "368",
+    "prefix": "96470",
+    "type": "Mobile Operator",
+    "operator": "Asiacell",
+    "label": "Iraq Mobile Asiacell"
+  },
+  {
+    "country": "Iraq",
+    "iso2": "IQ",
+    "iso3": "IRQ",
+    "numeric": "368",
+    "prefix": "96471",
+    "type": "Mobile Operator",
+    "operator": "Zain Iraq",
+    "label": "Iraq Mobile Zain Iraq"
+  },
+  {
+    "country": "Iraq",
+    "iso2": "IQ",
+    "iso3": "IRQ",
+    "numeric": "368",
+    "prefix": "96474",
+    "type": "Mobile Operator",
+    "operator": "Korek Telecom",
+    "label": "Iraq Mobile Korek Telecom"
+  },
+  {
+    "country": "Iraq",
+    "iso2": "IQ",
+    "iso3": "IRQ",
+    "numeric": "368",
+    "prefix": "96475",
+    "type": "Mobile Operator",
+    "operator": "Asiacell",
+    "label": "Iraq Mobile Asiacell"
+  },
+  {
+    "country": "Iraq",
+    "iso2": "IQ",
+    "iso3": "IRQ",
+    "numeric": "368",
+    "prefix": "96476",
+    "type": "Mobile Operator",
+    "operator": "Zain Iraq",
+    "label": "Iraq Mobile Zain Iraq"
+  },
+  {
+    "country": "Iraq",
+    "iso2": "IQ",
+    "iso3": "IRQ",
+    "numeric": "368",
+    "prefix": "96478",
+    "type": "Mobile Operator",
+    "operator": "Itisaluna/Atheer",
+    "label": "Iraq Mobile Itisaluna/Atheer"
+  },
+  {
+    "country": "Iraq",
+    "iso2": "IQ",
+    "iso3": "IRQ",
+    "numeric": "368",
+    "prefix": "96479",
+    "type": "Mobile Operator",
+    "operator": "Zain Iraq",
+    "label": "Iraq Mobile Zain Iraq"
+  },
+  {
+    "country": "Ireland",
+    "iso2": "IE",
+    "iso3": "IRL",
+    "numeric": "372",
+    "prefix": "353",
+    "type": "Landline",
+    "operator": "",
+    "label": "Ireland LandLine"
+  },
+  {
+    "country": "Israel",
+    "iso2": "IL",
+    "iso3": "ISR",
+    "numeric": "376",
+    "prefix": "972",
+    "type": "Landline",
+    "operator": "",
+    "label": "Israel LandLine"
+  },
+  {
+    "country": "Italy",
+    "iso2": "IT",
+    "iso3": "ITA",
+    "numeric": "380",
+    "prefix": "39",
+    "type": "Landline",
+    "operator": "",
+    "label": "Italy LandLine"
+  },
+  {
+    "country": "Italy",
+    "iso2": "IT",
+    "iso3": "ITA",
+    "numeric": "380",
+    "prefix": "393",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Italy Mobile"
+  },
+  {
+    "country": "Italy",
+    "iso2": "IT",
+    "iso3": "ITA",
+    "numeric": "380",
+    "prefix": "3930",
+    "type": "Mobile Operator",
+    "operator": "Wind Tre",
+    "label": "Italy Mobile Wind Tre"
+  },
+  {
+    "country": "Italy",
+    "iso2": "IT",
+    "iso3": "ITA",
+    "numeric": "380",
+    "prefix": "3932",
+    "type": "Mobile Operator",
+    "operator": "Vodafone IT",
+    "label": "Italy Mobile Vodafone IT"
+  },
+  {
+    "country": "Italy",
+    "iso2": "IT",
+    "iso3": "ITA",
+    "numeric": "380",
+    "prefix": "3933",
+    "type": "Mobile Operator",
+    "operator": "Wind Tre",
+    "label": "Italy Mobile Wind Tre"
+  },
+  {
+    "country": "Italy",
+    "iso2": "IT",
+    "iso3": "ITA",
+    "numeric": "380",
+    "prefix": "3934",
+    "type": "Mobile Operator",
+    "operator": "TIM",
+    "label": "Italy Mobile TIM"
+  },
+  {
+    "country": "Italy",
+    "iso2": "IT",
+    "iso3": "ITA",
+    "numeric": "380",
+    "prefix": "3935",
+    "type": "Mobile Operator",
+    "operator": "TIM",
+    "label": "Italy Mobile TIM"
+  },
+  {
+    "country": "Italy",
+    "iso2": "IT",
+    "iso3": "ITA",
+    "numeric": "380",
+    "prefix": "3938",
+    "type": "Mobile Operator",
+    "operator": "Wind Tre",
+    "label": "Italy Mobile Wind Tre"
+  },
+  {
+    "country": "Italy",
+    "iso2": "IT",
+    "iso3": "ITA",
+    "numeric": "380",
+    "prefix": "3939",
+    "type": "Mobile Operator",
+    "operator": "Vodafone IT",
+    "label": "Italy Mobile Vodafone IT"
+  },
+  {
+    "country": "Jamaica",
+    "iso2": "JM",
+    "iso3": "JAM",
+    "numeric": "388",
+    "prefix": "1-876",
+    "type": "Landline",
+    "operator": "",
+    "label": "Jamaica LandLine"
+  },
+  {
+    "country": "Japan",
+    "iso2": "JP",
+    "iso3": "JPN",
+    "numeric": "392",
+    "prefix": "81",
+    "type": "Landline",
+    "operator": "",
+    "label": "Japan LandLine"
+  },
+  {
+    "country": "Jordan",
+    "iso2": "JO",
+    "iso3": "JOR",
+    "numeric": "400",
+    "prefix": "962",
+    "type": "Landline",
+    "operator": "",
+    "label": "Jordan LandLine"
+  },
+  {
+    "country": "Jordan",
+    "iso2": "JO",
+    "iso3": "JOR",
+    "numeric": "400",
+    "prefix": "9627",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Jordan Mobile"
+  },
+  {
+    "country": "Jordan",
+    "iso2": "JO",
+    "iso3": "JOR",
+    "numeric": "400",
+    "prefix": "96270",
+    "type": "Mobile Operator",
+    "operator": "Zain Jordan",
+    "label": "Jordan Mobile Zain Jordan"
+  },
+  {
+    "country": "Jordan",
+    "iso2": "JO",
+    "iso3": "JOR",
+    "numeric": "400",
+    "prefix": "96271",
+    "type": "Mobile Operator",
+    "operator": "Orange Jordan",
+    "label": "Jordan Mobile Orange Jordan"
+  },
+  {
+    "country": "Jordan",
+    "iso2": "JO",
+    "iso3": "JOR",
+    "numeric": "400",
+    "prefix": "96275",
+    "type": "Mobile Operator",
+    "operator": "Umniah",
+    "label": "Jordan Mobile Umniah"
+  },
+  {
+    "country": "Jordan",
+    "iso2": "JO",
+    "iso3": "JOR",
+    "numeric": "400",
+    "prefix": "96277",
+    "type": "Mobile Operator",
+    "operator": "Zain Jordan",
+    "label": "Jordan Mobile Zain Jordan"
+  },
+  {
+    "country": "Jordan",
+    "iso2": "JO",
+    "iso3": "JOR",
+    "numeric": "400",
+    "prefix": "96278",
+    "type": "Mobile Operator",
+    "operator": "Orange Jordan",
+    "label": "Jordan Mobile Orange Jordan"
+  },
+  {
+    "country": "Jordan",
+    "iso2": "JO",
+    "iso3": "JOR",
+    "numeric": "400",
+    "prefix": "96279",
+    "type": "Mobile Operator",
+    "operator": "Umniah",
+    "label": "Jordan Mobile Umniah"
+  },
+  {
+    "country": "Kazakhstan",
+    "iso2": "KZ",
+    "iso3": "KAZ",
+    "numeric": "398",
+    "prefix": "7",
+    "type": "Landline",
+    "operator": "",
+    "label": "Kazakhstan LandLine"
+  },
+  {
+    "country": "Kenya",
+    "iso2": "KE",
+    "iso3": "KEN",
+    "numeric": "404",
+    "prefix": "254",
+    "type": "Landline",
+    "operator": "",
+    "label": "Kenya LandLine"
+  },
+  {
+    "country": "Kenya",
+    "iso2": "KE",
+    "iso3": "KEN",
+    "numeric": "404",
+    "prefix": "2547",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Kenya Mobile"
+  },
+  {
+    "country": "Kenya",
+    "iso2": "KE",
+    "iso3": "KEN",
+    "numeric": "404",
+    "prefix": "25470",
+    "type": "Mobile Operator",
+    "operator": "Safaricom",
+    "label": "Kenya Mobile Safaricom"
+  },
+  {
+    "country": "Kenya",
+    "iso2": "KE",
+    "iso3": "KEN",
+    "numeric": "404",
+    "prefix": "25471",
+    "type": "Mobile Operator",
+    "operator": "Safaricom",
+    "label": "Kenya Mobile Safaricom"
+  },
+  {
+    "country": "Kenya",
+    "iso2": "KE",
+    "iso3": "KEN",
+    "numeric": "404",
+    "prefix": "25472",
+    "type": "Mobile Operator",
+    "operator": "Safaricom",
+    "label": "Kenya Mobile Safaricom"
+  },
+  {
+    "country": "Kenya",
+    "iso2": "KE",
+    "iso3": "KEN",
+    "numeric": "404",
+    "prefix": "25473",
+    "type": "Mobile Operator",
+    "operator": "Airtel Kenya",
+    "label": "Kenya Mobile Airtel Kenya"
+  },
+  {
+    "country": "Kenya",
+    "iso2": "KE",
+    "iso3": "KEN",
+    "numeric": "404",
+    "prefix": "25474",
+    "type": "Mobile Operator",
+    "operator": "Airtel Kenya",
+    "label": "Kenya Mobile Airtel Kenya"
+  },
+  {
+    "country": "Kenya",
+    "iso2": "KE",
+    "iso3": "KEN",
+    "numeric": "404",
+    "prefix": "25476",
+    "type": "Mobile Operator",
+    "operator": "Telkom Kenya",
+    "label": "Kenya Mobile Telkom Kenya"
+  },
+  {
+    "country": "Kenya",
+    "iso2": "KE",
+    "iso3": "KEN",
+    "numeric": "404",
+    "prefix": "25477",
+    "type": "Mobile Operator",
+    "operator": "Safaricom",
+    "label": "Kenya Mobile Safaricom"
+  },
+  {
+    "country": "Kenya",
+    "iso2": "KE",
+    "iso3": "KEN",
+    "numeric": "404",
+    "prefix": "25478",
+    "type": "Mobile Operator",
+    "operator": "Safaricom",
+    "label": "Kenya Mobile Safaricom"
+  },
+  {
+    "country": "Kenya",
+    "iso2": "KE",
+    "iso3": "KEN",
+    "numeric": "404",
+    "prefix": "25479",
+    "type": "Mobile Operator",
+    "operator": "Safaricom",
+    "label": "Kenya Mobile Safaricom"
+  },
+  {
+    "country": "Kuwait",
+    "iso2": "KW",
+    "iso3": "KWT",
+    "numeric": "414",
+    "prefix": "965",
+    "type": "Landline",
+    "operator": "",
+    "label": "Kuwait LandLine"
+  },
+  {
+    "country": "Kuwait",
+    "iso2": "KW",
+    "iso3": "KWT",
+    "numeric": "414",
+    "prefix": "96550",
+    "type": "Mobile Operator",
+    "operator": "Zain Kuwait",
+    "label": "Kuwait Mobile Zain Kuwait"
+  },
+  {
+    "country": "Kuwait",
+    "iso2": "KW",
+    "iso3": "KWT",
+    "numeric": "414",
+    "prefix": "96555",
+    "type": "Mobile Operator",
+    "operator": "Ooredoo Kuwait",
+    "label": "Kuwait Mobile Ooredoo Kuwait"
+  },
+  {
+    "country": "Kuwait",
+    "iso2": "KW",
+    "iso3": "KWT",
+    "numeric": "414",
+    "prefix": "9656",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Kuwait Mobile"
+  },
+  {
+    "country": "Kuwait",
+    "iso2": "KW",
+    "iso3": "KWT",
+    "numeric": "414",
+    "prefix": "96560",
+    "type": "Mobile Operator",
+    "operator": "STC Kuwait",
+    "label": "Kuwait Mobile STC Kuwait"
+  },
+  {
+    "country": "Kuwait",
+    "iso2": "KW",
+    "iso3": "KWT",
+    "numeric": "414",
+    "prefix": "96565",
+    "type": "Mobile Operator",
+    "operator": "Zain Kuwait",
+    "label": "Kuwait Mobile Zain Kuwait"
+  },
+  {
+    "country": "Kuwait",
+    "iso2": "KW",
+    "iso3": "KWT",
+    "numeric": "414",
+    "prefix": "96569",
+    "type": "Mobile Operator",
+    "operator": "Ooredoo Kuwait",
+    "label": "Kuwait Mobile Ooredoo Kuwait"
+  },
+  {
+    "country": "Kyrgyzstan",
+    "iso2": "KG",
+    "iso3": "KGZ",
+    "numeric": "417",
+    "prefix": "996",
+    "type": "Landline",
+    "operator": "",
+    "label": "Kyrgyzstan LandLine"
+  },
+  {
+    "country": "Laos",
+    "iso2": "LA",
+    "iso3": "LAO",
+    "numeric": "418",
+    "prefix": "856",
+    "type": "Landline",
+    "operator": "",
+    "label": "Laos LandLine"
+  },
+  {
+    "country": "Latvia",
+    "iso2": "LV",
+    "iso3": "LVA",
+    "numeric": "428",
+    "prefix": "371",
+    "type": "Landline",
+    "operator": "",
+    "label": "Latvia LandLine"
+  },
+  {
+    "country": "Lebanon",
+    "iso2": "LB",
+    "iso3": "LBN",
+    "numeric": "422",
+    "prefix": "961",
+    "type": "Landline",
+    "operator": "",
+    "label": "Lebanon LandLine"
+  },
+  {
+    "country": "Lesotho",
+    "iso2": "LS",
+    "iso3": "LSO",
+    "numeric": "426",
+    "prefix": "266",
+    "type": "Landline",
+    "operator": "",
+    "label": "Lesotho LandLine"
+  },
+  {
+    "country": "Liberia",
+    "iso2": "LR",
+    "iso3": "LBR",
+    "numeric": "430",
+    "prefix": "231",
+    "type": "Landline",
+    "operator": "",
+    "label": "Liberia LandLine"
+  },
+  {
+    "country": "Libya",
+    "iso2": "LY",
+    "iso3": "LBY",
+    "numeric": "434",
+    "prefix": "218",
+    "type": "Landline",
+    "operator": "",
+    "label": "Libya LandLine"
+  },
+  {
+    "country": "Lithuania",
+    "iso2": "LT",
+    "iso3": "LTU",
+    "numeric": "440",
+    "prefix": "370",
+    "type": "Landline",
+    "operator": "",
+    "label": "Lithuania LandLine"
+  },
+  {
+    "country": "Luxembourg",
+    "iso2": "LU",
+    "iso3": "LUX",
+    "numeric": "442",
+    "prefix": "352",
+    "type": "Landline",
+    "operator": "",
+    "label": "Luxembourg LandLine"
+  },
+  {
+    "country": "Madagascar",
+    "iso2": "MG",
+    "iso3": "MDG",
+    "numeric": "450",
+    "prefix": "261",
+    "type": "Landline",
+    "operator": "",
+    "label": "Madagascar LandLine"
+  },
+  {
+    "country": "Malawi",
+    "iso2": "MW",
+    "iso3": "MWI",
+    "numeric": "454",
+    "prefix": "265",
+    "type": "Landline",
+    "operator": "",
+    "label": "Malawi LandLine"
+  },
+  {
+    "country": "Malaysia",
+    "iso2": "MY",
+    "iso3": "MYS",
+    "numeric": "458",
+    "prefix": "60",
+    "type": "Landline",
+    "operator": "",
+    "label": "Malaysia LandLine"
+  },
+  {
+    "country": "Malaysia",
+    "iso2": "MY",
+    "iso3": "MYS",
+    "numeric": "458",
+    "prefix": "601",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Malaysia Mobile"
+  },
+  {
+    "country": "Malaysia",
+    "iso2": "MY",
+    "iso3": "MYS",
+    "numeric": "458",
+    "prefix": "6010",
+    "type": "Mobile Operator",
+    "operator": "Maxis",
+    "label": "Malaysia Mobile Maxis"
+  },
+  {
+    "country": "Malaysia",
+    "iso2": "MY",
+    "iso3": "MYS",
+    "numeric": "458",
+    "prefix": "6011",
+    "type": "Mobile Operator",
+    "operator": "Celcom/Yes",
+    "label": "Malaysia Mobile Celcom/Yes"
+  },
+  {
+    "country": "Malaysia",
+    "iso2": "MY",
+    "iso3": "MYS",
+    "numeric": "458",
+    "prefix": "6012",
+    "type": "Mobile Operator",
+    "operator": "Maxis",
+    "label": "Malaysia Mobile Maxis"
+  },
+  {
+    "country": "Malaysia",
+    "iso2": "MY",
+    "iso3": "MYS",
+    "numeric": "458",
+    "prefix": "6013",
+    "type": "Mobile Operator",
+    "operator": "Celcom",
+    "label": "Malaysia Mobile Celcom"
+  },
+  {
+    "country": "Malaysia",
+    "iso2": "MY",
+    "iso3": "MYS",
+    "numeric": "458",
+    "prefix": "6014",
+    "type": "Mobile Operator",
+    "operator": "Digi",
+    "label": "Malaysia Mobile Digi"
+  },
+  {
+    "country": "Malaysia",
+    "iso2": "MY",
+    "iso3": "MYS",
+    "numeric": "458",
+    "prefix": "6016",
+    "type": "Mobile Operator",
+    "operator": "Digi",
+    "label": "Malaysia Mobile Digi"
+  },
+  {
+    "country": "Malaysia",
+    "iso2": "MY",
+    "iso3": "MYS",
+    "numeric": "458",
+    "prefix": "6017",
+    "type": "Mobile Operator",
+    "operator": "Maxis",
+    "label": "Malaysia Mobile Maxis"
+  },
+  {
+    "country": "Malaysia",
+    "iso2": "MY",
+    "iso3": "MYS",
+    "numeric": "458",
+    "prefix": "6018",
+    "type": "Mobile Operator",
+    "operator": "U Mobile",
+    "label": "Malaysia Mobile U Mobile"
+  },
+  {
+    "country": "Malaysia",
+    "iso2": "MY",
+    "iso3": "MYS",
+    "numeric": "458",
+    "prefix": "6019",
+    "type": "Mobile Operator",
+    "operator": "Celcom",
+    "label": "Malaysia Mobile Celcom"
+  },
+  {
+    "country": "Maldives",
+    "iso2": "MV",
+    "iso3": "MDV",
+    "numeric": "462",
+    "prefix": "960",
+    "type": "Landline",
+    "operator": "",
+    "label": "Maldives LandLine"
+  },
+  {
+    "country": "Mali",
+    "iso2": "ML",
+    "iso3": "MLI",
+    "numeric": "466",
+    "prefix": "223",
+    "type": "Landline",
+    "operator": "",
+    "label": "Mali LandLine"
+  },
+  {
+    "country": "Malta",
+    "iso2": "MT",
+    "iso3": "MLT",
+    "numeric": "470",
+    "prefix": "356",
+    "type": "Landline",
+    "operator": "",
+    "label": "Malta LandLine"
+  },
+  {
+    "country": "Mauritius",
+    "iso2": "MU",
+    "iso3": "MUS",
+    "numeric": "480",
+    "prefix": "230",
+    "type": "Landline",
+    "operator": "",
+    "label": "Mauritius LandLine"
+  },
+  {
+    "country": "Mexico",
+    "iso2": "MX",
+    "iso3": "MEX",
+    "numeric": "484",
+    "prefix": "52",
+    "type": "Landline",
+    "operator": "",
+    "label": "Mexico LandLine"
+  },
+  {
+    "country": "Mexico",
+    "iso2": "MX",
+    "iso3": "MEX",
+    "numeric": "484",
+    "prefix": "521",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Mexico Mobile"
+  },
+  {
+    "country": "Mexico",
+    "iso2": "MX",
+    "iso3": "MEX",
+    "numeric": "484",
+    "prefix": "5210",
+    "type": "Mobile Operator",
+    "operator": "Telcel",
+    "label": "Mexico Mobile Telcel"
+  },
+  {
+    "country": "Mexico",
+    "iso2": "MX",
+    "iso3": "MEX",
+    "numeric": "484",
+    "prefix": "5215",
+    "type": "Mobile Operator",
+    "operator": "AT&T Mexico",
+    "label": "Mexico Mobile AT&T Mexico"
+  },
+  {
+    "country": "Mexico",
+    "iso2": "MX",
+    "iso3": "MEX",
+    "numeric": "484",
+    "prefix": "5217",
+    "type": "Mobile Operator",
+    "operator": "Movistar Mexico",
+    "label": "Mexico Mobile Movistar Mexico"
+  },
+  {
+    "country": "Moldova",
+    "iso2": "MD",
+    "iso3": "MDA",
+    "numeric": "498",
+    "prefix": "373",
+    "type": "Landline",
+    "operator": "",
+    "label": "Moldova LandLine"
+  },
+  {
+    "country": "Mongolia",
+    "iso2": "MN",
+    "iso3": "MNG",
+    "numeric": "496",
+    "prefix": "976",
+    "type": "Landline",
+    "operator": "",
+    "label": "Mongolia LandLine"
+  },
+  {
+    "country": "Montenegro",
+    "iso2": "ME",
+    "iso3": "MNE",
+    "numeric": "499",
+    "prefix": "382",
+    "type": "Landline",
+    "operator": "",
+    "label": "Montenegro LandLine"
+  },
+  {
+    "country": "Morocco",
+    "iso2": "MA",
+    "iso3": "MAR",
+    "numeric": "504",
+    "prefix": "212",
+    "type": "Landline",
+    "operator": "",
+    "label": "Morocco LandLine"
+  },
+  {
+    "country": "Mozambique",
+    "iso2": "MZ",
+    "iso3": "MOZ",
+    "numeric": "508",
+    "prefix": "258",
+    "type": "Landline",
+    "operator": "",
+    "label": "Mozambique LandLine"
+  },
+  {
+    "country": "Myanmar",
+    "iso2": "MM",
+    "iso3": "MMR",
+    "numeric": "104",
+    "prefix": "95",
+    "type": "Landline",
+    "operator": "",
+    "label": "Myanmar LandLine"
+  },
+  {
+    "country": "Namibia",
+    "iso2": "NA",
+    "iso3": "NAM",
+    "numeric": "516",
+    "prefix": "264",
+    "type": "Landline",
+    "operator": "",
+    "label": "Namibia LandLine"
+  },
+  {
+    "country": "Nepal",
+    "iso2": "NP",
+    "iso3": "NPL",
+    "numeric": "524",
+    "prefix": "977",
+    "type": "Landline",
+    "operator": "",
+    "label": "Nepal LandLine"
+  },
+  {
+    "country": "Netherlands",
+    "iso2": "NL",
+    "iso3": "NLD",
+    "numeric": "528",
+    "prefix": "31",
+    "type": "Landline",
+    "operator": "",
+    "label": "Netherlands LandLine"
+  },
+  {
+    "country": "New Zealand",
+    "iso2": "NZ",
+    "iso3": "NZL",
+    "numeric": "554",
+    "prefix": "64",
+    "type": "Landline",
+    "operator": "",
+    "label": "New Zealand LandLine"
+  },
+  {
+    "country": "Nicaragua",
+    "iso2": "NI",
+    "iso3": "NIC",
+    "numeric": "558",
+    "prefix": "505",
+    "type": "Landline",
+    "operator": "",
+    "label": "Nicaragua LandLine"
+  },
+  {
+    "country": "Niger",
+    "iso2": "NE",
+    "iso3": "NER",
+    "numeric": "562",
+    "prefix": "227",
+    "type": "Landline",
+    "operator": "",
+    "label": "Niger LandLine"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "234",
+    "type": "Landline",
+    "operator": "",
+    "label": "Nigeria LandLine"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "2348",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Nigeria Mobile"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23480",
+    "type": "Mobile Operator",
+    "operator": "MTN",
+    "label": "Nigeria Mobile MTN"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23481",
+    "type": "Mobile Operator",
+    "operator": "Airtel",
+    "label": "Nigeria Mobile Airtel"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23483",
+    "type": "Mobile Operator",
+    "operator": "MTN",
+    "label": "Nigeria Mobile MTN"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23484",
+    "type": "Mobile Operator",
+    "operator": "Airtel",
+    "label": "Nigeria Mobile Airtel"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23485",
+    "type": "Mobile Operator",
+    "operator": "Glo",
+    "label": "Nigeria Mobile Glo"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23488",
+    "type": "Mobile Operator",
+    "operator": "9mobile",
+    "label": "Nigeria Mobile 9mobile"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23490",
+    "type": "Mobile Operator",
+    "operator": "MTN",
+    "label": "Nigeria Mobile MTN"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23491",
+    "type": "Mobile Operator",
+    "operator": "Airtel",
+    "label": "Nigeria Mobile Airtel"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23492",
+    "type": "Mobile Operator",
+    "operator": "Airtel",
+    "label": "Nigeria Mobile Airtel"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23493",
+    "type": "Mobile Operator",
+    "operator": "MTN",
+    "label": "Nigeria Mobile MTN"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23494",
+    "type": "Mobile Operator",
+    "operator": "MTN",
+    "label": "Nigeria Mobile MTN"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23495",
+    "type": "Mobile Operator",
+    "operator": "Glo",
+    "label": "Nigeria Mobile Glo"
+  },
+  {
+    "country": "Nigeria",
+    "iso2": "NG",
+    "iso3": "NGA",
+    "numeric": "566",
+    "prefix": "23496",
+    "type": "Mobile Operator",
+    "operator": "9mobile",
+    "label": "Nigeria Mobile 9mobile"
+  },
+  {
+    "country": "North Korea",
+    "iso2": "KP",
+    "iso3": "PRK",
+    "numeric": "408",
+    "prefix": "850",
+    "type": "Landline",
+    "operator": "",
+    "label": "North Korea LandLine"
+  },
+  {
+    "country": "North Macedonia",
+    "iso2": "MK",
+    "iso3": "MKD",
+    "numeric": "807",
+    "prefix": "389",
+    "type": "Landline",
+    "operator": "",
+    "label": "North Macedonia LandLine"
+  },
+  {
+    "country": "Norway",
+    "iso2": "NO",
+    "iso3": "NOR",
+    "numeric": "578",
+    "prefix": "47",
+    "type": "Landline",
+    "operator": "",
+    "label": "Norway LandLine"
+  },
+  {
+    "country": "Oman",
+    "iso2": "OM",
+    "iso3": "OMN",
+    "numeric": "512",
+    "prefix": "968",
+    "type": "Landline",
+    "operator": "",
+    "label": "Oman LandLine"
+  },
+  {
+    "country": "Oman",
+    "iso2": "OM",
+    "iso3": "OMN",
+    "numeric": "512",
+    "prefix": "96871",
+    "type": "Mobile Operator",
+    "operator": "Omantel",
+    "label": "Oman Mobile Omantel"
+  },
+  {
+    "country": "Oman",
+    "iso2": "OM",
+    "iso3": "OMN",
+    "numeric": "512",
+    "prefix": "96872",
+    "type": "Mobile Operator",
+    "operator": "Ooredoo Oman",
+    "label": "Oman Mobile Ooredoo Oman"
+  },
+  {
+    "country": "Oman",
+    "iso2": "OM",
+    "iso3": "OMN",
+    "numeric": "512",
+    "prefix": "96878",
+    "type": "Mobile Operator",
+    "operator": "Omantel",
+    "label": "Oman Mobile Omantel"
+  },
+  {
+    "country": "Oman",
+    "iso2": "OM",
+    "iso3": "OMN",
+    "numeric": "512",
+    "prefix": "96879",
+    "type": "Mobile Operator",
+    "operator": "Ooredoo Oman",
+    "label": "Oman Mobile Ooredoo Oman"
+  },
+  {
+    "country": "Oman",
+    "iso2": "OM",
+    "iso3": "OMN",
+    "numeric": "512",
+    "prefix": "9689",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Oman Mobile"
+  },
+  {
+    "country": "Oman",
+    "iso2": "OM",
+    "iso3": "OMN",
+    "numeric": "512",
+    "prefix": "96892",
+    "type": "Mobile Operator",
+    "operator": "Omantel",
+    "label": "Oman Mobile Omantel"
+  },
+  {
+    "country": "Oman",
+    "iso2": "OM",
+    "iso3": "OMN",
+    "numeric": "512",
+    "prefix": "96895",
+    "type": "Mobile Operator",
+    "operator": "Ooredoo Oman",
+    "label": "Oman Mobile Ooredoo Oman"
+  },
+  {
+    "country": "Oman",
+    "iso2": "OM",
+    "iso3": "OMN",
+    "numeric": "512",
+    "prefix": "96899",
+    "type": "Mobile Operator",
+    "operator": "Omantel",
+    "label": "Oman Mobile Omantel"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "92",
+    "type": "Landline",
+    "operator": "",
+    "label": "Pakistan LandLine"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "923",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Pakistan Mobile"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "9230",
+    "type": "Mobile Operator",
+    "operator": "Jazz",
+    "label": "Pakistan Mobile Jazz"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "9231",
+    "type": "Mobile Operator",
+    "operator": "Jazz",
+    "label": "Pakistan Mobile Jazz"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "9232",
+    "type": "Mobile Operator",
+    "operator": "Jazz",
+    "label": "Pakistan Mobile Jazz"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "9233",
+    "type": "Mobile Operator",
+    "operator": "Ufone",
+    "label": "Pakistan Mobile Ufone"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "9234",
+    "type": "Mobile Operator",
+    "operator": "Zong",
+    "label": "Pakistan Mobile Zong"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "9235",
+    "type": "Mobile Operator",
+    "operator": "Zong",
+    "label": "Pakistan Mobile Zong"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "9236",
+    "type": "Mobile Operator",
+    "operator": "Telenor",
+    "label": "Pakistan Mobile Telenor"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "9237",
+    "type": "Mobile Operator",
+    "operator": "Telenor",
+    "label": "Pakistan Mobile Telenor"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "9238",
+    "type": "Mobile Operator",
+    "operator": "Ufone",
+    "label": "Pakistan Mobile Ufone"
+  },
+  {
+    "country": "Pakistan",
+    "iso2": "PK",
+    "iso3": "PAK",
+    "numeric": "586",
+    "prefix": "9239",
+    "type": "Mobile Operator",
+    "operator": "Zong",
+    "label": "Pakistan Mobile Zong"
+  },
+  {
+    "country": "Palestine",
+    "iso2": "PS",
+    "iso3": "PSE",
+    "numeric": "275",
+    "prefix": "970",
+    "type": "Landline",
+    "operator": "",
+    "label": "Palestine LandLine"
+  },
+  {
+    "country": "Panama",
+    "iso2": "PA",
+    "iso3": "PAN",
+    "numeric": "591",
+    "prefix": "507",
+    "type": "Landline",
+    "operator": "",
+    "label": "Panama LandLine"
+  },
+  {
+    "country": "Paraguay",
+    "iso2": "PY",
+    "iso3": "PRY",
+    "numeric": "600",
+    "prefix": "595",
+    "type": "Landline",
+    "operator": "",
+    "label": "Paraguay LandLine"
+  },
+  {
+    "country": "Peru",
+    "iso2": "PE",
+    "iso3": "PER",
+    "numeric": "604",
+    "prefix": "51",
+    "type": "Landline",
+    "operator": "",
+    "label": "Peru LandLine"
+  },
+  {
+    "country": "Philippines",
+    "iso2": "PH",
+    "iso3": "PHL",
+    "numeric": "608",
+    "prefix": "63",
+    "type": "Landline",
+    "operator": "",
+    "label": "Philippines LandLine"
+  },
+  {
+    "country": "Philippines",
+    "iso2": "PH",
+    "iso3": "PHL",
+    "numeric": "608",
+    "prefix": "639",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Philippines Mobile"
+  },
+  {
+    "country": "Philippines",
+    "iso2": "PH",
+    "iso3": "PHL",
+    "numeric": "608",
+    "prefix": "6390",
+    "type": "Mobile Operator",
+    "operator": "Globe/TM",
+    "label": "Philippines Mobile Globe/TM"
+  },
+  {
+    "country": "Philippines",
+    "iso2": "PH",
+    "iso3": "PHL",
+    "numeric": "608",
+    "prefix": "6391",
+    "type": "Mobile Operator",
+    "operator": "Smart/PLDT",
+    "label": "Philippines Mobile Smart/PLDT"
+  },
+  {
+    "country": "Philippines",
+    "iso2": "PH",
+    "iso3": "PHL",
+    "numeric": "608",
+    "prefix": "6392",
+    "type": "Mobile Operator",
+    "operator": "Sun Cellular",
+    "label": "Philippines Mobile Sun Cellular"
+  },
+  {
+    "country": "Philippines",
+    "iso2": "PH",
+    "iso3": "PHL",
+    "numeric": "608",
+    "prefix": "6394",
+    "type": "Mobile Operator",
+    "operator": "Smart",
+    "label": "Philippines Mobile Smart"
+  },
+  {
+    "country": "Philippines",
+    "iso2": "PH",
+    "iso3": "PHL",
+    "numeric": "608",
+    "prefix": "6395",
+    "type": "Mobile Operator",
+    "operator": "Globe",
+    "label": "Philippines Mobile Globe"
+  },
+  {
+    "country": "Philippines",
+    "iso2": "PH",
+    "iso3": "PHL",
+    "numeric": "608",
+    "prefix": "6396",
+    "type": "Mobile Operator",
+    "operator": "Globe",
+    "label": "Philippines Mobile Globe"
+  },
+  {
+    "country": "Philippines",
+    "iso2": "PH",
+    "iso3": "PHL",
+    "numeric": "608",
+    "prefix": "6397",
+    "type": "Mobile Operator",
+    "operator": "Smart",
+    "label": "Philippines Mobile Smart"
+  },
+  {
+    "country": "Philippines",
+    "iso2": "PH",
+    "iso3": "PHL",
+    "numeric": "608",
+    "prefix": "6398",
+    "type": "Mobile Operator",
+    "operator": "Smart",
+    "label": "Philippines Mobile Smart"
+  },
+  {
+    "country": "Philippines",
+    "iso2": "PH",
+    "iso3": "PHL",
+    "numeric": "608",
+    "prefix": "6399",
+    "type": "Mobile Operator",
+    "operator": "DITO",
+    "label": "Philippines Mobile DITO"
+  },
+  {
+    "country": "Poland",
+    "iso2": "PL",
+    "iso3": "POL",
+    "numeric": "616",
+    "prefix": "48",
+    "type": "Landline",
+    "operator": "",
+    "label": "Poland LandLine"
+  },
+  {
+    "country": "Portugal",
+    "iso2": "PT",
+    "iso3": "PRT",
+    "numeric": "620",
+    "prefix": "351",
+    "type": "Landline",
+    "operator": "",
+    "label": "Portugal LandLine"
+  },
+  {
+    "country": "Qatar",
+    "iso2": "QA",
+    "iso3": "QAT",
+    "numeric": "634",
+    "prefix": "974",
+    "type": "Landline",
+    "operator": "",
+    "label": "Qatar LandLine"
+  },
+  {
+    "country": "Qatar",
+    "iso2": "QA",
+    "iso3": "QAT",
+    "numeric": "634",
+    "prefix": "9743",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Qatar Mobile"
+  },
+  {
+    "country": "Qatar",
+    "iso2": "QA",
+    "iso3": "QAT",
+    "numeric": "634",
+    "prefix": "97430",
+    "type": "Mobile Operator",
+    "operator": "Vodafone Qatar",
+    "label": "Qatar Mobile Vodafone Qatar"
+  },
+  {
+    "country": "Qatar",
+    "iso2": "QA",
+    "iso3": "QAT",
+    "numeric": "634",
+    "prefix": "97431",
+    "type": "Mobile Operator",
+    "operator": "Vodafone Qatar",
+    "label": "Qatar Mobile Vodafone Qatar"
+  },
+  {
+    "country": "Qatar",
+    "iso2": "QA",
+    "iso3": "QAT",
+    "numeric": "634",
+    "prefix": "97433",
+    "type": "Mobile Operator",
+    "operator": "Ooredoo",
+    "label": "Qatar Mobile Ooredoo"
+  },
+  {
+    "country": "Qatar",
+    "iso2": "QA",
+    "iso3": "QAT",
+    "numeric": "634",
+    "prefix": "97434",
+    "type": "Mobile Operator",
+    "operator": "Ooredoo",
+    "label": "Qatar Mobile Ooredoo"
+  },
+  {
+    "country": "Qatar",
+    "iso2": "QA",
+    "iso3": "QAT",
+    "numeric": "634",
+    "prefix": "97450",
+    "type": "Mobile Operator",
+    "operator": "Vodafone Qatar",
+    "label": "Qatar Mobile Vodafone Qatar"
+  },
+  {
+    "country": "Qatar",
+    "iso2": "QA",
+    "iso3": "QAT",
+    "numeric": "634",
+    "prefix": "97455",
+    "type": "Mobile Operator",
+    "operator": "Ooredoo",
+    "label": "Qatar Mobile Ooredoo"
+  },
+  {
+    "country": "Qatar",
+    "iso2": "QA",
+    "iso3": "QAT",
+    "numeric": "634",
+    "prefix": "97466",
+    "type": "Mobile Operator",
+    "operator": "Ooredoo",
+    "label": "Qatar Mobile Ooredoo"
+  },
+  {
+    "country": "Romania",
+    "iso2": "RO",
+    "iso3": "ROU",
+    "numeric": "642",
+    "prefix": "40",
+    "type": "Landline",
+    "operator": "",
+    "label": "Romania LandLine"
+  },
+  {
+    "country": "Russia",
+    "iso2": "RU",
+    "iso3": "RUS",
+    "numeric": "643",
+    "prefix": "7",
+    "type": "Landline",
+    "operator": "",
+    "label": "Russia LandLine"
+  },
+  {
+    "country": "Russia",
+    "iso2": "RU",
+    "iso3": "RUS",
+    "numeric": "643",
+    "prefix": "79",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Russia Mobile"
+  },
+  {
+    "country": "Russia",
+    "iso2": "RU",
+    "iso3": "RUS",
+    "numeric": "643",
+    "prefix": "790",
+    "type": "Mobile Operator",
+    "operator": "MTS",
+    "label": "Russia Mobile MTS"
+  },
+  {
+    "country": "Russia",
+    "iso2": "RU",
+    "iso3": "RUS",
+    "numeric": "643",
+    "prefix": "791",
+    "type": "Mobile Operator",
+    "operator": "MTS",
+    "label": "Russia Mobile MTS"
+  },
+  {
+    "country": "Russia",
+    "iso2": "RU",
+    "iso3": "RUS",
+    "numeric": "643",
+    "prefix": "792",
+    "type": "Mobile Operator",
+    "operator": "Megafon",
+    "label": "Russia Mobile Megafon"
+  },
+  {
+    "country": "Russia",
+    "iso2": "RU",
+    "iso3": "RUS",
+    "numeric": "643",
+    "prefix": "793",
+    "type": "Mobile Operator",
+    "operator": "Megafon",
+    "label": "Russia Mobile Megafon"
+  },
+  {
+    "country": "Russia",
+    "iso2": "RU",
+    "iso3": "RUS",
+    "numeric": "643",
+    "prefix": "795",
+    "type": "Mobile Operator",
+    "operator": "MTS",
+    "label": "Russia Mobile MTS"
+  },
+  {
+    "country": "Russia",
+    "iso2": "RU",
+    "iso3": "RUS",
+    "numeric": "643",
+    "prefix": "796",
+    "type": "Mobile Operator",
+    "operator": "Beeline (VimpelCom)",
+    "label": "Russia Mobile Beeline (VimpelCom)"
+  },
+  {
+    "country": "Russia",
+    "iso2": "RU",
+    "iso3": "RUS",
+    "numeric": "643",
+    "prefix": "797",
+    "type": "Mobile Operator",
+    "operator": "Beeline (VimpelCom)",
+    "label": "Russia Mobile Beeline (VimpelCom)"
+  },
+  {
+    "country": "Russia",
+    "iso2": "RU",
+    "iso3": "RUS",
+    "numeric": "643",
+    "prefix": "799",
+    "type": "Mobile Operator",
+    "operator": "Tele2 Russia",
+    "label": "Russia Mobile Tele2 Russia"
+  },
+  {
+    "country": "Rwanda",
+    "iso2": "RW",
+    "iso3": "RWA",
+    "numeric": "646",
+    "prefix": "250",
+    "type": "Landline",
+    "operator": "",
+    "label": "Rwanda LandLine"
+  },
+  {
+    "country": "Saudi Arabia",
+    "iso2": "SA",
+    "iso3": "SAU",
+    "numeric": "682",
+    "prefix": "966",
+    "type": "Landline",
+    "operator": "",
+    "label": "Saudi Arabia LandLine"
+  },
+  {
+    "country": "Saudi Arabia",
+    "iso2": "SA",
+    "iso3": "SAU",
+    "numeric": "682",
+    "prefix": "9665",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Saudi Arabia Mobile"
+  },
+  {
+    "country": "Saudi Arabia",
+    "iso2": "SA",
+    "iso3": "SAU",
+    "numeric": "682",
+    "prefix": "96650",
+    "type": "Mobile Operator",
+    "operator": "STC",
+    "label": "Saudi Arabia Mobile STC"
+  },
+  {
+    "country": "Saudi Arabia",
+    "iso2": "SA",
+    "iso3": "SAU",
+    "numeric": "682",
+    "prefix": "96651",
+    "type": "Mobile Operator",
+    "operator": "STC",
+    "label": "Saudi Arabia Mobile STC"
+  },
+  {
+    "country": "Saudi Arabia",
+    "iso2": "SA",
+    "iso3": "SAU",
+    "numeric": "682",
+    "prefix": "96653",
+    "type": "Mobile Operator",
+    "operator": "STC",
+    "label": "Saudi Arabia Mobile STC"
+  },
+  {
+    "country": "Saudi Arabia",
+    "iso2": "SA",
+    "iso3": "SAU",
+    "numeric": "682",
+    "prefix": "96654",
+    "type": "Mobile Operator",
+    "operator": "STC",
+    "label": "Saudi Arabia Mobile STC"
+  },
+  {
+    "country": "Saudi Arabia",
+    "iso2": "SA",
+    "iso3": "SAU",
+    "numeric": "682",
+    "prefix": "96655",
+    "type": "Mobile Operator",
+    "operator": "Mobily",
+    "label": "Saudi Arabia Mobile Mobily"
+  },
+  {
+    "country": "Saudi Arabia",
+    "iso2": "SA",
+    "iso3": "SAU",
+    "numeric": "682",
+    "prefix": "96656",
+    "type": "Mobile Operator",
+    "operator": "Mobily",
+    "label": "Saudi Arabia Mobile Mobily"
+  },
+  {
+    "country": "Saudi Arabia",
+    "iso2": "SA",
+    "iso3": "SAU",
+    "numeric": "682",
+    "prefix": "96657",
+    "type": "Mobile Operator",
+    "operator": "Mobily",
+    "label": "Saudi Arabia Mobile Mobily"
+  },
+  {
+    "country": "Saudi Arabia",
+    "iso2": "SA",
+    "iso3": "SAU",
+    "numeric": "682",
+    "prefix": "96658",
+    "type": "Mobile Operator",
+    "operator": "Zain",
+    "label": "Saudi Arabia Mobile Zain"
+  },
+  {
+    "country": "Saudi Arabia",
+    "iso2": "SA",
+    "iso3": "SAU",
+    "numeric": "682",
+    "prefix": "96659",
+    "type": "Mobile Operator",
+    "operator": "Zain",
+    "label": "Saudi Arabia Mobile Zain"
+  },
+  {
+    "country": "Serbia",
+    "iso2": "RS",
+    "iso3": "SRB",
+    "numeric": "688",
+    "prefix": "381",
+    "type": "Landline",
+    "operator": "",
+    "label": "Serbia LandLine"
+  },
+  {
+    "country": "Sierra Leone",
+    "iso2": "SL",
+    "iso3": "SLE",
+    "numeric": "694",
+    "prefix": "232",
+    "type": "Landline",
+    "operator": "",
+    "label": "Sierra Leone LandLine"
+  },
+  {
+    "country": "Singapore",
+    "iso2": "SG",
+    "iso3": "SGP",
+    "numeric": "702",
+    "prefix": "65",
+    "type": "Landline",
+    "operator": "",
+    "label": "Singapore LandLine"
+  },
+  {
+    "country": "Slovakia",
+    "iso2": "SK",
+    "iso3": "SVK",
+    "numeric": "703",
+    "prefix": "421",
+    "type": "Landline",
+    "operator": "",
+    "label": "Slovakia LandLine"
+  },
+  {
+    "country": "Slovenia",
+    "iso2": "SI",
+    "iso3": "SVN",
+    "numeric": "705",
+    "prefix": "386",
+    "type": "Landline",
+    "operator": "",
+    "label": "Slovenia LandLine"
+  },
+  {
+    "country": "Somalia",
+    "iso2": "SO",
+    "iso3": "SOM",
+    "numeric": "706",
+    "prefix": "252",
+    "type": "Landline",
+    "operator": "",
+    "label": "Somalia LandLine"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "27",
+    "type": "Landline",
+    "operator": "",
+    "label": "South Africa LandLine"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "276",
+    "type": "Mobile",
+    "operator": "",
+    "label": "South Africa Mobile"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "2760",
+    "type": "Mobile Operator",
+    "operator": "Vodacom",
+    "label": "South Africa Mobile Vodacom"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "2761",
+    "type": "Mobile Operator",
+    "operator": "Vodacom",
+    "label": "South Africa Mobile Vodacom"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "2762",
+    "type": "Mobile Operator",
+    "operator": "MTN",
+    "label": "South Africa Mobile MTN"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "2763",
+    "type": "Mobile Operator",
+    "operator": "MTN",
+    "label": "South Africa Mobile MTN"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "2764",
+    "type": "Mobile Operator",
+    "operator": "Telkom Mobile",
+    "label": "South Africa Mobile Telkom Mobile"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "2765",
+    "type": "Mobile Operator",
+    "operator": "Cell C",
+    "label": "South Africa Mobile Cell C"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "2766",
+    "type": "Mobile Operator",
+    "operator": "Cell C",
+    "label": "South Africa Mobile Cell C"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "2767",
+    "type": "Mobile Operator",
+    "operator": "Cell C",
+    "label": "South Africa Mobile Cell C"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "2768",
+    "type": "Mobile Operator",
+    "operator": "Vodacom",
+    "label": "South Africa Mobile Vodacom"
+  },
+  {
+    "country": "South Africa",
+    "iso2": "ZA",
+    "iso3": "ZAF",
+    "numeric": "710",
+    "prefix": "2769",
+    "type": "Mobile Operator",
+    "operator": "Vodacom",
+    "label": "South Africa Mobile Vodacom"
+  },
+  {
+    "country": "South Korea",
+    "iso2": "KR",
+    "iso3": "KOR",
+    "numeric": "410",
+    "prefix": "82",
+    "type": "Landline",
+    "operator": "",
+    "label": "South Korea LandLine"
+  },
+  {
+    "country": "South Sudan",
+    "iso2": "SS",
+    "iso3": "SSD",
+    "numeric": "728",
+    "prefix": "211",
+    "type": "Landline",
+    "operator": "",
+    "label": "South Sudan LandLine"
+  },
+  {
+    "country": "Spain",
+    "iso2": "ES",
+    "iso3": "ESP",
+    "numeric": "724",
+    "prefix": "34",
+    "type": "Landline",
+    "operator": "",
+    "label": "Spain LandLine"
+  },
+  {
+    "country": "Spain",
+    "iso2": "ES",
+    "iso3": "ESP",
+    "numeric": "724",
+    "prefix": "346",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Spain Mobile"
+  },
+  {
+    "country": "Spain",
+    "iso2": "ES",
+    "iso3": "ESP",
+    "numeric": "724",
+    "prefix": "3460",
+    "type": "Mobile Operator",
+    "operator": "Movistar",
+    "label": "Spain Mobile Movistar"
+  },
+  {
+    "country": "Spain",
+    "iso2": "ES",
+    "iso3": "ESP",
+    "numeric": "724",
+    "prefix": "3461",
+    "type": "Mobile Operator",
+    "operator": "Vodafone ES",
+    "label": "Spain Mobile Vodafone ES"
+  },
+  {
+    "country": "Spain",
+    "iso2": "ES",
+    "iso3": "ESP",
+    "numeric": "724",
+    "prefix": "3462",
+    "type": "Mobile Operator",
+    "operator": "Orange ES",
+    "label": "Spain Mobile Orange ES"
+  },
+  {
+    "country": "Spain",
+    "iso2": "ES",
+    "iso3": "ESP",
+    "numeric": "724",
+    "prefix": "3463",
+    "type": "Mobile Operator",
+    "operator": "Yoigo",
+    "label": "Spain Mobile Yoigo"
+  },
+  {
+    "country": "Spain",
+    "iso2": "ES",
+    "iso3": "ESP",
+    "numeric": "724",
+    "prefix": "3465",
+    "type": "Mobile Operator",
+    "operator": "Movistar",
+    "label": "Spain Mobile Movistar"
+  },
+  {
+    "country": "Spain",
+    "iso2": "ES",
+    "iso3": "ESP",
+    "numeric": "724",
+    "prefix": "3466",
+    "type": "Mobile Operator",
+    "operator": "Vodafone ES",
+    "label": "Spain Mobile Vodafone ES"
+  },
+  {
+    "country": "Spain",
+    "iso2": "ES",
+    "iso3": "ESP",
+    "numeric": "724",
+    "prefix": "3467",
+    "type": "Mobile Operator",
+    "operator": "Orange ES",
+    "label": "Spain Mobile Orange ES"
+  },
+  {
+    "country": "Spain",
+    "iso2": "ES",
+    "iso3": "ESP",
+    "numeric": "724",
+    "prefix": "3468",
+    "type": "Mobile Operator",
+    "operator": "Vodafone ES",
+    "label": "Spain Mobile Vodafone ES"
+  },
+  {
+    "country": "Spain",
+    "iso2": "ES",
+    "iso3": "ESP",
+    "numeric": "724",
+    "prefix": "347",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Spain Mobile"
+  },
+  {
+    "country": "Sri Lanka",
+    "iso2": "LK",
+    "iso3": "LKA",
+    "numeric": "144",
+    "prefix": "94",
+    "type": "Landline",
+    "operator": "",
+    "label": "Sri Lanka LandLine"
+  },
+  {
+    "country": "Sudan",
+    "iso2": "SD",
+    "iso3": "SDN",
+    "numeric": "729",
+    "prefix": "249",
+    "type": "Landline",
+    "operator": "",
+    "label": "Sudan LandLine"
+  },
+  {
+    "country": "Suriname",
+    "iso2": "SR",
+    "iso3": "SUR",
+    "numeric": "740",
+    "prefix": "597",
+    "type": "Landline",
+    "operator": "",
+    "label": "Suriname LandLine"
+  },
+  {
+    "country": "Sweden",
+    "iso2": "SE",
+    "iso3": "SWE",
+    "numeric": "752",
+    "prefix": "46",
+    "type": "Landline",
+    "operator": "",
+    "label": "Sweden LandLine"
+  },
+  {
+    "country": "Switzerland",
+    "iso2": "CH",
+    "iso3": "CHE",
+    "numeric": "756",
+    "prefix": "41",
+    "type": "Landline",
+    "operator": "",
+    "label": "Switzerland LandLine"
+  },
+  {
+    "country": "Syria",
+    "iso2": "SY",
+    "iso3": "SYR",
+    "numeric": "760",
+    "prefix": "963",
+    "type": "Landline",
+    "operator": "",
+    "label": "Syria LandLine"
+  },
+  {
+    "country": "Taiwan",
+    "iso2": "TW",
+    "iso3": "TWN",
+    "numeric": "158",
+    "prefix": "886",
+    "type": "Landline",
+    "operator": "",
+    "label": "Taiwan LandLine"
+  },
+  {
+    "country": "Tajikistan",
+    "iso2": "TJ",
+    "iso3": "TJK",
+    "numeric": "762",
+    "prefix": "992",
+    "type": "Landline",
+    "operator": "",
+    "label": "Tajikistan LandLine"
+  },
+  {
+    "country": "Tanzania",
+    "iso2": "TZ",
+    "iso3": "TZA",
+    "numeric": "834",
+    "prefix": "255",
+    "type": "Landline",
+    "operator": "",
+    "label": "Tanzania LandLine"
+  },
+  {
+    "country": "Tanzania",
+    "iso2": "TZ",
+    "iso3": "TZA",
+    "numeric": "834",
+    "prefix": "2557",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Tanzania Mobile"
+  },
+  {
+    "country": "Tanzania",
+    "iso2": "TZ",
+    "iso3": "TZA",
+    "numeric": "834",
+    "prefix": "25571",
+    "type": "Mobile Operator",
+    "operator": "Vodacom Tanzania",
+    "label": "Tanzania Mobile Vodacom Tanzania"
+  },
+  {
+    "country": "Tanzania",
+    "iso2": "TZ",
+    "iso3": "TZA",
+    "numeric": "834",
+    "prefix": "25573",
+    "type": "Mobile Operator",
+    "operator": "Airtel Tanzania",
+    "label": "Tanzania Mobile Airtel Tanzania"
+  },
+  {
+    "country": "Tanzania",
+    "iso2": "TZ",
+    "iso3": "TZA",
+    "numeric": "834",
+    "prefix": "25574",
+    "type": "Mobile Operator",
+    "operator": "Tigo Tanzania",
+    "label": "Tanzania Mobile Tigo Tanzania"
+  },
+  {
+    "country": "Tanzania",
+    "iso2": "TZ",
+    "iso3": "TZA",
+    "numeric": "834",
+    "prefix": "25575",
+    "type": "Mobile Operator",
+    "operator": "Halotel",
+    "label": "Tanzania Mobile Halotel"
+  },
+  {
+    "country": "Tanzania",
+    "iso2": "TZ",
+    "iso3": "TZA",
+    "numeric": "834",
+    "prefix": "25576",
+    "type": "Mobile Operator",
+    "operator": "Zantel",
+    "label": "Tanzania Mobile Zantel"
+  },
+  {
+    "country": "Tanzania",
+    "iso2": "TZ",
+    "iso3": "TZA",
+    "numeric": "834",
+    "prefix": "25577",
+    "type": "Mobile Operator",
+    "operator": "Vodacom Tanzania",
+    "label": "Tanzania Mobile Vodacom Tanzania"
+  },
+  {
+    "country": "Tanzania",
+    "iso2": "TZ",
+    "iso3": "TZA",
+    "numeric": "834",
+    "prefix": "25578",
+    "type": "Mobile Operator",
+    "operator": "Airtel Tanzania",
+    "label": "Tanzania Mobile Airtel Tanzania"
+  },
+  {
+    "country": "Thailand",
+    "iso2": "TH",
+    "iso3": "THA",
+    "numeric": "764",
+    "prefix": "66",
+    "type": "Landline",
+    "operator": "",
+    "label": "Thailand LandLine"
+  },
+  {
+    "country": "Tunisia",
+    "iso2": "TN",
+    "iso3": "TUN",
+    "numeric": "788",
+    "prefix": "216",
+    "type": "Landline",
+    "operator": "",
+    "label": "Tunisia LandLine"
+  },
+  {
+    "country": "Turkey",
+    "iso2": "TR",
+    "iso3": "TUR",
+    "numeric": "792",
+    "prefix": "90",
+    "type": "Landline",
+    "operator": "",
+    "label": "Turkey LandLine"
+  },
+  {
+    "country": "Turkey",
+    "iso2": "TR",
+    "iso3": "TUR",
+    "numeric": "792",
+    "prefix": "905",
+    "type": "Mobile",
+    "operator": "",
+    "label": "Turkey Mobile"
+  },
+  {
+    "country": "Turkey",
+    "iso2": "TR",
+    "iso3": "TUR",
+    "numeric": "792",
+    "prefix": "9050",
+    "type": "Mobile Operator",
+    "operator": "Turkcell",
+    "label": "Turkey Mobile Turkcell"
+  },
+  {
+    "country": "Turkey",
+    "iso2": "TR",
+    "iso3": "TUR",
+    "numeric": "792",
+    "prefix": "9051",
+    "type": "Mobile Operator",
+    "operator": "Turkcell",
+    "label": "Turkey Mobile Turkcell"
+  },
+  {
+    "country": "Turkey",
+    "iso2": "TR",
+    "iso3": "TUR",
+    "numeric": "792",
+    "prefix": "9052",
+    "type": "Mobile Operator",
+    "operator": "Turkcell",
+    "label": "Turkey Mobile Turkcell"
+  },
+  {
+    "country": "Turkey",
+    "iso2": "TR",
+    "iso3": "TUR",
+    "numeric": "792",
+    "prefix": "9053",
+    "type": "Mobile Operator",
+    "operator": "Turk Telekom",
+    "label": "Turkey Mobile Turk Telekom"
+  },
+  {
+    "country": "Turkey",
+    "iso2": "TR",
+    "iso3": "TUR",
+    "numeric": "792",
+    "prefix": "9054",
+    "type": "Mobile Operator",
+    "operator": "Turk Telekom",
+    "label": "Turkey Mobile Turk Telekom"
+  },
+  {
+    "country": "Turkey",
+    "iso2": "TR",
+    "iso3": "TUR",
+    "numeric": "792",
+    "prefix": "9055",
+    "type": "Mobile Operator",
+    "operator": "Vodafone Turkey",
+    "label": "Turkey Mobile Vodafone Turkey"
+  },
+  {
+    "country": "Turkey",
+    "iso2": "TR",
+    "iso3": "TUR",
+    "numeric": "792",
+    "prefix": "9056",
+    "type": "Mobile Operator",
+    "operator": "Vodafone Turkey",
+    "label": "Turkey Mobile Vodafone Turkey"
+  },
+  {
+    "country": "Turkey",
+    "iso2": "TR",
+    "iso3": "TUR",
+    "numeric": "792",
+    "prefix": "9059",
+    "type": "Mobile Operator",
+    "operator": "Virtual/MVNO",
+    "label": "Turkey Mobile Virtual/MVNO"
+  },
+  {
+    "country": "Turkmenistan",
+    "iso2": "TM",
+    "iso3": "TKM",
+    "numeric": "795",
+    "prefix": "993",
+    "type": "Landline",
+    "operator": "",
+    "label": "Turkmenistan LandLine"
+  },
+  {
+    "country": "Uganda",
+    "iso2": "UG",
+    "iso3": "UGA",
+    "numeric": "800",
+    "prefix": "256",
+    "type": "Landline",
+    "operator": "",
+    "label": "Uganda LandLine"
+  },
+  {
+    "country": "Ukraine",
+    "iso2": "UA",
+    "iso3": "UKR",
+    "numeric": "804",
+    "prefix": "380",
+    "type": "Landline",
+    "operator": "",
+    "label": "Ukraine LandLine"
+  },
+  {
+    "country": "United Arab Emirates",
+    "iso2": "AE",
+    "iso3": "ARE",
+    "numeric": "784",
+    "prefix": "971",
+    "type": "Landline",
+    "operator": "",
+    "label": "United Arab Emirates LandLine"
+  },
+  {
+    "country": "United Arab Emirates",
+    "iso2": "AE",
+    "iso3": "ARE",
+    "numeric": "784",
+    "prefix": "9715",
+    "type": "Mobile",
+    "operator": "",
+    "label": "United Arab Emirates Mobile"
+  },
+  {
+    "country": "United Arab Emirates",
+    "iso2": "AE",
+    "iso3": "ARE",
+    "numeric": "784",
+    "prefix": "97150",
+    "type": "Mobile Operator",
+    "operator": "Etisalat (e&)",
+    "label": "United Arab Emirates Mobile Etisalat (e&)"
+  },
+  {
+    "country": "United Arab Emirates",
+    "iso2": "AE",
+    "iso3": "ARE",
+    "numeric": "784",
+    "prefix": "97151",
+    "type": "Mobile Operator",
+    "operator": "Etisalat (e&)",
+    "label": "United Arab Emirates Mobile Etisalat (e&)"
+  },
+  {
+    "country": "United Arab Emirates",
+    "iso2": "AE",
+    "iso3": "ARE",
+    "numeric": "784",
+    "prefix": "97152",
+    "type": "Mobile Operator",
+    "operator": "Etisalat (e&)",
+    "label": "United Arab Emirates Mobile Etisalat (e&)"
+  },
+  {
+    "country": "United Arab Emirates",
+    "iso2": "AE",
+    "iso3": "ARE",
+    "numeric": "784",
+    "prefix": "97154",
+    "type": "Mobile Operator",
+    "operator": "Etisalat (e&)",
+    "label": "United Arab Emirates Mobile Etisalat (e&)"
+  },
+  {
+    "country": "United Arab Emirates",
+    "iso2": "AE",
+    "iso3": "ARE",
+    "numeric": "784",
+    "prefix": "97155",
+    "type": "Mobile Operator",
+    "operator": "Etisalat (e&)",
+    "label": "United Arab Emirates Mobile Etisalat (e&)"
+  },
+  {
+    "country": "United Arab Emirates",
+    "iso2": "AE",
+    "iso3": "ARE",
+    "numeric": "784",
+    "prefix": "97156",
+    "type": "Mobile Operator",
+    "operator": "Etisalat (e&)",
+    "label": "United Arab Emirates Mobile Etisalat (e&)"
+  },
+  {
+    "country": "United Arab Emirates",
+    "iso2": "AE",
+    "iso3": "ARE",
+    "numeric": "784",
+    "prefix": "97158",
+    "type": "Mobile Operator",
+    "operator": "du",
+    "label": "United Arab Emirates Mobile du"
+  },
+  {
+    "country": "United Arab Emirates",
+    "iso2": "AE",
+    "iso3": "ARE",
+    "numeric": "784",
+    "prefix": "97159",
+    "type": "Mobile Operator",
+    "operator": "du",
+    "label": "United Arab Emirates Mobile du"
+  },
+  {
+    "country": "United Kingdom",
+    "iso2": "GB",
+    "iso3": "GBR",
+    "numeric": "826",
+    "prefix": "44",
+    "type": "Landline",
+    "operator": "",
+    "label": "United Kingdom LandLine"
+  },
+  {
+    "country": "United Kingdom",
+    "iso2": "GB",
+    "iso3": "GBR",
+    "numeric": "826",
+    "prefix": "447",
+    "type": "Mobile",
+    "operator": "",
+    "label": "United Kingdom Mobile"
+  },
+  {
+    "country": "United Kingdom",
+    "iso2": "GB",
+    "iso3": "GBR",
+    "numeric": "826",
+    "prefix": "4474",
+    "type": "Mobile Operator",
+    "operator": "EE",
+    "label": "United Kingdom Mobile EE"
+  },
+  {
+    "country": "United Kingdom",
+    "iso2": "GB",
+    "iso3": "GBR",
+    "numeric": "826",
+    "prefix": "4475",
+    "type": "Mobile Operator",
+    "operator": "O2",
+    "label": "United Kingdom Mobile O2"
+  },
+  {
+    "country": "United Kingdom",
+    "iso2": "GB",
+    "iso3": "GBR",
+    "numeric": "826",
+    "prefix": "4476",
+    "type": "Mobile Operator",
+    "operator": "Vodafone UK",
+    "label": "United Kingdom Mobile Vodafone UK"
+  },
+  {
+    "country": "United Kingdom",
+    "iso2": "GB",
+    "iso3": "GBR",
+    "numeric": "826",
+    "prefix": "4477",
+    "type": "Mobile Operator",
+    "operator": "Three UK",
+    "label": "United Kingdom Mobile Three UK"
+  },
+  {
+    "country": "United Kingdom",
+    "iso2": "GB",
+    "iso3": "GBR",
+    "numeric": "826",
+    "prefix": "4478",
+    "type": "Mobile Operator",
+    "operator": "EE/BT",
+    "label": "United Kingdom Mobile EE/BT"
+  },
+  {
+    "country": "United Kingdom",
+    "iso2": "GB",
+    "iso3": "GBR",
+    "numeric": "826",
+    "prefix": "4479",
+    "type": "Mobile Operator",
+    "operator": "Virtual/MVNO",
+    "label": "United Kingdom Mobile Virtual/MVNO"
+  },
+  {
+    "country": "United States",
+    "iso2": "US",
+    "iso3": "USA",
+    "numeric": "840",
+    "prefix": "1",
+    "type": "Landline",
+    "operator": "",
+    "label": "United States LandLine"
+  },
+  {
+    "country": "Uruguay",
+    "iso2": "UY",
+    "iso3": "URY",
+    "numeric": "858",
+    "prefix": "598",
+    "type": "Landline",
+    "operator": "",
+    "label": "Uruguay LandLine"
+  },
+  {
+    "country": "Uzbekistan",
+    "iso2": "UZ",
+    "iso3": "UZB",
+    "numeric": "860",
+    "prefix": "998",
+    "type": "Landline",
+    "operator": "",
+    "label": "Uzbekistan LandLine"
+  },
+  {
+    "country": "Venezuela",
+    "iso2": "VE",
+    "iso3": "VEN",
+    "numeric": "862",
+    "prefix": "58",
+    "type": "Landline",
+    "operator": "",
+    "label": "Venezuela LandLine"
+  },
+  {
+    "country": "Vietnam",
+    "iso2": "VN",
+    "iso3": "VNM",
+    "numeric": "704",
+    "prefix": "84",
+    "type": "Landline",
+    "operator": "",
+    "label": "Vietnam LandLine"
+  },
+  {
+    "country": "Yemen",
+    "iso2": "YE",
+    "iso3": "YEM",
+    "numeric": "887",
+    "prefix": "967",
+    "type": "Landline",
+    "operator": "",
+    "label": "Yemen LandLine"
+  },
+  {
+    "country": "Zambia",
+    "iso2": "ZM",
+    "iso3": "ZMB",
+    "numeric": "894",
+    "prefix": "260",
+    "type": "Landline",
+    "operator": "",
+    "label": "Zambia LandLine"
+  },
+  {
+    "country": "Zimbabwe",
+    "iso2": "ZW",
+    "iso3": "ZWE",
+    "numeric": "716",
+    "prefix": "263",
+    "type": "Landline",
+    "operator": "",
+    "label": "Zimbabwe LandLine"
+  }
+]
