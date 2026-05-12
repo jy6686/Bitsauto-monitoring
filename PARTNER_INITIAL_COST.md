@@ -59,7 +59,44 @@ There are no setup fees, no per-seat charges, and no additional database costs f
 
 ---
 
-## 5. Suggested Sequence Before Incurring Any Cost
+## 5. Time & Effort Cost — The 4–8 Hour Work Block
+
+The "Internal development time" line in Section 2 represents a one-time block of staff work. Here is what that time costs in practice.
+
+### What the 4–8 Hours Covers
+
+| Task | Time Estimate |
+|---|---|
+| Branding swap (logo, colours, platform name) | ~1 hour |
+| Credential configuration (partner's Sippy switch details) | ~1 hour |
+| Demo data setup (synthetic calls, metrics, test accounts) | 1–2 hours |
+| Runbook write-up (document every step taken) | 2–3 hours |
+
+### Cost by Staff Type — In-House
+
+| Rate Level | Hourly Rate | 4 hrs | 8 hrs |
+|---|---|---|---|
+| Junior / intern | $15–25 / hr | $60–100 | $120–200 |
+| Mid-level developer | $30–60 / hr | $120–240 | $240–480 |
+| Senior / lead | $70–120 / hr | $280–480 | $560–960 |
+
+If the person is already salaried, this is **opportunity cost only** — the monetary value of what else they could have been doing in that time. No cash outlay.
+
+### Cost if Outsourced to a Freelancer
+
+| Platform | Typical Rate | 4–8 hrs Estimate |
+|---|---|---|
+| Upwork (Pakistan / Asia) | $10–25 / hr | $40–200 |
+| Upwork (Western) | $40–100 / hr | $160–800 |
+| Fiverr (fixed gig) | $50–200 flat | $50–200 |
+
+### Practical Budget Recommendation
+
+For a mid-level resource doing this work in-house, budget **$200–500 as a one-time effort cost**. This is not a recurring charge — the runbook produced from it eliminates the need to repeat the same discovery work for every future partner, making each subsequent deployment faster and cheaper.
+
+---
+
+## 6. Suggested Sequence Before Incurring Any Cost
 
 To minimise risk and avoid spending before readiness:
 
