@@ -692,7 +692,7 @@ function ConnectionDialog({
       randomCallId: form.randomCallId,
       enableDiversion: form.enableDiversion,
       useAssertedId: form.useAssertedId,
-      iPrivacyMode: parseInt(form.iPrivacyMode) || 0,
+      ...(parseInt(form.iPrivacyMode) > 0 ? { iPrivacyMode: parseInt(form.iPrivacyMode) } : {}),
       ignoreLrn: form.ignoreLrn,
       qmonAcdEnabled: form.qmonEnabled,
       qmonAsrEnabled: form.qmonEnabled,
