@@ -880,6 +880,27 @@ function DiagnosticPanel({ cdr, sipEvents, pasteMessages }: {
       });
     }
 
+    // No Route Found
+    if (result.includes('no route') || result.includes('route not found') || result.includes('-603') || result.includes('no_route')) {
+      findings.push({
+        severity: 'critical',
+        title: 'No Route Found — Routing Group Misconfiguration',
+        detail: `Sippy evaluated the routing group assigned to this account and found no matching outbound route for the destination. This is a routing-layer failure (not a tariff/billing failure). Common causes:\n\n1. The account has no routing group assigned — it inherits from its parent customer, whose routing group has no routes for this destination.\n2. The routing group exists but contains no active connections/vendors for this prefix.\n3. The routing group has connections but all are disabled, over capacity, or have CPS/session limits exhausted.\n4. A sub-account (e.g. PUSHTOTALK under RTST1) is inheriting the parent's routing group, which is not configured for outbound routing.\n\nKey distinction from "No Rate Found": a routing failure happens before billing — the call never reaches a carrier at all.`,
+        fix: 'In Sippy admin: (1) Go to Accounts → find the originating account → check the "Routing Group" field. If blank, assign a routing group explicitly. (2) Open that routing group → verify it has at least one active Connection/Vendor entry with routes covering the destination prefix. (3) If this account is a sub-account under a customer (e.g. PUSHTOTALK under RTST1), ensure either the account itself has a dedicated routing group, or the parent customer\'s routing group is correctly configured for outbound calls.',
+      });
+    }
+
+    // Sub-account inheriting parent routing — detected when account is a known sub-account
+    const acctName = (cdr as any).accountName || (cdr as any).clientName || '';
+    if (acctName && ['pushtotalk','aircel','asif'].some(n => acctName.toLowerCase().includes(n))) {
+      findings.push({
+        severity: 'warning',
+        title: `Sub-Account Routing Inheritance — ${acctName} under RTST1`,
+        detail: `"${acctName}" is a sub-account under the RTST1 customer (iCustomer=2). In Sippy's account hierarchy, sub-accounts that do not have an explicit routing group set will inherit the parent customer's (RTST1's) routing group and tariff. If RTST1's routing group is not configured for the destination this account is trying to reach, the call will fail with "No Route Found" even though the account itself appears correctly configured.\n\nThis also explains why the call appears to follow RTST1's tariff and routing configuration — it IS using RTST1's settings because no override is set on the sub-account.`,
+        fix: `In Sippy: Go to Accounts → search for "${acctName}" → Edit → set a dedicated "Routing Group" and "Service Plan/Tariff" specific to this account. Do not leave these blank if you need different routing from the parent RTST1 customer. Then verify that the assigned routing group has active connections covering the required destination prefixes.`,
+      });
+    }
+
     // Number normalisation issue — CLD without + prefix
     const cldNum = cdr.callee ?? '';
     if (cldNum && !cldNum.startsWith('+') && /^\d{7,15}$/.test(cldNum)) {
