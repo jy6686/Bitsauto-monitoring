@@ -6,6 +6,7 @@ import {
   GitBranch, Search, Upload, AlertTriangle, Clock, ArrowRight, ArrowLeft,
   Phone, PhoneOff, User, Globe, DollarSign, Monitor, Copy, Check,
   ChevronDown, ChevronUp, Info, RefreshCw, Wifi, Radio, Music2, Layers,
+  Download, FileText, FileSpreadsheet, ShieldAlert, Hash, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,82 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+
+// ── Download helpers ──────────────────────────────────────────────────────────
+
+function downloadBlob(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 500);
+}
+
+function sipMessagesToCsv(msgs: SipMessage[]): string {
+  const header = ['Seq','Timestamp','From','To','Method','Code','CSeq','Call-ID'];
+  const rows = msgs.map(m => [
+    m.seq, m.timestamp, m.from, m.to, m.method,
+    m.code ?? '', m.cseq ?? '', m.callId ?? '',
+  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+  return [header.join(','), ...rows].join('\r\n');
+}
+
+function sipEventsToCsv(events: SipEvent[]): string {
+  const header = ['Seq','Timestamp','From','To','Method','Code','Detail'];
+  const rows = events.map((e, i) => [
+    i + 1, e.ts, e.from, e.to, e.method,
+    e.code ?? '', (e.detail ?? '').replace(/\r?\n/g, ' '),
+  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+  return [header.join(','), ...rows].join('\r\n');
+}
+
+function sipMessagesToTxt(msgs: SipMessage[], callId?: string): string {
+  const lines: string[] = [
+    '=== SIP Trace Export ===',
+    `Exported: ${new Date().toUTCString()}`,
+    callId ? `Call-ID: ${callId}` : '',
+    `Messages: ${msgs.length}`,
+    ''.padEnd(60, '-'),
+    '',
+  ];
+  for (const m of msgs) {
+    lines.push(`[${m.seq}] ${m.timestamp}  ${m.from} → ${m.to}  ${m.method}${m.code ? ` ${m.code}` : ''}`);
+    if (m.cseq)   lines.push(`    CSeq:    ${m.cseq}`);
+    if (m.callId) lines.push(`    Call-ID: ${m.callId}`);
+    lines.push('');
+    lines.push(m.raw);
+    lines.push(''.padEnd(60, '-'));
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+function sipEventsToTxt(events: SipEvent[], cdr?: CdrInfo): string {
+  const lines: string[] = [
+    '=== SIP Trace Export (Reconstructed from Sippy CDR) ===',
+    `Exported: ${new Date().toUTCString()}`,
+    cdr ? `Call-ID: ${cdr.callId}` : '',
+    cdr ? `Caller:  ${cdr.caller}  →  Callee: ${cdr.callee}` : '',
+    cdr ? `Result:  ${cdr.result}` : '',
+    `Events:  ${events.length}`,
+    ''.padEnd(60, '-'),
+    '',
+  ];
+  let prev = 0;
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i];
+    const tsMs = tsToMs(ev.ts);
+    const delta = prev > 0 && tsMs > 0 ? `+${tsMs - prev}ms` : '';
+    prev = tsMs || prev;
+    lines.push(`[${i + 1}] ${ev.ts}  ${delta}`);
+    lines.push(`    ${ev.from} → ${ev.to}  ${ev.method}${ev.code ? ` ${ev.code}` : ''}`);
+    if (ev.detail) { lines.push(''); lines.push(ev.detail); }
+    lines.push(''.padEnd(60, '-'));
+    lines.push('');
+  }
+  return lines.join('\n');
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -740,6 +817,183 @@ function SdpPanel({ iCall }: { iCall: string | undefined }) {
   );
 }
 
+// ── Diagnostic Analysis Panel ─────────────────────────────────────────────────
+
+interface DiagFinding {
+  severity: 'critical' | 'warning' | 'info';
+  title: string;
+  detail: string;
+  fix?: string;
+}
+
+function DiagnosticPanel({ cdr, sipEvents, pasteMessages }: {
+  cdr?: CdrInfo;
+  sipEvents?: SipEvent[];
+  pasteMessages?: SipMessage[];
+}) {
+  const findings: DiagFinding[] = [];
+
+  // ── Analyse CDR-based signals ──────────────────────────────────────────────
+  if (cdr) {
+    const result = (cdr.result ?? '').toLowerCase();
+    const prefix = (cdr as any).prefix ?? '';
+    const isAnswered = (cdr.totalDuration ?? cdr.duration ?? 0) > 0;
+    const has200 = sipEvents?.some(e => e.code === 200) || pasteMessages?.some(m => m.code === 200);
+
+    // external_translation_error
+    if (prefix === 'external_translation_error' || result.includes('translation')) {
+      findings.push({
+        severity: 'critical',
+        title: 'Number Translation Failed (external_translation_error)',
+        detail: `Sippy tried to apply a translation rule to the dialed number but no matching rule was found. The Prefix field in the CDR shows "${prefix}" instead of a dial prefix — this means the translation table for account #${cdr.iCdr ?? '?'} has no rule matching the incoming CLD (${cdr.callee ?? 'unknown'}). Sippy could not resolve a routable destination and rejected the call internally.`,
+        fix: 'Check the Translation Rules on the originating account in Sippy. Ensure there is a rule matching the CLD format (e.g. +1XXXXXXXXXX or 1XXXXXXXXXX). Also verify the "Translation Error" action is set to "Reject" vs "Pass-Through" depending on intent.',
+      });
+    }
+
+    // No Rate Found (-14)
+    if (result.includes('no rate') || result.includes('-14')) {
+      findings.push({
+        severity: 'critical',
+        title: 'No Rate Found in Tariff (Error -14)',
+        detail: `Sippy looked up the tariff assigned to account #${cdr.iCdr ?? '?'} but found no rate entry matching the destination prefix. This typically happens when: (1) the number translation failed and produced an unroutable number, (2) the tariff is missing a rate for this prefix, or (3) the rate exists but is set to "Forbidden". Cost = $0.0000 confirms no billing occurred.`,
+        fix: 'Open the tariff assigned to this account in Sippy and search for a prefix matching the CLD. Add the missing rate, or fix the translation rule so the correct prefix is produced before tariff lookup.',
+      });
+    }
+
+    // 200 OK in SIP but call marked failed / zero duration
+    if (has200 && !isAnswered && (result.includes('no rate') || result.includes('error') || result.includes('fail'))) {
+      findings.push({
+        severity: 'warning',
+        title: 'Cause Code Mismatch — SIP 200 OK vs CDR Failure',
+        detail: `The SIP trace shows a 200 OK response, which at the signaling layer means the far end acknowledged the request. However, the CDR result is "${cdr.result}" with Duration = 0:00 and identical Connect/Disconnect timestamps. This is NOT a contradiction — the 200 OK in the trace is the response to the BYE (disconnect acknowledgment), not the INVITE answer. Sippy internally terminated the call before any billable connection due to the tariff/translation failure, so the call never "connected" in the billing sense even though SIP signaling completed normally.`,
+        fix: 'No SIP fix needed. The 200 OK is correct SIP behavior. Fix the underlying tariff or translation issue (see findings above) to allow calls to complete and bill correctly.',
+      });
+    }
+
+    // Zero duration with non-zero PDD
+    if (!isAnswered && (cdr.pdd ?? 0) > 0) {
+      findings.push({
+        severity: 'info',
+        title: 'PDD Recorded but Call Never Billed',
+        detail: `PDD of ${cdr.pdd?.toFixed(2)}s was recorded, meaning the call did progress through the SIP stack (INVITE was sent, possibly got provisional responses). But Duration = 0 means Sippy never started the billing clock — consistent with a billing/tariff rejection that happened at or before answer.`,
+        fix: 'No separate fix. Resolving the tariff issue will allow the billing clock to start correctly on future calls.',
+      });
+    }
+
+    // Number normalisation issue — CLD without + prefix
+    const cldNum = cdr.callee ?? '';
+    if (cldNum && !cldNum.startsWith('+') && /^\d{7,15}$/.test(cldNum)) {
+      findings.push({
+        severity: 'info',
+        title: 'Possible Number Normalisation Issue — Missing + Prefix',
+        detail: `The CLD in the CDR is "${cldNum}" without a leading + sign. Sippy's tariff lookup may be prefix-matching against "+${cldNum.slice(0, 4)}…" style entries. If the tariff rates are defined with a + prefix and the translated number arrives without one, no match will be found. This can silently cause "No Rate Found" even when the rate entry exists.`,
+        fix: 'Verify how rates are entered in the tariff (with or without +). Ensure translation rules output numbers in the same format as tariff prefixes (e.g. both use E.164 with + or both without).',
+      });
+    }
+  }
+
+  // ── Analyse paste-mode signals (no CDR) ───────────────────────────────────
+  if (!cdr && pasteMessages && pasteMessages.length > 0) {
+    const has200ForInvite = pasteMessages.some(m => m.code === 200 && m.cseq?.includes('INVITE'));
+    const hasBye = pasteMessages.some(m => m.method === 'BYE');
+    const hasError4xx = pasteMessages.some(m => (m.code ?? 0) >= 400 && (m.code ?? 0) < 500);
+    const hasError5xx = pasteMessages.some(m => (m.code ?? 0) >= 500);
+
+    if (has200ForInvite && hasBye) {
+      const byeTime = pasteMessages.find(m => m.method === 'BYE')?.timestamp;
+      const inviteTime = pasteMessages.find(m => m.method === 'INVITE')?.timestamp;
+      const ok200Time = pasteMessages.find(m => m.code === 200 && m.cseq?.includes('INVITE'))?.timestamp;
+      const callDurMs = byeTime && ok200Time ? tsToMs(byeTime) - tsToMs(ok200Time) : null;
+      if (callDurMs !== null && callDurMs < 5000) {
+        findings.push({
+          severity: 'warning',
+          title: 'Very Short Connected Duration — Possible Early Disconnect',
+          detail: `Call was answered (200 OK) but BYE was sent only ${callDurMs}ms later. This pattern often indicates Sippy sent a BYE immediately after answering due to a billing or routing failure detected post-answer (e.g. no rate found, credit exhausted, or ACL violation). The SIP trace shows success at signaling level but the CDR likely shows zero billable duration.`,
+          fix: 'Look up the CDR for this Call-ID in the CDR Lookup tab to see the exact Sippy result code and prefix.',
+        });
+      }
+    }
+
+    if (hasError4xx) {
+      const err = pasteMessages.find(m => (m.code ?? 0) >= 400 && (m.code ?? 0) < 500);
+      findings.push({
+        severity: 'critical',
+        title: `SIP ${err?.code} — Client-Side Rejection`,
+        detail: `A 4xx response was received. ${err?.code === 403 ? '403 Forbidden usually means authentication failure, ACL block, or account suspended.' : err?.code === 404 ? '404 Not Found means the destination number was unroutable.' : err?.code === 486 ? '486 Busy Here means the destination UA is busy.' : 'Check the specific code for details.'}`,
+        fix: 'Review the SIP response reason phrase and the CDR result for the matching Call-ID.',
+      });
+    }
+
+    if (hasError5xx) {
+      findings.push({
+        severity: 'critical',
+        title: 'SIP 5xx — Server-Side Failure',
+        detail: 'A 5xx response indicates a failure on the server or carrier side. This is not a caller or translation issue — it is an internal server error or gateway unavailability.',
+        fix: 'Check Sippy gateway status, carrier connectivity, and server logs.',
+      });
+    }
+
+    if (findings.length === 0) {
+      findings.push({
+        severity: 'info',
+        title: 'No anomalies detected in this SIP trace',
+        detail: 'The trace shows a normal call flow. Paste the trace and look up the Call-ID in CDR Lookup mode for detailed billing and result analysis.',
+        fix: undefined,
+      });
+    }
+  }
+
+  if (findings.length === 0) return null;
+
+  const colorMap = {
+    critical: { border: 'border-red-500/25', bg: 'bg-red-500/5', dot: 'bg-red-500', title: 'text-red-300', badge: 'bg-red-500/15 text-red-400 border-red-500/25' },
+    warning:  { border: 'border-amber-500/25', bg: 'bg-amber-500/5', dot: 'bg-amber-500', title: 'text-amber-300', badge: 'bg-amber-500/15 text-amber-400 border-amber-500/25' },
+    info:     { border: 'border-blue-500/20', bg: 'bg-blue-500/5', dot: 'bg-blue-400', title: 'text-blue-300', badge: 'bg-blue-500/15 text-blue-400 border-blue-500/25' },
+  };
+
+  const critical = findings.filter(f => f.severity === 'critical').length;
+  const warnings = findings.filter(f => f.severity === 'warning').length;
+
+  return (
+    <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
+      <div className="flex items-center gap-3 mb-4">
+        <ShieldAlert className="h-4 w-4 text-orange-400 shrink-0" />
+        <div className="flex-1">
+          <h3 className="text-sm font-semibold text-orange-300">Diagnostic Analysis</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Auto-detected {findings.length} finding{findings.length !== 1 ? 's' : ''} from this call
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {critical > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/25 font-medium">{critical} critical</span>}
+          {warnings > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 font-medium">{warnings} warning</span>}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {findings.map((f, i) => {
+          const c = colorMap[f.severity];
+          return (
+            <div key={i} className={`rounded-lg border ${c.border} ${c.bg} p-3`}>
+              <div className="flex items-start gap-2.5 mb-1.5">
+                <div className={`h-2 w-2 rounded-full ${c.dot} mt-1.5 shrink-0`} />
+                <p className={`text-xs font-semibold ${c.title}`}>{f.title}</p>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed ml-4.5 pl-0.5">{f.detail}</p>
+              {f.fix && (
+                <div className="mt-2 ml-4.5 pl-0.5 flex items-start gap-1.5">
+                  <Zap className="h-3 w-3 text-emerald-400 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-emerald-400/80 leading-relaxed">{f.fix}</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── CDR Metadata Panel ────────────────────────────────────────────────────────
 
 function CdrMetaPanel({ cdr }: { cdr: CdrInfo }) {
@@ -946,6 +1200,9 @@ export default function SipTracePage() {
 
           {traceData && !cdrQuery.isFetching && (
             <div className="flex flex-col gap-4">
+              {/* Diagnostic Panel */}
+              <DiagnosticPanel cdr={traceData.cdr} sipEvents={traceData.sipEvents} />
+
               {/* SIP Ladder */}
               <div className="rounded-xl border border-border/50 bg-card/50 p-4">
                 <div className="flex items-center justify-between mb-4">
@@ -958,6 +1215,28 @@ export default function SipTracePage() {
                       {traceData.sipEvents.length} events
                     </Badge>
                     <span className="text-[10px] text-muted-foreground">Click event to expand</span>
+                    <Button
+                      variant="outline" size="sm"
+                      className="h-7 px-2 text-[11px] gap-1"
+                      data-testid="button-download-trace-txt"
+                      onClick={() => downloadBlob(
+                        sipEventsToTxt(traceData.sipEvents, traceData.cdr),
+                        `sip-trace-${traceData.cdr.callId?.slice(0,20) ?? 'export'}.txt`,
+                        'text/plain'
+                      )}>
+                      <FileText className="h-3 w-3" /> TXT
+                    </Button>
+                    <Button
+                      variant="outline" size="sm"
+                      className="h-7 px-2 text-[11px] gap-1"
+                      data-testid="button-download-trace-csv"
+                      onClick={() => downloadBlob(
+                        sipEventsToCsv(traceData.sipEvents),
+                        `sip-trace-${traceData.cdr.callId?.slice(0,20) ?? 'export'}.csv`,
+                        'text/csv'
+                      )}>
+                      <FileSpreadsheet className="h-3 w-3" /> CSV
+                    </Button>
                   </div>
                 </div>
                 <div className="bg-muted/5 rounded-lg border border-border/30 p-4 overflow-x-auto">
@@ -1019,10 +1298,48 @@ export default function SipTracePage() {
           </div>
 
           {parsedPaste.length > 0 && (
-            <div className="rounded-xl border border-border/50 bg-card/50 p-4">
-              <h2 className="text-sm font-semibold mb-4">SIP Ladder</h2>
-              <div className="bg-muted/5 rounded-lg border border-border/30 p-4">
-                <PasteLadder messages={parsedPaste} />
+            <div className="flex flex-col gap-4">
+              {/* Diagnostic analysis for paste mode */}
+              <DiagnosticPanel pasteMessages={parsedPaste} />
+
+              <div className="rounded-xl border border-border/50 bg-card/50 p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-semibold">SIP Ladder</h2>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground">{parsedPaste.length} messages</span>
+                    <Button
+                      variant="outline" size="sm"
+                      className="h-7 px-2 text-[11px] gap-1"
+                      data-testid="button-download-paste-txt"
+                      onClick={() => {
+                        const callId = parsedPaste.find(m => m.callId)?.callId;
+                        downloadBlob(
+                          sipMessagesToTxt(parsedPaste, callId),
+                          `sip-trace-${callId?.slice(0,20) ?? 'export'}.txt`,
+                          'text/plain'
+                        );
+                      }}>
+                      <FileText className="h-3 w-3" /> TXT
+                    </Button>
+                    <Button
+                      variant="outline" size="sm"
+                      className="h-7 px-2 text-[11px] gap-1"
+                      data-testid="button-download-paste-csv"
+                      onClick={() => {
+                        const callId = parsedPaste.find(m => m.callId)?.callId;
+                        downloadBlob(
+                          sipMessagesToCsv(parsedPaste),
+                          `sip-trace-${callId?.slice(0,20) ?? 'export'}.csv`,
+                          'text/csv'
+                        );
+                      }}>
+                      <FileSpreadsheet className="h-3 w-3" /> CSV
+                    </Button>
+                  </div>
+                </div>
+                <div className="bg-muted/5 rounded-lg border border-border/30 p-4">
+                  <PasteLadder messages={parsedPaste} />
+                </div>
               </div>
             </div>
           )}
