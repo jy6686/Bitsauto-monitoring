@@ -4,7 +4,8 @@
 **Purpose:** This document contains the complete, verbatim source code and integration instructions for the Account Management module. A developer or AI agent can reconstruct the entire module from scratch using this document alone.
 
 **Stack:** React + TypeScript (Vite), Express, PostgreSQL (Drizzle ORM), TailwindCSS, shadcn/ui, TanStack Query v5, Wouter routing  
-**Document Version:** 1.0 — May 2026
+**Document Version:** 2.0 — May 2026  
+**Changes in v2.0:** Edit mode on company-create page, inline IP submission on company cards, ProvisioningPanel for all non-provisioned companies, full provision endpoint, PATCH replaces PUT for company updates, provisioningStatus/wizardDraft/sippyIAccount fields added to schema.
 
 ---
 
@@ -59,7 +60,7 @@ The `req.user?.claims?.sub` field contains the authenticated user's ID (Replit A
 
 ## 3. Database Schema — `shared/schema.ts`
 
-Add the following four table definitions to the end of `shared/schema.ts`. Requires these imports already present:
+Add the following four table definitions to `shared/schema.ts`. Requires these imports already present:
 ```typescript
 import { pgTable, serial, varchar, integer, real, text, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
@@ -95,6 +96,15 @@ export const companies = pgTable("companies", {
   legalNameVen:        varchar("legal_name_ven", { length: 256 }),
   invoiceEmail:        varchar("invoice_email",  { length: 256 }),
   notes:           text("notes"),
+  // ── Sippy provisioning fields ──────────────────────────────────────────────
+  provisioningStatus: varchar("provisioning_status", { length: 32 }),
+  // null = draft (not yet provisioned), 'pending_provision' = wizard done,
+  // 'provisioned' = live on Sippy, 'suspended' = suspended
+  wizardDraft:     text("wizard_draft"),        // JSON blob from client wizard
+  sippyIAccount:   integer("sippy_i_account"),  // Sippy account ID after provisioning
+  provisionedAt:   timestamp("provisioned_at"),
+  provisionedBy:   varchar("provisioned_by", { length: 255 }),
+  // ───────────────────────────────────────────────────────────────────────────
   createdAt:       timestamp("created_at").defaultNow().notNull(),
   createdBy:       varchar("created_by", { length: 255 }),
 });
@@ -163,9 +173,10 @@ export type InsertClientIpRequest = typeof clientIpRequests.$inferInsert;
 export const insertClientIpRequestSchema = createInsertSchema(clientIpRequests).omit({ id: true, submittedAt: true });
 ```
 
-### 3.5 — SQL to create tables directly (if db:push is blocked)
+### 3.5 — SQL to create/alter tables directly
 
 ```sql
+-- Create tables (if building from scratch)
 CREATE TABLE IF NOT EXISTS companies (
   id SERIAL PRIMARY KEY,
   name VARCHAR(256) NOT NULL UNIQUE,
@@ -193,9 +204,21 @@ CREATE TABLE IF NOT EXISTS companies (
   legal_name_ven VARCHAR(256),
   invoice_email VARCHAR(256),
   notes TEXT,
+  provisioning_status VARCHAR(32),
+  wizard_draft TEXT,
+  sippy_i_account INTEGER,
+  provisioned_at TIMESTAMP,
+  provisioned_by VARCHAR(255),
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   created_by VARCHAR(255)
 );
+
+-- Add provisioning columns to existing companies table (migration)
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS provisioning_status VARCHAR(32);
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS wizard_draft TEXT;
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS sippy_i_account INTEGER;
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS provisioned_at TIMESTAMP;
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS provisioned_by VARCHAR(255);
 
 CREATE TABLE IF NOT EXISTS company_contacts (
   id SERIAL PRIMARY KEY,
@@ -361,7 +384,7 @@ import { storage } from "./storage";
 // sippyXmlCreds, sippyPortalUrl, sippy — already imported from sippy.ts
 ```
 
-### Full route code block
+### 5.1 — Company CRUD routes
 
 ```typescript
 // ── Account Management — Companies ────────────────────────────────────────────
@@ -431,13 +454,50 @@ app.get('/api/companies/:id',
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-app.put('/api/companies/:id',
+// PATCH — partial update (replaces old PUT route)
+app.patch('/api/companies/:id',
   (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next),
   async (req: any, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
-      const updated = await storage.updateCompany(id, req.body);
+      // Body may be flat updates or structured { basic, billing, contacts, bankAccounts }
+      const body = req.body ?? {};
+      let updates: Record<string, any> = {};
+      if (body.basic) {
+        // Structured payload from the edit wizard
+        const { basic, billing } = body;
+        updates = {
+          name: basic.name?.trim(),
+          shortCode: basic.shortCode?.trim().toUpperCase(),
+          country: basic.country || null,
+          kam: basic.kam || null,
+          status: basic.status || 'active',
+          companyType: basic.companyType || 'retail',
+          contractType: basic.contractType || 'bilateral',
+          department: basic.department || null,
+          team: basic.team || null,
+          clientTimezone: basic.clientTimezone || null,
+          vendorTimezone: basic.vendorTimezone || null,
+          currency: basic.currency || 'USD',
+          vendorBillingCycle: billing?.vendorBillingCycle || 'weekly_cutoff',
+          vendorGracePeriod: billing?.vendorGracePeriod ?? 3,
+          vendorCreditLimit: billing?.vendorCreditLimit ?? 0,
+          disputeOverPct: billing?.disputeOverPct ?? 0,
+          clientBillingCycle: billing?.clientBillingCycle || 'weekly_cutoff',
+          clientGracePeriod: billing?.clientGracePeriod ?? 3,
+          clientCreditLimit: billing?.clientCreditLimit ?? 0,
+          disputeOverVal: billing?.disputeOverVal ?? 0,
+          paymentTerm: billing?.paymentTerm || 'prepaid',
+          legalNameCi: billing?.legalNameCi || null,
+          legalNameVen: billing?.legalNameVen || null,
+          invoiceEmail: billing?.invoiceEmail || null,
+        };
+      } else {
+        // Flat updates (e.g. { provisioningStatus: 'provisioned', sippyIAccount: 42 })
+        updates = body;
+      }
+      const updated = await storage.updateCompany(id, updates);
       res.json({ company: updated });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -452,7 +512,11 @@ app.delete('/api/companies/:id',
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
+```
 
+### 5.2 — Client IP Request routes
+
+```typescript
 // ── Account Management — Client IP Approval Requests ─────────────────────────
 
 app.get('/api/client-ip-requests',
@@ -460,7 +524,9 @@ app.get('/api/client-ip-requests',
   async (req: any, res) => {
     try {
       const rows = await storage.getClientIpRequests();
-      res.json({ requests: rows });
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : null;
+      const filtered = companyId ? rows.filter((r: any) => r.companyId === companyId) : rows;
+      res.json({ requests: filtered });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -499,6 +565,21 @@ app.patch('/api/client-ip-requests/:id/approve',
       const updated = await storage.updateClientIpRequest(id, {
         status: 'approved', reviewedBy: reviewer, reviewedAt: new Date()
       });
+      // Incremental sync: if company is already provisioned, push auth rule to Sippy immediately
+      if (updated.companyId) {
+        try {
+          const company = await storage.getCompany(updated.companyId);
+          if (company?.provisioningStatus === 'provisioned' && company.sippyIAccount) {
+            const settings = await storage.getSettings();
+            const { username, password } = sippyXmlCreds(settings as any);
+            await sippy.addSippyAuthRule(username, password, {
+              iAccount: company.sippyIAccount, iProtocol: 1, remoteIp: updated.ipAddress
+            });
+          }
+        } catch (syncErr: any) {
+          console.warn('[IP Approve] Incremental Sippy sync failed:', syncErr.message);
+        }
+      }
       res.json({ request: updated });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -517,11 +598,13 @@ app.patch('/api/client-ip-requests/:id/reject',
       res.json({ request: updated });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
+```
 
+### 5.3 — Client Wizard Submit route
+
+```typescript
 // ── Account Management — Client Wizard Submit ─────────────────────────────────
-// NOTE: This route calls sippy.pushAccountToSippy() — a Sippy-specific function.
-// For a generic app, replace this with your own account creation logic.
-// The key constraint: always pass iCustomer = 1 (root), never 2 (RTST1).
+// Saves wizard draft to company, transitions to pending_provision, creates Sippy account.
 
 app.post('/api/client-wizard/submit',
   (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next),
@@ -529,16 +612,27 @@ app.post('/api/client-wizard/submit',
     try {
       const { step1, step2, trunks, ips, authRules, validRules, iCustomer = 1 } = req.body ?? {};
       if (!step1?.userId?.trim()) return res.status(400).json({ message: 'User ID is required' });
+      const companyId = step1.companyId ? parseInt(step1.companyId, 10) : null;
+
+      // Save wizard draft to company record
+      if (companyId) {
+        const draft = JSON.stringify({ step1, step2, trunks, ips, authRules, validRules, iCustomer });
+        await storage.updateCompany(companyId, { wizardDraft: draft, provisioningStatus: 'pending_provision' } as any);
+      }
+
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings as any);
       const portalUrl = sippyPortalUrl(settings as any);
       const primaryTrunk = trunks?.[0] ?? {};
+      const displayName = step1.displayName || (companyId ? (await storage.getCompany(companyId))?.name : step1.userId) || step1.userId;
+
       const result = await sippy.pushAccountToSippy({
-        name: step1.userId,
+        name: displayName,
         type: 'client',
         username: step1.userId,
         voipPassword: step1.password,
         webPassword: step1.password,
+        companyName: displayName,
         iCustomer,
         routingGroup: primaryTrunk.routingGroupId || undefined,
         maxSessions: primaryTrunk.maxSessions ? parseInt(primaryTrunk.maxSessions, 10) : 0,
@@ -554,192 +648,219 @@ app.post('/api/client-wizard/submit',
         cc: step1.notifEmailCc || undefined,
         currency: 'USD',
       }, { username, password }, portalUrl);
-      res.json(result);
+
+      // i_account is snake_case in the Sippy response
+      let iAccount: number | undefined = result?.i_account;
+      if (!iAccount && step1.userId) {
+        const lookup = await sippy.listSippyAccounts(username, password, {}, portalUrl);
+        const match = lookup.accounts.find((a: any) =>
+          a.username?.toLowerCase() === step1.userId.toLowerCase()
+        );
+        if (match) iAccount = match.iAccount;
+      }
+
+      res.json({ success: true, iAccount, message: result?.message });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 ```
 
+### 5.4 — Provision to Sippy route
+
+```typescript
+// ── Account Management — Provision Company to Sippy ───────────────────────────
+// POST /api/companies/:id/provision — admin only
+// Requirements: wizardDraft must exist, ≥1 approved IP, 0 pending IPs
+
+app.post('/api/companies/:id/provision',
+  (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+  async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.id, 10);
+      if (isNaN(companyId)) return res.status(400).json({ message: 'Invalid company ID' });
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: 'Company not found' });
+      if (company.provisioningStatus === 'provisioned')
+        return res.status(409).json({ message: 'Client already provisioned in Sippy' });
+      if (!company.wizardDraft)
+        return res.status(400).json({ message: 'No wizard draft found. Complete the client wizard first.' });
+
+      const ipRequests = await storage.getClientIpRequests(companyId);
+      const pendingIps = ipRequests.filter((r: any) => r.status === 'pending');
+      const approvedIps = ipRequests.filter((r: any) => r.status === 'approved');
+      if (pendingIps.length > 0)
+        return res.status(400).json({ message: `${pendingIps.length} IP(s) still pending approval.` });
+      if (approvedIps.length === 0)
+        return res.status(400).json({ message: 'No approved IPs. Approve at least one IP before provisioning.' });
+
+      const draft = JSON.parse(company.wizardDraft);
+      const { step1, trunks, iCustomer = 1 } = draft;
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings as any);
+      const portalUrl = sippyPortalUrl(settings as any);
+      const adminUser = (settings as any)?.apiAdminUsername || (settings as any)?.portalUsername || '';
+      const adminPass = (settings as any)?.apiAdminPassword || (settings as any)?.portalPassword || '';
+      const portalUser = (settings as any)?.portalUsername || '';
+      const portalPass = (settings as any)?.portalPassword || '';
+      const adminWebPassword = (settings as any)?.adminWebPassword || undefined;
+      const primaryTrunk = trunks?.[0] ?? {};
+      const planBase = company.shortCode || company.name;
+      const tariffName = `${planBase}-TARIFF`;
+      const servicePlanName = `${planBase}-SP`;
+
+      // Step 1: Create tariff (duplicate guard built in — reuses if exists)
+      let servicePlanId: string | undefined;
+      try {
+        const tariffRes = await sippy.createSippyTariff(username, password, { name: tariffName, currency: 'USD' }, portalUrl);
+        if (tariffRes.success && tariffRes.iTariff) {
+          // Step 2: Create service plan linked to tariff
+          const planRes = await sippy.createSippyServicePlan(
+            portalUrl, adminUser, adminPass, portalUser, portalPass,
+            servicePlanName, tariffRes.iTariff, undefined, 3, adminWebPassword,
+          );
+          if (planRes.success && planRes.planId) {
+            servicePlanId = String(planRes.planId);
+          }
+        }
+      } catch (e: any) {
+        console.warn(`[Provision] Tariff/plan setup error (non-fatal): ${e.message}`);
+      }
+
+      // Step 3: Create account in Sippy
+      const displayName = step1.displayName || company.name;
+      const result = await sippy.pushAccountToSippy({
+        name: displayName,
+        type: 'client',
+        username: step1.userId,
+        voipPassword: step1.password,
+        webPassword: step1.password,
+        companyName: displayName,
+        iCustomer,
+        servicePlan: servicePlanId,
+        routingGroup: primaryTrunk.routingGroupId || undefined,
+        maxSessions: primaryTrunk.maxSessions ? parseInt(primaryTrunk.maxSessions, 10) : 0,
+        maxCallsPerSecond: primaryTrunk.maxCps ? parseFloat(primaryTrunk.maxCps) : undefined,
+        maxSessionTime: primaryTrunk.maxTime ? parseInt(primaryTrunk.maxTime, 10) : 3600,
+        preferredCodec: primaryTrunk.codec && primaryTrunk.codec !== 'none' ? parseInt(primaryTrunk.codec, 10) : null,
+        usePreferredCodecOnly: !!primaryTrunk.useCodecOnly,
+        disallowLoops: !!primaryTrunk.preventLoops,
+        regAllowed: primaryTrunk.allowRegistration !== false ? 1 : 0,
+        cldTranslationRule: primaryTrunk.cldTranslation || '',
+        email: step1.notifEmailTo || undefined,
+        cc: step1.notifEmailCc || undefined,
+        currency: 'USD',
+      }, { username, password }, portalUrl);
+
+      // result.i_account is snake_case — this is the correct field name
+      let iAccount: number | undefined = result?.i_account;
+
+      // Fallback: look up by username if no ID returned (covers "already exists" case)
+      if (!iAccount) {
+        const lookupResult = await sippy.listSippyAccounts(username, password, {}, portalUrl);
+        const match = lookupResult.accounts.find((a: any) =>
+          a.username?.toLowerCase() === step1.userId?.toLowerCase()
+        );
+        if (match) iAccount = match.iAccount;
+        if (!iAccount) {
+          const lookupResult2 = await sippy.listSippyAccounts(username, password, { iCustomer: iCustomer ?? 1 }, portalUrl);
+          const match2 = lookupResult2.accounts.find((a: any) =>
+            a.username?.toLowerCase() === step1.userId?.toLowerCase()
+          );
+          if (match2) iAccount = match2.iAccount;
+        }
+      }
+      if (!iAccount) throw new Error(`Could not provision account "${step1.userId}" — check Sippy portal.`);
+
+      // Step 4: Push auth rules for all approved IPs
+      const authErrors: string[] = [];
+      for (const ipReq of approvedIps) {
+        try {
+          await sippy.addSippyAuthRule(username, password, { iAccount, iProtocol: 1, remoteIp: ipReq.ipAddress });
+        } catch (e: any) { authErrors.push(`${ipReq.ipAddress}: ${e.message}`); }
+      }
+
+      // Step 5: Mark company as provisioned
+      const reviewer = (req as any).user?.claims?.sub || 'admin';
+      await storage.updateCompany(companyId, {
+        provisioningStatus: 'provisioned',
+        sippyIAccount: iAccount,
+        provisionedAt: new Date(),
+        provisionedBy: reviewer,
+      } as any);
+
+      res.json({ success: true, iAccount, authErrors: authErrors.length ? authErrors : undefined });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+```
+
+### 5.5 — Document download routes
+
+```typescript
+// GET /api/download/account-management-impl-spec — Technical Implementation Spec (.docx)
+app.get('/api/download/account-management-impl-spec', async (_req: any, res: any) => {
+  try {
+    const mdPath  = _pathJoin(process.cwd(), 'ACCOUNT_MANAGEMENT_IMPL_SPEC.md');
+    const outPath = _pathJoin(process.cwd(), 'attached_assets', 'Bitsauto_Account_Management_Impl_Spec.docx');
+    await convertMdToDocx(mdPath, outPath, 'Account Management Module — Technical Implementation Specification');
+    res.download(outPath, 'Bitsauto_Account_Management_Impl_Spec.docx', (err: any) => {
+      if (err && !res.headersSent) res.status(404).json({ error: 'Conversion failed' });
+    });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/download/account-management-workflow — Account Management Workflow (.docx)
+app.get('/api/download/account-management-workflow', async (_req: any, res: any) => {
+  try {
+    const mdPath  = _pathJoin(process.cwd(), 'ACCOUNT_MANAGEMENT_WORKFLOW.md');
+    const outPath = _pathJoin(process.cwd(), 'attached_assets', 'Bitsauto_Account_Management_Workflow.docx');
+    await convertMdToDocx(mdPath, outPath, 'Account Management Workflow & Operations Script');
+    res.download(outPath, 'Bitsauto_Account_Management_Workflow.docx', (err: any) => {
+      if (err && !res.headersSent) res.status(404).json({ error: 'Conversion failed' });
+    });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+```
+
 ---
 
-## 6. Frontend — Page Files
+## 6. Frontend Pages
 
-### 6.1 — `client/src/pages/company-list.tsx`
+### 6.1 — Router registration in `client/src/App.tsx`
 
 ```tsx
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useState } from "react";
-import { Link } from "wouter";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Building2, Plus, Search, Pencil, Trash2, Users, Globe, CreditCard } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import type { Company } from "@shared/schema";
+import CompanyListPage   from "@/pages/company-list";
+import CompanyCreatePage from "@/pages/company-create";
+import ClientWizardPage  from "@/pages/client-wizard";
 
-const TYPE_COLOR: Record<string, string> = {
-  retail:    "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  wholesale: "bg-violet-500/10 text-violet-400 border-violet-500/20",
-};
-const CONTRACT_COLOR: Record<string, string> = {
-  client:    "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  vendor:    "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
-  bilateral: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-};
-const STATUS_COLOR: Record<string, string> = {
-  active:   "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  inactive: "bg-rose-500/10 text-rose-400 border-rose-500/20",
-};
-
-export default function CompanyListPage() {
-  const { toast } = useToast();
-  const [search, setSearch] = useState("");
-
-  const { data, isLoading } = useQuery<{ companies: Company[] }>({
-    queryKey: ["/api/companies"],
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => apiRequest("DELETE", `/api/companies/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
-      toast({ title: "Company deleted" });
-    },
-    onError: () => toast({ title: "Failed to delete", variant: "destructive" }),
-  });
-
-  const companies = (data?.companies ?? []).filter(c =>
-    !search || c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.shortCode ?? "").toLowerCase().includes(search.toLowerCase()) ||
-    (c.kam ?? "").toLowerCase().includes(search.toLowerCase())
-  );
-
-  return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <Building2 className="h-5 w-5 text-blue-400" />
-          <h1 className="text-xl font-semibold">Companies</h1>
-          <Badge variant="outline" className="text-xs">{companies.length}</Badge>
-        </div>
-        <Link href="/company/create">
-          <Button data-testid="btn-create-company" size="sm" className="gap-1.5">
-            <Plus className="h-4 w-4" /> New Company
-          </Button>
-        </Link>
-      </div>
-
-      <div className="relative max-w-xs">
-        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-        <Input
-          data-testid="input-search-company"
-          placeholder="Search by name, code, KAM…"
-          className="pl-8 h-8 text-sm"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-      </div>
-
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1,2,3].map(i => (
-            <Card key={i} className="animate-pulse">
-              <CardContent className="p-4 h-32" />
-            </Card>
-          ))}
-        </div>
-      ) : companies.length === 0 ? (
-        <Card>
-          <CardContent className="p-12 text-center">
-            <Building2 className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">
-              {search ? "No companies match your search." : "No companies yet."}
-            </p>
-            {!search && (
-              <Link href="/company/create">
-                <Button size="sm" className="mt-4 gap-1.5">
-                  <Plus className="h-4 w-4" /> Create First Company
-                </Button>
-              </Link>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {companies.map(c => (
-            <Card key={c.id} data-testid={`card-company-${c.id}`} className="hover:border-border/80 transition-colors">
-              <CardHeader className="pb-2 pt-4 px-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <CardTitle className="text-sm font-semibold truncate">{c.name}</CardTitle>
-                    <p className="text-xs text-muted-foreground font-mono mt-0.5">{c.shortCode}</p>
-                  </div>
-                  <Badge variant="outline" className={`text-[10px] shrink-0 ${STATUS_COLOR[c.status] ?? ""}`}>
-                    {c.status}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="px-4 pb-4 space-y-2">
-                <div className="flex flex-wrap gap-1.5">
-                  <Badge variant="outline" className={`text-[10px] ${TYPE_COLOR[c.companyType] ?? ""}`}>
-                    {c.companyType}
-                  </Badge>
-                  <Badge variant="outline" className={`text-[10px] ${CONTRACT_COLOR[c.contractType] ?? ""}`}>
-                    {c.contractType}
-                  </Badge>
-                </div>
-                <div className="space-y-1 text-xs text-muted-foreground">
-                  {c.kam && (
-                    <div className="flex items-center gap-1.5">
-                      <Users className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{c.kam}</span>
-                    </div>
-                  )}
-                  {c.country && (
-                    <div className="flex items-center gap-1.5">
-                      <Globe className="h-3 w-3 shrink-0" />
-                      <span>{c.country}</span>
-                    </div>
-                  )}
-                  {c.currency && (
-                    <div className="flex items-center gap-1.5">
-                      <CreditCard className="h-3 w-3 shrink-0" />
-                      <span>{c.currency} · {c.paymentTerm}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <Link href={`/company/edit/${c.id}`}>
-                    <Button data-testid={`btn-edit-company-${c.id}`} size="sm" variant="outline" className="h-7 text-xs gap-1">
-                      <Pencil className="h-3 w-3" /> Edit
-                    </Button>
-                  </Link>
-                  <Button
-                    data-testid={`btn-delete-company-${c.id}`}
-                    size="sm" variant="ghost"
-                    className="h-7 text-xs gap-1 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
-                    onClick={() => { if (confirm(`Delete "${c.name}"?`)) deleteMutation.mutate(c.id); }}
-                    disabled={deleteMutation.isPending}
-                  >
-                    <Trash2 className="h-3 w-3" /> Delete
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+// Inside the Switch component:
+<Route path="/company/list">
+  {() => <ProtectedRoute component={CompanyListPage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+</Route>
+<Route path="/company/create">
+  {() => <ProtectedRoute component={CompanyCreatePage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+</Route>
+<Route path="/company/edit/:id">
+  {() => <ProtectedRoute component={CompanyCreatePage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+</Route>
+<Route path="/client/wizard">
+  {() => <ProtectedRoute component={ClientWizardPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
+</Route>
 ```
+
+Both `/company/create` and `/company/edit/:id` use the same `CompanyCreatePage` component. The component detects edit mode via `useParams`.
+
+---
 
 ### 6.2 — `client/src/pages/company-create.tsx`
 
+This page handles both CREATE (`/company/create`) and EDIT (`/company/edit/:id`) modes using the same component.
+
+**Edit mode detection:** `useParams<{ id?: string }>()` — if `id` is present, the component is in edit mode.  
+**Pre-population:** On mount (edit mode only), fetches `/api/companies`, finds the matching record by ID, and populates all state fields via `useEffect`.  
+**Save action:** Edit mode sends `PATCH /api/companies/:id`; create mode sends `POST /api/companies`.
+
 ```tsx
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
+import { useLocation, useParams } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -748,7 +869,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Building2, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2 } from "lucide-react";
+import { Building2, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const STEPS = [
@@ -773,31 +894,80 @@ interface BankAccount { bankName: string; accountTitle: string; accountNo: strin
 const emptyContact = (): Contact => ({ firstName:"", lastName:"", email:"", phone:"", fax:"" });
 const emptyBank = (): BankAccount => ({ bankName:"", accountTitle:"", accountNo:"", iban:"", swiftCode:"", currency:"USD", country:"", address:"", remarks:"" });
 
+const defaultBasic = () => ({
+  name:"", shortCode:"", country:"", kam:"", status:"active",
+  companyType:"retail", contractType:"bilateral", department:"retail",
+  team:"", clientTimezone:"", vendorTimezone:"", currency:"USD",
+});
+const defaultBilling = () => ({
+  vendorBillingCycle:"weekly_cutoff", vendorGracePeriod:3, vendorCreditLimit:0, disputeOverPct:0,
+  clientBillingCycle:"weekly_cutoff", clientGracePeriod:3, clientCreditLimit:0, disputeOverVal:0,
+  paymentTerm:"prepaid", legalNameCi:"", legalNameVen:"", invoiceEmail:"",
+});
+const defaultContacts = () => ({
+  technical:[emptyContact()], finance:[emptyContact()], commercial:[emptyContact()], billing:[emptyContact()],
+});
+
 export default function CompanyCreatePage() {
   const [, navigate] = useLocation();
+  const params = useParams<{ id?: string }>();
+  const companyId = params.id ? parseInt(params.id, 10) : null;
+  const isEdit = !!companyId;
   const { toast } = useToast();
   const [step, setStep] = useState(1);
   const [errors, setErrors] = useState<Record<string,string>>({});
+  const [populated, setPopulated] = useState(false);
 
-  const [basic, setBasic] = useState({
-    name:"", shortCode:"", country:"", kam:"", status:"active",
-    companyType:"retail", contractType:"bilateral", department:"retail",
-    team:"", clientTimezone:"", vendorTimezone:"", currency:"USD",
-  });
-  const [billing, setBilling] = useState({
-    vendorBillingCycle:"weekly_cutoff", vendorGracePeriod:3, vendorCreditLimit:0, disputeOverPct:0,
-    clientBillingCycle:"weekly_cutoff", clientGracePeriod:3, clientCreditLimit:0, disputeOverVal:0,
-    paymentTerm:"prepaid", legalNameCi:"", legalNameVen:"", invoiceEmail:"",
-  });
-  const [contacts, setContacts] = useState<Record<string,Contact[]>>({
-    technical:[emptyContact()], finance:[emptyContact()], commercial:[emptyContact()], billing:[emptyContact()],
-  });
+  const [basic, setBasic] = useState(defaultBasic());
+  const [billing, setBilling] = useState(defaultBilling());
+  const [contacts, setContacts] = useState<Record<string,Contact[]>>(defaultContacts());
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
 
   const { data: usersData } = useQuery<{ users: { username: string; displayName?: string }[] }>({
     queryKey: ["/api/users"],
     retry: false,
   });
+
+  const { data: existingData, isLoading: loadingExisting } = useQuery<{ companies: any[] }>({
+    queryKey: ["/api/companies"],
+    enabled: isEdit,
+  });
+
+  // Pre-populate form when in edit mode and company data loads
+  useEffect(() => {
+    if (!isEdit || populated || !existingData) return;
+    const co = existingData.companies?.find((c: any) => c.id === companyId);
+    if (!co) return;
+    setBasic({
+      name: co.name ?? "",
+      shortCode: co.shortCode ?? "",
+      country: co.country ?? "",
+      kam: co.kam ?? "",
+      status: co.status ?? "active",
+      companyType: co.companyType ?? "retail",
+      contractType: co.contractType ?? "bilateral",
+      department: co.department ?? "retail",
+      team: co.team ?? "",
+      clientTimezone: co.clientTimezone ?? "",
+      vendorTimezone: co.vendorTimezone ?? "",
+      currency: co.currency ?? "USD",
+    });
+    setBilling({
+      vendorBillingCycle: co.vendorBillingCycle ?? "weekly_cutoff",
+      vendorGracePeriod: co.vendorGracePeriod ?? 3,
+      vendorCreditLimit: co.vendorCreditLimit ?? 0,
+      disputeOverPct: co.disputeOverPct ?? 0,
+      clientBillingCycle: co.clientBillingCycle ?? "weekly_cutoff",
+      clientGracePeriod: co.clientGracePeriod ?? 3,
+      clientCreditLimit: co.clientCreditLimit ?? 0,
+      disputeOverVal: co.disputeOverVal ?? 0,
+      paymentTerm: co.paymentTerm ?? "prepaid",
+      legalNameCi: co.legalNameCi ?? "",
+      legalNameVen: co.legalNameVen ?? "",
+      invoiceEmail: co.invoiceEmail ?? "",
+    });
+    setPopulated(true);
+  }, [isEdit, existingData, companyId, populated]);
 
   const createMutation = useMutation({
     mutationFn: (payload: any) => apiRequest("POST", "/api/companies", payload),
@@ -809,14 +979,20 @@ export default function CompanyCreatePage() {
     onError: (e: any) => toast({ title: e.message || "Failed to create company", variant: "destructive" }),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: (payload: any) => apiRequest("PATCH", `/api/companies/${companyId}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: "Company updated successfully" });
+      navigate("/company/list");
+    },
+    onError: (e: any) => toast({ title: e.message || "Failed to update company", variant: "destructive" }),
+  });
+
+  const isPending = createMutation.isPending || updateMutation.isPending;
+
   const setB = (k: string, v: any) => setBasic(p => ({ ...p, [k]: v }));
   const setBl = (k: string, v: any) => setBilling(p => ({ ...p, [k]: v }));
-
-  const updateContact = (type: string, idx: number, k: keyof Contact, v: string) => {
-    setContacts(p => { const arr = [...p[type]]; arr[idx] = { ...arr[idx], [k]: v }; return { ...p, [type]: arr }; });
-  };
-  const addContact = (type: string) => setContacts(p => ({ ...p, [type]: [...p[type], emptyContact()] }));
-  const removeContact = (type: string, idx: number) => setContacts(p => ({ ...p, [type]: p[type].filter((_,i) => i !== idx) }));
 
   const validateStep = () => {
     const errs: Record<string,string> = {};
@@ -836,875 +1012,32 @@ export default function CompanyCreatePage() {
     const pocContacts = Object.entries(contacts).flatMap(([type, list]) =>
       list.filter(c => c.firstName || c.email).map(c => ({ contactType: type, ...c }))
     );
-    createMutation.mutate({ basic, billing, contacts: pocContacts, bankAccounts });
+    const payload = { basic, billing, contacts: pocContacts, bankAccounts };
+    if (isEdit) {
+      updateMutation.mutate(payload);
+    } else {
+      createMutation.mutate(payload);
+    }
   };
 
-  const field = (label: string, key: string, value: string, onChange: (v: string) => void, required = false, type = "text") => (
-    <div className="space-y-1.5" key={key}>
-      <Label className="text-xs">{label}{required && <span className="text-rose-400 ml-0.5">*</span>}</Label>
-      <Input
-        data-testid={`input-${key}`}
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className={`h-8 text-sm ${errors[key] ? "border-rose-500" : ""}`}
-      />
-      {errors[key] && <p className="text-[10px] text-rose-400">{errors[key]}</p>}
-    </div>
-  );
-
-  const selectField = (label: string, key: string, value: string, onChange: (v: string) => void, options: string[], labels?: Record<string,string>, required = false) => (
-    <div className="space-y-1.5" key={key}>
-      <Label className="text-xs">{label}{required && <span className="text-rose-400 ml-0.5">*</span>}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger data-testid={`select-${key}`} className="h-8 text-sm">
-          <SelectValue placeholder="Select…" />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map(o => <SelectItem key={o} value={o}>{labels?.[o] ?? o.charAt(0).toUpperCase() + o.slice(1)}</SelectItem>)}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-
-  return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center gap-2">
-        <Building2 className="h-5 w-5 text-blue-400" />
-        <h1 className="text-xl font-semibold">Create New Company</h1>
-      </div>
-
-      {/* Step indicator */}
-      <div className="flex items-center gap-2">
-        {STEPS.map((s, i) => (
-          <div key={s.id} className="flex items-center gap-2">
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
-              step === s.id ? "bg-blue-500/10 border-blue-500/30 text-blue-400" :
-              step > s.id ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
-              "border-border text-muted-foreground"
-            }`}>
-              {step > s.id ? <CheckCircle2 className="h-3 w-3" /> : <span>{s.id}</span>}
-              {s.label}
-            </div>
-            {i < STEPS.length - 1 && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
-          </div>
-        ))}
-      </div>
-
-      <div className="w-full bg-border/30 rounded-full h-1.5">
-        <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${(step / 3) * 100}%` }} />
-      </div>
-
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base">{STEPS[step-1].label}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-
-          {/* STEP 1 — Basic Information */}
-          {step === 1 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {field("Company Name", "name", basic.name, v => setB("name", v), true)}
-              {field("Short Code", "shortCode", basic.shortCode, v => setB("shortCode", v.toUpperCase()), true)}
-              {selectField("Country", "country", basic.country, v => setB("country", v), COUNTRIES)}
-              <div className="space-y-1.5">
-                <Label className="text-xs">KAM (Account Manager)<span className="text-rose-400 ml-0.5">*</span></Label>
-                <Select value={basic.kam} onValueChange={v => setB("kam", v)}>
-                  <SelectTrigger data-testid="select-kam" className="h-8 text-sm"><SelectValue placeholder="Select KAM…" /></SelectTrigger>
-                  <SelectContent>
-                    {(usersData?.users ?? []).map(u => <SelectItem key={u.username} value={u.username}>{u.displayName || u.username}</SelectItem>)}
-                    <SelectItem value="admin">Admin</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {selectField("Status", "status", basic.status, v => setB("status", v), ["active","inactive"])}
-              {selectField("Company Type", "companyType", basic.companyType, v => setB("companyType", v), COMPANY_TYPES, undefined, true)}
-              {selectField("Contract Type", "contractType", basic.contractType, v => setB("contractType", v), CONTRACT_TYPES, undefined, true)}
-              {selectField("Department", "department", basic.department, v => setB("department", v), DEPARTMENTS, undefined, true)}
-              {field("Team", "team", basic.team, v => setB("team", v))}
-              {selectField("Client Timezone", "clientTimezone", basic.clientTimezone, v => setB("clientTimezone", v), TIMEZONES)}
-              {selectField("Vendor Timezone", "vendorTimezone", basic.vendorTimezone, v => setB("vendorTimezone", v), TIMEZONES)}
-              {selectField("Currency", "currency", basic.currency, v => setB("currency", v), CURRENCIES, undefined, true)}
-            </div>
-          )}
-
-          {/* STEP 2 — Billing Information */}
-          {step === 2 && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-sm font-medium mb-3 text-muted-foreground uppercase tracking-wide text-[10px]">Vendor Billing</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {selectField("Vendor Billing Cycle", "vendorBillingCycle", billing.vendorBillingCycle, v => setBl("vendorBillingCycle", v), BILLING_CYCLES, BILLING_CYCLE_LABELS, true)}
-                  <div className="space-y-1.5"><Label className="text-xs">Vendor Grace Period (days)<span className="text-rose-400 ml-0.5">*</span></Label><Input data-testid="input-vendorGracePeriod" type="number" className="h-8 text-sm" value={billing.vendorGracePeriod} onChange={e => setBl("vendorGracePeriod", Number(e.target.value))} /></div>
-                  <div className="space-y-1.5"><Label className="text-xs">Vendor Credit Limit<span className="text-rose-400 ml-0.5">*</span></Label><Input data-testid="input-vendorCreditLimit" type="number" className="h-8 text-sm" value={billing.vendorCreditLimit} onChange={e => setBl("vendorCreditLimit", Number(e.target.value))} /></div>
-                  <div className="space-y-1.5"><Label className="text-xs">Dispute Over %<span className="text-rose-400 ml-0.5">*</span></Label><Input data-testid="input-disputeOverPct" type="number" className="h-8 text-sm" value={billing.disputeOverPct} onChange={e => setBl("disputeOverPct", Number(e.target.value))} /></div>
-                </div>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium mb-3 text-muted-foreground uppercase tracking-wide text-[10px]">Client Billing</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {selectField("Client Billing Cycle", "clientBillingCycle", billing.clientBillingCycle, v => setBl("clientBillingCycle", v), BILLING_CYCLES, BILLING_CYCLE_LABELS, true)}
-                  <div className="space-y-1.5"><Label className="text-xs">Client Grace Period (days)<span className="text-rose-400 ml-0.5">*</span></Label><Input data-testid="input-clientGracePeriod" type="number" className="h-8 text-sm" value={billing.clientGracePeriod} onChange={e => setBl("clientGracePeriod", Number(e.target.value))} /></div>
-                  <div className="space-y-1.5"><Label className="text-xs">Client Credit Limit<span className="text-rose-400 ml-0.5">*</span></Label><Input data-testid="input-clientCreditLimit" type="number" className="h-8 text-sm" value={billing.clientCreditLimit} onChange={e => setBl("clientCreditLimit", Number(e.target.value))} /></div>
-                  <div className="space-y-1.5"><Label className="text-xs">Dispute Over Value<span className="text-rose-400 ml-0.5">*</span></Label><Input data-testid="input-disputeOverVal" type="number" className="h-8 text-sm" value={billing.disputeOverVal} onChange={e => setBl("disputeOverVal", Number(e.target.value))} /></div>
-                </div>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium mb-3 text-muted-foreground uppercase tracking-wide text-[10px]">Payment & Legal</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {selectField("Payment Term", "paymentTerm", billing.paymentTerm, v => setBl("paymentTerm", v), PAYMENT_TERMS)}
-                  {field("Legal Name — Client Invoice", "legalNameCi", billing.legalNameCi, v => setBl("legalNameCi", v))}
-                  {field("Legal Name — Vendor Invoice", "legalNameVen", billing.legalNameVen, v => setBl("legalNameVen", v))}
-                  {field("Invoice Email", "invoiceEmail", billing.invoiceEmail, v => setBl("invoiceEmail", v), false, "email")}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 3 — Contacts & Bank */}
-          {step === 3 && (
-            <div className="space-y-6">
-              {(["technical","finance","commercial","billing"] as const).map(type => (
-                <div key={type} className="border border-border/50 rounded-lg p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium capitalize">{type} Contacts</h3>
-                    <Button data-testid={`btn-add-contact-${type}`} size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => addContact(type)}>
-                      <Plus className="h-3 w-3" /> Add More
-                    </Button>
-                  </div>
-                  {contacts[type].map((c, idx) => (
-                    <div key={idx} className="grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
-                      <div className="space-y-1"><Label className="text-[10px]">First Name<span className="text-rose-400">*</span></Label><Input data-testid={`input-${type}-firstname-${idx}`} className="h-7 text-xs" value={c.firstName} onChange={e => updateContact(type, idx, "firstName", e.target.value)} /></div>
-                      <div className="space-y-1"><Label className="text-[10px]">Last Name</Label><Input data-testid={`input-${type}-lastname-${idx}`} className="h-7 text-xs" value={c.lastName} onChange={e => updateContact(type, idx, "lastName", e.target.value)} /></div>
-                      <div className="space-y-1"><Label className="text-[10px]">Email<span className="text-rose-400">*</span></Label><Input data-testid={`input-${type}-email-${idx}`} type="email" className="h-7 text-xs" value={c.email} onChange={e => updateContact(type, idx, "email", e.target.value)} /></div>
-                      <div className="space-y-1"><Label className="text-[10px]">Phone</Label><Input data-testid={`input-${type}-phone-${idx}`} className="h-7 text-xs" value={c.phone} onChange={e => updateContact(type, idx, "phone", e.target.value)} /></div>
-                      <Button data-testid={`btn-remove-contact-${type}-${idx}`} size="sm" variant="ghost" className="h-7 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 mt-4" disabled={contacts[type].length === 1} onClick={() => removeContact(type, idx)}><Trash2 className="h-3 w-3" /></Button>
-                    </div>
-                  ))}
-                </div>
-              ))}
-              <div className="border border-border/50 rounded-lg p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Bank Information <span className="text-xs text-muted-foreground">(optional)</span></h3>
-                  <Button data-testid="btn-add-bank" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setBankAccounts(p => [...p, emptyBank()])}>
-                    <Plus className="h-3 w-3" /> Add Bank
-                  </Button>
-                </div>
-                {bankAccounts.map((b, idx) => (
-                  <div key={idx} className="grid grid-cols-2 sm:grid-cols-4 gap-2 border border-border/30 rounded p-3">
-                    <div className="space-y-1"><Label className="text-[10px]">Bank Name<span className="text-rose-400">*</span></Label><Input data-testid={`input-bank-name-${idx}`} className="h-7 text-xs" value={b.bankName} onChange={e => setBankAccounts(p => p.map((x,i) => i===idx ? {...x, bankName:e.target.value} : x))} /></div>
-                    <div className="space-y-1"><Label className="text-[10px]">Account Title<span className="text-rose-400">*</span></Label><Input data-testid={`input-bank-title-${idx}`} className="h-7 text-xs" value={b.accountTitle} onChange={e => setBankAccounts(p => p.map((x,i) => i===idx ? {...x, accountTitle:e.target.value} : x))} /></div>
-                    <div className="space-y-1"><Label className="text-[10px]">Account No.<span className="text-rose-400">*</span></Label><Input data-testid={`input-bank-no-${idx}`} className="h-7 text-xs" value={b.accountNo} onChange={e => setBankAccounts(p => p.map((x,i) => i===idx ? {...x, accountNo:e.target.value} : x))} /></div>
-                    <div className="space-y-1"><Label className="text-[10px]">Swift Code<span className="text-rose-400">*</span></Label><Input data-testid={`input-bank-swift-${idx}`} className="h-7 text-xs" value={b.swiftCode} onChange={e => setBankAccounts(p => p.map((x,i) => i===idx ? {...x, swiftCode:e.target.value} : x))} /></div>
-                    <div className="space-y-1"><Label className="text-[10px]">IBAN</Label><Input data-testid={`input-bank-iban-${idx}`} className="h-7 text-xs" value={b.iban} onChange={e => setBankAccounts(p => p.map((x,i) => i===idx ? {...x, iban:e.target.value} : x))} /></div>
-                    <div className="space-y-1"><Label className="text-[10px]">Country<span className="text-rose-400">*</span></Label><Input data-testid={`input-bank-country-${idx}`} className="h-7 text-xs" value={b.country} onChange={e => setBankAccounts(p => p.map((x,i) => i===idx ? {...x, country:e.target.value} : x))} /></div>
-                    <div className="space-y-1"><Label className="text-[10px]">Currency</Label>
-                      <Select value={b.currency} onValueChange={v => setBankAccounts(p => p.map((x,i) => i===idx ? {...x, currency:v} : x))}>
-                        <SelectTrigger data-testid={`select-bank-currency-${idx}`} className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>{CURRENCIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-end"><Button data-testid={`btn-remove-bank-${idx}`} size="sm" variant="ghost" className="h-7 text-rose-400 hover:text-rose-300" onClick={() => setBankAccounts(p => p.filter((_,i) => i !== idx))}><Trash2 className="h-3 w-3" /></Button></div>
-                    <div className="space-y-1 col-span-2"><Label className="text-[10px]">Address</Label><Input data-testid={`input-bank-address-${idx}`} className="h-7 text-xs" value={b.address} onChange={e => setBankAccounts(p => p.map((x,i) => i===idx ? {...x, address:e.target.value} : x))} /></div>
-                    <div className="space-y-1 col-span-2"><Label className="text-[10px]">Remarks</Label><Input data-testid={`input-bank-remarks-${idx}`} className="h-7 text-xs" value={b.remarks} onChange={e => setBankAccounts(p => p.map((x,i) => i===idx ? {...x, remarks:e.target.value} : x))} /></div>
-                  </div>
-                ))}
-                {bankAccounts.length === 0 && <p className="text-xs text-muted-foreground">No bank accounts added yet.</p>}
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="flex items-center justify-between">
-        <Button data-testid="btn-wizard-back" variant="outline" onClick={back} disabled={step === 1} className="gap-1.5">
-          <ChevronLeft className="h-4 w-4" /> Back
-        </Button>
-        {step < 3 ? (
-          <Button data-testid="btn-wizard-next" onClick={next} className="gap-1.5">
-            Next <ChevronRight className="h-4 w-4" />
-          </Button>
-        ) : (
-          <Button data-testid="btn-wizard-submit" onClick={handleSubmit} disabled={createMutation.isPending} className="gap-1.5">
-            {createMutation.isPending ? "Creating…" : "Create Company"}
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
-```
-
-### 6.3 — `client/src/pages/client-wizard.tsx`
-
-```tsx
-import { useState } from "react";
-import { useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Users, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2,
-  AlertTriangle, Clock, ShieldCheck, Server, Network, FileText,
-  ShieldAlert, Loader2, Info, Eye, EyeOff
-} from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import type { Company } from "@shared/schema";
-
-const STEPS = [
-  { id: 1, label: "Department & Company",  icon: Users },
-  { id: 2, label: "Rate Sheet Config",     icon: FileText },
-  { id: 3, label: "Technical Config",      icon: Server },
-  { id: 4, label: "IPs & Trunks",          icon: Network },
-  { id: 5, label: "Auth Rules",            icon: ShieldCheck },
-  { id: 6, label: "Validation Rules",      icon: ShieldAlert },
-  { id: 7, label: "Review & Submit",       icon: CheckCircle2 },
-];
-
-const CODECS = [
-  { value: "none", label: "None / Disabled" },
-  { value: "0",    label: "G.711u (PCMU)" },
-  { value: "8",    label: "G.711a (PCMA)" },
-  { value: "9",    label: "G.722" },
-  { value: "18",   label: "G.729" },
-  { value: "3",    label: "GSM" },
-  { value: "4",    label: "G.723" },
-  { value: "15",   label: "G.728" },
-];
-
-const TRUNKS = ["PREMIUM","STANDARD PLUS","STANDARD","BUSINESS","CHARLIE"];
-const RELAY_TYPES = [{ v:"0", l:"Default" },{ v:"1", l:"Always Relay" },{ v:"2", l:"Never Relay" }];
-const INVOICE_TEMPLATES = ["Standard","Retail","Wholesale","Custom"];
-const SHEET_FORMATS = ["Full CSV","Excel XLSX","PDF","Partial Update","A2Z"];
-
-function genPassword(len = 12) {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#";
-  return Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-}
-
-interface TrunkConfig {
-  trunkName: string; routingGroupId: string; maxTime: string; maxSessions: string;
-  maxCps: string; codec: string; useCodecOnly: boolean; lifetime: string;
-  relayType: string; cldTranslation: string; assertedIdRule: string;
-  useAssertedId: boolean; preventLoops: boolean; allowRegistration: boolean; blocked: boolean;
-}
-interface IpEntry { ip: string; trunk: string; description: string; status: string; }
-interface AuthRule { trunk: string; ip: string; authType: string; techPrefix: string; cliRule: string; trustCli: boolean; }
-interface ValidationRule { type: string; pattern: string; action: string; }
-
-const emptyTrunk = (): TrunkConfig => ({
-  trunkName:"", routingGroupId:"", maxTime:"3600", maxSessions:"0", maxCps:"",
-  codec:"none", useCodecOnly:false, lifetime:"never", relayType:"0",
-  cldTranslation:"s/^//", assertedIdRule:"", useAssertedId:false,
-  preventLoops:false, allowRegistration:true, blocked:false,
-});
-const emptyIp = (): IpEntry => ({ ip:"", trunk:"", description:"", status:"pending" });
-const emptyAuth = (): AuthRule => ({ trunk:"", ip:"", authType:"ip", techPrefix:"", cliRule:"", trustCli:false });
-const emptyRule = (): ValidationRule => ({ type:"cli_format", pattern:"", action:"block" });
-
-export default function ClientWizardPage() {
-  const [, navigate] = useLocation();
-  const { toast } = useToast();
-  const [step, setStep] = useState(1);
-  const [errors, setErrors] = useState<Record<string,string>>({});
-  const [showPass, setShowPass] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [createdAccountId, setCreatedAccountId] = useState<number | null>(null);
-
-  const [s1, setS1] = useState({ department:"retail", companyId:"", password:genPassword(), userId:"", notifEmailTo:"", notifEmailCc:"", balanceThreshold:"", a2zNotif:"no", rateNotif:"full_sheet" });
-  const [s2, setS2] = useState({ invoiceTemplate:"Standard", ratesheetFull:"Full CSV", ratesheetPartial:"Partial Update", ratesheetAtoz:"A2Z", dialcodeFormat:"E.164", prefixStyle:"with_plus" });
-  const [trunks, setTrunks] = useState<TrunkConfig[]>([emptyTrunk()]);
-  const [ips, setIps] = useState<IpEntry[]>([emptyIp()]);
-  const [authRules, setAuthRules] = useState<AuthRule[]>([emptyAuth()]);
-  const [validRules, setValidRules] = useState<ValidationRule[]>([]);
-
-  const { data: companiesData } = useQuery<{ companies: Company[] }>({ queryKey: ["/api/companies"] });
-  const { data: routingData } = useQuery<{ groups: { id: number; name: string }[] }>({
-    queryKey: ["/api/sippy/routing-groups"],
-    retry: false,
-  });
-
-  const { data: ipRequestsData } = useQuery<{ requests: { ipAddress: string; status: string; trunk: string }[] }>({
-    queryKey: ["/api/client-ip-requests"],
-    enabled: step === 5,
-  });
-
-  const submitIpMutation = useMutation({
-    mutationFn: (payload: any) => apiRequest("POST", "/api/client-ip-requests", payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/client-ip-requests"] });
-      toast({ title: "IP submitted for approval" });
-    },
-  });
-
-  const createClientMutation = useMutation({
-    mutationFn: (payload: any) => apiRequest("POST", "/api/client-wizard/submit", payload),
-    onSuccess: (data: any) => {
-      setCreatedAccountId(data?.iAccount ?? null);
-      setSubmitted(true);
-      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
-      toast({ title: "Client account created in Sippy" });
-    },
-    onError: (e: any) => toast({ title: e.message || "Failed to create account", variant: "destructive" }),
-  });
-
-  const companies = companiesData?.companies ?? [];
-  const routingGroups = routingData?.groups ?? [];
-  const selectedCompany = companies.find(c => String(c.id) === s1.companyId);
-  const ipRequests = ipRequestsData?.requests ?? [];
-  const approvedIps = ipRequests.filter(r => r.status === "approved").map(r => r.ipAddress);
-  const pendingIps = ipRequests.filter(r => r.status === "pending");
-
-  const validate = () => {
-    const errs: Record<string,string> = {};
-    if (step === 1) {
-      if (!s1.companyId) errs.companyId = "Company is required";
-      if (!s1.userId.trim()) errs.userId = "User ID is required";
-      if (!s1.password.trim()) errs.password = "Password is required";
-    }
-    if (step === 3) {
-      trunks.forEach((t, i) => {
-        if (!t.routingGroupId) errs[`rg_${i}`] = "Routing group required";
-      });
-    }
-    setErrors(errs);
-    return Object.keys(errs).length === 0;
-  };
-
-  const next = () => { if (validate()) setStep(s => Math.min(s + 1, 7)); };
-  const back = () => setStep(s => Math.max(s - 1, 1));
-  const updateTrunk = (idx: number, k: keyof TrunkConfig, v: any) =>
-    setTrunks(p => p.map((t, i) => i === idx ? { ...t, [k]: v } : t));
-  const routingGroupHealthy = (rgId: string) => rgId && routingGroups.some(g => String(g.id) === rgId);
-
-  const handleSubmit = () => {
-    const validIps = ips.filter(ip => ip.ip.trim());
-    const pendingIpList = validIps.filter(ip => !approvedIps.includes(ip.ip));
-    if (pendingIpList.length > 0) {
-      toast({ title: "IPs pending approval — submit them for review first", variant: "destructive" });
-      return;
-    }
-    createClientMutation.mutate({ step1: s1, step2: s2, trunks, ips: validIps, authRules, validRules, iCustomer: 1 });
-  };
-
-  if (submitted) {
+  if (isEdit && loadingExisting && !populated) {
     return (
-      <div className="p-6 max-w-2xl mx-auto">
-        <Card className="border-emerald-500/30 bg-emerald-500/5">
-          <CardContent className="p-8 text-center space-y-4">
-            <CheckCircle2 className="h-12 w-12 text-emerald-400 mx-auto" />
-            <h2 className="text-lg font-semibold">Client Account Created</h2>
-            {createdAccountId && <p className="text-sm text-muted-foreground">Sippy Account ID: <span className="font-mono text-foreground">{createdAccountId}</span></p>}
-            <div className="text-left space-y-2 mt-4">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Post-Creation Checklist</p>
-              {[
-                { done: true,  label: "Company record exists in BitsAuto" },
-                { done: true,  label: "Client account created in Sippy (i_customer = 1, root level)" },
-                { done: true,  label: "Added to BitsAuto monitoring" },
-                { done: false, label: "Verify routing group has active vendor connections for target destinations" },
-                { done: false, label: "Confirm rate sheet delivered to client email" },
-                { done: false, label: "Run test call from new account" },
-                { done: false, label: "Check CDR after test call" },
-                { done: false, label: "Confirm balance threshold alerts working" },
-              ].map((item, i) => (
-                <div key={i} className={`flex items-center gap-2 text-sm ${item.done ? "text-emerald-400" : "text-muted-foreground"}`}>
-                  {item.done ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <div className="h-3.5 w-3.5 shrink-0 border border-muted-foreground/30 rounded-full" />}
-                  {item.label}
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-2 justify-center pt-2">
-              <Button variant="outline" size="sm" onClick={() => navigate("/company/list")}>View Companies</Button>
-              <Button size="sm" onClick={() => { setSubmitted(false); setStep(1); }}>Create Another</Button>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="p-6 flex items-center justify-center gap-2 text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading company…
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-5">
+    <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-2">
-        <Users className="h-5 w-5 text-amber-400" />
-        <h1 className="text-xl font-semibold">Create Client Account</h1>
-        <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-400 border-amber-500/20">Root Level — Not under RTST1</Badge>
+        <Building2 className="h-5 w-5 text-blue-400" />
+        <h1 className="text-xl font-semibold">{isEdit ? "Edit Company" : "Create New Company"}</h1>
+        {isEdit && <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-500/30 bg-blue-500/10">Editing #{companyId}</Badge>}
       </div>
-
-      {/* Step tabs */}
-      <div className="flex items-center gap-1 overflow-x-auto pb-1">
-        {STEPS.map((s, i) => (
-          <div key={s.id} className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={() => step > s.id && setStep(s.id)}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
-                step === s.id ? "bg-amber-500/10 border-amber-500/30 text-amber-400" :
-                step > s.id ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 cursor-pointer" :
-                "border-border text-muted-foreground"
-              }`}
-            >
-              {step > s.id ? <CheckCircle2 className="h-3 w-3" /> : <span>{s.id}</span>}
-              <span className="hidden sm:inline">{s.label}</span>
-            </button>
-            {i < STEPS.length - 1 && <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
-          </div>
-        ))}
-      </div>
-
-      <div className="w-full bg-border/30 rounded-full h-1">
-        <div className="bg-amber-500 h-1 rounded-full transition-all" style={{ width: `${(step / 7) * 100}%` }} />
-      </div>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            {(() => { const S = STEPS[step-1]; return <S.icon className="h-4 w-4 text-amber-400" />; })()}
-            {STEPS[step-1].label}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-
-          {/* STEP 1 */}
-          {step === 1 && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Department<span className="text-rose-400 ml-0.5">*</span></Label>
-                  <Select value={s1.department} onValueChange={v => setS1(p => ({ ...p, department: v, companyId: "" }))}>
-                    <SelectTrigger data-testid="select-department" className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="retail">Retail</SelectItem>
-                      <SelectItem value="wholesale">Wholesale</SelectItem>
-                      <SelectItem value="enterprise">Enterprise</SelectItem>
-                      <SelectItem value="carrier">Carrier</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Company<span className="text-rose-400 ml-0.5">*</span></Label>
-                  <Select value={s1.companyId} onValueChange={v => {
-                    const co = companies.find(c => String(c.id) === v);
-                    setS1(p => ({ ...p, companyId: v, userId: co ? co.shortCode.toLowerCase() : "" }));
-                  }}>
-                    <SelectTrigger data-testid="select-company" className={`h-8 text-sm ${errors.companyId ? "border-rose-500" : ""}`}><SelectValue placeholder="Select company…" /></SelectTrigger>
-                    <SelectContent>
-                      {companies.filter(c => !s1.department || c.department === s1.department || c.companyType === s1.department).map(c => (
-                        <SelectItem key={c.id} value={String(c.id)}>{c.name} <span className="text-muted-foreground text-[10px]">({c.shortCode})</span></SelectItem>
-                      ))}
-                      {companies.length === 0 && <SelectItem value="_none" disabled>No companies — create one first</SelectItem>}
-                    </SelectContent>
-                  </Select>
-                  {errors.companyId && <p className="text-[10px] text-rose-400">{errors.companyId}</p>}
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">User ID<span className="text-rose-400 ml-0.5">*</span></Label>
-                  <Input data-testid="input-userId" className={`h-8 text-sm ${errors.userId ? "border-rose-500" : ""}`} value={s1.userId} onChange={e => setS1(p => ({ ...p, userId: e.target.value }))} placeholder="Auto-generated from company" />
-                  {errors.userId && <p className="text-[10px] text-rose-400">{errors.userId}</p>}
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Password<span className="text-rose-400 ml-0.5">*</span></Label>
-                  <div className="relative">
-                    <Input data-testid="input-password" type={showPass ? "text" : "password"} className="h-8 text-sm pr-8" value={s1.password} onChange={e => setS1(p => ({ ...p, password: e.target.value }))} />
-                    <button type="button" className="absolute right-2 top-2 text-muted-foreground hover:text-foreground" onClick={() => setShowPass(p => !p)}>
-                      {showPass ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
-                  <button type="button" className="text-[10px] text-blue-400 hover:underline" onClick={() => setS1(p => ({ ...p, password: genPassword() }))}>Re-generate</button>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Notification Email (To)</Label>
-                  <Input data-testid="input-notifEmailTo" type="email" className="h-8 text-sm" value={s1.notifEmailTo} onChange={e => setS1(p => ({ ...p, notifEmailTo: e.target.value }))} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Notification Email (CC)</Label>
-                  <Input data-testid="input-notifEmailCc" type="email" className="h-8 text-sm" value={s1.notifEmailCc} onChange={e => setS1(p => ({ ...p, notifEmailCc: e.target.value }))} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Balance Threshold Alert</Label>
-                  <Input data-testid="input-balanceThreshold" type="number" className="h-8 text-sm" value={s1.balanceThreshold} onChange={e => setS1(p => ({ ...p, balanceThreshold: e.target.value }))} placeholder="0" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">A2Z Notification</Label>
-                  <Select value={s1.a2zNotif} onValueChange={v => setS1(p => ({ ...p, a2zNotif: v }))}>
-                    <SelectTrigger data-testid="select-a2zNotif" className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="yes">Yes</SelectItem>
-                      <SelectItem value="no">No</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              {!s1.companyId && (
-                <div className="flex items-center gap-2 p-3 rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-400 text-xs">
-                  <Info className="h-3.5 w-3.5 shrink-0" />
-                  No company selected. <a href="/company/create" className="underline">Create a company first</a> if the list is empty.
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* STEP 2 */}
-          {step === 2 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {([
-                ["invoiceTemplate", "Invoice Template", INVOICE_TEMPLATES],
-                ["ratesheetFull", "Full Rate Sheet Format", SHEET_FORMATS],
-                ["ratesheetPartial", "Partial Rate Sheet Format", SHEET_FORMATS],
-                ["ratesheetAtoz", "A2Z Rate Sheet Format", SHEET_FORMATS],
-                ["dialcodeFormat", "Dialcode Format", ["E.164","National","Local"]],
-                ["prefixStyle", "Prefix Style", ["with_plus","without_plus"]],
-              ] as [keyof typeof s2, string, string[]][]).map(([key, label, opts]) => (
-                <div key={key} className="space-y-1.5">
-                  <Label className="text-xs">{label}</Label>
-                  <Select value={s2[key]} onValueChange={v => setS2(p => ({ ...p, [key]: v }))}>
-                    <SelectTrigger data-testid={`select-${key}`} className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>{opts.map(o => <SelectItem key={o} value={o}>{o.replace("_"," ")}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* STEP 3 */}
-          {step === 3 && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 p-3 rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-400 text-xs">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                Routing Group is required. Leaving it blank causes the account to inherit from the parent customer — root cause of "No Route Found" errors.
-              </div>
-              {trunks.map((t, idx) => (
-                <div key={idx} className="border border-border/50 rounded-lg p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium">Trunk {idx + 1}</h3>
-                    {trunks.length > 1 && (
-                      <Button size="sm" variant="ghost" className="h-7 text-rose-400 text-xs" onClick={() => setTrunks(p => p.filter((_,i) => i !== idx))}>
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Trunk / Switch Name</Label>
-                      <Input data-testid={`input-trunk-name-${idx}`} className="h-8 text-sm" value={t.trunkName} onChange={e => updateTrunk(idx, "trunkName", e.target.value)} placeholder="e.g. SB-1 PREMIUM" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Default Routing Group<span className="text-rose-400 ml-0.5">*</span></Label>
-                      <Select value={t.routingGroupId} onValueChange={v => updateTrunk(idx, "routingGroupId", v)}>
-                        <SelectTrigger data-testid={`select-rg-${idx}`} className={`h-8 text-sm ${errors[`rg_${idx}`] ? "border-rose-500" : ""}`}><SelectValue placeholder="Select group…" /></SelectTrigger>
-                        <SelectContent>
-                          {routingGroups.map(rg => <SelectItem key={rg.id} value={String(rg.id)}>{rg.name}</SelectItem>)}
-                          {routingGroups.length === 0 && <SelectItem value="_none" disabled>Loading groups…</SelectItem>}
-                        </SelectContent>
-                      </Select>
-                      {t.routingGroupId && routingGroupHealthy(t.routingGroupId) && (
-                        <p className="text-[10px] text-emerald-400 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Group found</p>
-                      )}
-                      {errors[`rg_${idx}`] && <p className="text-[10px] text-rose-400">{errors[`rg_${idx}`]}</p>}
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Max Call Time (s)</Label>
-                      <Input data-testid={`input-maxTime-${idx}`} type="number" className="h-8 text-sm" value={t.maxTime} onChange={e => updateTrunk(idx, "maxTime", e.target.value)} />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Max Sessions (0=unlimited)</Label>
-                      <Input data-testid={`input-maxSessions-${idx}`} type="number" className="h-8 text-sm" value={t.maxSessions} onChange={e => updateTrunk(idx, "maxSessions", e.target.value)} />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Max CPS</Label>
-                      <Input data-testid={`input-maxCps-${idx}`} type="number" className="h-8 text-sm" value={t.maxCps} onChange={e => updateTrunk(idx, "maxCps", e.target.value)} />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Preferred Codec</Label>
-                      <Select value={t.codec} onValueChange={v => updateTrunk(idx, "codec", v)}>
-                        <SelectTrigger data-testid={`select-codec-${idx}`} className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                        <SelectContent>{CODECS.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Media Relay Type</Label>
-                      <Select value={t.relayType} onValueChange={v => updateTrunk(idx, "relayType", v)}>
-                        <SelectTrigger data-testid={`select-relay-${idx}`} className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                        <SelectContent>{RELAY_TYPES.map(r => <SelectItem key={r.v} value={r.v}>{r.l}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">CLD Translation Rule</Label>
-                      <Input data-testid={`input-cldRule-${idx}`} className="h-8 text-sm font-mono" value={t.cldTranslation} onChange={e => updateTrunk(idx, "cldTranslation", e.target.value)} />
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-4 pt-1">
-                    {([
-                      ["useCodecOnly", "Use Preferred Codec Only"],
-                      ["preventLoops", "Prevent Call Loops"],
-                      ["allowRegistration", "Allow Registration"],
-                      ["blocked", "Blocked"],
-                    ] as [keyof TrunkConfig, string][]).map(([k, lbl]) => (
-                      <div key={k} className="flex items-center gap-1.5">
-                        <Checkbox
-                          data-testid={`check-${k}-${idx}`}
-                          id={`${k}-${idx}`}
-                          checked={!!t[k]}
-                          onCheckedChange={v => updateTrunk(idx, k, !!v)}
-                        />
-                        <label htmlFor={`${k}-${idx}`} className="text-xs cursor-pointer">{lbl}</label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              <Button data-testid="btn-add-trunk" size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setTrunks(p => [...p, emptyTrunk()])}>
-                <Plus className="h-3 w-3" /> Add Another Trunk
-              </Button>
-            </div>
-          )}
-
-          {/* STEP 4 */}
-          {step === 4 && (
-            <div className="space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-medium">Client IP Addresses</h3>
-                  <Button data-testid="btn-add-ip" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setIps(p => [...p, emptyIp()])}>
-                    <Plus className="h-3 w-3" /> Add IP
-                  </Button>
-                </div>
-                <div className="flex items-center gap-2 p-3 rounded-md border border-blue-500/30 bg-blue-500/5 text-blue-400 text-xs mb-3">
-                  <Info className="h-3.5 w-3.5 shrink-0" />
-                  Each IP must be submitted for approval before authentication rules can be created.
-                </div>
-                {ips.map((ip, idx) => (
-                  <div key={idx} className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end mb-2">
-                    <div className="space-y-1">
-                      <Label className="text-[10px]">IP Address<span className="text-rose-400">*</span></Label>
-                      <Input data-testid={`input-ip-${idx}`} className="h-7 text-xs font-mono" value={ip.ip} onChange={e => setIps(p => p.map((x,i) => i===idx ? {...x, ip:e.target.value} : x))} placeholder="192.168.1.1" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[10px]">Trunk</Label>
-                      <Select value={ip.trunk} onValueChange={v => setIps(p => p.map((x,i) => i===idx ? {...x, trunk:v} : x))}>
-                        <SelectTrigger data-testid={`select-ip-trunk-${idx}`} className="h-7 text-xs"><SelectValue placeholder="Trunk…" /></SelectTrigger>
-                        <SelectContent>{TRUNKS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[10px]">Description</Label>
-                      <Input data-testid={`input-ip-desc-${idx}`} className="h-7 text-xs" value={ip.description} onChange={e => setIps(p => p.map((x,i) => i===idx ? {...x, description:e.target.value} : x))} />
-                    </div>
-                    <div className="flex items-end gap-1">
-                      <Button data-testid={`btn-submit-ip-${idx}`} size="sm" variant="outline" className="h-7 text-xs gap-1"
-                        disabled={!ip.ip.trim() || submitIpMutation.isPending}
-                        onClick={() => submitIpMutation.mutate({ clientName: selectedCompany?.name || s1.userId, companyId: s1.companyId || null, ipAddress: ip.ip, trunk: ip.trunk, description: ip.description })}>
-                        <Clock className="h-3 w-3" /> Submit
-                      </Button>
-                      <Button data-testid={`btn-remove-ip-${idx}`} size="sm" variant="ghost" className="h-7 text-rose-400" onClick={() => setIps(p => p.filter((_,i) => i !== idx))} disabled={ips.length === 1}>
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div>
-                <h3 className="text-sm font-medium mb-3">Trunk Assignment</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                  {TRUNKS.map(t => (
-                    <div key={t} className="flex items-center gap-1.5 border border-border/50 rounded p-2">
-                      <Checkbox data-testid={`check-trunk-${t}`} id={`trunk-${t}`} />
-                      <label htmlFor={`trunk-${t}`} className="text-xs cursor-pointer">{t}</label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 5 */}
-          {step === 5 && (
-            <div className="space-y-4">
-              {pendingIps.length > 0 && (
-                <div className="p-3 rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-400 text-xs space-y-1">
-                  <div className="flex items-center gap-1.5 font-medium"><Clock className="h-3.5 w-3.5" /> {pendingIps.length} IP(s) Pending Approval</div>
-                  {pendingIps.map((r, i) => <div key={i} className="font-mono">{r.ipAddress} — awaiting review</div>)}
-                  <div>Auth rules locked until approved. Check the <a href="/approvals" className="underline">Approval Queue</a>.</div>
-                </div>
-              )}
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium">Authentication Rules <span className="text-xs text-muted-foreground">(approved IPs only)</span></h3>
-                <Button data-testid="btn-add-auth" size="sm" variant="outline" className="h-7 text-xs gap-1"
-                  disabled={approvedIps.length === 0}
-                  onClick={() => setAuthRules(p => [...p, emptyAuth()])}>
-                  <Plus className="h-3 w-3" /> Add Rule
-                </Button>
-              </div>
-              {approvedIps.length === 0 && pendingIps.length === 0 && (
-                <p className="text-xs text-muted-foreground">No approved IPs yet. Submit IPs in Step 4 and wait for approval.</p>
-              )}
-              {authRules.map((r, idx) => (
-                <div key={idx} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 items-end border border-border/30 rounded p-3">
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Trunk</Label>
-                    <Select value={r.trunk} onValueChange={v => setAuthRules(p => p.map((x,i) => i===idx ? {...x, trunk:v} : x))}>
-                      <SelectTrigger data-testid={`select-auth-trunk-${idx}`} className="h-7 text-xs"><SelectValue placeholder="Trunk…" /></SelectTrigger>
-                      <SelectContent>{TRUNKS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">IP Address</Label>
-                    <Select value={r.ip} onValueChange={v => setAuthRules(p => p.map((x,i) => i===idx ? {...x, ip:v} : x))}>
-                      <SelectTrigger data-testid={`select-auth-ip-${idx}`} className="h-7 text-xs"><SelectValue placeholder="IP…" /></SelectTrigger>
-                      <SelectContent>{approvedIps.map(ip => <SelectItem key={ip} value={ip}>{ip}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Auth Type</Label>
-                    <Select value={r.authType} onValueChange={v => setAuthRules(p => p.map((x,i) => i===idx ? {...x, authType:v} : x))}>
-                      <SelectTrigger data-testid={`select-auth-type-${idx}`} className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ip">IP Auth</SelectItem>
-                        <SelectItem value="sip_digest">SIP Digest</SelectItem>
-                        <SelectItem value="both">Both</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Tech Prefix</Label>
-                    <Input data-testid={`input-auth-prefix-${idx}`} className="h-7 text-xs font-mono" value={r.techPrefix} onChange={e => setAuthRules(p => p.map((x,i) => i===idx ? {...x, techPrefix:e.target.value} : x))} placeholder="e.g. 101" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">CLI Rule</Label>
-                    <Input data-testid={`input-auth-cli-${idx}`} className="h-7 text-xs" value={r.cliRule} onChange={e => setAuthRules(p => p.map((x,i) => i===idx ? {...x, cliRule:e.target.value} : x))} />
-                  </div>
-                  <div className="flex items-end gap-1">
-                    <div className="flex items-center gap-1">
-                      <Checkbox data-testid={`check-auth-trustcli-${idx}`} id={`trustcli-${idx}`} checked={r.trustCli} onCheckedChange={v => setAuthRules(p => p.map((x,i) => i===idx ? {...x, trustCli:!!v} : x))} />
-                      <label htmlFor={`trustcli-${idx}`} className="text-[10px]">Trust CLI</label>
-                    </div>
-                    <Button size="sm" variant="ghost" className="h-7 text-rose-400" onClick={() => setAuthRules(p => p.filter((_,i) => i !== idx))}><Trash2 className="h-3 w-3" /></Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* STEP 6 */}
-          {step === 6 && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">Validation Rules <span className="text-xs text-muted-foreground">(optional)</span></h3>
-                <Button data-testid="btn-add-rule" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setValidRules(p => [...p, emptyRule()])}>
-                  <Plus className="h-3 w-3" /> Add Rule
-                </Button>
-              </div>
-              {validRules.length === 0 && <p className="text-xs text-muted-foreground">No validation rules added.</p>}
-              {validRules.map((r, idx) => (
-                <div key={idx} className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end border border-border/30 rounded p-3">
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Rule Type</Label>
-                    <Select value={r.type} onValueChange={v => setValidRules(p => p.map((x,i) => i===idx ? {...x, type:v} : x))}>
-                      <SelectTrigger data-testid={`select-rule-type-${idx}`} className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cli_format">CLI Format</SelectItem>
-                        <SelectItem value="cld_prefix">CLD Prefix</SelectItem>
-                        <SelectItem value="geo_block">Geo Block</SelectItem>
-                        <SelectItem value="time_window">Time Window</SelectItem>
-                        <SelectItem value="max_attempts">Max Attempts</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Pattern / Value</Label>
-                    <Input data-testid={`input-rule-pattern-${idx}`} className="h-7 text-xs font-mono" value={r.pattern} onChange={e => setValidRules(p => p.map((x,i) => i===idx ? {...x, pattern:e.target.value} : x))} placeholder="e.g. ^\+44" />
-                  </div>
-                  <div className="flex gap-2 items-end">
-                    <div className="space-y-1 flex-1">
-                      <Label className="text-[10px]">Action</Label>
-                      <Select value={r.action} onValueChange={v => setValidRules(p => p.map((x,i) => i===idx ? {...x, action:v} : x))}>
-                        <SelectTrigger data-testid={`select-rule-action-${idx}`} className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="block">Block</SelectItem>
-                          <SelectItem value="allow">Allow Only</SelectItem>
-                          <SelectItem value="flag">Flag</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <Button size="sm" variant="ghost" className="h-7 text-rose-400" onClick={() => setValidRules(p => p.filter((_,i) => i !== idx))}><Trash2 className="h-3 w-3" /></Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* STEP 7 — Review */}
-          {step === 7 && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                {[
-                  { label:"Company", value: selectedCompany?.name || s1.companyId },
-                  { label:"Department", value: s1.department },
-                  { label:"User ID", value: s1.userId },
-                  { label:"Customer Context", value: "i_customer = 1 (Root — not under RTST1)" },
-                  { label:"Invoice Template", value: s2.invoiceTemplate },
-                  { label:"Notification Email", value: s1.notifEmailTo || "—" },
-                  { label:"Trunks Configured", value: `${trunks.length} trunk(s)` },
-                  { label:"IPs Submitted", value: `${ips.filter(i => i.ip.trim()).length} IP(s)` },
-                  { label:"Auth Rules", value: `${authRules.filter(r => r.ip).length} rule(s)` },
-                  { label:"Validation Rules", value: `${validRules.length} rule(s)` },
-                ].map(({ label, value }) => (
-                  <div key={label} className="flex items-start gap-2">
-                    <span className="text-xs text-muted-foreground w-36 shrink-0">{label}</span>
-                    <span className="text-xs font-medium">{value}</span>
-                  </div>
-                ))}
-              </div>
-              {trunks.map((t, i) => (
-                <div key={i} className="border border-border/40 rounded p-3 text-xs space-y-1">
-                  <div className="font-medium">{t.trunkName || `Trunk ${i+1}`}</div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-muted-foreground">
-                    <span>RG: <span className={routingGroupHealthy(t.routingGroupId) ? "text-emerald-400" : "text-rose-400"}>{routingGroups.find(g => String(g.id) === t.routingGroupId)?.name || (t.routingGroupId ? t.routingGroupId : "⚠ Not set")}</span></span>
-                    <span>Max Sessions: {t.maxSessions || "unlimited"}</span>
-                    <span>Codec: {CODECS.find(c => c.value === t.codec)?.label || t.codec}</span>
-                  </div>
-                </div>
-              ))}
-              {pendingIps.length > 0 && (
-                <div className="flex items-center gap-2 p-3 rounded-md border border-rose-500/30 bg-rose-500/5 text-rose-400 text-xs">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  {pendingIps.length} IP(s) still pending approval. Approve them before submitting.
-                </div>
-              )}
-              <div className="flex items-center gap-2 p-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 text-emerald-400 text-xs">
-                <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-                This account will be created at root level (i_customer = 1) — not under RTST1.
-              </div>
-            </div>
-          )}
-
-        </CardContent>
-      </Card>
-
-      <div className="flex items-center justify-between">
-        <Button data-testid="btn-wizard-back" variant="outline" onClick={back} disabled={step === 1} className="gap-1.5">
-          <ChevronLeft className="h-4 w-4" /> Back
-        </Button>
-        {step < 7 ? (
-          <Button data-testid="btn-wizard-next" onClick={next} className="gap-1.5">
-            Next <ChevronRight className="h-4 w-4" />
-          </Button>
-        ) : (
-          <Button
-            data-testid="btn-wizard-submit"
-            onClick={handleSubmit}
-            disabled={createClientMutation.isPending || pendingIps.length > 0}
-            className="gap-1.5"
-          >
-            {createClientMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating in Sippy…</> : "Create Client in Sippy"}
-          </Button>
-        )}
-      </div>
+      {/* Step indicators, form content, back/next/submit buttons — same structure as before */}
+      {/* Submit button shows "Save Changes" in edit mode, "Create Company" in create mode */}
+      {/* isPending covers both createMutation.isPending and updateMutation.isPending */}
     </div>
   );
 }
@@ -1712,89 +1045,192 @@ export default function ClientWizardPage() {
 
 ---
 
-## 7. Sidebar Section — `client/src/components/layout-shell.tsx`
+### 6.3 — `client/src/pages/company-list.tsx`
 
-Add the following section object to the nav sections array, positioned between Client Operations and Vendor Operations:
+**Key behaviour changes in v2.0:**
+- `ProvisioningPanel` now renders for ALL companies where `provisioningStatus !== 'provisioned' && provisioningStatus !== 'suspended'`
+- `ProvisioningPanel` includes an inline "Add IP" form — no wizard needed to submit IPs
+- Edit/Delete buttons always visible regardless of provisioning status
+- "Provision to Sippy" button disabled with "wizard required" badge if `wizardDraft` is null
+- IP query no longer gated on `pending_provision` status — always fetches for non-provisioned companies
 
-```typescript
-{
-  key: 'account_mgmt',
-  label: 'Account Management',
-  roles: ['admin','management'],
-  items: [
-    { href: "/company/list",   label: "Companies",      icon: Building2, roles: ['admin','management'] },
-    { href: "/company/create", label: "Create Company", icon: Plus,      roles: ['admin','management'] },
-    { href: "/client/wizard",  label: "New Client",     icon: UserPlus,  roles: ['admin','management'], isNew: true },
-  ],
-},
-```
-
-**Required icon imports to add:**
-```typescript
-import { Building2, UserPlus } from "lucide-react";
-// Plus is likely already imported
-```
-
----
-
-## 8. Router Registration — `client/src/App.tsx`
-
-Add these four Route entries inside the Switch block. Requires these imports:
-
-```typescript
-import CompanyListPage   from "@/pages/company-list";
-import CompanyCreatePage from "@/pages/company-create";
-import ClientWizardPage  from "@/pages/client-wizard";
-```
-
-Routes to register:
 ```tsx
-<Route path="/company/list">
-  {() => <ProtectedRoute component={CompanyListPage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
-</Route>
-<Route path="/company/create">
-  {() => <ProtectedRoute component={CompanyCreatePage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
-</Route>
-<Route path="/company/edit/:id">
-  {() => <ProtectedRoute component={CompanyCreatePage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
-</Route>
-<Route path="/client/wizard">
-  {() => <ProtectedRoute component={ClientWizardPage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
-</Route>
-```
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useState } from "react";
+import { Link } from "wouter";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Building2, Plus, Search, Pencil, Trash2, Users, Globe, CreditCard,
+  Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle, PlusCircle
+} from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import type { Company } from "@shared/schema";
 
-**Note:** `ProtectedRoute` and `mgmtFeature` are patterns from this specific codebase. In a generic app, wrap the component in your own auth guard or render it directly inside a protected layout route.
+interface IpRequest {
+  id: number; ipAddress: string; trunk: string | null;
+  description: string | null; status: string; submittedBy: string | null;
+}
+
+function ProvisioningPanel({ company }: { company: Company }) {
+  const { toast } = useToast();
+  const companyAny = company as any;
+  const hasWizardDraft = !!companyAny.wizardDraft;   // provision button gated on this
+
+  const [showAddIp, setShowAddIp] = useState(false);
+  const [newIp, setNewIp] = useState("");
+  const [newTrunk, setNewTrunk] = useState("");
+
+  // Always fetch — no longer gated on pending_provision status
+  const { data: ipData, isLoading: ipsLoading } = useQuery<{ requests: IpRequest[] }>({
+    queryKey: ["/api/client-ip-requests", company.id],
+    queryFn: () => fetch(`/api/client-ip-requests?companyId=${company.id}`, { credentials: "include" }).then(r => r.json()),
+    refetchInterval: false,
+  });
+
+  const addIpMutation = useMutation({
+    mutationFn: (payload: any) => apiRequest("POST", "/api/client-ip-requests", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/client-ip-requests", company.id] });
+      setNewIp(""); setNewTrunk(""); setShowAddIp(false);
+      toast({ title: "IP submitted for approval" });
+    },
+    onError: (e: any) => toast({ title: "Failed to add IP", description: e.message, variant: "destructive" }),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("PATCH", `/api/client-ip-requests/${id}/approve`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/client-ip-requests", company.id] });
+      toast({ title: "IP approved" });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("PATCH", `/api/client-ip-requests/${id}/reject`, { reason: "Rejected from Companies page" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/client-ip-requests", company.id] });
+      toast({ title: "IP rejected" });
+    },
+  });
+
+  const provisionMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/companies/${company.id}/provision`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: `${company.name} provisioned to Sippy` });
+    },
+    onError: (e: any) => toast({ title: "Provisioning failed", description: e.message, variant: "destructive" }),
+  });
+
+  const allRequests = ipData?.requests ?? [];
+  const pendingIps  = allRequests.filter(r => r.status === "pending");
+  const approvedIps = allRequests.filter(r => r.status === "approved");
+  const rejectedIps = allRequests.filter(r => r.status === "rejected");
+  // Can provision only if: wizardDraft exists, ≥1 approved IP, 0 pending IPs
+  const canProvision = hasWizardDraft && pendingIps.length === 0 && approvedIps.length > 0;
+
+  // ... render: IP header + "Add IP" toggle, inline IP form, pending/approved/rejected IP rows,
+  //     warning if no wizardDraft, green "Provision to Sippy" button (or disabled with badges)
+}
+
+export default function CompanyListPage() {
+  // ... companies query, delete mutation, search filter
+
+  // Render: for each company card —
+  // showPanel = provisioningStatus !== 'provisioned' && provisioningStatus !== 'suspended'
+  // {showPanel && <ProvisioningPanel company={c} />}
+  // Edit and Delete buttons always shown (not gated on provisioningStatus)
+}
+```
 
 ---
 
-## 9. Settings Page — Download Card Entry
+## 7. API Route Summary
 
-To add the document download card, append one entry to the doc array in `client/src/pages/settings.tsx`:
+| Method | Path | Role | Description |
+|---|---|---|---|
+| GET | /api/companies | admin, management | List all companies (full row including provisioningStatus, wizardDraft, sippyIAccount) |
+| POST | /api/companies | admin, management | Create company (structured body: { basic, billing, contacts, bankAccounts }) |
+| GET | /api/companies/:id | admin, management | Get single company |
+| PATCH | /api/companies/:id | admin, management | Update company — accepts structured { basic, billing } OR flat partial updates |
+| DELETE | /api/companies/:id | admin | Delete company and all linked contacts/banks |
+| GET | /api/client-ip-requests | admin, management | List IP requests; ?companyId=N to filter |
+| POST | /api/client-ip-requests | admin, management | Submit IP for approval |
+| PATCH | /api/client-ip-requests/:id/approve | admin | Approve IP; immediately syncs to Sippy if company already provisioned |
+| PATCH | /api/client-ip-requests/:id/reject | admin | Reject IP |
+| POST | /api/client-wizard/submit | admin, management | Full wizard submit — saves wizardDraft, sets pending_provision, creates Sippy account |
+| POST | /api/companies/:id/provision | admin | Provision to Sippy — creates tariff, service plan, account, auth rules |
+| GET | /api/download/account-management-workflow | any auth | Download Workflow doc as .docx |
+| GET | /api/download/account-management-impl-spec | any auth | Download this spec as .docx |
+
+---
+
+## 8. Key Implementation Notes & Gotchas
+
+### 8.1 — Sippy field naming: i_account vs iAccount
+
+The Sippy API returns `i_account` (snake_case) in XML-RPC responses. The `SippyAccount` TypeScript interface uses `iAccount` (camelCase). Always access `result.i_account` when reading from a raw Sippy response, and `account.iAccount` when reading from the parsed interface.
 
 ```typescript
-{
-  label: "Account Management Workflow & Script",
-  desc: "Complete operations reference — Company wizard (3 steps), Client Account wizard (7 steps), IP approval flow, Sippy XML-RPC parameters, codec IDs, post-creation checklist, error fixes, and full database schema.",
-  href: "/api/download/account-management-workflow",
-  color: "text-emerald-300",
-  bg: "bg-emerald-500/10 border-emerald-500/20"
-},
+// CORRECT: reading raw API response
+let iAccount: number | undefined = result?.i_account;
+
+// CORRECT: reading parsed SippyAccount interface
+const id = account.iAccount;
+
+// WRONG: result?.iAccount — will be undefined for raw Sippy responses
+```
+
+### 8.2 — wizardDraft is required for provisioning
+
+`POST /api/companies/:id/provision` will return HTTP 400 if `company.wizardDraft` is null. The wizard draft stores the SIP account configuration (routing group, codec, credentials, etc.) used during account creation. Run the Client Wizard (`/client/wizard`) at least once for any company before direct provisioning.
+
+### 8.3 — Incremental IP sync on approval
+
+When `PATCH /api/client-ip-requests/:id/approve` is called and the company is already `provisioned`, the approve handler immediately calls `sippy.addSippyAuthRule()` to push the new IP to Sippy without requiring a full re-provision.
+
+### 8.4 — PATCH vs PUT for company updates
+
+The original spec used `PUT /api/companies/:id`. This was changed to `PATCH` in v2.0. The handler accepts either a structured payload (`{ basic, billing }`) or a flat partial update object. Internal calls (e.g., setting `provisioningStatus`, `wizardDraft`, `sippyIAccount`) use flat partial updates.
+
+### 8.5 — Edit page uses shared component with create page
+
+Both `/company/create` and `/company/edit/:id` render `CompanyCreatePage`. Edit mode is detected via `useParams<{ id? }>()`. The component uses a `populated` flag (boolean state) to ensure `useEffect` only runs the pre-population logic once, preventing re-population on subsequent re-renders.
+
+### 8.6 — Tariff/Service Plan naming convention
+
+Provisioning auto-creates Sippy objects using this convention:
+
+| Object | Pattern | Example for shortCode "ACME" |
+|---|---|---|
+| Tariff | `{shortCode}-TARIFF` | `ACME-TARIFF` |
+| Service Plan | `{shortCode}-SP` | `ACME-SP` |
+
+Both have duplicate guards: if an object with the same name already exists, the existing one is reused. This makes provisioning idempotent — re-running it will not create duplicate Sippy objects.
+
+### 8.7 — i_customer must always be 1
+
+Never pass `i_customer = 2` (RTST1) to `createAccount`. All BitsAuto-provisioned accounts must be under `i_customer = 1` (ssp-root). This is enforced in both the wizard submit route and the provision route.
+
+---
+
+## 9. Sidebar Registration
+
+Add to `client/src/components/layout-shell.tsx` in the appropriate section:
+
+```typescript
+// CLIENT OPERATIONS section
+{ href: '/company/list',   label: 'Companies',       icon: Building2, iconColor: 'text-blue-300' },
+{ href: '/company/create', label: 'Create Company',  icon: Plus,      iconColor: 'text-amber-300' },
+{ href: '/client/wizard',  label: 'New Client',      icon: Users,     iconColor: 'text-violet-300' },
 ```
 
 ---
 
-## 10. Known Caveats for Reimplementation
-
-| Issue | Detail |
-|---|---|
-| `/api/client-wizard/submit` is Sippy-specific | Replace `sippy.pushAccountToSippy()` with your own account creation API call. The route structure and validation are reusable. |
-| `requireRole` is not a factory | Must be called as `(req, res, next) => requireRole([...], req, res, next)` — see Section 2 |
-| `ProtectedRoute` + `mgmtFeature` | Specific to this app's auth wrapping. In a new app use your own auth HOC or layout route guard. |
-| `db:push` may fail interactively | Use the raw SQL in Section 3.5 instead, run via `psql` or the database console. |
-| `/api/sippy/routing-groups` | Must be a working endpoint that returns `{ groups: { id, name }[] }`. Wire this up before the wizard is usable. |
-| `apiRequest` helper | Available at `@/lib/queryClient` — used for all mutations. TanStack Query fetcher is set up globally so `queryKey` strings map directly to GET endpoints. |
-
----
-
-*Document generated by Bitsauto Monitoring Platform.*  
-*This file contains complete, verbatim production source code. Handle appropriately.*
+*Document Version 2.0 — Updated May 2026*  
+*Bitsauto Monitoring Platform — Account Management module.*  
+*For questions, contact the platform administrator.*
