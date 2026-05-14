@@ -17785,13 +17785,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             servicePlanId = String(planRes.planId);
             console.log(`[Provision] Service plan "${servicePlanName}" id=${planRes.planId}${planRes.alreadyExists ? ' (already existed)' : ''}`);
           } else {
-            console.warn(`[Provision] Service plan creation incomplete: ${planRes.error || 'no plan ID'}`);
+            console.error(`[Provision] Service plan creation incomplete: ${planRes.error || 'no plan ID'}`);
+            // Service plan portal write failed — discover an existing billing plan via XML-RPC
+            // so pushAccountToSippy can use a valid ID without its own probe round-trip.
+            const bpFallback = await sippy.listSippyBillingPlans(username, password, portalUrl);
+            if (bpFallback.plans.length > 0) {
+              servicePlanId = String(bpFallback.plans[0].id);
+              console.log(`[Provision] Using fallback billing plan: ${bpFallback.plans[0].id} "${bpFallback.plans[0].name}"`);
+            }
           }
         } else {
-          console.warn(`[Provision] Tariff creation failed: ${tariffRes.message}`);
+          console.error(`[Provision] Tariff creation failed: ${tariffRes.message}`);
         }
       } catch (e: any) {
-        console.warn(`[Provision] Tariff/plan setup error (non-fatal): ${e.message}`);
+        console.error(`[Provision] Tariff/plan setup error (non-fatal): ${e.message}`);
       }
 
       const displayName = step1.displayName || company.name;

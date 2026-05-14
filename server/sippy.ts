@@ -5435,8 +5435,6 @@ export async function pushAccountToSippy(
     payment_method:           opts.paymentMethod        ?? 1,    // 1 = Credit card
     i_export_type:            opts.iExportType          ?? 2,    // 2 = Retail
     lifetime:                 opts.lifetime             ?? -1,   // -1 = unlimited
-    // preferred_codec: null = "Disabled" per official docs (107312)
-    preferred_codec:          codecValue,
     use_preferred_codec_only: opts.usePreferredCodecOnly ? 1 : 0,
     reg_allowed:              opts.regAllowed            ?? 1,
     welcome_call_ivr:         0,     // 0 = disabled (must NOT be null/<nil/> — crashes server)
@@ -5505,6 +5503,9 @@ export async function pushAccountToSippy(
   // NOTE: Do NOT hardcode a default here.  If the user did not supply a plan and we
   // guess wrong (e.g. ID 1), Sippy returns faultCode 401 "Wrong i_billing_plan" or
   // faultCode 501 "Fatal error".  The auto-probe block below will discover the right ID.
+
+  // preferred_codec: omit entirely when null/disabled — sending <nil/> causes Sippy to fault
+  if (codecValue !== null) params.preferred_codec = codecValue;
 
   // ── Optional extras (all from official docs 107312) ──────────────────────
   // Session / traffic
@@ -5645,7 +5646,7 @@ export async function pushAccountToSippy(
       const faultStr = faultStrRaw ?? null;
       if (faultStr) {
         lastFault = faultStr.replace(/<[^>]+>/g, '').trim();
-        console.warn(`[Sippy] ${method} fault: ${lastFault}`);
+        console.error(`[Sippy] ${method} fault: ${lastFault}`);
 
         // Auto-fetch billing plan if Sippy rejects the plan ID (or reports Fatal error)
         // Triggers on: "Wrong i_billing_plan", "Fatal error" (faultCode 501 = missing/bad required field)
