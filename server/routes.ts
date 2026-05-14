@@ -17759,14 +17759,48 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings as any);
       const portalUrl = sippyPortalUrl(settings as any);
+      const adminUser = (settings as any)?.apiAdminUsername || (settings as any)?.portalUsername || '';
+      const adminPass = (settings as any)?.apiAdminPassword || (settings as any)?.portalPassword || '';
+      const portalUser = (settings as any)?.portalUsername || '';
+      const portalPass = (settings as any)?.portalPassword || '';
+      const adminWebPassword = (settings as any)?.adminWebPassword || undefined;
       const primaryTrunk = trunks?.[0] ?? {};
+      // planName uses the company shortCode (e.g. "PTCL"), tariff/plan display name
+      const planName = company.shortCode || company.name;
+
+      // ── Step 1: create tariff named after the company ──────────────────────
+      let servicePlanId: string | undefined;
+      try {
+        const tariffRes = await sippy.createSippyTariff(username, password, { name: planName, currency: 'USD' }, portalUrl);
+        if (tariffRes.success && tariffRes.iTariff) {
+          console.log(`[Provision] Created tariff "${planName}" id=${tariffRes.iTariff}`);
+          // ── Step 2: create service plan named after the company ─────────────
+          const planRes = await sippy.createSippyServicePlan(
+            portalUrl, adminUser, adminPass, portalUser, portalPass,
+            planName, tariffRes.iTariff, undefined, 3, adminWebPassword,
+          );
+          if (planRes.success && planRes.planId) {
+            servicePlanId = String(planRes.planId);
+            console.log(`[Provision] Service plan "${planName}" id=${planRes.planId}${planRes.alreadyExists ? ' (already existed)' : ''}`);
+          } else {
+            console.warn(`[Provision] Service plan creation incomplete: ${planRes.error || 'no plan ID'}`);
+          }
+        } else {
+          console.warn(`[Provision] Tariff creation failed: ${tariffRes.message}`);
+        }
+      } catch (e: any) {
+        console.warn(`[Provision] Tariff/plan setup error (non-fatal): ${e.message}`);
+      }
+
       const result = await sippy.pushAccountToSippy({
-        name: step1.userId,
+        name: company.name,
         type: 'client',
         username: step1.userId,
         voipPassword: step1.password,
         webPassword: step1.password,
+        companyName: company.name,
         iCustomer,
+        servicePlan: servicePlanId,
         routingGroup: primaryTrunk.routingGroupId || undefined,
         maxSessions: primaryTrunk.maxSessions ? parseInt(primaryTrunk.maxSessions, 10) : 0,
         maxCallsPerSecond: primaryTrunk.maxCps ? parseFloat(primaryTrunk.maxCps) : undefined,
