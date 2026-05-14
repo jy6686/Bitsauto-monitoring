@@ -17794,13 +17794,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         console.warn(`[Provision] Tariff/plan setup error (non-fatal): ${e.message}`);
       }
 
+      const displayName = step1.displayName || company.name;
       const result = await sippy.pushAccountToSippy({
-        name: company.name,
+        name: displayName,
         type: 'client',
         username: step1.userId,
         voipPassword: step1.password,
         webPassword: step1.password,
-        companyName: company.name,
+        companyName: displayName,
         iCustomer,
         servicePlan: servicePlanId,
         routingGroup: primaryTrunk.routingGroupId || undefined,

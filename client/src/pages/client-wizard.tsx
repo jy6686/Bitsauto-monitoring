@@ -70,7 +70,7 @@ export default function ClientWizardPage() {
   const [showPass, setShowPass] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const [s1, setS1] = useState({ department:"retail", companyId:"", password:genPassword(), userId:"", notifEmailTo:"", notifEmailCc:"", balanceThreshold:"", a2zNotif:"no", rateNotif:"full_sheet" });
+  const [s1, setS1] = useState({ department:"retail", companyId:"", password:genPassword(), displayName:"", userId:"", notifEmailTo:"", notifEmailCc:"", balanceThreshold:"", a2zNotif:"no", rateNotif:"full_sheet" });
   const [s2, setS2] = useState({ invoiceTemplate:"Standard", ratesheetFull:"Full CSV", ratesheetPartial:"Partial Update", ratesheetAtoz:"A2Z", dialcodeFormat:"E.164", prefixStyle:"with_plus" });
   const [trunks, setTrunks] = useState<TrunkConfig[]>([emptyTrunk()]);
   const [ips, setIps] = useState<IpEntry[]>([emptyIp()]);
@@ -230,7 +230,8 @@ export default function ClientWizardPage() {
                   <Label className="text-xs">Company<span className="text-rose-400 ml-0.5">*</span></Label>
                   <Select value={s1.companyId} onValueChange={v => {
                     const co = companies.find(c => String(c.id) === v);
-                    setS1(p => ({ ...p, companyId: v, userId: co ? co.shortCode.toLowerCase() : "" }));
+                    const name = co ? co.name : "";
+                    setS1(p => ({ ...p, companyId: v, displayName: name, userId: name }));
                   }}>
                     <SelectTrigger data-testid="select-company" className={`h-8 text-sm ${errors.companyId ? "border-rose-500" : ""}`}><SelectValue placeholder="Select company…" /></SelectTrigger>
                     <SelectContent>
@@ -243,8 +244,13 @@ export default function ClientWizardPage() {
                   {errors.companyId && <p className="text-[10px] text-rose-400">{errors.companyId}</p>}
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">User ID<span className="text-rose-400 ml-0.5">*</span></Label>
-                  <Input data-testid="input-userId" className={`h-8 text-sm ${errors.userId ? "border-rose-500" : ""}`} value={s1.userId} onChange={e => setS1(p => ({ ...p, userId: e.target.value }))} placeholder="Auto-generated from company" />
+                  <Label className="text-xs">Display Name<span className="text-rose-400 ml-0.5">*</span></Label>
+                  <Input data-testid="input-displayName" className="h-8 text-sm" value={s1.displayName} onChange={e => setS1(p => ({ ...p, displayName: e.target.value, userId: e.target.value }))} placeholder="Sippy display name" />
+                  <p className="text-[10px] text-muted-foreground">Sippy account display name — username auto-mirrors this</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Sippy Username<span className="text-rose-400 ml-0.5">*</span></Label>
+                  <Input data-testid="input-userId" className={`h-8 text-sm ${errors.userId ? "border-rose-500" : ""}`} value={s1.userId} onChange={e => setS1(p => ({ ...p, userId: e.target.value }))} placeholder="Auto-mirrors display name" />
                   {errors.userId && <p className="text-[10px] text-rose-400">{errors.userId}</p>}
                 </div>
                 <div className="space-y-1.5">
