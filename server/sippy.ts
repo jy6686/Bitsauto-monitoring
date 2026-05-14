@@ -2366,7 +2366,7 @@ async function createAccountViaPortal(
   }
 
   // ── 3. Build form fields ──────────────────────────────────────────────────
-  const webPass = opts.name.toLowerCase().replace(/\s+/g, '') + '@Sippy1';
+  const webPass = opts.name.toLowerCase().replace(/[^a-z0-9]/g, '') + 'Sp1';
   const webLogin = opts.name.toLowerCase().replace(/[^a-z0-9]/g, '');
   const fields: Record<string, string> = {
     cmd:          'add',
@@ -5396,8 +5396,8 @@ export async function pushAccountToSippy(
   const safeName   = opts.name.toLowerCase().replace(/[^a-z0-9]/g, '');
   const username   = opts.username   || safeName;
   const authname   = opts.authname   || username;
-  const webPass    = opts.webPassword  || (safeName + '@' + Math.random().toString(36).slice(2, 8));
-  const voipPass   = opts.voipPassword || Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase();
+  const webPass    = opts.webPassword  || (safeName + Math.random().toString(36).slice(2, 8));
+  const voipPass   = opts.voipPassword || (Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase());
   // Contact name: caller-supplied first/last name override the auto-derived parts
   const nameParts   = opts.name.trim().split(/\s+/);
   const firstName   = opts.firstName ?? (nameParts[0] ?? opts.name);
