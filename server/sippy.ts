@@ -5396,8 +5396,11 @@ export async function pushAccountToSippy(
   const safeName   = opts.name.toLowerCase().replace(/[^a-z0-9]/g, '');
   const username   = opts.username   || safeName;
   const authname   = opts.authname   || username;
-  const webPass    = opts.webPassword  || (safeName + Math.random().toString(36).slice(2, 8));
-  const voipPass   = opts.voipPassword || (Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase());
+  // Sippy requires passwords to contain only letters and digits — strip all other chars.
+  const rawWebPass  = opts.webPassword  || (safeName + Math.random().toString(36).slice(2, 8));
+  const rawVoipPass = opts.voipPassword || (Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase());
+  const webPass     = rawWebPass.replace(/[^a-zA-Z0-9]/g, '');
+  const voipPass    = rawVoipPass.replace(/[^a-zA-Z0-9]/g, '');
   // Contact name: caller-supplied first/last name override the auto-derived parts
   const nameParts   = opts.name.trim().split(/\s+/);
   const firstName   = opts.firstName ?? (nameParts[0] ?? opts.name);
