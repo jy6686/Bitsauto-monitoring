@@ -3,7 +3,6 @@ import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { LayoutShell } from "@/components/layout-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -683,7 +682,6 @@ export default function ClientConfigPage() {
   const activeTabDef = TABS.find(t => t.id === activeTab) ?? TABS[0];
 
   return (
-    <LayoutShell>
       <div className="flex flex-col h-full min-h-0">
         {/* ── Header ── */}
         <div className="flex-shrink-0 border-b border-border px-6 py-4">
@@ -777,6 +775,5 @@ export default function ClientConfigPage() {
           )}
         </div>
       </div>
-    </LayoutShell>
   );
 }
