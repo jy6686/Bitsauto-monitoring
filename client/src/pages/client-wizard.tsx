@@ -9,11 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Users, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2,
-  AlertTriangle, Clock, ShieldCheck, Server, Network, FileText,
-  ShieldAlert, Loader2, Info, Eye, EyeOff
+  AlertTriangle, ShieldCheck, Server, Network, FileText,
+  Loader2, Info, Eye, EyeOff
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Company } from "@shared/schema";
@@ -23,9 +22,7 @@ const STEPS = [
   { id: 2, label: "Rate Sheet Config",     icon: FileText },
   { id: 3, label: "Technical Config",      icon: Server },
   { id: 4, label: "IPs & Trunks",          icon: Network },
-  { id: 5, label: "Auth Rules",            icon: ShieldCheck },
-  { id: 6, label: "Validation Rules",      icon: ShieldAlert },
-  { id: 7, label: "Review & Submit",       icon: CheckCircle2 },
+  { id: 5, label: "Review & Save",         icon: CheckCircle2 },
 ];
 
 const CODECS = [
@@ -56,8 +53,6 @@ interface TrunkConfig {
   useAssertedId: boolean; preventLoops: boolean; allowRegistration: boolean; blocked: boolean;
 }
 interface IpEntry { ip: string; trunk: string; description: string; status: string; }
-interface AuthRule { trunk: string; ip: string; authType: string; techPrefix: string; cliRule: string; trustCli: boolean; }
-interface ValidationRule { type: string; pattern: string; action: string; }
 
 const emptyTrunk = (): TrunkConfig => ({
   trunkName:"", routingGroupId:"", maxTime:"3600", maxSessions:"0", maxCps:"",
@@ -66,8 +61,6 @@ const emptyTrunk = (): TrunkConfig => ({
   preventLoops:false, allowRegistration:true, blocked:false,
 });
 const emptyIp = (): IpEntry => ({ ip:"", trunk:"", description:"", status:"pending" });
-const emptyAuth = (): AuthRule => ({ trunk:"", ip:"", authType:"ip", techPrefix:"", cliRule:"", trustCli:false });
-const emptyRule = (): ValidationRule => ({ type:"cli_format", pattern:"", action:"block" });
 
 export default function ClientWizardPage() {
   const [, navigate] = useLocation();
@@ -76,30 +69,17 @@ export default function ClientWizardPage() {
   const [errors, setErrors] = useState<Record<string,string>>({});
   const [showPass, setShowPass] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [createdAccountId, setCreatedAccountId] = useState<number | null>(null);
 
   const [s1, setS1] = useState({ department:"retail", companyId:"", password:genPassword(), userId:"", notifEmailTo:"", notifEmailCc:"", balanceThreshold:"", a2zNotif:"no", rateNotif:"full_sheet" });
   const [s2, setS2] = useState({ invoiceTemplate:"Standard", ratesheetFull:"Full CSV", ratesheetPartial:"Partial Update", ratesheetAtoz:"A2Z", dialcodeFormat:"E.164", prefixStyle:"with_plus" });
   const [trunks, setTrunks] = useState<TrunkConfig[]>([emptyTrunk()]);
   const [ips, setIps] = useState<IpEntry[]>([emptyIp()]);
-  const [authRules, setAuthRules] = useState<AuthRule[]>([emptyAuth()]);
-  const [validRules, setValidRules] = useState<ValidationRule[]>([]);
 
   const { data: companiesData } = useQuery<{ companies: Company[] }>({ queryKey: ["/api/companies"] });
   const { data: routingData } = useQuery<{ groups: { id: number; name: string }[] }>({
     queryKey: ["/api/sippy/routing-groups"],
     retry: false,
   });
-  const { data: billingData } = useQuery<{ plans: { id: number; name: string }[] }>({
-    queryKey: ["/api/sippy/billing-plans"],
-    retry: false,
-  });
-
-  const { data: ipRequestsData } = useQuery<{ requests: { ipAddress: string; status: string; trunk: string }[] }>({
-    queryKey: ["/api/client-ip-requests"],
-    enabled: step === 5,
-  });
-
   const submitIpMutation = useMutation({
     mutationFn: (payload: any) => apiRequest("POST", "/api/client-ip-requests", payload),
     onSuccess: () => {
@@ -110,23 +90,17 @@ export default function ClientWizardPage() {
 
   const createClientMutation = useMutation({
     mutationFn: (payload: any) => apiRequest("POST", "/api/client-wizard/submit", payload),
-    onSuccess: (data: any) => {
-      setCreatedAccountId(data?.iAccount ?? null);
+    onSuccess: () => {
       setSubmitted(true);
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
-      toast({ title: "Client account created in Sippy" });
+      toast({ title: "Client draft saved — IPs pending approval" });
     },
-    onError: (e: any) => toast({ title: e.message || "Failed to create account", variant: "destructive" }),
+    onError: (e: any) => toast({ title: e.message || "Failed to save draft", variant: "destructive" }),
   });
 
   const companies = companiesData?.companies ?? [];
   const routingGroups = routingData?.groups ?? [];
-  const billingPlans = billingData?.plans ?? [];
   const selectedCompany = companies.find(c => String(c.id) === s1.companyId);
-
-  const ipRequests = ipRequestsData?.requests ?? [];
-  const approvedIps = ipRequests.filter(r => r.status === "approved").map(r => r.ipAddress);
-  const pendingIps = ipRequests.filter(r => r.status === "pending");
 
   const validate = () => {
     const errs: Record<string,string> = {};
@@ -144,7 +118,7 @@ export default function ClientWizardPage() {
     return Object.keys(errs).length === 0;
   };
 
-  const next = () => { if (validate()) setStep(s => Math.min(s + 1, 7)); };
+  const next = () => { if (validate()) setStep(s => Math.min(s + 1, 5)); };
   const back = () => setStep(s => Math.max(s - 1, 1));
 
   const updateTrunk = (idx: number, k: keyof TrunkConfig, v: any) =>
@@ -156,7 +130,7 @@ export default function ClientWizardPage() {
 
   const handleSubmit = () => {
     const validIps = ips.filter(ip => ip.ip.trim());
-    createClientMutation.mutate({ step1: s1, step2: s2, trunks, ips: validIps, authRules, validRules, iCustomer: 1 });
+    createClientMutation.mutate({ step1: s1, step2: s2, trunks, ips: validIps, iCustomer: 1 });
   };
 
   if (submitted) {
@@ -165,19 +139,20 @@ export default function ClientWizardPage() {
         <Card className="border-emerald-500/30 bg-emerald-500/5">
           <CardContent className="p-8 text-center space-y-4">
             <CheckCircle2 className="h-12 w-12 text-emerald-400 mx-auto" />
-            <h2 className="text-lg font-semibold">Client Account Created</h2>
-            {createdAccountId && <p className="text-sm text-muted-foreground">Sippy Account ID: <span className="font-mono text-foreground">{createdAccountId}</span></p>}
+            <h2 className="text-lg font-semibold">Client Draft Saved</h2>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              The client configuration has been saved. IPs are pending admin approval.
+              Once all IPs are approved, an admin can provision this client to Sippy from the Companies page.
+            </p>
             <div className="text-left space-y-2 mt-4">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Post-Creation Checklist</p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Next Steps</p>
               {[
-                { done: true,  label: "Company record exists in BitsAuto" },
-                { done: true,  label: "Client account created in Sippy (i_customer = 1, root level)" },
-                { done: true,  label: "Added to BitsAuto monitoring" },
-                { done: false, label: "Verify routing group has active vendor connections for target destinations" },
-                { done: false, label: "Confirm rate sheet delivered to client email" },
-                { done: false, label: "Run test call from new account" },
-                { done: false, label: "Check CDR after test call" },
-                { done: false, label: "Confirm balance threshold alerts working" },
+                { done: true,  label: "Client draft saved in BitsAuto" },
+                { done: true,  label: "IPs submitted — pending admin approval" },
+                { done: false, label: "Admin approves all submitted IPs" },
+                { done: false, label: "Admin clicks Provision on the Companies page" },
+                { done: false, label: "Sippy account + auth rules created in batch" },
+                { done: false, label: "Run test call and verify CDR" },
               ].map((item, i) => (
                 <div key={i} className={`flex items-center gap-2 text-sm ${item.done ? "text-emerald-400" : "text-muted-foreground"}`}>
                   {item.done ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <div className="h-3.5 w-3.5 shrink-0 border border-muted-foreground/30 rounded-full" />}
@@ -186,7 +161,7 @@ export default function ClientWizardPage() {
               ))}
             </div>
             <div className="flex gap-2 justify-center pt-2">
-              <Button variant="outline" size="sm" onClick={() => navigate("/company/list")}>View Companies</Button>
+              <Button variant="outline" size="sm" onClick={() => navigate("/company/list")}>Go to Companies</Button>
               <Button size="sm" onClick={() => { setSubmitted(false); setStep(1); }}>Create Another</Button>
             </div>
           </CardContent>
@@ -223,7 +198,7 @@ export default function ClientWizardPage() {
       </div>
 
       <div className="w-full bg-border/30 rounded-full h-1">
-        <div className="bg-amber-500 h-1 rounded-full transition-all" style={{ width: `${(step / 7) * 100}%` }} />
+        <div className="bg-amber-500 h-1 rounded-full transition-all" style={{ width: `${(step / 5) * 100}%` }} />
       </div>
 
       <Card>
@@ -488,113 +463,8 @@ export default function ClientWizardPage() {
             </div>
           )}
 
-          {/* STEP 5 */}
+          {/* STEP 5 — Review & Save */}
           {step === 5 && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium">Authentication Rules</h3>
-                <Button data-testid="btn-add-auth" size="sm" variant="outline" className="h-7 text-xs gap-1"
-                  onClick={() => setAuthRules(p => [...p, emptyAuth()])}>
-                  <Plus className="h-3 w-3" /> Add Rule
-                </Button>
-              </div>
-              {authRules.map((r, idx) => (
-                <div key={idx} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 items-end border border-border/30 rounded p-3">
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Trunk</Label>
-                    <Select value={r.trunk} onValueChange={v => setAuthRules(p => p.map((x,i) => i===idx ? {...x, trunk:v} : x))}>
-                      <SelectTrigger data-testid={`select-auth-trunk-${idx}`} className="h-7 text-xs"><SelectValue placeholder="Trunk…" /></SelectTrigger>
-                      <SelectContent>{TRUNKS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">IP Address</Label>
-                    <Select value={r.ip} onValueChange={v => setAuthRules(p => p.map((x,i) => i===idx ? {...x, ip:v} : x))}>
-                      <SelectTrigger data-testid={`select-auth-ip-${idx}`} className="h-7 text-xs"><SelectValue placeholder="IP…" /></SelectTrigger>
-                      <SelectContent>
-                        {ips.filter(ip => ip.ip.trim()).map(ip => <SelectItem key={ip.ip} value={ip.ip}>{ip.ip}</SelectItem>)}
-                        {ips.filter(ip => ip.ip.trim()).length === 0 && <SelectItem value="_none" disabled>No IPs entered in Step 4</SelectItem>}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Auth Type</Label>
-                    <Select value={r.authType} onValueChange={v => setAuthRules(p => p.map((x,i) => i===idx ? {...x, authType:v} : x))}>
-                      <SelectTrigger data-testid={`select-auth-type-${idx}`} className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ip">IP Auth</SelectItem>
-                        <SelectItem value="sip_digest">SIP Digest</SelectItem>
-                        <SelectItem value="both">Both</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Tech Prefix</Label>
-                    <Input data-testid={`input-auth-prefix-${idx}`} className="h-7 text-xs font-mono" value={r.techPrefix} onChange={e => setAuthRules(p => p.map((x,i) => i===idx ? {...x, techPrefix:e.target.value} : x))} placeholder="e.g. 101" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">CLI Rule</Label>
-                    <Input data-testid={`input-auth-cli-${idx}`} className="h-7 text-xs" value={r.cliRule} onChange={e => setAuthRules(p => p.map((x,i) => i===idx ? {...x, cliRule:e.target.value} : x))} />
-                  </div>
-                  <div className="flex items-end gap-1">
-                    <div className="flex items-center gap-1"><Checkbox data-testid={`check-auth-trustcli-${idx}`} id={`trustcli-${idx}`} checked={r.trustCli} onCheckedChange={v => setAuthRules(p => p.map((x,i) => i===idx ? {...x, trustCli:!!v} : x))} /><label htmlFor={`trustcli-${idx}`} className="text-[10px]">Trust CLI</label></div>
-                    <Button size="sm" variant="ghost" className="h-7 text-rose-400" onClick={() => setAuthRules(p => p.filter((_,i) => i !== idx))}><Trash2 className="h-3 w-3" /></Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* STEP 6 */}
-          {step === 6 && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">Validation Rules <span className="text-xs text-muted-foreground">(optional)</span></h3>
-                <Button data-testid="btn-add-rule" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setValidRules(p => [...p, emptyRule()])}>
-                  <Plus className="h-3 w-3" /> Add Rule
-                </Button>
-              </div>
-              {validRules.length === 0 && <p className="text-xs text-muted-foreground">No validation rules added. Rules restrict which numbers can be called through this account.</p>}
-              {validRules.map((r, idx) => (
-                <div key={idx} className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end border border-border/30 rounded p-3">
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Rule Type</Label>
-                    <Select value={r.type} onValueChange={v => setValidRules(p => p.map((x,i) => i===idx ? {...x, type:v} : x))}>
-                      <SelectTrigger data-testid={`select-rule-type-${idx}`} className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cli_format">CLI Format</SelectItem>
-                        <SelectItem value="cld_prefix">CLD Prefix</SelectItem>
-                        <SelectItem value="geo_block">Geo Block</SelectItem>
-                        <SelectItem value="time_window">Time Window</SelectItem>
-                        <SelectItem value="max_attempts">Max Attempts</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Pattern / Value</Label>
-                    <Input data-testid={`input-rule-pattern-${idx}`} className="h-7 text-xs font-mono" value={r.pattern} onChange={e => setValidRules(p => p.map((x,i) => i===idx ? {...x, pattern:e.target.value} : x))} placeholder="e.g. ^\\+44" />
-                  </div>
-                  <div className="flex gap-2 items-end">
-                    <div className="space-y-1 flex-1">
-                      <Label className="text-[10px]">Action</Label>
-                      <Select value={r.action} onValueChange={v => setValidRules(p => p.map((x,i) => i===idx ? {...x, action:v} : x))}>
-                        <SelectTrigger data-testid={`select-rule-action-${idx}`} className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="block">Block</SelectItem>
-                          <SelectItem value="allow">Allow Only</SelectItem>
-                          <SelectItem value="flag">Flag</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <Button size="sm" variant="ghost" className="h-7 text-rose-400" onClick={() => setValidRules(p => p.filter((_,i) => i !== idx))}><Trash2 className="h-3 w-3" /></Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* STEP 7 — Review */}
-          {step === 7 && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 {[
@@ -607,9 +477,7 @@ export default function ClientWizardPage() {
                   { label:"Prefix Style", value: s2.prefixStyle.replace("_"," ") },
                   { label:"Notification Email", value: s1.notifEmailTo || "—" },
                   { label:"Trunks Configured", value: `${trunks.length} trunk(s)` },
-                  { label:"IPs Submitted", value: `${ips.filter(i => i.ip.trim()).length} IP(s)` },
-                  { label:"Auth Rules", value: `${authRules.filter(r => r.ip).length} rule(s)` },
-                  { label:"Validation Rules", value: `${validRules.length} rule(s)` },
+                  { label:"IPs Registered", value: `${ips.filter(i => i.ip.trim()).length} IP(s) — pending admin approval` },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex items-start gap-2">
                     <span className="text-xs text-muted-foreground w-36 shrink-0">{label}</span>
@@ -633,16 +501,13 @@ export default function ClientWizardPage() {
                 ))}
               </div>
 
-              {pendingIps.length > 0 && (
-                <div className="flex items-center gap-2 p-3 rounded-md border border-rose-500/30 bg-rose-500/5 text-rose-400 text-xs">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  {pendingIps.length} IP(s) still pending approval. Approve them in the Approval Queue before submitting.
-                </div>
-              )}
-
+              <div className="flex items-center gap-2 p-3 rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-400 text-xs">
+                <Info className="h-3.5 w-3.5 shrink-0" />
+                Saving this draft does NOT create an account in Sippy. An admin must approve the IPs and then click Provision on the Companies page.
+              </div>
               <div className="flex items-center gap-2 p-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 text-emerald-400 text-xs">
                 <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-                This account will be created at root level (i_customer = 1) — not under RTST1. No routing inheritance issues.
+                When provisioned, the account will be created at root level (i_customer = 1) — not under RTST1. No routing inheritance issues.
               </div>
             </div>
           )}
@@ -654,7 +519,7 @@ export default function ClientWizardPage() {
         <Button data-testid="btn-wizard-back" variant="outline" onClick={back} disabled={step === 1} className="gap-1.5">
           <ChevronLeft className="h-4 w-4" /> Back
         </Button>
-        {step < 7 ? (
+        {step < 5 ? (
           <Button data-testid="btn-wizard-next" onClick={next} className="gap-1.5">
             Next <ChevronRight className="h-4 w-4" />
           </Button>
@@ -662,10 +527,10 @@ export default function ClientWizardPage() {
           <Button
             data-testid="btn-wizard-submit"
             onClick={handleSubmit}
-            disabled={createClientMutation.isPending || pendingIps.length > 0}
+            disabled={createClientMutation.isPending}
             className="gap-1.5"
           >
-            {createClientMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating in Sippy…</> : "Create Client in Sippy"}
+            {createClientMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving Draft…</> : "Save Client Draft"}
           </Button>
         )}
       </div>

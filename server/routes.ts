@@ -6389,6 +6389,20 @@ export async function registerRoutes(
   // i_tariff/i_routing_group null  → use account's service plan.
   // max_sessions -1               → Unlimited.  max_cps null → Unlimited.
 
+  // GET /api/sippy/accounts/:id/meta — provisioning status for a Sippy account
+  app.get('/api/sippy/accounts/:id/meta', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ error: 'Invalid i_account' });
+      const company = await storage.getCompanyBySippyAccount(iAccount);
+      if (!company) return res.json({ provisioned: true, provisioningStatus: 'provisioned' });
+      const status = (company as any).provisioningStatus ?? 'provisioned';
+      return res.json({ provisioned: status === 'provisioned', provisioningStatus: status });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   // GET /api/sippy/accounts/:id/auth-rules — list auth rules for an account (docs 107336)
   // Query params: iCustomer (trusted), iProtocol, remoteIp, offset, limit
   app.get('/api/sippy/accounts/:id/auth-rules', async (req: any, res) => {
@@ -6411,7 +6425,7 @@ export async function registerRoutes(
   // POST /api/sippy/accounts/:id/auth-rules — add an auth rule to an account (docs 107336)
   // Body: iProtocol (required) + at least one of remoteIp/incomingCli/incomingCld/toDomain/fromDomain
   //       + optional: cliTranslationRule, cldTranslationRule, iTariff, iRoutingGroup, maxSessions, maxCps, iCustomer
-  app.post('/api/sippy/accounts/:id/auth-rules', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+  app.post('/api/sippy/accounts/:id/auth-rules', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
       const iAccount = parseInt(req.params.id, 10);
       if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
@@ -6420,6 +6434,24 @@ export async function registerRoutes(
       if (!remoteIp && !incomingCli && !incomingCld && !toDomain && !fromDomain) {
         return res.status(400).json({ success: false, message: 'At least one of remoteIp, incomingCli, incomingCld, toDomain, fromDomain is required.' });
       }
+      // ── Security gate: company must be provisioned + IP must be approved ──────
+      const company = await storage.getCompanyBySippyAccount(iAccount);
+      if (company) {
+        if (company.provisioningStatus !== 'provisioned') {
+          return res.status(403).json({ success: false, message: 'Client is not yet provisioned. Complete provisioning before creating auth rules.' });
+        }
+        if (remoteIp) {
+          const ipRequests = await storage.getClientIpRequests(company.id);
+          const matchedIp = ipRequests.find((r: any) => r.ipAddress === remoteIp.trim());
+          if (!matchedIp) {
+            return res.status(403).json({ success: false, message: `IP ${remoteIp} has not been registered for this client. Register and approve the IP first.` });
+          }
+          if (matchedIp.status !== 'approved') {
+            return res.status(403).json({ success: false, message: `IP ${remoteIp} is ${matchedIp.status}. Only approved IPs can have auth rules.` });
+          }
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.addSippyAuthRule(username, password, { iAccount, ...req.body });
@@ -17647,11 +17679,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         ipAddress: ipAddress.trim(),
         trunk: trunk || null,
         description: description || null,
-        status: 'approved',
+        status: 'pending',
         submittedBy: (req as any).user?.claims?.sub || null,
-        reviewedBy: (req as any).user?.claims?.sub || 'auto',
+        reviewedBy: null,
         rejectionReason: null,
-        reviewedAt: new Date(),
+        reviewedAt: null,
       });
       res.json({ request: row });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -17662,6 +17694,19 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const id = parseInt(req.params.id, 10);
       const reviewer = (req as any).user?.claims?.sub || 'admin';
       const updated = await storage.updateClientIpRequest(id, { status: 'approved', reviewedBy: reviewer, reviewedAt: new Date() });
+      // Incremental sync: if the company is already provisioned, push auth rule to Sippy immediately
+      if (updated.companyId) {
+        try {
+          const company = await storage.getCompany(updated.companyId);
+          if (company?.provisioningStatus === 'provisioned' && company.sippyIAccount) {
+            const settings = await storage.getSettings();
+            const { username, password } = sippyXmlCreds(settings as any);
+            await sippy.addSippyAuthRule(username, password, { iAccount: company.sippyIAccount, iProtocol: 1, remoteIp: updated.ipAddress });
+          }
+        } catch (syncErr: any) {
+          console.warn('[IP Approve] Incremental Sippy sync failed:', syncErr.message);
+        }
+      }
       res.json({ request: updated });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -17680,8 +17725,35 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   app.post('/api/client-wizard/submit', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
     try {
-      const { step1, step2, trunks, ips, authRules, validRules, iCustomer = 1 } = req.body ?? {};
+      const { step1, step2, trunks, ips, iCustomer = 1 } = req.body ?? {};
       if (!step1?.userId?.trim()) return res.status(400).json({ message: 'User ID is required' });
+      if (!step1?.companyId) return res.status(400).json({ message: 'Company is required' });
+      const companyId = parseInt(step1.companyId, 10);
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: 'Company not found' });
+      if (company.provisioningStatus === 'provisioned') return res.status(409).json({ message: 'This company is already provisioned in Sippy' });
+      const draft = JSON.stringify({ step1, step2, trunks, ips, iCustomer });
+      await storage.updateCompany(companyId, { wizardDraft: draft, provisioningStatus: 'pending_provision' } as any);
+      res.json({ success: true, companyId, status: 'pending_provision' });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/companies/:id/provision — provision a client to Sippy (admin only)
+  app.post('/api/companies/:id/provision', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.id, 10);
+      if (isNaN(companyId)) return res.status(400).json({ message: 'Invalid company ID' });
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: 'Company not found' });
+      if (company.provisioningStatus === 'provisioned') return res.status(409).json({ message: 'Client already provisioned in Sippy' });
+      if (!company.wizardDraft) return res.status(400).json({ message: 'No wizard draft found. Complete the client wizard first.' });
+      const ipRequests = await storage.getClientIpRequests(companyId);
+      const pendingIps = ipRequests.filter((r: any) => r.status === 'pending');
+      const approvedIps = ipRequests.filter((r: any) => r.status === 'approved');
+      if (pendingIps.length > 0) return res.status(400).json({ message: `${pendingIps.length} IP(s) still pending approval. Approve or reject all IPs before provisioning.` });
+      if (approvedIps.length === 0) return res.status(400).json({ message: 'No approved IPs. Approve at least one IP before provisioning.' });
+      const draft = JSON.parse(company.wizardDraft);
+      const { step1, trunks, iCustomer = 1 } = draft;
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings as any);
       const portalUrl = sippyPortalUrl(settings as any);
@@ -17706,7 +17778,17 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         cc: step1.notifEmailCc || undefined,
         currency: 'USD',
       }, { username, password }, portalUrl);
-      res.json(result);
+      if (!result?.iAccount) throw new Error('Sippy did not return an account ID');
+      const iAccount = result.iAccount;
+      const authErrors: string[] = [];
+      for (const ipReq of approvedIps) {
+        try {
+          await sippy.addSippyAuthRule(username, password, { iAccount, iProtocol: 1, remoteIp: ipReq.ipAddress });
+        } catch (e: any) { authErrors.push(`${ipReq.ipAddress}: ${e.message}`); }
+      }
+      const reviewer = (req as any).user?.claims?.sub || 'admin';
+      await storage.updateCompany(companyId, { provisioningStatus: 'provisioned', sippyIAccount: iAccount, provisionedAt: new Date(), provisionedBy: reviewer } as any);
+      res.json({ success: true, iAccount, authErrors: authErrors.length ? authErrors : undefined });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

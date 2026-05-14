@@ -1348,9 +1348,14 @@ export const companies = pgTable("companies", {
   legalNameCi:         varchar("legal_name_ci",  { length: 256 }),
   legalNameVen:        varchar("legal_name_ven", { length: 256 }),
   invoiceEmail:        varchar("invoice_email",  { length: 256 }),
-  notes:           text("notes"),
-  createdAt:       timestamp("created_at").defaultNow().notNull(),
-  createdBy:       varchar("created_by", { length: 255 }),
+  notes:               text("notes"),
+  createdAt:           timestamp("created_at").defaultNow().notNull(),
+  createdBy:           varchar("created_by",           { length: 255 }),
+  provisioningStatus:  varchar("provisioning_status",  { length: 32 }).notNull().default('draft'),
+  provisionedAt:       timestamp("provisioned_at"),
+  provisionedBy:       varchar("provisioned_by",       { length: 255 }),
+  sippyIAccount:       integer("sippy_i_account"),
+  wizardDraft:         text("wizard_draft"),
 });
 export type Company = typeof companies.$inferSelect;
 export type InsertCompany = typeof companies.$inferInsert;

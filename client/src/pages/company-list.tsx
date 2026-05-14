@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Building2, Plus, Search, Pencil, Trash2, Users, Globe, CreditCard } from "lucide-react";
+import { Building2, Plus, Search, Pencil, Trash2, Users, Globe, CreditCard, Zap, Loader2, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Company } from "@shared/schema";
 
@@ -39,6 +39,15 @@ export default function CompanyListPage() {
       toast({ title: "Company deleted" });
     },
     onError: () => toast({ title: "Failed to delete", variant: "destructive" }),
+  });
+
+  const provisionMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/companies/${id}/provision`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: "Client provisioned to Sippy successfully" });
+    },
+    onError: (e: any) => toast({ title: "Provisioning failed", description: e.message, variant: "destructive" }),
   });
 
   const companies = (data?.companies ?? []).filter(c =>
@@ -141,7 +150,31 @@ export default function CompanyListPage() {
                     </div>
                   )}
                 </div>
+                {(c as any).provisioningStatus === 'pending_provision' && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded border border-amber-500/30 bg-amber-500/5 text-amber-400 text-[10px]">
+                    <Clock className="h-3 w-3 shrink-0" />
+                    Awaiting provisioning
+                  </div>
+                )}
+                {(c as any).provisioningStatus === 'provisioned' && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded border border-emerald-500/30 bg-emerald-500/5 text-emerald-400 text-[10px]">
+                    <Zap className="h-3 w-3 shrink-0" />
+                    Provisioned to Sippy
+                  </div>
+                )}
                 <div className="flex items-center gap-2 pt-1">
+                  {(c as any).provisioningStatus === 'pending_provision' && (
+                    <Button
+                      data-testid={`btn-provision-company-${c.id}`}
+                      size="sm"
+                      className="h-7 text-xs gap-1 bg-amber-500 hover:bg-amber-600 text-black"
+                      onClick={() => { if (confirm(`Provision "${c.name}" to Sippy? This will create the Sippy account and push auth rules.`)) provisionMutation.mutate(c.id); }}
+                      disabled={provisionMutation.isPending}
+                    >
+                      {provisionMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                      Provision
+                    </Button>
+                  )}
                   <Link href={`/company/edit/${c.id}`}>
                     <Button data-testid={`btn-edit-company-${c.id}`} size="sm" variant="outline" className="h-7 text-xs gap-1">
                       <Pencil className="h-3 w-3" /> Edit

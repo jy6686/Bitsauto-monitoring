@@ -287,6 +287,10 @@ function TabTrunks({ iAccount }: { iAccount: number }) {
 
 function TabAuth({ iAccount }: { iAccount: number }) {
   const { toast } = useToast();
+  const { data: accountMeta } = useQuery<{ provisioned: boolean; provisioningStatus: string }>({
+    queryKey: [`/api/sippy/accounts/${iAccount}/meta`],
+    retry: false,
+  });
   const { data: rulesData, isLoading } = useQuery<{ authRules: any[] }>({ queryKey: [`/api/sippy/accounts/${iAccount}/auth-rules`], staleTime: 30_000 });
   const [addForm, setAddForm] = useState({ remoteIp: '', iProtocol: '1', techPrefix: '' });
 
@@ -297,6 +301,22 @@ function TabAuth({ iAccount }: { iAccount: number }) {
   });
 
   const rules = rulesData?.authRules ?? [];
+
+  if (accountMeta && !accountMeta.provisioned) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center gap-3 max-w-sm mx-auto">
+        <div className="h-12 w-12 rounded-full bg-amber-500/10 flex items-center justify-center">
+          <ShieldCheck className="h-6 w-6 text-amber-400" />
+        </div>
+        <p className="text-sm font-medium">Account Not Yet Provisioned</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Auth rules can only be configured after the client has been provisioned to Sippy.
+          Go to the Companies page and click <strong>Provision</strong> once all IPs have been approved.
+        </p>
+      </div>
+    );
+  }
+
   if (isLoading) return <div className="flex items-center gap-2 py-8 text-muted-foreground text-sm"><Loader2 className="h-4 w-4 animate-spin" />Loading auth rules…</div>;
 
   return (

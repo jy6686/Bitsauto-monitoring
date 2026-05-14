@@ -326,8 +326,9 @@ export interface IStorage {
   // ── Account Management — Companies ─────────────────────────────────────────
   getCompanies(): Promise<Company[]>;
   getCompany(id: number): Promise<Company | null>;
+  getCompanyBySippyAccount(iAccount: number): Promise<Company | null>;
   createCompany(data: InsertCompany, contacts: any[], bankAccounts: any[]): Promise<Company>;
-  updateCompany(id: number, updates: Partial<InsertCompany>): Promise<Company>;
+  updateCompany(id: number, updates: Partial<Company>): Promise<Company>;
   deleteCompany(id: number): Promise<void>;
 
   // ── Account Management — Client IP Requests ─────────────────────────────────
@@ -1726,6 +1727,11 @@ export class DatabaseStorage implements IStorage {
 
   async getCompanies(): Promise<Company[]> {
     return db.select().from(companies).orderBy(companies.name);
+  }
+
+  async getCompanyBySippyAccount(iAccount: number): Promise<Company | null> {
+    const [row] = await db.select().from(companies).where(eq(companies.sippyIAccount, iAccount));
+    return row ?? null;
   }
 
   async getCompany(id: number): Promise<Company | null> {
