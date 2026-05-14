@@ -826,6 +826,9 @@ const PERMISSIONS: PermEntry[] = [
   { label: 'NOC Command View',          admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'noc_command'        },
   { label: 'Team Chat',                 admin: 'full', mgmt: 'checkbox',  viewer: 'full',         featureKey: 'chat'               },
 
+  { section: 'Account Management' },
+  { label: 'Account Management',        admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'account_management', note: 'Covers Company List, Create Company, and New Client Wizard (Sippy account creation at root level)' },
+
   { section: 'Client & Vendor' },
   { label: 'Client & Vendor Profiles',  admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'clients'            },
   { label: 'Vendor Connections',        admin: 'full', mgmt: 'checkbox',  viewer: 'none',         featureKey: 'vendor_connections' },

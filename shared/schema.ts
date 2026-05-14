@@ -95,7 +95,7 @@ export const settings = pgTable("settings", {
   fasEarlyAnswerSecs: integer("fas_early_answer_secs").default(2), // PDD < this = suspiciously fast answer
   fasShortCallSecs: integer("fas_short_call_secs").default(10),   // billed < this = short call (not FAS by itself)
   // Management Feature Permissions (JSON array of enabled feature keys for management role)
-  mgmtFeaturePermissions: text("mgmt_feature_permissions").default('["alerts","server_monitoring","did_management","test_call","graphs","bitseye","reports","cdr_viewer","balance_monitor","fraud_fas","clients","tools","call_flow_simulator","lcr_analyser","vendor_sla"]'),
+  mgmtFeaturePermissions: text("mgmt_feature_permissions").default('["alerts","server_monitoring","did_management","test_call","graphs","bitseye","reports","cdr_viewer","balance_monitor","fraud_fas","clients","tools","call_flow_simulator","lcr_analyser","vendor_sla","account_management"]'),
   // WhatsApp Push Alerts
   whatsappEnabled:     boolean("whatsapp_enabled").default(false),
   whatsappProvider:    varchar("whatsapp_provider",     { length: 20 }).default('callmebot'), // callmebot | ultramsg
@@ -479,6 +479,10 @@ export const MGMT_CONFIGURABLE_FEATURES = [
   { key: 'client_portal',      label: 'Client Portal',              route: '/client-portal'          },
   { key: 'company_profile',    label: 'Rate Plan',                  route: '/company-profile'        },
   { key: 'chat',               label: 'Team Chat',                  route: '/chat'                   },
+  // Account Management
+  { key: 'account_management', label: 'Account Management — Company List',    route: '/company/list'   },
+  { key: 'account_management', label: 'Account Management — Create Company',  route: '/company/create' },
+  { key: 'account_management', label: 'Account Management — New Client Wizard', route: '/client/wizard' },
 ] as const;
 
 export type MgmtFeatureKey = typeof MGMT_CONFIGURABLE_FEATURES[number]['key'];

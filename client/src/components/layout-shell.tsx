@@ -300,6 +300,7 @@ const DEFAULT_GROUP_ORDER = SIDEBAR_GROUPS.map(g => g.key);
 const GROUP_TINT: Record<string, string> = {
   live_ops:        'text-emerald-400',
   client_ops:      'text-amber-400',
+  account_mgmt:    'text-amber-300',
   vendor_ops:      'text-cyan-400',
   routing:         'text-blue-400',
   analytics:       'text-violet-400',
@@ -313,6 +314,7 @@ const GROUP_TINT: Record<string, string> = {
 const GROUP_DOT_BG: Record<string, string> = {
   live_ops:        'bg-emerald-400',
   client_ops:      'bg-amber-400',
+  account_mgmt:    'bg-amber-300',
   vendor_ops:      'bg-cyan-400',
   routing:         'bg-blue-400',
   analytics:       'bg-violet-400',
