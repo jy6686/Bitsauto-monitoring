@@ -5685,11 +5685,13 @@ export async function pushAccountToSippy(
                 const retAuthname    = extractValue(probeText, 'authname');
                 const retWebPassword = extractValue(probeText, 'web_password');
                 const retVoipPass    = extractValue(probeText, 'voip_password');
-                const retIAccount    = extractValue(probeText, 'i_account');
+                const retIAccountStr = extractValue(probeText, 'i_account');
+                const retIAccount    = retIAccountStr ? parseInt(retIAccountStr, 10) : undefined;
                 return {
                   success: true,
                   message: `Account "${opts.name}" created on Sippy (billing plan auto-probed: ID ${probeId}).${retIAccount ? ` (ID: ${retIAccount})` : ''}`,
                   method,
+                  i_account:     retIAccount,
                   username:      retUsername,
                   authname:      retAuthname,
                   web_password:  retWebPassword,

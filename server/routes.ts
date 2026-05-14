@@ -17780,8 +17780,21 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         cc: step1.notifEmailCc || undefined,
         currency: 'USD',
       }, { username, password }, portalUrl);
-      if (!result?.iAccount) throw new Error('Sippy did not return an account ID');
-      const iAccount = result.iAccount;
+      let iAccount: number | undefined = result?.i_account;
+      // Fallback: if account was created (e.g. via portal) but no ID returned, look it up by username
+      if (!iAccount && result?.success) {
+        console.log(`[Provision] No i_account in response — looking up account by username: ${step1.userId}`);
+        const lookupResult = await listSippyAccounts(username, password, { iCustomer: iCustomer ?? 1 }, portalUrl);
+        const match = lookupResult.accounts.find((a: any) =>
+          a.username?.toLowerCase() === step1.userId?.toLowerCase() ||
+          a.id?.toString() === step1.userId
+        );
+        if (match) {
+          iAccount = match.iAccount;
+          console.log(`[Provision] Found account ID via lookup: ${iAccount}`);
+        }
+      }
+      if (!iAccount) throw new Error('Sippy did not return an account ID and lookup by username failed. The account may have been created — check Sippy portal.');
       const authErrors: string[] = [];
       for (const ipReq of approvedIps) {
         try {
