@@ -17662,7 +17662,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   app.get('/api/client-ip-requests', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
     try {
       const rows = await storage.getClientIpRequests();
-      res.json({ requests: rows });
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : null;
+      const filtered = companyId ? rows.filter((r: any) => r.companyId === companyId) : rows;
+      res.json({ requests: filtered });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
