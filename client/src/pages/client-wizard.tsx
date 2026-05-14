@@ -86,6 +86,10 @@ export default function ClientWizardPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/client-ip-requests"] });
       toast({ title: "IP registered successfully" });
     },
+    onError: (e: any) => {
+      const msg = e?.message || String(e) || "Failed to register IP";
+      toast({ title: "IP registration failed", description: msg, variant: "destructive" });
+    },
   });
 
   const createClientMutation = useMutation({
@@ -444,7 +448,20 @@ export default function ClientWizardPage() {
                     <div className="flex items-end gap-1">
                       <Button data-testid={`btn-submit-ip-${idx}`} size="sm" variant="outline" className="h-7 text-xs gap-1"
                         disabled={!ip.ip.trim() || submitIpMutation.isPending}
-                        onClick={() => submitIpMutation.mutate({ clientName: selectedCompany?.name || s1.userId, companyId: s1.companyId || null, ipAddress: ip.ip, trunk: ip.trunk, description: ip.description, submittedBy: "current_user" })}>
+                        onClick={() => {
+                          const clientName = selectedCompany?.name || s1.userId || "";
+                          if (!clientName.trim()) {
+                            toast({ title: "Select a company first before registering an IP", variant: "destructive" });
+                            return;
+                          }
+                          submitIpMutation.mutate({
+                            clientName,
+                            companyId: s1.companyId ? parseInt(s1.companyId, 10) : null,
+                            ipAddress: ip.ip.trim(),
+                            trunk: ip.trunk || null,
+                            description: ip.description || null,
+                          });
+                        }}>
                         <CheckCircle2 className="h-3 w-3" /> Register
                       </Button>
                       <Button data-testid={`btn-remove-ip-${idx}`} size="sm" variant="ghost" className="h-7 text-rose-400" onClick={() => setIps(p => p.filter((_,i) => i !== idx))} disabled={ips.length === 1}>
