@@ -17851,7 +17851,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
       if (!iAccount) {
         const createMsg = result?.message || 'unknown error';
-        throw new Error(`Could not provision account "${step1.userId}" on Sippy. Creation result: ${createMsg}. The account may not exist yet — check Sippy portal.`);
+        const createDetail = (result as any)?.detail || '';
+        console.error(`[Provision] createAccount failed — message: ${createMsg} | detail: ${createDetail}`);
+        throw new Error(`Could not provision account "${step1.userId}" on Sippy. Creation result: ${createMsg}${createDetail ? ` Detail: ${createDetail}` : ''}. The account may not exist yet — check Sippy portal.`);
       }
       const authErrors: string[] = [];
       for (const ipReq of approvedIps) {

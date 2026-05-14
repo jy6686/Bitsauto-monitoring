@@ -5748,7 +5748,7 @@ export async function pushAccountToSippy(
         if (resp.statusCode === 500) { lastFault = `Sippy server error (HTTP 500) — the switch returned an internal error. Check that the billing plan ID is valid, or create Service Plans in Sippy portal first.`; break; }
       }
     } catch (e: any) {
-      console.warn(`[Sippy] ${method} error:`, e.message);
+      console.error(`[Sippy] ${method} error: ${e.message}`);
       lastFault = e.message;
     }
   }
