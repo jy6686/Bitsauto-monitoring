@@ -17710,6 +17710,18 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // GET /api/download/account-management-impl-spec — Technical Implementation Spec (.docx)
+  app.get('/api/download/account-management-impl-spec', async (_req: any, res: any) => {
+    try {
+      const mdPath  = _pathJoin(process.cwd(), 'ACCOUNT_MANAGEMENT_IMPL_SPEC.md');
+      const outPath = _pathJoin(process.cwd(), 'attached_assets', 'Bitsauto_Account_Management_Impl_Spec.docx');
+      await convertMdToDocx(mdPath, outPath, 'Account Management Module — Technical Implementation Specification');
+      res.download(outPath, 'Bitsauto_Account_Management_Impl_Spec.docx', (err: any) => {
+        if (err && !res.headersSent) res.status(404).json({ error: 'Conversion failed' });
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/download/account-management-workflow — Account Management Workflow & Scripts (.docx)
   app.get('/api/download/account-management-workflow', async (_req: any, res: any) => {
     try {
