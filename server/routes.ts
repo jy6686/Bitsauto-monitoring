@@ -17786,7 +17786,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // 2. createAccount faults "already exists" (previous attempt), need to find existing account
       if (!iAccount) {
         console.log(`[Provision] No i_account in response (success=${result?.success}) — looking up account by username: ${step1.userId}`);
-        const lookupResult = await listSippyAccounts(username, password, {}, portalUrl);
+        const lookupResult = await sippy.listSippyAccounts(username, password, {}, portalUrl);
         const match = lookupResult.accounts.find((a: any) =>
           a.username?.toLowerCase() === step1.userId?.toLowerCase()
         );
@@ -17795,7 +17795,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           console.log(`[Provision] Found account ID via lookup: ${iAccount}`);
         } else {
           // Try scoped to iCustomer as a second attempt
-          const lookupResult2 = await listSippyAccounts(username, password, { iCustomer: iCustomer ?? 1 }, portalUrl);
+          const lookupResult2 = await sippy.listSippyAccounts(username, password, { iCustomer: iCustomer ?? 1 }, portalUrl);
           const match2 = lookupResult2.accounts.find((a: any) =>
             a.username?.toLowerCase() === step1.userId?.toLowerCase()
           );
