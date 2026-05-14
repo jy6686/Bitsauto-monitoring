@@ -17647,11 +17647,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         ipAddress: ipAddress.trim(),
         trunk: trunk || null,
         description: description || null,
-        status: 'pending',
+        status: 'approved',
         submittedBy: (req as any).user?.claims?.sub || null,
-        reviewedBy: null,
+        reviewedBy: (req as any).user?.claims?.sub || 'auto',
         rejectionReason: null,
-        reviewedAt: null,
+        reviewedAt: new Date(),
       });
       res.json({ request: row });
     } catch (e: any) { res.status(500).json({ message: e.message }); }

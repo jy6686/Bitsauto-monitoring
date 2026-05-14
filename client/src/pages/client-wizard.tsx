@@ -104,7 +104,7 @@ export default function ClientWizardPage() {
     mutationFn: (payload: any) => apiRequest("POST", "/api/client-ip-requests", payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/client-ip-requests"] });
-      toast({ title: "IP submitted for approval" });
+      toast({ title: "IP registered successfully" });
     },
   });
 
@@ -156,11 +156,6 @@ export default function ClientWizardPage() {
 
   const handleSubmit = () => {
     const validIps = ips.filter(ip => ip.ip.trim());
-    const pendingIpList = validIps.filter(ip => !approvedIps.includes(ip.ip));
-    if (pendingIpList.length > 0) {
-      toast({ title: "IPs pending approval — submit them for review first", variant: "destructive" });
-      return;
-    }
     createClientMutation.mutate({ step1: s1, step2: s2, trunks, ips: validIps, authRules, validRules, iCustomer: 1 });
   };
 
@@ -444,9 +439,9 @@ export default function ClientWizardPage() {
                     <Plus className="h-3 w-3" /> Add IP
                   </Button>
                 </div>
-                <div className="flex items-center gap-2 p-3 rounded-md border border-blue-500/30 bg-blue-500/5 text-blue-400 text-xs mb-3">
+                <div className="flex items-center gap-2 p-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 text-emerald-400 text-xs mb-3">
                   <Info className="h-3.5 w-3.5 shrink-0" />
-                  Each IP must be submitted for approval before authentication rules can be created. IPs show as Pending until approved.
+                  Add the client IP addresses below. Click Register to save each IP — no approval step required.
                 </div>
                 {ips.map((ip, idx) => (
                   <div key={idx} className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end mb-2">
@@ -469,7 +464,7 @@ export default function ClientWizardPage() {
                       <Button data-testid={`btn-submit-ip-${idx}`} size="sm" variant="outline" className="h-7 text-xs gap-1"
                         disabled={!ip.ip.trim() || submitIpMutation.isPending}
                         onClick={() => submitIpMutation.mutate({ clientName: selectedCompany?.name || s1.userId, companyId: s1.companyId || null, ipAddress: ip.ip, trunk: ip.trunk, description: ip.description, submittedBy: "current_user" })}>
-                        <Clock className="h-3 w-3" /> Submit
+                        <CheckCircle2 className="h-3 w-3" /> Register
                       </Button>
                       <Button data-testid={`btn-remove-ip-${idx}`} size="sm" variant="ghost" className="h-7 text-rose-400" onClick={() => setIps(p => p.filter((_,i) => i !== idx))} disabled={ips.length === 1}>
                         <Trash2 className="h-3 w-3" />
@@ -496,26 +491,13 @@ export default function ClientWizardPage() {
           {/* STEP 5 */}
           {step === 5 && (
             <div className="space-y-4">
-              {pendingIps.length > 0 && (
-                <div className="p-3 rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-400 text-xs space-y-1">
-                  <div className="flex items-center gap-1.5 font-medium"><Clock className="h-3.5 w-3.5" /> {pendingIps.length} IP(s) Pending Approval</div>
-                  {pendingIps.map((r, i) => (
-                    <div key={i} className="font-mono">{r.ipAddress} — {r.trunk} — awaiting review</div>
-                  ))}
-                  <div className="mt-1">Auth rules are locked until these IPs are approved. Check the <a href="/approvals" className="underline">Approval Queue</a>.</div>
-                </div>
-              )}
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium">Authentication Rules <span className="text-xs text-muted-foreground">(approved IPs only)</span></h3>
+                <h3 className="text-sm font-medium">Authentication Rules</h3>
                 <Button data-testid="btn-add-auth" size="sm" variant="outline" className="h-7 text-xs gap-1"
-                  disabled={approvedIps.length === 0}
                   onClick={() => setAuthRules(p => [...p, emptyAuth()])}>
                   <Plus className="h-3 w-3" /> Add Rule
                 </Button>
               </div>
-              {approvedIps.length === 0 && pendingIps.length === 0 && (
-                <p className="text-xs text-muted-foreground">No approved IPs yet. Submit IPs in Step 4 and wait for approval.</p>
-              )}
               {authRules.map((r, idx) => (
                 <div key={idx} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 items-end border border-border/30 rounded p-3">
                   <div className="space-y-1">
@@ -529,7 +511,10 @@ export default function ClientWizardPage() {
                     <Label className="text-[10px]">IP Address</Label>
                     <Select value={r.ip} onValueChange={v => setAuthRules(p => p.map((x,i) => i===idx ? {...x, ip:v} : x))}>
                       <SelectTrigger data-testid={`select-auth-ip-${idx}`} className="h-7 text-xs"><SelectValue placeholder="IP…" /></SelectTrigger>
-                      <SelectContent>{approvedIps.map(ip => <SelectItem key={ip} value={ip}>{ip}</SelectItem>)}</SelectContent>
+                      <SelectContent>
+                        {ips.filter(ip => ip.ip.trim()).map(ip => <SelectItem key={ip.ip} value={ip.ip}>{ip.ip}</SelectItem>)}
+                        {ips.filter(ip => ip.ip.trim()).length === 0 && <SelectItem value="_none" disabled>No IPs entered in Step 4</SelectItem>}
+                      </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1">
