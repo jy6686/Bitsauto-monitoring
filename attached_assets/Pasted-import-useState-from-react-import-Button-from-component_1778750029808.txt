@@ -1,0 +1,154 @@
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+
+export default function BitsAutoWizard() {
+  const [step, setStep] = useState(1);
+
+  const next = () => setStep((s) => Math.min(s + 1, 5));
+  const back = () => setStep((s) => Math.max(s - 1, 1));
+
+  return (
+    <div className="min-h-screen bg-gray-100 p-6">
+      <div className="max-w-5xl mx-auto">
+
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold">BitsAuto Platform Wizard</h1>
+          <div className="text-sm text-gray-500">Step {step} / 5</div>
+        </div>
+
+        {/* Step Navigation */}
+        <div className="flex gap-2 mb-6">
+          {[1,2,3,4,5].map((s) => (
+            <div
+              key={s}
+              className={`flex-1 h-2 rounded-full ${step >= s ? "bg-blue-600" : "bg-gray-300"}`}
+            />
+          ))}
+        </div>
+
+        {/* Step Content */}
+        <Card className="shadow-lg">
+          <CardContent className="p-6">
+
+            {/* STEP 1 */}
+            {step === 1 && (
+              <div>
+                <h2 className="text-xl font-semibold mb-4">System Overview</h2>
+                <p className="text-gray-600">
+                  This wizard helps you preview BitsAuto legacy system structure and modules.
+                </p>
+                <ul className="mt-4 list-disc pl-5 text-sm">
+                  <li>Company / Vendor / Client modules</li>
+                  <li>Finance & Billing system</li>
+                  <li>Routing & Rate management</li>
+                  <li>Legacy jQuery + Semantic UI system</li>
+                </ul>
+              </div>
+            )}
+
+            {/* STEP 2 */}
+            {step === 2 && (
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Sidebar Structure Preview</h2>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="p-3 bg-gray-50 rounded">
+                    <strong>Core Ops</strong>
+                    <ul className="mt-2 list-disc pl-5">
+                      <li>Company</li>
+                      <li>Vendor</li>
+                      <li>Client</li>
+                      <li>Reseller</li>
+                    </ul>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <strong>Finance</strong>
+                    <ul className="mt-2 list-disc pl-5">
+                      <li>Invoices</li>
+                      <li>Payments</li>
+                      <li>Disputes</li>
+                      <li>Reconciliation</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 3 */}
+            {step === 3 && (
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Modal System Preview</h2>
+                <p className="text-sm text-gray-600">
+                  Legacy system uses AJAX-loaded modals (.bodal pattern).
+                </p>
+                <div className="mt-4 p-4 border rounded bg-white">
+                  <div className="text-sm font-medium">Example Modal Flow</div>
+                  <ol className="list-decimal pl-5 mt-2 text-sm">
+                    <li>User clicks action</li>
+                    <li>AJAX request triggered</li>
+                    <li>HTML injected into modal</li>
+                    <li>Loader hidden after response</li>
+                  </ol>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 4 */}
+            {step === 4 && (
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Filter & UI Controls</h2>
+                <div className="grid gap-3 text-sm">
+                  <div className="p-3 bg-gray-50 rounded">
+                    <strong>Search Filters</strong>
+                    <p>GET-based filtering using forms</p>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <strong>Multiple Select</strong>
+                    <p>jQuery multipleSelect plugin</p>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <strong>Datetime</strong>
+                    <p>Bootstrap datetimepicker</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 5 */}
+            {step === 5 && (
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Modernization Output</h2>
+                <p className="text-sm text-gray-600">
+                  Suggested upgrade path for Replit migration:
+                </p>
+                <ul className="mt-3 list-disc pl-5 text-sm">
+                  <li>Replace jQuery with React components</li>
+                  <li>Convert menu into role-based sidebar</li>
+                  <li>Replace modals with unified dialog system</li>
+                  <li>API-first architecture (REST/GraphQL)</li>
+                  <li>Split Finance / Routing / Ops dashboards</li>
+                </ul>
+                <div className="mt-4 p-3 bg-green-50 rounded text-sm">
+                  Ready for Replit deployment scaffold
+                </div>
+              </div>
+            )}
+
+          </CardContent>
+        </Card>
+
+        {/* Controls */}
+        <div className="flex justify-between mt-6">
+          <Button onClick={back} disabled={step === 1} variant="outline">
+            Back
+          </Button>
+          <Button onClick={next} disabled={step === 5}>
+            Next
+          </Button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
