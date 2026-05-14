@@ -1,0 +1,182 @@
+This indicates a mapping inconsistency between the BitsAuto company/client naming layer and the actual Sippy provisioning payload.
+Based on your architecture discussions, this is most likely what happened:
+
+🔍 What Probably Happened
+In BitsAuto
+You created:
+Company Name = Internal-PTCL
+But during Sippy provisioning, the system likely used:
+clientNameORusernameORshort_codeORdisplay_name
+instead of the actual company name field.
+So Sippy received:
+PTCL
+instead of:
+Internal-PTCL
+
+⚠️ Why This Matters
+This creates a dangerous operational mismatch:
+ComponentNameCompany in BitsAutoInternal-PTCLSippy AccountPTCLTariffMissingService PlanMissing
+This breaks:
+
+
+audit consistency
+
+
+provisioning traceability
+
+
+routing visibility
+
+
+troubleshooting
+
+
+billing correlation
+
+
+
+🚨 Bigger Issue Hidden Here
+You also confirmed:
+
+neither tariff nor service plan was created
+
+That means:
+Current provisioning is only partially creating:
+✔ Sippy account
+❌ tariff
+❌ billing plan/service plan
+❌ full provisioning objects
+So your current wizard is NOT doing “complete client provisioning.”
+It is only:
+createAccount()
+without:
+
+
+tariff creation
+
+
+service plan binding
+
+
+auth provisioning
+
+
+product association
+
+
+
+🧠 What This Reveals About Current System
+Current implementation is likely:
+pushAccountToSippy({   username: company.shortCode || clientName})
+instead of:
+pushFullProvisioning({   account_name: company.name,   tariff_name: company.name,   service_plan: generated_plan,   auth_rules: ...})
+
+✅ Correct Architecture Going Forward
+Your new Provision Engine should create ALL objects consistently:
+
+🔧 REQUIRED OBJECT CREATION FLOW
+1. Create Tariff
+Example:
+Internal-PTCL-TARIFF
+
+2. Create Service Plan
+Example:
+Internal-PTCL-PLAN
+
+3. Create Sippy Account
+Example:
+Internal-PTCL
+Linked to:
+
+
+tariff
+
+
+service plan
+
+
+routing group
+
+
+
+4. Push Auth Rules
+Only approved IPs.
+
+💡 Recommended Naming Convention
+To avoid future collisions:
+ObjectSuggested FormatCompanyInternal-PTCLTariffInternal-PTCL-TARIFFService PlanInternal-PTCL-SPSippy Usernameinternal_ptclRouting LabelInternal-PTCL
+
+⚠️ Important Migration Action
+Before implementing the new architecture:
+You should audit:
+
+
+existing Sippy accounts
+
+
+mismatched names
+
+
+orphan accounts
+
+
+missing tariffs/plans
+
+
+Because right now you may already have:
+
+
+Sippy accounts without billing plans
+
+
+inconsistent naming
+
+
+half-created customers
+
+
+
+✅ Recommended Immediate Fix
+For this PTCL case:
+Verify in Sippy:
+
+
+does account “PTCL” exist?
+
+
+does tariff exist?
+
+
+does billing/service plan exist?
+
+
+any auth rules attached?
+
+
+
+Then either:
+Option A (cleaner)
+Delete orphan “PTCL” account and recreate properly later with Provision Engine
+OR
+Option B
+Rename/migrate account mapping carefully if live traffic already exists
+
+🧠 Final Assessment
+This actually validates your new architecture decision.
+Because it proves:
+
+
+current wizard provisioning is incomplete
+
+
+naming logic is inconsistent
+
+
+Sippy object lifecycle is fragmented
+
+
+The new:
+
+“DB first → approval → provision engine”
+
+design is the correct long-term fix.
