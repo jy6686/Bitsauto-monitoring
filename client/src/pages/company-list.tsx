@@ -6,10 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import {
   Building2, Plus, Search, Pencil, Trash2, Users, Globe, CreditCard,
-  Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle
+  Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle, PlusCircle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Company } from "@shared/schema";
@@ -40,12 +39,28 @@ interface IpRequest {
 function ProvisioningPanel({ company }: { company: Company }) {
   const { toast } = useToast();
   const companyAny = company as any;
+  const hasWizardDraft = !!companyAny.wizardDraft;
+
+  const [showAddIp, setShowAddIp] = useState(false);
+  const [newIp, setNewIp] = useState("");
+  const [newTrunk, setNewTrunk] = useState("");
 
   const { data: ipData, isLoading: ipsLoading } = useQuery<{ requests: IpRequest[] }>({
     queryKey: ["/api/client-ip-requests", company.id],
     queryFn: () => fetch(`/api/client-ip-requests?companyId=${company.id}`, { credentials: "include" }).then(r => r.json()),
-    enabled: companyAny.provisioningStatus === "pending_provision",
     refetchInterval: false,
+  });
+
+  const addIpMutation = useMutation({
+    mutationFn: (payload: any) => apiRequest("POST", "/api/client-ip-requests", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/client-ip-requests", company.id] });
+      setNewIp("");
+      setNewTrunk("");
+      setShowAddIp(false);
+      toast({ title: "IP submitted for approval" });
+    },
+    onError: (e: any) => toast({ title: "Failed to add IP", description: e.message, variant: "destructive" }),
   });
 
   const approveMutation = useMutation({
@@ -75,11 +90,22 @@ function ProvisioningPanel({ company }: { company: Company }) {
     onError: (e: any) => toast({ title: "Provisioning failed", description: e.message, variant: "destructive" }),
   });
 
+  const handleAddIp = () => {
+    const ip = newIp.trim();
+    if (!ip) return;
+    addIpMutation.mutate({
+      clientName: company.name,
+      companyId: company.id,
+      ipAddress: ip,
+      trunk: newTrunk.trim() || null,
+    });
+  };
+
   const allRequests = ipData?.requests ?? [];
   const pendingIps = allRequests.filter(r => r.status === "pending");
   const approvedIps = allRequests.filter(r => r.status === "approved");
   const rejectedIps = allRequests.filter(r => r.status === "rejected");
-  const canProvision = pendingIps.length === 0 && approvedIps.length > 0;
+  const canProvision = hasWizardDraft && pendingIps.length === 0 && approvedIps.length > 0;
 
   if (ipsLoading) {
     return (
@@ -91,14 +117,58 @@ function ProvisioningPanel({ company }: { company: Company }) {
 
   return (
     <div className="mt-2 pt-2 border-t border-border/40 space-y-2">
-      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-        IP Approval ({approvedIps.length} approved · {pendingIps.length} pending{rejectedIps.length > 0 ? ` · ${rejectedIps.length} rejected` : ""})
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+          IP Approval ({approvedIps.length} approved · {pendingIps.length} pending{rejectedIps.length > 0 ? ` · ${rejectedIps.length} rejected` : ""})
+        </p>
+        <button
+          data-testid={`btn-add-ip-toggle-${company.id}`}
+          onClick={() => setShowAddIp(v => !v)}
+          className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+        >
+          <PlusCircle className="h-3 w-3" /> Add IP
+        </button>
+      </div>
 
-      {allRequests.length === 0 && (
+      {showAddIp && (
+        <div className="flex gap-1.5 items-center border border-blue-500/20 bg-blue-500/5 rounded px-2 py-1.5">
+          <Input
+            data-testid={`input-new-ip-${company.id}`}
+            placeholder="IP address (e.g. 1.2.3.4)"
+            className="h-6 text-xs font-mono flex-1 border-blue-500/30 bg-transparent focus:border-blue-400"
+            value={newIp}
+            onChange={e => setNewIp(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleAddIp()}
+          />
+          <Input
+            data-testid={`input-new-trunk-${company.id}`}
+            placeholder="Trunk (opt)"
+            className="h-6 text-xs w-24 border-blue-500/30 bg-transparent focus:border-blue-400"
+            value={newTrunk}
+            onChange={e => setNewTrunk(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleAddIp()}
+          />
+          <button
+            data-testid={`btn-submit-ip-${company.id}`}
+            onClick={handleAddIp}
+            disabled={addIpMutation.isPending || !newIp.trim()}
+            className="flex items-center gap-1 text-[10px] text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/10 rounded px-1.5 py-1 transition-colors disabled:opacity-40"
+          >
+            {addIpMutation.isPending ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />} Submit
+          </button>
+          <button
+            onClick={() => { setShowAddIp(false); setNewIp(""); setNewTrunk(""); }}
+            className="text-[10px] text-muted-foreground hover:text-foreground px-1"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {allRequests.length === 0 && !showAddIp && (
         <div className="flex items-center gap-1.5 text-xs text-rose-400 bg-rose-500/5 border border-rose-500/20 rounded px-2 py-1.5">
           <AlertTriangle className="h-3 w-3 shrink-0" />
-          No IP requests found for this company.
+          No IP requests yet. Click "Add IP" to submit one.
         </div>
       )}
 
@@ -152,6 +222,13 @@ function ProvisioningPanel({ company }: { company: Company }) {
         </p>
       )}
 
+      {!hasWizardDraft && (
+        <p className="text-[10px] text-blue-400 flex items-center gap-1 bg-blue-500/5 border border-blue-500/20 rounded px-2 py-1.5">
+          <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+          Complete the Client Wizard to enable provisioning.
+        </p>
+      )}
+
       {canProvision ? (
         <Button
           data-testid={`btn-provision-company-${company.id}`}
@@ -179,6 +256,7 @@ function ProvisioningPanel({ company }: { company: Company }) {
           <Zap className="h-3 w-3" />
           Provision to Sippy
           {pendingIps.length > 0 && <Badge variant="outline" className="ml-1 text-[9px] text-amber-400 border-amber-500/30">{pendingIps.length} pending</Badge>}
+          {!hasWizardDraft && <Badge variant="outline" className="ml-1 text-[9px] text-blue-400 border-blue-500/30">wizard required</Badge>}
         </Button>
       )}
     </div>
@@ -262,6 +340,9 @@ export default function CompanyListPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {companies.map(c => {
             const provStatus = (c as any).provisioningStatus;
+            const isProvisioned = provStatus === "provisioned";
+            const isSuspended = provStatus === "suspended";
+            const showPanel = !isProvisioned && !isSuspended;
             return (
               <Card
                 key={c.id}
@@ -269,7 +350,7 @@ export default function CompanyListPage() {
                 className={`transition-colors ${
                   provStatus === "pending_provision"
                     ? "border-amber-500/30 hover:border-amber-500/50"
-                    : provStatus === "provisioned"
+                    : isProvisioned
                     ? "border-emerald-500/20 hover:border-emerald-500/40"
                     : "hover:border-border/80"
                 }`}
@@ -289,7 +370,7 @@ export default function CompanyListPage() {
                           <Clock className="h-2.5 w-2.5 mr-1" />awaiting provision
                         </Badge>
                       )}
-                      {provStatus === "provisioned" && (
+                      {isProvisioned && (
                         <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
                           <Zap className="h-2.5 w-2.5 mr-1" />provisioned
                         </Badge>
@@ -327,45 +408,24 @@ export default function CompanyListPage() {
                     )}
                   </div>
 
-                  {provStatus === "pending_provision" && <ProvisioningPanel company={c} />}
+                  {showPanel && <ProvisioningPanel company={c} />}
 
-                  {provStatus !== "pending_provision" && (
-                    <div className="flex items-center gap-2 pt-1">
-                      <Link href={`/company/edit/${c.id}`}>
-                        <Button data-testid={`btn-edit-company-${c.id}`} size="sm" variant="outline" className="h-7 text-xs gap-1">
-                          <Pencil className="h-3 w-3" /> Edit
-                        </Button>
-                      </Link>
-                      <Button
-                        data-testid={`btn-delete-company-${c.id}`}
-                        size="sm" variant="ghost"
-                        className="h-7 text-xs gap-1 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
-                        onClick={() => { if (confirm(`Delete "${c.name}"?`)) deleteMutation.mutate(c.id); }}
-                        disabled={deleteMutation.isPending}
-                      >
-                        <Trash2 className="h-3 w-3" /> Delete
+                  <div className="flex items-center gap-2 pt-1">
+                    <Link href={`/company/edit/${c.id}`}>
+                      <Button data-testid={`btn-edit-company-${c.id}`} size="sm" variant="outline" className="h-7 text-xs gap-1">
+                        <Pencil className="h-3 w-3" /> Edit
                       </Button>
-                    </div>
-                  )}
-
-                  {provStatus === "pending_provision" && (
-                    <div className="flex items-center gap-2 pt-1">
-                      <Link href={`/company/edit/${c.id}`}>
-                        <Button data-testid={`btn-edit-company-${c.id}`} size="sm" variant="ghost" className="h-7 text-xs gap-1 text-muted-foreground">
-                          <Pencil className="h-3 w-3" /> Edit
-                        </Button>
-                      </Link>
-                      <Button
-                        data-testid={`btn-delete-company-${c.id}`}
-                        size="sm" variant="ghost"
-                        className="h-7 text-xs gap-1 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
-                        onClick={() => { if (confirm(`Delete "${c.name}"?`)) deleteMutation.mutate(c.id); }}
-                        disabled={deleteMutation.isPending}
-                      >
-                        <Trash2 className="h-3 w-3" /> Delete
-                      </Button>
-                    </div>
-                  )}
+                    </Link>
+                    <Button
+                      data-testid={`btn-delete-company-${c.id}`}
+                      size="sm" variant="ghost"
+                      className="h-7 text-xs gap-1 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                      onClick={() => { if (confirm(`Delete "${c.name}"?`)) deleteMutation.mutate(c.id); }}
+                      disabled={deleteMutation.isPending}
+                    >
+                      <Trash2 className="h-3 w-3" /> Delete
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             );
