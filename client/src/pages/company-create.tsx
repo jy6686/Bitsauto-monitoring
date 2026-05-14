@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
+import { useLocation, useParams } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Building2, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2, AlertCircle } from "lucide-react";
+import { Building2, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const STEPS = [
@@ -34,31 +33,79 @@ interface BankAccount { bankName: string; accountTitle: string; accountNo: strin
 const emptyContact = (): Contact => ({ firstName:"", lastName:"", email:"", phone:"", fax:"" });
 const emptyBank = (): BankAccount => ({ bankName:"", accountTitle:"", accountNo:"", iban:"", swiftCode:"", currency:"USD", country:"", address:"", remarks:"" });
 
+const defaultBasic = () => ({
+  name:"", shortCode:"", country:"", kam:"", status:"active",
+  companyType:"retail", contractType:"bilateral", department:"retail",
+  team:"", clientTimezone:"", vendorTimezone:"", currency:"USD",
+});
+const defaultBilling = () => ({
+  vendorBillingCycle:"weekly_cutoff", vendorGracePeriod:3, vendorCreditLimit:0, disputeOverPct:0,
+  clientBillingCycle:"weekly_cutoff", clientGracePeriod:3, clientCreditLimit:0, disputeOverVal:0,
+  paymentTerm:"prepaid", legalNameCi:"", legalNameVen:"", invoiceEmail:"",
+});
+const defaultContacts = () => ({
+  technical:[emptyContact()], finance:[emptyContact()], commercial:[emptyContact()], billing:[emptyContact()],
+});
+
 export default function CompanyCreatePage() {
   const [, navigate] = useLocation();
+  const params = useParams<{ id?: string }>();
+  const companyId = params.id ? parseInt(params.id, 10) : null;
+  const isEdit = !!companyId;
   const { toast } = useToast();
   const [step, setStep] = useState(1);
   const [errors, setErrors] = useState<Record<string,string>>({});
+  const [populated, setPopulated] = useState(false);
 
-  const [basic, setBasic] = useState({
-    name:"", shortCode:"", country:"", kam:"", status:"active",
-    companyType:"retail", contractType:"bilateral", department:"retail",
-    team:"", clientTimezone:"", vendorTimezone:"", currency:"USD",
-  });
-  const [billing, setBilling] = useState({
-    vendorBillingCycle:"weekly_cutoff", vendorGracePeriod:3, vendorCreditLimit:0, disputeOverPct:0,
-    clientBillingCycle:"weekly_cutoff", clientGracePeriod:3, clientCreditLimit:0, disputeOverVal:0,
-    paymentTerm:"prepaid", legalNameCi:"", legalNameVen:"", invoiceEmail:"",
-  });
-  const [contacts, setContacts] = useState<Record<string,Contact[]>>({
-    technical:[emptyContact()], finance:[emptyContact()], commercial:[emptyContact()], billing:[emptyContact()],
-  });
+  const [basic, setBasic] = useState(defaultBasic());
+  const [billing, setBilling] = useState(defaultBilling());
+  const [contacts, setContacts] = useState<Record<string,Contact[]>>(defaultContacts());
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
 
   const { data: usersData } = useQuery<{ users: { username: string; displayName?: string }[] }>({
     queryKey: ["/api/users"],
     retry: false,
   });
+
+  const { data: existingData, isLoading: loadingExisting } = useQuery<{ companies: any[] }>({
+    queryKey: ["/api/companies"],
+    enabled: isEdit,
+  });
+
+  useEffect(() => {
+    if (!isEdit || populated || !existingData) return;
+    const co = existingData.companies?.find((c: any) => c.id === companyId);
+    if (!co) return;
+    setBasic({
+      name: co.name ?? "",
+      shortCode: co.shortCode ?? "",
+      country: co.country ?? "",
+      kam: co.kam ?? "",
+      status: co.status ?? "active",
+      companyType: co.companyType ?? "retail",
+      contractType: co.contractType ?? "bilateral",
+      department: co.department ?? "retail",
+      team: co.team ?? "",
+      clientTimezone: co.clientTimezone ?? "",
+      vendorTimezone: co.vendorTimezone ?? "",
+      currency: co.currency ?? "USD",
+    });
+    setBilling({
+      vendorBillingCycle: co.vendorBillingCycle ?? "weekly_cutoff",
+      vendorGracePeriod: co.vendorGracePeriod ?? 3,
+      vendorCreditLimit: co.vendorCreditLimit ?? 0,
+      disputeOverPct: co.disputeOverPct ?? 0,
+      clientBillingCycle: co.clientBillingCycle ?? "weekly_cutoff",
+      clientGracePeriod: co.clientGracePeriod ?? 3,
+      clientCreditLimit: co.clientCreditLimit ?? 0,
+      disputeOverVal: co.disputeOverVal ?? 0,
+      paymentTerm: co.paymentTerm ?? "prepaid",
+      legalNameCi: co.legalNameCi ?? "",
+      legalNameVen: co.legalNameVen ?? "",
+      invoiceEmail: co.invoiceEmail ?? "",
+    });
+    setPopulated(true);
+  }, [isEdit, existingData, companyId, populated]);
 
   const createMutation = useMutation({
     mutationFn: (payload: any) => apiRequest("POST", "/api/companies", payload),
@@ -69,6 +116,18 @@ export default function CompanyCreatePage() {
     },
     onError: (e: any) => toast({ title: e.message || "Failed to create company", variant: "destructive" }),
   });
+
+  const updateMutation = useMutation({
+    mutationFn: (payload: any) => apiRequest("PATCH", `/api/companies/${companyId}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: "Company updated successfully" });
+      navigate("/company/list");
+    },
+    onError: (e: any) => toast({ title: e.message || "Failed to update company", variant: "destructive" }),
+  });
+
+  const isPending = createMutation.isPending || updateMutation.isPending;
 
   const setB = (k: string, v: any) => setBasic(p => ({ ...p, [k]: v }));
   const setBl = (k: string, v: any) => setBilling(p => ({ ...p, [k]: v }));
@@ -97,7 +156,12 @@ export default function CompanyCreatePage() {
     const pocContacts = Object.entries(contacts).flatMap(([type, list]) =>
       list.filter(c => c.firstName || c.email).map(c => ({ contactType: type, ...c }))
     );
-    createMutation.mutate({ basic, billing, contacts: pocContacts, bankAccounts });
+    const payload = { basic, billing, contacts: pocContacts, bankAccounts };
+    if (isEdit) {
+      updateMutation.mutate(payload);
+    } else {
+      createMutation.mutate(payload);
+    }
   };
 
   const field = (label: string, key: string, value: string, onChange: (v: string) => void, required = false, type = "text") => (
@@ -128,11 +192,20 @@ export default function CompanyCreatePage() {
     </div>
   );
 
+  if (isEdit && loadingExisting && !populated) {
+    return (
+      <div className="p-6 flex items-center justify-center gap-2 text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading company…
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-2">
         <Building2 className="h-5 w-5 text-blue-400" />
-        <h1 className="text-xl font-semibold">Create New Company</h1>
+        <h1 className="text-xl font-semibold">{isEdit ? "Edit Company" : "Create New Company"}</h1>
+        {isEdit && <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-500/30 bg-blue-500/10">Editing #{companyId}</Badge>}
       </div>
 
       <div className="flex items-center gap-2">
@@ -283,8 +356,8 @@ export default function CompanyCreatePage() {
             Next <ChevronRight className="h-4 w-4" />
           </Button>
         ) : (
-          <Button data-testid="btn-wizard-submit" onClick={handleSubmit} disabled={createMutation.isPending} className="gap-1.5">
-            {createMutation.isPending ? "Creating…" : "Create Company"}
+          <Button data-testid="btn-wizard-submit" onClick={handleSubmit} disabled={isPending} className="gap-1.5">
+            {isPending ? <><Loader2 className="h-4 w-4 animate-spin" />{isEdit ? "Saving…" : "Creating…"}</> : isEdit ? "Save Changes" : "Create Company"}
           </Button>
         )}
       </div>
