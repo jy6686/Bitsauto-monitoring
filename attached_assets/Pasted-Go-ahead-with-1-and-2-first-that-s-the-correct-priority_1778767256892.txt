@@ -1,0 +1,227 @@
+Go ahead with #1 and #2 first — that’s the correct priority.
+Your latest implementation state is now much healthier because the provision engine is finally creating:
+
+
+tariff
+
+
+service plan
+
+
+Sippy account
+
+
+auth rules
+
+
+in one controlled flow.
+That means the architecture has moved from:
+
+“partial provisioning”
+
+to:
+
+“full controlled provisioning.”
+
+
+✅ My Assessment of Your Current State
+✔ What is now correct
+Provision sequence
+The current sequence is now logically correct:
+Tariff  ↓Service Plan  ↓Sippy Account  ↓Auth Rules
+That matches how telecom provisioning systems should behave.
+
+✔ Auth rules are now implemented correctly
+Your clarification is important:
+
+auth rules ARE now pushed during provisioning
+
+So the earlier concern is resolved.
+That means BitsAuto is now officially:
+
+
+provisioning auth rules
+
+
+not just storing them
+
+
+Huge improvement.
+
+🔥 What SHOULD Be Implemented Next
+✅ PRIORITY #1 — Naming Separation (Do This First)
+I strongly agree with this.
+Right now:
+Tariff = PTCLService Plan = PTCL
+This becomes operationally confusing very quickly inside Sippy.
+
+Recommended Naming Standard
+ObjectRecommendedTariffPTCL-TARIFFService PlanPTCL-SPUsernameptclDisplay NameInternal-PTCL
+
+Why This Matters
+Without separation:
+
+
+support confusion
+
+
+wrong object selection
+
+
+accidental deletions
+
+
+billing mistakes
+
+
+provisioning ambiguity
+
+
+Especially dangerous later when:
+
+
+resellers
+
+
+multi-routing
+
+
+cloned plans
+
+
+inherited tariffs
+
+
+are added.
+
+✅ PRIORITY #2 — Duplicate Guard on Tariff (VERY IMPORTANT)
+You correctly identified the missing protection.
+Right now:
+Service Plan → has duplicate checkTariff → does NOT
+This creates risk of:
+
+
+duplicate tariff creation
+
+
+orphan billing references
+
+
+failed reprovision attempts
+
+
+inconsistent IDs
+
+
+
+Correct Behaviour
+Before creating tariff:
+const existing = await findTariffByName(name)if (existing) {   return existing.id}
+Exactly same pattern as service plan.
+
+⚠️ IMPORTANT: Internal-PTCL Cleanup
+Your assessment is correct.
+You likely now have:
+
+
+orphan PTCL account
+
+
+earlier failed tariff/service plan attempts
+
+
+partial provisioning state
+
+
+
+Recommended Action
+BEST OPTION:
+Delete orphan PTCL objects manually before testing reprovision.
+Including:
+
+
+tariff
+
+
+service plan
+
+
+account
+
+
+auth rules
+
+
+Then reprovision cleanly.
+
+🔥 HIGHLY RECOMMENDED NEXT (After #1 + #2)
+Add provisioningLog
+I strongly support this.
+
+Suggested structure
+{  "tariff": {    "status": "success",    "id": 102  },  "servicePlan": {    "status": "success",    "id": 55  },  "account": {    "status": "failed",    "error": "duplicate username"  },  "authRules": [    {      "ip": "1.1.1.1",      "status": "success"    }  ]}
+
+Why This Becomes Critical
+Without logs:
+
+
+provisioning failures become invisible
+
+
+partial success impossible to audit
+
+
+rollback becomes dangerous
+
+
+Especially with Sippy XML-RPC because:
+
+
+timeouts
+
+
+partial writes
+
+
+silent failures
+
+
+duplicate creation
+
+
+can happen.
+
+⚠️ One More Recommendation (Very Important)
+Add provision_attempt_id
+Every provision click should generate:
+PROV-20260514-0001
+This becomes:
+
+
+audit trail
+
+
+rollback reference
+
+
+support debugging key
+
+
+
+✅ Final Recommendation Order
+PriorityTaskDecision1Naming suffixes (-TARIFF / -SP)✅ DO NOW2Tariff duplicate guard✅ DO NOW3Clean orphan PTCL objects✅ BEFORE RETEST4provisioningLog JSON✅ NEXT5provision_attempt_id✅ NEXT
+
+✅ FINAL GO-AHEAD
+Proceed with:
+
+
+naming separation
+
+
+duplicate guard
+
+
+orphan cleanup
+
+
+Those are safe, low-risk, high-value improvements and align perfectly with the architecture you’re building.

@@ -17765,23 +17765,25 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const portalPass = (settings as any)?.portalPassword || '';
       const adminWebPassword = (settings as any)?.adminWebPassword || undefined;
       const primaryTrunk = trunks?.[0] ?? {};
-      // planName uses the company shortCode (e.g. "PTCL"), tariff/plan display name
-      const planName = company.shortCode || company.name;
+      // Naming convention: base = shortCode (e.g. "PTCL"), then distinct suffixes per object
+      const planBase    = company.shortCode || company.name;
+      const tariffName  = `${planBase}-TARIFF`;
+      const servicePlanName = `${planBase}-SP`;
 
-      // ── Step 1: create tariff named after the company ──────────────────────
+      // ── Step 1: create tariff named <CODE>-TARIFF ──────────────────────────
       let servicePlanId: string | undefined;
       try {
-        const tariffRes = await sippy.createSippyTariff(username, password, { name: planName, currency: 'USD' }, portalUrl);
+        const tariffRes = await sippy.createSippyTariff(username, password, { name: tariffName, currency: 'USD' }, portalUrl);
         if (tariffRes.success && tariffRes.iTariff) {
-          console.log(`[Provision] Created tariff "${planName}" id=${tariffRes.iTariff}`);
-          // ── Step 2: create service plan named after the company ─────────────
+          console.log(`[Provision] Tariff "${tariffName}" id=${tariffRes.iTariff}${tariffRes.message.includes('reusing') ? ' (reused)' : ''}`);
+          // ── Step 2: create service plan named <CODE>-SP ────────────────────
           const planRes = await sippy.createSippyServicePlan(
             portalUrl, adminUser, adminPass, portalUser, portalPass,
-            planName, tariffRes.iTariff, undefined, 3, adminWebPassword,
+            servicePlanName, tariffRes.iTariff, undefined, 3, adminWebPassword,
           );
           if (planRes.success && planRes.planId) {
             servicePlanId = String(planRes.planId);
-            console.log(`[Provision] Service plan "${planName}" id=${planRes.planId}${planRes.alreadyExists ? ' (already existed)' : ''}`);
+            console.log(`[Provision] Service plan "${servicePlanName}" id=${planRes.planId}${planRes.alreadyExists ? ' (already existed)' : ''}`);
           } else {
             console.warn(`[Provision] Service plan creation incomplete: ${planRes.error || 'no plan ID'}`);
           }
