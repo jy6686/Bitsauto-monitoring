@@ -17781,20 +17781,34 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         currency: 'USD',
       }, { username, password }, portalUrl);
       let iAccount: number | undefined = result?.i_account;
-      // Fallback: if account was created (e.g. via portal) but no ID returned, look it up by username
-      if (!iAccount && result?.success) {
-        console.log(`[Provision] No i_account in response — looking up account by username: ${step1.userId}`);
-        const lookupResult = await listSippyAccounts(username, password, { iCustomer: iCustomer ?? 1 }, portalUrl);
+      // Always attempt username lookup when no i_account returned — covers:
+      // 1. Portal-path creates account but returns no ID
+      // 2. createAccount faults "already exists" (previous attempt), need to find existing account
+      if (!iAccount) {
+        console.log(`[Provision] No i_account in response (success=${result?.success}) — looking up account by username: ${step1.userId}`);
+        const lookupResult = await listSippyAccounts(username, password, {}, portalUrl);
         const match = lookupResult.accounts.find((a: any) =>
-          a.username?.toLowerCase() === step1.userId?.toLowerCase() ||
-          a.id?.toString() === step1.userId
+          a.username?.toLowerCase() === step1.userId?.toLowerCase()
         );
         if (match) {
           iAccount = match.iAccount;
           console.log(`[Provision] Found account ID via lookup: ${iAccount}`);
+        } else {
+          // Try scoped to iCustomer as a second attempt
+          const lookupResult2 = await listSippyAccounts(username, password, { iCustomer: iCustomer ?? 1 }, portalUrl);
+          const match2 = lookupResult2.accounts.find((a: any) =>
+            a.username?.toLowerCase() === step1.userId?.toLowerCase()
+          );
+          if (match2) {
+            iAccount = match2.iAccount;
+            console.log(`[Provision] Found account ID via scoped lookup (iCustomer=${iCustomer}): ${iAccount}`);
+          }
         }
       }
-      if (!iAccount) throw new Error('Sippy did not return an account ID and lookup by username failed. The account may have been created — check Sippy portal.');
+      if (!iAccount) {
+        const createMsg = result?.message || 'unknown error';
+        throw new Error(`Could not provision account "${step1.userId}" on Sippy. Creation result: ${createMsg}. The account may not exist yet — check Sippy portal.`);
+      }
       const authErrors: string[] = [];
       for (const ipReq of approvedIps) {
         try {
