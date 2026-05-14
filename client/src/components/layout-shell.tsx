@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus, UserPlus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -152,6 +152,17 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/bitseye",         label: "BitsEye",        icon: Eye,           roles: ['admin','management'], hasSubmenu: 'bitseye' },
       { href: "/traffic-map",     label: "Traffic Map",    icon: Globe,         roles: ['admin','management']                        },
       { href: "/dids",            label: "DID Management", icon: PhoneIncoming, roles: ['admin','management']                        },
+    ],
+  },
+  // ─── 2b. Account Management ──────────────────────────────────────────────────
+  {
+    key: 'account_mgmt',
+    label: 'Account Management',
+    roles: ['admin','management'],
+    items: [
+      { href: "/company/list",   label: "Companies",        icon: Building2, roles: ['admin','management'] },
+      { href: "/company/create", label: "Create Company",   icon: Plus,      roles: ['admin','management'] },
+      { href: "/client/wizard",  label: "New Client",       icon: UserPlus,  roles: ['admin','management'], isNew: true },
     ],
   },
   // ─── 3. Vendor Operations ────────────────────────────────────────────────────

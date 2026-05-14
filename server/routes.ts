@@ -17547,5 +17547,168 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── Account Management — Companies ───────────────────────────────────────────
+
+  app.get('/api/companies', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const rows = await storage.getCompanies();
+      res.json({ companies: rows });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post('/api/companies', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const { basic, billing, contacts = [], bankAccounts = [] } = req.body ?? {};
+      if (!basic?.name?.trim()) return res.status(400).json({ message: 'Company name is required' });
+      if (!basic?.shortCode?.trim()) return res.status(400).json({ message: 'Short code is required' });
+      const company = await storage.createCompany({
+        name: basic.name.trim(),
+        shortCode: basic.shortCode.trim().toUpperCase(),
+        country: basic.country || null,
+        kam: basic.kam || null,
+        status: basic.status || 'active',
+        companyType: basic.companyType || 'retail',
+        contractType: basic.contractType || 'bilateral',
+        department: basic.department || null,
+        team: basic.team || null,
+        clientTimezone: basic.clientTimezone || null,
+        vendorTimezone: basic.vendorTimezone || null,
+        currency: basic.currency || 'USD',
+        vendorBillingCycle: billing?.vendorBillingCycle || 'weekly_cutoff',
+        vendorGracePeriod: billing?.vendorGracePeriod ?? 3,
+        vendorCreditLimit: billing?.vendorCreditLimit ?? 0,
+        disputeOverPct: billing?.disputeOverPct ?? 0,
+        clientBillingCycle: billing?.clientBillingCycle || 'weekly_cutoff',
+        clientGracePeriod: billing?.clientGracePeriod ?? 3,
+        clientCreditLimit: billing?.clientCreditLimit ?? 0,
+        disputeOverVal: billing?.disputeOverVal ?? 0,
+        paymentTerm: billing?.paymentTerm || 'prepaid',
+        legalNameCi: billing?.legalNameCi || null,
+        legalNameVen: billing?.legalNameVen || null,
+        invoiceEmail: billing?.invoiceEmail || null,
+        notes: null,
+        createdBy: (req as any).user?.claims?.sub || null,
+      }, contacts, bankAccounts);
+      res.json({ company });
+    } catch (e: any) {
+      const msg = e.message || '';
+      if (msg.includes('unique') || msg.includes('duplicate')) return res.status(409).json({ message: 'Company name or short code already exists' });
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  app.get('/api/companies/:id', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+      const company = await storage.getCompany(id);
+      if (!company) return res.status(404).json({ message: 'Company not found' });
+      res.json({ company });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.put('/api/companies/:id', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+      const updated = await storage.updateCompany(id, req.body);
+      res.json({ company: updated });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete('/api/companies/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+      await storage.deleteCompany(id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Account Management — Client IP Approval Requests ─────────────────────────
+
+  app.get('/api/client-ip-requests', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const rows = await storage.getClientIpRequests();
+      res.json({ requests: rows });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post('/api/client-ip-requests', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const { clientName, companyId, ipAddress, trunk, description } = req.body ?? {};
+      if (!clientName?.trim()) return res.status(400).json({ message: 'Client name is required' });
+      if (!ipAddress?.trim()) return res.status(400).json({ message: 'IP address is required' });
+      const existing = await storage.findClientIpRequest(ipAddress.trim(), clientName.trim());
+      if (existing && existing.status === 'pending') return res.status(409).json({ message: 'IP already submitted and pending approval' });
+      const row = await storage.createClientIpRequest({
+        clientName: clientName.trim(),
+        companyId: companyId ? parseInt(companyId, 10) : null,
+        ipAddress: ipAddress.trim(),
+        trunk: trunk || null,
+        description: description || null,
+        status: 'pending',
+        submittedBy: (req as any).user?.claims?.sub || null,
+        reviewedBy: null,
+        rejectionReason: null,
+        reviewedAt: null,
+      });
+      res.json({ request: row });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch('/api/client-ip-requests/:id/approve', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const reviewer = (req as any).user?.claims?.sub || 'admin';
+      const updated = await storage.updateClientIpRequest(id, { status: 'approved', reviewedBy: reviewer, reviewedAt: new Date() });
+      res.json({ request: updated });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch('/api/client-ip-requests/:id/reject', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { reason } = req.body ?? {};
+      const reviewer = (req as any).user?.claims?.sub || 'admin';
+      const updated = await storage.updateClientIpRequest(id, { status: 'rejected', reviewedBy: reviewer, rejectionReason: reason || null, reviewedAt: new Date() });
+      res.json({ request: updated });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Account Management — Client Wizard Submit ─────────────────────────────────
+
+  app.post('/api/client-wizard/submit', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const { step1, step2, trunks, ips, authRules, validRules, iCustomer = 1 } = req.body ?? {};
+      if (!step1?.userId?.trim()) return res.status(400).json({ message: 'User ID is required' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings as any);
+      const portalUrl = sippyPortalUrl(settings as any);
+      const primaryTrunk = trunks?.[0] ?? {};
+      const result = await sippy.pushAccountToSippy({
+        name: step1.userId,
+        type: 'client',
+        username: step1.userId,
+        voipPassword: step1.password,
+        webPassword: step1.password,
+        iCustomer,
+        routingGroup: primaryTrunk.routingGroupId || undefined,
+        maxSessions: primaryTrunk.maxSessions ? parseInt(primaryTrunk.maxSessions, 10) : 0,
+        maxCallsPerSecond: primaryTrunk.maxCps ? parseFloat(primaryTrunk.maxCps) : undefined,
+        maxSessionTime: primaryTrunk.maxTime ? parseInt(primaryTrunk.maxTime, 10) : 3600,
+        preferredCodec: primaryTrunk.codec && primaryTrunk.codec !== 'none' ? parseInt(primaryTrunk.codec, 10) : null,
+        usePreferredCodecOnly: !!primaryTrunk.useCodecOnly,
+        disallowLoops: !!primaryTrunk.preventLoops,
+        regAllowed: primaryTrunk.allowRegistration !== false ? 1 : 0,
+        cldTranslationRule: primaryTrunk.cldTranslation || '',
+        email: step1.notifEmailTo || undefined,
+        cc: step1.notifEmailCc || undefined,
+        currency: 'USD',
+      }, { username, password }, portalUrl);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   return httpServer;
 }

@@ -105,6 +105,9 @@ import CallRecordingsPage from "@/pages/call-recordings";
 import PortalViewPage from "@/pages/portal-view";
 import SelfHealPage from "@/pages/self-heal";
 import SidebarSettingsPage from "@/pages/sidebar-settings";
+import CompanyListPage from "@/pages/company-list";
+import CompanyCreatePage from "@/pages/company-create";
+import ClientWizardPage from "@/pages/client-wizard";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -411,6 +414,20 @@ function Router() {
       <Route path="/sidebar-settings">
         {() => <ProtectedRoute component={SidebarSettingsPage} requiredRoles={['admin']} />}
       </Route>
+
+      <Route path="/company/list">
+        {() => <ProtectedRoute component={CompanyListPage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+      </Route>
+      <Route path="/company/create">
+        {() => <ProtectedRoute component={CompanyCreatePage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+      </Route>
+      <Route path="/company/edit/:id">
+        {() => <ProtectedRoute component={CompanyCreatePage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+      </Route>
+      <Route path="/client/wizard">
+        {() => <ProtectedRoute component={ClientWizardPage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+      </Route>
+
       <Route component={NotFound} />
     </Switch>
   );

@@ -1316,3 +1316,87 @@ export const portalAccessTokens = pgTable("portal_access_tokens", {
 export type PortalToken = typeof portalAccessTokens.$inferSelect;
 export type InsertPortalToken = typeof portalAccessTokens.$inferInsert;
 export const insertPortalTokenSchema = createInsertSchema(portalAccessTokens).omit({ id: true, createdAt: true });
+
+// ── Account Management — Companies ────────────────────────────────────────────
+export const companies = pgTable("companies", {
+  id:              serial("id").primaryKey(),
+  name:            varchar("name",       { length: 256 }).notNull().unique(),
+  shortCode:       varchar("short_code", { length: 32  }).notNull().unique(),
+  country:         varchar("country",    { length: 64  }),
+  kam:             varchar("kam",        { length: 128 }),
+  status:          varchar("status",     { length: 16  }).notNull().default('active'),
+  companyType:     varchar("company_type",{ length: 32 }).notNull().default('retail'),
+  contractType:    varchar("contract_type",{ length: 32}).notNull().default('bilateral'),
+  department:      varchar("department", { length: 64  }),
+  team:            varchar("team",       { length: 64  }),
+  clientTimezone:  varchar("client_timezone", { length: 64 }),
+  vendorTimezone:  varchar("vendor_timezone", { length: 64 }),
+  currency:        varchar("currency",   { length: 8   }).notNull().default('USD'),
+  vendorBillingCycle:  varchar("vendor_billing_cycle",  { length: 32 }).default('weekly_cutoff'),
+  vendorGracePeriod:   integer("vendor_grace_period").default(3),
+  vendorCreditLimit:   real("vendor_credit_limit").default(0),
+  disputeOverPct:      real("dispute_over_pct").default(0),
+  clientBillingCycle:  varchar("client_billing_cycle",  { length: 32 }).default('weekly_cutoff'),
+  clientGracePeriod:   integer("client_grace_period").default(3),
+  clientCreditLimit:   real("client_credit_limit").default(0),
+  disputeOverVal:      real("dispute_over_val").default(0),
+  paymentTerm:         varchar("payment_term", { length: 32 }).default('prepaid'),
+  legalNameCi:         varchar("legal_name_ci",  { length: 256 }),
+  legalNameVen:        varchar("legal_name_ven", { length: 256 }),
+  invoiceEmail:        varchar("invoice_email",  { length: 256 }),
+  notes:           text("notes"),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+  createdBy:       varchar("created_by", { length: 255 }),
+});
+export type Company = typeof companies.$inferSelect;
+export type InsertCompany = typeof companies.$inferInsert;
+export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true });
+
+export const companyContacts = pgTable("company_contacts", {
+  id:          serial("id").primaryKey(),
+  companyId:   integer("company_id").notNull(),
+  contactType: varchar("contact_type", { length: 32 }).notNull(),
+  firstName:   varchar("first_name",   { length: 128 }).notNull(),
+  lastName:    varchar("last_name",    { length: 128 }),
+  email:       varchar("email",        { length: 256 }).notNull(),
+  phone:       varchar("phone",        { length: 64  }),
+  fax:         varchar("fax",          { length: 64  }),
+});
+export type CompanyContact = typeof companyContacts.$inferSelect;
+export type InsertCompanyContact = typeof companyContacts.$inferInsert;
+
+export const companyBankAccounts = pgTable("company_bank_accounts", {
+  id:            serial("id").primaryKey(),
+  companyId:     integer("company_id").notNull(),
+  bankName:      varchar("bank_name",      { length: 256 }).notNull(),
+  accountTitle:  varchar("account_title",  { length: 256 }).notNull(),
+  accountNo:     varchar("account_no",     { length: 128 }).notNull(),
+  iban:          varchar("iban",           { length: 64  }),
+  swiftCode:     varchar("swift_code",     { length: 32  }).notNull(),
+  currency:      varchar("currency",       { length: 8   }).notNull().default('USD'),
+  country:       varchar("country",        { length: 64  }).notNull(),
+  address:       text("address"),
+  remarks:       text("remarks"),
+  status:        varchar("status",         { length: 16  }).notNull().default('active'),
+});
+export type CompanyBankAccount = typeof companyBankAccounts.$inferSelect;
+export type InsertCompanyBankAccount = typeof companyBankAccounts.$inferInsert;
+
+// ── Account Management — Client IP Approval Requests ─────────────────────────
+export const clientIpRequests = pgTable("client_ip_requests", {
+  id:           serial("id").primaryKey(),
+  companyId:    integer("company_id"),
+  clientName:   varchar("client_name",   { length: 256 }).notNull(),
+  ipAddress:    varchar("ip_address",    { length: 64  }).notNull(),
+  trunk:        varchar("trunk",         { length: 128 }),
+  description:  text("description"),
+  status:       varchar("status",        { length: 16  }).notNull().default('pending'),
+  submittedBy:  varchar("submitted_by",  { length: 255 }),
+  reviewedBy:   varchar("reviewed_by",   { length: 255 }),
+  rejectionReason: text("rejection_reason"),
+  submittedAt:  timestamp("submitted_at").defaultNow().notNull(),
+  reviewedAt:   timestamp("reviewed_at"),
+});
+export type ClientIpRequest = typeof clientIpRequests.$inferSelect;
+export type InsertClientIpRequest = typeof clientIpRequests.$inferInsert;
+export const insertClientIpRequestSchema = createInsertSchema(clientIpRequests).omit({ id: true, submittedAt: true });

@@ -58,6 +58,11 @@ import {
   type ChatMessage, type InsertChatMessage,
   type ProductDoc, type InsertProductDoc,
   type ApprovalRequest, type InsertApprovalRequest, type ApprovalAuditEntry,
+  type Company, type InsertCompany,
+  type CompanyContact, type InsertCompanyContact,
+  type CompanyBankAccount, type InsertCompanyBankAccount,
+  type ClientIpRequest, type InsertClientIpRequest,
+  companies, companyContacts, companyBankAccounts, clientIpRequests,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -316,6 +321,19 @@ export interface IStorage {
   getDataRetentionPolicies(): Promise<DataRetentionPolicy[]>;
   updateDataRetentionPolicy(dataType: string, updates: Partial<DataRetentionPolicy>): Promise<void>;
   seedDefaultRetentionPolicies(): Promise<void>;
+
+  // ── Account Management — Companies ─────────────────────────────────────────
+  getCompanies(): Promise<Company[]>;
+  getCompany(id: number): Promise<Company | null>;
+  createCompany(data: InsertCompany, contacts: any[], bankAccounts: any[]): Promise<Company>;
+  updateCompany(id: number, updates: Partial<InsertCompany>): Promise<Company>;
+  deleteCompany(id: number): Promise<void>;
+
+  // ── Account Management — Client IP Requests ─────────────────────────────────
+  getClientIpRequests(companyId?: number): Promise<ClientIpRequest[]>;
+  findClientIpRequest(ipAddress: string, clientName: string): Promise<ClientIpRequest | null>;
+  createClientIpRequest(data: InsertClientIpRequest): Promise<ClientIpRequest>;
+  updateClientIpRequest(id: number, updates: Partial<ClientIpRequest>): Promise<ClientIpRequest>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1676,6 +1694,79 @@ export class DatabaseStorage implements IStorage {
         .where(eq(dataRetentionPolicy.dataType, d.dataType));
       if (!existing.length) await db.insert(dataRetentionPolicy).values(d);
     }
+  }
+
+  // ── Account Management — Companies ──────────────────────────────────────────
+
+  async getCompanies(): Promise<Company[]> {
+    return db.select().from(companies).orderBy(companies.name);
+  }
+
+  async getCompany(id: number): Promise<Company | null> {
+    const [row] = await db.select().from(companies).where(eq(companies.id, id));
+    return row ?? null;
+  }
+
+  async createCompany(data: InsertCompany, contacts: any[], bankAccounts: any[]): Promise<Company> {
+    const [company] = await db.insert(companies).values(data).returning();
+    if (contacts.length) {
+      const validContacts = contacts.filter(c => c.firstName?.trim() || c.email?.trim());
+      if (validContacts.length) {
+        await db.insert(companyContacts).values(
+          validContacts.map(c => ({ ...c, companyId: company.id }))
+        );
+      }
+    }
+    if (bankAccounts.length) {
+      const validBanks = bankAccounts.filter(b => b.bankName?.trim() && b.accountNo?.trim());
+      if (validBanks.length) {
+        await db.insert(companyBankAccounts).values(
+          validBanks.map(b => ({ ...b, companyId: company.id }))
+        );
+      }
+    }
+    return company;
+  }
+
+  async updateCompany(id: number, updates: Partial<InsertCompany>): Promise<Company> {
+    const [row] = await db.update(companies).set(updates).where(eq(companies.id, id)).returning();
+    return row;
+  }
+
+  async deleteCompany(id: number): Promise<void> {
+    await db.delete(companyContacts).where(eq(companyContacts.companyId, id));
+    await db.delete(companyBankAccounts).where(eq(companyBankAccounts.companyId, id));
+    await db.delete(companies).where(eq(companies.id, id));
+  }
+
+  // ── Account Management — Client IP Requests ──────────────────────────────────
+
+  async getClientIpRequests(companyId?: number): Promise<ClientIpRequest[]> {
+    if (companyId) {
+      return db.select().from(clientIpRequests)
+        .where(eq(clientIpRequests.companyId, companyId))
+        .orderBy(desc(clientIpRequests.submittedAt));
+    }
+    return db.select().from(clientIpRequests).orderBy(desc(clientIpRequests.submittedAt));
+  }
+
+  async findClientIpRequest(ipAddress: string, clientName: string): Promise<ClientIpRequest | null> {
+    const [row] = await db.select().from(clientIpRequests)
+      .where(and(
+        eq(clientIpRequests.ipAddress, ipAddress),
+        eq(clientIpRequests.clientName, clientName),
+      ));
+    return row ?? null;
+  }
+
+  async createClientIpRequest(data: InsertClientIpRequest): Promise<ClientIpRequest> {
+    const [row] = await db.insert(clientIpRequests).values(data).returning();
+    return row;
+  }
+
+  async updateClientIpRequest(id: number, updates: Partial<ClientIpRequest>): Promise<ClientIpRequest> {
+    const [row] = await db.update(clientIpRequests).set(updates).where(eq(clientIpRequests.id, id)).returning();
+    return row;
   }
 }
 
