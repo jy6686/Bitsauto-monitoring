@@ -625,11 +625,31 @@ async function provisioningLogin(base: string): Promise<CookieJar> {
       const hasCookies = resp.cookies.size > 0;
       console.log(`[Sippy] provisioningLogin (${provUser}/${acctType}): HTTP ${statusCode}, Location: ${loc ?? 'none'}, cookies: ${resp.cookies.size}`);
 
-      // Success: any 3xx that does NOT go back to index.php / login page
-      const isFailRedirect = !loc || loc.includes('/index.php') || (loc.endsWith('/main.php') && !loc.includes('?'));
-      if ((statusCode === 301 || statusCode === 302 || statusCode === 303) && hasCookies && !isFailRedirect) {
-        console.log(`[Sippy] provisioningLogin: captured session as ${provUser}/${acctType} → ${loc}`);
-        return resp.cookies;
+      // ── Determine whether this is a success or failure redirect ─────────────
+      // On many Sippy builds (including ssp-root accounts) a successful login
+      // redirects to /index.php — this is NOT a failure. We must not assume
+      // /index.php means "login rejected". Instead we verify the session by
+      // performing a follow-up GET to a portal-only page.
+      const isBackToLogin = !loc || (loc.endsWith('/main.php') && !loc.includes('?'));
+      const is3xx = statusCode === 301 || statusCode === 302 || statusCode === 303;
+
+      if (is3xx && hasCookies && !isBackToLogin) {
+        // Got a 302 with cookies — verify the session with a quick GET
+        try {
+          const verifyResp = await rawRequest('GET', `${base}/c1/service_plans.php`, null,
+            { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies, 0);
+          const body = verifyResp.body;
+          const hasLoginForm = body.includes('value="Login"') || body.includes("value='Login'");
+          const isLoginPage  = verifyResp.statusCode === 302 &&
+            ((verifyResp as any).location ?? '').includes('/main.php');
+          if (!hasLoginForm && !isLoginPage) {
+            console.log(`[Sippy] provisioningLogin: verified session as ${provUser}/${acctType} → ${loc} (service_plans.php reachable)`);
+            return resp.cookies;
+          }
+          console.log(`[Sippy] provisioningLogin: ${acctType} cookies obtained but session invalid (login form detected)`);
+        } catch (ve: any) {
+          console.log(`[Sippy] provisioningLogin: session verify GET failed (${acctType}): ${ve?.message}`);
+        }
       }
       // Also accept a direct 200 with portal content (no redirect on some builds)
       if (statusCode === 200 && hasCookies) {
