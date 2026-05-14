@@ -5438,7 +5438,6 @@ export async function pushAccountToSippy(
     i_lang:                   opts.language             ?? 'en',
     payment_currency:         opts.currency             ?? 'USD',
     payment_method:           opts.paymentMethod        ?? 1,    // 1 = Credit card
-    i_export_type:            opts.iExportType          ?? 2,    // 2 = Retail
     lifetime:                 opts.lifetime             ?? -1,   // -1 = unlimited
     use_preferred_codec_only: opts.usePreferredCodecOnly ? 1 : 0,
     reg_allowed:              opts.regAllowed            ?? 1,
@@ -5469,9 +5468,13 @@ export async function pushAccountToSippy(
     email:                    opts.email         ?? '',
     cc:                       opts.cc            ?? '',
     bcc:                      opts.bcc           ?? '',
-    i_password_policy:        opts.iPasswordPolicy     ?? 1,    // 1 = Default policy
     i_media_relay_type:       opts.iMediaRelayType     ?? 0,
   };
+  // i_password_policy and i_export_type are optional — omit entirely when not supplied
+  // so Sippy uses its own defaults. Hardcoding ID 1 causes "Fatal error" when that
+  // policy/export-type ID doesn't exist in the target switch.
+  if (opts.iPasswordPolicy !== undefined) params.i_password_policy = opts.iPasswordPolicy;
+  if (opts.iExportType     !== undefined) params.i_export_type     = opts.iExportType;
 
   // ── Routing group (required for root-customer accounts) ─────────────────
   // If caller did not supply a routing group, auto-fetch the first available one.
