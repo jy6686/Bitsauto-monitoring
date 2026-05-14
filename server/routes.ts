@@ -17734,6 +17734,31 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Per-account local config endpoints ──────────────────────────────────────
+
+  // GET /api/account-configs/:iAccount — load full config blob for this account
+  app.get('/api/account-configs/:iAccount', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.iAccount, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ error: 'Invalid account id' });
+      const cfg = await storage.getAccountConfig(iAccount);
+      res.json(cfg);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PUT /api/account-configs/:iAccount — save one section of the config
+  // Body: { section: string, data: object }
+  app.put('/api/account-configs/:iAccount', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.iAccount, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ error: 'Invalid account id' });
+      const { section, data } = req.body as { section?: string; data?: Record<string, any> };
+      if (!section || !data || typeof data !== 'object') return res.status(400).json({ error: 'section and data are required' });
+      await storage.saveAccountConfig(iAccount, section, data);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/download/account-management-workflow-md — raw Markdown version
   app.get('/api/download/account-management-workflow-md', (_req: any, res: any) => {
     const filePath = _pathJoin(process.cwd(), 'ACCOUNT_MANAGEMENT_WORKFLOW.md');

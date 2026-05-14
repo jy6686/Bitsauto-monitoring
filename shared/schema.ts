@@ -1404,3 +1404,11 @@ export const clientIpRequests = pgTable("client_ip_requests", {
 export type ClientIpRequest = typeof clientIpRequests.$inferSelect;
 export type InsertClientIpRequest = typeof clientIpRequests.$inferInsert;
 export const insertClientIpRequestSchema = createInsertSchema(clientIpRequests).omit({ id: true, submittedAt: true });
+
+// ── Per-account local config (email, rate sheet, rules, email format) ──────────
+export const accountConfigs = pgTable("account_configs", {
+  iAccount:   integer("i_account").primaryKey(),
+  configJson: text("config_json").notNull().default('{}'),
+  updatedAt:  timestamp("updated_at").defaultNow().notNull(),
+});
+export type AccountConfig = typeof accountConfigs.$inferSelect;

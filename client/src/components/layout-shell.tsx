@@ -85,9 +85,26 @@ const NOTIF_SUBITEMS = [
   { href: '/whatsapp-alerts', label: 'WhatsApp',  icon: MessageSquare, iconColor: 'text-green-400' },
 ] as const;
 
+const COMPANY_SUBITEMS = [
+  { href: '/company/list',   label: 'Company List',   icon: List,     iconColor: 'text-amber-300' },
+  { href: '/company/create', label: 'Create Company', icon: Plus,     iconColor: 'text-amber-300' },
+] as const;
+
+const CLIENT_SUBITEMS = [
+  { href: '/client/wizard',                label: 'Create Client',         icon: UserPlus,    iconColor: 'text-amber-400', isNew: true  },
+  { href: '/client/config?tab=update',     label: 'Client Update',         icon: UserCog,     iconColor: 'text-sky-400'                },
+  { href: '/client/config?tab=email',      label: 'Email',                 icon: Mail,        iconColor: 'text-sky-400'                },
+  { href: '/client/config?tab=trunks',     label: 'Trunk Update',          icon: Network,     iconColor: 'text-sky-400'                },
+  { href: '/client/config?tab=auth',       label: 'Authentication Update', icon: ShieldCheck, iconColor: 'text-sky-400'                },
+  { href: '/client/config?tab=technical',  label: 'Technical Config',      icon: Server,      iconColor: 'text-sky-400'                },
+  { href: '/client/config?tab=ratesheet',  label: 'Rate Sheet Config',     icon: FileText,    iconColor: 'text-sky-400'                },
+  { href: '/client/config?tab=rules',      label: 'Rules Update',          icon: ShieldAlert, iconColor: 'text-sky-400'                },
+  { href: '/client/config?tab=email-format', label: 'Email Format',        icon: Mail,        iconColor: 'text-sky-400'                },
+] as const;
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type SubmenuType = 'calls' | 'bitseye' | 'cdr' | 'monitoring' | 'ratecards' | 'settings' | 'tools' | 'routingmgr' | 'testing' | 'notifications';
+type SubmenuType = 'calls' | 'bitseye' | 'cdr' | 'monitoring' | 'ratecards' | 'settings' | 'tools' | 'routingmgr' | 'testing' | 'notifications' | 'company_grp' | 'client_grp';
 
 interface NavItem {
   href: string;
@@ -160,9 +177,8 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Account Management',
     roles: ['admin','management'],
     items: [
-      { href: "/company/list",   label: "Companies",        icon: Building2, roles: ['admin','management'] },
-      { href: "/company/create", label: "Create Company",   icon: Plus,      roles: ['admin','management'] },
-      { href: "/client/wizard",  label: "New Client",       icon: UserPlus,  roles: ['admin','management'], isNew: true },
+      { href: "/company/list",  label: "Company", icon: Building2, roles: ['admin','management'], hasSubmenu: 'company_grp' as const },
+      { href: "/client/wizard", label: "Client",  icon: Users,     roles: ['admin','management'], hasSubmenu: 'client_grp'  as const },
     ],
   },
   // ─── 3. Vendor Operations ────────────────────────────────────────────────────
@@ -601,6 +617,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const isRoutingMgrActive  = location.startsWith('/routing-manager');
   const isTestActive        = location.startsWith('/test-call') || location.startsWith('/test-campaigns');
   const isNotifActive       = location.startsWith('/email-centre') || location.startsWith('/whatsapp-alerts');
+  const isCompanyActive     = location.startsWith('/company');
+  const isClientActive      = location.startsWith('/client');
 
   // ── Submenu expand states ─────────────────────────────────────────────────────
   const [callsExpanded,      setCallsExpanded]      = useState(isCallsActive);
@@ -613,6 +631,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const [routingMgrExpanded, setRoutingMgrExpanded] = useState(isRoutingMgrActive);
   const [testExpanded,       setTestExpanded]       = useState(isTestActive);
   const [notifExpanded,      setNotifExpanded]      = useState(isNotifActive);
+  const [companyExpanded,    setCompanyExpanded]    = useState(isCompanyActive);
+  const [clientExpanded,     setClientExpanded]     = useState(isClientActive);
 
   useEffect(() => { if (isCallsActive)      setCallsExpanded(true);      }, [isCallsActive]);
   useEffect(() => { if (isMonitoringActive) setMonitoringExpanded(true);  }, [isMonitoringActive]);
@@ -624,6 +644,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
   useEffect(() => { if (isRoutingMgrActive) setRoutingMgrExpanded(true);  }, [isRoutingMgrActive]);
   useEffect(() => { if (isTestActive)       setTestExpanded(true);        }, [isTestActive]);
   useEffect(() => { if (isNotifActive)      setNotifExpanded(true);       }, [isNotifActive]);
+  useEffect(() => { if (isCompanyActive)    setCompanyExpanded(true);     }, [isCompanyActive]);
+  useEffect(() => { if (isClientActive)     setClientExpanded(true);      }, [isClientActive]);
 
   // Auto-expand the sidebar group that owns the navigated-to route
   useEffect(() => {
@@ -1076,6 +1098,63 @@ export function LayoutShell({ children }: LayoutShellProps) {
                 <Link key={sub.href} href={sub.href} className={subItemCls(sa)}>
                   <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.iconColor)} />
                   {sub.label}
+                </Link>
+              );
+            })}
+          </SubPanel>
+        </div>
+      );
+    }
+
+    /* Company Group */
+    if (item.hasSubmenu === 'company_grp') {
+      return (
+        <div key={item.href}>
+          <button onClick={() => setCompanyExpanded(o => !o)} className={navItemCls(isCompanyActive)}>
+            {isCompanyActive && <ActiveBar />}
+            <item.icon className={navIconCls(isCompanyActive, groupKey)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", companyExpanded && "rotate-180")} />
+          </button>
+          <SubPanel open={companyExpanded}>
+            {COMPANY_SUBITEMS.map(sub => {
+              const sa = location === sub.href || location.startsWith(sub.href + '?');
+              return (
+                <Link key={sub.href} href={sub.href} className={subItemCls(sa)}>
+                  <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.iconColor)} />
+                  {sub.label}
+                </Link>
+              );
+            })}
+          </SubPanel>
+        </div>
+      );
+    }
+
+    /* Client Group */
+    if (item.hasSubmenu === 'client_grp') {
+      const clientTab = search ? new URLSearchParams(search).get('tab') : null;
+      return (
+        <div key={item.href}>
+          <button onClick={() => setClientExpanded(o => !o)} className={navItemCls(isClientActive)}>
+            {isClientActive && <ActiveBar />}
+            <item.icon className={navIconCls(isClientActive, groupKey)} />
+            <span className="flex-1 text-left">{item.label}</span>
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", clientExpanded && "rotate-180")} />
+          </button>
+          <SubPanel open={clientExpanded}>
+            {CLIENT_SUBITEMS.map(sub => {
+              const [subPath, subQuery] = sub.href.split('?');
+              const subTab = subQuery ? new URLSearchParams(subQuery).get('tab') : null;
+              const sa = location === subPath && (!subTab || clientTab === subTab) ||
+                         (sub.href === '/client/wizard' && location === '/client/wizard');
+              return (
+                <Link key={sub.href} href={sub.href} className={subItemCls(sa)}>
+                  <sub.icon className={cn("h-3.5 w-3.5 flex-shrink-0", sa ? "text-primary" : sub.iconColor)} />
+                  <span className="flex-1 truncate">{sub.label}</span>
+                  {'isNew' in sub && sub.isNew && !sa && (
+                    <span className="text-[9px] font-bold px-1 py-0.5 rounded-full bg-violet-500/20 text-violet-400 border border-violet-500/30 leading-none">New</span>
+                  )}
                 </Link>
               );
             })}

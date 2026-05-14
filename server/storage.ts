@@ -62,7 +62,8 @@ import {
   type CompanyContact, type InsertCompanyContact,
   type CompanyBankAccount, type InsertCompanyBankAccount,
   type ClientIpRequest, type InsertClientIpRequest,
-  companies, companyContacts, companyBankAccounts, clientIpRequests,
+  type AccountConfig,
+  companies, companyContacts, companyBankAccounts, clientIpRequests, accountConfigs,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -332,6 +333,10 @@ export interface IStorage {
   // ── Account Management — Client IP Requests ─────────────────────────────────
   getClientIpRequests(companyId?: number): Promise<ClientIpRequest[]>;
   findClientIpRequest(ipAddress: string, clientName: string): Promise<ClientIpRequest | null>;
+
+  // ── Per-account local config ──────────────────────────────────────────────────
+  getAccountConfig(iAccount: number): Promise<Record<string, any>>;
+  saveAccountConfig(iAccount: number, section: string, data: Record<string, any>): Promise<void>;
   createClientIpRequest(data: InsertClientIpRequest): Promise<ClientIpRequest>;
   updateClientIpRequest(id: number, updates: Partial<ClientIpRequest>): Promise<ClientIpRequest>;
 }
@@ -1694,6 +1699,27 @@ export class DatabaseStorage implements IStorage {
         .where(eq(dataRetentionPolicy.dataType, d.dataType));
       if (!existing.length) await db.insert(dataRetentionPolicy).values(d);
     }
+  }
+
+  // ── Per-account local config ──────────────────────────────────────────────────
+
+  async getAccountConfig(iAccount: number): Promise<Record<string, any>> {
+    try {
+      const [row] = await db.select().from(accountConfigs).where(eq(accountConfigs.iAccount, iAccount));
+      if (!row) return {};
+      return JSON.parse(row.configJson);
+    } catch { return {}; }
+  }
+
+  async saveAccountConfig(iAccount: number, section: string, data: Record<string, any>): Promise<void> {
+    const existing = await this.getAccountConfig(iAccount);
+    const merged = { ...existing, [section]: data };
+    const jsonStr = JSON.stringify(merged);
+    await db.execute(sql`
+      INSERT INTO account_configs (i_account, config_json, updated_at)
+      VALUES (${iAccount}, ${jsonStr}, NOW())
+      ON CONFLICT (i_account) DO UPDATE SET config_json = ${jsonStr}, updated_at = NOW()
+    `);
   }
 
   // ── Account Management — Companies ──────────────────────────────────────────
