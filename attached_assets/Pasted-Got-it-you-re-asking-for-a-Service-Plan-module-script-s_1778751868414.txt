@@ -1,0 +1,180 @@
+Got it — you’re asking for a Service Plan module (script + step-by-step procedure) and also what is missing in your current BitsAuto platform.
+
+I’ll break it into 3 parts so you can directly implement it in Replit or backend.
+
+🧩 1. SERVICE PLAN — WHAT IT IS (CORE IDEA)
+
+A Service Plan in your platform =
+
+A rule-set that controls how a client or vendor is billed + routed + limited in Sippy.
+
+It sits between:
+
+Client / Vendor Account
+Rate Plan / Routing Group
+Billing Engine / Finance
+⚙️ 2. SERVICE PLAN — STEP BY STEP WIZARD (PRODUCTION DESIGN)
+🟦 Step 1 — Basic Plan Definition
+Field	Type
+Plan Name	Text
+Plan Code	Auto-generated
+Type	Client / Vendor / Hybrid
+Status	Active / Draft
+Description	Text
+🟦 Step 2 — Billing Model (CRITICAL MISSING IN YOUR SYSTEM)
+Field	Type
+Billing Type	Prepaid / Postpaid / Hybrid
+Billing Cycle	Daily / Weekly / Monthly
+Minimum Charge	Number
+Pulse Rate	Seconds (e.g. 1/1, 60/60)
+Grace Period	Days
+Invoice Template	Dropdown
+
+👉 Missing in your platform today:
+
+No unified billing abstraction layer
+Billing logic is scattered across invoice modules
+🟦 Step 3 — Rate Control Engine
+Field	Type
+Rate Plan Link	Select (existing rate plans)
+Margin Type	Fixed / Percentage
+Markup Value	Number
+LCR Enable	Yes/No
+Failover Strategy	Cheapest / Quality / Priority
+
+👉 Missing:
+
+No central “service-level pricing engine”
+Markups are not standardized across vendor/client flows
+🟦 Step 4 — Routing Rules (VERY IMPORTANT FOR VOIP)
+Field	Type
+Default Routing Group	Select
+Failover Group	Select
+Codec Priority	G.711 / G.729 etc
+CPS Limit	Number
+Max Channels	Number
+
+👉 Missing:
+
+No service-level routing abstraction (only trunk-level exists)
+No unified failover logic per service plan
+🟦 Step 5 — Usage & Limit Controls
+Field	Type
+Max Daily Minutes	Number
+Max Monthly Minutes	Number
+Max Concurrent Calls	Number
+Geo Restriction	Country whitelist/blacklist
+Time Restriction	Time window rules
+
+👉 Missing:
+
+No centralized usage quota engine
+No policy enforcement layer
+🟦 Step 6 — Sippy Integration Mapping
+Field	Type
+Sippy Account Type	Prepaid/Postpaid
+i_routing_group	Mapping
+max_sessions	Number
+max_calls_per_second	Number
+lifetime	Days / Unlimited
+
+👉 Missing:
+
+No reusable mapping layer (each client configured manually today)
+🟦 Step 7 — Alerts & Monitoring Rules
+Field	Type
+Balance Alert Threshold	Number
+Call Spike Alert	Yes/No
+Failover Alert	Yes/No
+Email / Webhook	Destination
+
+👉 Missing:
+
+No service-level alert engine
+Only scattered notification jobs exist
+🟦 Step 8 — Approval Workflow
+Step
+Draft Created
+KAM Approval
+Finance Approval
+Routing Approval
+Active Deployment
+
+👉 Missing:
+
+No unified approval workflow engine (each module does its own approval)
+🟦 Step 9 — Final Activation
+Push to Sippy
+Bind to Client/Vendor
+Activate Routing Rules
+Start Monitoring
+Enable Billing Engine
+🧠 3. WHAT IS CURRENTLY MISSING IN YOUR PLATFORM (IMPORTANT)
+
+This is the real architecture gap analysis:
+
+❌ 1. No “Service Layer Abstraction”
+
+Everything is separated:
+
+Rate Plans
+Routing Groups
+Billing
+Trunks
+
+👉 Missing:
+
+A unified SERVICE PLAN layer that connects all of them
+
+❌ 2. No Central Policy Engine
+
+You currently lack:
+
+usage limits
+geo rules
+concurrency control
+business logic enforcement
+❌ 3. No Unified Pricing Engine
+Markup logic is scattered
+No per-service pricing strategy
+No margin simulation
+❌ 4. No Multi-Dimensional Plan System
+
+You don’t have:
+
+client-specific plans
+vendor-specific plans
+hybrid plans
+❌ 5. No Versioning System
+
+Missing:
+
+Plan v1 / v2 / v3
+rollback support
+audit trail
+❌ 6. No Simulation Mode
+
+You cannot test:
+
+“What if this plan changes margin?”
+“What if routing fails?”
+❌ 7. No Real-Time Enforcement Layer
+limits are not enforced dynamically
+mostly post-processing (CDRs / invoices)
+🚀 4. WHAT YOU SHOULD BUILD NEXT (PRIORITY ORDER)
+🥇 Priority 1 — Service Plan Engine (CORE)
+
+This becomes the brain of your platform
+
+🥈 Priority 2 — Policy Engine
+limits
+rules
+routing decisions
+🥉 Priority 3 — Unified Billing Layer
+pricing
+margin control
+invoice generation logic
+🏗 Priority 4 — Simulation & Testing Module
+before activation testing
+🔐 Priority 5 — Approval Workflow Engine
+replace scattered approval pages
