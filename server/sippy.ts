@@ -5403,11 +5403,10 @@ export async function pushAccountToSippy(
   const firstName   = opts.firstName ?? (nameParts[0] ?? opts.name);
   const lastName    = opts.lastName  ?? (nameParts.slice(1).join(' '));
 
-  // preferred_codec: per docs, null = "Disabled" (no preference).
-  // If caller passes a number (0=G.711u, 8=G.711a, 18=G.729, etc.) use it directly.
-  // We use 'undefined' as sentinel for "not set by caller" so we default to null.
-  const codecValue: number | null =
-    opts.preferredCodec !== undefined ? opts.preferredCodec : null;
+  // preferred_codec: Sippy requires this field — omitting it causes faultString "Parameter preferred_codec is required."
+  // 0 = G.711u (PCMU) is the universal default. null/undefined → fall back to 0.
+  const codecValue: number =
+    (opts.preferredCodec !== undefined && opts.preferredCodec !== null) ? opts.preferredCodec : 0;
 
   // ── Build parameter set per official Sippy API docs ──────────────────────
   // createAccount() docs: https://support.sippysoft.com/support/solutions/articles/107312
@@ -5504,8 +5503,8 @@ export async function pushAccountToSippy(
   // guess wrong (e.g. ID 1), Sippy returns faultCode 401 "Wrong i_billing_plan" or
   // faultCode 501 "Fatal error".  The auto-probe block below will discover the right ID.
 
-  // preferred_codec: omit entirely when null/disabled — sending <nil/> causes Sippy to fault
-  if (codecValue !== null) params.preferred_codec = codecValue;
+  // preferred_codec: always required by Sippy — 0 = G.711u (PCMU) default
+  params.preferred_codec = codecValue;
 
   // ── Optional extras (all from official docs 107312) ──────────────────────
   // Session / traffic
