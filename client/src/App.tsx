@@ -428,6 +428,9 @@ function Router() {
       <Route path="/client/wizard">
         {() => <ProtectedRoute component={ClientWizardPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
       </Route>
+      <Route path="/client-wizard">
+        {() => <ProtectedRoute component={ClientWizardPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
+      </Route>
       <Route path="/client/config">
         {() => <ProtectedRoute component={ClientConfigPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
       </Route>
