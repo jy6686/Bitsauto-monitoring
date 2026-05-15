@@ -5692,40 +5692,38 @@ export async function pushAccountToSippy(
             const fs2 = extractTag(text2, 'faultString');
             if (fs2) lastFault = fs2.replace(/<[^>]+>/g, '').trim();
 
-            // If still "Fatal error" after billing plan fix, probe i_password_policy values.
-            // faultCode 501 "Fatal error" can mean the policy ID doesn't exist as a FK in Sippy.
-            // Try 0 (no policy), then 2-10 to find one that doesn't cause Fatal error.
-            if (lastFault.toLowerCase() === 'fatal error') {
-              console.log('[Sippy] Still Fatal error after billing plan fix — probing i_password_policy values...');
-              for (const policyId of [0, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
-                params.i_password_policy = policyId;
-                const policyBody = xmlRpcCall(method, params);
-                const policyResp = await sippyPost(apiUrl, policyBody, credentials.username, credentials.password);
-                const policyText = policyResp.body;
-                const policyFaultRaw = policyText.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim() ?? '';
-                console.log(`[Sippy] Policy probe ${policyId}: HTTP ${policyResp.statusCode}, fault="${policyFaultRaw.slice(0, 80)}"`);
-                if (policyResp.statusCode === 200 && !policyText.includes('<fault>') && !policyText.includes('faultCode')) {
-                  console.log(`[Sippy] createAccount succeeded with i_password_policy=${policyId}`);
-                  const retIAccountStr3 = extractValue(policyText, 'i_account');
-                  const retIAccount3 = retIAccountStr3 ? parseInt(retIAccountStr3, 10) : undefined;
-                  return {
-                    success: true,
-                    message: `Account "${opts.name}" created on Sippy (policy auto-probed: ${policyId}).${retIAccount3 ? ` (ID: ${retIAccount3})` : ''}`,
-                    method,
-                    i_account:     retIAccount3,
-                    username:      extractValue(policyText, 'username'),
-                    authname:      extractValue(policyText, 'authname'),
-                    web_password:  extractValue(policyText, 'web_password'),
-                    voip_password: extractValue(policyText, 'voip_password'),
-                    vm_password:   extractValue(policyText, 'vm_password'),
-                  };
-                }
-                if (!policyFaultRaw.toLowerCase().includes('fatal error') && !policyFaultRaw.toLowerCase().includes('password_policy') && !policyFaultRaw.toLowerCase().includes('password policy')) {
-                  // Different fault — policy ID is valid but something else is wrong; stop probing
-                  lastFault = policyFaultRaw || lastFault;
-                  console.log(`[Sippy] Policy probe ${policyId} gave different fault: "${lastFault}" — stopping policy probe`);
-                  break;
-                }
+            // If still "Fatal error" after billing plan fix, the routing group may be scoped
+            // to a different customer. Strip i_routing_group and retry — Sippy will assign default.
+            if (lastFault.toLowerCase() === 'fatal error' && params.i_routing_group !== undefined) {
+              const savedRg = params.i_routing_group;
+              delete params.i_routing_group;
+              console.log(`[Sippy] Stripping i_routing_group=${savedRg} (may be wrong customer scope) — retrying...`);
+              const rgStrippedBody = xmlRpcCall(method, params);
+              const rgStrippedResp = await sippyPost(apiUrl, rgStrippedBody, credentials.username, credentials.password);
+              const rgStrippedText = rgStrippedResp.body;
+              const rgStrippedFaultRaw = rgStrippedText.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim() ?? '';
+              console.log(`[Sippy] No-routing-group retry: HTTP ${rgStrippedResp.statusCode}, fault="${rgStrippedFaultRaw.slice(0, 120)}"`);
+              if (rgStrippedResp.statusCode === 200 && !rgStrippedText.includes('<fault>') && !rgStrippedText.includes('faultCode')) {
+                console.log(`[Sippy] createAccount succeeded after stripping i_routing_group`);
+                const retIAccountStr3 = extractValue(rgStrippedText, 'i_account');
+                const retIAccount3 = retIAccountStr3 ? parseInt(retIAccountStr3, 10) : undefined;
+                return {
+                  success: true,
+                  message: `Account "${opts.name}" created on Sippy (routing group removed — was ${savedRg}).${retIAccount3 ? ` (ID: ${retIAccount3})` : ''}`,
+                  method,
+                  i_account:     retIAccount3,
+                  username:      extractValue(rgStrippedText, 'username'),
+                  authname:      extractValue(rgStrippedText, 'authname'),
+                  web_password:  extractValue(rgStrippedText, 'web_password'),
+                  voip_password: extractValue(rgStrippedText, 'voip_password'),
+                  vm_password:   extractValue(rgStrippedText, 'vm_password'),
+                };
+              }
+              if (rgStrippedFaultRaw) {
+                lastFault = rgStrippedFaultRaw;
+                console.log(`[Sippy] No-routing-group retry fault: "${lastFault}" — continuing with updated fault`);
+              } else {
+                params.i_routing_group = savedRg; // restore if no fault extracted
               }
             }
           } else {
