@@ -5759,6 +5759,59 @@ export async function pushAccountToSippy(
                 } else {
                   params.i_customer = savedCustomer; // restore
                 }
+
+                // Step 3 cascade: "i_routing_group is mandatory for root customer"
+                // means we need a valid routing group for i_customer=1.
+                // Fetch all routing groups from Sippy and try each one until createAccount succeeds.
+                if (lastFault.toLowerCase().includes('routing_group') && lastFault.toLowerCase().includes('mandatory')) {
+                  console.log('[Sippy] Routing group mandatory for root customer — probing available routing groups...');
+                  // Restore i_customer=1 since root customer requires a routing group
+                  params.i_customer = savedCustomer ?? 1;
+                  try {
+                    const rgListBody = xmlRpcCall('listRoutingGroups', {});
+                    const rgListResp = await sippyPost(apiUrl, rgListBody, credentials.username, credentials.password);
+                    // Extract all i_routing_group IDs from the listRoutingGroups response
+                    const rgIds: number[] = [];
+                    const rgIdRegex = /<name>i_routing_group<\/name>\s*<value><int>(\d+)<\/int>/g;
+                    let rgMatch: RegExpExecArray | null;
+                    while ((rgMatch = rgIdRegex.exec(rgListResp.body)) !== null) {
+                      const rgId = parseInt(rgMatch[1], 10);
+                      if (!rgIds.includes(rgId)) rgIds.push(rgId);
+                    }
+                    console.log(`[Sippy] Available routing groups for probe: [${rgIds.join(', ')}]`);
+                    for (const rgId of rgIds) {
+                      params.i_routing_group = rgId;
+                      const rgProbeBody = xmlRpcCall(method, params);
+                      const rgProbeResp = await sippyPost(apiUrl, rgProbeBody, credentials.username, credentials.password);
+                      const rgProbeText = rgProbeResp.body;
+                      const rgProbeFault = rgProbeText.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim() ?? '';
+                      console.log(`[Sippy] RG probe ${rgId}: HTTP ${rgProbeResp.statusCode}, fault="${rgProbeFault.slice(0, 100)}"`);
+                      if (rgProbeResp.statusCode === 200 && !rgProbeText.includes('<fault>') && !rgProbeText.includes('faultCode')) {
+                        console.log(`[Sippy] createAccount succeeded with i_routing_group=${rgId}`);
+                        const rgAcct = extractValue(rgProbeText, 'i_account');
+                        return {
+                          success: true,
+                          message: `Account "${opts.name}" created on Sippy (routing group auto-selected: ${rgId}).${rgAcct ? ` (ID: ${parseInt(rgAcct, 10)})` : ''}`,
+                          method,
+                          i_account:     rgAcct ? parseInt(rgAcct, 10) : undefined,
+                          username:      extractValue(rgProbeText, 'username'),
+                          authname:      extractValue(rgProbeText, 'authname'),
+                          web_password:  extractValue(rgProbeText, 'web_password'),
+                          voip_password: extractValue(rgProbeText, 'voip_password'),
+                          vm_password:   extractValue(rgProbeText, 'vm_password'),
+                        };
+                      }
+                      if (rgProbeFault && !rgProbeFault.toLowerCase().includes('fatal error') && !rgProbeFault.toLowerCase().includes('routing_group')) {
+                        // Different fault — routing group is valid, other issue
+                        lastFault = rgProbeFault;
+                        console.log(`[Sippy] RG probe ${rgId} gave different fault: "${lastFault}" — stopping RG probe`);
+                        break;
+                      }
+                    }
+                  } catch (rgProbeErr: any) {
+                    console.warn('[Sippy] Routing group probe error:', rgProbeErr.message);
+                  }
+                }
               }
             }
           } else {
