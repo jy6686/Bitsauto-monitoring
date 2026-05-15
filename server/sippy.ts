@@ -5969,6 +5969,93 @@ export async function pushAccountToSippy(
           }
         }
 
+        // ── Direct routing-group cascade ─────────────────────────────────────
+        // The billing-plan probe block above only fires on "fatal error" or billing
+        // plan errors.  When Sippy IMMEDIATELY rejects with "i_routing_group is
+        // mandatory for root customer" (e.g. all cached RGs belong to sub-customers),
+        // the probe above is skipped entirely and we land here.  Run Pass A/B/C now.
+        if (lastFault.toLowerCase().includes('routing_group') && lastFault.toLowerCase().includes('mandatory')) {
+          console.log('[Sippy] Direct routing-group cascade — probing all available RGs...');
+          try {
+            const rgListBody2 = xmlRpcCall('listRoutingGroups', {});
+            const rgListResp2 = await sippyPost(apiUrl, rgListBody2, credentials.username, credentials.password);
+            const rgIds2: number[] = [];
+            const rgIdRe2 = /<name>i_routing_group<\/name>\s*<value><int>(\d+)<\/int>/g;
+            let rm2: RegExpExecArray | null;
+            while ((rm2 = rgIdRe2.exec(rgListResp2.body)) !== null) {
+              const id = parseInt(rm2[1], 10);
+              if (!rgIds2.includes(id)) rgIds2.push(id);
+            }
+            console.log(`[Sippy] Direct cascade RG list: [${rgIds2.join(', ')}]`);
+
+            const tryProbe2 = async (rgId: number, customerVal: number | undefined) => {
+              if (customerVal !== undefined) params.i_customer = customerVal; else delete params.i_customer;
+              params.i_routing_group = rgId;
+              const b = xmlRpcCall(method, params);
+              const r = await sippyPost(apiUrl, b, credentials.username, credentials.password);
+              const f = r.body.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim() ?? '';
+              console.log(`[Sippy] Direct probe RG=${rgId} cust=${customerVal ?? 'session'}: HTTP ${r.statusCode}, fault="${f.slice(0, 100)}"`);
+              return { text: r.body, fault: f, statusCode: r.statusCode };
+            };
+
+            // Pass A: session context (no explicit i_customer)
+            for (const rgId of rgIds2) {
+              const { text, fault, statusCode } = await tryProbe2(rgId, undefined);
+              if (statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode')) {
+                const acc = extractValue(text, 'i_account');
+                return { success: true, message: `Account "${opts.name}" created on Sippy (RG=${rgId}, session).${acc ? ` (ID: ${parseInt(acc,10)})` : ''}`, method, i_account: acc ? parseInt(acc,10) : undefined, username: extractValue(text,'username'), authname: extractValue(text,'authname'), web_password: extractValue(text,'web_password'), voip_password: extractValue(text,'voip_password'), vm_password: extractValue(text,'vm_password') };
+              }
+              if (fault) lastFault = fault;
+            }
+
+            // Pass B: explicit i_customer=1
+            for (const rgId of rgIds2) {
+              const { text, fault, statusCode } = await tryProbe2(rgId, 1);
+              if (statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode')) {
+                const acc = extractValue(text, 'i_account');
+                return { success: true, message: `Account "${opts.name}" created on Sippy (RG=${rgId}, root cust).${acc ? ` (ID: ${parseInt(acc,10)})` : ''}`, method, i_account: acc ? parseInt(acc,10) : undefined, username: extractValue(text,'username'), authname: extractValue(text,'authname'), web_password: extractValue(text,'web_password'), voip_password: extractValue(text,'voip_password'), vm_password: extractValue(text,'vm_password') };
+              }
+              if (fault) lastFault = fault;
+            }
+
+            // Pass C: template from existing accounts via getAccountInfo
+            console.log('[Sippy] Direct Pass C — template probe from existing accounts...');
+            const listBody2 = xmlRpcCall('listAccounts', { limit: 5 });
+            const listResp2 = await sippyPost(apiUrl, listBody2, credentials.username, credentials.password);
+            console.log(`[Sippy] Direct Pass C listAccounts: HTTP ${listResp2.statusCode}, body ${listResp2.body.length}B`);
+            const acctIds2: number[] = [];
+            const acctIdRe2 = /<name>i_account<\/name>\s*<value><int>(\d+)<\/int>/g;
+            let ai2: RegExpExecArray | null;
+            while ((ai2 = acctIdRe2.exec(listResp2.body)) !== null) {
+              const id = parseInt(ai2[1], 10);
+              if (id && !acctIds2.includes(id)) acctIds2.push(id);
+              if (acctIds2.length >= 5) break;
+            }
+            console.log(`[Sippy] Direct Pass C account IDs: [${acctIds2.join(', ')}]`);
+            const pairs2: Array<{iCustomer: number; iRg: number}> = [];
+            for (const sid of acctIds2) {
+              const info = await getAccountInfo(credentials.username, credentials.password, baseUrl, sid);
+              if (info?.iCustomer && info?.iRoutingGroup) {
+                const key = `${info.iCustomer}:${info.iRoutingGroup}`;
+                if (!pairs2.some(p => `${p.iCustomer}:${p.iRg}` === key)) {
+                  pairs2.push({ iCustomer: info.iCustomer!, iRg: info.iRoutingGroup! });
+                }
+              }
+            }
+            console.log(`[Sippy] Direct Pass C template pairs: ${JSON.stringify(pairs2)}`);
+            for (const { iCustomer, iRg } of pairs2) {
+              const { text, fault, statusCode } = await tryProbe2(iRg, iCustomer);
+              if (statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode')) {
+                const acc = extractValue(text, 'i_account');
+                return { success: true, message: `Account "${opts.name}" created on Sippy (template cust=${iCustomer} RG=${iRg}).${acc ? ` (ID: ${parseInt(acc,10)})` : ''}`, method, i_account: acc ? parseInt(acc,10) : undefined, username: extractValue(text,'username'), authname: extractValue(text,'authname'), web_password: extractValue(text,'web_password'), voip_password: extractValue(text,'voip_password'), vm_password: extractValue(text,'vm_password') };
+              }
+              if (fault) lastFault = fault;
+            }
+          } catch (dcErr: any) {
+            console.warn('[Sippy] Direct cascade error:', dcErr.message);
+          }
+        }
+
         // A meaningful fault means the method name is correct — stop trying other formats
         if (!lastFault.toLowerCase().includes('no such method') && !lastFault.toLowerCase().includes('unknown method')) {
           break;
