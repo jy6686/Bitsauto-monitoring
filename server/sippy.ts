@@ -5470,11 +5470,9 @@ export async function pushAccountToSippy(
     bcc:                      opts.bcc           ?? '',
     i_media_relay_type:       opts.iMediaRelayType     ?? 0,
   };
-  // i_export_type is required by Sippy — 2 = Retail (most common default).
-  params.i_export_type = opts.iExportType ?? 2;
-  // i_password_policy is optional — omit entirely when not supplied so Sippy uses
-  // its own default. Hardcoding ID 1 causes "Fatal error" when that policy doesn't exist.
-  if (opts.iPasswordPolicy !== undefined) params.i_password_policy = opts.iPasswordPolicy;
+  // Both fields are required by Sippy — send always with safe defaults.
+  params.i_export_type    = opts.iExportType    ?? 2;   // 2 = Retail
+  params.i_password_policy = opts.iPasswordPolicy ?? 1;  // 1 = Default policy
 
   // ── Routing group (required for root-customer accounts) ─────────────────
   // If caller did not supply a routing group, auto-fetch the first available one.
