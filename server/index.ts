@@ -170,6 +170,27 @@ app.use((req, res, next) => {
     console.error('[pptx] Pre-generation failed (non-fatal):', e?.message);
   });
 
+  // Pre-generate the Platform Status & Roadmap Report DOCX at startup.
+  // Runs the Python generation script so the file is always fresh on every deployment.
+  (async () => {
+    try {
+      const { execFile } = await import('child_process');
+      const { resolve }  = await import('path');
+      const scriptPath   = resolve(process.cwd(), 'scripts', 'generate_report.py');
+      const { existsSync } = await import('fs');
+      if (!existsSync(scriptPath)) { console.warn('[report] generate_report.py not found — skipping'); return; }
+      await new Promise<void>((ok, fail) => {
+        execFile('python3', [scriptPath], { timeout: 60_000 }, (err, stdout, stderr) => {
+          if (err) { fail(err); return; }
+          console.log('[report] Platform status report generated:', stdout.trim());
+          ok();
+        });
+      });
+    } catch (e: any) {
+      console.error('[report] Report generation failed (non-fatal):', e?.message);
+    }
+  })();
+
   // NOC WebSocket — real-time live-call count push to all dashboard tabs
   setupNocWebSocket(httpServer);
 
