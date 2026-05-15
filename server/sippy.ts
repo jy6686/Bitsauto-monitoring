@@ -5761,12 +5761,11 @@ export async function pushAccountToSippy(
                 }
 
                 // Step 3 cascade: "i_routing_group is mandatory for root customer"
-                // means we need a valid routing group for i_customer=1.
-                // Fetch all routing groups from Sippy and try each one until createAccount succeeds.
+                // Probe available routing groups in TWO passes:
+                //   Pass A — session context (no i_customer): works when ssp-root is a reseller
+                //   Pass B — i_customer=1 explicitly: fallback for root-scoped accounts
                 if (lastFault.toLowerCase().includes('routing_group') && lastFault.toLowerCase().includes('mandatory')) {
-                  console.log('[Sippy] Routing group mandatory for root customer — probing available routing groups...');
-                  // Restore i_customer=1 since root customer requires a routing group
-                  params.i_customer = savedCustomer ?? 1;
+                  console.log('[Sippy] Routing group mandatory — probing available routing groups (session context first, then root customer)...');
                   try {
                     const rgListBody = xmlRpcCall('listRoutingGroups', {});
                     const rgListResp = await sippyPost(apiUrl, rgListBody, credentials.username, credentials.password);
@@ -5779,33 +5778,75 @@ export async function pushAccountToSippy(
                       if (!rgIds.includes(rgId)) rgIds.push(rgId);
                     }
                     console.log(`[Sippy] Available routing groups for probe: [${rgIds.join(', ')}]`);
-                    for (const rgId of rgIds) {
+
+                    // Helper: try createAccount with specific i_customer setting and a routing group
+                    const tryRgProbe = async (rgId: number, customerVal: number | undefined) => {
+                      if (customerVal !== undefined) {
+                        params.i_customer = customerVal;
+                      } else {
+                        delete params.i_customer;
+                      }
                       params.i_routing_group = rgId;
-                      const rgProbeBody = xmlRpcCall(method, params);
-                      const rgProbeResp = await sippyPost(apiUrl, rgProbeBody, credentials.username, credentials.password);
-                      const rgProbeText = rgProbeResp.body;
-                      const rgProbeFault = rgProbeText.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim() ?? '';
-                      console.log(`[Sippy] RG probe ${rgId}: HTTP ${rgProbeResp.statusCode}, fault="${rgProbeFault.slice(0, 100)}"`);
-                      if (rgProbeResp.statusCode === 200 && !rgProbeText.includes('<fault>') && !rgProbeText.includes('faultCode')) {
-                        console.log(`[Sippy] createAccount succeeded with i_routing_group=${rgId}`);
-                        const rgAcct = extractValue(rgProbeText, 'i_account');
+                      const b = xmlRpcCall(method, params);
+                      const r = await sippyPost(apiUrl, b, credentials.username, credentials.password);
+                      const t = r.body;
+                      const f = t.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim() ?? '';
+                      console.log(`[Sippy] RG probe ${rgId} (customer=${customerVal ?? 'session'}): HTTP ${r.statusCode}, fault="${f.slice(0, 120)}"`);
+                      return { text: t, fault: f, statusCode: r.statusCode };
+                    };
+
+                    // Pass A: no i_customer (use session/reseller context)
+                    let rgSucceeded = false;
+                    for (const rgId of rgIds) {
+                      const { text, fault, statusCode } = await tryRgProbe(rgId, undefined);
+                      if (statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode')) {
+                        console.log(`[Sippy] createAccount succeeded with i_routing_group=${rgId} (session context)`);
+                        const rgAcct = extractValue(text, 'i_account');
                         return {
                           success: true,
-                          message: `Account "${opts.name}" created on Sippy (routing group auto-selected: ${rgId}).${rgAcct ? ` (ID: ${parseInt(rgAcct, 10)})` : ''}`,
+                          message: `Account "${opts.name}" created on Sippy (RG=${rgId}, session context).${rgAcct ? ` (ID: ${parseInt(rgAcct, 10)})` : ''}`,
                           method,
                           i_account:     rgAcct ? parseInt(rgAcct, 10) : undefined,
-                          username:      extractValue(rgProbeText, 'username'),
-                          authname:      extractValue(rgProbeText, 'authname'),
-                          web_password:  extractValue(rgProbeText, 'web_password'),
-                          voip_password: extractValue(rgProbeText, 'voip_password'),
-                          vm_password:   extractValue(rgProbeText, 'vm_password'),
+                          username:      extractValue(text, 'username'),
+                          authname:      extractValue(text, 'authname'),
+                          web_password:  extractValue(text, 'web_password'),
+                          voip_password: extractValue(text, 'voip_password'),
+                          vm_password:   extractValue(text, 'vm_password'),
                         };
                       }
-                      if (rgProbeFault && !rgProbeFault.toLowerCase().includes('fatal error') && !rgProbeFault.toLowerCase().includes('routing_group')) {
-                        // Different fault — routing group is valid, other issue
-                        lastFault = rgProbeFault;
-                        console.log(`[Sippy] RG probe ${rgId} gave different fault: "${lastFault}" — stopping RG probe`);
+                      if (fault && !fault.toLowerCase().includes('fatal error') && !fault.toLowerCase().includes('routing_group') && !fault.toLowerCase().includes('mandatory')) {
+                        lastFault = fault;
+                        console.log(`[Sippy] Pass A RG ${rgId}: non-fatal different fault — stopping pass A: "${lastFault}"`);
+                        rgSucceeded = true; // treat as "routing group accepted, other issue"
                         break;
+                      }
+                    }
+
+                    // Pass B: explicit i_customer=1 (root customer)
+                    if (!rgSucceeded) {
+                      console.log('[Sippy] Pass A exhausted — trying Pass B with i_customer=1 explicit...');
+                      for (const rgId of rgIds) {
+                        const { text, fault, statusCode } = await tryRgProbe(rgId, savedCustomer ?? 1);
+                        if (statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode')) {
+                          console.log(`[Sippy] createAccount succeeded with i_routing_group=${rgId} (i_customer=1)`);
+                          const rgAcct = extractValue(text, 'i_account');
+                          return {
+                            success: true,
+                            message: `Account "${opts.name}" created on Sippy (RG=${rgId}, root customer).${rgAcct ? ` (ID: ${parseInt(rgAcct, 10)})` : ''}`,
+                            method,
+                            i_account:     rgAcct ? parseInt(rgAcct, 10) : undefined,
+                            username:      extractValue(text, 'username'),
+                            authname:      extractValue(text, 'authname'),
+                            web_password:  extractValue(text, 'web_password'),
+                            voip_password: extractValue(text, 'voip_password'),
+                            vm_password:   extractValue(text, 'vm_password'),
+                          };
+                        }
+                        if (fault && !fault.toLowerCase().includes('fatal error') && !fault.toLowerCase().includes('routing_group') && !fault.toLowerCase().includes('mandatory')) {
+                          lastFault = fault;
+                          console.log(`[Sippy] Pass B RG ${rgId}: non-fatal different fault — "${lastFault}"`);
+                          break;
+                        }
                       }
                     }
                   } catch (rgProbeErr: any) {
