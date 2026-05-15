@@ -5474,26 +5474,18 @@ export async function pushAccountToSippy(
   params.i_export_type    = opts.iExportType    ?? 2;   // 2 = Retail
   params.i_password_policy = opts.iPasswordPolicy ?? 1;  // 1 = Default policy
 
-  // ── Routing group (required for root-customer accounts) ─────────────────
-  // If caller did not supply a routing group, auto-fetch the first available one.
+  // ── Routing group (only if explicitly provided by wizard) ──────────────
+  // Do NOT auto-fetch: the first routing group returned by listRoutingGroups
+  // may not belong to i_customer=1 and causes faultCode 501 "Fatal error".
+  // Sippy assigns a default routing group automatically when omitted.
   if (opts.routingGroup) {
     const rg = parseInt(opts.routingGroup, 10);
-    if (!isNaN(rg)) params.i_routing_group = rg;
-  } else {
-    // Auto-fetch via listRoutingGroups (confirmed working on this Sippy version)
-    try {
-      const rgBody = xmlRpcCall('listRoutingGroups', {});
-      const rgResp = await sippyPost(apiUrl, rgBody, credentials.username, credentials.password);
-      if (rgResp.statusCode === 200 && !rgResp.body.includes('<fault>')) {
-        const firstId = rgResp.body.match(/<name>i_routing_group<\/name>\s*<value><int>(\d+)/)?.[1];
-        if (firstId) {
-          params.i_routing_group = parseInt(firstId, 10);
-          console.log(`[Sippy] Auto-selected routing group: ${params.i_routing_group}`);
-        }
-      }
-    } catch (e) {
-      console.warn('[Sippy] Could not auto-fetch routing groups:', e);
+    if (!isNaN(rg)) {
+      params.i_routing_group = rg;
+      console.log(`[Sippy] Using wizard-supplied routing group: ${rg}`);
     }
+  } else {
+    console.log('[Sippy] No routing group supplied — omitting i_routing_group (Sippy will use account default)');
   }
 
   // ── Customer context (required for admin/root credentials) ──────────────
@@ -5606,7 +5598,12 @@ export async function pushAccountToSippy(
   let lastFault = '';
   let billingPlanAutoFetched = false;
 
-  console.log(`[Sippy] pushAccountToSippy → url: ${apiUrl}, type: ${opts.type}, params:`, JSON.stringify(params));
+  console.log(`[Sippy] pushAccountToSippy → url: ${apiUrl}, type: ${opts.type}`);
+  // Log params in chunks to avoid deployment-log truncation
+  const paramsStr = JSON.stringify(params);
+  for (let _ci = 0; _ci < paramsStr.length; _ci += 300) {
+    console.log(`[Sippy] params[${_ci}]: ${paramsStr.slice(_ci, _ci + 300)}`);
+  }
 
   const extractValue = (xml: string, fieldName: string): string | undefined => {
     const memberRe = new RegExp(`<name>${fieldName}</name>\\s*<value>[^<]*(?:<[a-z]+>)?([^<]*)<`, 'i');
