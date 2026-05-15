@@ -108,3 +108,9 @@ id = "JnyMGfJ_h-emtd80k9y0K"
 uri = "file://client/public/downloads/Bitsauto_Partner_Deployment_Guide.docx"
 type = "word_document"
 title = "Bitsauto — Partner Deployment Guide (.docx — Word / LibreOffice)"
+
+[[outputs]]
+id = "D6spytAEEyZg4u3KTIUyj"
+uri = "file://client/public/downloads/BitsAuto_Platform_Report_May2026.docx"
+type = "word_document"
+title = "BitsAuto Platform — Complete Status & Roadmap Report (May 2026)"
