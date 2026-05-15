@@ -1,0 +1,279 @@
+view-source:https://www.idtexpress.com/pricing/
+
+please read and suggest how to we implement rates??
+
+
+I reviewed the pricing structure and tools shown on IDT Express Pricing along with their DID pricing model and SIP trunk structure.
+
+For your VoIP platform, the important part is not the frontend pricing page itself — it is the backend “rate engine” architecture behind it.
+
+Here’s the best way to implement rates professionally for a carrier-grade VoIP platform like yours.
+
+Recommended Rate Architecture
+
+Your platform should support 4 separate rate layers:
+
+Layer	Purpose
+Vendor Rates	Supplier buy rates
+Customer Rates	Sell rates to clients
+Routing Rates	LCR / priority routing
+Special Rates	VIP / promotional / dedicated pricing
+How IDT-like Platforms Usually Work
+
+Their structure is likely:
+
+Vendor Rate Sheets → Normalize Codes → Store Routes → Apply Margin → Generate Client Tariffs → Push to Switch
+
+This is exactly what your platform should automate.
+
+Recommended System Design
+1. Vendor Rate Upload Engine
+
+This is the MOST important module.
+
+Features:
+
+Upload XLSX / CSV
+Auto-detect:
+Country
+Prefix
+Description
+Rate
+Increment
+Duplicate detection
+Code normalization
+Merge multiple vendor sheets
+Compare old vs new rates
+Highlight increased/decreased rates
+
+This matches your earlier requirement about:
+
+“remove duplicate codes and verify naming conventions”
+
+Good architecture here will save huge operational time.
+
+2. Central Routing Table
+
+Create ONE master table:
+
+Prefix	Country	Destination	Type
+92	Pakistan	Mobile	CLI
+92300	Jazz	Mobile	Premium
+
+Every vendor rate sheet maps into this table.
+
+This solves:
+
+inconsistent naming
+duplicate destinations
+vendor formatting differences
+3. Margin Engine (VERY IMPORTANT)
+
+Instead of manually editing customer rates:
+
+Use formulas.
+
+Example:
+
+Customer Type	Margin
+Retail	+20%
+Wholesale	+8%
+VIP	+5%
+
+Then:
+
+Sell Rate = Vendor Rate + Margin
+
+OR
+
+Sell Rate = Lowest Vendor + Margin
+
+This is how modern telecom billing systems work.
+
+4. Automatic LCR (Least Cost Routing)
+
+This is where your platform becomes powerful.
+
+Example:
+
+Vendor	Pakistan Mobile
+Vendor A	0.021
+Vendor B	0.019
+Vendor C	0.025
+
+System automatically:
+
+selects cheapest
+applies QoS rules
+sets routing priority
+pushes to Sippy
+
+This should integrate directly with:
+
+Authentication Rules
+Service Plans
+Routing Policies
+5. Rate Versioning
+
+VERY important feature most startups miss.
+
+Every upload should create:
+
+Version history
+Rollback option
+Change log
+Effective date
+
+Example:
+
+Version	Date
+v245	May 10
+v246	May 15
+
+Then rollback becomes instant if vendor sends bad rates.
+
+6. Differential Rate Analyzer
+
+Professional carriers use this heavily.
+
+System should show:
+
+Prefix	Old Rate	New Rate	Change
+Pakistan Mobile	0.021	0.028	+33%
+
+This prevents margin loss.
+
+7. Traffic-based Smart Routing (Advanced Phase)
+
+Later you can implement:
+
+Route	ASR	ACD	PDD
+Vendor A	48%	3.2	7 sec
+Vendor B	62%	5.1	3 sec
+
+Then routing engine balances:
+
+quality
+cost
+profitability
+
+instead of cheapest-only routing.
+
+This becomes enterprise-grade.
+
+Recommended Database Structure
+Vendors Table
+vendors
+- id
+- name
+- status
+Vendor Rates
+vendor_rates
+- vendor_id
+- prefix
+- destination
+- buy_rate
+- increment
+- effective_date
+Tariffs
+tariffs
+- tariff_name
+- customer_type
+- margin
+Customer Rates
+customer_rates
+- tariff_id
+- prefix
+- sell_rate
+Recommended Workflow
+Step 1
+
+Vendor uploads rate sheet
+
+Step 2
+
+System:
+
+normalizes
+validates
+removes duplicates
+Step 3
+
+Platform calculates:
+
+margins
+sell rates
+Step 4
+
+Generate:
+
+tariffs
+routing plans
+Step 5
+
+Push to:
+
+Sippy
+switch
+routing engine
+Best Implementation Priority
+Phase 1 (Implement FIRST)
+
+You should build:
+
+Vendor Rate Upload
+Normalization Engine
+Duplicate Detection
+Margin Engine
+Tariff Generator
+
+This gives immediate operational value.
+
+Phase 2
+
+Then implement:
+
+LCR routing
+QoS routing
+traffic analysis
+rate comparison
+rollback engine
+VERY Important Suggestion
+
+Do NOT directly edit rates inside Sippy.
+
+Your platform should become the:
+
+single source of truth
+
+Sippy should only receive:
+
+generated tariffs
+routing plans
+authentication configs
+
+This is the correct telecom architecture.
+
+Strong Recommendation for Your Platform
+
+Based on everything you’re building, your differentiator should be:
+
+“Intelligent Rate Management + Automated Provisioning”
+
+Most VoIP platforms fail because:
+
+rate management is manual
+routing is messy
+duplicate codes exist
+margin leaks happen
+rollback is impossible
+
+If your platform solves:
+
+clean normalization
+automated routing
+smart margins
+version control
+service plan automation
+
+then it becomes carrier-grade very quickly.
