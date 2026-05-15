@@ -5721,9 +5721,44 @@ export async function pushAccountToSippy(
               }
               if (rgStrippedFaultRaw) {
                 lastFault = rgStrippedFaultRaw;
-                console.log(`[Sippy] No-routing-group retry fault: "${lastFault}" — continuing with updated fault`);
+                console.log(`[Sippy] No-routing-group retry fault: "${lastFault}" — continuing`);
               } else {
                 params.i_routing_group = savedRg; // restore if no fault extracted
+              }
+
+              // Step 2 cascade: if still "Fatal error" after stripping routing group,
+              // i_customer=1 may not match ssp-root's actual customer scope.
+              // Try omitting i_customer entirely — Sippy will use the session's default customer.
+              if (lastFault.toLowerCase() === 'fatal error') {
+                const savedCustomer = params.i_customer;
+                delete params.i_customer;
+                console.log(`[Sippy] Also stripping i_customer=${savedCustomer} — retrying with session-default customer...`);
+                const noCustomerBody = xmlRpcCall(method, params);
+                const noCustomerResp = await sippyPost(apiUrl, noCustomerBody, credentials.username, credentials.password);
+                const noCustomerText = noCustomerResp.body;
+                const noCustomerFault = noCustomerText.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim() ?? '';
+                console.log(`[Sippy] No-customer retry: HTTP ${noCustomerResp.statusCode}, fault="${noCustomerFault.slice(0, 120)}"`);
+                if (noCustomerResp.statusCode === 200 && !noCustomerText.includes('<fault>') && !noCustomerText.includes('faultCode')) {
+                  console.log('[Sippy] createAccount succeeded with session-default customer (no i_customer)');
+                  const ncAccount = extractValue(noCustomerText, 'i_account');
+                  return {
+                    success: true,
+                    message: `Account "${opts.name}" created on Sippy (session-default customer, no routing group).${ncAccount ? ` (ID: ${parseInt(ncAccount, 10)})` : ''}`,
+                    method,
+                    i_account:     ncAccount ? parseInt(ncAccount, 10) : undefined,
+                    username:      extractValue(noCustomerText, 'username'),
+                    authname:      extractValue(noCustomerText, 'authname'),
+                    web_password:  extractValue(noCustomerText, 'web_password'),
+                    voip_password: extractValue(noCustomerText, 'voip_password'),
+                    vm_password:   extractValue(noCustomerText, 'vm_password'),
+                  };
+                }
+                if (noCustomerFault) {
+                  lastFault = noCustomerFault;
+                  console.log(`[Sippy] No-customer retry fault: "${lastFault}"`);
+                } else {
+                  params.i_customer = savedCustomer; // restore
+                }
               }
             }
           } else {
