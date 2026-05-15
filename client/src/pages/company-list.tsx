@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Building2, Plus, Search, Pencil, Trash2, Users, Globe, CreditCard,
-  Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle, PlusCircle
+  Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle, PlusCircle, ShieldPlus
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Company } from "@shared/schema";
@@ -83,11 +83,49 @@ function ProvisioningPanel({ company }: { company: Company }) {
 
   const provisionMutation = useMutation({
     mutationFn: () => apiRequest("POST", `/api/companies/${company.id}/provision`),
-    onSuccess: () => {
+    onSuccess: async (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
-      toast({ title: `${company.name} provisioned to Sippy` });
+      let data: any = {};
+      try { data = typeof res?.json === 'function' ? await res.json() : res; } catch {}
+      const authErrors: string[] = data?.authErrors ?? [];
+      const spNote: string = data?.servicePlanNote ?? '';
+      if (authErrors.length > 0) {
+        toast({
+          title: `${company.name} provisioned — IP auth failed`,
+          description: `Auth rule error(s): ${authErrors.join('; ')}${spNote ? '\n' + spNote : ''}`,
+          variant: "destructive",
+        });
+      } else if (spNote) {
+        toast({
+          title: `${company.name} provisioned to Sippy`,
+          description: spNote,
+          variant: "default",
+        });
+      } else {
+        toast({ title: `${company.name} provisioned to Sippy` });
+      }
     },
     onError: (e: any) => toast({ title: "Provisioning failed", description: e.message, variant: "destructive" }),
+  });
+
+  const addAuthMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/companies/${company.id}/add-auth-rules`),
+    onSuccess: async (res: any) => {
+      let data: any = {};
+      try { data = typeof res?.json === 'function' ? await res.json() : res; } catch {}
+      const failed = data?.results?.filter((r: any) => !r.success) ?? [];
+      const ok     = data?.results?.filter((r: any) =>  r.success) ?? [];
+      if (failed.length > 0) {
+        toast({
+          title: `Auth rules: ${ok.length} OK, ${failed.length} failed`,
+          description: failed.map((r: any) => `${r.ip}: ${r.message}`).join('; '),
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: `Auth rules pushed — ${ok.length} IP(s) added to Sippy Authentication` });
+      }
+    },
+    onError: (e: any) => toast({ title: "Auth rule push failed", description: e.message, variant: "destructive" }),
   });
 
   const handleAddIp = () => {
@@ -263,6 +301,45 @@ function ProvisioningPanel({ company }: { company: Company }) {
   );
 }
 
+function ReAddAuthButton({ company }: { company: Company }) {
+  const { toast } = useToast();
+  const addAuthMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/companies/${company.id}/add-auth-rules`),
+    onSuccess: async (res: any) => {
+      let data: any = {};
+      try { data = typeof res?.json === 'function' ? await res.json() : res; } catch {}
+      const failed = data?.results?.filter((r: any) => !r.success) ?? [];
+      const ok     = data?.results?.filter((r: any) =>  r.success) ?? [];
+      if (failed.length > 0) {
+        toast({
+          title: `Auth rules: ${ok.length} OK, ${failed.length} failed`,
+          description: failed.map((r: any) => `${r.ip}: ${r.message}`).join('; '),
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: `Auth rules pushed — ${ok.length} IP(s) added to Sippy Authentication` });
+      }
+    },
+    onError: (e: any) => toast({ title: "Auth rule push failed", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Button
+      data-testid={`btn-readd-auth-${company.id}`}
+      size="sm"
+      variant="outline"
+      className="w-full h-7 text-xs gap-1.5 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+      disabled={addAuthMutation.isPending}
+      onClick={() => addAuthMutation.mutate()}
+    >
+      {addAuthMutation.isPending
+        ? <><Loader2 className="h-3 w-3 animate-spin" /> Pushing IPs…</>
+        : <><ShieldPlus className="h-3 w-3" /> Re-add IPs to Sippy Auth</>
+      }
+    </Button>
+  );
+}
+
 export default function CompanyListPage() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
@@ -409,6 +486,8 @@ export default function CompanyListPage() {
                   </div>
 
                   {showPanel && <ProvisioningPanel company={c} />}
+
+                  {isProvisioned && (c as any).sippyIAccount && <ReAddAuthButton company={c} />}
 
                   <div className="flex items-center gap-2 pt-1">
                     <Link href={`/company/edit/${c.id}`}>

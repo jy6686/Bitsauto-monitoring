@@ -17772,6 +17772,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
       // ── Step 1: create tariff named <CODE>-TARIFF ──────────────────────────
       let servicePlanId: string | undefined;
+      let servicePlanCreated = false;
+      let servicePlanFallbackName: string | undefined;
       try {
         const tariffRes = await sippy.createSippyTariff(username, password, { name: tariffName, currency: 'USD' }, portalUrl);
         if (tariffRes.success && tariffRes.iTariff) {
@@ -17783,6 +17785,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           );
           if (planRes.success && planRes.planId) {
             servicePlanId = String(planRes.planId);
+            servicePlanCreated = true;
             console.log(`[Provision] Service plan "${servicePlanName}" id=${planRes.planId}${planRes.alreadyExists ? ' (already existed)' : ''}`);
           } else {
             console.error(`[Provision] Service plan creation incomplete: ${planRes.error || 'no plan ID'}`);
@@ -17791,6 +17794,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             const bpFallback = await sippy.listSippyBillingPlans(username, password, portalUrl);
             if (bpFallback.plans.length > 0) {
               servicePlanId = String(bpFallback.plans[0].id);
+              servicePlanFallbackName = bpFallback.plans[0].name;
               console.log(`[Provision] Using fallback billing plan: ${bpFallback.plans[0].id} "${bpFallback.plans[0].name}"`);
             }
           }
@@ -17857,13 +17861,64 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
       const authErrors: string[] = [];
       for (const ipReq of approvedIps) {
-        try {
-          await sippy.addSippyAuthRule(username, password, { iAccount, iProtocol: 1, remoteIp: ipReq.ipAddress });
-        } catch (e: any) { authErrors.push(`${ipReq.ipAddress}: ${e.message}`); }
+        console.log(`[Provision] Adding Sippy auth rule: iAccount=${iAccount}, ip=${ipReq.ipAddress}, protocol=SIP`);
+        const authResult = await sippy.addSippyAuthRule(
+          username, password,
+          { iAccount, iProtocol: 1, remoteIp: ipReq.ipAddress },
+          portalUrl,
+        );
+        if (authResult.success) {
+          console.log(`[Provision] Auth rule added OK for ${ipReq.ipAddress} → i_authentication=${authResult.iAuthentication}`);
+        } else {
+          console.error(`[Provision] Auth rule FAILED for ${ipReq.ipAddress}: ${authResult.message}`);
+          authErrors.push(`${ipReq.ipAddress}: ${authResult.message}`);
+        }
       }
       const reviewer = (req as any).user?.claims?.sub || 'admin';
       await storage.updateCompany(companyId, { provisioningStatus: 'provisioned', sippyIAccount: iAccount, provisionedAt: new Date(), provisionedBy: reviewer } as any);
-      res.json({ success: true, iAccount, authErrors: authErrors.length ? authErrors : undefined });
+      const servicePlanNote = servicePlanCreated
+        ? undefined
+        : servicePlanFallbackName
+          ? `Service plan "${servicePlanName}" could not be auto-created (Sippy portal permission). Account was assigned fallback plan "${servicePlanFallbackName}". Manually create "${servicePlanName}" in Sippy → Customers → Service Plans and reassign this account.`
+          : `Service plan "${servicePlanName}" could not be auto-created. Please create it manually in Sippy and assign it to account "${step1.userId}".`;
+      res.json({ success: true, iAccount, authErrors: authErrors.length ? authErrors : undefined, servicePlanNote });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/companies/:id/add-auth-rules — re-push all approved IPs as Sippy auth rules (admin only)
+  app.post('/api/companies/:id/add-auth-rules', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.id, 10);
+      const company   = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: 'Company not found.' });
+      if (!company.sippyIAccount) return res.status(400).json({ message: 'Company has no Sippy account ID — provision first.' });
+
+      const creds     = await storage.getSippyCredentials?.();
+      const settings  = await storage.getSettings?.();
+      const portalUrl = settings?.portalUrl || process.env.SIPPY_PORTAL_URL || '';
+      const username  = creds?.apiAdminUsername || process.env.SIPPY_ADMIN_USERNAME || '';
+      const password  = creds?.apiAdminPassword || process.env.SIPPY_ADMIN_PASSWORD || '';
+
+      const allIps    = await storage.getClientIpRequestsByCompany(companyId);
+      const approvedIps = allIps.filter((r: any) => r.status === 'approved');
+      if (approvedIps.length === 0) return res.status(400).json({ message: 'No approved IPs for this company.' });
+
+      const iAccount  = company.sippyIAccount;
+      const results: { ip: string; success: boolean; message: string; iAuthentication?: number }[] = [];
+
+      for (const ipReq of approvedIps) {
+        console.log(`[AddAuthRules] Adding auth rule: iAccount=${iAccount}, ip=${ipReq.ipAddress}`);
+        const authResult = await sippy.addSippyAuthRule(
+          username, password,
+          { iAccount, iProtocol: 1, remoteIp: ipReq.ipAddress },
+          portalUrl,
+        );
+        console.log(`[AddAuthRules] ${ipReq.ipAddress}: ${authResult.success ? `OK (i_authentication=${authResult.iAuthentication})` : `FAILED: ${authResult.message}`}`);
+        results.push({ ip: ipReq.ipAddress, success: authResult.success, message: authResult.message, iAuthentication: authResult.iAuthentication });
+      }
+
+      const failed = results.filter(r => !r.success);
+      res.json({ success: failed.length === 0, results, failCount: failed.length });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
