@@ -1,14 +1,18 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Building2, Plus, Search, Pencil, Trash2, Users, Globe, CreditCard,
-  Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle, PlusCircle, ShieldPlus
+  Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle,
+  PlusCircle, ShieldPlus, Tag, Package, MapPin, DollarSign, Cpu, ExternalLink,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Company } from "@shared/schema";
@@ -27,6 +31,13 @@ const STATUS_COLOR: Record<string, string> = {
   inactive: "bg-rose-500/10 text-rose-400 border-rose-500/20",
 };
 
+const PRODUCT_COLOR: Record<string, string> = {
+  "First Class":    "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  "Business Class": "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  "Special Charlie":"bg-violet-500/10 text-violet-400 border-violet-500/20",
+  "Special Bravo":  "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+};
+
 interface IpRequest {
   id: number;
   ipAddress: string;
@@ -36,6 +47,219 @@ interface IpRequest {
   submittedBy: string | null;
 }
 
+// ── Utility: extract 4-digit prefix from CLD rule like s/^8888// ─────────────
+function extractPrefixFromCld(rule?: string): string {
+  if (!rule) return "";
+  const m = rule.match(/\^(\d{3,8})/);
+  return m?.[1] ?? "";
+}
+
+// ── Company Info Dialog ───────────────────────────────────────────────────────
+function CompanyInfoDialog({ company, open, onClose }: {
+  company: Company | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [, navigate] = useLocation();
+
+  const { data: ipData, isLoading: ipsLoading } = useQuery<{ requests: IpRequest[] }>({
+    queryKey: ["/api/client-ip-requests", company?.id],
+    queryFn: () => fetch(`/api/client-ip-requests?companyId=${company!.id}`, { credentials: "include" }).then(r => r.json()),
+    enabled: open && !!company,
+  });
+
+  if (!company) return null;
+
+  const companyAny = company as any;
+  const draft = companyAny.wizardDraft ? (() => { try { return JSON.parse(companyAny.wizardDraft); } catch { return null; } })() : null;
+
+  const approvedIps = (ipData?.requests ?? []).filter(r => r.status === "approved");
+  const pendingIps  = (ipData?.requests ?? []).filter(r => r.status === "pending");
+  const rejectedIps = (ipData?.requests ?? []).filter(r => r.status === "rejected");
+
+  // Prefix: from step1.prefix or parsed from first trunk's CLD rule
+  const prefix = draft?.step1?.prefix
+    || (draft?.trunks?.[0] ? extractPrefixFromCld(draft.trunks[0].cldTranslation) : "")
+    || "";
+
+  // Products from wizard selectedProducts, fallback to trunk names
+  const products: string[] = draft?.selectedProducts ?? [];
+
+  // Sippy username
+  const sippyUser = draft?.step1?.userId || "";
+
+  const provStatus = companyAny.provisioningStatus;
+  const isProvisioned = provStatus === "provisioned";
+
+  return (
+    <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-blue-400" />
+            {company.name}
+            <span className="text-xs text-muted-foreground font-mono font-normal ml-1">{company.shortCode}</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-1">
+          {/* Status badges */}
+          <div className="flex flex-wrap gap-1.5">
+            <Badge variant="outline" className={`text-[10px] ${STATUS_COLOR[company.status] ?? ""}`}>{company.status}</Badge>
+            <Badge variant="outline" className={`text-[10px] ${TYPE_COLOR[company.companyType] ?? ""}`}>{company.companyType}</Badge>
+            <Badge variant="outline" className={`text-[10px] ${CONTRACT_COLOR[company.contractType] ?? ""}`}>{company.contractType}</Badge>
+            {isProvisioned && (
+              <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                <Zap className="h-2.5 w-2.5 mr-1" />provisioned
+              </Badge>
+            )}
+            {provStatus === "pending_provision" && (
+              <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-400 border-amber-500/30">
+                <Clock className="h-2.5 w-2.5 mr-1" />awaiting provision
+              </Badge>
+            )}
+          </div>
+
+          {/* Core info grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <InfoRow icon={<Users className="h-3.5 w-3.5 text-blue-400" />} label="KAM">
+              <button
+                className="text-xs font-medium text-blue-400 hover:underline"
+                onClick={() => { onClose(); }}
+              >
+                {company.kam || "—"}
+              </button>
+            </InfoRow>
+
+            <InfoRow icon={<MapPin className="h-3.5 w-3.5 text-emerald-400" />} label="Location">
+              <span className="text-xs font-medium">{company.country || "—"}</span>
+            </InfoRow>
+
+            <InfoRow icon={<DollarSign className="h-3.5 w-3.5 text-amber-400" />} label="Currency">
+              <span className="text-xs font-medium">{company.currency || "—"} · {company.paymentTerm || "—"}</span>
+            </InfoRow>
+
+            <InfoRow icon={<Tag className="h-3.5 w-3.5 text-violet-400" />} label="Account Prefix">
+              {prefix
+                ? <span className="text-xs font-mono font-medium text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">{prefix}</span>
+                : <span className="text-xs text-muted-foreground">Not set</span>
+              }
+            </InfoRow>
+
+            {sippyUser && (
+              <InfoRow icon={<Cpu className="h-3.5 w-3.5 text-cyan-400" />} label="Sippy Username">
+                <span className="text-xs font-mono font-medium text-cyan-300">{sippyUser}</span>
+              </InfoRow>
+            )}
+
+            {companyAny.sippyIAccount && (
+              <InfoRow icon={<Zap className="h-3.5 w-3.5 text-emerald-400" />} label="Sippy i_account">
+                <span className="text-xs font-mono font-medium text-emerald-300">#{companyAny.sippyIAccount}</span>
+              </InfoRow>
+            )}
+          </div>
+
+          {/* IP Summary */}
+          <div className="border border-border/40 rounded-lg p-3 space-y-2">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">IP Addresses</p>
+            {ipsLoading ? (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 text-xs">
+                <span className="flex items-center gap-1 text-emerald-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span className="font-semibold">{approvedIps.length}</span> approved
+                </span>
+                <span className="flex items-center gap-1 text-amber-400">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span className="font-semibold">{pendingIps.length}</span> pending
+                </span>
+                {rejectedIps.length > 0 && (
+                  <span className="flex items-center gap-1 text-rose-400">
+                    <XCircle className="h-3.5 w-3.5" />
+                    <span className="font-semibold">{rejectedIps.length}</span> rejected
+                  </span>
+                )}
+              </div>
+            )}
+            {approvedIps.length > 0 && (
+              <div className="flex flex-wrap gap-1 pt-1">
+                {approvedIps.map(ip => (
+                  <span key={ip.id} className="text-[10px] font-mono bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded px-1.5 py-0.5">
+                    {ip.ipAddress}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Products Offered */}
+          {products.length > 0 && (
+            <div className="border border-border/40 rounded-lg p-3 space-y-2">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                <Package className="h-3 w-3" /> Products Offered
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {products.map(p => (
+                  <Badge key={p} variant="outline" className={`text-[10px] ${PRODUCT_COLOR[p] ?? "bg-muted/30 text-muted-foreground"}`}>
+                    {p}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* CLD rule details */}
+          {draft?.trunks?.length > 0 && (
+            <div className="border border-border/40 rounded-lg p-3 space-y-1.5">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Trunk Configuration</p>
+              {draft.trunks.map((t: any, i: number) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground w-20 shrink-0 truncate">{t.trunkName || `Trunk ${i + 1}`}</span>
+                  <span className="font-mono text-[10px] bg-muted/30 px-1.5 py-0.5 rounded text-muted-foreground truncate flex-1">
+                    {t.cldTranslation || "s/^//"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-1">
+            <Link href={`/company/edit/${company.id}`}>
+              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={onClose}>
+                <Pencil className="h-3 w-3" /> Edit Company
+              </Button>
+            </Link>
+            {!isProvisioned && (
+              <Link href={`/client-wizard`}>
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-amber-500/30 text-amber-400 hover:bg-amber-500/10" onClick={onClose}>
+                  <Zap className="h-3 w-3" /> Client Wizard
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function InfoRow({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2">
+      <div className="mt-0.5 shrink-0">{icon}</div>
+      <div className="min-w-0">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Provisioning Panel ────────────────────────────────────────────────────────
 function ProvisioningPanel({ company }: { company: Company }) {
   const { toast } = useToast();
   const companyAny = company as any;
@@ -106,26 +330,6 @@ function ProvisioningPanel({ company }: { company: Company }) {
       }
     },
     onError: (e: any) => toast({ title: "Provisioning failed", description: e.message, variant: "destructive" }),
-  });
-
-  const addAuthMutation = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/companies/${company.id}/add-auth-rules`),
-    onSuccess: async (res: any) => {
-      let data: any = {};
-      try { data = typeof res?.json === 'function' ? await res.json() : res; } catch {}
-      const failed = data?.results?.filter((r: any) => !r.success) ?? [];
-      const ok     = data?.results?.filter((r: any) =>  r.success) ?? [];
-      if (failed.length > 0) {
-        toast({
-          title: `Auth rules: ${ok.length} OK, ${failed.length} failed`,
-          description: failed.map((r: any) => `${r.ip}: ${r.message}`).join('; '),
-          variant: "destructive",
-        });
-      } else {
-        toast({ title: `Auth rules pushed — ${ok.length} IP(s) added to Sippy Authentication` });
-      }
-    },
-    onError: (e: any) => toast({ title: "Auth rule push failed", description: e.message, variant: "destructive" }),
   });
 
   const handleAddIp = () => {
@@ -340,9 +544,12 @@ function ReAddAuthButton({ company }: { company: Company }) {
   );
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function CompanyListPage() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
+  const [kamFilter, setKamFilter] = useState("");
+  const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery<{ companies: Company[] }>({
     queryKey: ["/api/companies"],
@@ -357,11 +564,19 @@ export default function CompanyListPage() {
     onError: () => toast({ title: "Failed to delete", variant: "destructive" }),
   });
 
-  const companies = (data?.companies ?? []).filter(c =>
-    !search || c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.shortCode ?? "").toLowerCase().includes(search.toLowerCase()) ||
-    (c.kam ?? "").toLowerCase().includes(search.toLowerCase())
-  );
+  const allCompanies = data?.companies ?? [];
+
+  const companies = allCompanies.filter(c => {
+    const matchSearch = !search
+      || c.name.toLowerCase().includes(search.toLowerCase())
+      || (c.shortCode ?? "").toLowerCase().includes(search.toLowerCase())
+      || (c.kam ?? "").toLowerCase().includes(search.toLowerCase());
+    const matchKam = !kamFilter || c.kam === kamFilter;
+    return matchSearch && matchKam;
+  });
+
+  const allKams = Array.from(new Set(allCompanies.map(c => c.kam).filter(Boolean))) as string[];
+  const selectedCompany = allCompanies.find(c => c.id === selectedCompanyId) ?? null;
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -371,22 +586,58 @@ export default function CompanyListPage() {
           <h1 className="text-xl font-semibold">Companies</h1>
           <Badge variant="outline" className="text-xs">{companies.length}</Badge>
         </div>
-        <Link href="/company/create">
-          <Button data-testid="btn-create-company" size="sm" className="gap-1.5">
-            <Plus className="h-4 w-4" /> New Company
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/client-wizard">
+            <Button data-testid="btn-client-wizard" size="sm" variant="outline" className="gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+              <Zap className="h-4 w-4" /> Client Wizard
+            </Button>
+          </Link>
+          <Link href="/company/create">
+            <Button data-testid="btn-create-company" size="sm" className="gap-1.5">
+              <Plus className="h-4 w-4" /> New Company
+            </Button>
+          </Link>
+        </div>
       </div>
 
-      <div className="relative max-w-xs">
-        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-        <Input
-          data-testid="input-search-company"
-          placeholder="Search by name, code, KAM…"
-          className="pl-8 h-8 text-sm"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+      {/* Search + KAM filter row */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative max-w-xs">
+          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            data-testid="input-search-company"
+            placeholder="Search by name, code, KAM…"
+            className="pl-8 h-8 text-sm"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+
+        {/* KAM quick-filter pills */}
+        {allKams.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">KAM:</span>
+            <button
+              onClick={() => setKamFilter("")}
+              className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                !kamFilter ? "bg-blue-500/20 border-blue-500/40 text-blue-300" : "border-border text-muted-foreground hover:border-border/80"
+              }`}
+            >
+              All
+            </button>
+            {allKams.map(k => (
+              <button
+                key={k}
+                onClick={() => setKamFilter(k === kamFilter ? "" : k)}
+                className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                  kamFilter === k ? "bg-blue-500/20 border-blue-500/40 text-blue-300" : "border-border text-muted-foreground hover:border-border/80"
+                }`}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -402,9 +653,9 @@ export default function CompanyListPage() {
           <CardContent className="p-12 text-center">
             <Building2 className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">
-              {search ? "No companies match your search." : "No companies yet."}
+              {search || kamFilter ? "No companies match your filters." : "No companies yet."}
             </p>
-            {!search && (
+            {!search && !kamFilter && (
               <Link href="/company/create">
                 <Button size="sm" className="mt-4 gap-1.5">
                   <Plus className="h-4 w-4" /> Create First Company
@@ -420,6 +671,11 @@ export default function CompanyListPage() {
             const isProvisioned = provStatus === "provisioned";
             const isSuspended = provStatus === "suspended";
             const showPanel = !isProvisioned && !isSuspended;
+
+            // Products from wizardDraft
+            const draft = (c as any).wizardDraft ? (() => { try { return JSON.parse((c as any).wizardDraft); } catch { return null; } })() : null;
+            const products: string[] = draft?.selectedProducts ?? [];
+
             return (
               <Card
                 key={c.id}
@@ -434,10 +690,19 @@ export default function CompanyListPage() {
               >
                 <CardHeader className="pb-2 pt-4 px-4">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <CardTitle className="text-sm font-semibold truncate">{c.name}</CardTitle>
+                    {/* Clickable name area → opens info dialog */}
+                    <button
+                      data-testid={`btn-open-company-info-${c.id}`}
+                      className="min-w-0 text-left group"
+                      onClick={() => setSelectedCompanyId(c.id)}
+                    >
+                      <CardTitle className="text-sm font-semibold truncate group-hover:text-blue-400 transition-colors">
+                        {c.name}
+                        <ExternalLink className="inline h-3 w-3 ml-1 opacity-0 group-hover:opacity-60 transition-opacity" />
+                      </CardTitle>
                       <p className="text-xs text-muted-foreground font-mono mt-0.5">{c.shortCode}</p>
-                    </div>
+                    </button>
+
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <Badge variant="outline" className={`text-[10px] ${STATUS_COLOR[c.status] ?? ""}`}>
                         {c.status}
@@ -455,6 +720,7 @@ export default function CompanyListPage() {
                     </div>
                   </div>
                 </CardHeader>
+
                 <CardContent className="px-4 pb-4 space-y-2">
                   <div className="flex flex-wrap gap-1.5">
                     <Badge variant="outline" className={`text-[10px] ${TYPE_COLOR[c.companyType] ?? ""}`}>
@@ -463,12 +729,24 @@ export default function CompanyListPage() {
                     <Badge variant="outline" className={`text-[10px] ${CONTRACT_COLOR[c.contractType] ?? ""}`}>
                       {c.contractType}
                     </Badge>
+                    {products.map(p => (
+                      <Badge key={p} variant="outline" className={`text-[10px] ${PRODUCT_COLOR[p] ?? "bg-muted/30 text-muted-foreground"}`}>
+                        {p}
+                      </Badge>
+                    ))}
                   </div>
+
                   <div className="space-y-1 text-xs text-muted-foreground">
                     {c.kam && (
                       <div className="flex items-center gap-1.5">
                         <Users className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{c.kam}</span>
+                        <button
+                          className="truncate hover:text-blue-400 transition-colors text-left"
+                          onClick={() => setKamFilter(c.kam === kamFilter ? "" : c.kam!)}
+                          title={kamFilter === c.kam ? "Click to clear KAM filter" : `Click to filter by ${c.kam}`}
+                        >
+                          {c.kam}
+                        </button>
                       </div>
                     )}
                     {c.country && (
@@ -490,6 +768,17 @@ export default function CompanyListPage() {
                   {isProvisioned && (c as any).sippyIAccount && <ReAddAuthButton company={c} />}
 
                   <div className="flex items-center gap-2 pt-1">
+                    {!isProvisioned && !draft && (
+                      <Link href="/client-wizard">
+                        <Button
+                          data-testid={`btn-wizard-company-${c.id}`}
+                          size="sm" variant="outline"
+                          className="h-7 text-xs gap-1 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                        >
+                          <Zap className="h-3 w-3" /> Wizard
+                        </Button>
+                      </Link>
+                    )}
                     <Link href={`/company/edit/${c.id}`}>
                       <Button data-testid={`btn-edit-company-${c.id}`} size="sm" variant="outline" className="h-7 text-xs gap-1">
                         <Pencil className="h-3 w-3" /> Edit
@@ -511,6 +800,13 @@ export default function CompanyListPage() {
           })}
         </div>
       )}
+
+      {/* Info Dialog */}
+      <CompanyInfoDialog
+        company={selectedCompany}
+        open={selectedCompanyId !== null}
+        onClose={() => setSelectedCompanyId(null)}
+      />
     </div>
   );
 }

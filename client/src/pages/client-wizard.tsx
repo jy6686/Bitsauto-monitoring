@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Users, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2,
   AlertTriangle, ShieldCheck, Server, Network, FileText,
-  Loader2, Info, Eye, EyeOff
+  Loader2, Info, Eye, EyeOff, Tag, Package,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Company } from "@shared/schema";
@@ -21,25 +21,38 @@ const STEPS = [
   { id: 1, label: "Department & Company",  icon: Users },
   { id: 2, label: "Rate Sheet Config",     icon: FileText },
   { id: 3, label: "Technical Config",      icon: Server },
-  { id: 4, label: "IPs & Trunks",          icon: Network },
+  { id: 4, label: "IPs & Products",        icon: Network },
   { id: 5, label: "Review & Save",         icon: CheckCircle2 },
 ];
 
 const CODECS = [
   { value: "none", label: "None / Disabled" },
-  { value: "0", label: "G.711u (PCMU)" },
-  { value: "8", label: "G.711a (PCMA)" },
-  { value: "9", label: "G.722" },
-  { value: "18", label: "G.729" },
-  { value: "3", label: "GSM" },
-  { value: "4", label: "G.723" },
-  { value: "15", label: "G.728" },
+  { value: "0",    label: "G.711u (PCMU)" },
+  { value: "8",    label: "G.711a (PCMA)" },
+  { value: "9",    label: "G.722" },
+  { value: "18",   label: "G.729" },
+  { value: "3",    label: "GSM" },
+  { value: "4",    label: "G.723" },
+  { value: "15",   label: "G.728" },
 ];
 
-const TRUNKS = ["PREMIUM","STANDARD PLUS","STANDARD","BUSINESS","CHARLIE"];
-const RELAY_TYPES = [{ v:"0", l:"Default" },{ v:"1", l:"Always Relay" },{ v:"2", l:"Never Relay" }];
+const PRODUCTS = [
+  { id: "First Class",    color: "amber" },
+  { id: "Business Class", color: "blue"  },
+  { id: "Special Charlie",color: "violet"},
+  { id: "Special Bravo",  color: "emerald"},
+];
+
+const PRODUCT_COLOR: Record<string, string> = {
+  "First Class":    "bg-amber-500/10 text-amber-400 border-amber-500/30",
+  "Business Class": "bg-blue-500/10 text-blue-400 border-blue-500/30",
+  "Special Charlie":"bg-violet-500/10 text-violet-400 border-violet-500/30",
+  "Special Bravo":  "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+};
+
+const RELAY_TYPES     = [{ v:"0", l:"Default" },{ v:"1", l:"Always Relay" },{ v:"2", l:"Never Relay" }];
 const INVOICE_TEMPLATES = ["Standard","Retail","Wholesale","Custom"];
-const SHEET_FORMATS = ["Full CSV","Excel XLSX","PDF","Partial Update","A2Z"];
+const SHEET_FORMATS   = ["Full CSV","Excel XLSX","PDF","Partial Update","A2Z"];
 
 function genPassword(len = 12) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#";
@@ -49,7 +62,10 @@ function genPassword(len = 12) {
 interface TrunkConfig {
   trunkName: string; routingGroupId: string; maxTime: string; maxSessions: string;
   maxCps: string; codec: string; useCodecOnly: boolean; lifetime: string;
-  relayType: string; cldTranslation: string; assertedIdRule: string;
+  relayType: string;
+  prefix: string;           // 4-digit account prefix (auto-generates CLD rule)
+  cldTranslation: string;
+  assertedIdRule: string;
   useAssertedId: boolean; preventLoops: boolean; allowRegistration: boolean; blocked: boolean;
 }
 interface IpEntry { ip: string; trunk: string; description: string; status: string; }
@@ -57,7 +73,7 @@ interface IpEntry { ip: string; trunk: string; description: string; status: stri
 const emptyTrunk = (): TrunkConfig => ({
   trunkName:"", routingGroupId:"", maxTime:"3600", maxSessions:"0", maxCps:"",
   codec:"none", useCodecOnly:false, lifetime:"never", relayType:"0",
-  cldTranslation:"s/^//", assertedIdRule:"", useAssertedId:false,
+  prefix:"", cldTranslation:"s/^//", assertedIdRule:"", useAssertedId:false,
   preventLoops:false, allowRegistration:true, blocked:false,
 });
 const emptyIp = (): IpEntry => ({ ip:"", trunk:"", description:"", status:"pending" });
@@ -70,16 +86,25 @@ export default function ClientWizardPage() {
   const [showPass, setShowPass] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const [s1, setS1] = useState({ department:"retail", companyId:"", password:genPassword(), displayName:"", userId:"", notifEmailTo:"", notifEmailCc:"", balanceThreshold:"", a2zNotif:"no", rateNotif:"full_sheet" });
-  const [s2, setS2] = useState({ invoiceTemplate:"Standard", ratesheetFull:"Full CSV", ratesheetPartial:"Partial Update", ratesheetAtoz:"A2Z", dialcodeFormat:"E.164", prefixStyle:"with_plus" });
+  const [s1, setS1] = useState({
+    department:"retail", companyId:"", password:genPassword(),
+    displayName:"", userId:"", notifEmailTo:"", notifEmailCc:"",
+    balanceThreshold:"", a2zNotif:"no", rateNotif:"full_sheet",
+  });
+  const [s2, setS2] = useState({
+    invoiceTemplate:"Standard", ratesheetFull:"Full CSV", ratesheetPartial:"Partial Update",
+    ratesheetAtoz:"A2Z", dialcodeFormat:"E.164", prefixStyle:"with_plus",
+  });
   const [trunks, setTrunks] = useState<TrunkConfig[]>([emptyTrunk()]);
   const [ips, setIps] = useState<IpEntry[]>([emptyIp()]);
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
 
   const { data: companiesData } = useQuery<{ companies: Company[] }>({ queryKey: ["/api/companies"] });
   const { data: routingData } = useQuery<{ groups: { id: number; name: string }[] }>({
     queryKey: ["/api/sippy/routing-groups"],
     retry: false,
   });
+
   const submitIpMutation = useMutation({
     mutationFn: (payload: any) => apiRequest("POST", "/api/client-ip-requests", payload),
     onSuccess: () => {
@@ -102,7 +127,7 @@ export default function ClientWizardPage() {
     onError: (e: any) => toast({ title: e.message || "Failed to save draft", variant: "destructive" }),
   });
 
-  const companies = companiesData?.companies ?? [];
+  const companies     = companiesData?.companies ?? [];
   const routingGroups = routingData?.groups ?? [];
   const selectedCompany = companies.find(c => String(c.id) === s1.companyId);
 
@@ -128,13 +153,28 @@ export default function ClientWizardPage() {
   const updateTrunk = (idx: number, k: keyof TrunkConfig, v: any) =>
     setTrunks(p => p.map((t, i) => i === idx ? { ...t, [k]: v } : t));
 
-  const routingGroupHealthy = (rgId: string) => {
-    return rgId && routingGroups.some(g => String(g.id) === rgId);
+  // When prefix field changes, auto-generate CLD rule for 4-digit codes
+  const handlePrefixChange = (idx: number, raw: string) => {
+    const digits = raw.replace(/\D/g, "").slice(0, 8);
+    setTrunks(p => p.map((t, i) => {
+      if (i !== idx) return t;
+      const cld = digits.length >= 4 ? `s/^${digits}//` : t.cldTranslation;
+      return { ...t, prefix: digits, cldTranslation: cld };
+    }));
   };
+
+  const toggleProduct = (p: string) =>
+    setSelectedProducts(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]);
+
+  const routingGroupHealthy = (rgId: string) =>
+    rgId && routingGroups.some(g => String(g.id) === rgId);
 
   const handleSubmit = () => {
     const validIps = ips.filter(ip => ip.ip.trim());
-    createClientMutation.mutate({ step1: s1, step2: s2, trunks, ips: validIps, iCustomer: 1 });
+    createClientMutation.mutate({
+      step1: s1, step2: s2, trunks, ips: validIps,
+      iCustomer: 1, selectedProducts,
+    });
   };
 
   if (submitted) {
@@ -164,9 +204,19 @@ export default function ClientWizardPage() {
                 </div>
               ))}
             </div>
+            {selectedProducts.length > 0 && (
+              <div className="text-left pt-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Products Saved</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedProducts.map(p => (
+                    <Badge key={p} variant="outline" className={`text-[10px] ${PRODUCT_COLOR[p] ?? ""}`}>{p}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex gap-2 justify-center pt-2">
               <Button variant="outline" size="sm" onClick={() => navigate("/company/list")}>Go to Companies</Button>
-              <Button size="sm" onClick={() => { setSubmitted(false); setStep(1); }}>Create Another</Button>
+              <Button size="sm" onClick={() => { setSubmitted(false); setStep(1); setSelectedProducts([]); }}>Create Another</Button>
             </div>
           </CardContent>
         </Card>
@@ -214,7 +264,7 @@ export default function ClientWizardPage() {
         </CardHeader>
         <CardContent className="space-y-4">
 
-          {/* STEP 1 */}
+          {/* ── STEP 1 — Department & Company ─────────────────────────────── */}
           {step === 1 && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -230,12 +280,13 @@ export default function ClientWizardPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-1.5">
                   <Label className="text-xs">Company<span className="text-rose-400 ml-0.5">*</span></Label>
                   <Select value={s1.companyId} onValueChange={v => {
                     const co = companies.find(c => String(c.id) === v);
                     const name = co ? co.name : "";
-                    setS1(p => ({ ...p, companyId: v, displayName: name, userId: name }));
+                    setS1(p => ({ ...p, companyId: v, displayName: name, userId: name.toLowerCase().replace(/[^a-z0-9._-]/g, "") }));
                   }}>
                     <SelectTrigger data-testid="select-company" className={`h-8 text-sm ${errors.companyId ? "border-rose-500" : ""}`}><SelectValue placeholder="Select company…" /></SelectTrigger>
                     <SelectContent>
@@ -247,38 +298,68 @@ export default function ClientWizardPage() {
                   </Select>
                   {errors.companyId && <p className="text-[10px] text-rose-400">{errors.companyId}</p>}
                 </div>
+
                 <div className="space-y-1.5">
                   <Label className="text-xs">Display Name<span className="text-rose-400 ml-0.5">*</span></Label>
-                  <Input data-testid="input-displayName" className="h-8 text-sm" value={s1.displayName} onChange={e => setS1(p => ({ ...p, displayName: e.target.value, userId: e.target.value }))} placeholder="Sippy display name" />
-                  <p className="text-[10px] text-muted-foreground">Sippy account display name — username auto-mirrors this</p>
+                  <Input
+                    data-testid="input-displayName"
+                    className="h-8 text-sm"
+                    value={s1.displayName}
+                    onChange={e => setS1(p => ({
+                      ...p,
+                      displayName: e.target.value,
+                      userId: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""),
+                    }))}
+                    placeholder="Sippy display name"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Sippy account display name — username auto-derives (lowercase)</p>
                 </div>
+
                 <div className="space-y-1.5">
                   <Label className="text-xs">Sippy Username<span className="text-rose-400 ml-0.5">*</span></Label>
-                  <Input data-testid="input-userId" className={`h-8 text-sm ${errors.userId ? "border-rose-500" : ""}`} value={s1.userId} onChange={e => setS1(p => ({ ...p, userId: e.target.value }))} placeholder="Auto-mirrors display name" />
+                  <Input
+                    data-testid="input-userId"
+                    className={`h-8 text-sm font-mono ${errors.userId ? "border-rose-500" : ""}`}
+                    value={s1.userId}
+                    onChange={e => setS1(p => ({ ...p, userId: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, "") }))}
+                    placeholder="lowercase, alphanumeric"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Sippy requires lowercase alphanumeric only</p>
                   {errors.userId && <p className="text-[10px] text-rose-400">{errors.userId}</p>}
                 </div>
+
                 <div className="space-y-1.5">
                   <Label className="text-xs">Password<span className="text-rose-400 ml-0.5">*</span></Label>
                   <div className="relative">
-                    <Input data-testid="input-password" type={showPass ? "text" : "password"} className="h-8 text-sm pr-8" value={s1.password} onChange={e => setS1(p => ({ ...p, password: e.target.value }))} />
+                    <Input
+                      data-testid="input-password"
+                      type={showPass ? "text" : "password"}
+                      className="h-8 text-sm pr-8"
+                      value={s1.password}
+                      onChange={e => setS1(p => ({ ...p, password: e.target.value }))}
+                    />
                     <button type="button" className="absolute right-2 top-2 text-muted-foreground hover:text-foreground" onClick={() => setShowPass(p => !p)}>
                       {showPass ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                     </button>
                   </div>
                   <button type="button" className="text-[10px] text-blue-400 hover:underline" onClick={() => setS1(p => ({ ...p, password: genPassword() }))}>Re-generate</button>
                 </div>
+
                 <div className="space-y-1.5">
                   <Label className="text-xs">Notification Email (To)</Label>
                   <Input data-testid="input-notifEmailTo" type="email" className="h-8 text-sm" value={s1.notifEmailTo} onChange={e => setS1(p => ({ ...p, notifEmailTo: e.target.value }))} />
                 </div>
+
                 <div className="space-y-1.5">
                   <Label className="text-xs">Notification Email (CC)</Label>
                   <Input data-testid="input-notifEmailCc" type="email" className="h-8 text-sm" value={s1.notifEmailCc} onChange={e => setS1(p => ({ ...p, notifEmailCc: e.target.value }))} />
                 </div>
+
                 <div className="space-y-1.5">
                   <Label className="text-xs">Balance Threshold Alert</Label>
                   <Input data-testid="input-balanceThreshold" type="number" className="h-8 text-sm" value={s1.balanceThreshold} onChange={e => setS1(p => ({ ...p, balanceThreshold: e.target.value }))} placeholder="0" />
                 </div>
+
                 <div className="space-y-1.5">
                   <Label className="text-xs">A2Z Notification</Label>
                   <Select value={s1.a2zNotif} onValueChange={v => setS1(p => ({ ...p, a2zNotif: v }))}>
@@ -290,25 +371,27 @@ export default function ClientWizardPage() {
                   </Select>
                 </div>
               </div>
+
               {!s1.companyId && (
                 <div className="flex items-center gap-2 p-3 rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-400 text-xs">
                   <Info className="h-3.5 w-3.5 shrink-0" />
-                  No company selected. <a href="/company/create" className="underline">Create a company first</a> if the list is empty.
+                  No company selected.{" "}
+                  <a href="/company/create" className="underline font-medium hover:text-amber-300">Create a company first</a> if the list is empty.
                 </div>
               )}
             </div>
           )}
 
-          {/* STEP 2 */}
+          {/* ── STEP 2 — Rate Sheet Config ─────────────────────────────────── */}
           {step === 2 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {([
                 ["invoiceTemplate", "Invoice Template", INVOICE_TEMPLATES],
-                ["ratesheetFull", "Full Rate Sheet Format", SHEET_FORMATS],
-                ["ratesheetPartial", "Partial Rate Sheet Format", SHEET_FORMATS],
-                ["ratesheetAtoz", "A2Z Rate Sheet Format", SHEET_FORMATS],
+                ["ratesheetFull",   "Full Rate Sheet Format", SHEET_FORMATS],
+                ["ratesheetPartial","Partial Rate Sheet Format", SHEET_FORMATS],
+                ["ratesheetAtoz",  "A2Z Rate Sheet Format", SHEET_FORMATS],
                 ["dialcodeFormat", "Dialcode Format", ["E.164","National","Local"]],
-                ["prefixStyle", "Prefix Style", ["with_plus","without_plus"]],
+                ["prefixStyle",    "Prefix Style", ["with_plus","without_plus"]],
               ] as [keyof typeof s2, string, string[]][]).map(([key, label, opts]) => (
                 <div key={key} className="space-y-1.5">
                   <Label className="text-xs">{label}</Label>
@@ -321,13 +404,14 @@ export default function ClientWizardPage() {
             </div>
           )}
 
-          {/* STEP 3 */}
+          {/* ── STEP 3 — Technical Config ──────────────────────────────────── */}
           {step === 3 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2 p-3 rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-400 text-xs">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 Routing Group is required. Leaving it blank causes the account to inherit from the parent customer — this is the root cause of "No Route Found" errors.
               </div>
+
               {trunks.map((t, idx) => (
                 <div key={idx} className="border border-border/50 rounded-lg p-4 space-y-3">
                   <div className="flex items-center justify-between">
@@ -338,11 +422,13 @@ export default function ClientWizardPage() {
                       </Button>
                     )}
                   </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs">Trunk / Switch Name</Label>
                       <Input data-testid={`input-trunk-name-${idx}`} className="h-8 text-sm" value={t.trunkName} onChange={e => updateTrunk(idx, "trunkName", e.target.value)} placeholder="e.g. SB-1 PREMIUM" />
                     </div>
+
                     <div className="space-y-1.5">
                       <Label className="text-xs">Default Routing Group<span className="text-rose-400 ml-0.5">*</span></Label>
                       <Select value={t.routingGroupId} onValueChange={v => updateTrunk(idx, "routingGroupId", v)}>
@@ -357,18 +443,22 @@ export default function ClientWizardPage() {
                       )}
                       {errors[`rg_${idx}`] && <p className="text-[10px] text-rose-400">{errors[`rg_${idx}`]}</p>}
                     </div>
+
                     <div className="space-y-1.5">
                       <Label className="text-xs">Max Call Time (s)</Label>
                       <Input data-testid={`input-maxTime-${idx}`} type="number" className="h-8 text-sm" value={t.maxTime} onChange={e => updateTrunk(idx, "maxTime", e.target.value)} />
                     </div>
+
                     <div className="space-y-1.5">
                       <Label className="text-xs">Max Sessions (0=unlimited)</Label>
                       <Input data-testid={`input-maxSessions-${idx}`} type="number" className="h-8 text-sm" value={t.maxSessions} onChange={e => updateTrunk(idx, "maxSessions", e.target.value)} />
                     </div>
+
                     <div className="space-y-1.5">
                       <Label className="text-xs">Max CPS</Label>
                       <Input data-testid={`input-maxCps-${idx}`} type="number" className="h-8 text-sm" value={t.maxCps} onChange={e => updateTrunk(idx, "maxCps", e.target.value)} />
                     </div>
+
                     <div className="space-y-1.5">
                       <Label className="text-xs">Preferred Codec</Label>
                       <Select value={t.codec} onValueChange={v => updateTrunk(idx, "codec", v)}>
@@ -376,6 +466,7 @@ export default function ClientWizardPage() {
                         <SelectContent>{CODECS.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
+
                     <div className="space-y-1.5">
                       <Label className="text-xs">Media Relay Type</Label>
                       <Select value={t.relayType} onValueChange={v => updateTrunk(idx, "relayType", v)}>
@@ -383,17 +474,49 @@ export default function ClientWizardPage() {
                         <SelectContent>{RELAY_TYPES.map(r => <SelectItem key={r.v} value={r.v}>{r.l}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
+
+                    {/* ── Prefix + CLD (linked) ─────────────────────────── */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs flex items-center gap-1">
+                        <Tag className="h-3 w-3 text-violet-400" />
+                        Account Prefix
+                      </Label>
+                      <Input
+                        data-testid={`input-prefix-${idx}`}
+                        className="h-8 text-sm font-mono"
+                        value={t.prefix}
+                        onChange={e => handlePrefixChange(idx, e.target.value)}
+                        placeholder="e.g. 8888"
+                        maxLength={8}
+                      />
+                      {t.prefix.length >= 4 && (
+                        <p className="text-[10px] text-violet-400 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" /> CLD auto-set to <span className="font-mono">s/^{t.prefix}//</span>
+                        </p>
+                      )}
+                      {t.prefix.length > 0 && t.prefix.length < 4 && (
+                        <p className="text-[10px] text-muted-foreground">Enter 4+ digits to auto-generate CLD rule</p>
+                      )}
+                    </div>
+
                     <div className="space-y-1.5">
                       <Label className="text-xs">CLD Translation Rule</Label>
-                      <Input data-testid={`input-cldRule-${idx}`} className="h-8 text-sm font-mono" value={t.cldTranslation} onChange={e => updateTrunk(idx, "cldTranslation", e.target.value)} />
+                      <Input
+                        data-testid={`input-cldRule-${idx}`}
+                        className="h-8 text-sm font-mono"
+                        value={t.cldTranslation}
+                        onChange={e => updateTrunk(idx, "cldTranslation", e.target.value)}
+                      />
+                      <p className="text-[10px] text-muted-foreground">Auto-filled when prefix ≥ 4 digits</p>
                     </div>
                   </div>
+
                   <div className="flex flex-wrap gap-4 pt-1">
                     {([
-                      ["useCodecOnly", "Use Preferred Codec Only"],
-                      ["preventLoops", "Prevent Call Loops"],
-                      ["allowRegistration", "Allow Registration"],
-                      ["blocked", "Blocked"],
+                      ["useCodecOnly",   "Use Preferred Codec Only"],
+                      ["preventLoops",   "Prevent Call Loops"],
+                      ["allowRegistration","Allow Registration"],
+                      ["blocked",        "Blocked"],
                     ] as [keyof TrunkConfig, string][]).map(([k, lbl]) => (
                       <div key={k} className="flex items-center gap-1.5">
                         <Checkbox
@@ -408,15 +531,18 @@ export default function ClientWizardPage() {
                   </div>
                 </div>
               ))}
+
               <Button data-testid="btn-add-trunk" size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setTrunks(p => [...p, emptyTrunk()])}>
                 <Plus className="h-3 w-3" /> Add Another Trunk
               </Button>
             </div>
           )}
 
-          {/* STEP 4 */}
+          {/* ── STEP 4 — IPs & Products ────────────────────────────────────── */}
           {step === 4 && (
-            <div className="space-y-4">
+            <div className="space-y-6">
+
+              {/* IP Addresses */}
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-medium">Client IP Addresses</h3>
@@ -436,17 +562,16 @@ export default function ClientWizardPage() {
                     </div>
                     <div className="space-y-1">
                       <Label className="text-[10px]">Trunk</Label>
-                      <Select value={ip.trunk} onValueChange={v => setIps(p => p.map((x,i) => i===idx ? {...x, trunk:v} : x))}>
-                        <SelectTrigger data-testid={`select-ip-trunk-${idx}`} className="h-7 text-xs"><SelectValue placeholder="Trunk…" /></SelectTrigger>
-                        <SelectContent>{TRUNKS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                      </Select>
+                      <Input data-testid={`input-ip-trunk-${idx}`} className="h-7 text-xs" value={ip.trunk} onChange={e => setIps(p => p.map((x,i) => i===idx ? {...x, trunk:e.target.value} : x))} placeholder="e.g. SB-1" />
                     </div>
                     <div className="space-y-1">
                       <Label className="text-[10px]">Description</Label>
                       <Input data-testid={`input-ip-desc-${idx}`} className="h-7 text-xs" value={ip.description} onChange={e => setIps(p => p.map((x,i) => i===idx ? {...x, description:e.target.value} : x))} />
                     </div>
                     <div className="flex items-end gap-1">
-                      <Button data-testid={`btn-submit-ip-${idx}`} size="sm" variant="outline" className="h-7 text-xs gap-1"
+                      <Button
+                        data-testid={`btn-submit-ip-${idx}`}
+                        size="sm" variant="outline" className="h-7 text-xs gap-1"
                         disabled={!ip.ip.trim() || submitIpMutation.isPending}
                         onClick={() => {
                           const clientName = selectedCompany?.name || s1.userId || "";
@@ -461,7 +586,8 @@ export default function ClientWizardPage() {
                             trunk: ip.trunk || null,
                             description: ip.description || null,
                           });
-                        }}>
+                        }}
+                      >
                         <CheckCircle2 className="h-3 w-3" /> Register
                       </Button>
                       <Button data-testid={`btn-remove-ip-${idx}`} size="sm" variant="ghost" className="h-7 text-rose-400" onClick={() => setIps(p => p.filter((_,i) => i !== idx))} disabled={ips.length === 1}>
@@ -472,35 +598,63 @@ export default function ClientWizardPage() {
                 ))}
               </div>
 
+              {/* Products Offered */}
               <div>
-                <h3 className="text-sm font-medium mb-3">Trunk Assignment</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                  {TRUNKS.map(t => (
-                    <div key={t} className="flex items-center gap-1.5 border border-border/50 rounded p-2">
-                      <Checkbox data-testid={`check-trunk-${t}`} id={`trunk-${t}`} />
-                      <label htmlFor={`trunk-${t}`} className="text-xs cursor-pointer">{t}</label>
-                    </div>
-                  ))}
+                <div className="flex items-center gap-2 mb-3">
+                  <Package className="h-4 w-4 text-amber-400" />
+                  <h3 className="text-sm font-medium">Products Offered</h3>
+                  <span className="text-[10px] text-muted-foreground">(select all that apply)</span>
                 </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {PRODUCTS.map(({ id: p }) => {
+                    const checked = selectedProducts.includes(p);
+                    return (
+                      <button
+                        key={p}
+                        data-testid={`check-product-${p.replace(/\s+/g, "-").toLowerCase()}`}
+                        onClick={() => toggleProduct(p)}
+                        className={`flex items-center gap-2 border rounded-lg p-3 text-left transition-all ${
+                          checked
+                            ? `${PRODUCT_COLOR[p]} border-opacity-60`
+                            : "border-border/50 text-muted-foreground hover:border-border"
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                          checked ? "border-current bg-current/20" : "border-muted-foreground/40"
+                        }`}>
+                          {checked && <CheckCircle2 className="h-3 w-3" />}
+                        </div>
+                        <span className="text-xs font-medium leading-tight">{p}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedProducts.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {selectedProducts.map(p => (
+                      <Badge key={p} variant="outline" className={`text-[10px] ${PRODUCT_COLOR[p] ?? ""}`}>{p}</Badge>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* STEP 5 — Review & Save */}
+          {/* ── STEP 5 — Review & Save ─────────────────────────────────────── */}
           {step === 5 && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 {[
-                  { label:"Company", value: selectedCompany?.name || s1.companyId },
-                  { label:"Department", value: s1.department },
-                  { label:"User ID", value: s1.userId },
-                  { label:"Customer Context", value: "i_customer = 1 (Root — not under RTST1)" },
-                  { label:"Invoice Template", value: s2.invoiceTemplate },
-                  { label:"Rate Sheet Format", value: s2.ratesheetFull },
-                  { label:"Prefix Style", value: s2.prefixStyle.replace("_"," ") },
+                  { label:"Company",            value: selectedCompany?.name || s1.companyId },
+                  { label:"Department",         value: s1.department },
+                  { label:"Sippy Username",     value: s1.userId },
+                  { label:"Customer Context",   value: "i_customer = 1 (Root — not under RTST1)" },
+                  { label:"Invoice Template",   value: s2.invoiceTemplate },
+                  { label:"Rate Sheet Format",  value: s2.ratesheetFull },
+                  { label:"Prefix Style",       value: s2.prefixStyle.replace("_"," ") },
                   { label:"Notification Email", value: s1.notifEmailTo || "—" },
-                  { label:"Trunks Configured", value: `${trunks.length} trunk(s)` },
-                  { label:"IPs Registered", value: `${ips.filter(i => i.ip.trim()).length} IP(s) — pending admin approval` },
+                  { label:"Trunks Configured",  value: `${trunks.length} trunk(s)` },
+                  { label:"IPs Registered",     value: `${ips.filter(i => i.ip.trim()).length} IP(s) — pending admin approval` },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex items-start gap-2">
                     <span className="text-xs text-muted-foreground w-36 shrink-0">{label}</span>
@@ -509,6 +663,7 @@ export default function ClientWizardPage() {
                 ))}
               </div>
 
+              {/* Per-trunk summary with prefix */}
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Per-Trunk Configuration</p>
                 {trunks.map((t, i) => (
@@ -520,9 +675,32 @@ export default function ClientWizardPage() {
                       <span>CPS: {t.maxCps || "—"}</span>
                       <span>Codec: {CODECS.find(c => c.value === t.codec)?.label || t.codec}</span>
                     </div>
+                    {(t.prefix || t.cldTranslation !== "s/^//") && (
+                      <div className="flex items-center gap-3 text-muted-foreground pt-0.5">
+                        {t.prefix && (
+                          <span className="flex items-center gap-1">
+                            <Tag className="h-3 w-3 text-violet-400" />
+                            Prefix: <span className="font-mono text-violet-300">{t.prefix}</span>
+                          </span>
+                        )}
+                        <span className="font-mono text-[10px] bg-muted/30 px-1.5 py-0.5 rounded">{t.cldTranslation}</span>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
+
+              {/* Products summary */}
+              {selectedProducts.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Products Offered</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedProducts.map(p => (
+                      <Badge key={p} variant="outline" className={`text-[10px] ${PRODUCT_COLOR[p] ?? ""}`}>{p}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center gap-2 p-3 rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-400 text-xs">
                 <Info className="h-3.5 w-3.5 shrink-0" />
