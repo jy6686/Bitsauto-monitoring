@@ -5857,31 +5857,40 @@ export async function pushAccountToSippy(
                     if (!rgSucceeded) {
                       console.log('[Sippy] Pass A+B exhausted — probing template from existing accounts...');
                       try {
-                        const listBody = xmlRpcCall('listAccounts', { limit: 10 });
+                        // Step 1: get a sample of account IDs from listAccounts
+                        // (listAccounts does NOT return i_routing_group per row,
+                        //  so we call getAccountInfo for the first few accounts)
+                        const listBody = xmlRpcCall('listAccounts', { limit: 5 });
                         const listResp = await sippyPost(apiUrl, listBody, credentials.username, credentials.password);
                         const listText = listResp.body;
                         console.log(`[Sippy] Pass C listAccounts: HTTP ${listResp.statusCode}, body ${listText.length}B`);
-                        // Scope to the <accounts> array to avoid matching nested sub-structs
+                        // Parse i_account IDs from the accounts array
                         const acctArrayMatch = listText.match(/<name>accounts<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>\s*<\/array>/);
                         const acctScope = acctArrayMatch ? acctArrayMatch[1] : listText;
-                        // Collect unique (i_customer, i_routing_group) pairs from existing accounts
+                        const acctIds: number[] = [];
+                        const acctIdRe = /<name>i_account<\/name>\s*<value><int>(\d+)<\/int>/g;
+                        let ai: RegExpExecArray | null;
+                        while ((ai = acctIdRe.exec(acctScope)) !== null) {
+                          const id = parseInt(ai[1], 10);
+                          if (id && !acctIds.includes(id)) acctIds.push(id);
+                          if (acctIds.length >= 5) break;
+                        }
+                        console.log(`[Sippy] Pass C sample account IDs: [${acctIds.join(', ')}]`);
+
+                        // Step 2: call getAccountInfo for each to get i_customer + i_routing_group
                         const templatePairs: Array<{ iCustomer: number; iRg: number }> = [];
-                        const acctStructRe = /<struct>([\s\S]*?)<\/struct>/g;
-                        let am: RegExpExecArray | null;
-                        while ((am = acctStructRe.exec(acctScope)) !== null) {
-                          // Strip nested registration_status sub-struct before extracting
-                          const flatStruct = am[1].replace(/<name>registration_status<\/name>\s*<value>[\s\S]*?<\/value>/g, '');
-                          const members = extractStructMembers(flatStruct);
-                          const iCust = parseInt(members['i_customer'] || '0', 10);
-                          const iRg   = parseInt(members['i_routing_group'] || '0', 10);
-                          if (iCust && iRg) {
-                            const key = `${iCust}:${iRg}`;
+                        for (const sampleId of acctIds) {
+                          const info = await getAccountInfo(credentials.username, credentials.password, baseUrl, sampleId);
+                          if (info?.iCustomer && info?.iRoutingGroup) {
+                            const key = `${info.iCustomer}:${info.iRoutingGroup}`;
                             if (!templatePairs.some(p => `${p.iCustomer}:${p.iRg}` === key)) {
-                              templatePairs.push({ iCustomer: iCust, iRg: iRg });
+                              templatePairs.push({ iCustomer: info.iCustomer!, iRg: info.iRoutingGroup! });
                             }
                           }
                         }
                         console.log(`[Sippy] Pass C template pairs: ${JSON.stringify(templatePairs)}`);
+
+                        // Step 3: try createAccount with each template pair
                         for (const { iCustomer, iRg } of templatePairs) {
                           const { text: tC, fault: fC, statusCode: scC } = await tryRgProbe(iRg, iCustomer);
                           if (scC === 200 && !tC.includes('<fault>') && !tC.includes('faultCode')) {

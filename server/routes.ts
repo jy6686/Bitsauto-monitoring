@@ -17899,7 +17899,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const username  = creds?.apiAdminUsername || process.env.SIPPY_ADMIN_USERNAME || '';
       const password  = creds?.apiAdminPassword || process.env.SIPPY_ADMIN_PASSWORD || '';
 
-      const allIps    = await storage.getClientIpRequestsByCompany(companyId);
+      const allIps    = await storage.getClientIpRequests(companyId);
       const approvedIps = allIps.filter((r: any) => r.status === 'approved');
       if (approvedIps.length === 0) return res.status(400).json({ message: 'No approved IPs for this company.' });
 
