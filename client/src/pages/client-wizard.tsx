@@ -308,7 +308,7 @@ export default function ClientWizardPage() {
                     onChange={e => setS1(p => ({
                       ...p,
                       displayName: e.target.value,
-                      userId: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""),
+                      userId: e.target.value.replace(/[^a-zA-Z0-9._-]/g, ""),
                     }))}
                     placeholder="Sippy display name"
                   />
@@ -321,10 +321,10 @@ export default function ClientWizardPage() {
                     data-testid="input-userId"
                     className={`h-8 text-sm font-mono ${errors.userId ? "border-rose-500" : ""}`}
                     value={s1.userId}
-                    onChange={e => setS1(p => ({ ...p, userId: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, "") }))}
-                    placeholder="lowercase, alphanumeric"
+                    onChange={e => setS1(p => ({ ...p, userId: e.target.value.replace(/[^a-zA-Z0-9._-]/g, "") }))}
+                    placeholder="e.g. Internal-PTCL"
                   />
-                  <p className="text-[10px] text-muted-foreground">Sippy requires lowercase alphanumeric only</p>
+                  <p className="text-[10px] text-muted-foreground">Alphanumeric, dots, underscores, hyphens — spaces are stripped</p>
                   {errors.userId && <p className="text-[10px] text-rose-400">{errors.userId}</p>}
                 </div>
 
@@ -431,15 +431,38 @@ export default function ClientWizardPage() {
 
                     <div className="space-y-1.5">
                       <Label className="text-xs">Default Routing Group<span className="text-rose-400 ml-0.5">*</span></Label>
-                      <Select value={t.routingGroupId} onValueChange={v => updateTrunk(idx, "routingGroupId", v)}>
-                        <SelectTrigger data-testid={`select-rg-${idx}`} className={`h-8 text-sm ${errors[`rg_${idx}`] ? "border-rose-500" : ""}`}><SelectValue placeholder="Select group…" /></SelectTrigger>
-                        <SelectContent>
-                          {routingGroups.map(rg => <SelectItem key={rg.id} value={String(rg.id)}>{rg.name}</SelectItem>)}
-                          {routingGroups.length === 0 && <SelectItem value="_none" disabled>Loading groups…</SelectItem>}
-                        </SelectContent>
-                      </Select>
+                      <div className="relative">
+                        <input
+                          data-testid={`input-rg-${idx}`}
+                          list={`rg-list-${idx}`}
+                          className={`flex h-8 w-full rounded-md border bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${errors[`rg_${idx}`] ? "border-rose-500" : "border-input"}`}
+                          placeholder="Pick from list or type group ID…"
+                          value={t.routingGroupId
+                            ? (routingGroups.find(g => String(g.id) === t.routingGroupId)?.name ?? t.routingGroupId)
+                            : ""}
+                          onChange={e => {
+                            const raw = e.target.value;
+                            // If the user typed a value that matches a known group name, use its ID
+                            const match = routingGroups.find(g => g.name === raw);
+                            updateTrunk(idx, "routingGroupId", match ? String(match.id) : raw);
+                          }}
+                        />
+                        <datalist id={`rg-list-${idx}`}>
+                          {routingGroups.map(rg => (
+                            <option key={rg.id} value={rg.name}>{rg.name} (ID: {rg.id})</option>
+                          ))}
+                        </datalist>
+                      </div>
                       {t.routingGroupId && routingGroupHealthy(t.routingGroupId) && (
-                        <p className="text-[10px] text-emerald-400 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Group found</p>
+                        <p className="text-[10px] text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          {routingGroups.find(g => String(g.id) === t.routingGroupId)?.name ?? `Group ${t.routingGroupId}`}
+                        </p>
+                      )}
+                      {t.routingGroupId && !routingGroupHealthy(t.routingGroupId) && /^\d+$/.test(t.routingGroupId) && (
+                        <p className="text-[10px] text-amber-400 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" /> Custom ID {t.routingGroupId} — not in local list, will be sent as-is
+                        </p>
                       )}
                       {errors[`rg_${idx}`] && <p className="text-[10px] text-rose-400">{errors[`rg_${idx}`]}</p>}
                     </div>

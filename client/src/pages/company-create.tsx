@@ -62,8 +62,8 @@ export default function CompanyCreatePage() {
   const [contacts, setContacts] = useState<Record<string,Contact[]>>(defaultContacts());
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
 
-  const { data: usersData } = useQuery<{ users: { username: string; displayName?: string }[] }>({
-    queryKey: ["/api/users"],
+  const { data: kamsData } = useQuery<{ id: number; name: string; email: string; orgRole: string }[]>({
+    queryKey: ["/api/kam"],
     retry: false,
   });
 
@@ -244,8 +244,7 @@ export default function CompanyCreatePage() {
                 <Select value={basic.kam} onValueChange={v => setB("kam", v)}>
                   <SelectTrigger data-testid="select-kam" className="h-8 text-sm"><SelectValue placeholder="Select KAM…" /></SelectTrigger>
                   <SelectContent>
-                    {(usersData?.users ?? []).map(u => <SelectItem key={u.username} value={u.username}>{u.displayName || u.username}</SelectItem>)}
-                    <SelectItem value="admin">Admin</SelectItem>
+                    {(kamsData ?? []).map(k => <SelectItem key={k.id} value={k.name}>{k.name}{k.orgRole && k.orgRole !== 'KAM' ? ` (${k.orgRole})` : ''}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

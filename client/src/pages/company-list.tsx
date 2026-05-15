@@ -555,6 +555,11 @@ export default function CompanyListPage() {
     queryKey: ["/api/companies"],
   });
 
+  const { data: kamsData } = useQuery<{ id: number; name: string; orgRole: string }[]>({
+    queryKey: ["/api/kam"],
+    retry: false,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/companies/${id}`),
     onSuccess: () => {
@@ -575,7 +580,10 @@ export default function CompanyListPage() {
     return matchSearch && matchKam;
   });
 
-  const allKams = Array.from(new Set(allCompanies.map(c => c.kam).filter(Boolean))) as string[];
+  // KAM pills: union of Team & KAM names + any names already used in companies
+  const kamNamesFromTeam = (kamsData ?? []).map(k => k.name);
+  const kamNamesFromCompanies = allCompanies.map(c => c.kam).filter(Boolean) as string[];
+  const allKams = Array.from(new Set([...kamNamesFromTeam, ...kamNamesFromCompanies])).sort();
   const selectedCompany = allCompanies.find(c => c.id === selectedCompanyId) ?? null;
 
   return (
