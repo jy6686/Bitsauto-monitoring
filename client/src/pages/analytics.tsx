@@ -18,7 +18,7 @@ import { apiRequest } from "@/lib/queryClient";
 // ── Types ──────────────────────────────────────────────────────────────────────
 type DayPnL = { date: string; revenue: number; cost: number; profit: number; calls: number };
 type ClientRow = { name: string; calls: number; minutes: number; revenue: number; cost: number; profit: number; margin: number };
-type DestRow   = { country: string; breakout: string; calls: number; minutes: number; revenue: number; cost: number; profit: number; margin: number; vendorRate: number | null };
+type DestRow   = { country: string; breakout: string; calls: number; minutes: number; revenue: number; cost: number; profit: number; margin: number; vendorRate: number | null; asr: number; acd: number };
 type RateCard  = { id: number; name: string; vendorName: string; cardType: string; entryCount: number };
 type MarginData = {
   period: { days: number; since: string };
@@ -230,12 +230,16 @@ export default function AnalyticsPage() {
     { key: "breakout", label: "Breakout" },
     { key: "calls", label: "Calls" },
     { key: "minutes", label: "Minutes" },
+    { key: "asr", label: "ASR %" },
+    { key: "acd", label: "ACD (s)" },
     { key: "revenue", label: "Revenue" },
     { key: "cost", label: "Cost" },
     { key: "profit", label: "Profit" },
     { key: "margin", label: "Margin %" },
     { key: "vendorRate", label: "Vendor ¢/min" },
   ];
+  const asrColor = (asr: number) =>
+    asr >= 50 ? "text-emerald-400" : asr >= 30 ? "text-amber-400" : "text-red-400";
 
   return (
     <div className="space-y-5">
@@ -555,6 +559,8 @@ export default function AnalyticsPage() {
                         <td className="px-3 py-2 text-muted-foreground max-w-[160px] truncate">{d.breakout || "—"}</td>
                         <td className="px-3 py-2 font-mono text-muted-foreground">{fmtN(d.calls)}</td>
                         <td className="px-3 py-2 font-mono text-muted-foreground">{fmtN(d.minutes)}</td>
+                        <td className={`px-3 py-2 font-mono font-semibold ${asrColor(d.asr ?? 0)}`}>{d.asr != null ? `${d.asr.toFixed(1)}%` : "—"}</td>
+                        <td className="px-3 py-2 font-mono text-sky-400">{d.acd != null && d.acd > 0 ? `${d.acd.toFixed(0)}s` : "—"}</td>
                         <td className="px-3 py-2 font-mono text-emerald-400">{fmt$(d.revenue)}</td>
                         <td className="px-3 py-2 font-mono text-red-400">{fmt$(d.cost)}</td>
                         <td className={`px-3 py-2 font-mono ${d.profit >= 0 ? "text-blue-400" : "text-red-400"}`}>{fmt$(d.profit)}</td>
@@ -643,6 +649,8 @@ export default function AnalyticsPage() {
                       <th className="px-3 py-2 text-left">Breakout</th>
                       <th className="px-3 py-2 text-right">Calls</th>
                       <th className="px-3 py-2 text-right">Minutes</th>
+                      <th className="px-3 py-2 text-right">ASR %</th>
+                      <th className="px-3 py-2 text-right">ACD (s)</th>
                       <th className="px-3 py-2 text-right">Revenue</th>
                       <th className="px-3 py-2 text-right">Cost</th>
                       <th className="px-3 py-2 text-right">Profit</th>
@@ -657,6 +665,8 @@ export default function AnalyticsPage() {
                         <td className="px-3 py-2 text-muted-foreground max-w-[140px] truncate">{d.breakout || "—"}</td>
                         <td className="px-3 py-2 text-right font-mono text-muted-foreground">{fmtN(d.calls)}</td>
                         <td className="px-3 py-2 text-right font-mono text-muted-foreground">{fmtN(d.minutes)}</td>
+                        <td className={`px-3 py-2 text-right font-mono font-semibold ${asrColor(d.asr ?? 0)}`}>{d.asr != null ? `${d.asr.toFixed(1)}%` : "—"}</td>
+                        <td className="px-3 py-2 text-right font-mono text-sky-400">{d.acd != null && d.acd > 0 ? `${d.acd.toFixed(0)}s` : "—"}</td>
                         <td className="px-3 py-2 text-right font-mono text-emerald-400">{fmt$(d.revenue)}</td>
                         <td className="px-3 py-2 text-right font-mono text-red-400">{fmt$(d.cost)}</td>
                         <td className={`px-3 py-2 text-right font-mono ${d.profit >= 0 ? "text-blue-400" : "text-red-400"}`}>{fmt$(d.profit)}</td>

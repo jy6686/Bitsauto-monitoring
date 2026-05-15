@@ -13849,16 +13849,26 @@ export async function registerRoutes(
         return { name, calls: v.calls, minutes: Math.round(v.mins), revenue, cost, profit, margin };
       }).sort((a, b) => b.revenue - a.revenue);
 
-      // By destination (country + breakout)
-      type DestAcc = { country: string; breakout: string; calls: number; mins: number; revenue: number; cost: number; vendorRate: number | null };
+      // By destination (country + breakout) — includes ASR and ACD
+      type DestAcc = {
+        country: string; breakout: string; calls: number; mins: number;
+        revenue: number; cost: number; vendorRate: number | null;
+        answered: number; totalDurationSec: number;
+      };
       const destMap = new Map<string, DestAcc>();
       for (const c of enriched) {
         const country  = c.country || 'Unknown';
         const breakout = c.description || c.areaName || '';
         const key = `${country}||${breakout}`;
-        const ex: DestAcc = destMap.get(key) ?? { country, breakout, calls: 0, mins: 0, revenue: 0, cost: 0, vendorRate: null };
+        const ex: DestAcc = destMap.get(key) ?? { country, breakout, calls: 0, mins: 0, revenue: 0, cost: 0, vendorRate: null, answered: 0, totalDurationSec: 0 };
         const rate = useRateCard ? matchVendorRate(c.callee || '') : null;
-        ex.calls++; ex.mins += (c.duration || 0) / 60; ex.revenue += (c.cost || 0); ex.cost += cdrCost(c);
+        const durSec = c.duration || 0;
+        const isAnswered = durSec > 0;
+        ex.calls++;
+        ex.mins += durSec / 60;
+        ex.revenue += (c.cost || 0);
+        ex.cost += cdrCost(c);
+        if (isAnswered) { ex.answered++; ex.totalDurationSec += durSec; }
         if (rate !== null && ex.vendorRate === null) ex.vendorRate = rate;
         destMap.set(key, ex);
       }
@@ -13866,7 +13876,9 @@ export async function registerRoutes(
         const revenue = +v.revenue.toFixed(4); const cost = +v.cost.toFixed(4);
         const profit = +(revenue - cost).toFixed(4);
         const margin = revenue > 0 ? +((profit / revenue) * 100).toFixed(2) : 0;
-        return { country: v.country, breakout: v.breakout, calls: v.calls, minutes: Math.round(v.mins), revenue, cost, profit, margin, vendorRate: v.vendorRate };
+        const asr = v.calls > 0 ? +((v.answered / v.calls) * 100).toFixed(1) : 0;
+        const acd = v.answered > 0 ? +(v.totalDurationSec / v.answered).toFixed(1) : 0;
+        return { country: v.country, breakout: v.breakout, calls: v.calls, minutes: Math.round(v.mins), revenue, cost, profit, margin, vendorRate: v.vendorRate, asr, acd };
       }).sort((a, b) => b.revenue - a.revenue);
       const worstRoutes = [...byDestination].filter(d => d.margin < marginThreshold).sort((a, b) => a.margin - b.margin);
 
