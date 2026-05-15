@@ -17876,12 +17876,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         console.error(`[Provision] createAccount failed — message: ${createMsg} | detail: ${createDetail}`);
         throw new Error(`Could not provision account "${step1.userId}" on Sippy. Creation result: ${createMsg}${createDetail ? ` Detail: ${createDetail}` : ''}. The account may not exist yet — check Sippy portal.`);
       }
+      // Normalize IPs: strip leading zeros per octet (e.g. 191.098.6.9 → 191.98.6.9)
+      const normIp = (ip: string) => ip.split('.').map(o => parseInt(o, 10).toString()).join('.');
       const authErrors: string[] = [];
       for (const ipReq of approvedIps) {
-        console.log(`[Provision] Adding Sippy auth rule: iAccount=${iAccount}, ip=${ipReq.ipAddress}, protocol=SIP`);
+        const normalizedIp = normIp(ipReq.ipAddress);
+        if (normalizedIp !== ipReq.ipAddress) console.log(`[Provision] Normalized IP: ${ipReq.ipAddress} → ${normalizedIp}`);
+        console.log(`[Provision] Adding Sippy auth rule: iAccount=${iAccount}, ip=${normalizedIp}, protocol=SIP`);
         const authResult = await sippy.addSippyAuthRule(
           username, password,
-          { iAccount, iProtocol: 1, remoteIp: ipReq.ipAddress },
+          { iAccount, iProtocol: 1, remoteIp: normalizedIp },
           portalUrl,
         );
         if (authResult.success) {

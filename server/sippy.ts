@@ -5394,8 +5394,10 @@ export async function pushAccountToSippy(
 
   // ── Derive auto-values ────────────────────────────────────────────────────
   const safeName   = opts.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const username   = opts.username   || safeName;
-  const authname   = opts.authname   || username;
+  // Sippy requires usernames to be lowercase alphanumeric only.
+  // Force lowercase and strip non-alphanumeric chars regardless of what the wizard sent.
+  const username   = (opts.username || safeName).toLowerCase().replace(/[^a-z0-9._-]/g, '');
+  const authname   = (opts.authname || username).toLowerCase().replace(/[^a-z0-9._-]/g, '');
   // Sippy requires passwords to contain ONLY letters and digits (no special chars),
   // AND must contain at least one digit. Strip non-alphanumeric, then append digits if missing.
   const sanitizePw = (raw: string): string => {
