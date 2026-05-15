@@ -18009,5 +18009,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     });
   });
 
+  // GET /api/download/platform-status-report — Complete Status & Roadmap Report (May 2026)
+  app.get('/api/download/platform-status-report', (_req: any, res: any) => {
+    const filePath = _pathJoin(process.cwd(), 'client', 'public', 'downloads', 'BitsAuto_Platform_Report_May2026.docx');
+    res.download(filePath, 'BitsAuto_Platform_Report_May2026.docx', (err: any) => {
+      if (err && !res.headersSent) res.status(404).json({ error: 'File not found' });
+    });
+  });
+
   return httpServer;
 }
