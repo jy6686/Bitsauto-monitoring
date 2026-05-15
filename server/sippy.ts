@@ -5694,6 +5694,43 @@ export async function pushAccountToSippy(
             }
             const fs2 = extractTag(text2, 'faultString');
             if (fs2) lastFault = fs2.replace(/<[^>]+>/g, '').trim();
+
+            // If still "Fatal error" after billing plan fix, probe i_password_policy values.
+            // faultCode 501 "Fatal error" can mean the policy ID doesn't exist as a FK in Sippy.
+            // Try 0 (no policy), then 2-10 to find one that doesn't cause Fatal error.
+            if (lastFault.toLowerCase() === 'fatal error') {
+              console.log('[Sippy] Still Fatal error after billing plan fix — probing i_password_policy values...');
+              for (const policyId of [0, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+                params.i_password_policy = policyId;
+                const policyBody = xmlRpcCall(method, params);
+                const policyResp = await sippyPost(apiUrl, policyBody, credentials.username, credentials.password);
+                const policyText = policyResp.body;
+                const policyFaultRaw = policyText.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim() ?? '';
+                console.log(`[Sippy] Policy probe ${policyId}: HTTP ${policyResp.statusCode}, fault="${policyFaultRaw.slice(0, 80)}"`);
+                if (policyResp.statusCode === 200 && !policyText.includes('<fault>') && !policyText.includes('faultCode')) {
+                  console.log(`[Sippy] createAccount succeeded with i_password_policy=${policyId}`);
+                  const retIAccountStr3 = extractValue(policyText, 'i_account');
+                  const retIAccount3 = retIAccountStr3 ? parseInt(retIAccountStr3, 10) : undefined;
+                  return {
+                    success: true,
+                    message: `Account "${opts.name}" created on Sippy (policy auto-probed: ${policyId}).${retIAccount3 ? ` (ID: ${retIAccount3})` : ''}`,
+                    method,
+                    i_account:     retIAccount3,
+                    username:      extractValue(policyText, 'username'),
+                    authname:      extractValue(policyText, 'authname'),
+                    web_password:  extractValue(policyText, 'web_password'),
+                    voip_password: extractValue(policyText, 'voip_password'),
+                    vm_password:   extractValue(policyText, 'vm_password'),
+                  };
+                }
+                if (!policyFaultRaw.toLowerCase().includes('fatal error') && !policyFaultRaw.toLowerCase().includes('password_policy') && !policyFaultRaw.toLowerCase().includes('password policy')) {
+                  // Different fault — policy ID is valid but something else is wrong; stop probing
+                  lastFault = policyFaultRaw || lastFault;
+                  console.log(`[Sippy] Policy probe ${policyId} gave different fault: "${lastFault}" — stopping policy probe`);
+                  break;
+                }
+              }
+            }
           } else {
             // Billing plan list API not available — probe via createAccount with IDs 1-20
             console.log('[Sippy] Billing plan list API unavailable — probing plan IDs 1-20 via createAccount...');
