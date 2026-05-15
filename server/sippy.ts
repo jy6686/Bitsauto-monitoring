@@ -5849,6 +5849,62 @@ export async function pushAccountToSippy(
                         }
                       }
                     }
+
+                    // Pass C: Template from existing accounts
+                    // All RG probes failed — look up real accounts in Sippy to find a working
+                    // (i_customer, i_routing_group) pair, then retry with those values.
+                    // This handles setups where routing groups are scoped to sub-customers (not root).
+                    if (!rgSucceeded) {
+                      console.log('[Sippy] Pass A+B exhausted — probing template from existing accounts...');
+                      try {
+                        const listBody = xmlRpcCall('listAccounts', { limit: 10 });
+                        const listResp = await sippyPost(apiUrl, listBody, credentials.username, credentials.password);
+                        const listText = listResp.body;
+                        console.log(`[Sippy] Pass C listAccounts: HTTP ${listResp.statusCode}, body ${listText.length}B`);
+                        // Scope to the <accounts> array to avoid matching nested sub-structs
+                        const acctArrayMatch = listText.match(/<name>accounts<\/name>\s*<value>\s*<array>\s*<data>([\s\S]*?)<\/data>\s*<\/array>/);
+                        const acctScope = acctArrayMatch ? acctArrayMatch[1] : listText;
+                        // Collect unique (i_customer, i_routing_group) pairs from existing accounts
+                        const templatePairs: Array<{ iCustomer: number; iRg: number }> = [];
+                        const acctStructRe = /<struct>([\s\S]*?)<\/struct>/g;
+                        let am: RegExpExecArray | null;
+                        while ((am = acctStructRe.exec(acctScope)) !== null) {
+                          // Strip nested registration_status sub-struct before extracting
+                          const flatStruct = am[1].replace(/<name>registration_status<\/name>\s*<value>[\s\S]*?<\/value>/g, '');
+                          const members = extractStructMembers(flatStruct);
+                          const iCust = parseInt(members['i_customer'] || '0', 10);
+                          const iRg   = parseInt(members['i_routing_group'] || '0', 10);
+                          if (iCust && iRg) {
+                            const key = `${iCust}:${iRg}`;
+                            if (!templatePairs.some(p => `${p.iCustomer}:${p.iRg}` === key)) {
+                              templatePairs.push({ iCustomer: iCust, iRg: iRg });
+                            }
+                          }
+                        }
+                        console.log(`[Sippy] Pass C template pairs: ${JSON.stringify(templatePairs)}`);
+                        for (const { iCustomer, iRg } of templatePairs) {
+                          const { text: tC, fault: fC, statusCode: scC } = await tryRgProbe(iRg, iCustomer);
+                          if (scC === 200 && !tC.includes('<fault>') && !tC.includes('faultCode')) {
+                            console.log(`[Sippy] createAccount succeeded (template: i_customer=${iCustomer}, RG=${iRg})`);
+                            const tAcct = extractValue(tC, 'i_account');
+                            return {
+                              success: true,
+                              message: `Account "${opts.name}" created on Sippy (template customer=${iCustomer}, RG=${iRg}).${tAcct ? ` (ID: ${parseInt(tAcct, 10)})` : ''}`,
+                              method,
+                              i_account:     tAcct ? parseInt(tAcct, 10) : undefined,
+                              username:      extractValue(tC, 'username'),
+                              authname:      extractValue(tC, 'authname'),
+                              web_password:  extractValue(tC, 'web_password'),
+                              voip_password: extractValue(tC, 'voip_password'),
+                              vm_password:   extractValue(tC, 'vm_password'),
+                            };
+                          }
+                          if (fC) lastFault = fC;
+                        }
+                      } catch (tplErr: any) {
+                        console.warn('[Sippy] Pass C template error:', tplErr.message);
+                      }
+                    }
                   } catch (rgProbeErr: any) {
                     console.warn('[Sippy] Routing group probe error:', rgProbeErr.message);
                   }
