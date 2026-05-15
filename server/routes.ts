@@ -17733,8 +17733,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const companyId = parseInt(step1.companyId, 10);
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: 'Company not found' });
-      if (company.provisioningStatus === 'provisioned') return res.status(409).json({ message: 'This company is already provisioned in Sippy' });
       const draft = JSON.stringify({ step1, step2, trunks, ips, iCustomer });
+      // If already provisioned — update the draft only (do NOT reset status to pending_provision,
+      // and do NOT block the save).  The provision button is separately guarded.
+      if (company.provisioningStatus === 'provisioned') {
+        await storage.updateCompany(companyId, { wizardDraft: draft } as any);
+        return res.json({ success: true, companyId, status: 'provisioned', alreadyProvisioned: true });
+      }
       await storage.updateCompany(companyId, { wizardDraft: draft, provisioningStatus: 'pending_provision' } as any);
       res.json({ success: true, companyId, status: 'pending_provision' });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -17906,11 +17911,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const iAccount  = company.sippyIAccount;
       const results: { ip: string; success: boolean; message: string; iAuthentication?: number }[] = [];
 
+      // Normalize IP: strip leading zeros from each octet (e.g. 191.098.6.9 → 191.98.6.9)
+      // Sippy rejects IPs with leading-zero octets ("Parameter remote_ip has incorrect format").
+      const normalizeIp = (ip: string) =>
+        ip.split('.').map(o => parseInt(o, 10).toString()).join('.');
+
       for (const ipReq of approvedIps) {
-        console.log(`[AddAuthRules] Adding auth rule: iAccount=${iAccount}, ip=${ipReq.ipAddress}`);
+        const normalizedIp = normalizeIp(ipReq.ipAddress);
+        if (normalizedIp !== ipReq.ipAddress) {
+          console.log(`[AddAuthRules] Normalized IP: ${ipReq.ipAddress} → ${normalizedIp}`);
+        }
+        console.log(`[AddAuthRules] Adding auth rule: iAccount=${iAccount}, ip=${normalizedIp}`);
         const authResult = await sippy.addSippyAuthRule(
           username, password,
-          { iAccount, iProtocol: 1, remoteIp: ipReq.ipAddress },
+          { iAccount, iProtocol: 1, remoteIp: normalizedIp },
           portalUrl,
         );
         console.log(`[AddAuthRules] ${ipReq.ipAddress}: ${authResult.success ? `OK (i_authentication=${authResult.iAuthentication})` : `FAILED: ${authResult.message}`}`);
