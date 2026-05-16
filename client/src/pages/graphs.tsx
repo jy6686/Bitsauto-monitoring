@@ -14,7 +14,9 @@ import {
   Globe, AlertTriangle, UserCheck, Phone, Mail, Plus, Trash2, Edit2,
   ChevronDown, ChevronRight, X, Check, Loader2, TrendingDown, Minus,
   Bell, BellOff, ShieldAlert, Map as MapIcon, Eye, ExternalLink,
+  Award, Zap, BarChart2, Gauge,
 } from "lucide-react";
+import { AreaChart, Area, ReferenceLine } from "recharts";
 
 interface LiveGraphsData {
   trend:            { time: string; avg: number; peak: number }[];
@@ -1322,6 +1324,12 @@ export default function GraphsPage() {
       {/* ── MOS Quality Trend ─────────────────────────────────────── */}
       <MosTrendingSection />
 
+      {/* ── Carrier Quality League ─────────────────────────────────── */}
+      <CarrierQualitySection />
+
+      {/* ── Traffic Anomaly Detector ───────────────────────────────── */}
+      <TrafficAnomalySection />
+
       {/* Summary footer */}
       <div className="flex flex-wrap gap-4 p-4 bg-card/40 border border-border/40 rounded-xl text-xs text-muted-foreground">
         <span>Window: <strong className="text-foreground">{hours}h</strong></span>
@@ -1476,6 +1484,499 @@ function MosTrendingSection() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Carrier Quality League Table ───────────────────────────────────────────────
+type CarrierStat = {
+  carrier: string;
+  avgMos: number;
+  callCount: number;
+  goodPct: number;
+  poorPct: number;
+};
+
+type QualityEvent = {
+  id: number;
+  windowStart: string;
+  windowEnd: string;
+  avgMos: number;
+  carrier: string | null;
+  sampleCount: number;
+  createdAt: string;
+};
+
+function mosColor(mos: number) {
+  if (mos >= 4.0) return "text-emerald-400";
+  if (mos >= 3.5) return "text-yellow-400";
+  return "text-red-400";
+}
+
+function mosBg(mos: number) {
+  if (mos >= 4.0) return "bg-emerald-500/10 border-emerald-500/25";
+  if (mos >= 3.5) return "bg-yellow-500/10 border-yellow-500/25";
+  return "bg-red-500/10 border-red-500/25";
+}
+
+function CarrierQualitySection() {
+  const [collapsed, setCollapsed] = useState(false);
+  const [eventsCollapsed, setEventsCollapsed] = useState(false);
+
+  const { data: carrierData, isLoading: cLoading, refetch: cRefetch, isFetching: cFetching } =
+    useQuery<CarrierStat[]>({
+      queryKey: ["/api/mos-carrier-stats"],
+      refetchInterval: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    });
+
+  const { data: eventsData, isLoading: eLoading, refetch: eRefetch, isFetching: eFetching } =
+    useQuery<QualityEvent[]>({
+      queryKey: ["/api/quality-events"],
+      refetchInterval: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    });
+
+  const carriers = carrierData ?? [];
+  const events = eventsData ?? [];
+  const worst = carriers.length ? carriers.reduce((a, b) => a.avgMos < b.avgMos ? a : b) : null;
+  const best  = carriers.length ? carriers[0] : null;
+
+  const chartData = carriers.slice(0, 12).map(c => ({
+    name: c.carrier.length > 14 ? c.carrier.slice(0, 14) + "…" : c.carrier,
+    MOS: c.avgMos,
+    Good: c.goodPct,
+    Poor: c.poorPct,
+  }));
+
+  return (
+    <div className="space-y-3">
+      {/* Carrier League Table */}
+      <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-lg shadow-black/5">
+        <div
+          className="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-muted/20 transition-colors select-none"
+          onClick={() => setCollapsed(c => !c)}
+          data-testid="toggle-carrier-quality"
+        >
+          <Award className="w-4 h-4 text-amber-400 shrink-0" />
+          <div className="flex-1">
+            <span className="text-sm font-semibold">Carrier Quality League</span>
+            {best && (
+              <span className="ml-2 text-xs text-muted-foreground">
+                Best: <span className="text-emerald-400 font-mono">{best.carrier} {best.avgMos.toFixed(2)}</span>
+                {worst && worst.carrier !== best.carrier && (
+                  <> · Worst: <span className="text-red-400 font-mono">{worst.carrier} {worst.avgMos.toFixed(2)}</span></>
+                )}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={e => { e.stopPropagation(); cRefetch(); }}
+            disabled={cFetching}
+            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-muted/40 transition-colors disabled:opacity-50"
+            data-testid="btn-refresh-carrier-quality"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${cFetching ? "animate-spin" : ""}`} />
+          </button>
+          <TrendingDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+        </div>
+
+        {!collapsed && (
+          <div className="px-5 pb-5 pt-1 space-y-4">
+            {cLoading ? (
+              <div className="h-32 flex items-center justify-center text-muted-foreground/50 text-sm">Loading carrier stats…</div>
+            ) : carriers.length === 0 ? (
+              <div className="h-32 flex flex-col items-center justify-center gap-2 text-muted-foreground/50 text-sm">
+                <Gauge className="w-6 h-6 opacity-40" />
+                <span>No carrier CDR data yet — populates as calls complete</span>
+              </div>
+            ) : (
+              <>
+                {/* MOS bar chart per carrier */}
+                <div>
+                  <div className="text-xs text-muted-foreground mb-2">Average MOS by carrier (CDR-based estimate)</div>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 24 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                      <XAxis type="number" domain={[0, 5]} tick={{ fontSize: 9, fill: '#6b7280' }} />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fill: '#9ca3af' }} width={80} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#1c1c1e', border: '1px solid #2d2d30', borderRadius: 8, fontSize: 12 }}
+                        formatter={(v: number) => v.toFixed(2)}
+                      />
+                      <ReferenceLine x={3.5} stroke="#facc15" strokeDasharray="4 2" />
+                      <ReferenceLine x={4.0} stroke="#10b981" strokeDasharray="4 2" />
+                      <Bar dataKey="MOS" radius={[0, 3, 3, 0]}>
+                        {chartData.map((entry, i) => (
+                          <Cell
+                            key={i}
+                            fill={entry.MOS >= 4.0 ? "#10b981" : entry.MOS >= 3.5 ? "#facc15" : "#ef4444"}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* League table rows */}
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-5 text-xs text-muted-foreground px-3 py-1 font-medium">
+                    <span className="col-span-2">Carrier</span>
+                    <span className="text-right">Avg MOS</span>
+                    <span className="text-right">Good%</span>
+                    <span className="text-right">Poor%</span>
+                  </div>
+                  {carriers.map((c, i) => (
+                    <div
+                      key={c.carrier}
+                      className={`grid grid-cols-5 text-xs px-3 py-2 rounded-lg border items-center ${mosBg(c.avgMos)}`}
+                      data-testid={`carrier-quality-row-${i}`}
+                    >
+                      <span className="col-span-2 font-medium truncate flex items-center gap-1.5">
+                        <span className="text-muted-foreground text-[10px] font-mono w-4 shrink-0">#{i + 1}</span>
+                        {c.carrier}
+                      </span>
+                      <span className={`text-right font-mono font-bold ${mosColor(c.avgMos)}`}>{c.avgMos.toFixed(2)}</span>
+                      <span className="text-right text-emerald-400">{c.goodPct.toFixed(0)}%</span>
+                      <span className="text-right text-red-400">{c.poorPct.toFixed(0)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Quality Events Log */}
+      <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-lg shadow-black/5">
+        <div
+          className="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-muted/20 transition-colors select-none"
+          onClick={() => setEventsCollapsed(c => !c)}
+          data-testid="toggle-quality-events"
+        >
+          <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
+          <div className="flex-1">
+            <span className="text-sm font-semibold">Quality Events Log</span>
+            {events.length > 0 && (
+              <span className="ml-2 text-xs text-muted-foreground">
+                {events.length} event{events.length !== 1 ? "s" : ""} · latest MOS{" "}
+                <span className={mosColor(events[0].avgMos)}>{events[0].avgMos.toFixed(2)}</span>
+              </span>
+            )}
+          </div>
+          <button
+            onClick={e => { e.stopPropagation(); eRefetch(); }}
+            disabled={eFetching}
+            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-muted/40 transition-colors disabled:opacity-50"
+            data-testid="btn-refresh-quality-events"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${eFetching ? "animate-spin" : ""}`} />
+          </button>
+          <TrendingDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${eventsCollapsed ? "-rotate-90" : ""}`} />
+        </div>
+
+        {!eventsCollapsed && (
+          <div className="px-5 pb-5 pt-1">
+            {eLoading ? (
+              <div className="h-20 flex items-center justify-center text-muted-foreground/50 text-sm">Loading events…</div>
+            ) : events.length === 0 ? (
+              <div className="h-20 flex flex-col items-center justify-center gap-2 text-muted-foreground/50 text-sm">
+                <Check className="w-5 h-5 opacity-40 text-emerald-400" />
+                <span>No quality degradation events in the last 30 days</span>
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                <div className="grid grid-cols-4 text-xs text-muted-foreground px-3 py-1 font-medium sticky top-0 bg-card z-10">
+                  <span className="col-span-2">Window</span>
+                  <span className="text-right">Avg MOS</span>
+                  <span className="text-right">Samples</span>
+                </div>
+                {events.map(ev => (
+                  <div
+                    key={ev.id}
+                    className="grid grid-cols-4 text-xs px-3 py-2 rounded-lg bg-orange-500/10 border border-orange-500/20 items-center"
+                    data-testid={`quality-event-${ev.id}`}
+                  >
+                    <span className="col-span-2 text-muted-foreground font-mono">
+                      {new Date(ev.windowStart).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <span className={`text-right font-mono font-bold ${mosColor(ev.avgMos)}`}>{ev.avgMos.toFixed(2)}</span>
+                    <span className="text-right text-muted-foreground">{ev.sampleCount}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Traffic Anomaly Detector ───────────────────────────────────────────────────
+type TrafficAnomalyRow = {
+  id: number;
+  detectedAt: string;
+  concurrent: number;
+  baselineAvg: number;
+  baselineStdDev: number;
+  sigmaMultiple: number;
+  isBusinessHours: boolean;
+  resolvedAt: string | null;
+  notes: string | null;
+};
+
+type TrafficBaselineRow = {
+  id: number;
+  dayOfWeek: number;
+  hour: number;
+  avgConcurrent: number;
+  stdDev: number;
+  sampleCount: number;
+};
+
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function sigmaColor(sigma: number) {
+  if (sigma >= 3.0) return "text-red-400";
+  if (sigma >= 2.0) return "text-orange-400";
+  return "text-yellow-400";
+}
+
+function TrafficAnomalySection() {
+  const [collapsed, setCollapsed] = useState(false);
+  const [heatmapCollapsed, setHeatmapCollapsed] = useState(false);
+
+  const { data: anomaliesData, isLoading: aLoading, refetch: aRefetch, isFetching: aFetching } =
+    useQuery<TrafficAnomalyRow[]>({
+      queryKey: ["/api/traffic-anomalies"],
+      refetchInterval: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    });
+
+  const { data: baselinesData, isLoading: bLoading, refetch: bRefetch, isFetching: bFetching } =
+    useQuery<TrafficBaselineRow[]>({
+      queryKey: ["/api/traffic-baselines"],
+      refetchInterval: 60 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    });
+
+  const anomalies = anomaliesData ?? [];
+  const baselines = baselinesData ?? [];
+  const openAnomalies = anomalies.filter(a => !a.resolvedAt);
+
+  const baselineMap = new Map<string, TrafficBaselineRow>();
+  for (const b of baselines) baselineMap.set(`${b.dayOfWeek}-${b.hour}`, b);
+  const maxAvg = Math.max(...baselines.map(b => b.avgConcurrent), 1);
+
+  const anomalyChart = anomalies.slice(0, 50).reverse().map(a => ({
+    time: new Date(a.detectedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+    Concurrent: a.concurrent,
+    Baseline: Math.round(a.baselineAvg),
+    Upper: Math.round(a.baselineAvg + 2 * a.baselineStdDev),
+    sigma: a.sigmaMultiple,
+  }));
+
+  return (
+    <div className="space-y-3">
+      {/* Anomaly Timeline */}
+      <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-lg shadow-black/5">
+        <div
+          className="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-muted/20 transition-colors select-none"
+          onClick={() => setCollapsed(c => !c)}
+          data-testid="toggle-traffic-anomaly"
+        >
+          <Zap className="w-4 h-4 text-yellow-400 shrink-0" />
+          <div className="flex-1">
+            <span className="text-sm font-semibold">Traffic Anomaly Detector</span>
+            {openAnomalies.length > 0 && (
+              <span className="ml-2 px-1.5 py-0.5 text-[10px] font-bold rounded bg-red-500/20 border border-red-500/30 text-red-400">
+                {openAnomalies.length} ACTIVE
+              </span>
+            )}
+            {anomalies.length > 0 && openAnomalies.length === 0 && (
+              <span className="ml-2 text-xs text-muted-foreground">{anomalies.length} historical · all resolved</span>
+            )}
+          </div>
+          <button
+            onClick={e => { e.stopPropagation(); aRefetch(); bRefetch(); }}
+            disabled={aFetching || bFetching}
+            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-muted/40 transition-colors disabled:opacity-50"
+            data-testid="btn-refresh-anomalies"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${(aFetching || bFetching) ? "animate-spin" : ""}`} />
+          </button>
+          <TrendingDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+        </div>
+
+        {!collapsed && (
+          <div className="px-5 pb-5 pt-1 space-y-4">
+            {openAnomalies.length > 0 && (
+              <div className="space-y-2">
+                {openAnomalies.map(a => (
+                  <div key={a.id} className="flex items-start gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                    <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-red-400">
+                        Active Anomaly — {a.sigmaMultiple.toFixed(1)}σ deviation
+                        {a.isBusinessHours ? " (business hours)" : " (off-hours)"}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{a.notes}</div>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground shrink-0">
+                      {new Date(a.detectedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {aLoading ? (
+              <div className="h-32 flex items-center justify-center text-muted-foreground/50 text-sm">Loading anomaly data…</div>
+            ) : anomalyChart.length === 0 ? (
+              <div className="h-32 flex flex-col items-center justify-center gap-2 text-muted-foreground/50 text-sm">
+                <BarChart2 className="w-6 h-6 opacity-40" />
+                <span>No anomalies detected yet — baseline builds over 14 days</span>
+              </div>
+            ) : (
+              <div>
+                <div className="text-xs text-muted-foreground mb-2">
+                  Concurrent calls at anomaly points vs 14-day baseline (shaded band = +2σ)
+                </div>
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart data={anomalyChart}>
+                    <defs>
+                      <linearGradient id="upperGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#6b7280' }} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 9, fill: '#6b7280' }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1c1c1e', border: '1px solid #2d2d30', borderRadius: 8, fontSize: 12 }}
+                    />
+                    <Area type="monotone" dataKey="Upper" stroke="rgba(59,130,246,0.3)" fill="url(#upperGrad)" name="2σ Upper" strokeDasharray="4 2" />
+                    <Area type="monotone" dataKey="Baseline" stroke="#6366f1" fill="none" strokeWidth={1.5} name="Baseline Avg" />
+                    <Area type="monotone" dataKey="Concurrent" stroke="#ef4444" fill="none" strokeWidth={2} dot={{ fill: "#ef4444", r: 3 }} name="Actual" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {anomalies.length > 0 && (
+              <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                <div className="grid grid-cols-5 text-xs text-muted-foreground px-3 py-1 font-medium sticky top-0 bg-card z-10">
+                  <span className="col-span-2">Detected</span>
+                  <span className="text-right">Concurrent</span>
+                  <span className="text-right">Sigma</span>
+                  <span className="text-right">Status</span>
+                </div>
+                {anomalies.map(a => (
+                  <div
+                    key={a.id}
+                    className={`grid grid-cols-5 text-xs px-3 py-2 rounded-lg border items-center ${a.resolvedAt ? "bg-muted/10 border-border/30" : "bg-red-500/10 border-red-500/20"}`}
+                    data-testid={`anomaly-row-${a.id}`}
+                  >
+                    <span className="col-span-2 text-muted-foreground font-mono text-[10px]">
+                      {new Date(a.detectedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      {a.isBusinessHours && <span className="ml-1 text-[9px] text-blue-400">[biz]</span>}
+                    </span>
+                    <span className="text-right font-mono">{a.concurrent}</span>
+                    <span className={`text-right font-mono font-bold ${sigmaColor(a.sigmaMultiple)}`}>{a.sigmaMultiple.toFixed(1)}σ</span>
+                    <span className={`text-right ${a.resolvedAt ? "text-emerald-400" : "text-red-400"}`}>
+                      {a.resolvedAt ? "Resolved" : "Active"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Baseline Heatmap */}
+      <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-lg shadow-black/5">
+        <div
+          className="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-muted/20 transition-colors select-none"
+          onClick={() => setHeatmapCollapsed(c => !c)}
+          data-testid="toggle-baseline-heatmap"
+        >
+          <BarChart2 className="w-4 h-4 text-blue-400 shrink-0" />
+          <div className="flex-1">
+            <span className="text-sm font-semibold">14-Day Traffic Baseline Heatmap</span>
+            {baselines.length > 0 && (
+              <span className="ml-2 text-xs text-muted-foreground">{baselines.length} time slots calibrated</span>
+            )}
+          </div>
+          <button
+            onClick={e => { e.stopPropagation(); bRefetch(); }}
+            disabled={bFetching}
+            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-muted/40 transition-colors disabled:opacity-50"
+            data-testid="btn-refresh-baseline"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${bFetching ? "animate-spin" : ""}`} />
+          </button>
+          <TrendingDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${heatmapCollapsed ? "-rotate-90" : ""}`} />
+        </div>
+
+        {!heatmapCollapsed && (
+          <div className="px-5 pb-5 pt-1">
+            {bLoading ? (
+              <div className="h-24 flex items-center justify-center text-muted-foreground/50 text-sm">Loading baseline…</div>
+            ) : baselines.length === 0 ? (
+              <div className="h-24 flex flex-col items-center justify-center gap-2 text-muted-foreground/50 text-sm">
+                <BarChart2 className="w-6 h-6 opacity-40" />
+                <span>Baseline builds automatically — needs ~24h of traffic snapshots</span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <div className="text-xs text-muted-foreground mb-3">
+                  Expected concurrent calls by day × hour (darker = more traffic). Hover for exact avg ± σ.
+                </div>
+                <div className="flex min-w-max">
+                  <div className="w-10 shrink-0" />
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <div key={h} className="w-6 text-center text-[8px] text-muted-foreground/60 shrink-0">
+                      {h % 6 === 0 ? `${h}h` : ""}
+                    </div>
+                  ))}
+                </div>
+                {DAY_LABELS.map((day, dow) => (
+                  <div key={dow} className="flex min-w-max items-center mb-0.5">
+                    <div className="w-10 text-[9px] text-muted-foreground font-medium shrink-0">{day}</div>
+                    {Array.from({ length: 24 }, (_, h) => {
+                      const b = baselineMap.get(`${dow}-${h}`);
+                      const intensity = b ? Math.min(b.avgConcurrent / maxAvg, 1) : 0;
+                      const alpha = intensity * 0.85 + (intensity > 0 ? 0.1 : 0);
+                      return (
+                        <div
+                          key={h}
+                          title={b
+                            ? `${day} ${h}:00 — avg ${b.avgConcurrent.toFixed(1)} ±${b.stdDev.toFixed(1)} (n=${b.sampleCount})`
+                            : `${day} ${h}:00 — no data`}
+                          className="w-6 h-5 rounded-sm shrink-0 mx-px cursor-help transition-opacity hover:opacity-80"
+                          style={{ backgroundColor: intensity > 0 ? `rgba(99,102,241,${alpha})` : "rgba(75,85,99,0.1)" }}
+                          data-testid={`heatmap-cell-${dow}-${h}`}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+                <div className="flex items-center gap-1.5 mt-3">
+                  <span className="text-[9px] text-muted-foreground mr-1">Low</span>
+                  {[0.1, 0.25, 0.45, 0.65, 0.85].map(v => (
+                    <div key={v} className="w-5 h-3 rounded-sm" style={{ backgroundColor: `rgba(99,102,241,${v})` }} />
+                  ))}
+                  <span className="text-[9px] text-muted-foreground ml-1">High</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

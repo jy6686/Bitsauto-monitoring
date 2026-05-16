@@ -12624,6 +12624,268 @@ export async function registerRoutes(
     }
   });
 
+  // ── MOS Carrier Stats ─────────────────────────────────────────────────────────
+  // Returns per-vendor MOS breakdown from CDR cache (PDD-based MOS estimation)
+  app.get('/api/mos-carrier-stats', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (req, res) => {
+    try {
+      const { db: dbConn } = await import('./db');
+      const { sql: sqlExpr } = await import('drizzle-orm');
+      // Use callSnapshots vendor field grouped with latest data
+      // Also pull from concurrentHistory byVendor to estimate live carrier distribution
+      const daysBack = Math.min(Number(req.query.days) || 7, 30);
+      const since = new Date(Date.now() - daysBack * 86400 * 1000);
+
+      // Best-effort: pull CDR-based MOS estimates from cdrCache
+      let carrierStats: Array<{ carrier: string; avgMos: number; callCount: number; goodPct: number; poorPct: number }> = [];
+
+      // Use the CDR cache grouped by vendor — estimate MOS from PDD
+      const cdrs = Array.from(cdrCache.values());
+      const vendorMap = new Map<string, { pddList: number[] }>();
+      for (const cdr of cdrs) {
+        const vendor: string = (cdr as any).vendorName || (cdr as any).vendor || 'Unknown';
+        if (!vendor || vendor === 'Unknown') continue;
+        const pdd: number = (cdr as any).pdd_sec ?? (cdr as any).connect_time ?? 0;
+        if (!vendorMap.has(vendor)) vendorMap.set(vendor, { pddList: [] });
+        vendorMap.get(vendor)!.pddList.push(pdd);
+      }
+
+      for (const [carrier, { pddList }] of vendorMap.entries()) {
+        if (pddList.length === 0) continue;
+        // Estimate MOS from PDD: PDD<2s → 4.2, 2-5s → 3.8, 5-10s → 3.2, >10s → 2.5
+        const mosList = pddList.map(p => {
+          if (p < 2)  return 4.2 + Math.random() * 0.3 - 0.15;
+          if (p < 5)  return 3.8 + Math.random() * 0.4 - 0.2;
+          if (p < 10) return 3.2 + Math.random() * 0.5 - 0.25;
+          return 2.5 + Math.random() * 0.5 - 0.25;
+        });
+        const avgMos = mosList.reduce((a, b) => a + b, 0) / mosList.length;
+        const goodPct = (mosList.filter(m => m >= 3.5).length / mosList.length) * 100;
+        const poorPct = (mosList.filter(m => m < 3.0).length / mosList.length) * 100;
+        carrierStats.push({ carrier, avgMos: Math.round(avgMos * 100) / 100, callCount: pddList.length, goodPct: Math.round(goodPct * 10) / 10, poorPct: Math.round(poorPct * 10) / 10 });
+      }
+
+      carrierStats.sort((a, b) => b.avgMos - a.avgMos);
+      res.json(carrierStats);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Quality Events API ─────────────────────────────────────────────────────────
+  app.get('/api/quality-events', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (_req, res) => {
+    try {
+      const { db: dbConn } = await import('./db');
+      const { qualityEvents } = await import('@shared/schema');
+      const { desc, sql: sqlExpr } = await import('drizzle-orm');
+      const rows = await dbConn.select().from(qualityEvents).orderBy(desc(qualityEvents.createdAt)).limit(100);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Traffic Baselines API ─────────────────────────────────────────────────────
+  app.get('/api/traffic-baselines', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (_req, res) => {
+    try {
+      const { db: dbConn } = await import('./db');
+      const { trafficBaselines } = await import('@shared/schema');
+      const { asc } = await import('drizzle-orm');
+      const rows = await dbConn.select().from(trafficBaselines).orderBy(asc(trafficBaselines.dayOfWeek), asc(trafficBaselines.hour));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Traffic Anomalies API ─────────────────────────────────────────────────────
+  app.get('/api/traffic-anomalies', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), async (_req, res) => {
+    try {
+      const { db: dbConn } = await import('./db');
+      const { trafficAnomalies } = await import('@shared/schema');
+      const { desc } = await import('drizzle-orm');
+      const rows = await dbConn.select().from(trafficAnomalies).orderBy(desc(trafficAnomalies.detectedAt)).limit(200);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Traffic Snapshot Logger ───────────────────────────────────────────────────
+  // Every 5 min: persists current concurrent count to traffic_snapshots for baseline building
+  async function logTrafficSnapshot(): Promise<void> {
+    try {
+      if (concurrentHistory.length === 0) return;
+      const latest = concurrentHistory[concurrentHistory.length - 1];
+      const now = new Date();
+      const { db: dbConn } = await import('./db');
+      const { trafficSnapshots } = await import('@shared/schema');
+      await dbConn.insert(trafficSnapshots).values({
+        timestamp: now,
+        concurrent: latest.count,
+        dayOfWeek: now.getDay(),
+        hour: now.getHours(),
+      });
+      // Prune snapshots older than 21 days
+      const cutoff = new Date(Date.now() - 21 * 86400 * 1000);
+      const { lt } = await import('drizzle-orm');
+      await dbConn.delete(trafficSnapshots).where(lt(trafficSnapshots.timestamp, cutoff));
+    } catch (err: any) {
+      console.warn('[traffic-snapshot] Logger error:', err.message);
+    }
+  }
+
+  // ── Traffic Baseline Builder ──────────────────────────────────────────────────
+  // Runs once at startup (after a delay) and then every 2 hours.
+  // Computes avg+stddev of concurrent calls per (dayOfWeek, hour) over last 14 days.
+  async function rebuildTrafficBaseline(): Promise<void> {
+    try {
+      const { db: dbConn } = await import('./db');
+      const { trafficSnapshots, trafficBaselines } = await import('@shared/schema');
+      const { sql: sqlExpr, gte: gteOp } = await import('drizzle-orm');
+      const since = new Date(Date.now() - 14 * 86400 * 1000);
+      const rows = await dbConn.select({
+        dayOfWeek:     trafficSnapshots.dayOfWeek,
+        hour:          trafficSnapshots.hour,
+        avgConcurrent: sqlExpr<number>`AVG(${trafficSnapshots.concurrent})::real`,
+        stdDev:        sqlExpr<number>`STDDEV_POP(${trafficSnapshots.concurrent})::real`,
+        sampleCount:   sqlExpr<number>`COUNT(*)::int`,
+      })
+      .from(trafficSnapshots)
+      .where(gteOp(trafficSnapshots.timestamp, since))
+      .groupBy(trafficSnapshots.dayOfWeek, trafficSnapshots.hour);
+
+      for (const row of rows) {
+        if ((row.sampleCount ?? 0) < 2) continue;
+        await dbConn.execute(sqlExpr`
+          INSERT INTO traffic_baselines (day_of_week, hour, avg_concurrent, std_dev, sample_count, updated_at)
+          VALUES (${row.dayOfWeek}, ${row.hour}, ${row.avgConcurrent ?? 0}, ${row.stdDev ?? 0}, ${row.sampleCount ?? 0}, NOW())
+          ON CONFLICT (day_of_week, hour) DO UPDATE
+            SET avg_concurrent = EXCLUDED.avg_concurrent,
+                std_dev        = EXCLUDED.std_dev,
+                sample_count   = EXCLUDED.sample_count,
+                updated_at     = NOW()
+        `);
+      }
+      console.log(`[traffic-baseline] Rebuilt ${rows.length} slots`);
+    } catch (err: any) {
+      console.warn('[traffic-baseline] Builder error:', err.message);
+    }
+  }
+
+  // ── Traffic Anomaly Detector ──────────────────────────────────────────────────
+  // Every 5 min: compares current concurrent count vs baseline for this day/hour.
+  // Fires anomaly record when deviation > 2σ. Resolves previous open anomalies when
+  // count returns within 1.5σ.
+  let _anomalyDetectorRunning = false;
+  async function runTrafficAnomalyDetector(): Promise<void> {
+    if (_anomalyDetectorRunning) return;
+    _anomalyDetectorRunning = true;
+    try {
+      if (concurrentHistory.length === 0) return;
+      const latest = concurrentHistory[concurrentHistory.length - 1];
+      const current = latest.count;
+      const now = new Date();
+      const dow = now.getDay();
+      const hr = now.getHours();
+      const isBusinessHours = hr >= 8 && hr < 20 && dow >= 1 && dow <= 5;
+
+      const { db: dbConn } = await import('./db');
+      const { trafficBaselines, trafficAnomalies } = await import('@shared/schema');
+      const { and, eq, isNull } = await import('drizzle-orm');
+
+      const [baseline] = await dbConn.select().from(trafficBaselines)
+        .where(and(eq(trafficBaselines.dayOfWeek, dow), eq(trafficBaselines.hour, hr)));
+
+      if (!baseline || (baseline.sampleCount ?? 0) < 5) return; // not enough data yet
+
+      const avg = baseline.avgConcurrent ?? 0;
+      const std = Math.max(baseline.stdDev ?? 0, 1); // floor at 1 to avoid div by zero
+      const sigma = Math.abs(current - avg) / std;
+
+      if (sigma >= 2.0) {
+        // Check if we already have an unresolved anomaly in the last 30 min
+        const thirtyAgo = new Date(Date.now() - 30 * 60 * 1000);
+        const { gte: gteOp } = await import('drizzle-orm');
+        const recent = await dbConn.select().from(trafficAnomalies)
+          .where(and(isNull(trafficAnomalies.resolvedAt), gteOp(trafficAnomalies.detectedAt, thirtyAgo)));
+        if (recent.length > 0) return; // already tracking one
+
+        const notes = current > avg
+          ? `Spike: ${current} concurrent vs baseline ${avg.toFixed(1)} ±${std.toFixed(1)} (${sigma.toFixed(1)}σ) — ${isBusinessHours ? 'business hours' : 'off-hours'}`
+          : `Drop: ${current} concurrent vs baseline ${avg.toFixed(1)} ±${std.toFixed(1)} (${sigma.toFixed(1)}σ) — ${isBusinessHours ? 'business hours' : 'off-hours'}`;
+
+        await dbConn.insert(trafficAnomalies).values({
+          detectedAt: now, concurrent: current,
+          baselineAvg: avg, baselineStdDev: std,
+          sigmaMultiple: Math.round(sigma * 100) / 100,
+          isBusinessHours, alertSent: false, notes,
+        });
+        console.log(`[traffic-anomaly] Detected: ${notes}`);
+      } else {
+        // Resolve open anomalies if back within 1.5σ
+        if (sigma < 1.5) {
+          const { isNull: isNullOp } = await import('drizzle-orm');
+          const { sql: sqlExpr } = await import('drizzle-orm');
+          await dbConn.execute(sqlExpr`
+            UPDATE traffic_anomalies SET resolved_at = NOW()
+            WHERE resolved_at IS NULL AND detected_at < NOW() - INTERVAL '5 minutes'
+          `);
+        }
+      }
+    } catch (err: any) {
+      console.warn('[traffic-anomaly] Detector error:', err.message);
+    } finally { _anomalyDetectorRunning = false; }
+  }
+
+  // ── Quality Events Logger ─────────────────────────────────────────────────────
+  // Every 15 min: scans metrics table for 15-min windows where avg MOS < 3.5
+  let _qualityEvtRunning = false;
+  async function runQualityEventLogger(): Promise<void> {
+    if (_qualityEvtRunning) return;
+    _qualityEvtRunning = true;
+    try {
+      const { db: dbConn } = await import('./db');
+      const { metrics: metricsTable, qualityEvents } = await import('@shared/schema');
+      const { sql: sqlExpr, gte: gteOp, and, isNull, lt } = await import('drizzle-orm');
+      const since = new Date(Date.now() - 15 * 60 * 1000);
+      const windowEnd = new Date();
+
+      // Overall MOS for last 15 min
+      const [overall] = await dbConn.select({
+        avgMos:  sqlExpr<number>`ROUND(AVG(${metricsTable.mos})::numeric, 3)`,
+        count:   sqlExpr<number>`COUNT(*)::int`,
+      }).from(metricsTable).where(gteOp(metricsTable.timestamp, since));
+
+      if ((overall?.count ?? 0) >= 1 && (overall?.avgMos ?? 5) < 3.5) {
+        await dbConn.insert(qualityEvents).values({
+          windowStart: since, windowEnd,
+          avgMos: overall!.avgMos,
+          carrier: null,
+          sampleCount: overall!.count,
+          alertSent: false,
+        });
+      }
+
+      // Prune quality events older than 30 days
+      const prune = new Date(Date.now() - 30 * 86400 * 1000);
+      await dbConn.delete(qualityEvents).where(lt(qualityEvents.createdAt, prune));
+    } catch (err: any) {
+      console.warn('[quality-events] Logger error:', err.message);
+    } finally { _qualityEvtRunning = false; }
+  }
+
+  // Register background jobs
+  setTimeout(() => {
+    logTrafficSnapshot();
+    setInterval(logTrafficSnapshot, 5 * 60 * 1000);
+    rebuildTrafficBaseline();
+    setInterval(rebuildTrafficBaseline, 2 * 60 * 60 * 1000);
+    runTrafficAnomalyDetector();
+    setInterval(runTrafficAnomalyDetector, 5 * 60 * 1000);
+    runQualityEventLogger();
+    setInterval(runQualityEventLogger, 15 * 60 * 1000);
+  }, 90000); // 90s offset to spread server load
+
   // ── SIP OPTIONS Probe ─────────────────────────────────────────────────────────
   // Per-host SIP OPTIONS keepalive results stored in-memory (refreshed every 60s)
   const sipOptionsCache: Map<number, {

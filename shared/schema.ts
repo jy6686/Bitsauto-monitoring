@@ -1417,3 +1417,57 @@ export const accountConfigs = pgTable("account_configs", {
   updatedAt:  timestamp("updated_at").defaultNow().notNull(),
 });
 export type AccountConfig = typeof accountConfigs.$inferSelect;
+
+// ── Quality Events: 15-min windows where avg MOS drops below 3.5 ─────────────
+export const qualityEvents = pgTable("quality_events", {
+  id:          serial("id").primaryKey(),
+  windowStart: timestamp("window_start").notNull(),
+  windowEnd:   timestamp("window_end").notNull(),
+  avgMos:      real("avg_mos").notNull(),
+  carrier:     varchar("carrier", { length: 128 }),
+  sampleCount: integer("sample_count").default(0),
+  alertSent:   boolean("alert_sent").default(false),
+  resolvedAt:  timestamp("resolved_at"),
+  createdAt:   timestamp("created_at").defaultNow(),
+});
+export type QualityEvent = typeof qualityEvents.$inferSelect;
+export type InsertQualityEvent = typeof qualityEvents.$inferInsert;
+export const insertQualityEventSchema = createInsertSchema(qualityEvents).omit({ id: true, createdAt: true });
+
+// ── Traffic Snapshots: 5-min concurrent call count log for baseline building ──
+export const trafficSnapshots = pgTable("traffic_snapshots", {
+  id:          serial("id").primaryKey(),
+  timestamp:   timestamp("timestamp").defaultNow(),
+  concurrent:  integer("concurrent").notNull(),
+  dayOfWeek:   integer("day_of_week").notNull(), // 0=Sun … 6=Sat
+  hour:        integer("hour").notNull(),         // 0–23
+});
+export type TrafficSnapshot = typeof trafficSnapshots.$inferSelect;
+
+// ── Traffic Baselines: 14-day per-hour statistical model (rebuilt nightly) ────
+export const trafficBaselines = pgTable("traffic_baselines", {
+  id:             serial("id").primaryKey(),
+  dayOfWeek:      integer("day_of_week").notNull(),
+  hour:           integer("hour").notNull(),
+  avgConcurrent:  real("avg_concurrent").default(0),
+  stdDev:         real("std_dev").default(0),
+  sampleCount:    integer("sample_count").default(0),
+  updatedAt:      timestamp("updated_at").defaultNow(),
+});
+export type TrafficBaseline = typeof trafficBaselines.$inferSelect;
+
+// ── Traffic Anomalies: statistical anomalies detected against baseline ─────────
+export const trafficAnomalies = pgTable("traffic_anomalies", {
+  id:              serial("id").primaryKey(),
+  detectedAt:      timestamp("detected_at").defaultNow(),
+  concurrent:      integer("concurrent").notNull(),
+  baselineAvg:     real("baseline_avg").notNull(),
+  baselineStdDev:  real("baseline_std_dev").notNull(),
+  sigmaMultiple:   real("sigma_multiple").notNull(),
+  isBusinessHours: boolean("is_business_hours").default(false),
+  resolvedAt:      timestamp("resolved_at"),
+  alertSent:       boolean("alert_sent").default(false),
+  notes:           text("notes"),
+});
+export type TrafficAnomaly = typeof trafficAnomalies.$inferSelect;
+export type InsertTrafficAnomaly = typeof trafficAnomalies.$inferInsert;
