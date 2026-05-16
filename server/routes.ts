@@ -25,7 +25,7 @@ import { runRecommendationEngine } from "./recommendation-engine";
 import { executeAction, buildSippyParams, recommendationToActionType, computeIdempotencyKey } from "./action-executor";
 import { evaluateFirewall } from "./action-firewall";
 import { listActions, createAction, getAction, approveAction, rejectAction, snoozeAction, rollbackAction } from "./action-store";
-import { queryLedger, queryLedgerStats } from "./action-ledger";
+import { queryLedger, queryLedgerStats, queryLedgerCorrelation } from "./action-ledger";
 import { writeAudit, queryAudit, auditStats } from "./audit";
 import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
@@ -19213,6 +19213,28 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const stats = await queryLedgerStats();
       res.json(stats);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/ledger/correlate — entity correlation view
+  // Returns three structured lenses over a single entity's ledger history:
+  //   threads     — one entry per ledger_id (technical action thread)
+  //   clusters    — temporal bursts: events across threads within 5-minute gaps
+  //   intentGroups — events grouped by intent_id (business objective)
+  //   crossSystemThreadIds — threads that span more than one source system
+  //
+  // Query params:
+  //   ?entityId=X        required — the entity to correlate
+  //   ?window=30         optional — lookback window in minutes (default 30, max 1440)
+  //   ?limit=500         optional — max events to scan (default 500)
+  app.get('/api/ledger/correlate', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const entityId = (req.query.entityId as string | undefined)?.trim();
+      if (!entityId) return res.status(400).json({ message: 'entityId query param is required' });
+      const windowMinutes = Math.min(Number(req.query.window ?? 30), 1440);
+      const limit         = Math.min(Number(req.query.limit  ?? 500), 500);
+      const view = await queryLedgerCorrelation({ entityId, windowMinutes, limit });
+      res.json(view);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

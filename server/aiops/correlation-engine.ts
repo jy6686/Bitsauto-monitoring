@@ -156,6 +156,90 @@ export async function runCorrelationEngine(): Promise<{
     }
   }
 
+  // ── Pass 3: ledger mutation cluster detection ──────────────────────────────
+  // Scans action_ledger for entities that received ≥2 distinct action threads
+  // (ledger_ids) within a 30-minute window. Creates/updates LEDGER_MUTATION_CLUSTER
+  // incidents so operators see when an entity is undergoing rapid concurrent
+  // mutation — a strong signal for either coordinated remediation or instability.
+  try {
+    const ledgerPool     = new Pool({ connectionString: process.env.DATABASE_URL });
+    const ledgerWindow   = new Date(Date.now() - 30 * 60 * 1000);
+    const ledgerResult   = await ledgerPool.query(
+      `SELECT ledger_id, entity_id, entity_name, source_system
+       FROM action_ledger
+       WHERE created_at >= $1 AND entity_id IS NOT NULL`,
+      [ledgerWindow.toISOString()],
+    );
+    await ledgerPool.end();
+
+    // Group by entity_id → count distinct ledger_ids and source systems
+    const byEntity = new Map<string, { ledgerIds: Set<string>; systems: Set<string>; entityName: string }>();
+    for (const row of ledgerResult.rows) {
+      const k = row.entity_id as string;
+      if (!byEntity.has(k)) byEntity.set(k, { ledgerIds: new Set(), systems: new Set(), entityName: row.entity_name ?? k });
+      const e = byEntity.get(k)!;
+      e.ledgerIds.add(row.ledger_id as string);
+      e.systems.add(row.source_system as string);
+    }
+
+    for (const [entityId, data] of byEntity.entries()) {
+      // Only raise when ≥2 distinct action threads touched the same entity
+      if (data.ledgerIds.size < 2) continue;
+
+      const systemStr  = [...data.systems].join('+');
+      const severity   = data.ledgerIds.size >= 5 ? 'high' : 'medium';
+      const entityKey  = `ledger:${entityId}`;
+      const title      = `Mutation cluster — ${data.entityName}: ${data.ledgerIds.size} action threads in 30 min (${systemStr})`;
+
+      const [existing] = await db
+        .select({ id: aiOpsIncidents.id })
+        .from(aiOpsIncidents)
+        .where(and(eq(aiOpsIncidents.entity, entityKey), eq(aiOpsIncidents.status, 'active')))
+        .limit(1);
+
+      if (existing) {
+        await db.update(aiOpsIncidents)
+          .set({ lastSeen: now, signalsCount: data.ledgerIds.size, severity, title })
+          .where(eq(aiOpsIncidents.id, existing.id));
+        updated++;
+      } else {
+        await db.insert(aiOpsIncidents).values({
+          title, entity: entityKey, severity,
+          startTime: now, lastSeen: now,
+          signalsCount: data.ledgerIds.size, anomaliesCount: 0,
+          status: 'active',
+        });
+        created++;
+        console.log(`[correlation] LEDGER_CLUSTER for "${data.entityName}" — ${data.ledgerIds.size} threads (${systemStr})`);
+      }
+    }
+
+    // Auto-resolve stale LEDGER_MUTATION_CLUSTER incidents when the entity is
+    // no longer receiving concurrent mutations
+    const activeClusterIncidents = await db
+      .select({ id: aiOpsIncidents.id, entity: aiOpsIncidents.entity })
+      .from(aiOpsIncidents)
+      .where(and(
+        eq(aiOpsIncidents.status, 'active'),
+        // entity key uses "ledger:" prefix
+        // Use raw SQL prefix match instead of ORM contains
+      ))
+      .limit(100);
+    for (const inc of activeClusterIncidents) {
+      if (!inc.entity?.startsWith('ledger:')) continue;
+      const eid = inc.entity.replace('ledger:', '');
+      if (!byEntity.has(eid) || (byEntity.get(eid)!.ledgerIds.size < 2)) {
+        await db.update(aiOpsIncidents)
+          .set({ status: 'resolved', lastSeen: now })
+          .where(eq(aiOpsIncidents.id, inc.id));
+        resolved++;
+      }
+    }
+  } catch (ledgerErr: any) {
+    // Pass 3 is non-critical — never fail the whole engine on ledger issues
+    console.warn('[correlation] Pass 3 ledger scan error (non-fatal):', ledgerErr.message);
+  }
+
   // ── Auto-resolve stale incidents (no new events in 2 hours) ───────────────
   const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000);
   const staleCount = await db
