@@ -1486,3 +1486,22 @@ export const trafficAnomalies = pgTable("traffic_anomalies", {
 });
 export type TrafficAnomaly = typeof trafficAnomalies.$inferSelect;
 export type InsertTrafficAnomaly = typeof trafficAnomalies.$inferInsert;
+
+// ── Audit Events: append-only system memory layer ─────────────────────────────
+// Never updated — only inserted. Captures every meaningful action in the system.
+export const auditEvents = pgTable("audit_events", {
+  id:         serial("id").primaryKey(),
+  timestamp:  timestamp("timestamp").defaultNow().notNull(),
+  category:   varchar("category",    { length: 32  }).notNull(), // user | system | sippy | fraud | financial
+  action:     varchar("action",      { length: 64  }).notNull(), // e.g. ROLE_CHANGED, ACCOUNT_BLOCKED
+  actor:      varchar("actor",       { length: 255 }).notNull().default('system'),
+  actorType:  varchar("actor_type",  { length: 16  }).notNull().default('system'), // user | system | automation
+  targetType: varchar("target_type", { length: 32  }),           // account | carrier | switch | user | route
+  targetId:   varchar("target_id",   { length: 128 }),
+  targetName: varchar("target_name", { length: 255 }),
+  severity:   varchar("severity",    { length: 16  }).notNull().default('info'), // info | warning | critical
+  metadata:   json("metadata"),
+  ip:         varchar("ip",          { length: 64  }),
+});
+export type AuditEvent      = typeof auditEvents.$inferSelect;
+export type InsertAuditEvent = typeof auditEvents.$inferInsert;

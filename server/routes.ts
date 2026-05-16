@@ -18,6 +18,7 @@ import { setupChatWebSocket } from "./chat-ws";
 import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, canSubmit, type OperationType } from "./approvals";
 import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
+import { writeAudit, queryAudit, auditStats } from "./audit";
 import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
 import { initSyntheticScheduler, computeInitialNextRunAt } from "./synthetic-scheduler";
@@ -1068,6 +1069,7 @@ export async function registerRoutes(
       const updated = await storage.updateSettings(input);
       res.json(updated);
       regenDataflowDoc();
+      writeAudit({ category: 'system', action: 'SETTINGS_UPDATED', actor: (req as any).user?.claims?.sub ?? 'unknown', actorType: 'user', severity: 'warning', metadata: { changedFields: Object.keys(input) } });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({
@@ -1215,6 +1217,30 @@ export async function registerRoutes(
     next();
   }
 
+  // ── Audit Log API ─────────────────────────────────────────────────────────
+  app.get('/api/audit-log', (req: any, res, next) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const q = req.query as Record<string, string>;
+      const result = await queryAudit({
+        category: q.category || undefined,
+        severity: q.severity || undefined,
+        search:   q.search   || undefined,
+        from:     q.from     || undefined,
+        to:       q.to       || undefined,
+        limit:    q.limit    ? parseInt(q.limit,  10) : 100,
+        offset:   q.offset   ? parseInt(q.offset, 10) : 0,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get('/api/audit-log/stats', (req: any, res, next) => requireRole(['admin','management'], req, res, next), async (_req, res) => {
+    try {
+      const stats = await auditStats();
+      res.json({ stats });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // GET /api/team — list all users + their roles (admin only)
   app.get('/api/team', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
@@ -1240,6 +1266,7 @@ export async function registerRoutes(
     try {
       await storage.setUserRole(userId, role as Role, requesterId, teamId ?? null);
       res.json({ message: 'Role updated', userId, role, teamId: teamId ?? null });
+      writeAudit({ category: 'user', action: 'ROLE_CHANGED', actor: requesterId, actorType: 'user', targetType: 'user', targetId: userId, severity: 'warning', metadata: { newRole: role, teamId: teamId ?? null } });
     } catch (err) {
       res.status(500).json({ message: 'Failed to update role' });
     }
@@ -1371,14 +1398,15 @@ export async function registerRoutes(
     catch { res.status(500).json({ message: 'Failed to fetch switches' }); }
   });
 
-  app.post('/api/switches', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+  app.post('/api/switches', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const sw = await storage.createSwitch(req.body);
       res.status(201).json({ ...sw, portalPassword: sw.portalPassword ? '••••••••' : null, apiAdminPassword: sw.apiAdminPassword ? '••••••••' : null, adminWebPassword: sw.adminWebPassword ? '••••••••' : null });
+      writeAudit({ category: 'system', action: 'SWITCH_CREATED', actor: req.user?.claims?.sub ?? 'unknown', actorType: 'user', targetType: 'switch', targetId: String(sw.id), targetName: (sw as any).name ?? req.body.name, severity: 'warning' });
     } catch { res.status(500).json({ message: 'Failed to create switch' }); }
   });
 
-  app.patch('/api/switches/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+  app.patch('/api/switches/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const body = { ...req.body };
       // Strip masked placeholder values so real passwords are never overwritten
@@ -1387,13 +1415,15 @@ export async function registerRoutes(
       if (body.adminWebPassword === '••••••••') delete body.adminWebPassword;
       const sw = await storage.updateSwitch(Number(req.params.id), body);
       res.json({ ...sw, portalPassword: sw.portalPassword ? '••••••••' : null, apiAdminPassword: sw.apiAdminPassword ? '••••••••' : null, adminWebPassword: sw.adminWebPassword ? '••••••••' : null });
+      writeAudit({ category: 'system', action: 'SWITCH_UPDATED', actor: req.user?.claims?.sub ?? 'unknown', actorType: 'user', targetType: 'switch', targetId: req.params.id, targetName: (sw as any).name, severity: 'info', metadata: { changedFields: Object.keys(body) } });
     } catch { res.status(500).json({ message: 'Failed to update switch' }); }
   });
 
-  app.delete('/api/switches/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+  app.delete('/api/switches/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       await storage.deleteSwitch(Number(req.params.id));
       res.json({ message: 'Switch deleted' });
+      writeAudit({ category: 'system', action: 'SWITCH_DELETED', actor: req.user?.claims?.sub ?? 'unknown', actorType: 'user', targetType: 'switch', targetId: req.params.id, severity: 'critical' });
     } catch { res.status(500).json({ message: 'Failed to delete switch' }); }
   });
 
@@ -2677,6 +2707,7 @@ export async function registerRoutes(
     const { username, password } = sippyXmlCreds(settings);
     const result = await sippy.disconnectSippyCall(req.params.id, username, password);
     res.json(result);
+    writeAudit({ category: 'sippy', action: 'CALL_DISCONNECTED', actor: req.user?.claims?.sub ?? 'system', actorType: req.user ? 'user' : 'system', targetType: 'call', targetId: req.params.id, severity: 'warning' });
   });
 
   // POST /api/sippy/accounts/:iAccount/disconnect — disconnect all calls for an account
@@ -2687,6 +2718,7 @@ export async function registerRoutes(
     const { username, password } = sippyXmlCreds(settings);
     const result = await sippy.disconnectSippyAccount(iAccount, username, password);
     res.json(result);
+    writeAudit({ category: 'sippy', action: 'ACCOUNT_CALLS_DISCONNECTED', actor: req.user?.claims?.sub ?? 'system', actorType: req.user ? 'user' : 'system', targetType: 'account', targetId: String(iAccount), severity: 'warning' });
   });
 
   // GET /api/sippy/available-methods — lists all XML-RPC methods registered on this Sippy
@@ -6007,22 +6039,24 @@ export async function registerRoutes(
   });
 
   // POST /api/sippy/customers/:id/block — block a customer
-  app.post('/api/sippy/customers/:id/block', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+  app.post('/api/sippy/customers/:id/block', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.blockSippyCustomer(username, password, parseInt(req.params.id, 10));
       res.json(result);
+      writeAudit({ category: 'fraud', action: 'CUSTOMER_BLOCKED', actor: req.user?.claims?.sub ?? 'unknown', actorType: 'user', targetType: 'customer', targetId: req.params.id, severity: 'critical', ip: req.ip });
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
   // POST /api/sippy/customers/:id/unblock — unblock a customer
-  app.post('/api/sippy/customers/:id/unblock', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+  app.post('/api/sippy/customers/:id/unblock', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
       const result = await sippy.unblockSippyCustomer(username, password, parseInt(req.params.id, 10));
       res.json(result);
+      writeAudit({ category: 'fraud', action: 'CUSTOMER_UNBLOCKED', actor: req.user?.claims?.sub ?? 'unknown', actorType: 'user', targetType: 'customer', targetId: req.params.id, severity: 'warning', ip: req.ip });
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
@@ -6151,7 +6185,7 @@ export async function registerRoutes(
   // DELETE /api/sippy/accounts/:id — delete an account (docs 107321)
   // Supports trusted mode: passes i_customer=1 when using admin XML-RPC credentials.
   // Active calls of the deleted account are disconnected automatically (Sippy v5.0+).
-  app.delete('/api/sippy/accounts/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+  app.delete('/api/sippy/accounts/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const iAccount = parseInt(req.params.id, 10);
       if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
@@ -6161,6 +6195,7 @@ export async function registerRoutes(
       const result = await sippy.deleteSippyAccount(username, password, iAccount, undefined, iCustomer);
       res.json(result);
       regenDataflowDoc();
+      writeAudit({ category: 'sippy', action: 'SIPPY_ACCOUNT_DELETED', actor: req.user?.claims?.sub ?? 'unknown', actorType: 'user', targetType: 'account', targetId: String(iAccount), severity: 'critical', metadata: { iCustomer } });
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
@@ -6372,6 +6407,7 @@ export async function registerRoutes(
       const result = await sippy.updateAccountSettings(username, password, portalUrl, iAccount, { creditLimit: Number(creditLimit) });
       if (!result.success) return res.status(422).json(result);
       res.json({ success: true, message: `Credit limit updated to ${creditLimit} for account ${iAccount}.` });
+      writeAudit({ category: 'financial', action: 'CREDIT_LIMIT_CHANGED', actor: (req as any).user?.claims?.sub ?? 'unknown', actorType: 'user', targetType: 'account', targetId: String(iAccount), severity: 'warning', metadata: { creditLimit: Number(creditLimit) } });
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
