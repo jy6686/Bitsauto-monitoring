@@ -2209,10 +2209,42 @@ function SippyVendorsTab({ isManagement }: { isManagement: boolean }) {
   );
 }
 
+// ── Shared health-badge component ───────────────────────────────────────────
+interface AccountStateRecord {
+  accountId: string; accountName: string | null;
+  healthScore: number; fraudRisk: number; anomalyScore: number; qualityScore: number;
+  state: string; reasons: string[] | null; activeIncidentCount: number;
+}
+function HealthBadge({ state, score, reasons }: { state: string; score: number; reasons?: string[] | null }) {
+  const cfg =
+    state === 'critical' ? { pill: 'bg-rose-500/15 text-rose-400 border-rose-500/30', dot: 'bg-rose-400' } :
+    state === 'warning'  ? { pill: 'bg-amber-500/15 text-amber-400 border-amber-500/30', dot: 'bg-amber-400' } :
+                           { pill: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', dot: 'bg-emerald-400' };
+  const label = state === 'critical' ? 'Critical' : state === 'warning' ? 'Warning' : 'Healthy';
+  return (
+    <span
+      title={reasons?.length ? reasons.join(' · ') : `Health score: ${score}`}
+      className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${cfg.pill} cursor-help`}
+      data-testid={`badge-health-${state}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+      {label}
+    </span>
+  );
+}
+
 function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
   const [expandedId, setExpandedId]   = useState<number | null>(null);
   const [lbAccount, setLbAccount]     = useState<{ iAccount: number; username: string } | null>(null);
   const [resetting, setResetting]     = useState(false);
+
+  const { data: acctStateData } = useQuery<AccountStateRecord[]>({
+    queryKey: ['/api/account-state'],
+    staleTime: 60_000,
+  });
+  const stateByAccountId = new Map<string, AccountStateRecord>(
+    (acctStateData ?? []).map(r => [r.accountId, r])
+  );
 
   const { data, isLoading, refetch } = useQuery<{ accounts: SippyAccount[]; error?: string }>({
     queryKey: ['/api/sippy/accounts'],
@@ -2318,6 +2350,12 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm truncate">{acc.username}</span>
+                        {(() => {
+                          const hs = stateByAccountId.get(String(acc.iAccount));
+                          return hs && hs.state !== 'healthy' ? (
+                            <HealthBadge state={hs.state} score={hs.healthScore} reasons={hs.reasons} />
+                          ) : null;
+                        })()}
                         {acc.blocked && (
                           <span className="text-[10px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Blocked</span>
                         )}

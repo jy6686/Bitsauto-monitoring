@@ -1505,3 +1505,22 @@ export const auditEvents = pgTable("audit_events", {
 });
 export type AuditEvent      = typeof auditEvents.$inferSelect;
 export type InsertAuditEvent = typeof auditEvents.$inferInsert;
+
+// Account State: persistent operational health per Sippy account
+export const accountState = pgTable("account_state", {
+  id:                 serial("id").primaryKey(),
+  accountId:          varchar("account_id",   { length: 64  }).notNull().unique(),
+  accountName:        varchar("account_name", { length: 255 }),
+  healthScore:        integer("health_score").notNull().default(100),
+  fraudRisk:          integer("fraud_risk").notNull().default(0),
+  anomalyScore:       integer("anomaly_score").notNull().default(0),
+  qualityScore:       integer("quality_score").notNull().default(100),
+  balanceTrend:       varchar("balance_trend", { length: 20 }).notNull().default('stable'),
+  activeIncidentCount:integer("active_incident_count").notNull().default(0),
+  state:              varchar("state", { length: 20 }).notNull().default('healthy'),
+  reasons:            json("reasons").$type<string[]>().default([]),
+  lastIncidentAt:     timestamp("last_incident_at"),
+  updatedAt:          timestamp("updated_at").defaultNow().notNull(),
+});
+export type AccountState       = typeof accountState.$inferSelect;
+export type InsertAccountState = typeof accountState.$inferInsert;

@@ -1,0 +1,248 @@
+This is now the correct implementation strategy.
+
+The refinement matters because it changes Phase B from:
+
+large architectural rewrite
+
+into:
+
+small controlled operational evolution
+
+That dramatically lowers risk.
+
+Why This Version Is Better
+
+The original plan was technically correct, but too infrastructure-heavy upfront.
+
+This revised sequence creates:
+
+visible operator value early
+architectural progress underneath
+isolated rollback boundaries
+minimal blast radius
+
+That is exactly how a production telecom platform should evolve.
+
+The Most Important Strategic Decision
+Start with ONLY account_state
+
+This is the correct call.
+
+Because accounts are already the convergence point of:
+
+fraud
+balance
+traffic
+quality
+anomalies
+alerts
+routing effects
+
+No other entity in the platform has this much intelligence attached already.
+
+That means:
+
+you can generate meaningful operational state immediately
+
+without inventing synthetic logic.
+
+What This Really Creates
+
+Today:
+
+pages ask questions
+
+After account_state:
+
+the platform already knows answers
+
+That is the real shift.
+
+What V1 Should Actually Do
+
+Keep it extremely focused.
+
+V1 Goal
+
+Not:
+
+perfect scoring
+
+Instead:
+
+persistent operational awareness
+Recommended V1 State Inputs
+
+Use ONLY signals you already trust.
+
+Include
+Fraud
+FAS hits
+IRSF patterns
+velocity anomalies
+Traffic
+abnormal CPS
+traffic spike/drop
+destination entropy
+Quality
+MOS degradation
+ASR drop
+PDD anomalies
+Financial
+balance decline velocity
+margin instability
+Avoid Initially
+
+Do NOT include:
+
+ML predictions
+forecasting confidence
+carrier peer comparison
+AI-generated recommendations
+external threat feeds
+
+Those come later.
+
+V1 should stay deterministic and explainable.
+
+Most Important Design Recommendation
+reasons[] is critical
+
+This field matters more than the scores.
+
+Bad:
+
+Fraud Risk = 81
+
+Good:
+
+[
+  "Destination entropy spike",
+  "Calls to 4 new premium prefixes",
+  "CPS increased 340% above baseline"
+]
+
+Operators trust explainability far more than numeric scores.
+
+This also becomes the future input for:
+
+Decision Layer
+AI summaries
+recommendation engine
+incident correlation
+Suggested State Calculation Pattern
+
+Do NOT compute giant formulas.
+
+Use weighted signal accumulation.
+
+Example:
+
+FAS hit                  +35
+High CPS anomaly         +20
+MOS degradation          +10
+Traffic spike            +15
+Balance decline          +5
+
+↓
+
+fraudRisk = 85
+state = critical
+
+This is:
+
+debuggable
+explainable
+adjustable
+operationally safe
+Health Badges (Step 3)
+
+This is where the platform visually transforms.
+
+Accounts Page
+
+Instead of:
+
+Account Name
+Balance
+Status
+
+You now get:
+
+Account Name
+🟡 Warning
+Fraud Risk: Elevated
+2 Active Signals
+
+That single change makes the platform feel intelligent.
+
+Important UX Principle
+
+Badges should NOT be decorative.
+
+They should:
+
+be clickable
+explain WHY
+show last updated time
+link into AI Ops detail
+
+Otherwise operators will ignore them.
+
+The Real Architectural Milestone
+
+The actual milestone is NOT:
+
+account_state table created
+
+The milestone is:
+
+operators stop manually correlating data
+
+That is the turning point.
+
+Your Platform After Step 3
+
+At that point:
+
+AI Ops
+
+becomes:
+
+central intelligence engine
+Accounts
+
+becomes:
+
+live operational entities
+Operators
+
+move from:
+
+data interpretation
+
+toward:
+
+decision validation
+
+That is a major operational maturity jump.
+
+Then Comes The Real Power
+
+Once account_state exists and badges are everywhere:
+
+THEN:
+
+carrier_state becomes easier
+route_state becomes easier
+incidents become easier
+recommendations become easier
+automation becomes possible
+
+Because the platform finally has:
+
+persistent operational memory
+
+instead of:
+
+temporary dashboard calculations

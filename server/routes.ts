@@ -18,6 +18,7 @@ import { setupChatWebSocket } from "./chat-ws";
 import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, canSubmit, type OperationType } from "./approvals";
 import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
+import { updateAccountState } from "./account-state";
 import { writeAudit, queryAudit, auditStats } from "./audit";
 import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
@@ -16711,6 +16712,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           console.log(`[anomaly-engine] detected=${result.detected} resolved=${result.resolved} baselines=${result.baselines}`);
         }
       } catch (e: any) { console.warn('[anomaly-engine] run error:', e.message); }
+      // Update account operational state after each anomaly engine run
+      try { await updateAccountState(cdrCache, accountNameCache); } catch (_) {}
     };
     _runAnomalyEngine();
     setInterval(_runAnomalyEngine, 15 * 60 * 1000);
@@ -18707,6 +18710,27 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
       res.json({ anomalies: results, accountsAnalysed: today.size, baselineAccounts: baseline.size, windowHours: 72 });
     } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // Account State — list all
+  app.get('/api/account-state', (req, res, next) => requireRole(['admin','management'], req, res, next), async (_req, res) => {
+    try {
+      const { accountState: acctStateTable } = await import('@shared/schema');
+      const { desc: drizzleDesc } = await import('drizzle-orm');
+      const rows = await db.select().from(acctStateTable).orderBy(drizzleDesc(acctStateTable.healthScore));
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Account State — single account
+  app.get('/api/account-state/:accountId', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
+    try {
+      const { accountState: acctStateTable } = await import('@shared/schema');
+      const { eq: drizzleEq } = await import('drizzle-orm');
+      const [row] = await db.select().from(acctStateTable).where(drizzleEq(acctStateTable.accountId, req.params.accountId));
+      if (!row) return res.status(404).json({ message: 'Not found' });
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
   return httpServer;

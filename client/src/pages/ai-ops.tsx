@@ -233,6 +233,14 @@ export default function AiOpsPage() {
 
   const pendingSuggestions = suggestions.filter(s => s.status === 'pending');
 
+  // Account health state
+  interface AcctState { accountId: string; accountName: string | null; state: string; healthScore: number; reasons: string[] | null; activeIncidentCount: number }
+  const { data: acctStateList } = useQuery<AcctState[]>({
+    queryKey: ['/api/account-state'],
+    staleTime: 60_000,
+  });
+  const criticalAccounts = (acctStateList ?? []).filter(a => a.state !== 'healthy').sort((a, b) => a.healthScore - b.healthScore).slice(0, 5);
+
   const anomalies      = rawAnomalies;
   const activeCount    = rawAnomalies.filter(a => !a.resolved).length;
   const criticalCount  = rawAnomalies.filter(a => a.severity === 'critical' && !a.resolved).length;
@@ -1062,6 +1070,49 @@ export default function AiOpsPage() {
                 </div>
               )}
             </div>
+
+            {/* ── Critical Accounts Widget ──────────────────────────────── */}
+            {criticalAccounts.length > 0 && (
+              <div className="bg-card border border-border rounded-xl overflow-hidden" data-testid="widget-critical-accounts">
+                <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2">
+                  <div className="p-1 rounded bg-rose-500/10 border border-rose-500/20">
+                    <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />
+                  </div>
+                  <span className="text-xs font-semibold">Account Health Alerts</span>
+                  <span className="ml-auto text-[9px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/25 rounded-full px-1.5 py-0.5 leading-none">
+                    {criticalAccounts.length}
+                  </span>
+                </div>
+                <div className="divide-y divide-border/30">
+                  {criticalAccounts.map(acct => {
+                    const isCrit = acct.state === 'critical';
+                    const barColor = isCrit ? 'bg-rose-400' : 'bg-amber-400';
+                    const textColor = isCrit ? 'text-rose-400' : 'text-amber-400';
+                    const dotColor  = isCrit ? 'bg-rose-400' : 'bg-amber-400';
+                    return (
+                      <div key={acct.accountId} className="px-4 py-2.5 flex items-start gap-3" data-testid={`row-acct-health-${acct.accountId}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full mt-1 shrink-0 ${dotColor}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-xs font-medium truncate">{acct.accountName ?? acct.accountId}</span>
+                            <span className={`text-[10px] font-bold ${textColor}`}>{acct.healthScore}</span>
+                          </div>
+                          <div className="mt-1 h-1 rounded-full bg-muted/40 overflow-hidden">
+                            <div className={`h-full rounded-full ${barColor} opacity-70`} style={{ width: `${acct.healthScore}%` }} />
+                          </div>
+                          {acct.reasons && acct.reasons.length > 0 && (
+                            <p className="text-[10px] text-muted-foreground mt-1 truncate">{acct.reasons[0]}</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="px-4 py-2 border-t border-border/30 bg-muted/10">
+                  <p className="text-[10px] text-muted-foreground/60">Updated every 15 min · hover account badges for details</p>
+                </div>
+              </div>
+            )}
 
             {/* ── Routing Suggestions Panel ─────────────────────────────── */}
             <div className="bg-card border border-border rounded-xl overflow-hidden">

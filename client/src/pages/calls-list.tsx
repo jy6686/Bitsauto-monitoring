@@ -407,6 +407,17 @@ function SwitchPanel({
   });
   const viewerAccountIds = new Set(viewerAccounts?.accountIds ?? []);
 
+  // Account health state — keyed by accountName for call-row lookup
+  interface AcctState { accountId: string; accountName: string | null; state: string; healthScore: number; reasons: string[] | null }
+  const { data: acctStateList } = useQuery<AcctState[]>({
+    queryKey: ['/api/account-state'],
+    staleTime: 60_000,
+    enabled: role !== 'viewer',
+  });
+  const stateByName = new Map<string, AcctState>(
+    (acctStateList ?? []).filter(r => r.accountName).map(r => [r.accountName!.toLowerCase(), r])
+  );
+
   // Build live calls list (filtered by assigned accounts for viewer role)
   const allLiveCalls: LiveCall[] = liveCallData?.calls ?? [];
   const liveCalls: LiveCall[] = (role === 'viewer' && viewerAccountIds.size > 0)
@@ -826,7 +837,15 @@ function SwitchPanel({
                           {col('account') && (
                             <td className="px-4 py-3">
                               {call.clientName ? (
-                                <span className="font-medium text-foreground" data-testid={`cell-caller-${i}`}>{call.clientName}</span>
+                                <span className="flex items-center gap-1.5" data-testid={`cell-caller-${i}`}>
+                                  {(() => {
+                                    const st = stateByName.get(call.clientName.toLowerCase());
+                                    if (!st || st.state === 'healthy') return null;
+                                    const dot = st.state === 'critical' ? 'bg-rose-400' : 'bg-amber-400';
+                                    return <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} title={st.reasons?.join(' · ') ?? st.state} />;
+                                  })()}
+                                  <span className="font-medium text-foreground">{call.clientName}</span>
+                                </span>
                               ) : (
                                 <span className="text-muted-foreground/40">—</span>
                               )}
