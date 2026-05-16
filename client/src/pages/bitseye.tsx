@@ -453,6 +453,17 @@ interface GraphEvent {
 const AXIS_TICK  = { fontSize: 9, fill: '#9CA3AF', fontFamily: 'Inter, system-ui, sans-serif' };
 const GRID_COLOR = '#F1F5F9';
 
+// ── Priority tiers ────────────────────────────────────────────────────────────
+// critical: always shown on chart — operational impact, never filtered
+// secondary: useful context, behind a toggle to prevent noise
+const EVENT_PRIORITY: Record<string, 'critical' | 'secondary'> = {
+  incident:       'critical',
+  routing_change: 'critical',
+  carrier_outage: 'critical',
+  fraud_spike:    'secondary',
+  account_change: 'secondary',
+};
+
 const EVENT_CONFIG: Record<string, { stroke: string; badge: string; icon: string }> = {
   incident:       { stroke: '#DC2626', badge: 'bg-red-50 border-red-200 text-red-700',        icon: '⚠' },
   routing_change: { stroke: '#2563EB', badge: 'bg-blue-50 border-blue-200 text-blue-700',      icon: '↺' },
@@ -461,6 +472,59 @@ const EVENT_CONFIG: Record<string, { stroke: string; badge: string; icon: string
   account_change: { stroke: '#D97706', badge: 'bg-amber-50 border-amber-200 text-amber-700',    icon: '●' },
 };
 const SEVERITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+
+// ── Cause→Impact correlation scoring ──────────────────────────────────────────
+// Compares N buckets before vs after an event on ASR, failed, connected metrics.
+// Returns a confidence score (0–100) + optional plain-language impact description.
+function scoreCorrelation(
+  evType: string,
+  bIdx: number,
+  buckets: TrendBucket[],
+): { score: number; likelyCause: boolean; impactDesc: string | null } {
+  const N = 3;
+  const before = buckets.slice(Math.max(0, bIdx - N), bIdx);
+  const after  = buckets.slice(bIdx + 1, Math.min(buckets.length, bIdx + 1 + N));
+  if (!before.length || !after.length) return { score: 0, likelyCause: false, impactDesc: null };
+
+  const avg = (arr: TrendBucket[], key: keyof TrendBucket) =>
+    arr.reduce((s, b) => s + (b[key] as number), 0) / arr.length;
+
+  const asrBefore  = avg(before, 'asr');  const asrAfter  = avg(after, 'asr');
+  const failBefore = avg(before, 'failed'); const failAfter = avg(after, 'failed');
+  const connBefore = avg(before, 'connected'); const connAfter = avg(after, 'connected');
+
+  const asrDrop   = asrBefore  - asrAfter;                                              // positive = worse
+  const failSpike = failBefore > 0 ? (failAfter - failBefore) / failBefore * 100 : (failAfter > 0 ? 100 : 0);
+  const connDrop  = connBefore > 0 ? (connBefore - connAfter) / connBefore * 100 : 0;
+
+  let score = 0;
+  let impactDesc: string | null = null;
+
+  if (evType === 'routing_change') {
+    if (asrDrop >= 15)      { score = 92; impactDesc = `ASR dropped ${asrDrop.toFixed(0)}pp — likely caused by this routing change`; }
+    else if (asrDrop >= 10) { score = 78; impactDesc = `ASR dropped ${asrDrop.toFixed(0)}pp after routing change`; }
+    else if (asrDrop >= 5)  { score = 52; impactDesc = `Mild ASR degradation (${asrDrop.toFixed(0)}pp) after routing change`; }
+    else if (connDrop >= 20){ score = 60; impactDesc = `Connected calls dropped ${connDrop.toFixed(0)}% after routing change`; }
+  } else if (evType === 'carrier_outage') {
+    if (failSpike >= 50)      { score = 96; impactDesc = `Failed calls up ${failSpike.toFixed(0)}% — direct outage impact`; }
+    else if (failSpike >= 30) { score = 82; impactDesc = `Failed calls spiked ${failSpike.toFixed(0)}% after outage`; }
+    else                      { score = 65; impactDesc = 'Connectivity outage — check failed call pattern'; }
+  } else if (evType === 'incident') {
+    if (asrDrop >= 10)      { score = 80; impactDesc = `ASR dropped ${asrDrop.toFixed(0)}pp — aligned with incident`; }
+    else if (connDrop >= 20){ score = 72; impactDesc = `Connected calls dropped ${connDrop.toFixed(0)}%`; }
+    else if (failSpike >= 30){ score = 68; impactDesc = `Failed calls up ${failSpike.toFixed(0)}% around incident`; }
+    else                    { score = 38; }
+  } else if (evType === 'fraud_spike') {
+    if (failSpike >= 20)    { score = 65; impactDesc = `Failed calls up ${failSpike.toFixed(0)}% — possible fraud traffic pressure`; }
+    else if (asrDrop >= 8)  { score = 55; impactDesc = `ASR degraded ${asrDrop.toFixed(0)}pp around fraud spike`; }
+    else                    { score = 28; }
+  } else if (evType === 'account_change') {
+    if (asrDrop >= 5 || connDrop >= 10) { score = 55; impactDesc = 'Metric shift aligned with control-plane change'; }
+    else                                { score = 18; }
+  }
+
+  return { score, likelyCause: score >= 62, impactDesc };
+}
 
 // ── Graph tooltip ──────────────────────────────────────────────────────────────
 function GraphTooltip({ active, payload, label }: any) {
@@ -502,14 +566,28 @@ function GraphTooltip({ active, payload, label }: any) {
   );
 }
 
-function EventMarkerLabel({ viewBox, event }: { viewBox?: any; event: GraphEvent }) {
+function EventMarkerLabel({ viewBox, event }: { viewBox?: any; event: GraphEvent & { likelyCause?: boolean } }) {
   const cfg = EVENT_CONFIG[event.type] ?? EVENT_CONFIG.incident;
   const x = viewBox?.x ?? 0;
   const y = viewBox?.y ?? 0;
   return (
     <g>
-      <circle cx={x} cy={y + 10} r={7} fill={cfg.stroke} fillOpacity={0.12} stroke={cfg.stroke} strokeWidth={1.5} />
+      {/* Outer ring — larger + filled if likelyCause */}
+      <circle cx={x} cy={y + 10} r={event.likelyCause ? 9 : 7}
+        fill={event.likelyCause ? cfg.stroke : cfg.stroke}
+        fillOpacity={event.likelyCause ? 0.20 : 0.12}
+        stroke={cfg.stroke} strokeWidth={event.likelyCause ? 2 : 1.5} />
       <text x={x} y={y + 14} textAnchor="middle" fontSize={7} fill={cfg.stroke} fontWeight="700">{cfg.icon}</text>
+      {/* CAUSE badge — sits above the marker */}
+      {event.likelyCause && (
+        <g>
+          <rect x={x - 18} y={y - 10} width={36} height={12} rx={4}
+            fill={cfg.stroke} fillOpacity={0.92} />
+          <text x={x} y={y - 1} textAnchor="middle" fontSize={7} fill="#fff" fontWeight="800" letterSpacing="0.03em">
+            CAUSE
+          </text>
+        </g>
+      )}
     </g>
   );
 }
@@ -518,6 +596,7 @@ function EventMarkerLabel({ viewBox, event }: { viewBox?: any; event: GraphEvent
 function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
   const [bucket, setBucket] = useState<5 | 15 | 60>(15);
   const [showEvents, setShowEvents] = useState(true);
+  const [showSecondary, setShowSecondary] = useState(false);
 
   // Hours shown scales with bucket size
   const hoursBack = bucket === 5 ? 2 : bucket === 15 ? 4 : 24;
@@ -551,32 +630,41 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
   const buckets = data?.buckets ?? [];
   const tickInterval = buckets.length > 24 ? Math.ceil(buckets.length / 12) - 1 : 'preserveStartEnd';
 
-  // Map each event to the nearest bucket label
-  const mappedEvents = useMemo((): GraphEvent[] => {
+  // Map each event to the nearest bucket index + label, then score correlation
+  type ScoredEvent = GraphEvent & { bIdx: number; score: number; likelyCause: boolean; impactDesc: string | null; priority: 'critical' | 'secondary' };
+  const scoredEvents = useMemo((): ScoredEvent[] => {
     if (!eventsData?.events?.length || !buckets.length) return [];
     return eventsData.events.map(ev => {
-      let bestIdx = 0;
-      let bestDiff = Infinity;
-      buckets.forEach((b, i) => {
-        const d = Math.abs(b.ts - ev.ts);
-        if (d < bestDiff) { bestDiff = d; bestIdx = i; }
-      });
-      return { ...ev, bucketLabel: buckets[bestIdx]?.label };
-    }).filter(ev => ev.bucketLabel);
+      let bestIdx = 0, bestDiff = Infinity;
+      buckets.forEach((b, i) => { const d = Math.abs(b.ts - ev.ts); if (d < bestDiff) { bestDiff = d; bestIdx = i; } });
+      const label = buckets[bestIdx]?.label;
+      if (!label) return null;
+      const { score, likelyCause, impactDesc } = scoreCorrelation(ev.type, bestIdx, buckets);
+      const priority = EVENT_PRIORITY[ev.type] ?? 'secondary';
+      return { ...ev, bucketLabel: label, bIdx: bestIdx, score, likelyCause, impactDesc, priority };
+    }).filter(Boolean) as ScoredEvent[];
   }, [eventsData, buckets]);
 
-  // Deduplicate: one ReferenceLine per bucket (pick highest-severity event)
-  const dedupedEvents = useMemo((): GraphEvent[] => {
-    const map = new Map<string, GraphEvent>();
-    for (const ev of mappedEvents) {
+  // Events visible in timeline — filter by priority tier
+  const visibleEvents = useMemo(
+    () => showSecondary ? scoredEvents : scoredEvents.filter(e => e.priority === 'critical'),
+    [scoredEvents, showSecondary],
+  );
+
+  // Deduplicate for chart reference lines: one per bucket, prefer likelyCause > highest severity
+  const dedupedEvents = useMemo((): ScoredEvent[] => {
+    const map = new Map<string, ScoredEvent>();
+    for (const ev of visibleEvents) {
       const key = ev.bucketLabel!;
       const existing = map.get(key);
-      if (!existing || (SEVERITY_ORDER[ev.severity] ?? 99) < (SEVERITY_ORDER[existing.severity] ?? 99)) {
-        map.set(key, ev);
-      }
+      if (!existing) { map.set(key, ev); continue; }
+      // prefer likelyCause; else highest severity
+      if (ev.likelyCause && !existing.likelyCause) { map.set(key, ev); continue; }
+      if (!ev.likelyCause && existing.likelyCause) continue;
+      if ((SEVERITY_ORDER[ev.severity] ?? 99) < (SEVERITY_ORDER[existing.severity] ?? 99)) map.set(key, ev);
     }
     return Array.from(map.values());
-  }, [mappedEvents]);
+  }, [visibleEvents]);
 
   // Compute trend: compare second half vs first half of buckets (connected calls)
   const trendPct = useMemo(() => {
@@ -588,8 +676,11 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
     return Math.round((secondHalf - firstHalf) / firstHalf * 100);
   }, [buckets]);
 
-  const hasEvents  = mappedEvents.length > 0;
-  const eventCount = mappedEvents.length;
+  const criticalCount   = scoredEvents.filter(e => e.priority === 'critical').length;
+  const secondaryCount  = scoredEvents.filter(e => e.priority === 'secondary').length;
+  const likelyCauseCount = scoredEvents.filter(e => e.likelyCause).length;
+  const hasEvents  = visibleEvents.length > 0;
+  const eventCount = visibleEvents.length;
 
   // Stripe-style KPI card data
   const kpiCards = [
@@ -644,7 +735,7 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
             ))}
           </div>
 
-          {/* Events toggle */}
+          {/* Events toggle — shows critical count + cause count */}
           <button data-testid="graph-toggle-events" onClick={() => setShowEvents(v => !v)}
             style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8,
@@ -655,8 +746,29 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
               boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
             }}>
             <AlertCircle style={{ width: 13, height: 13 }} />
-            Events{hasEvents ? ` (${eventCount})` : ''}
+            Events{criticalCount > 0 ? ` (${criticalCount})` : ''}
+            {likelyCauseCount > 0 && showEvents && (
+              <span style={{ background: '#DC2626', color: '#fff', fontSize: 9, fontWeight: 800,
+                padding: '1px 5px', borderRadius: 99, marginLeft: 2 }}>
+                {likelyCauseCount} CAUSE
+              </span>
+            )}
           </button>
+
+          {/* Secondary events toggle — only visible when events are on */}
+          {showEvents && secondaryCount > 0 && (
+            <button data-testid="graph-toggle-secondary" onClick={() => setShowSecondary(v => !v)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8,
+                fontSize: 11, fontWeight: 600, cursor: 'pointer', border: '1px solid', transition: 'all 0.15s ease',
+                background: showSecondary ? '#EEF2FF' : '#FFFFFF',
+                borderColor: showSecondary ? '#A5B4FC' : '#E6EAF0',
+                color: showSecondary ? '#4338CA' : '#9CA3AF',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+              }}>
+              +{secondaryCount} secondary
+            </button>
+          )}
         </div>
       </div>
 
@@ -824,60 +936,106 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
         )}
       </div>
 
-      {/* ── Event Timeline (light card) ───────────────────────────────────── */}
-      {showEvents && mappedEvents.length > 0 && (
+      {/* ── Event Timeline (light card, intelligence-aware) ───────────────── */}
+      {showEvents && visibleEvents.length > 0 && (
         <div style={{ background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 16,
           boxShadow: '0 2px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10,
-            padding: '14px 20px', borderBottom: '1px solid #F3F4F6' }}>
-            <AlertCircle style={{ width: 14, height: 14, color: '#D97706' }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937' }}>Event Timeline</span>
-            <span style={{ fontSize: 11, color: '#9CA3AF' }}>{eventCount} events · {hoursBack}h window</span>
-            {/* Type pills legend */}
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {Object.entries(EVENT_CONFIG).map(([type, cfg]) => {
-                const count = mappedEvents.filter(e => e.type === type).length;
-                if (!count) return null;
-                return (
-                  <span key={type} className={cn("text-[10px] px-2 py-0.5 rounded-full border font-semibold", cfg.badge)}>
-                    {cfg.icon} {type.replace(/_/g,' ')} ({count})
-                  </span>
-                );
-              })}
+
+          {/* Header with intelligence summary */}
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <AlertCircle style={{ width: 14, height: 14, color: '#D97706', flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937' }}>Event Intelligence</span>
+              <span style={{ fontSize: 11, color: '#9CA3AF' }}>{eventCount} events · {hoursBack}h window</span>
+              {likelyCauseCount > 0 && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#FEE2E2',
+                  border: '1px solid #FECACA', borderRadius: 99, padding: '2px 8px',
+                  fontSize: 10, fontWeight: 800, color: '#B91C1C', letterSpacing: '0.04em' }}>
+                  ⚡ {likelyCauseCount} likely cause{likelyCauseCount > 1 ? 's' : ''} detected
+                </span>
+              )}
+              {/* Type pills */}
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {Object.entries(EVENT_CONFIG).map(([type, cfg]) => {
+                  const count = visibleEvents.filter(e => e.type === type).length;
+                  if (!count) return null;
+                  return (
+                    <span key={type} className={cn("text-[10px] px-2 py-0.5 rounded-full border font-semibold", cfg.badge)}>
+                      {cfg.icon} {type.replace(/_/g,' ')} ({count})
+                    </span>
+                  );
+                })}
+              </div>
             </div>
           </div>
-          <div style={{ maxHeight: 240, overflowY: 'auto' }}>
-            {[...mappedEvents].sort((a, b) => b.ts - a.ts).map((ev, i) => {
-              const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.incident;
-              const time = new Date(ev.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-              const sevClr = ev.severity === 'critical' ? { bg: '#FEE2E2', text: '#B91C1C', border: '#FECACA' }
-                           : ev.severity === 'high'     ? { bg: '#FFEDD5', text: '#C2410C', border: '#FED7AA' }
-                           : ev.severity === 'medium'   ? { bg: '#FEF3C7', text: '#92400E', border: '#FDE68A' }
-                           :                              { bg: '#F3F4F6', text: '#6B7280', border: '#E5E7EB' };
-              return (
-                <div key={i} data-testid={`event-row-${i}`}
-                  style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 20px',
-                    borderBottom: '1px solid #F9FAFB', transition: 'background 0.1s' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#F9FAFB')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                  <span className={cn("w-6 h-6 rounded-md flex items-center justify-center text-[11px] border font-bold flex-shrink-0 mt-0.5", cfg.badge)}>
-                    {cfg.icon}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 12, fontWeight: 600, color: '#1F2937', margin: 0,
-                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.detail}</p>
-                    <p style={{ fontSize: 10, color: '#9CA3AF', margin: '2px 0 0' }}>
-                      {time} · {ev.type.replace(/_/g, ' ')}
-                    </p>
+
+          {/* Event rows — sorted: likelyCause first, then newest */}
+          <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+            {[...visibleEvents]
+              .sort((a, b) => {
+                if (a.likelyCause !== b.likelyCause) return a.likelyCause ? -1 : 1;
+                return b.ts - a.ts;
+              })
+              .map((ev, i) => {
+                const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.incident;
+                const time = new Date(ev.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                const sevClr = ev.severity === 'critical' ? { bg: '#FEE2E2', text: '#B91C1C', border: '#FECACA' }
+                             : ev.severity === 'high'     ? { bg: '#FFEDD5', text: '#C2410C', border: '#FED7AA' }
+                             : ev.severity === 'medium'   ? { bg: '#FEF3C7', text: '#92400E', border: '#FDE68A' }
+                             :                              { bg: '#F3F4F6', text: '#6B7280', border: '#E5E7EB' };
+                return (
+                  <div key={i} data-testid={`event-row-${i}`}
+                    style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 20px',
+                      borderBottom: '1px solid #F9FAFB', transition: 'background 0.1s',
+                      background: ev.likelyCause ? '#FFFBEB' : 'transparent',
+                      borderLeft: ev.likelyCause ? `3px solid ${cfg.stroke}` : '3px solid transparent',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = ev.likelyCause ? '#FEF3C7' : '#F9FAFB')}
+                    onMouseLeave={e => (e.currentTarget.style.background = ev.likelyCause ? '#FFFBEB' : 'transparent')}>
+
+                    {/* Type icon */}
+                    <span className={cn("w-6 h-6 rounded-md flex items-center justify-center text-[11px] border font-bold flex-shrink-0 mt-0.5", cfg.badge)}>
+                      {cfg.icon}
+                    </span>
+
+                    {/* Detail + metadata */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: ev.likelyCause ? 700 : 600, color: '#1F2937', margin: 0,
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.detail}</p>
+                      {/* Impact description — only shown when correlated */}
+                      {ev.likelyCause && ev.impactDesc && (
+                        <p style={{ fontSize: 11, color: cfg.stroke, margin: '2px 0 0', fontWeight: 600 }}>
+                          ↳ {ev.impactDesc}
+                        </p>
+                      )}
+                      <p style={{ fontSize: 10, color: '#9CA3AF', margin: '2px 0 0' }}>
+                        {time} · {ev.type.replace(/_/g, ' ')}
+                        {ev.score > 0 && (
+                          <span style={{ marginLeft: 6, color: ev.likelyCause ? cfg.stroke : '#9CA3AF' }}>
+                            · {ev.score}% correlation
+                          </span>
+                        )}
+                      </p>
+                    </div>
+
+                    {/* Right-side badges */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                      {ev.likelyCause && (
+                        <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+                          padding: '2px 7px', borderRadius: 99, background: cfg.stroke, color: '#fff' }}>
+                          LIKELY CAUSE
+                        </span>
+                      )}
+                      <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                        padding: '2px 7px', borderRadius: 99, border: `1px solid ${sevClr.border}`,
+                        background: sevClr.bg, color: sevClr.text }}>
+                        {ev.severity}
+                      </span>
+                    </div>
                   </div>
-                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
-                    padding: '2px 7px', borderRadius: 99, border: `1px solid ${sevClr.border}`,
-                    background: sevClr.bg, color: sevClr.text, flexShrink: 0 }}>
-                    {ev.severity}
-                  </span>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
         </div>
       )}
