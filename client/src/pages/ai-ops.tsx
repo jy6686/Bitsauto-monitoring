@@ -311,8 +311,11 @@ export default function AiOpsPage() {
     requested_by_name: string | null; approved_by_name: string | null;
     rejected_by: string | null; rejection_reason: string | null;
     snoozed_until: string | null;
+    idempotency_key: string | null;
+    verification_state: string | null;
     audit_trail: Array<{ timestamp: string; event: string; userId?: string; userName?: string; details?: string }> | null;
     created_at: string; updated_at: string;
+    _idempotent?: boolean;
   }
 
   // ── C2 Action Ledger state ─────────────────────────────────────────────────
@@ -362,7 +365,7 @@ export default function AiOpsPage() {
   // Create action then take the intended action (approve / reject / snooze)
   const commitActionMutation = useMutation({
     mutationFn: async ({ rec, intent, reason, hours }: { rec: Recommendation; intent: 'approve' | 'reject' | 'snooze'; reason: string; hours: number }) => {
-      // 1. Create the action record
+      // 1. Create the action record (idempotency key computed server-side)
       const action: AccountAction = await apiRequest('POST', '/api/actions', {
         accountId:         rec.accountId,
         accountName:       rec.accountName ?? rec.accountId,
@@ -370,8 +373,17 @@ export default function AiOpsPage() {
         primaryAction:     rec.primaryAction,
         recommendationRef: { priority: rec.priority, riskScore: rec.riskScore, urgency: rec.urgency, dominantSignal: rec.dominantSignal, computedAt: rec.computedAt },
       });
-      // 2. Take the action
-      if (intent === 'approve') return apiRequest('POST', `/api/actions/${action.id}/approve`);
+      // 2. Take the action — approval goes through execution firewall
+      if (intent === 'approve') {
+        const result = await apiRequest('POST', `/api/actions/${action.id}/approve`);
+        // Surface firewall advisory warnings via toast (non-blocking)
+        if (result?.firewall?.warnings?.length > 0) {
+          result.firewall.warnings.forEach((w: string) => {
+            toast({ title: 'Firewall advisory', description: w, variant: 'destructive' });
+          });
+        }
+        return result;
+      }
       if (intent === 'reject')  return apiRequest('POST', `/api/actions/${action.id}/reject`,  { reason });
       if (intent === 'snooze')  return apiRequest('POST', `/api/actions/${action.id}/snooze`,  { hours });
     },
@@ -382,7 +394,16 @@ export default function AiOpsPage() {
       setActionModal(null);
       setRejectReason('');
     },
-    onError: (e: any) => toast({ title: 'Action failed', description: e.message, variant: 'destructive' }),
+    onError: (e: any) => {
+      // Firewall block returns 422 with blocking rules in the message
+      const msg = e?.message ?? 'Unknown error';
+      const isFirewall = msg.includes('firewall') || msg.includes('FREEZE_LIMIT') || msg.includes('COOLDOWN') || msg.includes('CPS_FLOOR');
+      toast({
+        title:       isFirewall ? 'Blocked by execution firewall' : 'Action failed',
+        description: msg,
+        variant:     'destructive',
+      });
+    },
   });
   const immediateRecs = recommendations.filter(r => r.urgency === 'immediate');
   const todayRecs     = recommendations.filter(r => r.urgency === 'today');
@@ -1239,10 +1260,19 @@ export default function AiOpsPage() {
                                     snoozed:      { cls: 'bg-violet-500/10 text-violet-400 border-violet-500/30', label: 'Snoozed' },
                                     rolled_back:  { cls: 'bg-muted/20 text-muted-foreground border-border',      label: 'Rolled back' },
                                   };
+                                  const verifyCfg: Record<string, { cls: string; label: string }> = {
+                                    SUCCESS_CONFIRMED: { cls: 'text-emerald-400', label: '✓ confirmed' },
+                                    FAILED_CONFIRMED:  { cls: 'text-red-400',     label: '✗ failed' },
+                                    UNKNOWN_PENDING:   { cls: 'text-amber-400',   label: '? pending verification' },
+                                    not_applicable:    { cls: 'text-muted-foreground/40', label: 'dry-run' },
+                                    NOT_APPLICABLE:    { cls: 'text-muted-foreground/40', label: 'dry-run' },
+                                  };
                                   const sc = existing ? statusCfg[existing.status] : null;
+                                  const vc = existing?.verification_state ? verifyCfg[existing.verification_state] : null;
                                   const isActed = existing && !['pending','snoozed'].includes(existing.status);
                                   return (
                                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/20">
+                                      <div className="flex items-center gap-1.5">
                                       {sc ? (
                                         <span className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded border leading-none", sc.cls)}>
                                           {sc.label}
@@ -1250,6 +1280,10 @@ export default function AiOpsPage() {
                                       ) : (
                                         <span className="text-[9px] text-muted-foreground/30">No action taken</span>
                                       )}
+                                      {vc && existing?.status !== 'pending' && existing?.status !== 'snoozed' && (
+                                        <span className={cn("text-[9px] leading-none", vc.cls)}>{vc.label}</span>
+                                      )}
+                                      </div>
                                       {!isActed && (
                                         <div className="flex items-center gap-1.5">
                                           <button

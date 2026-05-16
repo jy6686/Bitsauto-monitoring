@@ -185,7 +185,11 @@ export async function runRecommendationEngine(): Promise<{
   for (const rec of recommendations) {
     const { accountId, accountName: _n, ...recFields } = rec;
     await db.update(accountState)
-      .set({ recommendation: recFields })
+      .set({
+        recommendation: recFields,
+        // ACCOUNT_RISK_INDEX: composite score stored on the entity for platform-wide use
+        riskIndex: Math.round(rec.riskScore),
+      })
       .where(eq(accountState.accountId, accountId));
   }
 

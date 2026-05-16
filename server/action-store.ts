@@ -30,6 +30,10 @@ export async function listActions(filters: { accountId?: string; status?: string
   } finally { await pool.end(); }
 }
 
+// ── createAction with idempotency guard ───────────────────────────────────────
+// If idempotencyKey already exists for a non-terminal action, returns that action
+// instead of creating a duplicate. Terminal statuses (rejected/rolled_back) allow
+// a new action with the same key (different hour bucket anyway).
 export async function createAction(data: {
   accountId:         string;
   accountName:       string;
@@ -39,9 +43,24 @@ export async function createAction(data: {
   sippyParams:       Record<string, unknown>;
   requestedBy:       string;
   requestedByName:   string;
+  idempotencyKey?:   string;
 }) {
   const pool = getPool();
   try {
+    // Idempotency check — return existing action if key already used in a live state
+    if (data.idempotencyKey) {
+      const existing = await pool.query(
+        `SELECT * FROM account_actions
+         WHERE idempotency_key = $1
+           AND status NOT IN ('rejected','rolled_back')
+         ORDER BY created_at DESC LIMIT 1`,
+        [data.idempotencyKey],
+      );
+      if (existing.rows.length > 0) {
+        return { ...existing.rows[0], _idempotent: true };
+      }
+    }
+
     const trail: AuditEntry[] = [{
       timestamp: new Date().toISOString(),
       event:     'created',
@@ -53,13 +72,14 @@ export async function createAction(data: {
       INSERT INTO account_actions
         (account_id, account_name, action_type, status, execution_mode, primary_action,
          recommendation_ref, sippy_params, requested_by, requested_by_name, audit_trail,
-         created_at, updated_at)
-      VALUES ($1,$2,$3,'pending','dry_run',$4,$5,$6,$7,$8,$9,NOW(),NOW())
+         idempotency_key, verification_state, created_at, updated_at)
+      VALUES ($1,$2,$3,'pending','dry_run',$4,$5,$6,$7,$8,$9,$10,'not_applicable',NOW(),NOW())
       RETURNING *
     `, [
       data.accountId, data.accountName, data.actionType, data.primaryAction,
       JSON.stringify(data.recommendationRef), JSON.stringify(data.sippyParams),
       data.requestedBy, data.requestedByName, JSON.stringify(trail),
+      data.idempotencyKey ?? null,
     ]);
     return r.rows[0];
   } finally { await pool.end(); }
@@ -74,11 +94,12 @@ export async function getAction(id: number) {
 }
 
 export async function approveAction(
-  id:         number,
-  userId:     string,
-  userName:   string,
-  sippyResult: unknown,
-  newStatus:  string,
+  id:                number,
+  userId:            string,
+  userName:          string,
+  sippyResult:       Record<string, unknown>,
+  newStatus:         string,
+  verificationState: string,
 ) {
   const pool = getPool();
   try {
@@ -91,15 +112,15 @@ export async function approveAction(
       userId,
       userName,
       details:   newStatus === 'executed'
-        ? 'Approved and executed against Sippy'
+        ? `Approved and executed against Sippy — verification: ${verificationState}`
         : 'Dry-run approved — action recorded in audit ledger only',
     });
     const r = await pool.query(`
       UPDATE account_actions
       SET status=$1, approved_by=$2, approved_by_name=$3,
-          sippy_result=$4, audit_trail=$5, updated_at=NOW()
-      WHERE id=$6 RETURNING *
-    `, [newStatus, userId, userName, JSON.stringify(sippyResult), JSON.stringify(trail), id]);
+          sippy_result=$4, audit_trail=$5, verification_state=$6, updated_at=NOW()
+      WHERE id=$7 RETURNING *
+    `, [newStatus, userId, userName, JSON.stringify(sippyResult), JSON.stringify(trail), verificationState, id]);
     return r.rows[0] ?? null;
   } finally { await pool.end(); }
 }

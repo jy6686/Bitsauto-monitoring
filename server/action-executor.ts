@@ -3,6 +3,8 @@
 // Safety gate: C2_EXECUTION_ENABLED must be explicitly set to true before any
 // Sippy writes fire.  Default is false — all actions run in dry-run mode.
 
+import { createHash } from 'crypto';
+
 const C2_EXECUTION_ENABLED = false;
 
 export type ActionType =
@@ -12,6 +14,16 @@ export type ActionType =
   | 'EXPOSURE_RESTRICT'
   | 'MANUAL';
 
+// ── Execution certainty (3-state model) ──────────────────────────────────────
+// Sippy XML-RPC is not transactional. A 200 response does not guarantee the
+// write was applied — field validation errors silently succeed at the HTTP layer.
+// All execution results must carry one of these three states.
+export type VerificationState =
+  | 'SUCCESS_CONFIRMED'     // Write confirmed by post-execution re-read
+  | 'FAILED_CONFIRMED'      // Write confirmed to have failed
+  | 'UNKNOWN_PENDING'       // No confirmation available — reconciliation required
+  | 'NOT_APPLICABLE';       // Dry-run mode — no write attempted
+
 export interface SippyActionParams {
   accountId: string;
   method:    string;
@@ -20,11 +32,28 @@ export interface SippyActionParams {
 }
 
 export interface ExecutionResult {
-  success: boolean;
-  mode:    'dry_run' | 'executed';
-  result?: unknown;
-  error?:  string;
+  success:           boolean;
+  mode:              'dry_run' | 'executed';
+  verificationState: VerificationState;
+  result?:           unknown;
+  error?:            string;
 }
+
+// ── Idempotency ───────────────────────────────────────────────────────────────
+// Key format: SHA-256(accountId + actionType + stablePayload + hourBucket)
+// Same action on the same account within the same hour = same key → blocked on re-execute.
+export function computeIdempotencyKey(
+  accountId:  string,
+  actionType: string,
+  params:     Record<string, unknown>,
+): string {
+  const hourBucket  = Math.floor(Date.now() / (60 * 60 * 1000)); // 1-hour bucket
+  const stablePayload = JSON.stringify(params, Object.keys(params).sort()); // deterministic
+  const raw = `${accountId}:${actionType}:${stablePayload}:${hourBucket}`;
+  return createHash('sha256').update(raw).digest('hex').slice(0, 64);
+}
+
+// ── Action type helpers ───────────────────────────────────────────────────────
 
 export function recommendationToActionType(dominantSignal: string): ActionType {
   const map: Record<string, ActionType> = {
@@ -76,15 +105,18 @@ export function buildSippyParams(accountId: string, actionType: ActionType): Sip
   }
 }
 
+// ── Execute ───────────────────────────────────────────────────────────────────
+
 export async function executeAction(
   _actionId:    number,
   _sippyParams: Record<string, unknown>,
 ): Promise<ExecutionResult> {
   if (!C2_EXECUTION_ENABLED) {
     return {
-      success: true,
-      mode:    'dry_run',
-      result:  {
+      success:           true,
+      mode:              'dry_run',
+      verificationState: 'NOT_APPLICABLE',
+      result: {
         message:   'Execution gate is closed (C2_EXECUTION_ENABLED=false). Action recorded in audit ledger only.',
         wouldCall: _sippyParams,
       },
@@ -92,14 +124,21 @@ export async function executeAction(
   }
 
   // Live execution path — only reached when C2_EXECUTION_ENABLED=true
+  // All live executions start as UNKNOWN_PENDING until verified by reconciliation.
   try {
-    // TODO: wire to sippyXmlRpc(method, params) here
+    // TODO: wire to sippyXmlRpc(method, params) here, then verify by re-reading state
     return {
-      success: false,
-      mode:    'executed',
+      success:           false,
+      mode:              'executed',
+      verificationState: 'UNKNOWN_PENDING',
       error:   'Live Sippy write-back not yet wired. Configure the XML-RPC handler first.',
     };
   } catch (e: any) {
-    return { success: false, mode: 'executed', error: e.message };
+    return {
+      success:           false,
+      mode:              'executed',
+      verificationState: 'FAILED_CONFIRMED',
+      error:             e.message,
+    };
   }
 }

@@ -1541,6 +1541,9 @@ export const accountState = pgTable("account_state", {
     signalSummary: { healthScore: number; fraudRisk: number; authExposureScore: number; anomalyScore: number; activeIncidents: number };
     computedAt: string;
   }>(),
+  // Composite ACCOUNT_RISK_INDEX (0–100) — mirrors riskScore from recommendation engine.
+  // Stored here so every system (routing, blacklist, approval priority) reads one value.
+  riskIndex:          integer("risk_index").notNull().default(0),
   updatedAt:          timestamp("updated_at").defaultNow().notNull(),
 });
 export type AccountState       = typeof accountState.$inferSelect;
@@ -1617,6 +1620,10 @@ export const accountActions = pgTable("account_actions", {
     userName?: string;
     details?:  string;
   }>>(),
+  // Idempotency — prevents double-execution on retry. Key = SHA-256(accountId+actionType+params+hourBucket).
+  idempotencyKey:    varchar("idempotency_key",   { length: 128 }),
+  // 3-state execution certainty model (critical for XML-RPC write reliability)
+  verificationState: varchar("verification_state", { length: 30 }).notNull().default('not_applicable'),
   createdAt:         timestamp("created_at").defaultNow(),
   updatedAt:         timestamp("updated_at").defaultNow(),
 });

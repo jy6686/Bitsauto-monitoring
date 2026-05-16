@@ -22,7 +22,8 @@ import { updateAccountState } from "./account-state";
 import { runIncidentEngine } from "./incident-engine";
 import { runAuthExposureScorer } from "./auth-exposure";
 import { runRecommendationEngine } from "./recommendation-engine";
-import { executeAction, buildSippyParams, recommendationToActionType } from "./action-executor";
+import { executeAction, buildSippyParams, recommendationToActionType, computeIdempotencyKey } from "./action-executor";
+import { evaluateFirewall } from "./action-firewall";
 import { listActions, createAction, getAction, approveAction, rejectAction, snoozeAction, rollbackAction } from "./action-store";
 import { writeAudit, queryAudit, auditStats } from "./audit";
 import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
@@ -18939,12 +18940,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         accountId: string; accountName: string; dominantSignal: string;
         primaryAction: string; recommendationRef: Record<string, unknown>;
       };
-      const userId      = req.user?.claims?.sub ?? 'unknown';
-      const userRole    = await storage.getUserRole(userId);
-      const userName    = `${userRole ?? 'user'} (${userId.slice(0, 8)})`;
-      const actionType  = recommendationToActionType(dominantSignal);
-      const sippyParams = buildSippyParams(accountId, actionType);
-      const action = await createAction({ accountId, accountName, actionType, primaryAction, recommendationRef, sippyParams, requestedBy: userId, requestedByName: userName });
+      const userId         = req.user?.claims?.sub ?? 'unknown';
+      const userRole       = await storage.getUserRole(userId);
+      const userName       = `${userRole ?? 'user'} (${userId.slice(0, 8)})`;
+      const actionType     = recommendationToActionType(dominantSignal);
+      const sippyParams    = buildSippyParams(accountId, actionType);
+      const idempotencyKey = computeIdempotencyKey(accountId, actionType, sippyParams.params);
+      const action = await createAction({
+        accountId, accountName, actionType, primaryAction, recommendationRef,
+        sippyParams, requestedBy: userId, requestedByName: userName, idempotencyKey,
+      });
       res.json(action);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -18964,14 +18969,30 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const action = await getAction(Number(req.params.id));
       if (!action) return res.status(404).json({ message: 'Action not found' });
       if (!['pending','snoozed'].includes(action.status)) return res.status(400).json({ message: `Cannot approve action with status '${action.status}'` });
+
+      // ── Execution Firewall — hard safety constraints ─────────────────────
+      const sippyParams = (action.sippy_params ?? {}) as Record<string, unknown>;
+      const firewall    = await evaluateFirewall(action.account_id, action.action_type, sippyParams.params as Record<string,unknown> ?? {});
+      if (!firewall.allowed) {
+        console.warn(`[action-firewall] BLOCKED id=${action.id} account=${action.account_name} rules=${firewall.blocking.join('; ')}`);
+        return res.status(422).json({
+          message:    'Action blocked by execution firewall',
+          blocking:   firewall.blocking,
+          warnings:   firewall.warnings,
+        });
+      }
+      if (firewall.warnings.length > 0) {
+        console.warn(`[action-firewall] WARN id=${action.id} account=${action.account_name} warnings=${firewall.warnings.join('; ')}`);
+      }
+
       const userId   = req.user?.claims?.sub ?? 'unknown';
       const userRole = await storage.getUserRole(userId);
       const userName = `${userRole ?? 'user'} (${userId.slice(0, 8)})`;
-      const execResult = await executeAction(action.id, action.sippy_params ?? {});
-      const newStatus  = execResult.mode === 'dry_run' ? 'approved' : (execResult.success ? 'executed' : 'approved');
-      const updated    = await approveAction(action.id, userId, userName, execResult, newStatus);
-      console.log(`[action-ledger] id=${action.id} account=${action.account_name} approved by=${userName} mode=${execResult.mode} status=${newStatus}`);
-      res.json({ success: true, action: updated, executionMode: execResult.mode });
+      const execResult  = await executeAction(action.id, sippyParams);
+      const newStatus   = execResult.mode === 'dry_run' ? 'approved' : (execResult.success ? 'executed' : 'approved');
+      const updated     = await approveAction(action.id, userId, userName, execResult, newStatus, execResult.verificationState);
+      console.log(`[action-ledger] id=${action.id} account=${action.account_name} approved by=${userName} mode=${execResult.mode} status=${newStatus} verification=${execResult.verificationState}`);
+      res.json({ success: true, action: updated, executionMode: execResult.mode, firewall: { warnings: firewall.warnings } });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
