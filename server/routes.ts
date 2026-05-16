@@ -2464,7 +2464,7 @@ export async function registerRoutes(
   // consecutiveZeros: require 2 consecutive empty polls before accepting "0 calls" as real.
   let liveCallsCache: { calls: any[]; ts: number } = { calls: [], ts: 0 };
   let consecutiveZeros = 0;
-  const LIVE_CALLS_STALE_MS    = 30_000; // stale flag for error fallback
+  const LIVE_CALLS_STALE_MS    = 45_000; // stale flag threshold — matches background interval
   const LIVE_CALLS_CACHE_MAX   = 90_000; // serve from background cache if fresher than 90 s
   const ZERO_CONFIRM_COUNT     = 2;      // require this many consecutive zero polls to accept 0
 
@@ -2476,7 +2476,7 @@ export async function registerRoutes(
     const cacheAge = Date.now() - liveCallsCache.ts;
     if (liveCallsCache.ts > 0 && cacheAge < LIVE_CALLS_CACHE_MAX) {
       const isStale = cacheAge > LIVE_CALLS_STALE_MS;
-      return res.json({ calls: liveCallsCache.calls, connected: true, stale: isStale, fromCache: true });
+      return res.json({ calls: liveCallsCache.calls, connected: true, stale: isStale, fromCache: true, lastUpdated: liveCallsCache.ts });
     }
 
     try {
@@ -2549,12 +2549,12 @@ export async function registerRoutes(
 
       // connected=true tells the frontend that Sippy is reachable regardless of call count
       const isStale = liveCallsCache.calls.length > 0 && calls.length === 0 && consecutiveZeros < ZERO_CONFIRM_COUNT;
-      res.json({ calls: liveCallsCache.calls, connected: true, stale: isStale });
+      res.json({ calls: liveCallsCache.calls, connected: true, stale: isStale, lastUpdated: liveCallsCache.ts });
     } catch (err: any) {
       // Return cached data (with stale flag) so the dashboard keeps showing the
       // last real count instead of dropping to 0 on a transient scrape failure.
       const stale = Date.now() - liveCallsCache.ts > LIVE_CALLS_STALE_MS;
-      res.json({ calls: liveCallsCache.calls, connected: liveCallsCache.calls.length > 0, stale, error: err.message });
+      res.json({ calls: liveCallsCache.calls, connected: liveCallsCache.calls.length > 0, stale, lastUpdated: liveCallsCache.ts, error: err.message });
     }
   });
 
@@ -10942,7 +10942,7 @@ export async function registerRoutes(
     }
   }
   setTimeout(() => snapshotActiveCalls(), 8000);            // first run at startup
-  setInterval(() => snapshotActiveCalls(), 60 * 1000);      // every 60 seconds (was 30s)
+  setInterval(() => snapshotActiveCalls(), 45 * 1000);      // every 45 s — slightly under UI's 60s poll
 
   // GET /api/sippy/live-graphs — live concurrent call history + breakdowns
   app.get('/api/sippy/live-graphs', (req: any, res) => {

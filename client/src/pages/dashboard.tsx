@@ -392,7 +392,7 @@ export default function DashboardPage() {
     refetchInterval: 120_000,
   });
   // Sippy live calls — poll every 60 s; WS tick triggers an immediate refetch on top of that.
-  const { data: sippyLiveCalls, refetch: refetchLiveCalls } = useQuery<{ calls: any[]; connected?: boolean; stale?: boolean; error?: string }>({
+  const { data: sippyLiveCalls, refetch: refetchLiveCalls, dataUpdatedAt: liveCallsUpdatedAt } = useQuery<{ calls: any[]; connected?: boolean; stale?: boolean; lastUpdated?: number; error?: string }>({
     queryKey: ['/api/sippy/live-calls'],
     staleTime: 30_000,
     refetchInterval: 60_000,
@@ -516,6 +516,15 @@ export default function DashboardPage() {
   // to avoid concurrent XML-RPC requests that throttle Sippy and break the Live Calls page.
   const displayActiveCalls = anyPortalActive ? liveCalls.length : (stats?.activeCalls ?? 0);
   const liveCallsStale = sippyLiveCalls?.stale === true;
+  // Freshness: age of the data in seconds (use server lastUpdated if available, else client dataUpdatedAt)
+  const liveCallsDataAgeMs = anyPortalActive
+    ? (sippyLiveCalls?.lastUpdated ? Date.now() - sippyLiveCalls.lastUpdated : liveCallsUpdatedAt ? Date.now() - liveCallsUpdatedAt : null)
+    : null;
+  const liveCallsFreshness: 'fresh' | 'delay' | 'stale' | null =
+    liveCallsDataAgeMs == null ? null
+    : liveCallsDataAgeMs < 45_000 ? 'fresh'
+    : liveCallsDataAgeMs < 90_000 ? 'delay'
+    : 'stale';
 
   // Live connection-rate ASR: when CDR-based ASR is 0 but we have live calls,
   // estimate ASR from connected/(connected+routing) ratio as a proxy.
@@ -1229,15 +1238,22 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4 relative z-10">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Active Calls</span>
             <div className="flex items-center gap-2">
-              {anyPortalActive && !liveCallsStale && (
-                <span className="flex items-center gap-1 text-[10px] font-semibold text-blue-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+              {anyPortalActive && liveCallsFreshness === 'fresh' && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400" title="Data is fresh (< 45s old)">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   LIVE
                 </span>
               )}
-              {liveCallsStale && (
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">
-                  ~cached
+              {anyPortalActive && liveCallsFreshness === 'delay' && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-400" title="Slight delay (45–90s old)">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  DELAYED
+                </span>
+              )}
+              {anyPortalActive && (liveCallsFreshness === 'stale' || (liveCallsFreshness == null && liveCallsStale)) && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-rose-400" title="Data may be stale (> 90s old)">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                  STALE
                 </span>
               )}
               <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-blue-500/10 transition-colors">
