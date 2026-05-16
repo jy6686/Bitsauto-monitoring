@@ -449,12 +449,16 @@ interface GraphEvent {
 }
 
 // ── Event config (type → color/icon) ──────────────────────────────────────────
+// Light-theme chart constants
+const AXIS_TICK  = { fontSize: 9, fill: '#9CA3AF', fontFamily: 'Inter, system-ui, sans-serif' };
+const GRID_COLOR = '#F1F5F9';
+
 const EVENT_CONFIG: Record<string, { stroke: string; badge: string; icon: string }> = {
-  incident:       { stroke: '#f43f5e', badge: 'bg-rose-500/15 border-rose-500/30 text-rose-300',   icon: '⚠' },
-  routing_change: { stroke: '#60a5fa', badge: 'bg-blue-500/15 border-blue-500/30 text-blue-300',   icon: '↺' },
-  carrier_outage: { stroke: '#f97316', badge: 'bg-orange-500/15 border-orange-500/30 text-orange-300', icon: '✕' },
-  fraud_spike:    { stroke: '#a78bfa', badge: 'bg-violet-500/15 border-violet-500/30 text-violet-300', icon: '⚑' },
-  account_change: { stroke: '#fbbf24', badge: 'bg-amber-500/15 border-amber-500/30 text-amber-300',  icon: '●' },
+  incident:       { stroke: '#DC2626', badge: 'bg-red-50 border-red-200 text-red-700',        icon: '⚠' },
+  routing_change: { stroke: '#2563EB', badge: 'bg-blue-50 border-blue-200 text-blue-700',      icon: '↺' },
+  carrier_outage: { stroke: '#EA580C', badge: 'bg-orange-50 border-orange-200 text-orange-700', icon: '✕' },
+  fraud_spike:    { stroke: '#7C3AED', badge: 'bg-violet-50 border-violet-200 text-violet-700', icon: '⚑' },
+  account_change: { stroke: '#D97706', badge: 'bg-amber-50 border-amber-200 text-amber-700',    icon: '●' },
 };
 const SEVERITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
@@ -465,42 +469,47 @@ function GraphTooltip({ active, payload, label }: any) {
   for (const p of payload) d[p.dataKey] = p.value ?? 0;
   const total = d.total ?? (d.connected ?? 0) + (d.failed ?? 0);
   const asr   = total > 0 ? Math.round((d.connected ?? 0) / total * 1000) / 10 : 0;
+  const asrClr = asr >= 60 ? '#16A34A' : asr >= 40 ? '#F59E0B' : '#EF4444';
   return (
-    <div className="rounded-xl border border-border/50 bg-card/98 backdrop-blur-md px-3.5 py-2.5 text-xs shadow-2xl min-w-[150px]">
-      <p className="font-semibold text-muted-foreground/70 mb-2 text-[10px] uppercase tracking-wide">{label}</p>
-      <div className="space-y-1">
-        <div className="flex justify-between gap-4">
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-[#38bdf8] inline-block" />Connected</span>
-          <span className="font-bold tabular-nums">{d.connected ?? 0}</span>
+    <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 12, padding: '10px 14px',
+      boxShadow: '0 4px 24px rgba(0,0,0,0.09)', minWidth: 160, fontSize: 12, color: '#374151' }}>
+      <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase',
+        letterSpacing: '0.06em', marginBottom: 8 }}>{label}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: '#16A34A', display: 'inline-block' }} />Connected
+          </span>
+          <span style={{ fontWeight: 700, color: '#16A34A' }}>{d.connected ?? 0}</span>
         </div>
-        <div className="flex justify-between gap-4">
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-rose-500 inline-block" />Failed</span>
-          <span className="font-bold tabular-nums text-rose-400">{d.failed ?? 0}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: '#EF4444', display: 'inline-block' }} />Failed
+          </span>
+          <span style={{ fontWeight: 700, color: '#EF4444' }}>{d.failed ?? 0}</span>
         </div>
-        <div className="flex justify-between gap-4 border-t border-border/20 pt-1">
-          <span className="text-muted-foreground/60">Total</span>
-          <span className="font-bold tabular-nums">{total}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16,
+          borderTop: '1px solid #F3F4F6', paddingTop: 4, marginTop: 2 }}>
+          <span style={{ color: '#9CA3AF' }}>Total</span>
+          <span style={{ fontWeight: 700, color: '#1F2937' }}>{total}</span>
         </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground/60">ASR</span>
-          <span className={cn("font-bold tabular-nums", asr >= 60 ? 'text-emerald-400' : asr >= 40 ? 'text-amber-400' : 'text-rose-400')}>{asr}%</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+          <span style={{ color: '#9CA3AF' }}>ASR</span>
+          <span style={{ fontWeight: 700, color: asrClr }}>{asr}%</span>
         </div>
       </div>
     </div>
   );
 }
 
-// ── Custom ReferenceLine label (event marker on chart) ─────────────────────────
 function EventMarkerLabel({ viewBox, event }: { viewBox?: any; event: GraphEvent }) {
   const cfg = EVENT_CONFIG[event.type] ?? EVENT_CONFIG.incident;
   const x = viewBox?.x ?? 0;
   const y = viewBox?.y ?? 0;
   return (
     <g>
-      <circle cx={x} cy={y + 8} r={6} fill={cfg.stroke} fillOpacity={0.25} stroke={cfg.stroke} strokeWidth={1.5} />
-      <text x={x} y={y + 12} textAnchor="middle" fontSize={7} fill={cfg.stroke} fontWeight="bold">
-        {cfg.icon}
-      </text>
+      <circle cx={x} cy={y + 10} r={7} fill={cfg.stroke} fillOpacity={0.12} stroke={cfg.stroke} strokeWidth={1.5} />
+      <text x={x} y={y + 14} textAnchor="middle" fontSize={7} fill={cfg.stroke} fontWeight="700">{cfg.icon}</text>
     </g>
   );
 }
@@ -569,195 +578,245 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
     return Array.from(map.values());
   }, [mappedEvents]);
 
-  const kpiItems = [
-    { label: 'Total Calls', value: s ? s.total.toLocaleString()     : '—', cls: 'text-foreground',  testid: 'graph-kpi-total' },
-    { label: 'Connected',   value: s ? s.connected.toLocaleString() : '—', cls: 'text-sky-400',     testid: 'graph-kpi-connected' },
-    { label: 'Failed',      value: s ? s.failed.toLocaleString()    : '—', cls: 'text-rose-400',    testid: 'graph-kpi-failed' },
-    { label: 'ASR',         value: s ? `${s.asr}%`                  : '—',
-      cls: s ? (s.asr >= 60 ? 'text-emerald-400' : s.asr >= 40 ? 'text-amber-400' : 'text-rose-400') : 'text-muted-foreground/30',
-      testid: 'graph-kpi-asr' },
-    { label: 'ACD',         value: s?.acd ? fmtAcd(s.acd)           : '—', cls: 'text-violet-400',  testid: 'graph-kpi-acd' },
-  ];
+  // Compute trend: compare second half vs first half of buckets (connected calls)
+  const trendPct = useMemo(() => {
+    if (buckets.length < 4) return null;
+    const mid = Math.floor(buckets.length / 2);
+    const firstHalf  = buckets.slice(0, mid).reduce((s, b) => s + b.connected, 0);
+    const secondHalf = buckets.slice(mid).reduce((s, b) => s + b.connected, 0);
+    if (firstHalf === 0) return null;
+    return Math.round((secondHalf - firstHalf) / firstHalf * 100);
+  }, [buckets]);
 
-  const hasEvents = mappedEvents.length > 0;
+  const hasEvents  = mappedEvents.length > 0;
   const eventCount = mappedEvents.length;
 
-  return (
-    <div className="flex flex-col gap-5" data-testid="bitseye-graph-view">
+  // Stripe-style KPI card data
+  const kpiCards = [
+    { label: 'Total Calls',  value: s ? s.total.toLocaleString()     : '—',
+      numColor: '#1F2937', trend: trendPct, testid: 'graph-kpi-total' },
+    { label: 'Connected',    value: s ? s.connected.toLocaleString() : '—',
+      numColor: '#16A34A', trend: trendPct, testid: 'graph-kpi-connected' },
+    { label: 'Failed',       value: s ? s.failed.toLocaleString()    : '—',
+      numColor: s && s.failed > 0 ? '#EF4444' : '#1F2937', trend: null, testid: 'graph-kpi-failed' },
+    { label: 'ASR',          value: s ? `${s.asr}%`                  : '—',
+      numColor: s ? (s.asr >= 60 ? '#16A34A' : s.asr >= 40 ? '#F59E0B' : '#EF4444') : '#9CA3AF',
+      trend: null, testid: 'graph-kpi-asr' },
+    { label: 'ACD',          value: s?.acd ? fmtAcd(s.acd)           : '—',
+      numColor: '#2563EB', trend: null, testid: 'graph-kpi-acd' },
+  ];
 
-      {/* ── Top bar: bucket toggle + event toggle + metadata ──────────────── */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          {/* Bucket toggle */}
-          <div className="flex items-center gap-0.5 bg-muted/20 border border-border/30 rounded-lg p-0.5">
+  // Shared chart props for light theme
+  const chartCursor = { stroke: '#E6EAF0', strokeWidth: 1.5, strokeDasharray: '4 2' };
+
+  return (
+    <div
+      data-testid="bitseye-graph-view"
+      style={{ background: '#F7F9FC', borderRadius: 20, padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}
+    >
+      {/* ── Header: title + controls ──────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1F2937', margin: 0, letterSpacing: '-0.01em' }}>
+            Call Intelligence
+          </h2>
+          <p style={{ fontSize: 11, color: '#9CA3AF', margin: '2px 0 0', fontWeight: 500 }}>
+            CDR-based · {hoursBack}h window · refreshes every 60s
+            {(isFetching || evFetching) && <span style={{ marginLeft: 8, color: '#2563EB' }}>↻</span>}
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Apple-style segmented time control */}
+          <div style={{ display: 'flex', background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 10,
+            padding: 3, gap: 2, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
             {([5, 15, 60] as const).map(b => (
               <button key={b} onClick={() => setBucket(b)} data-testid={`graph-bucket-${b}`}
-                className={cn("px-3 py-1 rounded-md text-xs font-semibold transition-all",
-                  bucket === b ? "bg-card text-foreground shadow-sm border border-border/30"
-                               : "text-muted-foreground hover:text-foreground")}>
+                style={{
+                  padding: '5px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: 'none',
+                  cursor: 'pointer', transition: 'all 0.15s ease',
+                  background: bucket === b ? '#2563EB' : 'transparent',
+                  color: bucket === b ? '#fff' : '#6B7280',
+                  boxShadow: bucket === b ? '0 1px 6px rgba(37,99,235,0.30)' : 'none',
+                }}>
                 {b === 60 ? '1h' : `${b}m`}
               </button>
             ))}
           </div>
-          {/* Event overlay toggle */}
-          <button
-            data-testid="graph-toggle-events"
-            onClick={() => setShowEvents(v => !v)}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all",
-              showEvents
-                ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
-                : "bg-muted/20 border-border/30 text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <AlertCircle className="w-3 h-3" />
+
+          {/* Events toggle */}
+          <button data-testid="graph-toggle-events" onClick={() => setShowEvents(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8,
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', border: '1px solid', transition: 'all 0.15s ease',
+              background: showEvents ? '#FEF3C7' : '#FFFFFF',
+              borderColor: showEvents ? '#FCD34D' : '#E6EAF0',
+              color: showEvents ? '#92400E' : '#6B7280',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+            }}>
+            <AlertCircle style={{ width: 13, height: 13 }} />
             Events{hasEvents ? ` (${eventCount})` : ''}
           </button>
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/40">
-          {(isFetching || evFetching) && <RefreshCw className="w-3 h-3 animate-spin" />}
-          <span>CDR-based · {hoursBack}h window · 60s refresh</span>
-        </div>
       </div>
 
-      {/* ── KPI strip ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-5 gap-2">
-        {kpiItems.map(k => (
-          <div key={k.label}
-            className="bg-card border border-border/30 rounded-xl px-4 py-3 flex flex-col gap-1"
-            data-testid={k.testid}>
-            <span className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-wider">{k.label}</span>
-            <span className={cn("text-2xl font-bold tabular-nums", k.cls)}>{k.value}</span>
+      {/* ── Stripe-style KPI cards ─────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12 }}>
+        {kpiCards.map(k => (
+          <div key={k.label} data-testid={k.testid}
+            style={{ background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 14,
+              padding: '14px 18px', boxShadow: '0 2px 10px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase',
+              letterSpacing: '0.07em' }}>{k.label}</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 4 }}>
+              <span style={{ fontSize: 22, fontWeight: 800, color: k.numColor, letterSpacing: '-0.02em',
+                lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{k.value}</span>
+              {k.trend !== null && k.trend !== undefined && (
+                <span style={{ fontSize: 11, fontWeight: 700,
+                  color: k.trend > 0 ? '#16A34A' : k.trend < 0 ? '#EF4444' : '#9CA3AF' }}>
+                  {k.trend > 0 ? '↑' : k.trend < 0 ? '↓' : '→'}{Math.abs(k.trend)}%
+                </span>
+              )}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* ── Call Volume chart ───────────────────────────────────────────────── */}
-      <div className="bg-card border border-border/30 rounded-xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border/20">
-          <div className="flex items-center gap-3">
-            <Activity className="w-4 h-4 text-amber-400" />
-            <span className="text-sm font-semibold">Call Volume</span>
+      {/* ── Main Call Volume chart (white card) ────────────────────────────── */}
+      <div style={{ background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 16,
+        boxShadow: '0 2px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+        {/* Chart header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '14px 20px', borderBottom: '1px solid #F3F4F6' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Activity style={{ width: 15, height: 15, color: '#2563EB' }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937' }}>Call Volume</span>
           </div>
-          <div className="flex items-center gap-5 text-[10px] text-muted-foreground/50">
-            <span className="flex items-center gap-1.5"><span className="w-8 h-0.5 bg-[#38bdf8] inline-block rounded-full" />Connected</span>
-            <span className="flex items-center gap-1.5"><span className="w-8 h-0.5 bg-rose-500/70 inline-block rounded-full" />Failed</span>
-            <span className="flex items-center gap-1.5"><span className="w-8 border-t border-dashed border-white/25 inline-block" />Total</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 11, color: '#9CA3AF' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 24, height: 2.5, background: '#16A34A', borderRadius: 2, display: 'inline-block' }} />Connected
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 24, height: 2.5, background: '#EF4444', opacity: 0.5, borderRadius: 2, display: 'inline-block' }} />Failed
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 24, height: 0, borderTop: '2px dashed #2563EB', opacity: 0.4, display: 'inline-block' }} />Total
+            </span>
             {showEvents && hasEvents && (
-              <span className="flex items-center gap-1.5 text-amber-400/70">
-                <AlertCircle className="w-3 h-3" />{eventCount} events
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#D97706', fontWeight: 600 }}>
+                <AlertCircle style={{ width: 12, height: 12 }} />{eventCount} events
               </span>
             )}
           </div>
         </div>
 
+        {/* Chart body */}
         {buckets.length === 0 && !isFetching ? (
-          <div className="h-72 flex items-center justify-center text-sm text-muted-foreground/30">
-            No CDR data in window — calls will appear once processed
+          <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 13, color: '#D1D5DB' }}>
+            No CDR data yet — calls appear once processed
           </div>
         ) : isFetching && buckets.length === 0 ? (
-          <div className="h-72 bg-muted/10 animate-pulse rounded-b-xl" />
+          <div style={{ height: 280, background: '#F9FAFB', animation: 'pulse 2s infinite' }} />
         ) : (
-          <div className="px-4 pt-4 pb-3" style={{ height: 300 }}>
+          <div style={{ padding: '16px 12px 12px', height: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={buckets} margin={{ top: 20, right: 4, left: -18, bottom: 0 }}>
+              <ComposedChart data={buckets} margin={{ top: 22, right: 8, left: -12, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="gradConn" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"   stopColor="#38bdf8" stopOpacity={0.40} />
-                    <stop offset="80%"  stopColor="#38bdf8" stopOpacity={0.06} />
-                    <stop offset="100%" stopColor="#38bdf8" stopOpacity={0.0} />
+                  <linearGradient id="lgConn" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor="#16A34A" stopOpacity={0.14} />
+                    <stop offset="100%" stopColor="#16A34A" stopOpacity={0.01} />
                   </linearGradient>
-                  <linearGradient id="gradFail" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"   stopColor="#f43f5e" stopOpacity={0.35} />
-                    <stop offset="80%"  stopColor="#f43f5e" stopOpacity={0.05} />
-                    <stop offset="100%" stopColor="#f43f5e" stopOpacity={0.0} />
+                  <linearGradient id="lgFail" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor="#EF4444" stopOpacity={0.12} />
+                    <stop offset="100%" stopColor="#EF4444" stopOpacity={0.01} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid horizontal vertical={false} stroke="rgba(255,255,255,0.04)" />
-                <XAxis dataKey="label"
-                  tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.45)', fontFamily: 'monospace' }}
-                  tickLine={false} axisLine={false} interval={tickInterval} />
-                <YAxis
-                  tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.45)', fontFamily: 'monospace' }}
-                  tickLine={false} axisLine={false} allowDecimals={false} width={30} />
-                <Tooltip content={<GraphTooltip />}
-                  cursor={{ stroke: 'rgba(148,163,184,0.15)', strokeWidth: 1, strokeDasharray: '4 2' }} />
-                {/* Event overlays */}
+                <CartesianGrid horizontal vertical={false} stroke={GRID_COLOR} />
+                <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={false} interval={tickInterval} />
+                <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} allowDecimals={false} width={32} />
+                <Tooltip content={<GraphTooltip />} cursor={chartCursor} />
                 {showEvents && dedupedEvents.map((ev, i) => {
                   const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.incident;
                   return (
                     <ReferenceLine key={i} x={ev.bucketLabel}
-                      stroke={cfg.stroke} strokeWidth={1.5} strokeDasharray="3 3" strokeOpacity={0.7}
-                      label={<EventMarkerLabel event={ev} />}
-                    />
+                      stroke={cfg.stroke} strokeWidth={1.5} strokeDasharray="4 3" strokeOpacity={0.6}
+                      label={<EventMarkerLabel event={ev} />} />
                   );
                 })}
+                {/* Soft danger layer — failed calls */}
                 <Area type="monotone" dataKey="failed"
-                  stroke="#f43f5e" strokeWidth={1.5} fill="url(#gradFail)" dot={false}
-                  activeDot={{ r: 3.5, fill: '#f43f5e', stroke: 'hsl(var(--card))', strokeWidth: 2 }}
+                  stroke="#EF4444" strokeWidth={1.5} fill="url(#lgFail)" dot={false}
+                  activeDot={{ r: 3.5, fill: '#EF4444', stroke: '#fff', strokeWidth: 2 }}
                   strokeLinejoin="round" strokeLinecap="round" />
+                {/* Connected — primary signal */}
                 <Area type="monotone" dataKey="connected"
-                  stroke="#38bdf8" strokeWidth={2.5} fill="url(#gradConn)" dot={false}
-                  activeDot={{ r: 4, fill: '#38bdf8', stroke: 'hsl(var(--card))', strokeWidth: 2 }}
+                  stroke="#16A34A" strokeWidth={2.5} fill="url(#lgConn)" dot={false}
+                  activeDot={{ r: 4, fill: '#16A34A', stroke: '#fff', strokeWidth: 2 }}
                   strokeLinejoin="round" strokeLinecap="round" />
+                {/* Total — blue dashed reference */}
                 <Line type="monotone" dataKey="total"
-                  stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} strokeDasharray="4 3" dot={false}
-                  activeDot={{ r: 3, fill: 'rgba(255,255,255,0.5)', stroke: 'hsl(var(--card))', strokeWidth: 2 }} />
+                  stroke="#2563EB" strokeWidth={1.5} strokeDasharray="5 3" strokeOpacity={0.45} dot={false}
+                  activeDot={{ r: 3, fill: '#2563EB', stroke: '#fff', strokeWidth: 2 }} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         )}
       </div>
 
-      {/* ── ASR trend chart ─────────────────────────────────────────────────── */}
-      <div className="bg-card border border-border/30 rounded-xl overflow-hidden">
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-border/20">
-          <span className="text-sm font-semibold">Answer Success Rate</span>
-          <span className="text-[10px] text-muted-foreground/40">per bucket</span>
+      {/* ── ASR trend (white card) ─────────────────────────────────────────── */}
+      <div style={{ background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 16,
+        boxShadow: '0 2px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10,
+          padding: '14px 20px', borderBottom: '1px solid #F3F4F6' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937' }}>Answer Success Rate</span>
+          <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500 }}>per {bucket === 60 ? '1h' : `${bucket}m`} bucket</span>
+          {s && (
+            <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700,
+              color: s.asr >= 60 ? '#16A34A' : s.asr >= 40 ? '#F59E0B' : '#EF4444' }}>
+              Avg {s.asr}%
+            </span>
+          )}
         </div>
         {buckets.length > 0 && (
-          <div className="px-4 pt-4 pb-3" style={{ height: 180 }}>
+          <div style={{ padding: '12px 12px 10px', height: 180 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={buckets} margin={{ top: 16, right: 4, left: -18, bottom: 0 }}>
+              <AreaChart data={buckets} margin={{ top: 10, right: 8, left: -12, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="gradAsr" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"   stopColor="#10b981" stopOpacity={0.40} />
-                    <stop offset="100%" stopColor="#10b981" stopOpacity={0.03} />
+                  <linearGradient id="lgAsr" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor="#16A34A" stopOpacity={0.15} />
+                    <stop offset="100%" stopColor="#16A34A" stopOpacity={0.01} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid horizontal vertical={false} stroke="rgba(255,255,255,0.04)" />
-                <XAxis dataKey="label"
-                  tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.45)', fontFamily: 'monospace' }}
-                  tickLine={false} axisLine={false} interval={tickInterval} />
+                <CartesianGrid horizontal vertical={false} stroke={GRID_COLOR} />
+                <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={false} interval={tickInterval} />
                 <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`}
-                  tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.45)', fontFamily: 'monospace' }}
-                  tickLine={false} axisLine={false} width={34} />
+                  tick={AXIS_TICK} tickLine={false} axisLine={false} width={36} />
                 <Tooltip
                   content={({ active, payload, label: lbl }: any) => {
                     if (!active || !payload?.length) return null;
                     const asr = payload[0]?.value ?? 0;
+                    const c = asr >= 60 ? '#16A34A' : asr >= 40 ? '#F59E0B' : '#EF4444';
                     return (
-                      <div className="rounded-xl border border-border/50 bg-card/98 px-3 py-2 text-xs shadow-xl">
-                        <p className="text-muted-foreground/60 mb-1 text-[10px]">{lbl}</p>
-                        <p className={cn("font-bold", asr >= 60 ? 'text-emerald-400' : asr >= 40 ? 'text-amber-400' : 'text-rose-400')}>
-                          ASR {asr}%
-                        </p>
+                      <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 10,
+                        padding: '8px 12px', boxShadow: '0 4px 16px rgba(0,0,0,0.08)', fontSize: 12 }}>
+                        <div style={{ fontSize: 10, color: '#9CA3AF', marginBottom: 4 }}>{lbl}</div>
+                        <div style={{ fontWeight: 700, color: c }}>ASR {asr}%</div>
                       </div>
                     );
                   }}
-                  cursor={{ stroke: 'rgba(148,163,184,0.15)', strokeWidth: 1, strokeDasharray: '4 2' }}
+                  cursor={chartCursor}
                 />
-                {/* Event overlays on ASR chart too */}
                 {showEvents && dedupedEvents.map((ev, i) => {
                   const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.incident;
                   return (
                     <ReferenceLine key={i} x={ev.bucketLabel}
-                      stroke={cfg.stroke} strokeWidth={1} strokeDasharray="3 3" strokeOpacity={0.5} />
+                      stroke={cfg.stroke} strokeWidth={1} strokeDasharray="4 3" strokeOpacity={0.45} />
                   );
                 })}
                 <Area type="monotone" dataKey="asr"
-                  stroke="#10b981" strokeWidth={2} fill="url(#gradAsr)" dot={false}
-                  activeDot={{ r: 3.5, fill: '#10b981', stroke: 'hsl(var(--card))', strokeWidth: 2 }}
+                  stroke="#16A34A" strokeWidth={2} fill="url(#lgAsr)" dot={false}
+                  activeDot={{ r: 3.5, fill: '#16A34A', stroke: '#fff', strokeWidth: 2 }}
                   strokeLinejoin="round" strokeLinecap="round" />
               </AreaChart>
             </ResponsiveContainer>
@@ -765,63 +824,70 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
         )}
       </div>
 
-      {/* ── Event timeline strip ────────────────────────────────────────────── */}
+      {/* ── Event Timeline (light card) ───────────────────────────────────── */}
       {showEvents && mappedEvents.length > 0 && (
-        <div className="bg-card border border-border/30 rounded-xl overflow-hidden">
-          <div className="flex items-center gap-3 px-5 py-3 border-b border-border/20">
-            <AlertCircle className="w-4 h-4 text-amber-400" />
-            <span className="text-sm font-semibold">Event Timeline</span>
-            <span className="text-[10px] text-muted-foreground/40">{eventCount} events in {hoursBack}h window</span>
-          </div>
-          {/* Legend */}
-          <div className="flex items-center gap-4 px-5 pt-3 pb-1 flex-wrap">
-            {Object.entries(EVENT_CONFIG).map(([type, cfg]) => {
-              const count = mappedEvents.filter(e => e.type === type).length;
-              if (count === 0) return null;
-              return (
-                <span key={type} className={cn("flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-full border font-medium", cfg.badge)}>
-                  {cfg.icon} {type.replace(/_/g,' ')} ({count})
-                </span>
-              );
-            })}
-          </div>
-          {/* Event rows (newest first) */}
-          <div className="divide-y divide-border/10 max-h-60 overflow-y-auto">
-            {[...mappedEvents]
-              .sort((a, b) => b.ts - a.ts)
-              .map((ev, i) => {
-                const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.incident;
-                const time = new Date(ev.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        <div style={{ background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 16,
+          boxShadow: '0 2px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10,
+            padding: '14px 20px', borderBottom: '1px solid #F3F4F6' }}>
+            <AlertCircle style={{ width: 14, height: 14, color: '#D97706' }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937' }}>Event Timeline</span>
+            <span style={{ fontSize: 11, color: '#9CA3AF' }}>{eventCount} events · {hoursBack}h window</span>
+            {/* Type pills legend */}
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {Object.entries(EVENT_CONFIG).map(([type, cfg]) => {
+                const count = mappedEvents.filter(e => e.type === type).length;
+                if (!count) return null;
                 return (
-                  <div key={i} className="flex items-start gap-3 px-5 py-2.5 hover:bg-muted/10 transition-colors"
-                    data-testid={`event-row-${i}`}>
-                    <div className="mt-0.5 flex-shrink-0">
-                      <span className={cn("w-5 h-5 rounded flex items-center justify-center text-[10px] border font-bold", cfg.badge)}>
-                        {cfg.icon}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium leading-tight truncate">{ev.detail}</p>
-                      <p className="text-[10px] text-muted-foreground/40 mt-0.5">{time} · {ev.type.replace(/_/g,' ')}</p>
-                    </div>
-                    <span className={cn(
-                      "text-[9px] px-1.5 py-0.5 rounded-full border font-semibold uppercase tracking-wide flex-shrink-0",
-                      ev.severity === 'critical' ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-                      : ev.severity === 'high'   ? 'bg-orange-500/10 border-orange-500/30 text-orange-300'
-                      : ev.severity === 'medium' ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                      : 'bg-muted/20 border-border/30 text-muted-foreground/50'
-                    )}>{ev.severity}</span>
-                  </div>
+                  <span key={type} className={cn("text-[10px] px-2 py-0.5 rounded-full border font-semibold", cfg.badge)}>
+                    {cfg.icon} {type.replace(/_/g,' ')} ({count})
+                  </span>
                 );
               })}
+            </div>
+          </div>
+          <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+            {[...mappedEvents].sort((a, b) => b.ts - a.ts).map((ev, i) => {
+              const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.incident;
+              const time = new Date(ev.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+              const sevClr = ev.severity === 'critical' ? { bg: '#FEE2E2', text: '#B91C1C', border: '#FECACA' }
+                           : ev.severity === 'high'     ? { bg: '#FFEDD5', text: '#C2410C', border: '#FED7AA' }
+                           : ev.severity === 'medium'   ? { bg: '#FEF3C7', text: '#92400E', border: '#FDE68A' }
+                           :                              { bg: '#F3F4F6', text: '#6B7280', border: '#E5E7EB' };
+              return (
+                <div key={i} data-testid={`event-row-${i}`}
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 20px',
+                    borderBottom: '1px solid #F9FAFB', transition: 'background 0.1s' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#F9FAFB')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  <span className={cn("w-6 h-6 rounded-md flex items-center justify-center text-[11px] border font-bold flex-shrink-0 mt-0.5", cfg.badge)}>
+                    {cfg.icon}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: '#1F2937', margin: 0,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.detail}</p>
+                    <p style={{ fontSize: 10, color: '#9CA3AF', margin: '2px 0 0' }}>
+                      {time} · {ev.type.replace(/_/g, ' ')}
+                    </p>
+                  </div>
+                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                    padding: '2px 7px', borderRadius: 99, border: `1px solid ${sevClr.border}`,
+                    background: sevClr.bg, color: sevClr.text, flexShrink: 0 }}>
+                    {ev.severity}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* ── Empty events state ──────────────────────────────────────────────── */}
+      {/* ── All-clear state ────────────────────────────────────────────────── */}
       {showEvents && mappedEvents.length === 0 && !evFetching && (
-        <div className="bg-card border border-border/20 rounded-xl px-5 py-4 flex items-center gap-3 text-sm text-muted-foreground/40">
-          <Check className="w-4 h-4 text-emerald-500/50" />
+        <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 12,
+          padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10,
+          fontSize: 13, color: '#15803D', fontWeight: 500 }}>
+          <Check style={{ width: 15, height: 15, color: '#16A34A', flexShrink: 0 }} />
           No incidents, routing changes, or alerts in the {hoursBack}h window
         </div>
       )}
