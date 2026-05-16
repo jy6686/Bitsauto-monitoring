@@ -1,0 +1,175 @@
+You’re thinking about the right upgrade — but I would not build the full “usage intelligence system” yet. There’s a more urgent structural gap underneath it.
+
+Let me be precise.
+
+1. What you correctly identified (this is valid)
+
+Yes — your system is already aligned with the 3-layer model:
+
+✔ Layer 1 — LIVE OPERATIONS (DONE)
+
+Dashboard is now clean NOC Core. No action needed.
+
+🟡 Layer 2 — SYSTEM INTELLIGENCE (PARTIAL)
+
+You have:
+
+ledger
+correlation engine
+alerts
+AI Ops
+
+But they are still separate lenses over the same truth, not a unified “reasoning surface”.
+
+✔ Layer 3 — BUSINESS IMPACT (EXISTS)
+
+Finance + revenue pages exist, but not connected to:
+
+ledger intent
+risk_index
+correlation outcomes
+2. Where the real gap actually is (important)
+
+The missing piece is NOT command palette intelligence.
+
+The real gap is:
+
+⚠ No unified “system reasoning view”
+
+Right now:
+
+Ledger shows what happened
+AI Ops shows what is wrong
+Alerts show threshold breaches
+Carrier health shows performance
+
+But nothing shows:
+
+🧠 “What sequence of events caused this outcome?”
+
+3. The real next step (higher priority than command palette)
+
+Before UX optimization, you need:
+
+🧩 SYSTEM INTELLIGENCE HUB (Layer 2 consolidation)
+
+This should unify:
+
+1. Ledger Clusters
+intent_id groups
+mutation threads
+cross-system actions
+2. Incident Timeline
+AI Ops incidents
+Alert engine incidents
+carrier health incidents
+3. Carrier degradation curves
+ASR drop over time
+PDD spikes
+MOS decay
+What this becomes:
+
+A single “WHY DID THIS HAPPEN?” screen
+
+Example:
+
+Account X degradation (last 30 min)
+
+→ Carrier ASR dropped
+→ Routing change applied (intent: cost-optimization)
+→ Ledger shows freeze + reroute events
+→ Alert engine fired threshold breach
+→ Incident opened (AI Ops)
+
+That is your missing Layer 2.
+
+4. Why this is more important than command usage tracking
+
+Your proposed feature:
+
+command_usage analytics
+
+That is:
+
+✔ UX optimization
+✔ productivity enhancement
+✔ nice-to-have
+
+But this is:
+
+Layer 3 UX refinement
+
+The SYSTEM INTELLIGENCE HUB is:
+
+✔ architecture closure
+✔ correlation completion
+✔ operational necessity
+
+5. Correct prioritization (important)
+
+Here is the real order:
+
+P0 (must exist first)
+SYSTEM INTELLIGENCE HUB
+
+Unify:
+
+ledger
+incidents
+alerts
+carrier degradation
+P1 (next)
+command palette intelligence
+usage tracking
+ranking
+shortcuts
+P2 (later)
+predictive UX suggestions
+“you frequently use this feature”
+auto-pin workflows
+6. Simple architecture truth
+
+Right now your system is:
+
+GOOD DATA SOURCES (4)
+   ↓
+NOT YET ONE REASONING LAYER
+
+You are missing:
+
+🧠 “cross-system causality layer”
+
+7. What I would build next (clean version)
+SYSTEM INTELLIGENCE HUB (/intelligence)
+
+It has 3 panels:
+
+🔴 Event Chain Viewer
+ledger timeline (intent grouped)
+routing + C2 + approvals merged
+🟡 Incident Correlation Map
+AI Ops + alert engine + carrier incidents
+🔵 Performance Drift Graph
+ASR / MOS / PDD trends aligned with actions
+8. Then AFTER that → command palette upgrade
+
+Once reasoning exists, THEN:
+
+“Press K → shows recently used intelligence views”
+“Press K → suggests causal investigations”
+“Press K → jumps to correlated incident view”
+
+Without this hub, command intelligence is blind.
+
+9. Final decision recommendation
+
+👉 Do NOT build command usage tracking yet
+
+Instead build:
+
+🧠 SYSTEM INTELLIGENCE HUB (Layer 2 unification)
+
+That is the missing backbone between:
+
+dashboard (Layer 1)
+finance (Layer 3)
