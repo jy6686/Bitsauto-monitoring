@@ -1,0 +1,255 @@
+Your assessment is correct.
+Right now BitsEye is behaving like a generic analytics page instead of a true telecom hierarchy explorer.
+
+The current implementation is graph-first, but the workflow you want is hierarchy-first.
+
+The hierarchy should strictly behave like this:
+
+KAM
+ └── Client
+      └── Destination
+           └── Breakout
+                └── Vendor
+
+Not:
+
+KAM → Vendor → Random Graph
+
+That is why the navigation feels broken and operators cannot drill into entities naturally.
+
+Here’s the correct operational behavior BitsEye should follow.
+
+Correct BitsEye Hierarchy Flow
+Level 1 — KAM View
+
+When BitsEye opens:
+
+Show:
+
+All KAMs
+KPI summary per KAM
+Active Calls
+ASR
+Revenue
+Alert count
+Health score
+Clicking a KAM should:
+
+Expand/show:
+
+Clients under this KAM
+
+NOT vendors.
+
+Level 2 — Client View
+
+When a client is clicked:
+
+Dropdown/panel should display:
+
+Destinations used by this client
+
+AND:
+
+Client KPI cards
+Client-specific graph
+Incidents
+Revenue
+Active calls
+
+At this level:
+
+The graph should become:
+
+Client XYZ traffic graph
+
+This is the graph operators actually care about.
+
+Level 3 — Destination View
+
+When destination selected:
+
+Example:
+
+Pakistan Mobile
+UAE CLI
+UK Premium
+
+Now show:
+
+ASR trend
+Vendor distribution
+Routing quality
+Failed calls
+Active calls
+MOS/PDD
+
+AND:
+
+Available breakouts for this destination
+Level 4 — Breakout View
+
+Example:
+
+Premium
+Standard
+CLI
+Non-CLI
+A-Z
+Bypass
+
+Now show:
+
+Vendor competition
+Margin
+Quality comparison
+Route instability
+Fraud spikes
+
+At THIS level vendor visibility makes sense.
+
+Level 5 — Vendor View
+
+Only now should vendors appear.
+
+Because vendors are not business hierarchy objects.
+
+They are routing execution objects.
+
+This distinction is extremely important architecturally.
+
+Why Current BitsEye Feels Wrong
+
+Because currently:
+
+Vendors appear too early
+Client drilldown missing
+Destination hierarchy missing
+Graphs are disconnected from selected entity
+Navigation state not cascading properly
+
+So clicking entities does not change the intelligence context correctly.
+
+What Should Happen Technically
+
+BitsEye should behave as:
+
+Cascading Stateful Explorer
+
+Changing any level should:
+
+Update breadcrumb
+Re-filter all graphs
+Re-filter incidents
+Re-filter ledger
+Re-filter KPIs
+Re-filter active calls
+
+Example:
+
+KAM: Ahmed Telecom
+Client: XYZ Telecom
+Destination: Pakistan Mobile
+Breakout: CLI
+
+Everything on screen should now represent ONLY that slice.
+
+Graph Behavior (Important)
+
+Right now graphs are generic.
+
+Correct behavior:
+
+KAM selected
+
+Show:
+
+All client traffic under KAM
+Client selected
+
+Show:
+
+Client-only graph
+Destination selected
+
+Show:
+
+Destination quality graph
+Breakout selected
+
+Show:
+
+Vendor comparison graph
+
+This is how telecom NOC systems usually work.
+
+My Recommendation (Best Architecture)
+
+Do NOT build separate pages.
+
+Keep:
+
+Single BitsEye Intelligence Surface
+
+But add:
+
+1. Left Hierarchy Panel
+
+Collapsible tree:
+
+KAM
+ Client
+  Destination
+   Breakout
+2. Center Intelligence Area
+
+Dynamic graphs + KPIs.
+
+Changes based on selected hierarchy node.
+
+3. Right Investigation Drawer
+
+Shows:
+
+incidents
+ledger
+routing changes
+fraud events
+carrier score changes
+
+for currently selected entity.
+
+Most Important Missing Piece
+
+This is the real missing logic:
+
+selectedEntityContext
+
+Right now the UI changes visually,
+but the data context is not cascading properly.
+
+That’s why:
+
+client graph not changing
+vendor filter not changing
+dropdown not updating
+drilldown feels broken
+
+The hierarchy exists conceptually,
+but not operationally.
+
+Final Recommendation
+
+Priority order should be:
+
+Priority	Fix
+P0	Proper cascading hierarchy state
+P1	Client dropdown rendering
+P2	Graphs tied to selected entity
+P3	Destination → Breakout drilldown
+P4	Vendor comparison at breakout level
+P5	Graph visual enhancements
+
+Because right now the problem is not graph beauty.
+
+The problem is entity intelligence flow.

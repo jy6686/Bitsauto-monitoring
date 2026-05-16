@@ -4,7 +4,7 @@ import { useSearch } from "wouter";
 import { useOrgScope } from "@/context/org-scope-context";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ComposedChart, Line, ReferenceLine,
+  ResponsiveContainer, ComposedChart, Line, ReferenceLine, ReferenceArea,
 } from "recharts";
 import {
   RefreshCw, ChevronRight, BarChart3,
@@ -774,6 +774,35 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
     return Array.from(map.values());
   }, [visibleEvents]);
 
+  // ── Concurrent derived state ─────────────────────────────────────────────────
+  const peakConcurrent = useMemo(() => Math.max(...concPoints.map(p => p.active), 0), [concPoints]);
+  // Capacity reference: peak seen + 20% headroom → soft @70%, hard @90%
+  const capacityRef  = peakConcurrent > 4 ? Math.ceil(peakConcurrent * 1.2) : 0;
+  const capacitySoft = capacityRef > 0 ? Math.round(capacityRef * 0.7) : 0;
+  const capacityHard = capacityRef > 0 ? Math.round(capacityRef * 0.9) : 0;
+
+  // Connect ratio from the most recent snapshot
+  const lastConcPoint = concPoints[concPoints.length - 1];
+  const latestConnectRatio = lastConcPoint && lastConcPoint.active > 0
+    ? lastConcPoint.connected / lastConcPoint.active
+    : null;
+
+  // Surge detection: last sample jumped ≥ 20% of peak or ≥ 5 calls
+  const surgeThreshold = Math.max(5, Math.round(peakConcurrent * 0.20));
+  const surgeDelta = concPoints.length >= 2
+    ? concPoints[concPoints.length - 1].active - concPoints[concPoints.length - 2].active
+    : 0;
+  const surgeDetected = surgeDelta >= surgeThreshold;
+
+  // Dynamic card border/glow based on connect ratio
+  const ratioGlow = latestConnectRatio === null
+    ? { border: '1px solid #E6EAF0', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }
+    : latestConnectRatio >= 0.8
+    ? { border: '1px solid #BBF7D0', boxShadow: '0 2px 16px rgba(22,163,74,0.12)' }
+    : latestConnectRatio >= 0.5
+    ? { border: '1px solid #FDE68A', boxShadow: '0 2px 16px rgba(245,158,11,0.14)' }
+    : { border: '1px solid #FECACA', boxShadow: '0 2px 16px rgba(239,68,68,0.16)' };
+
   // Deduplicate for concurrent chart reference lines: one per concurrent point label
   const dedupedConcEvents = useMemo((): ScoredEvent[] => {
     const map = new Map<string, ScoredEvent>();
@@ -934,8 +963,10 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
       </div>
 
       {/* ── Concurrent Call Stream chart (white card) ────────────────────── */}
-      <div className="noc-fade-in" style={{ background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 16,
-        boxShadow: '0 2px 12px rgba(0,0,0,0.05)', overflow: 'hidden', animationDelay: '200ms' }}>
+      <div className="noc-fade-in" style={{ background: '#FFFFFF', borderRadius: 16,
+        overflow: 'hidden', animationDelay: '200ms',
+        transition: 'border 0.6s ease, box-shadow 0.6s ease',
+        ...ratioGlow }}>
         {/* Chart header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '14px 20px', borderBottom: '1px solid #F3F4F6' }}>
@@ -943,8 +974,38 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
             <Activity style={{ width: 15, height: 15, color: '#2563EB' }} />
             <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937' }}>Concurrent Call Stream</span>
             <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 500, marginLeft: 2 }}>avg concurrent · not cumulative</span>
+            {surgeDetected && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#FEF3C7',
+                border: '1px solid #FDE68A', borderRadius: 6, padding: '2px 7px',
+                fontSize: 10, fontWeight: 700, color: '#B45309', letterSpacing: '0.04em' }}>
+                ▲ SURGE +{surgeDelta}
+              </span>
+            )}
+            {latestConnectRatio !== null && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.02em',
+                color: latestConnectRatio >= 0.8 ? '#16A34A' : latestConnectRatio >= 0.5 ? '#D97706' : '#DC2626',
+                background: latestConnectRatio >= 0.8 ? '#F0FDF4' : latestConnectRatio >= 0.5 ? '#FFFBEB' : '#FEF2F2',
+                border: `1px solid ${latestConnectRatio >= 0.8 ? '#BBF7D0' : latestConnectRatio >= 0.5 ? '#FDE68A' : '#FECACA'}`,
+                borderRadius: 6, padding: '2px 7px',
+              }}>
+                {Math.round(latestConnectRatio * 100)}% connected
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 11, color: '#9CA3AF' }}>
+            {capacityRef > 0 && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 10, color: '#9CA3AF' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 16, height: 2, background: '#F59E0B', opacity: 0.6, display: 'inline-block', borderRadius: 1 }} />
+                  <span>70% cap</span>
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 16, height: 2, background: '#EF4444', opacity: 0.6, display: 'inline-block', borderRadius: 1 }} />
+                  <span>90% cap</span>
+                </span>
+              </span>
+            )}
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ width: 24, height: 2.5, background: '#16A34A', borderRadius: 2, display: 'inline-block' }} />Connected
             </span>
@@ -1002,6 +1063,25 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
                 <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={false} interval={concTickInterval} />
                 <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} allowDecimals={false} width={32} />
                 <Tooltip content={<ConcurrentGraphTooltip />} cursor={chartCursor} />
+                {/* ── Capacity threshold bands ── */}
+                {capacityRef > 0 && (
+                  <>
+                    {/* Amber zone: 70%–90% of capacity */}
+                    <ReferenceArea y1={capacitySoft} y2={capacityHard}
+                      fill="#F59E0B" fillOpacity={0.06} ifOverflow="extendDomain" />
+                    {/* Red zone: 90%–100% of capacity */}
+                    <ReferenceArea y1={capacityHard} y2={capacityRef}
+                      fill="#EF4444" fillOpacity={0.07} ifOverflow="extendDomain" />
+                    {/* Soft threshold line */}
+                    <ReferenceLine y={capacitySoft} stroke="#F59E0B" strokeWidth={1}
+                      strokeDasharray="6 4" strokeOpacity={0.55}
+                      label={{ value: `70%`, position: 'insideTopRight', fill: '#D97706', fontSize: 9, fontWeight: 700 }} />
+                    {/* Hard threshold line */}
+                    <ReferenceLine y={capacityHard} stroke="#EF4444" strokeWidth={1}
+                      strokeDasharray="6 4" strokeOpacity={0.55}
+                      label={{ value: `90%`, position: 'insideTopRight', fill: '#DC2626', fontSize: 9, fontWeight: 700 }} />
+                  </>
+                )}
                 {showEvents && dedupedConcEvents.map((ev, i) => {
                   const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.incident;
                   return (
