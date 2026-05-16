@@ -1390,7 +1390,7 @@ function MosTrendingSection() {
       >
         <Activity className="w-4 h-4 text-purple-400 shrink-0" />
         <div className="flex-1">
-          <span className="text-sm font-semibold">MOS Quality Trends</span>
+          <span className="text-sm font-semibold">Est. MOS Trends</span>
           {latestMos !== null && (
             <span className={`ml-2 text-xs font-mono font-bold ${mosBadge(latestMos)}`}>
               Latest: {latestMos.toFixed(2)}
@@ -1423,17 +1423,17 @@ function MosTrendingSection() {
       {!collapsed && (
         <div className="px-5 pb-5 pt-1 space-y-4">
           {isLoading ? (
-            <div className="h-40 flex items-center justify-center text-muted-foreground/50 text-sm">Loading MOS data…</div>
+            <div className="h-40 flex items-center justify-center text-muted-foreground/50 text-sm">Loading Est. MOS data…</div>
           ) : rows.length === 0 ? (
             <div className="h-40 flex flex-col items-center justify-center gap-2 text-muted-foreground/50 text-sm">
               <Activity className="w-6 h-6 opacity-40" />
-              <span>No MOS data yet — CDR enrichment populates this hourly</span>
+              <span>No Est. MOS data yet — CDR enrichment populates this hourly</span>
             </div>
           ) : (
             <>
               {/* MOS Score Line Chart */}
               <div>
-                <div className="text-xs text-muted-foreground mb-2">Average MOS per hour (4.0+ = Excellent, 3.5+ = Good, &lt;3.5 = Poor)</div>
+                <div className="text-xs text-muted-foreground mb-2">Est. MOS per hour — CDR-based signalling proxy (4.0+ = Excellent, 3.5+ = Good, &lt;3.5 = Poor)</div>
                 <ResponsiveContainer width="100%" height={180}>
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
@@ -1443,7 +1443,7 @@ function MosTrendingSection() {
                       contentStyle={{ backgroundColor: '#1c1c1e', border: '1px solid #2d2d30', borderRadius: 8, fontSize: 12 }}
                       formatter={(v: number) => v.toFixed(3)}
                     />
-                    <Line type="monotone" dataKey="MOS" stroke="#a78bfa" strokeWidth={2} dot={false} name="Avg MOS" />
+                    <Line type="monotone" dataKey="MOS" stroke="#a78bfa" strokeWidth={2} dot={false} name="Est. MOS" />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -1470,7 +1470,7 @@ function MosTrendingSection() {
               {/* Summary stats row */}
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  { label: "Avg MOS",    value: (rows.reduce((a,r) => a + r.avgMos, 0) / rows.length).toFixed(3), color: mosBadge(rows.reduce((a,r) => a + r.avgMos, 0) / rows.length) },
+                  { label: "Est. MOS",   value: (rows.reduce((a,r) => a + r.avgMos, 0) / rows.length).toFixed(3), color: mosBadge(rows.reduce((a,r) => a + r.avgMos, 0) / rows.length) },
                   { label: "Good Calls", value: `${(rows.reduce((a,r) => a + r.goodPct, 0) / rows.length).toFixed(1)}%`, color: "text-emerald-400" },
                   { label: "Poor Calls", value: `${(rows.reduce((a,r) => a + r.poorPct, 0) / rows.length).toFixed(1)}%`, color: "text-red-400" },
                 ].map(s => (
@@ -1594,7 +1594,7 @@ function CarrierQualitySection() {
               <>
                 {/* MOS bar chart per carrier */}
                 <div>
-                  <div className="text-xs text-muted-foreground mb-2">Average MOS by carrier (CDR-based estimate)</div>
+                  <div className="text-xs text-muted-foreground mb-2">Est. MOS by carrier — signalling proxy from CDR/PDD, not RTP</div>
                   <ResponsiveContainer width="100%" height={160}>
                     <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 24 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
@@ -1622,7 +1622,7 @@ function CarrierQualitySection() {
                 <div className="space-y-1.5">
                   <div className="grid grid-cols-5 text-xs text-muted-foreground px-3 py-1 font-medium">
                     <span className="col-span-2">Carrier</span>
-                    <span className="text-right">Avg MOS</span>
+                    <span className="text-right">Est. MOS</span>
                     <span className="text-right">Good%</span>
                     <span className="text-right">Poor%</span>
                   </div>
@@ -1660,7 +1660,7 @@ function CarrierQualitySection() {
             <span className="text-sm font-semibold">Quality Events Log</span>
             {events.length > 0 && (
               <span className="ml-2 text-xs text-muted-foreground">
-                {events.length} event{events.length !== 1 ? "s" : ""} · latest MOS{" "}
+                {events.length} event{events.length !== 1 ? "s" : ""} · latest Est. MOS{" "}
                 <span className={mosColor(events[0].avgMos)}>{events[0].avgMos.toFixed(2)}</span>
               </span>
             )}
@@ -1689,7 +1689,7 @@ function CarrierQualitySection() {
               <div className="space-y-1.5 max-h-64 overflow-y-auto">
                 <div className="grid grid-cols-4 text-xs text-muted-foreground px-3 py-1 font-medium sticky top-0 bg-card z-10">
                   <span className="col-span-2">Window</span>
-                  <span className="text-right">Avg MOS</span>
+                  <span className="text-right">Est. MOS</span>
                   <span className="text-right">Samples</span>
                 </div>
                 {events.map(ev => (

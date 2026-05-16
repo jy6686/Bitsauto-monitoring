@@ -33,7 +33,7 @@ const METRICS: Record<string, { label: string; unit: string }> = {
   acd:              { label: "ACD (Avg Call Duration)",    unit: "s" },
   concurrent_calls: { label: "Concurrent Calls",           unit: "" },
   cost_per_min:     { label: "Cost per Minute",            unit: "$" },
-  mos:              { label: "MOS Score",                  unit: "" },
+  mos:              { label: "Est. MOS Score",              unit: "" },
   pdd:              { label: "PDD (Post-Dial Delay)",      unit: "s" },
   packet_loss:      { label: "Packet Loss",                unit: "%" },
 };
