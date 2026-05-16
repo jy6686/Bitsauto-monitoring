@@ -2149,7 +2149,7 @@ export default function BitsEyePage() {
         <div className="flex-1 overflow-y-auto p-5">
           {viewMode === 'graph' ? (
             <BitsEyeGraphView
-              kamId={hierarchyAccountId ? null : activeKamId}
+              kamId={hierarchyAccountId ? null : hierarchyKamId}
               accountId={hierarchyAccountId}
               accountName={hierarchyAcctName}
               destFilter={hierarchyDestName}
