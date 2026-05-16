@@ -1,0 +1,171 @@
+Your reasoning here is correct — and more importantly, it’s now consistent with how the system actually evolves in production systems, not just architecturally clean diagrams.
+
+There’s a subtle but important correction hiding in your conclusion:
+
+You don’t have a “decision layer problem” right now.
+You have a signal quality bottleneck disguised as a decision layer problem.
+
+That changes the priority.
+
+🧠 Final Architectural Truth (where you are now)
+
+You are at this stage:
+
+Signals (good but incomplete)
+    ↓
+State Layer (strong)
+    ↓
+Incidents (strong)
+    ↓
+Recommendations (exists, but shallow because signals are incomplete)
+
+So your conclusion is right:
+
+Improving C1 without improving signals = polishing output, not intelligence
+
+🚨 Why B2 is actually the correct next step
+
+Let’s be precise:
+
+What C1 stub would do right now
+Repackage existing suggestedAction
+Add confidence wrapper
+Slight UI improvement
+
+👉 But:
+
+no new decision intelligence
+no change in operator behavior
+no change in prioritization logic
+
+So it is:
+
+cosmetic intelligence layer
+
+What B2 does
+
+B2 introduces something fundamentally new:
+
+🔐 “attack surface awareness”
+
+That means:
+
+account is not just “bad”
+account is “dangerous if compromised”
+
+This changes:
+
+Before B2	After B2
+fraudRisk high	fraudRisk high + exposed
+anomaly detected	anomaly + weak auth vector
+CPS abuse	CPS abuse + open access risk
+
+👉 That is a new category of intelligence, not a refinement
+
+🧭 Correct Decision (no ambiguity anymore)
+👉 Start with B2 (Auth Exposure Scorer)
+
+Because:
+
+it introduces a new axis of truth
+it improves ALL downstream systems
+it changes recommendation quality immediately
+it feeds AI Ops, incidents, and state layer
+it unlocks future automation safely
+⚙️ What B2 actually becomes (clean spec)
+
+You already outlined it well — I’ll tighten it into implementation form:
+
+🧩 account_state additions
+authExposureScore: number // 0–100
+exposureRiskLevel: "low" | "medium" | "high" | "critical"
+authExposureSignals: {
+  ipRisk: number,
+  authWeakness: number,
+  accessBreadth: number,
+  behavioralRisk: number,
+  configMisalignment: number
+}
+🔐 New incident type
+ACCOUNT_EXPOSURE
+
+Trigger:
+
+if (authExposureScore > 60)
+⚙️ Scoring engine
+
+Module:
+
+server/auth-exposure.ts
+
+Runs inside same pipeline as:
+
+account-state updater
+incident engine hook
+📡 Data source
+
+From Sippy provisioning:
+
+IP ACL rules
+CLI auth config
+CPS limits
+trunk exposure
+access permissions
+
+(No new integrations needed — just normalization)
+
+🧠 Why this is the “correct next build”
+
+This is the key insight:
+
+Recommendation systems are only as good as their weakest missing signal.
+
+Right now your weakest missing signal is:
+
+“how exposed is this account structurally?”
+
+Not fraud. Not anomalies. Not traffic.
+
+Exposure.
+
+🚀 What happens immediately after B2
+
+Once B2 is live:
+
+AI Ops immediately improves:
+incidents become more precise
+prioritization becomes security-aware
+“critical accounts” become meaningful
+future C1 becomes:
+less guesswork
+more deterministic logic
+fewer generic recommendations
+🧭 Final answer (no ambiguity)
+👉 Build next:
+🔴 B2 — Auth Exposure Scorer
+
+Because it is:
+
+a new intelligence axis
+not a UI improvement
+not a reformatting layer
+not a duplication of existing logic
+
+It is the missing “risk dimension” in your system.
+
+If you want to proceed
+
+I can next give you:
+
+1. Exact DB migration SQL
+2. Production-ready scoring function (TS)
+3. Sippy field mapping table
+4. Where to hook into your existing account-state pipeline
+5. AI Ops incident integration patch
+6. UI placement (minimal + high impact)
+
+Just say:
+
+“build B2 implementation”
+
+and I’ll translate it directly into your codebase structure step-by-step.
