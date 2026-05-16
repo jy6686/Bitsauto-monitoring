@@ -702,7 +702,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   // ── KPI strip data ────────────────────────────────────────────────────────────
   const { data: liveCallsRaw } = useQuery<any>({
     queryKey: ['/api/sippy/live-calls'],
-    refetchInterval: 30_000, staleTime: 15_000,
+    refetchInterval: 60_000, staleTime: 30_000,
     enabled: role !== 'viewer',
   });
   const { data: incidentsRaw } = useQuery<any[]>({

@@ -1,0 +1,143 @@
+You’re basically asking to bring back operational richness + control, without losing the cleaner NOC Core design. That’s the right direction — the current dashboard became too minimal for real NOC work.
+
+We should not revert the architecture, but extend it properly.
+
+What you want (correctly interpreted)
+
+You want 3 things from the old dashboard back:
+
+1. Active Call Detail (real-time drilldown)
+
+Not just “Active Calls = 120”, but:
+
+live call list
+destination / carrier
+duration
+CPS impact
+status (ringing / connected / failed)
+click → opens call trace
+2. Customizable dashboard (like widgets)
+
+Users should be able to:
+
+show/hide widgets
+reorder sections
+pin important panels
+resize (optional later)
+3. Clickable operational depth
+
+Every KPI should be actionable:
+
+ASR → opens carrier breakdown
+MOS → opens quality map
+CPS → opens overload timeline
+Incidents → opens Intelligence Overlay (we designed this)
+What actually changed (important reality check)
+
+The new dashboard is:
+
+“NOC Snapshot View”
+
+Old dashboard was:
+
+“NOC Control Panel”
+
+You didn’t lose features — you lost interactivity layer + configurability layer
+
+So the fix is not “bring old dashboard back”
+
+It is:
+
+We add a “Control Layer” on top of NOC Core
+Proposed Upgrade (clean + scalable)
+Layer 1 — NOC Core (already built)
+
+Keep as-is:
+
+Health score
+KPI strip
+incidents
+drift
+Layer 2 — Active Call Intelligence Panel (NEW)
+
+Add back your missing critical feature:
+
+📞 Active Calls Widget
+
+Click expands:
+
+live call table (streaming)
+filters:
+carrier
+destination
+status
+click row → Call Trace Drawer
+
+Backend needed:
+
+/api/calls/live
+websocket or polling (5–10 sec)
+Layer 3 — Widget Control System (NEW but simple version first)
+“Customize Dashboard” button
+
+Opens modal:
+
+[✓] Active Calls Panel
+[✓] KPI Strip
+[✓] Incident Stream
+[✓] Drift Indicator
+[ ] Revenue Panel (optional)
+[ ] Carrier Deep Dive
+plus:
+drag to reorder
+save per user
+
+Storage:
+
+user_dashboard_layout table
+user_id
+layout_json
+updated_at
+Layer 4 — Click-to-Drill Behavior (VERY IMPORTANT)
+
+Every KPI becomes navigation:
+
+Click Item	Opens
+Active Calls	Live call table
+ASR	Carrier breakdown
+MOS	Quality heatmap
+Incidents	Intelligence Overlay
+Drift	Timeline view
+
+This restores “old dashboard usability” without clutter.
+
+What NOT to do (important pushback)
+
+Do NOT:
+
+bring back full old dashboard layout
+re-add finance + BI panels to NOC
+mix business + ops again on same screen
+
+That’s what made it heavy.
+
+Final recommended structure
+NOC Dashboard = 3 zones
+1. Real-time (Active Calls + KPIs)
+2. Stability (Drift + Incidents)
+3. Control (Clickable drilldowns)
+Best next step (recommended order)
+
+If we implement cleanly:
+
+Step 1 (fast win)
+
+👉 Add Active Calls Panel
+
+Step 2
+
+👉 Add click-to-drill behavior for KPIs
+
+Step 3
+
+👉 Add Customize Dashboard (widget system)

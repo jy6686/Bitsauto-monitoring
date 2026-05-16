@@ -388,11 +388,11 @@ export default function DashboardPage() {
     queryKey: ['/api/sippy/session'],
     refetchInterval: 120_000,
   });
-  // Sippy live calls — poll every 15 s; WS tick triggers an immediate refetch on top of that.
+  // Sippy live calls — poll every 60 s; WS tick triggers an immediate refetch on top of that.
   const { data: sippyLiveCalls, refetch: refetchLiveCalls } = useQuery<{ calls: any[]; connected?: boolean; stale?: boolean; error?: string }>({
     queryKey: ['/api/sippy/live-calls'],
-    staleTime: 10_000,
-    refetchInterval: 15_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
   });
   // WS tick also triggers an immediate refetch
   useEffect(() => { if (lastTick) refetchLiveCalls(); }, [lastTick]);
@@ -417,7 +417,7 @@ export default function DashboardPage() {
     nerBreakdown?: { answered: number; rna: number; subscriberSide: number; total: number };
   }>({
     queryKey: ['/api/sippy/dashboard-stats'],
-    refetchInterval: 15_000,
+    refetchInterval: 60_000,
   });
   const isSippyReachable = sippyLiveCalls?.connected === true || !!sippySession?.active || sippyStats?.connected === true;
   // Sippy ASR/ACD report — CDR-based revenue & margin stats for last 90 min

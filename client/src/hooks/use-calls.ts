@@ -13,7 +13,7 @@ export function useCalls(limit?: number) {
       if (!res.ok) throw new Error("Failed to fetch calls");
       return api.calls.list.responses[200].parse(await res.json());
     },
-    refetchInterval: 5000,
+    refetchInterval: 60_000,
   });
 }
 
