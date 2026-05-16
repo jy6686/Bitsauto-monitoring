@@ -1596,7 +1596,7 @@ function BitsEyeGraphView({ kamId, accountId, accountName, destFilter }: {
       )}
 
       {/* ── All-clear state ────────────────────────────────────────────────── */}
-      {showEvents && mappedEvents.length === 0 && !evFetching && (
+      {showEvents && visibleEvents.length === 0 && !evFetching && (
         <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 12,
           padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10,
           fontSize: 13, color: '#15803D', fontWeight: 500 }}>
