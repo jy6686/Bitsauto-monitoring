@@ -665,6 +665,20 @@ function EventMarkerLabel({ viewBox, event }: { viewBox?: any; event: GraphEvent
   );
 }
 
+// ── Latest-point pulse dot for live concurrent chart ──────────────────────────
+function LatestPulseDot(props: any) {
+  const { cx, cy, index, dataLength, color } = props;
+  if (index !== dataLength - 1 || cx == null || cy == null) return null;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={9} fill="none" stroke={color} strokeWidth={1.5}
+        style={{ animation: 'noc-live-dot-ring 2.2s ease-out infinite', transformOrigin: `${cx}px ${cy}px` }} />
+      <circle cx={cx} cy={cy} r={4} fill={color} stroke="#fff" strokeWidth={2}
+        style={{ animation: 'noc-live-dot-core 2.2s ease-in-out infinite', transformOrigin: `${cx}px ${cy}px` }} />
+    </g>
+  );
+}
+
 // ── BitsEye Graph View ─────────────────────────────────────────────────────────
 function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
   const [bucket, setBucket] = useState<5 | 15 | 60>(15);
@@ -958,7 +972,20 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
         ) : concFetching && concPoints.length === 0 ? (
           <div style={{ height: 280, background: '#F9FAFB', animation: 'pulse 2s infinite' }} />
         ) : (
-          <div style={{ padding: '16px 12px 12px', height: 300 }}>
+          <div style={{ padding: '16px 12px 12px', height: 300, position: 'relative' }}>
+            {/* Live scan shimmer — subtle light beam sweeping left→right */}
+            <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 2,
+              borderRadius: 8 }}>
+              <div style={{
+                position: 'absolute', top: 0, bottom: 0, width: '28%',
+                background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.18) 50%, transparent 100%)',
+                animation: 'noc-chart-scan 7s ease-in-out infinite',
+              }} />
+            </div>
+            {/* Live edge indicator — rightmost pulsing bar */}
+            <div style={{ position: 'absolute', right: 12, top: 16, bottom: 12, width: 2,
+              background: 'linear-gradient(180deg, transparent 0%, #16A34A 40%, #16A34A 60%, transparent 100%)',
+              opacity: 0.18, borderRadius: 1, pointerEvents: 'none', zIndex: 2 }} />
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={concPoints} margin={{ top: 22, right: 8, left: -12, bottom: 0 }}>
                 <defs>
@@ -985,12 +1012,14 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
                 })}
                 {/* Routing calls — amber layer */}
                 <Area type="monotone" dataKey="routing"
-                  stroke="#F59E0B" strokeWidth={1.5} fill="url(#lgConcRoute)" dot={false}
+                  stroke="#F59E0B" strokeWidth={1.5} fill="url(#lgConcRoute)"
+                  dot={(p: any) => <LatestPulseDot key={p.key} {...p} dataLength={concPoints.length} color="#F59E0B" />}
                   activeDot={{ r: 3.5, fill: '#F59E0B', stroke: '#fff', strokeWidth: 2 }}
                   strokeLinejoin="round" strokeLinecap="round" />
-                {/* Connected — primary signal, green */}
+                {/* Connected — primary signal, green — carries the main pulse dot */}
                 <Area type="monotone" dataKey="connected"
-                  stroke="#16A34A" strokeWidth={2.5} fill="url(#lgConcConn)" dot={false}
+                  stroke="#16A34A" strokeWidth={2.5} fill="url(#lgConcConn)"
+                  dot={(p: any) => <LatestPulseDot key={p.key} {...p} dataLength={concPoints.length} color="#16A34A" />}
                   activeDot={{ r: 4, fill: '#16A34A', stroke: '#fff', strokeWidth: 2 }}
                   strokeLinejoin="round" strokeLinecap="round" />
                 {/* Total active — blue dashed reference line */}
