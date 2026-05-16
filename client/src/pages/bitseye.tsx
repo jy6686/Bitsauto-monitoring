@@ -366,27 +366,49 @@ function EntityPanel({ entity, dimmed, onDrillDown, drillLabel }: {
 }) {
   const live = entity.curConcurrent > 0;
   const uid  = entity.name.replace(/[^a-z0-9]/gi, '_').slice(0, 16);
+
+  const trendPositive = entity.trendPct > 0;
+  const trendBg    = trendPositive ? '#F0FDF4' : entity.trendPct < 0 ? '#FEF2F2' : '#F9FAFB';
+  const trendClr   = trendPositive ? '#16A34A' : entity.trendPct < 0 ? '#DC2626' : '#6B7280';
+  const trendBdr   = trendPositive ? '#BBF7D0' : entity.trendPct < 0 ? '#FECACA' : '#E5E7EB';
+
+  const asrVal = entity.asr;
+  const asrClrHard = asrVal >= 60 ? '#16A34A' : asrVal >= 35 ? '#D97706' : asrVal > 0 ? '#DC2626' : '#9CA3AF';
+
   return (
-    <div className={cn(
-      "bg-card border rounded-xl overflow-hidden transition-all",
-      live ? "border-blue-500/25" : "border-border/30",
-      dimmed && "opacity-60",
-    )}>
+    <div style={{
+      background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 14,
+      overflow: 'hidden', transition: 'box-shadow 0.2s',
+      boxShadow: live ? '0 0 0 1.5px #BFDBFE, 0 2px 12px rgba(59,130,246,0.08)' : '0 1px 4px rgba(0,0,0,0.06)',
+      opacity: dimmed ? 0.6 : 1,
+    }}>
       {/* Header */}
-      <div className={cn(
-        "flex items-center gap-3 px-4 py-3 border-b border-border/25",
-        live ? "bg-gradient-to-r from-blue-500/5 to-transparent" : "bg-muted/5",
-      )}>
-        {live ? (
-          <span className="flex items-center gap-1.5 text-[10px] font-mono text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-1 rounded-full flex-shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />{entity.curConcurrent} live
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '12px 16px 10px', borderBottom: '1px solid #F3F4F6',
+        background: live ? 'linear-gradient(90deg,#EFF6FF,#FFFFFF)' : '#FAFAFA',
+      }}>
+        {/* Live indicator dot */}
+        {live && (
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 600,
+            color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE',
+            padding: '2px 8px', borderRadius: 99, flexShrink: 0,
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#3B82F6',
+              animation: 'pulse 2s infinite', display: 'inline-block' }} />
+            {entity.curConcurrent} live
           </span>
-        ) : (
-          <WifiOff className="w-4 h-4 text-muted-foreground/20 flex-shrink-0" />
         )}
-        <h3 className="flex-1 text-base font-bold truncate" title={entity.name}>{entity.name}</h3>
+        <h3 style={{ flex: 1, fontSize: 15, fontWeight: 700, color: '#111827',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}
+          title={entity.name}>{entity.name}</h3>
         {entity.todayCalls > 0 && (
-          <span className={cn("flex items-center gap-1 text-xs font-semibold flex-shrink-0", trendColor(entity.trendPct))}>
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700,
+            color: trendClr, background: trendBg, border: `1px solid ${trendBdr}`,
+            padding: '2px 8px', borderRadius: 99, flexShrink: 0,
+          }}>
             <TrendIcon pct={entity.trendPct} />
             {entity.trendPct > 0 ? '+' : ''}{entity.trendPct}%
           </span>
@@ -394,25 +416,28 @@ function EntityPanel({ entity, dimmed, onDrillDown, drillLabel }: {
       </div>
 
       {/* KPI strip */}
-      <div className="grid grid-cols-4 border-b border-border/15 divide-x divide-border/10">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', borderBottom: '1px solid #F3F4F6' }}>
         {[
-          { label: 'Today',    value: entity.todayCalls > 0 ? entity.todayCalls : '-',  cls: entity.todayCalls > 0 ? 'text-foreground' : 'text-muted-foreground/20' },
-          { label: 'ASR',      value: entity.asr > 0 ? `${entity.asr}%` : '-',          cls: asrColor(entity.asr) },
-          { label: 'ACD',      value: fmtAcd(entity.acdSecs),                            cls: 'text-foreground' },
-          { label: 'Peak/24h', value: entity.stats.total.max || '-',                     cls: 'text-foreground' },
-        ].map(item => (
-          <div key={item.label} className="flex flex-col items-center py-2.5 gap-0.5">
-            <span className="text-[8px] text-muted-foreground/40 uppercase tracking-wider">{item.label}</span>
-            <span className={cn("text-sm font-bold tabular-nums", item.cls)}>{item.value}</span>
+          { label: 'TODAY',     value: entity.todayCalls > 0 ? entity.todayCalls.toLocaleString() : '—', clr: '#111827' },
+          { label: 'ASR',       value: entity.asr > 0 ? `${entity.asr}%` : '—',                          clr: asrClrHard },
+          { label: 'ACD',       value: fmtAcd(entity.acdSecs),                                            clr: '#111827' },
+          { label: 'PEAK / 24H',value: entity.stats.total.max > 0 ? String(entity.stats.total.max) : '—', clr: '#111827' },
+        ].map((item, i) => (
+          <div key={item.label} style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 6px',
+            borderRight: i < 3 ? '1px solid #F3F4F6' : 'none', gap: 3,
+          }}>
+            <span style={{ fontSize: 8, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{item.label}</span>
+            <span style={{ fontSize: 16, fontWeight: 800, color: item.clr, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{item.value}</span>
           </div>
         ))}
       </div>
 
       {/* Charts */}
-      <div className="p-4 grid grid-cols-2 gap-6 border-b border-border/15">
+      <div style={{ padding: '14px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, borderBottom: '1px solid #F3F4F6' }}>
         <LargeChart
           data={entity.daily}
-          title={entity.usedConcurrentProxy ? "Daily  ·  24 h  (concurrent proxy)" : "Daily  ·  24 h"}
+          title={entity.usedConcurrentProxy ? "DAILY  ·  24 H  (concurrent)" : "DAILY  ·  24 H"}
           gradientA={`dT_${uid}`} gradientB={`dC_${uid}`}
           colorA="#8b5cf6" colorB="#38bdf8"
           keyA="total_calls" keyB="connected_calls"
@@ -421,7 +446,7 @@ function EntityPanel({ entity, dimmed, onDrillDown, drillLabel }: {
         />
         <LargeChart
           data={entity.weekly}
-          title="Weekly  ·  7 d"
+          title="WEEKLY  ·  7 D"
           gradientA={`wT_${uid}`} gradientB={`wC_${uid}`}
           colorA="#f59e0b" colorB="#14b8a6"
           keyA="total_calls" keyB="connected_calls"
@@ -430,30 +455,72 @@ function EntityPanel({ entity, dimmed, onDrillDown, drillLabel }: {
       </div>
 
       {/* Stats table */}
-      <div className="px-4 py-3"><StatsTable entity={entity} /></div>
+      <div style={{ padding: '10px 16px 4px' }}>
+        <div style={{ border: '1px solid #F3F4F6', borderRadius: 10, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #F3F4F6', background: '#FAFAFA' }}>
+                <th style={{ padding: '6px 12px', textAlign: 'left', fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', width: 140 }}>Metric</th>
+                {(['CUR','MIN','MAX','AVG'] as const).map(h => (
+                  <th key={h} style={{ padding: '6px 12px', textAlign: 'right', fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { label: 'Total Calls', dot: '#8b5cf6', s: entity.stats.total },
+                { label: 'Connected',   dot: '#38bdf8', s: entity.stats.connected },
+              ].map((row, ri) => (
+                <tr key={row.label} style={{ borderTop: ri > 0 ? '1px solid #F3F4F6' : 'none' }}>
+                  <td style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: row.dot, flexShrink: 0, display: 'inline-block' }} />
+                    <span style={{ fontSize: 10.5, fontWeight: 600, color: '#374151' }}>{row.label}</span>
+                  </td>
+                  {[row.s.cur, row.s.min, row.s.max, row.s.avg].map((v, ci) => (
+                    <td key={ci} style={{ padding: '7px 12px', textAlign: 'right', fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace', color: v === 0 ? '#D1D5DB' : '#1F2937' }}>
+                      {v === 0 ? '—' : v}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: '1px solid #F3F4F6', background: '#FAFAFA' }}>
+                <td colSpan={3} style={{ padding: '5px 12px', fontSize: 9, color: '#D1D5DB' }}>Last Updated</td>
+                <td style={{ padding: '5px 12px', textAlign: 'right', fontSize: 9, color: '#D1D5DB', fontFamily: 'monospace' }}>{entity.lastUpdatedAt}</td>
+                <td style={{ padding: '5px 12px', textAlign: 'right', fontSize: 9, color: '#D1D5DB', fontFamily: 'monospace' }}>{entity.lastUpdatedDate}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
 
       {/* KAM client pills */}
       {entity.clients && entity.clients.length > 0 && (
-        <div className="px-4 pb-2 border-t border-border/15 pt-2 flex flex-wrap gap-1.5">
+        <div style={{ padding: '8px 16px', display: 'flex', flexWrap: 'wrap', gap: 6, borderTop: '1px solid #F3F4F6', marginTop: 6 }}>
           {entity.clients.slice(0, 8).map(c => (
-            <span key={c} className="text-[9px] px-2 py-0.5 rounded-full bg-muted/30 border border-border/25 text-muted-foreground/50">{c}</span>
+            <span key={c} style={{ fontSize: 9, padding: '2px 8px', borderRadius: 99, background: '#F9FAFB', border: '1px solid #E5E7EB', color: '#6B7280' }}>{c}</span>
           ))}
           {entity.clients.length > 8 && (
-            <span className="text-[9px] px-2 py-0.5 rounded-full bg-muted/30 border border-border/25 text-muted-foreground/35">+{entity.clients.length - 8} more</span>
+            <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 99, background: '#F9FAFB', border: '1px solid #E5E7EB', color: '#9CA3AF' }}>+{entity.clients.length - 8} more</span>
           )}
         </div>
       )}
 
       {/* Drill-down button */}
       {onDrillDown && (
-        <div className={cn("px-4 pb-3 flex justify-end", (!entity.clients || entity.clients.length === 0) && "border-t border-border/15 pt-3")}>
+        <div style={{ padding: '10px 16px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #F3F4F6' }}>
           <button
             onClick={onDrillDown}
             data-testid={`btn-drilldown-${entity.name}`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/25 text-sky-400 hover:bg-sky-500/20 transition-colors text-xs font-semibold"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8,
+              background: '#F0F9FF', border: '1px solid #BAE6FD', color: '#0284C7',
+              fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            }}
           >
             {drillLabel ?? 'Drill Down'}
-            <ArrowRight className="w-3.5 h-3.5" />
+            <ArrowRight style={{ width: 13, height: 13 }} />
           </button>
         </div>
       )}
@@ -2147,12 +2214,61 @@ export default function BitsEyePage() {
 
         {/* Content area */}
         <div className="flex-1 overflow-y-auto p-5">
-          {viewMode === 'graph' ? (
+          {viewMode === 'graph' && hierarchyAccountId ? (
+            /* Specific client selected → full NOC intelligence chart */
             <BitsEyeGraphView
-              kamId={hierarchyAccountId ? null : hierarchyKamId}
+              kamId={null}
               accountId={hierarchyAccountId}
               accountName={hierarchyAcctName}
               destFilter={hierarchyDestName}
+            />
+          ) : viewMode === 'graph' && showGrid && contentEntities.length > 0 ? (
+            /* Graph tab on a list view → same sparkline-card grid */
+            <div className="space-y-5">
+              <div className="flex items-center gap-4 pb-3 border-b border-border/20">
+                <span className="text-xs text-muted-foreground/50">{contentEntities.length} {
+                  nav.type === 'clients-all' || nav.type === 'kam' ? 'clients'
+                  : nav.type === 'vendors-all' ? 'vendors'
+                  : nav.type.startsWith('country') ? 'countries'
+                  : nav.type.startsWith('kam') ? 'KAMs'
+                  : 'destinations'
+                }</span>
+                <span className="text-xs text-muted-foreground/30">·</span>
+                <span className="text-xs text-muted-foreground/50">
+                  {contentEntities.reduce((s, e) => s + e.todayCalls, 0).toLocaleString()} calls today
+                </span>
+                <span className="text-xs text-muted-foreground/30">·</span>
+                <span className={cn("text-xs font-semibold", asrColor(
+                  Math.round(contentEntities.reduce((s, e) => s + e.todayCalls * e.asr, 0) /
+                    Math.max(contentEntities.reduce((s, e) => s + e.todayCalls, 0), 1))
+                ))}>
+                  ASR {Math.round(contentEntities.reduce((s, e) => s + e.todayCalls * e.asr, 0) /
+                    Math.max(contentEntities.reduce((s, e) => s + e.todayCalls, 0), 1))}%
+                </span>
+                {nav.kamName && (
+                  <span className="ml-auto flex items-center gap-1.5 text-[10px] text-violet-400/60 bg-violet-500/5 border border-violet-500/15 px-2 py-0.5 rounded-full">
+                    <Users className="w-3 h-3" />{nav.kamName}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                {contentEntities.map(entity => (
+                  <EntityPanel
+                    key={entity.name}
+                    entity={entity}
+                    onDrillDown={getDrillDownForEntity(entity.name)}
+                    drillLabel={getDrillLabel()}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : viewMode === 'graph' ? (
+            /* Graph tab with no specific context — show full NOC dashboard */
+            <BitsEyeGraphView
+              kamId={hierarchyKamId}
+              accountId={null}
+              accountName={null}
+              destFilter={null}
             />
           ) : nav.type === 'welcome' ? (
             /* Welcome screen */
