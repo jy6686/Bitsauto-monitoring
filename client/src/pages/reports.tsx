@@ -10,7 +10,7 @@ import { useTimezone } from "@/context/timezone-context";
 import {
   Download, RefreshCw, Filter, TrendingUp, TrendingDown, Minus,
   Calendar, Clock, Globe, Building2, PhoneCall, CheckCircle2, PhoneOff,
-  AlertTriangle, Users, DollarSign, ShieldAlert, Flag, ArrowRight,
+  AlertTriangle, Users, DollarSign, Flag, ArrowRight,
   PhoneForwarded, PhoneIncoming, Activity, BarChart2, Layers, Server,
   Percent, ArrowUpRight, ArrowDownRight, Wifi,
 } from "lucide-react";
@@ -26,7 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 type ReportRow = AsrAcdReportRow & { clientName?: string; country?: string };
 
-type ActiveTab = 'client' | 'vendor' | 'connection' | 'revenue' | 'anomalies';
+type ActiveTab = 'client' | 'vendor' | 'connection' | 'revenue';
 
 const COUNTRY_TO_ISO: Record<string, string> = {
   "Afghanistan":"AF","Albania":"AL","Algeria":"DZ","Angola":"AO","Argentina":"AR",
@@ -129,11 +129,10 @@ function matchProfile(number: string, profiles: ClientProfile[], type: 'client' 
 
 // ── Tab config ────────────────────────────────────────────────────────────────
 const TABS: { id: ActiveTab; label: string; icon: any; desc: string }[] = [
-  { id: 'client',     label: 'Client Report',    icon: Users,       desc: 'Origination analytics by customer / CLI' },
-  { id: 'vendor',     label: 'Vendor Report',    icon: Server,      desc: 'Termination analytics by vendor / connection' },
-  { id: 'connection', label: 'Connection',       icon: Layers,      desc: 'Per-account stats · origination + termination' },
-  { id: 'revenue',    label: 'Revenue & Margin', icon: DollarSign,  desc: 'P&L summary · margin analytics' },
-  { id: 'anomalies',  label: 'CDR Anomalies',    icon: ShieldAlert, desc: 'Statistical per-account deviation detection' },
+  { id: 'client',     label: 'Client Report',    icon: Users,      desc: 'Origination analytics by customer / CLI' },
+  { id: 'vendor',     label: 'Vendor Report',    icon: Server,     desc: 'Termination analytics by vendor / connection' },
+  { id: 'connection', label: 'Connection',       icon: Layers,     desc: 'Per-account stats · origination + termination' },
+  { id: 'revenue',    label: 'Revenue & Margin', icon: DollarSign, desc: 'P&L summary · margin analytics' },
 ];
 
 export default function ReportsPage() {
@@ -242,19 +241,6 @@ export default function ReportsPage() {
     enabled: sippySession?.active === true && (activeTab === 'client' || activeTab === 'vendor'),
   });
 
-  // ── CDR Anomaly query ────────────────────────────────────────────────────────
-  type AnomalyRow = {
-    account: string; metric: string; label: string;
-    baseline: number; observed: number; sigma: number;
-    severity: string; direction: string;
-  };
-  const { data: anomalyData, isLoading: anomalyLoading, refetch: refetchAnomalies } = useQuery<{
-    anomalies: AnomalyRow[]; accountsAnalysed: number; baselineAccounts: number; windowHours: number;
-  }>({
-    queryKey: ['/api/cdr-anomalies'],
-    enabled: activeTab === 'anomalies',
-    staleTime: 120_000,
-  });
 
   // ── Totals ──────────────────────────────────────────────────────────────────
   const totals = useMemo(() => ({
@@ -1092,148 +1078,6 @@ export default function ReportsPage() {
         </>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════════════
-          ANOMALIES TAB — statistical CDR per-account deviation detector
-         ════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'anomalies' && (
-        <>
-          {/* Sub-header */}
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-              Statistical σ-deviation over {anomalyData?.windowHours ?? 72}h CDR rolling window ·&nbsp;
-              {anomalyData?.accountsAnalysed ?? 0} accounts analysed ·&nbsp;
-              {anomalyData?.baselineAccounts ?? 0} with baseline data
-            </div>
-            <button
-              onClick={() => refetchAnomalies()}
-              disabled={anomalyLoading}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 text-xs hover:bg-muted/30 transition-colors disabled:opacity-50"
-              data-testid="btn-refresh-anomalies"
-            >
-              {anomalyLoading ? <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full" /> : <AlertTriangle className="w-3.5 h-3.5" />}
-              Re-run Detection
-            </button>
-          </div>
-
-          {/* KPI strip */}
-          {anomalyData && (
-            <div className="grid grid-cols-3 gap-4">
-              {[
-                {
-                  label: 'Critical',
-                  count: anomalyData.anomalies.filter(a => a.severity === 'critical').length,
-                  color: 'text-red-400',
-                  bg:    'bg-red-500/10 border-red-500/30',
-                },
-                {
-                  label: 'High',
-                  count: anomalyData.anomalies.filter(a => a.severity === 'high').length,
-                  color: 'text-amber-400',
-                  bg:    'bg-amber-500/10 border-amber-500/30',
-                },
-                {
-                  label: 'Medium',
-                  count: anomalyData.anomalies.filter(a => a.severity === 'medium').length,
-                  color: 'text-yellow-400',
-                  bg:    'bg-yellow-500/10 border-yellow-500/30',
-                },
-              ].map(k => (
-                <div key={k.label} className={`rounded-xl border p-4 ${k.bg}`}>
-                  <div className={`text-3xl font-bold font-mono ${k.color}`}>{k.count}</div>
-                  <div className="text-xs text-muted-foreground mt-1">{k.label} severity anomalies</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Anomaly table */}
-          <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
-            {anomalyLoading ? (
-              <div className="p-8 flex flex-col gap-3">
-                {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-10 w-full rounded-lg" />)}
-              </div>
-            ) : !anomalyData || anomalyData.anomalies.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground/50">
-                <ShieldAlert className="w-10 h-10 opacity-30" />
-                <div className="text-sm text-center">
-                  {anomalyData?.accountsAnalysed === 0
-                    ? 'No CDR data in cache. Ensure Sippy is connected and CDRs are flowing.'
-                    : 'No statistical anomalies detected in the current 72h window.'}
-                </div>
-                {anomalyData && anomalyData.accountsAnalysed > 0 && (
-                  <div className="text-xs text-muted-foreground/40 text-center max-w-xs">
-                    {anomalyData.baselineAccounts} of {anomalyData.accountsAnalysed} accounts have enough baseline data (≥5 answered calls).
-                    Anomalies are flagged at ≥2σ deviation.
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead className="border-b border-border/50 bg-muted/20">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-muted-foreground font-medium">Severity</th>
-                      <th className="px-4 py-3 text-left text-muted-foreground font-medium">Account</th>
-                      <th className="px-4 py-3 text-left text-muted-foreground font-medium">Metric</th>
-                      <th className="px-4 py-3 text-right text-muted-foreground font-medium">Baseline</th>
-                      <th className="px-4 py-3 text-right text-muted-foreground font-medium">Observed</th>
-                      <th className="px-4 py-3 text-right text-muted-foreground font-medium">Deviation (σ)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {anomalyData.anomalies.map((row, i) => {
-                      const sevColor = row.severity === 'critical' ? 'text-red-400 bg-red-500/10 border-red-500/40'
-                        : row.severity === 'high'    ? 'text-amber-400 bg-amber-500/10 border-amber-500/40'
-                        : 'text-yellow-400 bg-yellow-500/10 border-yellow-500/40';
-
-                      const fmtVal = (metric: string, val: number) => {
-                        if (metric === 'avg_duration') return `${val.toFixed(0)}s`;
-                        if (metric === 'cost_per_min') return `$${val.toFixed(4)}/min`;
-                        if (metric === 'dest_entropy') return val.toFixed(3);
-                        return val.toFixed(3);
-                      };
-
-                      return (
-                        <tr key={i} className="border-b border-border/20 hover:bg-muted/20 transition-colors" data-testid={`anomaly-row-${i}`}>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wide ${sevColor}`}>
-                              {row.severity}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 font-mono font-medium">{row.account}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{row.label}</td>
-                          <td className="px-4 py-3 text-right font-mono text-muted-foreground">{fmtVal(row.metric, row.baseline)}</td>
-                          <td className="px-4 py-3 text-right font-mono font-bold">
-                            <span className={row.direction === 'up' ? 'text-amber-400' : 'text-blue-400'}>
-                              {fmtVal(row.metric, row.observed)}
-                              <span className="text-[9px] ml-1 opacity-70">{row.direction === 'up' ? '▲' : '▼'}</span>
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono">
-                            <span className={row.sigma >= 3 ? 'text-red-400' : row.sigma >= 2.5 ? 'text-amber-400' : 'text-yellow-400'}>
-                              {row.sigma.toFixed(2)}σ
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Explanation card */}
-          <div className="rounded-xl border border-border/30 bg-muted/10 p-5 text-xs text-muted-foreground space-y-1.5">
-            <div className="font-medium text-foreground/80 mb-2">How anomaly detection works</div>
-            <div><span className="text-foreground/70">Window:</span> Compares each account's last 24h CDR data against the 24–72h baseline window.</div>
-            <div><span className="text-foreground/70">Metrics:</span> Avg call duration · Cost per minute · Destination diversity (Shannon entropy).</div>
-            <div><span className="text-foreground/70">Thresholds:</span> Medium ≥ 2σ · High ≥ 2.5σ · Critical ≥ 3σ from baseline mean.</div>
-            <div><span className="text-foreground/70">Requires:</span> ≥ 5 answered calls in the baseline window per account.</div>
-          </div>
-        </>
-      )}
     </div>
   );
 }

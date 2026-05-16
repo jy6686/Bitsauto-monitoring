@@ -87,7 +87,7 @@ interface TimelineEntry {
   type: 'signal' | 'score_drop' | 'escalation' | 'resolution';
 }
 
-type FeedTab = 'all' | 'anomalies' | 'signals' | 'incidents';
+type FeedTab = 'all' | 'anomalies' | 'signals' | 'incidents' | 'accounts';
 
 const SIGNAL_TYPE_CONFIG: Record<string, { label: string; icon: any; bg: string; badge: string; color: string }> = {
   ROUTING_FAILURE:          { label: 'Routing Failure',       icon: AlertTriangle, bg: 'bg-rose-500/5 border-rose-500/30',     badge: 'bg-rose-500/15 text-rose-400 border-rose-500/30',   color: 'text-rose-400'   },
@@ -197,6 +197,20 @@ export default function AiOpsPage() {
     queryKey: ['/api/routing-suggestions'],
     refetchInterval: 120_000,
     staleTime: 60_000,
+  });
+
+  // ── Account-level CDR anomalies (absorbed from Reports) ───────────────────
+  interface AccountAnomalyRow {
+    account: string; metric: string; label: string;
+    baseline: number; observed: number; sigma: number;
+    severity: string; direction: string;
+  }
+  const { data: accountAnomalyData, isLoading: accountAnomalyLoading, refetch: refetchAccountAnomalies } = useQuery<{
+    anomalies: AccountAnomalyRow[]; accountsAnalysed: number; baselineAccounts: number; windowHours: number;
+  }>({
+    queryKey: ['/api/cdr-anomalies'],
+    enabled: feedTab === 'accounts',
+    staleTime: 120_000,
   });
 
   const generateSuggestionsMutation = useMutation({
@@ -415,6 +429,7 @@ export default function AiOpsPage() {
                   { key: 'anomalies', label: 'Anomalies', count: rawAnomalies.length },
                   { key: 'signals',   label: 'Signals',   count: rawSignals.length },
                   { key: 'incidents', label: 'Incidents', count: incidents.length, active: activeIncidents.length },
+                  { key: 'accounts', label: 'Accounts',  count: accountAnomalyData?.anomalies.length ?? 0 },
                 ] as Array<{ key: FeedTab; label: string; count: number; active?: number }>).map(tab => (
                   <button
                     key={tab.key}
@@ -666,6 +681,123 @@ export default function AiOpsPage() {
                   </AnimatePresence>
                 </div>
               )
+            ) : feedTab === 'accounts' ? (
+              // ── Account-level CDR Anomalies Tab ─────────────────────────────
+              <div className="space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                    {accountAnomalyLoading
+                      ? 'Analysing account CDR data…'
+                      : `Statistical σ-deviation · ${accountAnomalyData?.windowHours ?? 72}h window · ${accountAnomalyData?.accountsAnalysed ?? 0} accounts analysed · ${accountAnomalyData?.baselineAccounts ?? 0} with baseline`
+                    }
+                  </div>
+                  <button
+                    onClick={() => refetchAccountAnomalies()}
+                    disabled={accountAnomalyLoading}
+                    data-testid="button-refresh-account-anomalies"
+                    className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={cn("h-3 w-3", accountAnomalyLoading && "animate-spin")} />
+                    Re-run
+                  </button>
+                </div>
+
+                {accountAnomalyLoading ? (
+                  <div className="space-y-2">
+                    {[1,2,3].map(i => (
+                      <div key={i} className="bg-card border border-border rounded-xl p-4 animate-pulse">
+                        <div className="h-3 bg-muted/40 rounded w-1/2 mb-2" />
+                        <div className="h-3 bg-muted/30 rounded w-full" />
+                      </div>
+                    ))}
+                  </div>
+                ) : !accountAnomalyData || accountAnomalyData.anomalies.length === 0 ? (
+                  <div className="bg-card border border-border rounded-xl p-12 text-center">
+                    <CheckCircle2 className="h-10 w-10 text-emerald-400/50 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground">No account-level anomalies detected</p>
+                    <p className="text-xs text-muted-foreground/60 mt-1">
+                      {accountAnomalyData?.accountsAnalysed === 0
+                        ? 'No CDR data in cache. Ensure Sippy is connected and CDRs are flowing.'
+                        : 'All account metrics are within normal statistical ranges.'}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-3 gap-3">
+                      {(['critical','high','medium'] as const).map(sev => {
+                        const count = accountAnomalyData.anomalies.filter(a => a.severity === sev).length;
+                        const cfg = SEVERITY_CONFIG[sev];
+                        return (
+                          <div key={sev} className={cn("rounded-xl border p-4", cfg.bg)}>
+                            <div className={cn("text-3xl font-bold font-mono", cfg.color)}>{count}</div>
+                            <div className="text-xs text-muted-foreground mt-1 capitalize">{sev} severity</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="border-b border-border/50 bg-muted/20">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-muted-foreground font-medium">Severity</th>
+                              <th className="px-4 py-3 text-left text-muted-foreground font-medium">Account</th>
+                              <th className="px-4 py-3 text-left text-muted-foreground font-medium">Metric</th>
+                              <th className="px-4 py-3 text-right text-muted-foreground font-medium">Baseline</th>
+                              <th className="px-4 py-3 text-right text-muted-foreground font-medium">Observed</th>
+                              <th className="px-4 py-3 text-right text-muted-foreground font-medium">Deviation (σ)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {accountAnomalyData.anomalies.map((row, i) => {
+                              const cfg = SEVERITY_CONFIG[(row.severity in SEVERITY_CONFIG ? row.severity : 'medium') as keyof typeof SEVERITY_CONFIG];
+                              const fmtVal = (metric: string, val: number) => {
+                                if (metric === 'avg_duration')  return `${val.toFixed(0)}s`;
+                                if (metric === 'cost_per_min')  return `$${val.toFixed(4)}/min`;
+                                if (metric === 'dest_entropy')  return val.toFixed(3);
+                                return val.toFixed(3);
+                              };
+                              return (
+                                <tr key={i} data-testid={`account-anomaly-row-${i}`}
+                                  className="border-b border-border/20 hover:bg-muted/20 transition-colors">
+                                  <td className="px-4 py-3">
+                                    <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wide", cfg.badge)}>
+                                      {row.severity}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 font-mono font-medium">{row.account}</td>
+                                  <td className="px-4 py-3 text-muted-foreground">{row.label}</td>
+                                  <td className="px-4 py-3 text-right font-mono text-muted-foreground">{fmtVal(row.metric, row.baseline)}</td>
+                                  <td className="px-4 py-3 text-right font-mono font-bold">
+                                    <span className={row.direction === 'up' ? 'text-amber-400' : 'text-blue-400'}>
+                                      {fmtVal(row.metric, row.observed)}
+                                      <span className="text-[9px] ml-1 opacity-70">{row.direction === 'up' ? '▲' : '▼'}</span>
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-mono">
+                                    <span className={row.sigma >= 3 ? 'text-rose-400' : row.sigma >= 2.5 ? 'text-amber-400' : 'text-yellow-400'}>
+                                      {row.sigma.toFixed(2)}σ
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 text-[11px] text-muted-foreground space-y-1">
+                      <span className="font-medium text-foreground/70">How account detection works: </span>
+                      Compares each account's last 24h CDR data against the 24–72h baseline window ·
+                      Metrics: avg call duration · cost per minute · destination entropy ·
+                      Thresholds: Medium ≥2σ · High ≥2.5σ · Critical ≥3σ
+                    </div>
+                  </>
+                )}
+              </div>
             ) : (isLoading || signalsLoading) ? (
               <div className="space-y-3">
                 {[1,2].map(i => (
