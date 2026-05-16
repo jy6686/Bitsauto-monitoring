@@ -24,6 +24,28 @@ interface DailyPoint  {
   concurrent_calls: number;
 }
 interface WeeklyPoint { label: string; total_calls: number; connected_calls: number; }
+
+// Concurrent call stream types (live NOC graph)
+interface ConcurrentBucket {
+  ts: number;
+  label: string;
+  active: number;
+  connected: number;
+  routing: number;
+}
+interface ConcurrentTrendResponse {
+  points: ConcurrentBucket[];
+  summary: {
+    peakActive: number;
+    currentActive: number;
+    currentConnected: number;
+    currentRouting: number;
+    samplingIntervalSecs: number;
+    windowHours: number;
+    hasHistory: boolean;
+  };
+}
+
 interface EntityData {
   name: string;
   daily:  DailyPoint[];
@@ -526,7 +548,7 @@ function scoreCorrelation(
   return { score, likelyCause: score >= 62, impactDesc };
 }
 
-// ── Graph tooltip ──────────────────────────────────────────────────────────────
+// ── CDR chart tooltip (ASR chart) ─────────────────────────────────────────────
 function GraphTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const d: Record<string, number> = {};
@@ -561,6 +583,51 @@ function GraphTooltip({ active, payload, label }: any) {
           <span style={{ color: '#9CA3AF' }}>ASR</span>
           <span style={{ fontWeight: 700, color: asrClr }}>{asr}%</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Concurrent call stream tooltip ────────────────────────────────────────────
+function ConcurrentGraphTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const d: Record<string, number> = {};
+  for (const p of payload) d[p.dataKey] = p.value ?? 0;
+  const active_calls = d.active ?? (d.connected ?? 0) + (d.routing ?? 0);
+  const connPct = active_calls > 0 ? Math.round((d.connected ?? 0) / active_calls * 100) : 0;
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 12, padding: '10px 14px',
+      boxShadow: '0 4px 24px rgba(0,0,0,0.09)', minWidth: 172, fontSize: 12, color: '#374151' }}>
+      <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase',
+        letterSpacing: '0.06em', marginBottom: 8 }}>{label}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: '#16A34A', display: 'inline-block' }} />
+            Connected
+          </span>
+          <span style={{ fontWeight: 700, color: '#16A34A' }}>{d.connected ?? 0}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: '#F59E0B', display: 'inline-block' }} />
+            Routing / Setup
+          </span>
+          <span style={{ fontWeight: 700, color: '#F59E0B' }}>{d.routing ?? 0}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16,
+          borderTop: '1px solid #F3F4F6', paddingTop: 4, marginTop: 2 }}>
+          <span style={{ color: '#9CA3AF' }}>Total Active</span>
+          <span style={{ fontWeight: 700, color: '#2563EB' }}>{active_calls}</span>
+        </div>
+        {active_calls > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+            <span style={{ color: '#9CA3AF' }}>Connect ratio</span>
+            <span style={{ fontWeight: 700, color: connPct >= 80 ? '#16A34A' : connPct >= 50 ? '#F59E0B' : '#EF4444' }}>
+              {connPct}%
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -607,6 +674,7 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
   // Hours shown scales with bucket size
   const hoursBack = bucket === 5 ? 2 : bucket === 15 ? 4 : 24;
 
+  // CDR-based trend — used for KPI summary cards and ASR chart
   const { data, isFetching } = useQuery<CallTrendResponse>({
     queryKey: ['/api/bitseye/call-trend', bucket, hoursBack, kamId],
     queryFn: async () => {
@@ -617,6 +685,19 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
       return r.json();
     },
     staleTime:       55_000,
+    refetchInterval: 60_000,
+  });
+
+  // Concurrent call stream — used for the main NOC chart (live concurrent, not cumulative)
+  const { data: concurrentData, isFetching: concFetching } = useQuery<ConcurrentTrendResponse>({
+    queryKey: ['/api/bitseye/concurrent-trend', bucket, hoursBack],
+    queryFn: async () => {
+      const p = new URLSearchParams({ bucket: String(bucket), hours: String(hoursBack) });
+      const r = await fetch(`/api/bitseye/concurrent-trend?${p}`);
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime:       25_000,
     refetchInterval: 60_000,
   });
 
@@ -634,22 +715,30 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
 
   const s = data?.summary;
   const buckets = data?.buckets ?? [];
+  const concPoints = concurrentData?.points ?? [];
+  const concSummary = concurrentData?.summary;
   const tickInterval = buckets.length > 24 ? Math.ceil(buckets.length / 12) - 1 : 'preserveStartEnd';
+  const concTickInterval = concPoints.length > 24 ? Math.ceil(concPoints.length / 12) - 1 : 'preserveStartEnd';
 
-  // Map each event to the nearest bucket index + label, then score correlation
-  type ScoredEvent = GraphEvent & { bIdx: number; score: number; likelyCause: boolean; impactDesc: string | null; priority: 'critical' | 'secondary' };
+  // Map each event to the nearest CDR bucket (for correlation scoring) AND nearest concurrent point (for chart position)
+  type ScoredEvent = GraphEvent & { bIdx: number; score: number; likelyCause: boolean; impactDesc: string | null; priority: 'critical' | 'secondary'; concLabel?: string };
   const scoredEvents = useMemo((): ScoredEvent[] => {
     if (!eventsData?.events?.length || !buckets.length) return [];
     return eventsData.events.map(ev => {
+      // CDR bucket mapping (for correlation scoring)
       let bestIdx = 0, bestDiff = Infinity;
       buckets.forEach((b, i) => { const d = Math.abs(b.ts - ev.ts); if (d < bestDiff) { bestDiff = d; bestIdx = i; } });
       const label = buckets[bestIdx]?.label;
       if (!label) return null;
       const { score, likelyCause, impactDesc } = scoreCorrelation(ev.type, bestIdx, buckets);
       const priority = EVENT_PRIORITY[ev.type] ?? 'secondary';
-      return { ...ev, bucketLabel: label, bIdx: bestIdx, score, likelyCause, impactDesc, priority };
+      // Concurrent point mapping (for chart overlay position)
+      let bestConcIdx = 0, bestConcDiff = Infinity;
+      concPoints.forEach((p, i) => { const d = Math.abs(p.ts - ev.ts); if (d < bestConcDiff) { bestConcDiff = d; bestConcIdx = i; } });
+      const concLabel = concPoints[bestConcIdx]?.label;
+      return { ...ev, bucketLabel: label, bIdx: bestIdx, score, likelyCause, impactDesc, priority, concLabel };
     }).filter(Boolean) as ScoredEvent[];
-  }, [eventsData, buckets]);
+  }, [eventsData, buckets, concPoints]);
 
   // Events visible in timeline — filter by priority tier
   const visibleEvents = useMemo(
@@ -657,14 +746,28 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
     [scoredEvents, showSecondary],
   );
 
-  // Deduplicate for chart reference lines: one per bucket, prefer likelyCause > highest severity
+  // Deduplicate for CDR-based ASR chart reference lines: one per CDR bucket label
   const dedupedEvents = useMemo((): ScoredEvent[] => {
     const map = new Map<string, ScoredEvent>();
     for (const ev of visibleEvents) {
       const key = ev.bucketLabel!;
       const existing = map.get(key);
       if (!existing) { map.set(key, ev); continue; }
-      // prefer likelyCause; else highest severity
+      if (ev.likelyCause && !existing.likelyCause) { map.set(key, ev); continue; }
+      if (!ev.likelyCause && existing.likelyCause) continue;
+      if ((SEVERITY_ORDER[ev.severity] ?? 99) < (SEVERITY_ORDER[existing.severity] ?? 99)) map.set(key, ev);
+    }
+    return Array.from(map.values());
+  }, [visibleEvents]);
+
+  // Deduplicate for concurrent chart reference lines: one per concurrent point label
+  const dedupedConcEvents = useMemo((): ScoredEvent[] => {
+    const map = new Map<string, ScoredEvent>();
+    for (const ev of visibleEvents) {
+      if (!ev.concLabel) continue;
+      const key = ev.concLabel;
+      const existing = map.get(key);
+      if (!existing) { map.set(key, ev); continue; }
       if (ev.likelyCause && !existing.likelyCause) { map.set(key, ev); continue; }
       if (!ev.likelyCause && existing.likelyCause) continue;
       if ((SEVERITY_ORDER[ev.severity] ?? 99) < (SEVERITY_ORDER[existing.severity] ?? 99)) map.set(key, ev);
@@ -718,8 +821,13 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
             Call Intelligence
           </h2>
           <p style={{ fontSize: 11, color: '#9CA3AF', margin: '2px 0 0', fontWeight: 500 }}>
-            CDR-based · {hoursBack}h window · refreshes every 60s
-            {(isFetching || evFetching) && <span style={{ marginLeft: 8, color: '#2563EB' }}>↻</span>}
+            Concurrent live · {hoursBack}h window · 60s sampling
+            {(isFetching || concFetching || evFetching) && <span style={{ marginLeft: 8, color: '#2563EB' }}>↻</span>}
+            {concSummary && (
+              <span style={{ marginLeft: 8, color: '#2563EB', fontWeight: 600 }}>
+                · {concSummary.currentActive} active now
+              </span>
+            )}
           </p>
         </div>
 
@@ -811,7 +919,7 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
         ))}
       </div>
 
-      {/* ── Main Call Volume chart (white card) ────────────────────────────── */}
+      {/* ── Concurrent Call Stream chart (white card) ────────────────────── */}
       <div className="noc-fade-in" style={{ background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 16,
         boxShadow: '0 2px 12px rgba(0,0,0,0.05)', overflow: 'hidden', animationDelay: '200ms' }}>
         {/* Chart header */}
@@ -819,17 +927,18 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
           padding: '14px 20px', borderBottom: '1px solid #F3F4F6' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Activity style={{ width: 15, height: 15, color: '#2563EB' }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937' }}>Call Volume</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937' }}>Concurrent Call Stream</span>
+            <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 500, marginLeft: 2 }}>avg concurrent · not cumulative</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 11, color: '#9CA3AF' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ width: 24, height: 2.5, background: '#16A34A', borderRadius: 2, display: 'inline-block' }} />Connected
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 24, height: 2.5, background: '#EF4444', opacity: 0.5, borderRadius: 2, display: 'inline-block' }} />Failed
+              <span style={{ width: 24, height: 2.5, background: '#F59E0B', opacity: 0.7, borderRadius: 2, display: 'inline-block' }} />Routing
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 24, height: 0, borderTop: '2px dashed #2563EB', opacity: 0.4, display: 'inline-block' }} />Total
+              <span style={{ width: 24, height: 0, borderTop: '2px dashed #2563EB', opacity: 0.4, display: 'inline-block' }} />Total Active
             </span>
             {showEvents && hasEvents && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#D97706', fontWeight: 600 }}>
@@ -840,51 +949,52 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
         </div>
 
         {/* Chart body */}
-        {buckets.length === 0 && !isFetching ? (
-          <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 13, color: '#D1D5DB' }}>
-            No CDR data yet — calls appear once processed
+        {concPoints.length === 0 && !concFetching ? (
+          <div style={{ height: 280, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: 6, fontSize: 13, color: '#D1D5DB' }}>
+            <Activity style={{ width: 24, height: 24, opacity: 0.3 }} />
+            <span>No concurrent history yet — data builds up as calls are polled (60s interval)</span>
           </div>
-        ) : isFetching && buckets.length === 0 ? (
+        ) : concFetching && concPoints.length === 0 ? (
           <div style={{ height: 280, background: '#F9FAFB', animation: 'pulse 2s infinite' }} />
         ) : (
           <div style={{ padding: '16px 12px 12px', height: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={buckets} margin={{ top: 22, right: 8, left: -12, bottom: 0 }}>
+              <ComposedChart data={concPoints} margin={{ top: 22, right: 8, left: -12, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="lgConn" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"   stopColor="#16A34A" stopOpacity={0.14} />
+                  <linearGradient id="lgConcConn" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor="#16A34A" stopOpacity={0.18} />
                     <stop offset="100%" stopColor="#16A34A" stopOpacity={0.01} />
                   </linearGradient>
-                  <linearGradient id="lgFail" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"   stopColor="#EF4444" stopOpacity={0.12} />
-                    <stop offset="100%" stopColor="#EF4444" stopOpacity={0.01} />
+                  <linearGradient id="lgConcRoute" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor="#F59E0B" stopOpacity={0.14} />
+                    <stop offset="100%" stopColor="#F59E0B" stopOpacity={0.01} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid horizontal vertical={false} stroke={GRID_COLOR} />
-                <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={false} interval={tickInterval} />
+                <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={false} interval={concTickInterval} />
                 <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} allowDecimals={false} width={32} />
-                <Tooltip content={<GraphTooltip />} cursor={chartCursor} />
-                {showEvents && dedupedEvents.map((ev, i) => {
+                <Tooltip content={<ConcurrentGraphTooltip />} cursor={chartCursor} />
+                {showEvents && dedupedConcEvents.map((ev, i) => {
                   const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.incident;
                   return (
-                    <ReferenceLine key={i} x={ev.bucketLabel}
+                    <ReferenceLine key={i} x={ev.concLabel}
                       stroke={cfg.stroke} strokeWidth={1.5} strokeDasharray="4 3" strokeOpacity={0.6}
                       label={<EventMarkerLabel event={ev} />} />
                   );
                 })}
-                {/* Soft danger layer — failed calls */}
-                <Area type="monotone" dataKey="failed"
-                  stroke="#EF4444" strokeWidth={1.5} fill="url(#lgFail)" dot={false}
-                  activeDot={{ r: 3.5, fill: '#EF4444', stroke: '#fff', strokeWidth: 2 }}
+                {/* Routing calls — amber layer */}
+                <Area type="monotone" dataKey="routing"
+                  stroke="#F59E0B" strokeWidth={1.5} fill="url(#lgConcRoute)" dot={false}
+                  activeDot={{ r: 3.5, fill: '#F59E0B', stroke: '#fff', strokeWidth: 2 }}
                   strokeLinejoin="round" strokeLinecap="round" />
-                {/* Connected — primary signal */}
+                {/* Connected — primary signal, green */}
                 <Area type="monotone" dataKey="connected"
-                  stroke="#16A34A" strokeWidth={2.5} fill="url(#lgConn)" dot={false}
+                  stroke="#16A34A" strokeWidth={2.5} fill="url(#lgConcConn)" dot={false}
                   activeDot={{ r: 4, fill: '#16A34A', stroke: '#fff', strokeWidth: 2 }}
                   strokeLinejoin="round" strokeLinecap="round" />
-                {/* Total — blue dashed reference */}
-                <Line type="monotone" dataKey="total"
+                {/* Total active — blue dashed reference line */}
+                <Line type="monotone" dataKey="active"
                   stroke="#2563EB" strokeWidth={1.5} strokeDasharray="5 3" strokeOpacity={0.45} dot={false}
                   activeDot={{ r: 3, fill: '#2563EB', stroke: '#fff', strokeWidth: 2 }} />
               </ComposedChart>

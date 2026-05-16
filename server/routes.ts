@@ -10769,6 +10769,8 @@ export async function registerRoutes(
   interface ConcurrentPoint {
     ts: number;
     count: number;
+    connected: number;    // calls in Connected ccState
+    routing: number;      // calls in routing/setup states (ARComplete, WaitRoute, etc.)
     byClient:      Record<string, number>;
     byVendor:      Record<string, number>;
     byCodec:       Record<string, number>;
@@ -10808,6 +10810,8 @@ export async function registerRoutes(
     const byBreakout:    Record<string, number> = {};
     const byCountry:     Record<string, number> = {};
 
+    let connected = 0, routing = 0;
+
     for (const c of calls) {
       const rawId    = String(c.accountId ?? c.iCustomer ?? '').trim();
       const client   = c.user || accountNameCache.get(rawId) || (rawId && !/^\d+$/.test(rawId) ? rawId : 'Unknown');
@@ -10825,9 +10829,12 @@ export async function registerRoutes(
       byDestination[dest]        = (byDestination[dest]        || 0) + 1;
       byBreakout[breakout]       = (byBreakout[breakout]       || 0) + 1;
       byCountry[country]         = (byCountry[country]         || 0) + 1;
+      // Track connected vs routing state
+      if (c.status === 'Connected' || c.status?.toLowerCase().includes('connect')) connected++;
+      else routing++;
     }
 
-    concurrentHistory.push({ ts: Date.now(), count: calls.length, byClient, byVendor, byCodec, byDirection, byDestination, byBreakout, byCountry });
+    concurrentHistory.push({ ts: Date.now(), count: calls.length, connected, routing, byClient, byVendor, byCodec, byDirection, byDestination, byBreakout, byCountry });
 
     // Notify watcher of any client names seen for the first time (new traffic alert)
     for (const clientName of Object.keys(byClient)) {
@@ -11701,6 +11708,66 @@ export async function registerRoutes(
       totalEntities: entities.length,
       updatedAt:     new Date().toISOString(),
       summary: { totalConcurrent, totalToday, overallAsr, overallAcdSecs: overallAcd },
+    });
+  });
+
+  // GET /api/bitseye/concurrent-trend — concurrent call history for NOC live graph
+  // Uses concurrentHistory (sampled every 60s), bucketed by time window.
+  // Sippy-safe: reads only from in-memory buffer, no Sippy calls.
+  app.get('/api/bitseye/concurrent-trend', async (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const hoursBack = Math.max(1, Math.min(48, Number(req.query.hours) || 4));
+    const bucketMin = Math.max(1, Math.min(60, Number(req.query.bucket) || 5));
+    const bucketMs  = bucketMin * 60_000;
+    const now       = Date.now();
+    const since     = now - hoursBack * 3_600_000;
+    const numBuckets = Math.ceil(hoursBack * 60 / bucketMin);
+
+    // Pre-build empty buckets (oldest → newest)
+    type ConcBucket = { ts: number; label: string; active: number; connected: number; routing: number; samples: number };
+    const buckets: ConcBucket[] = [];
+    for (let i = numBuckets - 1; i >= 0; i--) {
+      const ts = now - i * bucketMs;
+      const d  = new Date(ts);
+      const label = bucketMin < 60
+        ? d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' })
+        : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', hour12: true, timeZone: 'UTC' });
+      buckets.push({ ts, label, active: 0, connected: 0, routing: 0, samples: 0 });
+    }
+
+    // Fill buckets with avg concurrent calls (sum → divide by samples later)
+    const pts = concurrentHistory.filter(p => p.ts >= since);
+    for (const p of pts) {
+      const age  = now - p.ts;
+      const bIdx = numBuckets - 1 - Math.floor(age / bucketMs);
+      if (bIdx < 0 || bIdx >= numBuckets) continue;
+      buckets[bIdx].active    += p.count;
+      buckets[bIdx].connected += p.connected ?? 0;
+      buckets[bIdx].routing   += p.routing   ?? 0;
+      buckets[bIdx].samples++;
+    }
+
+    const result = buckets.map(b => ({
+      ts:        b.ts,
+      label:     b.label,
+      active:    b.samples > 0 ? Math.round(b.active    / b.samples) : 0,
+      connected: b.samples > 0 ? Math.round(b.connected / b.samples) : 0,
+      routing:   b.samples > 0 ? Math.round(b.routing   / b.samples) : 0,
+    }));
+
+    const latest = concurrentHistory[concurrentHistory.length - 1];
+    const allActive = result.map(b => b.active);
+    res.json({
+      points:  result,
+      summary: {
+        peakActive:       allActive.length ? Math.max(...allActive) : 0,
+        currentActive:    latest?.count     ?? 0,
+        currentConnected: latest?.connected ?? 0,
+        currentRouting:   latest?.routing   ?? 0,
+        samplingIntervalSecs: 60,
+        windowHours: hoursBack,
+        hasHistory: concurrentHistory.length > 0,
+      },
     });
   });
 
