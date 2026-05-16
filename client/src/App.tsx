@@ -111,6 +111,7 @@ import ClientWizardPage from "@/pages/client-wizard";
 import ClientConfigPage from "@/pages/client-config";
 import RevenueHeatmapPage from "@/pages/revenue-heatmap";
 import CodecAnalyticsPage from "@/pages/codec-analytics";
+import TrafficForecastPage from "@/pages/traffic-forecast";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -271,6 +272,9 @@ function Router() {
       </Route>
       <Route path="/codec-analytics">
         {() => <ProtectedRoute component={CodecAnalyticsPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/traffic-forecast">
+        {() => <ProtectedRoute component={TrafficForecastPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/balance">
         {() => <ProtectedRoute component={BalanceMonitorPage} requiredRoles={['admin','management']} viewerAssignment="balance_monitor" mgmtFeature="balance_monitor" />}

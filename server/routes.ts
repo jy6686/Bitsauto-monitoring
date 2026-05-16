@@ -18282,6 +18282,94 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     });
   });
 
+  // ── Traffic Forecasting API (#17) ────────────────────────────────────────────
+  // Uses hourly CDR patterns from the rolling 72h cache to generate a 24h forecast
+  // with optimistic / expected / pessimistic confidence bands.
+  app.get('/api/traffic-forecast', (req, res, next) => requireRole(['admin','management'], req, res, next), (_req, res) => {
+    try {
+      const now    = Date.now();
+      const hourMs = 3_600_000;
+
+      // Bucket CDRs into dayOffset (0=today, 1=yesterday, 2=day before) × hourOfDay
+      const buckets = new Map<string, number>(); // `${dayOffset}:${hour}` → count
+      for (const c of cdrCache.values()) {
+        const raw = c.startTime;
+        if (!raw) continue;
+        const ts = new Date(raw).getTime();
+        if (!ts || isNaN(ts)) continue;
+        const ageMs = now - ts;
+        if (ageMs < 0 || ageMs > 72 * hourMs) continue;
+        const dayOffset  = Math.floor(ageMs / (24 * hourMs));
+        const hourOfDay  = new Date(ts).getUTCHours();
+        const k = `${dayOffset}:${hourOfDay}`;
+        buckets.set(k, (buckets.get(k) ?? 0) + 1);
+      }
+
+      // Collect per-hour arrays across all days
+      const cdrsByHour = new Map<number, number[]>();
+      for (const [k, count] of buckets) {
+        const hour = parseInt(k.split(':')[1], 10);
+        if (!cdrsByHour.has(hour)) cdrsByHour.set(hour, []);
+        cdrsByHour.get(hour)!.push(count);
+      }
+
+      function mean(arr: number[])                { return arr.reduce((s, v) => s + v, 0) / arr.length; }
+      function std(arr: number[], m: number): number {
+        if (arr.length < 2) return m * 0.25;      // 25% fallback when only 1 sample
+        return Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length);
+      }
+
+      // Actual call volume for the last 24h by hour
+      const actualByHour = new Map<number, number>();
+      for (const c of cdrCache.values()) {
+        const raw = c.startTime;
+        if (!raw) continue;
+        const ts = new Date(raw).getTime();
+        if (!ts || isNaN(ts)) continue;
+        if (now - ts > 24 * hourMs) continue;
+        const h = new Date(ts).getUTCHours();
+        actualByHour.set(h, (actualByHour.get(h) ?? 0) + 1);
+      }
+
+      // Build 24 hourly forecast points starting from the current hour
+      const currentHourUTC = new Date().getUTCHours();
+      const points: object[] = [];
+      const alerts: { hour: number; label: string; actual: number; expected: number; deviationPct: number }[] = [];
+
+      for (let i = 0; i < 24; i++) {
+        const targetHour = (currentHourUTC + i) % 24;
+        const historical  = cdrsByHour.get(targetHour) ?? [];
+        const m  = historical.length > 0 ? mean(historical) : 0;
+        const sd = historical.length > 0 ? std(historical, m) : 0;
+
+        const optimistic  = Math.round(m + sd);
+        const pessimistic = Math.round(Math.max(0, m - sd));
+        const expected    = Math.round(m);
+        const bandWidth   = optimistic - pessimistic;  // for recharts stacking
+
+        // Only include actual for the current hour and past hours within today
+        // i===0 → current hour (has partial actual), i>0 → future (no actual yet)
+        const actual = i === 0 ? (actualByHour.get(targetHour) ?? null) : null;
+        const deviationPct = actual != null && m > 0 ? Math.abs(actual - m) / m * 100 : null;
+        const isAlerted    = deviationPct !== null && deviationPct > 30;
+
+        const label = `${String(targetHour).padStart(2, '0')}:00`;
+        if (isAlerted && actual != null) {
+          alerts.push({ hour: targetHour, label, actual, expected, deviationPct: parseFloat(deviationPct!.toFixed(1)) });
+        }
+        points.push({ label, hour: targetHour, expected, optimistic, pessimistic, bandWidth, actual, isAlerted, deviationPct });
+      }
+
+      // Peak forecast hour (highest expected)
+      const peakPoint = [...points].sort((a: any, b: any) => b.expected - a.expected)[0] as any;
+
+      // Days of data used
+      const daysAvailable = new Set([...buckets.keys()].map(k => k.split(':')[0])).size;
+
+      res.json({ points, alerts, peakHour: peakPoint?.label ?? null, peakExpected: peakPoint?.expected ?? 0, daysAvailable, windowHours: 72, currentHour: `${String(currentHourUTC).padStart(2,'0')}:00` });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   // ── Revenue Heatmap API ──────────────────────────────────────────────────────
   app.get('/api/revenue-heatmap', (req, res, next) => requireRole(['admin','management'], req, res, next), (_req, res) => {
     try {
