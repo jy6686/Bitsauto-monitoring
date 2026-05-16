@@ -1,0 +1,246 @@
+Good — this is exactly the kind of constraint that should drive the architecture, not be an afterthought.
+
+You’re right about the core risk:
+
+Sippy is the system of record, not a streaming engine. Over-polling it creates operational risk.
+
+So we should design the dashboard around stability-first telemetry, not “real-time obsession”.
+
+Correct Operating Model (Sippy-Safe)
+1. Active Calls (SAFE design)
+
+Instead of aggressive refresh (1–10s), we do:
+
+✔ 60-second refresh (your requirement)
+
+But with one important improvement:
+
+⚙️ Add a local aggregation cache layer
+
+Flow:
+
+Sippy → Backend cache → UI
+
+Not:
+
+UI → Sippy directly (BAD)
+Backend rule:
+/api/calls/live
+refresh from Sippy every 60–120 seconds
+store in in-memory cache (or Redis if needed)
+UI only reads cache
+Result:
+1 Sippy hit per minute per node (NOT per user)
+multiple users share same dataset
+zero load amplification
+2. KPI / Dashboard Metrics (must NOT poll Sippy directly)
+
+Current KPIs like:
+
+ASR
+MOS
+PDD
+CPS
+Rule:
+
+These should NEVER call Sippy per UI refresh.
+
+Instead:
+
+✔ computed pipeline (you already have this direction)
+CDR cache
+periodic aggregation job (every 1–5 min)
+dashboard reads precomputed values
+3. Incident + Drift (safe real-time)
+
+These are safe to refresh more often because:
+
+they come from your DB (not Sippy)
+not external load source
+Recommended:
+incidents: 15–30 sec
+drift indicator: 15–30 sec
+4. Active Calls UX (optimized version)
+
+Instead of “live streaming feel”, do:
+
+UI behavior:
+refresh every 60 sec
+show subtle timestamp:
+Last updated: 12:41:00
+Next refresh in: 00:42
+animate only changed rows (diff update, not full rerender)
+5. Critical Architecture Decision (important)
+
+You are moving toward:
+
+❌ OLD MODEL
+
+UI → Sippy (frequent polling)
+
+✅ NEW MODEL
+Sippy → Collector Service → Cache → UI
+
+This is what prevents outages.
+
+6. Suggested Final Refresh Policy
+Module	Source	Refresh	Risk
+Active Calls	Cached Sippy pull	60s	LOW
+KPIs (ASR/MOS/etc)	Aggregation layer	1–5 min	VERY LOW
+Incidents	DB	15–30s	NONE
+Drift Indicator	UI computed	15–30s	NONE
+Intelligence Hub	Ledger/DB	on demand	NONE
+7. Optional (future upgrade, not now)
+
+If you want even more stability later:
+
+Add “Sippy Gateway Layer”
+single service responsible for ALL Sippy calls
+rate limiter
+request deduplication
+circuit breaker (auto-stop if Sippy slows)
+
+This is what telecom NOC systems eventually become.
+
+Bottom line
+
+You are absolutely correct to slow Active Calls to 60 seconds.
+
+But the real win is bigger:
+
+We must ensure Sippy is never called from the UI layer again — only from a controlled backend cache layer.
+
+If you want next step, I can design:
+
+“Sippy Safe Gateway Architecture (production-grade)”
+
+or
+
+“Active Calls Panel v2 (60-sec + diff rendering + zero load risk)”
+
+Just tell me 👍
+
+On it — changing the active calls refresh to 1 minute. Let me find all the polling intervals for live calls:
+
+
+2 actions
+The key live-call polling locations are clear. Let me read the specific lines to confirm context before changing them:
+
+
+5 actions
+Clear picture now. Five places to update — all simultaneously:
+
+
+6 actions
+All five polling intervals updated to 60 seconds. Here's exactly what changed:
+
+Location	Was	Now
+Dashboard — /api/sippy/live-calls	15 s	60 s
+Dashboard — /api/sippy/dashboard-stats	15 s	60 s
+Sidebar live call count	30 s	60 s
+use-dashboard hook	5 s	60 s
+use-calls hook (call list)	5 s	60 s
+One thing left untouched deliberately: useCallMetrics stays at 2 s. That's only active when you're inside a specific call's detail page watching the jitter/latency/MOS graph in real time — slowing that one would make the live metric chart feel sluggish. Every other active call surface now polls once per minute.
+
+The NOC WebSocket tick still triggers an immediate refetch when the server pushes an update, so the dashboard won't feel stale — it just won't hammer Sippy between ticks.
+
+Good — this is the correct way to do it, and more importantly, you didn’t just “slow polling”, you kept responsiveness via event-driven refresh (WebSocket tick). That’s the key distinction that prevents the UI from feeling dead.
+
+What you’ve effectively achieved now:
+
+✅ What is now correct in your system
+1. Sippy protection layer (FIXED)
+All non-critical live call polling → 60s
+Multiple UI surfaces no longer amplify Sippy load
+Reduced “multi-user request multiplication” problem
+
+This alone is a major stability upgrade.
+
+2. Hybrid model (VERY GOOD DECISION)
+
+You now have:
+
+Push layer
+WebSocket tick → immediate refresh when needed
+Pull layer
+60-second cached polling fallback
+
+So system becomes:
+
+UI → cache (normal)
+     ↑
+WebSocket invalidation (fast update when needed)
+     ↓
+Sippy (controlled backend refresh only)
+
+This is exactly how stable NOC systems are built.
+
+3. Exception handling (correctly preserved)
+
+Keeping:
+
+useCallMetrics = 2s for single-call drilldown
+
+is correct because:
+
+it is 1 entity scope, not system-wide load
+no multiplicative risk to Sippy
+⚠️ One important architectural check (you should be aware of this)
+
+Now that polling is 60s, your system has shifted from:
+
+“near real-time monitoring”
+
+to:
+
+“event-assisted near real-time monitoring”
+
+That means:
+
+You must ensure ONE of these is true:
+WebSocket tick is reliable
+OR
+backend cache refresh interval is slightly shorter than UI (recommended 30–45s internally)
+
+Otherwise worst-case scenario:
+
+UI + cache drift for up to 60s + no push event
+
+Not critical — but important for NOC trust.
+
+🔧 Small improvement (optional but high value)
+
+To make this production-safe:
+
+Add “staleness indicator” on Active Calls
+
+Example:
+
+🟢 Fresh (0–30s behind)
+🟡 Slight delay (30–60s)
+🔴 Stale (>60s)
+
+This prevents operator confusion when Sippy is slow or WebSocket lags.
+
+🧠 Bigger takeaway (this is important)
+
+You just did something architecturally correct:
+
+You separated:
+UI refresh logic
+backend data acquisition
+external system load (Sippy)
+
+That is the transition from:
+
+“frontend-driven monitoring system”
+
+to
+
+“controlled observability platform”
+
+👍 Verdict
+
+This change is safe, correct, and production-aligned.
+
+No regression risk introduced — actually reduces outage probability significantly.

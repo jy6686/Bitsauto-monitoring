@@ -58,12 +58,15 @@ import {
   SlidersHorizontal,
   Pencil,
   ChevronDown,
+  ChevronUp,
   Plus,
   Check,
   LayoutGrid,
   Download,
   FileSpreadsheet,
   Info,
+  ExternalLink,
+  LayoutDashboard,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useToast } from "@/hooks/use-toast";
@@ -612,6 +615,12 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, [anyPortalActive]); // re-run only when portal connect state changes
 
+  // ── Live calls panel state (localStorage-backed) ─────────────────────────
+  const [callsPanelOpen, setCallsPanelOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem('dash:callsPanel') !== 'false'; } catch { return true; }
+  });
+  const [callsFilter, setCallsFilter] = useState<'all' | 'connected' | 'routing'>('all');
+
   // ── KAM/viewer filtered analytics — revenue for assigned clients only ──────
   const kamAnalytics = useMemo(() => {
     const assignedNames = myAccountsData?.clientNames ?? [];
@@ -1108,6 +1117,16 @@ export default function DashboardPage() {
           </p>
         </div>
 
+        {/* Customize button */}
+        <button
+          onClick={() => setCustomizeOpen(true)}
+          data-testid="button-customize-dashboard"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border/50 bg-card/60 text-xs text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+        >
+          <LayoutDashboard className="w-3.5 h-3.5" />
+          Customize
+        </button>
+
         {/* NOC Clock */}
         <div className="relative" data-testid="noc-clock">
           <div
@@ -1241,6 +1260,20 @@ export default function DashboardPage() {
               <span><span className="text-emerald-400 font-semibold" data-testid="text-connected-count">{liveConnected}</span> connected</span>
               <span><span className="text-amber-400 font-semibold" data-testid="text-routing-count">{liveTotal - liveConnected}</span> routing</span>
             </div>
+            {anyPortalActive && liveCalls.length > 0 && (
+              <button
+                onClick={() => {
+                  const next = !callsPanelOpen;
+                  setCallsPanelOpen(next);
+                  try { localStorage.setItem('dash:callsPanel', String(next)); } catch {}
+                }}
+                data-testid="button-toggle-calls-panel"
+                className="mt-3 flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                {callsPanelOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                {callsPanelOpen ? 'Hide detail' : 'Show detail'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -1302,6 +1335,65 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* ── Live Calls Detail Panel ────────────────────────────────────────── */}
+      {anyPortalActive && callsPanelOpen && liveCalls.length > 0 && (
+        <div className="rounded-xl border border-blue-500/20 bg-card overflow-hidden" data-testid="panel-live-calls">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-blue-500/10 bg-blue-500/5">
+            <div className="flex items-center gap-3">
+              <PhoneCall className="w-4 h-4 text-blue-400" />
+              <h3 className="font-semibold text-sm">Live Calls</h3>
+              <span className="flex items-center gap-1 text-[10px] font-semibold text-blue-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                {liveCalls.length} active
+              </span>
+              {/* Status filters */}
+              <div className="flex items-center gap-1 ml-2">
+                {(['all', 'connected', 'routing'] as const).map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setCallsFilter(f)}
+                    data-testid={`filter-calls-${f}`}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors capitalize ${
+                      callsFilter === f
+                        ? 'bg-blue-600 text-white'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <Link href="/calls" className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+              data-testid="link-live-calls-full">
+              Full view <ExternalLink className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="overflow-x-auto max-h-72 overflow-y-auto">
+            <table className="w-full text-left">
+              <thead className="sticky top-0 bg-card/95 backdrop-blur-sm">
+                <tr className="border-b border-border/40">
+                  {['Caller','Callee','Account','State','Duration','Type','Started'].map(h => (
+                    <th key={h} className="px-6 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/30">
+                {liveCalls
+                  .filter((c: any) => {
+                    if (callsFilter === 'connected') return c.callStatus === 'connected';
+                    if (callsFilter === 'routing')   return c.callStatus !== 'connected';
+                    return true;
+                  })
+                  .map((call: any, i: number) => (
+                    <LiveCallRow key={call.id ?? i} call={call} index={i} />
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* ── KPI Strip: ASR / MOS / PDD / ACD / NER / CPS ─────────────────── */}
       <div className="grid gap-2 grid-cols-3 sm:grid-cols-6">
         {[
@@ -1311,6 +1403,7 @@ export default function DashboardPage() {
             note: asrIsLiveEstimate ? 'live est.' : '',
             good: displayAsr >= 50, warn: displayAsr >= 25,
             testid: 'kpi-asr',
+            href: '/carrier-scoring',
           },
           {
             label: 'MOS',
@@ -1318,6 +1411,7 @@ export default function DashboardPage() {
             note: mosLabel,
             good: (displayMos ?? 0) >= 3.5, warn: (displayMos ?? 0) >= 2.5,
             testid: 'kpi-mos',
+            href: '/rtp-analytics',
           },
           {
             label: 'PDD',
@@ -1325,6 +1419,7 @@ export default function DashboardPage() {
             note: '',
             good: displayPdd > 0 && displayPdd <= 2, warn: displayPdd > 0 && displayPdd <= 4,
             testid: 'kpi-pdd',
+            href: '/analytics',
           },
           {
             label: 'ACD',
@@ -1332,6 +1427,7 @@ export default function DashboardPage() {
             note: '',
             good: displayAcd >= 60, warn: displayAcd >= 20,
             testid: 'kpi-acd',
+            href: '/analytics',
           },
           {
             label: 'NER',
@@ -1339,6 +1435,7 @@ export default function DashboardPage() {
             note: '',
             good: (displayNer ?? 0) >= 90, warn: (displayNer ?? 0) >= 75,
             testid: 'kpi-ner',
+            href: '/carrier-scoring',
           },
           {
             label: 'CPS',
@@ -1346,14 +1443,18 @@ export default function DashboardPage() {
             note: sippyStats?.cpsSource === 'cdr' ? 'est.' : '',
             good: true, warn: true,
             testid: 'kpi-cps',
+            href: '/alerts',
           },
         ].map(kpi => (
-          <div key={kpi.label}
-            className="bg-card border border-border/40 rounded-xl px-4 py-3 flex flex-col gap-1 hover:border-border/70 transition-colors"
+          <Link key={kpi.label} href={kpi.href}
+            className="bg-card border border-border/40 rounded-xl px-4 py-3 flex flex-col gap-1 hover:border-border/70 hover:bg-muted/20 transition-colors cursor-pointer group"
             data-testid={kpi.testid}>
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{kpi.label}</span>
-              {kpi.note && <span className="text-[9px] text-muted-foreground/50">{kpi.note}</span>}
+              <div className="flex items-center gap-1">
+                {kpi.note && <span className="text-[9px] text-muted-foreground/50">{kpi.note}</span>}
+                <ExternalLink className="w-2.5 h-2.5 text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
             </div>
             <span className={`text-xl font-bold tabular-nums ${
               kpi.value === '—' ? 'text-muted-foreground/30'
@@ -1363,7 +1464,7 @@ export default function DashboardPage() {
             }`}>
               {kpi.value}
             </span>
-          </div>
+          </Link>
         ))}
       </div>
 
