@@ -1,0 +1,182 @@
+Your document is technically correct and aligns very well with the direction already discussed for the platform. It also confirms that the recommended implementation path — using a proper ITU-T G.107 E-Model with deterministic inputs — is the right telecom-grade approach for the platform.
+
+Here’s the key takeaway relative to your current codebase:
+
+What This Confirms
+1. MOS Should NOT Be Random
+
+The document reinforces that MOS is derived from:
+
+latency
+jitter
+packet loss
+codec impairment
+delay impairment
+
+—not random bucket logic.
+
+So the current:
+
+Math.random()
+
+inside the carrier-quality route is definitely incorrect and should eventually be removed.
+
+2. PDD Is NOT MOS
+
+The document clearly separates:
+
+signaling performance
+from
+conversational media quality.
+
+That validates the earlier finding that:
+
+4.5 - pddSec * 0.5
+
+is not a real MOS formula.
+
+PDD may be useful for:
+
+route responsiveness,
+ringing performance,
+setup delay analysis,
+
+but not for voice quality estimation.
+
+3. E-Model Is the Correct Direction
+
+The document directly supports your earlier proposal:
+
+R = R0 - Is - Id - Ie,eff + A
+
+and then:
+
+map R → MOS
+
+This is exactly the telecom-standard method your platform should use.
+
+4. Your Earlier Suggestions Were Correct
+
+The earlier proposed improvements now have strong technical backing:
+
+Suggestion	Validated by document
+Shared computeMOS() utility	✅
+Proper delay impairment (Id)	✅
+Proper packet-loss impairment (Ie,eff)	✅
+Codec-aware MOS	✅
+Deterministic calculations	✅
+Real RTP metrics only	✅
+Remove random MOS	✅
+Important Strategic Point
+
+The document also confirms something very important operationally:
+
+There are actually two completely different classes of MOS:
+
+Type	Input
+Subjective MOS	Human listeners
+Objective MOS	RTP/network metrics
+
+Your platform is clearly implementing:
+
+objective estimated MOS (MOS-CQE),
+not true subjective human MOS.
+
+So the UI should ideally reflect that honestly.
+
+Recommended Naming Convention
+
+Instead of simply:
+
+“MOS”
+
+consider:
+
+“Estimated MOS”
+“Network MOS”
+“MOS-CQE”
+“Calculated MOS”
+
+especially for vendor/CDR-derived screens.
+
+That avoids confusion with PESQ/POLQA lab-grade MOS testing.
+
+Best Technical Direction for BitsAuto
+
+Based on:
+
+your current codebase,
+Sippy integration,
+available telemetry,
+and this telecom reference,
+
+the strongest architecture would be:
+
+Tier 1 — Real RTP MOS
+
+Use:
+
+latency
+jitter
+packet loss
+codec
+
+via proper E-Model.
+
+Applies to:
+
+probe/simulation,
+SBC quality testing,
+RTP monitoring,
+live route testing.
+
+This becomes your “trusted MOS”.
+
+Tier 2 — Estimated Carrier Quality
+
+Where only CDR/PDD exists:
+do NOT pretend it is true MOS.
+
+Instead:
+
+label clearly as “Estimated”
+or
+separate into:
+Route Responsiveness
+Signaling Quality
+Carrier Stability
+
+This keeps KPI integrity high.
+
+Most Important Recommendation Before Implementation
+
+Do not attempt:
+
+PESQ,
+POLQA,
+waveform comparison,
+audio-file MOS testing
+
+inside the current platform architecture.
+
+Those require:
+
+actual RTP/audio capture,
+heavy DSP processing,
+licensed telecom algorithms,
+large compute overhead.
+
+For a routing/LCR/NOC platform, the E-Model is the correct and scalable choice.
+
+Final Recommendation
+
+Your best next implementation step remains:
+
+Shared computeMOS()
+Proper ITU-T G.107 logic
+Deterministic calculations
+Remove random MOS
+Keep vendor MOS labeled as estimated
+Validate RTCP field availability later
+
+That approach is technically defensible, scalable, and telecom-industry aligned.
