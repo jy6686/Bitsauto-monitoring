@@ -63,6 +63,7 @@ import {
   LayoutGrid,
   Download,
   FileSpreadsheet,
+  Info,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useToast } from "@/hooks/use-toast";
@@ -376,6 +377,9 @@ export default function DashboardPage() {
     // CPS — from monitoring graph or CDR fallback
     cps?: number;
     cpsSource?: 'monitoring' | 'cdr';
+    // Estimated NER
+    ner?: number | null;
+    nerBreakdown?: { answered: number; rna: number; subscriberSide: number; total: number };
   }>({
     queryKey: ['/api/sippy/dashboard-stats'],
     refetchInterval: 15_000,
@@ -500,6 +504,25 @@ export default function DashboardPage() {
   const displayCkBreakdown = anyPortalActive && sippyStats?.ckBreakdown != null
     ? sippyStats.ckBreakdown
     : stats?.ckBreakdown;
+
+  // ── eNER (Estimated Network Effectiveness Ratio) ──────────────────────────
+  const displayNer = anyPortalActive ? (sippyStats?.ner ?? null) : null;
+  const nerGap     = displayNer != null ? Math.max(0, displayNer - displayAsr) : 0;
+  const nerBorder  = notConnected || displayNer == null ? 'border-border/50'
+    : displayNer >= 90 ? 'border-emerald-500/20'
+    : displayNer >= 75 ? 'border-amber-500/20'
+    : 'border-rose-500/20';
+  const nerTextCls = notConnected || displayNer == null ? 'text-muted-foreground/40'
+    : displayNer >= 90 ? 'text-emerald-400'
+    : displayNer >= 75 ? 'text-amber-400'
+    : 'text-rose-400';
+  const nerStatusLine = notConnected || displayNer == null ? '—'
+    : displayNer >= 90 && displayAsr >= 70 ? 'Network healthy · strong answer rate'
+    : displayNer >= 90 && displayAsr >= 50 ? 'Network healthy · some user-side gap'
+    : displayNer >= 90 ? 'Network healthy · low ASR is user-side'
+    : displayNer >= 75 ? 'Network moderate · review carriers'
+    : 'Network delivery issues detected';
+  const nerTooltip = 'Estimated NER — Network Effectiveness Ratio derived from CDR result codes. Counts as delivered: answered calls, subscriber-busy, ring-no-answer, and terminal rejects. Does not count: routing failures, no-route, or network errors. Differs from ASR because user-side behaviour (busy / no answer) is excluded from failures.';
 
   // ── Traffic Quality Score (0–100 composite) ───────────────────────────────
   // Weighted: ASR 45% + MOS 30% + CK ratio 15% + PDD penalty 10%
@@ -650,14 +673,42 @@ export default function DashboardPage() {
                 <p className="text-xs text-muted-foreground mt-1">{anyPortalActive ? `Live calls${myAccountIds.size > 0 ? ' · your accounts' : ''}` : '—'}</p>
               </div>
             </div>
-            {/* ASR */}
-            <StatCard
-              title="ASR"
-              value={notConnected ? '—' : `${displayAsr.toFixed(1)}%`}
-              icon={BarChart2}
-              className={displayAsr >= 30 ? 'border-emerald-500/20' : displayAsr > 0 ? 'border-amber-500/20' : 'border-rose-500/20'}
-              description={asrIsLiveEstimate ? 'Live connection rate (CDR API pending)' : 'Answer-Seizure Ratio'}
-            />
+            {/* Network Effectiveness — eNER + ASR combined */}
+            <div className={`bg-card border ${nerBorder} rounded-xl p-5 shadow-lg relative overflow-hidden group hover:border-opacity-60 transition-all duration-300`}>
+              <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
+                <Signal className="w-24 h-24" />
+              </div>
+              <div className="flex items-center justify-between mb-3 relative z-10">
+                <div className="flex items-center gap-1.5">
+                  <h3 className="text-sm font-medium text-muted-foreground">Network Effectiveness</h3>
+                  <Info className="w-3 h-3 text-muted-foreground/40 cursor-help flex-shrink-0" title={nerTooltip} />
+                </div>
+                <div className="p-2 bg-secondary/50 rounded-lg"><Signal className="w-4 h-4 text-emerald-400" /></div>
+              </div>
+              <div className="relative z-10 space-y-1.5">
+                <div className="flex items-baseline gap-1.5">
+                  <span className={`text-3xl font-bold tracking-tight tabular-nums ${nerTextCls}`} data-testid="viewer-ener">
+                    {notConnected ? '—' : displayNer != null ? `${displayNer.toFixed(1)}%` : '—'}
+                  </span>
+                  {displayNer != null && !notConnected && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">eNER</span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">ASR</span>
+                  <span className={`font-semibold tabular-nums ${displayAsr >= 30 ? 'text-emerald-400' : displayAsr > 0 ? 'text-amber-400' : 'text-muted-foreground/50'}`} data-testid="viewer-asr">
+                    {notConnected ? '—' : asrIsLiveEstimate ? `~${displayAsr.toFixed(1)}%` : `${displayAsr.toFixed(1)}%`}
+                  </span>
+                </div>
+                {!notConnected && displayNer != null && nerGap > 0 && (
+                  <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
+                    <span className="text-muted-foreground">Gap</span>
+                    <span className="text-muted-foreground tabular-nums">+{nerGap.toFixed(1)}%</span>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground pt-0.5">{nerStatusLine}</p>
+              </div>
+            </div>
             {/* Traffic Score */}
             <div className={cn("bg-card border rounded-xl p-5 shadow-lg relative overflow-hidden group hover:border-opacity-60 transition-all duration-300", scoreBorder)}>
               <div className="flex items-center justify-between mb-3 relative z-10">
@@ -1249,7 +1300,7 @@ export default function DashboardPage() {
       })()}
 
       {showWidget('live_metrics') && (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {/* Active Calls + call rate badge */}
         <div className={cn(
           "bg-card border border-blue-500/20 rounded-xl p-5 shadow-lg shadow-black/5 hover:border-blue-500/40 transition-all duration-300 relative overflow-hidden group"
@@ -1282,6 +1333,45 @@ export default function DashboardPage() {
             <p className="text-xs text-muted-foreground mt-1">
               {anyPortalActive ? "Live concurrent calls on Sippy" : "Currently connected sessions"}
             </p>
+          </div>
+        </div>
+
+        {/* Network Effectiveness — eNER + ASR combined */}
+        <div className={`bg-card border ${nerBorder} rounded-xl p-5 shadow-lg shadow-black/5 hover:border-opacity-60 transition-all duration-300 relative overflow-hidden group`}>
+          <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
+            <Signal className="w-24 h-24" />
+          </div>
+          <div className="flex items-center justify-between mb-3 relative z-10">
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-sm font-medium text-muted-foreground">Network Effectiveness</h3>
+              <Info className="w-3 h-3 text-muted-foreground/40 cursor-help flex-shrink-0" title={nerTooltip} />
+            </div>
+            <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-emerald-500/10 transition-colors">
+              <Signal className="w-4 h-4 text-foreground group-hover:text-emerald-400" />
+            </div>
+          </div>
+          <div className="relative z-10 space-y-1.5">
+            <div className="flex items-baseline gap-1.5">
+              <span className={`text-3xl font-bold tracking-tight tabular-nums ${nerTextCls}`} data-testid="admin-ener">
+                {notConnected ? '—' : displayNer != null ? `${displayNer.toFixed(1)}%` : '—'}
+              </span>
+              {displayNer != null && !notConnected && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">eNER</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">ASR</span>
+              <span className={`font-semibold tabular-nums ${displayAsr >= 30 ? 'text-emerald-400' : displayAsr > 0 ? 'text-amber-400' : 'text-muted-foreground/50'}`} data-testid="admin-asr">
+                {notConnected ? '—' : asrIsLiveEstimate ? `~${displayAsr.toFixed(1)}%` : `${displayAsr.toFixed(1)}%`}
+              </span>
+            </div>
+            {!notConnected && displayNer != null && nerGap > 0 && (
+              <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
+                <span className="text-muted-foreground">Gap</span>
+                <span className="text-muted-foreground tabular-nums">+{nerGap.toFixed(1)}%</span>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground pt-0.5">{nerStatusLine}</p>
           </div>
         </div>
 

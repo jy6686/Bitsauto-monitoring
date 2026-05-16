@@ -3098,6 +3098,14 @@ export async function registerRoutes(
       const ckTotal       = recentCdrs.length;
       const ckRatio       = ckTotal > 0 ? parseFloat((ckConnected / ckTotal * 100).toFixed(1)) : 0;
 
+      // ── eNER (Estimated Network Effectiveness Ratio) from CDRs ──────────────
+      // NER = (Answered + RNA + Subscriber-side rejections) / Total × 100
+      // RNA proxy: result='0' + duration=0 means network delivered (rang) but unanswered
+      // ckSwitchedOff [-17,-18,-19] = subscriber-absent / call-rejected = user-side, not network failure
+      const rnaCount     = recentCdrs.filter(c => String(c.result) === '0' && (Number(c.duration) || 0) === 0).length;
+      const nerNumerator = ckConnected + rnaCount + ckSwitchedOff;
+      const ner: number | null = ckTotal > 0 ? parseFloat((nerNumerator / ckTotal * 100).toFixed(1)) : null;
+
       // ── MOS estimate (E-model RFC 3611 approximation) ─────────────────────
       // Use probe latency (network RTT) — PDD is signaling delay, not network delay
       let estimatedMos: number | null = null;
@@ -3163,6 +3171,9 @@ export async function registerRoutes(
         cpsSource:   cpsMonitor > 0 ? 'monitoring' : 'cdr',
         // Estimated MOS (null = not computable)
         estimatedMos,
+        // Estimated NER — null when no CDR data available
+        ner,
+        nerBreakdown: { answered: ckConnected, rna: rnaCount, subscriberSide: ckSwitchedOff, total: ckTotal },
       });
     } catch (err: any) {
       res.json({ asr: 0, acd: 0, cps: 0, connected: false, error: err.message });
