@@ -572,10 +572,16 @@ function EventMarkerLabel({ viewBox, event }: { viewBox?: any; event: GraphEvent
   const y = viewBox?.y ?? 0;
   return (
     <g>
-      {/* Outer ring — larger + filled if likelyCause */}
+      {/* Pulsing ring for LIKELY CAUSE markers */}
+      {event.likelyCause && (
+        <circle cx={x} cy={y + 10} r={9}
+          fill="none" stroke={cfg.stroke} strokeWidth={1.5}
+          className="noc-cause-ring" />
+      )}
+      {/* Solid marker circle */}
       <circle cx={x} cy={y + 10} r={event.likelyCause ? 9 : 7}
-        fill={event.likelyCause ? cfg.stroke : cfg.stroke}
-        fillOpacity={event.likelyCause ? 0.20 : 0.12}
+        fill={cfg.stroke}
+        fillOpacity={event.likelyCause ? 0.22 : 0.12}
         stroke={cfg.stroke} strokeWidth={event.likelyCause ? 2 : 1.5} />
       <text x={x} y={y + 14} textAnchor="middle" fontSize={7} fill={cfg.stroke} fontWeight="700">{cfg.icon}</text>
       {/* CAUSE badge — sits above the marker */}
@@ -772,12 +778,23 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
         </div>
       </div>
 
-      {/* ── Stripe-style KPI cards ─────────────────────────────────────────── */}
+      {/* ── Stripe-style KPI cards — float-in stagger + hover lift ──────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12 }}>
-        {kpiCards.map(k => (
+        {kpiCards.map((k, i) => (
           <div key={k.label} data-testid={k.testid}
+            className="noc-float-in"
             style={{ background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 14,
-              padding: '14px 18px', boxShadow: '0 2px 10px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              padding: '14px 18px', boxShadow: '0 2px 10px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 4,
+              transition: 'transform 0.2s ease, box-shadow 0.2s ease', cursor: 'default',
+              animationDelay: `${i * 55}ms` }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.transform = 'translateY(-3px)';
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 24px rgba(0,0,0,0.10)';
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 10px rgba(0,0,0,0.04)';
+            }}>
             <span style={{ fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase',
               letterSpacing: '0.07em' }}>{k.label}</span>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 4 }}>
@@ -795,8 +812,8 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
       </div>
 
       {/* ── Main Call Volume chart (white card) ────────────────────────────── */}
-      <div style={{ background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 16,
-        boxShadow: '0 2px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+      <div className="noc-fade-in" style={{ background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 16,
+        boxShadow: '0 2px 12px rgba(0,0,0,0.05)', overflow: 'hidden', animationDelay: '200ms' }}>
         {/* Chart header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '14px 20px', borderBottom: '1px solid #F3F4F6' }}>

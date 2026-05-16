@@ -141,7 +141,42 @@
   100% { transform: translateY(-14px) scale(0); opacity: 0; }
 }
 
+@keyframes noc-float-in {
+  0%   { opacity: 0; transform: translateY(14px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes noc-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes noc-cause-ring {
+  0%   { opacity: 0.55; transform: scale(1); }
+  70%  { opacity: 0;    transform: scale(2.4); }
+  100% { opacity: 0;    transform: scale(2.4); }
+}
+
+@keyframes noc-packet-flow {
+  0%   { stroke-dashoffset: 300; }
+  100% { stroke-dashoffset: 0; }
+}
+
+@keyframes noc-breathe-glow {
+  0%, 100% { opacity: 0.12; }
+  50%       { opacity: 0.28; }
+}
+
 /* Utility classes */
 .noc-glow-red   { animation: noc-pulse-red   3.6s ease-in-out infinite; }
 .noc-glow-amber { animation: noc-pulse-amber 3.6s ease-in-out infinite; }
 .noc-glow-green { animation: noc-pulse-green 3.6s ease-in-out infinite; }
+.noc-float-in   { animation: noc-float-in 0.45s cubic-bezier(0.22,1,0.36,1) both; }
+.noc-fade-in    { animation: noc-fade-in  0.35s ease both; }
+.noc-cause-ring {
+  animation: noc-cause-ring 1.8s ease-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.noc-packet-flow { animation: noc-packet-flow 2.4s linear infinite; }
+.noc-breathe    { animation: noc-breathe-glow 3s ease-in-out infinite; }

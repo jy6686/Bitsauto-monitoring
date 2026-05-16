@@ -178,6 +178,27 @@ function LiveCallRow({ call, index }: { call: any; index: number }) {
   );
 }
 
+// ── Animated counter — smoothly transitions to new number ─────────────────────
+function AnimatedCount({ value, className }: { value: number; className?: string }) {
+  const [display, setDisplay] = useState(value);
+  const prevRef = useRef(value);
+  useEffect(() => {
+    const prev = prevRef.current;
+    if (prev === value) return;
+    prevRef.current = value;
+    const duration = 700;
+    const start = Date.now();
+    const tick = () => {
+      const t = Math.min(1, (Date.now() - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      setDisplay(Math.round(prev + (value - prev) * eased));
+      if (t < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, [value]);
+  return <span className={className}>{display}</span>;
+}
+
 // ── Network Health Gauge — radial arc SVG, 0-100 ─────────────────────────────
 function NetworkHealthGauge({ score }: { score: number }) {
   const R = 52, cx = 68, cy = 76;
@@ -1229,9 +1250,20 @@ export default function DashboardPage() {
       {/* ── Hero Row: Active Calls | Network Health | System State ────────── */}
       <div className="grid gap-4 sm:grid-cols-3">
 
-        {/* Active Calls */}
-        <div className="bg-card border border-blue-500/20 rounded-xl p-6 shadow-lg relative overflow-hidden group hover:border-blue-500/40 transition-all duration-300"
+        {/* Active Calls — blue pulse when live, animated counter */}
+        <div className={cn(
+            "bg-card border border-blue-500/20 rounded-xl p-6 shadow-lg relative overflow-hidden group",
+            "transition-all duration-300 hover:border-blue-500/40 hover:-translate-y-1 hover:shadow-xl",
+            "noc-float-in",
+            anyPortalActive && liveCallsFreshness === 'fresh' ? "noc-glow-green" : ""
+          )}
+          style={{ animationDelay: '0ms' }}
           data-testid="card-active-calls">
+          {/* Breathing background glow — blue when live */}
+          {anyPortalActive && (
+            <div className="noc-breathe absolute inset-0 rounded-xl pointer-events-none"
+              style={{ background: 'radial-gradient(ellipse at 80% 20%, rgba(59,130,246,0.18) 0%, transparent 70%)' }} />
+          )}
           <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity duration-500">
             <PhoneCall className="w-28 h-28" />
           </div>
@@ -1264,7 +1296,7 @@ export default function DashboardPage() {
           <div className="relative z-10">
             <div className="flex items-baseline gap-3">
               <span className="text-5xl font-bold tracking-tight tabular-nums" data-testid="text-active-calls-count">
-                {notConnected ? '—' : displayActiveCalls}
+                {notConnected ? '—' : <AnimatedCount value={displayActiveCalls} />}
               </span>
               {anyPortalActive && callRatePerMin > 0 && !liveCallsStale && (
                 <span className="text-sm font-medium px-2 py-0.5 rounded-full bg-violet-400/10 text-violet-400">
@@ -1293,10 +1325,25 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Network Health Score */}
-        <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg relative overflow-hidden group hover:border-border transition-all duration-300 flex flex-col items-center"
+        {/* Network Health Score — score-aware glow pulse */}
+        <div className={cn(
+            "bg-card border border-border/50 rounded-xl p-5 shadow-lg relative overflow-hidden group",
+            "transition-all duration-300 hover:border-border hover:-translate-y-1 hover:shadow-xl flex flex-col items-center",
+            "noc-float-in",
+            anyPortalActive
+              ? trafficScore >= 80 ? "noc-glow-green"
+              : trafficScore >= 50 ? "noc-glow-amber"
+              : "noc-glow-red"
+              : ""
+          )}
+          style={{ animationDelay: '70ms' }}
           data-testid="card-health-score">
-          <div className="flex items-center justify-between w-full mb-1">
+          {/* Background radial glow */}
+          {anyPortalActive && (
+            <div className="noc-breathe absolute inset-0 rounded-xl pointer-events-none"
+              style={{ background: `radial-gradient(ellipse at 50% 30%, ${trafficScore >= 80 ? 'rgba(34,197,94,0.14)' : trafficScore >= 50 ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.13)'} 0%, transparent 65%)` }} />
+          )}
+          <div className="flex items-center justify-between w-full mb-1 relative z-10">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Network Health</span>
             <div className="p-2 bg-secondary/50 rounded-lg">
               <Activity className="w-4 h-4 text-emerald-400" />
@@ -1309,19 +1356,33 @@ export default function DashboardPage() {
           <div className="text-[10px] text-muted-foreground/50 mt-1 text-center">ASR 45% · MOS 30% · CK 15% · PDD 10%</div>
         </div>
 
-        {/* System State */}
-        <div className={`bg-card border rounded-xl p-6 shadow-lg relative overflow-hidden group transition-all duration-300 ${stateCardBorderCls}`}
+        {/* System State — state-aware critical/degraded/operational pulse */}
+        <div className={cn(
+            `bg-card border rounded-xl p-6 shadow-lg relative overflow-hidden group transition-all duration-300 ${stateCardBorderCls}`,
+            "hover:-translate-y-1 hover:shadow-xl noc-float-in",
+            anyPortalActive
+              ? systemState === 'CRITICAL'  ? "noc-glow-red"
+              : systemState === 'DEGRADED'  ? "noc-glow-amber"
+              : "noc-glow-green"
+              : ""
+          )}
+          style={{ animationDelay: '140ms' }}
           data-testid="card-system-state">
-          <div className="flex items-center justify-between mb-4">
+          {/* Background radial glow — state color */}
+          {anyPortalActive && (
+            <div className="noc-breathe absolute inset-0 rounded-xl pointer-events-none"
+              style={{ background: `radial-gradient(ellipse at 20% 80%, ${systemState === 'CRITICAL' ? 'rgba(239,68,68,0.14)' : systemState === 'DEGRADED' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.10)'} 0%, transparent 65%)` }} />
+          )}
+          <div className="flex items-center justify-between mb-4 relative z-10">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">System State</span>
             <div className="p-2 bg-secondary/50 rounded-lg">
               <ShieldAlert className="w-4 h-4 text-muted-foreground" />
             </div>
           </div>
-          <div className={`text-3xl font-bold tracking-tight ${stateValueCls}`} data-testid="text-system-state-label">
+          <div className={`text-3xl font-bold tracking-tight relative z-10 ${stateValueCls}`} data-testid="text-system-state-label">
             {anyPortalActive ? systemState : '—'}
           </div>
-          <div className="mt-4 space-y-2">
+          <div className="mt-4 space-y-2 relative z-10">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Open incidents</span>
               <span className={`font-bold tabular-nums ${openIncidents.length > 0 ? 'text-amber-400' : 'text-emerald-400'}`}
