@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNocWebSocket } from "@/hooks/use-noc-ws";
 import { useDashboardStats } from "@/hooks/use-dashboard";
 import { useCalls } from "@/hooks/use-calls";
@@ -172,6 +172,41 @@ function LiveCallRow({ call, index }: { call: any; index: number }) {
         {call.setupTime ? call.setupTime.replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3 ').replace(/\.\d+$/, '') : '—'}
       </td>
     </tr>
+  );
+}
+
+// ── Network Health Gauge — radial arc SVG, 0-100 ─────────────────────────────
+function NetworkHealthGauge({ score }: { score: number }) {
+  const R = 52, cx = 68, cy = 76;
+  const startDeg = 135, totalSweep = 270;
+  const safePct = Math.min(0.999, Math.max(0, score / 100));
+  const toXY = (deg: number) => ({
+    x: cx + R * Math.cos((deg * Math.PI) / 180),
+    y: cy + R * Math.sin((deg * Math.PI) / 180),
+  });
+  const s = toXY(startDeg);
+  const trackEnd = toXY(startDeg + totalSweep);
+  const fillEnd  = toXY(startDeg + safePct * totalSweep);
+  const fillSweep = safePct * totalSweep;
+  const color = score >= 80 ? '#10b981' : score >= 60 ? '#3b82f6' : score >= 40 ? '#f59e0b' : '#ef4444';
+  return (
+    <svg width="136" height="116" viewBox="0 0 136 116" className="overflow-visible">
+      <path d={`M ${s.x} ${s.y} A ${R} ${R} 0 1 1 ${trackEnd.x} ${trackEnd.y}`}
+        fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="10" strokeLinecap="round" />
+      {score > 0 && (
+        <path d={`M ${s.x} ${s.y} A ${R} ${R} 0 ${fillSweep > 180 ? 1 : 0} 1 ${fillEnd.x} ${fillEnd.y}`}
+          fill="none" stroke={color} strokeWidth="10" strokeLinecap="round"
+          style={{ filter: `drop-shadow(0 0 8px ${color}80)` }} />
+      )}
+      <text x={cx} y={cy - 4} textAnchor="middle" fill={score > 0 ? color : 'rgba(255,255,255,0.2)'}
+        style={{ fontSize: '30px', fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>
+        {score}
+      </text>
+      <text x={cx} y={cy + 16} textAnchor="middle" fill="rgba(255,255,255,0.25)"
+        style={{ fontSize: '11px' }}>
+        / 100
+      </text>
+    </svg>
   );
 }
 
@@ -443,6 +478,13 @@ export default function DashboardPage() {
     enabled: isSippyReachable,
   });
 
+  // Active incidents — drives the System State card and incident strip
+  const { data: activeIncidents } = useQuery<any[]>({
+    queryKey: ['/api/incidents'],
+    refetchInterval: 30_000,
+    staleTime: 25_000,
+  });
+
   // Downsample monitoring points to ~30 for clean chart display
   const chartData = (() => {
     const pts = qualityTrend?.points ?? [];
@@ -540,6 +582,35 @@ export default function DashboardPage() {
   const callRatePerMin = sippyStats?.cdrCount && sippyStats.cdrCount > 0
     ? parseFloat((sippyStats.cdrCount / 60).toFixed(1))
     : 0;
+
+  // ── CPS display ────────────────────────────────────────────────────────────
+  const displayCps = anyPortalActive ? (sippyStats?.cps ?? 0) : 0;
+
+  // ── Open incidents & system state ─────────────────────────────────────────
+  const openIncidents = (activeIncidents ?? []).filter((r: any) => r.status !== 'resolved');
+  const criticalCount = openIncidents.filter((r: any) => r.severity === 'critical').length;
+  const highCount     = openIncidents.filter((r: any) => r.severity === 'high').length;
+  const systemState: 'OPERATIONAL' | 'DEGRADED' | 'CRITICAL' =
+    criticalCount > 0 ? 'CRITICAL' :
+    (highCount > 0 || (anyPortalActive && trafficScore < 50)) ? 'DEGRADED' : 'OPERATIONAL';
+
+  // ── 15-min delta snapshot — captures a baseline every 15 min ─────────────
+  // metricsRef always holds the latest values without causing re-renders
+  const [deltaSnap, setDeltaSnap] = useState<{
+    ts: number; activeCalls: number; asr: number; mos: number | null;
+    pdd: number; acd: number; ner: number | null;
+  } | null>(null);
+  const metricsRef = useRef({ displayActiveCalls, displayAsr, displayMos, displayPdd, displayAcd, displayNer });
+  useEffect(() => {
+    metricsRef.current = { displayActiveCalls, displayAsr, displayMos, displayPdd, displayAcd, displayNer };
+  }, [displayActiveCalls, displayAsr, displayMos, displayPdd, displayAcd, displayNer]);
+  useEffect(() => {
+    if (!anyPortalActive) return;
+    const snap = () => setDeltaSnap({ ts: Date.now(), ...metricsRef.current });
+    snap(); // take the first baseline immediately
+    const id = setInterval(snap, 15 * 60_000);
+    return () => clearInterval(id);
+  }, [anyPortalActive]); // re-run only when portal connect state changes
 
   // ── KAM/viewer filtered analytics — revenue for assigned clients only ──────
   const kamAnalytics = useMemo(() => {
@@ -983,214 +1054,108 @@ export default function DashboardPage() {
     );
   }
 
+  // ── System state color helpers ─────────────────────────────────────────────
+  const stateBadgeCls = systemState === 'CRITICAL'
+    ? 'text-rose-400 bg-rose-500/10 border-rose-500/25'
+    : systemState === 'DEGRADED'
+    ? 'text-amber-400 bg-amber-500/10 border-amber-500/25'
+    : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25';
+  const stateCardBorderCls = !anyPortalActive ? 'border-border/50'
+    : systemState === 'CRITICAL' ? 'border-rose-500/30'
+    : systemState === 'DEGRADED' ? 'border-amber-500/30'
+    : 'border-emerald-500/20';
+  const stateValueCls = !anyPortalActive ? 'text-muted-foreground/30'
+    : systemState === 'CRITICAL' ? 'text-rose-400'
+    : systemState === 'DEGRADED' ? 'text-amber-400'
+    : 'text-emerald-400';
+
   return (
-    <div className="space-y-6">
-      {/* ── Widget Customize Sheet ──────────────────────────────────────────── */}
-      <Sheet open={customizeOpen} onOpenChange={setCustomizeOpen}>
-        <SheetContent side="right" className="w-80 sm:w-[420px] overflow-y-auto">
-          <SheetHeader className="mb-5">
-            <SheetTitle className="flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-primary" />
-              Customize Dashboard
-            </SheetTitle>
-            <SheetDescription>
-              Toggle KPI widgets and sections. Drag cards on the dashboard to reorder.
-            </SheetDescription>
-          </SheetHeader>
+    <div className="space-y-5">
 
-          {/* ── KPI Widget Library ── */}
-          <div className="mb-6">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">KPI Widgets</p>
-            <div className="space-y-2">
-              {KPI_WIDGET_DEFS.map(w => {
-                const enabled = showWidget(w.id);
-                return (
-                  <div
-                    key={w.id}
-                    className={cn(
-                      "flex items-center gap-3 p-3 rounded-lg border transition-all",
-                      enabled ? "bg-muted/30 border-border/50" : "bg-muted/10 border-border/20 opacity-60"
-                    )}
-                    data-testid={`widget-library-card-${w.id}`}
-                  >
-                    <div className={cn("p-1.5 rounded-lg", enabled ? "bg-primary/10" : "bg-muted/30")}>
-                      <w.icon className={cn("h-3.5 w-3.5", enabled ? "text-primary" : "text-muted-foreground/40")} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium leading-tight">{w.label}</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{w.description}</p>
-                    </div>
-                    <Switch
-                      checked={enabled}
-                      onCheckedChange={() => toggleWidget(w.id)}
-                      disabled={savePrefsMutation.isPending}
-                      data-testid={`switch-widget-${w.id}`}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* ── Dashboard Sections ── */}
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">Dashboard Sections</p>
-            <div className="space-y-2">
-              {DASHBOARD_WIDGETS.filter(w => {
-                const fk = WIDGET_FEATURE_MAP[w.id];
-                return !fk || mgmtHas(fk);
-              }).map(widget => (
-                <div key={widget.id} className="flex items-start justify-between gap-4 p-3 rounded-lg bg-muted/30 border border-border/50">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium leading-tight">{widget.label}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{widget.description}</p>
-                  </div>
-                  <Switch
-                    checked={showWidget(widget.id)}
-                    onCheckedChange={() => toggleWidget(widget.id)}
-                    disabled={savePrefsMutation.isPending}
-                    data-testid={`switch-widget-${widget.id}`}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {(hiddenWidgets.size > 0 || currentOrder.join(',') !== DEFAULT_KPI_ORDER.join(',')) && (
-            <button
-              onClick={() => savePrefsMutation.mutate({ hidden: [], order: [...DEFAULT_KPI_ORDER] })}
-              disabled={savePrefsMutation.isPending}
-              className="mt-6 w-full text-xs text-muted-foreground hover:text-foreground py-2 rounded-lg border border-border/50 hover:bg-muted/30 transition-colors"
-              data-testid="button-reset-widgets"
-            >
-              Reset to defaults (show all · default order)
-            </button>
-          )}
-        </SheetContent>
-      </Sheet>
-
-      {/* ── Page Header ───────────────────────────────────────────────────── */}
+      {/* ── Page Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-2xl font-bold tracking-tight">Network Operations Center</h2>
-            {anyPortalActive && (
+            {anyPortalActive ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 LIVE
               </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-muted/30 text-muted-foreground border border-border/40">
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" />
+                OFFLINE
+              </span>
+            )}
+            {anyPortalActive && (
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${stateBadgeCls}`}
+                data-testid="text-system-state-badge">
+                {systemState}
+              </span>
             )}
           </div>
           <p className="text-muted-foreground text-sm mt-1">
-            Sippy Softswitch · iEnvironment=5 ·{' '}
+            Sippy Softswitch ·{' '}
             <span className="font-mono text-xs">
               {sippySession?.username
                 ? sippySession.username
-                : anyPortalActive
-                  ? (sippySession?.mode === 'portal' ? 'portal session' : 'connected')
-                  : 'not connected'}
+                : anyPortalActive ? 'connected' : 'not connected'}
             </span>
             {anyPortalActive && secsAgo < 60 && (
               <span className="ml-2 text-muted-foreground/60">· refreshed {secsAgo}s ago</span>
             )}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          {/* ── NOC Clock ────────────────────────────────────────────────────── */}
-          <div className="relative" data-testid="noc-clock">
-            <div
-              className="flex flex-col items-end cursor-pointer select-none rounded-xl border border-border/50 bg-card/70 px-4 py-2 hover:bg-muted/30 transition-colors"
-              onClick={() => setTzPickerOpen(o => !o)}
-              data-testid="button-clock-tz-edit"
-              title="Click to change timezone"
-            >
-              <span className="font-mono text-2xl font-bold tabular-nums leading-none tracking-tight text-foreground">
-                {clockDisplay.time || '--:--:--'}
-              </span>
-              <div className="flex items-center gap-1 mt-0.5">
-                <span className="text-[11px] text-muted-foreground font-mono">{clockDisplay.date}</span>
-                <span className="text-[11px] font-semibold text-indigo-400 font-mono">{clockDisplay.abbr || tzAbbr}</span>
-                <Pencil className="h-2.5 w-2.5 text-indigo-400/60" />
-              </div>
+
+        {/* NOC Clock */}
+        <div className="relative" data-testid="noc-clock">
+          <div
+            className="flex flex-col items-end cursor-pointer select-none rounded-xl border border-border/50 bg-card/70 px-4 py-2 hover:bg-muted/30 transition-colors"
+            onClick={() => setTzPickerOpen(o => !o)}
+            data-testid="button-clock-tz-edit"
+            title="Click to change timezone"
+          >
+            <span className="font-mono text-2xl font-bold tabular-nums leading-none tracking-tight text-foreground">
+              {clockDisplay.time || '--:--:--'}
+            </span>
+            <div className="flex items-center gap-1 mt-0.5">
+              <span className="text-[11px] text-muted-foreground font-mono">{clockDisplay.date}</span>
+              <span className="text-[11px] font-semibold text-indigo-400 font-mono">{clockDisplay.abbr || tzAbbr}</span>
+              <Pencil className="h-2.5 w-2.5 text-indigo-400/60" />
             </div>
-
-            {/* Timezone picker dropdown */}
-            {tzPickerOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setTzPickerOpen(false)} />
-                <div className="absolute top-full right-0 mt-1.5 w-56 rounded-xl border border-border/60 bg-card shadow-xl z-50 overflow-hidden">
-                  <div className="px-3 py-2 border-b border-border/40 bg-muted/30 flex items-center gap-2">
-                    <Globe className="h-3.5 w-3.5 text-indigo-400" />
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">App Timezone</p>
-                  </div>
-                  <div className="max-h-72 overflow-y-auto">
-                    {TZ_OPTIONS.map(opt => (
-                      <button
-                        key={opt.value}
-                        onClick={() => { setTz(opt.value); setTzPickerOpen(false); }}
-                        className={`w-full px-3 py-2 flex items-center justify-between text-left hover:bg-muted/50 transition-colors ${tz === opt.value ? 'bg-indigo-500/10 text-indigo-400' : ''}`}
-                        data-testid={`button-tz-${opt.value}`}
-                      >
-                        <span className="text-sm font-medium">{opt.label}</span>
-                        <span className="text-xs text-muted-foreground font-mono">{opt.offset}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="px-3 py-2 border-t border-border/30 bg-muted/10">
-                    <p className="text-[10px] text-muted-foreground/60">Applied to all reports & timestamps</p>
-                  </div>
-                </div>
-              </>
-            )}
           </div>
-
-          {isAdmin && (
-            <button
-              onClick={() => setCustomizeOpen(true)}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              data-testid="button-customize-dashboard"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              Customize
-              {hiddenWidgets.size > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-bold leading-none">
-                  {hiddenWidgets.size} hidden
-                </span>
-              )}
-            </button>
+          {tzPickerOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setTzPickerOpen(false)} />
+              <div className="absolute top-full right-0 mt-1.5 w-56 rounded-xl border border-border/60 bg-card shadow-xl z-50 overflow-hidden">
+                <div className="px-3 py-2 border-b border-border/40 bg-muted/30 flex items-center gap-2">
+                  <Globe className="h-3.5 w-3.5 text-indigo-400" />
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">App Timezone</p>
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  {TZ_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => { setTz(opt.value); setTzPickerOpen(false); }}
+                      className={`w-full px-3 py-2 flex items-center justify-between text-left hover:bg-muted/50 transition-colors ${tz === opt.value ? 'bg-indigo-500/10 text-indigo-400' : ''}`}
+                      data-testid={`button-tz-${opt.value}`}
+                    >
+                      <span className="text-sm font-medium">{opt.label}</span>
+                      <span className="text-xs text-muted-foreground font-mono">{opt.offset}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="px-3 py-2 border-t border-border/30 bg-muted/10">
+                  <p className="text-[10px] text-muted-foreground/60">Applied to all reports & timestamps</p>
+                </div>
+              </div>
+            </>
           )}
         </div>
-        {/* Inline key metrics strip */}
-        {anyPortalActive && (
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border ${liveCallsStale ? 'border-amber-500/30' : 'border-border/50'}`}
-              title={liveCallsStale ? 'Refreshing — showing last known count' : undefined}>
-              <Radio className={`w-3 h-3 ${liveCallsStale ? 'text-amber-400' : 'text-blue-400'}`} />
-              <span className="text-muted-foreground">Active:</span>
-              <span className={`font-bold ${liveCallsStale ? 'text-amber-400' : 'text-blue-400'}`}>
-                {liveCallsStale ? '~' : ''}{displayActiveCalls}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/50" title="Call attempts per minute — average over the last hour, computed from CDR records">
-              <Zap className="w-3 h-3 text-violet-400" />
-              <span className="text-muted-foreground">Call Rate:</span>
-              <span className="font-bold text-violet-400">{callRatePerMin}/min</span>
-            </div>
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/50">
-              <BarChart2 className="w-3 h-3 text-emerald-400" />
-              <span className="text-muted-foreground">ASR:</span>
-              <span className={`font-bold ${displayAsr >= 10 ? 'text-emerald-400' : displayAsr > 0 ? 'text-amber-400' : 'text-rose-400'}`}>{displayAsr.toFixed(1)}%</span>
-            </div>
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/50`}>
-              <Award className="w-3 h-3 text-amber-400" />
-              <span className="text-muted-foreground">Score:</span>
-              <span className={`font-bold ${scoreTextCls}`}>{trafficScore}/100</span>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Connection required banner */}
+      {/* ── Banners ─────────────────────────────────────────────────────────── */}
       {notConnected && (
         <div className="rounded-xl border-2 border-dashed border-violet-500/40 bg-violet-500/5 p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-start gap-4">
@@ -1211,8 +1176,6 @@ export default function DashboardPage() {
           </Link>
         </div>
       )}
-
-      {/* CDR API unavailable warning — shown ONLY when api_admin_password is genuinely absent */}
       {!notConnected && anyPortalActive && sippyStats?.credsMissing === true && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-start gap-3">
@@ -1222,1204 +1185,359 @@ export default function DashboardPage() {
             <div>
               <p className="text-sm font-semibold text-amber-200">XML-RPC API access not configured</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                CDR metrics, ASR trend, traffic charts, and call-back ratio require the XML-RPC API password.
-                Enter it in Settings under <span className="font-medium text-foreground/70">API Password (XML-RPC key)</span>.
+                CDR metrics, ASR trend, and traffic analytics require the XML-RPC API password. Enter it in Settings.
               </p>
             </div>
           </div>
           <Link href="/settings"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600/80 text-white text-xs font-medium hover:bg-amber-500/80 transition-colors whitespace-nowrap flex-shrink-0"
-            data-testid="link-settings-cdr-fix"
-          >
+            data-testid="link-settings-cdr-fix">
             <Settings className="w-3 h-3" />
             Open Settings
           </Link>
         </div>
       )}
 
-      {/* ── Widget Section Chip Picker ──────────────────────────────────────── */}
-      <div className="flex items-center gap-2 flex-wrap border border-border/40 bg-muted/5 rounded-xl px-4 py-3">
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium shrink-0 mr-1">
-          <LayoutGrid className="w-3.5 h-3.5" />
-          Sections:
-        </div>
-        {SECTION_CHIPS.filter(chip => {
-          const fk = WIDGET_FEATURE_MAP[chip.id];
-          return !fk || mgmtHas(fk);
-        }).map(chip => {
-          const isOn = showWidget(chip.id);
-          return (
-            <button
-              key={chip.id}
-              onClick={() => toggleWidget(chip.id)}
-              disabled={savePrefsMutation.isPending}
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-                isOn
-                  ? 'bg-primary/10 border-primary/30 text-primary hover:bg-primary/20'
-                  : 'bg-muted/20 border-border/30 text-muted-foreground/50 hover:border-border/60 hover:text-muted-foreground'
-              }`}
-              data-testid={`chip-section-${chip.id}`}
-              title={isOn ? `Hide ${chip.label}` : `Show ${chip.label}`}
-            >
-              {isOn
-                ? <Check className="w-3 h-3" />
-                : <Plus className="w-3 h-3" />}
-              {chip.label}
-            </button>
-          );
-        })}
-        {hiddenWidgets.size > 0 && (
-          <button
-            onClick={() => savePrefsMutation.mutate({ hidden: [], order: currentOrder })}
-            disabled={savePrefsMutation.isPending}
-            className="ml-auto text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors px-2 py-1 rounded-lg hover:bg-muted/30"
-            data-testid="button-show-all-sections"
-          >
-            Show all
-          </button>
-        )}
-      </div>
+      {/* ── Hero Row: Active Calls | Network Health | System State ────────── */}
+      <div className="grid gap-4 sm:grid-cols-3">
 
-      {/* ── Draggable KPI Widget Grid ────────────────────────────────────────── */}
-      {(() => {
-        const visibleKpiWidgets = currentOrder.filter(id => !hiddenWidgets.has(id));
-        if (visibleKpiWidgets.length === 0) return null;
-        return (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={currentOrder} strategy={rectSortingStrategy}>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" data-testid="kpi-widget-grid">
-                {visibleKpiWidgets.map(id => (
-                  <SortableWidgetShell key={id} id={id}>
-                    <KpiWidgetRenderer id={id} />
-                  </SortableWidgetShell>
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        );
-      })()}
-
-      {showWidget('live_metrics') && (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        {/* Active Calls + call rate badge */}
-        <div className={cn(
-          "bg-card border border-blue-500/20 rounded-xl p-5 shadow-lg shadow-black/5 hover:border-blue-500/40 transition-all duration-300 relative overflow-hidden group"
-        )}>
-          <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
-            <PhoneCall className="w-24 h-24" />
+        {/* Active Calls */}
+        <div className="bg-card border border-blue-500/20 rounded-xl p-6 shadow-lg relative overflow-hidden group hover:border-blue-500/40 transition-all duration-300"
+          data-testid="card-active-calls">
+          <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity duration-500">
+            <PhoneCall className="w-28 h-28" />
           </div>
-          <div className="flex items-center justify-between mb-3 relative z-10">
-            <h3 className="text-sm font-medium text-muted-foreground">Active Calls</h3>
-            <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-blue-500/10 transition-colors">
-              <PhoneCall className="w-4 h-4 text-foreground group-hover:text-blue-400" />
-            </div>
-          </div>
-          <div className="relative z-10">
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-bold tracking-tight tabular-nums">
-                {notConnected ? '—' : displayActiveCalls}
-              </span>
-              {liveCallsStale && anyPortalActive && (
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20 cursor-help" title="Refreshing — showing last known count">
+          <div className="flex items-center justify-between mb-4 relative z-10">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Active Calls</span>
+            <div className="flex items-center gap-2">
+              {anyPortalActive && !liveCallsStale && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-blue-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                  LIVE
+                </span>
+              )}
+              {liveCallsStale && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">
                   ~cached
                 </span>
               )}
-              {!liveCallsStale && anyPortalActive && callRatePerMin > 0 && (
-                <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-violet-400/10 text-violet-400 cursor-help" title={`Call rate: ${callRatePerMin} calls per minute — 1-hour CDR average`}>
+              <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-blue-500/10 transition-colors">
+                <PhoneCall className="w-4 h-4 text-blue-400" />
+              </div>
+            </div>
+          </div>
+          <div className="relative z-10">
+            <div className="flex items-baseline gap-3">
+              <span className="text-5xl font-bold tracking-tight tabular-nums" data-testid="text-active-calls-count">
+                {notConnected ? '—' : displayActiveCalls}
+              </span>
+              {anyPortalActive && callRatePerMin > 0 && !liveCallsStale && (
+                <span className="text-sm font-medium px-2 py-0.5 rounded-full bg-violet-400/10 text-violet-400">
                   {callRatePerMin}/min
                 </span>
               )}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {anyPortalActive ? "Live concurrent calls on Sippy" : "Currently connected sessions"}
-            </p>
+            <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
+              <span><span className="text-emerald-400 font-semibold" data-testid="text-connected-count">{liveConnected}</span> connected</span>
+              <span><span className="text-amber-400 font-semibold" data-testid="text-routing-count">{liveTotal - liveConnected}</span> routing</span>
+            </div>
           </div>
         </div>
 
-        {/* Network Effectiveness — eNER + ASR combined */}
-        <div className={`bg-card border ${nerBorder} rounded-xl p-5 shadow-lg shadow-black/5 hover:border-opacity-60 transition-all duration-300 relative overflow-hidden group`}>
-          <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
-            <Signal className="w-24 h-24" />
-          </div>
-          <div className="flex items-center justify-between mb-3 relative z-10">
-            <div className="flex items-center gap-1.5">
-              <h3 className="text-sm font-medium text-muted-foreground">Network Effectiveness</h3>
-              <Info className="w-3 h-3 text-muted-foreground/40 cursor-help flex-shrink-0" title={nerTooltip} />
-            </div>
-            <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-emerald-500/10 transition-colors">
-              <Signal className="w-4 h-4 text-foreground group-hover:text-emerald-400" />
+        {/* Network Health Score */}
+        <div className="bg-card border border-border/50 rounded-xl p-5 shadow-lg relative overflow-hidden group hover:border-border transition-all duration-300 flex flex-col items-center"
+          data-testid="card-health-score">
+          <div className="flex items-center justify-between w-full mb-1">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Network Health</span>
+            <div className="p-2 bg-secondary/50 rounded-lg">
+              <Activity className="w-4 h-4 text-emerald-400" />
             </div>
           </div>
-          <div className="relative z-10 space-y-1.5">
-            <div className="flex items-baseline gap-1.5">
-              <span className={`text-3xl font-bold tracking-tight tabular-nums ${nerTextCls}`} data-testid="admin-ener">
-                {notConnected ? '—' : displayNer != null ? `${displayNer.toFixed(1)}%` : '—'}
+          <NetworkHealthGauge score={anyPortalActive ? trafficScore : 0} />
+          <div className={`text-sm font-semibold mt-0.5 ${anyPortalActive ? scoreTextCls : 'text-muted-foreground/30'}`}>
+            {anyPortalActive ? scoreLabel : '—'}
+          </div>
+          <div className="text-[10px] text-muted-foreground/50 mt-1 text-center">ASR 45% · MOS 30% · CK 15% · PDD 10%</div>
+        </div>
+
+        {/* System State */}
+        <div className={`bg-card border rounded-xl p-6 shadow-lg relative overflow-hidden group transition-all duration-300 ${stateCardBorderCls}`}
+          data-testid="card-system-state">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">System State</span>
+            <div className="p-2 bg-secondary/50 rounded-lg">
+              <ShieldAlert className="w-4 h-4 text-muted-foreground" />
+            </div>
+          </div>
+          <div className={`text-3xl font-bold tracking-tight ${stateValueCls}`} data-testid="text-system-state-label">
+            {anyPortalActive ? systemState : '—'}
+          </div>
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Open incidents</span>
+              <span className={`font-bold tabular-nums ${openIncidents.length > 0 ? 'text-amber-400' : 'text-emerald-400'}`}
+                data-testid="text-open-incident-count">
+                {openIncidents.length}
               </span>
-              {displayNer != null && !notConnected && (
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">eNER</span>
-              )}
+            </div>
+            {criticalCount > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Critical</span>
+                <span className="font-bold text-rose-400" data-testid="text-critical-count">{criticalCount}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Traffic score</span>
+              <span className={`font-bold tabular-nums ${anyPortalActive ? scoreTextCls : 'text-muted-foreground/30'}`}>
+                {anyPortalActive ? `${trafficScore} / 100` : '—'}
+              </span>
             </div>
             <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">ASR</span>
-              <span className={`font-semibold tabular-nums ${displayAsr >= 30 ? 'text-emerald-400' : displayAsr > 0 ? 'text-amber-400' : 'text-muted-foreground/50'}`} data-testid="admin-asr">
-                {notConnected ? '—' : asrIsLiveEstimate ? `~${displayAsr.toFixed(1)}%` : `${displayAsr.toFixed(1)}%`}
-              </span>
-            </div>
-            {!notConnected && displayNer != null && nerGap > 0 && (
-              <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
-                <span className="text-muted-foreground">Gap</span>
-                <span className="text-muted-foreground tabular-nums">+{nerGap.toFixed(1)}%</span>
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground pt-0.5">{nerStatusLine}</p>
-          </div>
-        </div>
-
-        {/* Average MOS */}
-        <StatCard 
-          title="Avg MOS"
-          value={notConnected ? '—' : displayMos != null ? `${displayMos.toFixed(2)}` : '—'}
-          icon={Activity}
-          className={displayMos != null && displayMos > 4 ? "border-emerald-500/20" : "border-amber-500/20"}
-          description={anyPortalActive && mosLabel ? "E-model estimate · Sippy" : "Mean Opinion Score (5.0 scale)"}
-          trend={anyPortalActive && displayMos != null ? {
-            value: Math.round((displayMos / 5 - 0.8) * 100),
-            isPositive: displayMos >= 4
-          } : undefined}
-        />
-
-        {/* Traffic Quality Score */}
-        <div className={cn(
-          "bg-card border rounded-xl p-5 shadow-lg shadow-black/5 hover:border-opacity-60 transition-all duration-300 relative overflow-hidden group",
-          scoreBorder
-        )}>
-          <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
-            <Award className="w-24 h-24" />
-          </div>
-          <div className="flex items-center justify-between mb-3 relative z-10">
-            <h3 className="text-sm font-medium text-muted-foreground">Traffic Score</h3>
-            <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-amber-500/10 transition-colors">
-              <Award className="w-4 h-4 text-foreground group-hover:text-amber-400" />
-            </div>
-          </div>
-          <div className="relative z-10">
-            <div className="flex items-baseline gap-2">
-              <span className={cn("text-3xl font-bold tracking-tight tabular-nums", notConnected ? 'text-muted-foreground/40' : scoreTextCls)}>
-                {notConnected ? '—' : trafficScore}
-              </span>
-              {!notConnected && <span className="text-sm text-muted-foreground">/100</span>}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {notConnected ? 'Connect to see quality score' : `${scoreLabel} · ASR+MOS+CK composite`}
-            </p>
-          </div>
-          {/* Score bar */}
-          {!notConnected && (
-            <div className="mt-3 h-1 rounded-full bg-muted/40 overflow-hidden relative z-10">
-              <div
-                className={cn("h-full rounded-full transition-all duration-700",
-                  trafficScore >= 80 ? 'bg-emerald-500' : trafficScore >= 60 ? 'bg-blue-500' : trafficScore >= 40 ? 'bg-amber-500' : 'bg-rose-500'
-                )}
-                style={{ width: `${trafficScore}%` }}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Live CPS */}
-        {(() => {
-          const cps = anyPortalActive ? (sippyStats?.cps ?? 0) : 0;
-          const cpsSource = sippyStats?.cpsSource ?? 'cdr';
-          const cpsColor = cps === 0
-            ? 'text-muted-foreground/50'
-            : cps < 1 ? 'text-blue-400'
-            : cps < 10 ? 'text-emerald-400'
-            : cps < 30 ? 'text-amber-400'
-            : 'text-rose-400';
-          const cpsBorder = cps === 0
-            ? 'border-border/50'
-            : cps < 1 ? 'border-blue-500/20'
-            : cps < 10 ? 'border-emerald-500/20'
-            : cps < 30 ? 'border-amber-500/20'
-            : 'border-rose-500/30';
-          const srcLabel = cpsSource === 'monitoring' ? '5-min avg · Sippy monitor' : '1-hr avg · CDR estimate';
-          const cpsLabel = cps === 0 ? 'No CDR data yet'
-            : cps < 1 ? `Low traffic · ${srcLabel}`
-            : cps < 10 ? `Normal load · ${srcLabel}`
-            : cps < 30 ? `Moderate load · ${srcLabel}`
-            : `High load · ${srcLabel}`;
-          return (
-            <div className={`bg-card border ${cpsBorder} rounded-xl p-5 shadow-lg shadow-black/5 hover:border-opacity-60 transition-all duration-300 relative overflow-hidden group`} title="Calls Per Second — how many new calls are being attempted per second">
-              <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500">
-                <Zap className="w-24 h-24" />
-              </div>
-              <div className="flex items-center justify-between mb-3 relative z-10">
-                <h3 className="text-sm font-medium text-muted-foreground">Calls/sec (CPS)</h3>
-                <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-amber-500/10 transition-colors">
-                  <Zap className={`w-4 h-4 ${cps > 0 ? cpsColor : 'text-foreground'} group-hover:text-amber-400`} />
-                </div>
-              </div>
-              <div className="relative z-10">
-                <div className="flex items-baseline gap-1.5">
-                  <span className={`text-3xl font-bold tracking-tight tabular-nums ${notConnected ? 'text-muted-foreground/40' : cpsColor}`}>
-                    {notConnected ? '—' : (sippyStatsLoading && !sippyStats) ? '…' : cps > 0 ? cps.toFixed(2) : '0.00'}
-                  </span>
-                  {!notConnected && <span className="text-sm text-muted-foreground">/s</span>}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">{notConnected ? 'Connect to see CPS' : cpsLabel}</p>
-              </div>
-              {!notConnected && cps > 0 && (
-                <div className="mt-3 h-1 rounded-full bg-muted/40 overflow-hidden relative z-10">
-                  <div
-                    className={`h-full rounded-full transition-all duration-700 ${cps < 1 ? 'bg-blue-500' : cps < 10 ? 'bg-emerald-500' : cps < 30 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                    style={{ width: `${Math.min(100, (cps / 2) * 100)}%` }}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
-      </div>
-      )}
-
-
-      {/* ── Revenue & Margin Analytics ───────────────────────────────────────── */}
-      {sectionVisible('revenue_analytics') && anyPortalActive && (
-        <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-2.5 border-b border-border/40 bg-muted/10">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue &amp; Margin Analytics</span>
-              {role !== 'admin' && myAccountsData?.kamName && (
-                <span className="text-[10px] text-muted-foreground/60 normal-case ml-1">— {myAccountsData.kamName}'s clients</span>
-              )}
-            </div>
-            <button
-              onClick={() => refetchAnalytics()}
-              disabled={analyticsRefetching}
-              className="flex items-center gap-1 text-[10px] text-muted-foreground/70 hover:text-muted-foreground transition-colors px-2 py-1 rounded hover:bg-muted/30 disabled:opacity-50"
-              data-testid="button-refresh-analytics-dash"
-            >
-              <RefreshCw className={`w-3 h-3 ${analyticsRefetching ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{analyticsRefetching ? 'Refreshing…' : 'Refresh'}</span>
-            </button>
-          </div>
-
-          {/* Admin: 4 summary cards */}
-          {role === 'admin' && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/40">
-              {/* Total Revenue */}
-              <div className="px-5 py-4 text-center bg-emerald-500/5">
-                <div className="flex items-center justify-center gap-1.5 mb-1">
-                  <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Revenue</p>
-                </div>
-                <p className="text-2xl font-bold tabular-nums text-emerald-400" data-testid="analytics-revenue">
-                  {analyticsData?.summary ? `$${analyticsData.summary.totalRevenue.toFixed(2)}` : '…'}
-                </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">Last 30 days</p>
-              </div>
-              {/* Total Cost */}
-              <div className="px-5 py-4 text-center bg-rose-500/5">
-                <div className="flex items-center justify-center gap-1.5 mb-1">
-                  <TrendingDown className="w-3.5 h-3.5 text-rose-400" />
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Cost</p>
-                </div>
-                <p className="text-2xl font-bold tabular-nums text-rose-400" data-testid="analytics-cost">
-                  {analyticsData?.summary ? `$${analyticsData.summary.totalCost.toFixed(2)}` : '…'}
-                </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">Vendor interconnect</p>
-              </div>
-              {/* Gross Profit */}
-              <div className="px-5 py-4 text-center bg-blue-500/5">
-                <div className="flex items-center justify-center gap-1.5 mb-1">
-                  <Zap className="w-3.5 h-3.5 text-blue-400" />
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Gross Profit</p>
-                </div>
-                <p className={`text-2xl font-bold tabular-nums ${(analyticsData?.summary?.totalProfit ?? 0) >= 0 ? 'text-blue-400' : 'text-rose-400'}`} data-testid="analytics-profit">
-                  {analyticsData?.summary ? `$${analyticsData.summary.totalProfit.toFixed(2)}` : '…'}
-                </p>
-              </div>
-              {/* Margin % */}
-              <div className="px-5 py-4 text-center">
-                <div className="flex items-center justify-center gap-1.5 mb-1">
-                  <Target className="w-3.5 h-3.5 text-emerald-400" />
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Margin</p>
-                </div>
-                <p className={`text-2xl font-bold tabular-nums ${(analyticsData?.summary?.margin ?? 0) >= 15 ? 'text-emerald-400' : (analyticsData?.summary?.margin ?? 0) >= 5 ? 'text-amber-400' : 'text-rose-400'}`} data-testid="analytics-margin">
-                  {analyticsData?.summary ? `${analyticsData.summary.margin.toFixed(1)}%` : '…'}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Management / Viewer (KAM): Revenue only, filtered to assigned clients */}
-          {role !== 'admin' && (
-            <div className="px-5 py-4">
-              {kamAnalytics ? (
-                <div className="space-y-3">
-                  {/* Revenue total */}
-                  <div className="flex items-center gap-3">
-                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-5 py-3 flex items-center gap-3">
-                      <DollarSign className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <div>
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Your Clients Revenue</p>
-                        <p className="text-2xl font-bold text-emerald-400 tabular-nums" data-testid="analytics-kam-revenue">
-                          ${kamAnalytics.totalRevenue.toFixed(2)}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Last 30 days · {kamAnalytics.clients.length} client{kamAnalytics.clients.length !== 1 ? 's' : ''}</p>
-                      </div>
-                    </div>
-                  </div>
-                  {/* Per-client revenue breakdown */}
-                  <div className="flex flex-wrap gap-2">
-                    {kamAnalytics.clients.map(c => (
-                      <div key={c.name} className="bg-card border border-border/50 rounded-lg px-3 py-2 text-center min-w-[100px]">
-                        <p className="text-[10px] text-muted-foreground truncate max-w-[120px]">{c.name}</p>
-                        <p className="text-sm font-bold text-emerald-400 tabular-nums">${c.revenue.toFixed(2)}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : analyticsData ? (
-                <div className="text-center text-muted-foreground text-sm py-3">
-                  <DollarSign className="w-5 h-5 mx-auto mb-1.5 opacity-30" />
-                  No revenue data for your assigned clients in the last 30 days
-                </div>
-              ) : (
-                <div className="text-center text-muted-foreground text-sm py-3">Loading analytics…</div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-
-      {/* Active Calls Table — Sippy live when connected, local DB otherwise */}
-      {showWidget('live_calls_table') && <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-border/50 flex items-center justify-between">
-          <h3 className="font-semibold flex items-center gap-2">
-            <PhoneCall className="w-4 h-4 text-blue-500" />
-            {anyPortalActive ? `Live Calls on Sippy (${liveCalls.length})` : 'Recent Active Calls'}
-          </h3>
-          <Link href="/calls" className="inline-flex items-center text-sm font-medium text-primary hover:text-primary/80 transition-colors">
-            View All Calls <ArrowRight className="ml-1 w-4 h-4" />
-          </Link>
-        </div>
-        <div className="overflow-x-auto">
-          {anyPortalActive ? (
-            liveCalls.length === 0 ? (
-              <div className="px-6 py-12 text-center text-sm text-muted-foreground">No active calls on Sippy right now.</div>
-            ) : (
-              <table className="w-full text-sm text-left">
-                <thead className="bg-muted/50 text-muted-foreground font-medium">
-                  <tr>
-                    <th className="px-6 py-3">Caller</th>
-                    <th className="px-6 py-3">Callee</th>
-                    <th className="px-6 py-3">Account</th>
-                    <th className="px-6 py-3">State</th>
-                    <th className="px-6 py-3">Duration</th>
-                    <th className="px-6 py-3">Answer Type</th>
-                    <th className="px-6 py-3">Setup Time</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {liveCalls.slice(0, 20).map((call: any, i: number) => (
-                    <LiveCallRow key={call.callId || i} call={call} index={i} />
-                  ))}
-                </tbody>
-              </table>
-            )
-          ) : (
-            <table className="w-full text-sm text-left">
-              <thead className="bg-muted/50 text-muted-foreground font-medium">
-                <tr>
-                  <th className="px-6 py-3">Caller</th>
-                  <th className="px-6 py-3">Callee</th>
-                  <th className="px-6 py-3">Started</th>
-                  <th className="px-6 py-3">MOS Score</th>
-                  <th className="px-6 py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {recentCalls?.map((call) => {
-                  const calleeCountry = lookupCountry(call.callee);
-                  return (
-                    <tr key={call.id} className="hover:bg-muted/30 transition-colors group">
-                      <td className="px-6 py-4 font-mono text-xs">
-                        <span className="flex items-center gap-1.5 group/caller">
-                          {call.caller}
-                          {call.caller && call.callee && (
-                            <Link
-                              href={`/test-call?cli=${encodeURIComponent(call.caller)}&cld=${encodeURIComponent(call.callee)}`}
-                              data-testid={`link-testcall-caller-${call.id}`}
-                              title="Launch test call"
-                              className="text-primary/40 hover:text-primary transition-colors opacity-0 group-hover/caller:opacity-100"
-                            >
-                              <PhoneCall className="h-3 w-3" />
-                            </Link>
-                          )}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="flex items-center gap-1.5 group/callee">
-                        <span className="font-mono text-xs">{call.callee}</span>
-                        {call.caller && call.callee && (
-                          <Link
-                            href={`/test-call?cli=${encodeURIComponent(call.caller)}&cld=${encodeURIComponent(call.callee)}`}
-                            data-testid={`link-testcall-callee-${call.id}`}
-                            title="Launch test call"
-                            className="text-primary/40 hover:text-primary transition-colors opacity-0 group-hover/callee:opacity-100"
-                          >
-                            <PhoneCall className="h-3 w-3" />
-                          </Link>
-                        )}
-                        </span>
-                        {calleeCountry && (
-                          <p className="text-[10px] text-muted-foreground mt-0.5">
-                            {calleeCountry.flag} {calleeCountry.name}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-muted-foreground">
-                        {call.startTime ? formatUTC(new Date(call.startTime), 'HH:mm:ss') : '-'}
-                      </td>
-                      <td className="px-6 py-4">
-                        <MosBadge value={call.latestMetric?.mos || 0} />
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <Link href={`/calls/${call.id}`} className="text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
-                          Details
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>}
-
-      {/* ── Graphs Row: ASR/ACD Trend + Call Back Ratio ─────────────────────── */}
-      {sectionVisible('asr_trend') && <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-
-        {/* ASR & ACD Trend */}
-        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-semibold flex items-center gap-2">
-                <Activity className="w-4 h-4 text-primary" />
-                ASR &amp; ACD Trend
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Answer-Seizure Ratio (%) + Avg Call Duration (s)</p>
-            </div>
-            <div className="flex items-center gap-2">
-              {chartData.length > 0 && (
-                <div className="hidden sm:flex items-center gap-3 text-xs mr-2">
-                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-emerald-500 rounded-full inline-block" /> ASR</span>
-                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-violet-400 rounded-full inline-block" style={{borderTop: '2px dashed #a78bfa'}} /> ACD</span>
-                </div>
-              )}
-              <select
-                className="bg-background border border-border rounded-md text-xs px-2 py-1"
-                value={trendHours}
-                onChange={e => setTrendHours(Number(e.target.value))}
-                data-testid="select-trend-window"
-              >
-                <option value={1}>Last 1h</option>
-                <option value={6}>Last 6h</option>
-                <option value={24}>Last 24h</option>
-              </select>
-            </div>
-          </div>
-          <div className="h-[260px] w-full">
-            {chartData.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
-                <Activity className="w-8 h-8 opacity-30" />
-                <p className="text-sm text-center">
-                  {notConnected
-                    ? 'Connect to softswitch to see live trends.'
-                    : sippyStats?.credsMissing
-                      ? 'XML-RPC API password not set — enter it in Settings to enable trend charts.'
-                      : 'Trend data unavailable — monitoring graph API not supported on this Sippy build.'}
-                </p>
-                {!notConnected && sippyStats?.credsMissing && (
-                  <p className="text-xs text-muted-foreground/60 text-center max-w-xs">
-                    Set the API Password in Settings to enable historical trend charts.
-                  </p>
-                )}
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={260}>
-                <ComposedChart data={chartData} margin={{ top: 6, right: 40, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorAsrG" x1="0" y1="0" x2="0" y2="1">
-                      <BseGradStops color="#10b981" />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid {...BSE_GRID_PROPS} />
-                  <XAxis dataKey="time" {...BSE_AXIS_PROPS} interval="preserveStartEnd" />
-                  <YAxis yAxisId="asr" orientation="left" {...BSE_AXIS_PROPS} domain={[0, 100]} tickFormatter={(v) => `${v}%`} width={36} />
-                  <YAxis yAxisId="acd" orientation="right" {...BSE_AXIS_PROPS} tickFormatter={(v) => `${v}s`} width={36} />
-                  <Tooltip content={<BseTooltip formatter={(v, key) => key === 'asr' ? [`${v}%`, 'ASR'] : [`${v}s`, 'ACD']} />} cursor={BSE_CURSOR} />
-                  <Area yAxisId="asr" type="monotone" dataKey="asr" stroke="#10b981" strokeWidth={2.5} fill="url(#colorAsrG)" dot={false} activeDot={bseActiveDot('#10b981')} strokeLinejoin="round" strokeLinecap="round" />
-                  <Line yAxisId="acd" type="monotone" dataKey="acd" stroke="#a78bfa" strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={bseActiveDot('#a78bfa', 3)} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        {/* Call Back Ratio — FAS Deduction */}
-        <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
-        {/* Header */}
-        <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-4 border-b border-border/50">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-sm tracking-wide uppercase text-muted-foreground">Call Back Ratio</h3>
-              <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
-                FAS Deduction
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground/70">
-              Calls answered by the actual user ÷ total call attempts · Failed calls (wrong number, switched off, untraceable) are deducted
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-0.5">
-            <span
-              data-testid="text-ck-ratio"
-              className={`text-4xl font-bold font-mono tabular-nums ${
-                notConnected ? 'text-muted-foreground/40' :
-                displayCkRatio >= 80 ? 'text-emerald-400' :
-                displayCkRatio >= 60 ? 'text-amber-400' : 'text-rose-400'
-              }`}
-            >
-              {notConnected ? '—' : `${displayCkRatio.toFixed(1)}%`}
-            </span>
-            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
-              {anyPortalActive && sippyStats?.ckBreakdown != null ? 'last 2 hr · sippy cdrs' : 'connection rate today'}
-            </span>
-          </div>
-        </div>
-
-        {notConnected ? (
-          <div className="flex items-center justify-center py-10 text-sm text-muted-foreground gap-2">
-            <Globe className="w-4 h-4" />
-            Connect to your softswitch to see call breakdown data
-          </div>
-        ) : (
-        <>{/* Breakdown columns — each is clickable to open detail sheet */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/50">
-          {/* Connected */}
-          <button
-            className="flex flex-col items-center gap-1.5 py-5 px-4 hover:bg-emerald-500/5 transition-colors group text-left w-full"
-            onClick={() => setCkDrillStatus('connected')}
-            data-testid="button-ck-drill-connected"
-            title="Click to view connected call records"
-          >
-            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-            <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Connected</span>
-            <span data-testid="text-ck-connected" className="text-2xl font-bold text-emerald-400 tabular-nums group-hover:underline decoration-emerald-400/40">
-              {(displayCkBreakdown?.connected ?? 0).toLocaleString()}
-            </span>
-            <span className="text-xs text-center text-muted-foreground">Answered by user</span>
-          </button>
-          {/* Wrong Number */}
-          <button
-            className="flex flex-col items-center gap-1.5 py-5 px-4 hover:bg-rose-500/5 transition-colors group text-left w-full"
-            onClick={() => setCkDrillStatus('wrongNumber')}
-            data-testid="button-ck-drill-wrong"
-            title="Click to view wrong number call records"
-          >
-            <PhoneMissed className="w-5 h-5 text-rose-400" />
-            <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Wrong Number</span>
-            <span data-testid="text-ck-wrong" className="text-2xl font-bold text-rose-400 tabular-nums group-hover:underline decoration-rose-400/40">
-              {(displayCkBreakdown?.wrongNumber ?? 0).toLocaleString()}
-            </span>
-            <span className="text-xs text-center text-muted-foreground">Invalid / misrouted</span>
-          </button>
-          {/* Switched Off */}
-          <button
-            className="flex flex-col items-center gap-1.5 py-5 px-4 hover:bg-orange-500/5 transition-colors group text-left w-full"
-            onClick={() => setCkDrillStatus('switchedOff')}
-            data-testid="button-ck-drill-off"
-            title="Click to view switched-off call records"
-          >
-            <PhoneOff className="w-5 h-5 text-orange-400" />
-            <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Switched Off</span>
-            <span data-testid="text-ck-off" className="text-2xl font-bold text-orange-400 tabular-nums group-hover:underline decoration-orange-400/40">
-              {(displayCkBreakdown?.switchedOff ?? 0).toLocaleString()}
-            </span>
-            <span className="text-xs text-center text-muted-foreground">Device unreachable</span>
-          </button>
-          {/* Untraceable */}
-          <button
-            className="flex flex-col items-center gap-1.5 py-5 px-4 hover:bg-amber-500/5 transition-colors group text-left w-full"
-            onClick={() => setCkDrillStatus('untraceable')}
-            data-testid="button-ck-drill-untraceable"
-            title="Click to view untraceable call records"
-          >
-            <Signal className="w-5 h-5 text-amber-400" />
-            <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Untraceable</span>
-            <span data-testid="text-ck-untraceable" className="text-2xl font-bold text-amber-400 tabular-nums group-hover:underline decoration-amber-400/40">
-              {(displayCkBreakdown?.untraceable ?? 0).toLocaleString()}
-            </span>
-            <span className="text-xs text-center text-muted-foreground">No network / signal</span>
-          </button>
-        </div>
-
-        {/* Progress bar + legend */}
-        {(displayCkBreakdown?.total ?? 0) > 0 && (
-          <div className="px-6 pb-5 pt-2 space-y-2">
-            <div className="h-2.5 rounded-full overflow-hidden bg-muted/30 flex">
-              <div
-                className="bg-emerald-500 h-full transition-all duration-500"
-                style={{ width: `${(displayCkBreakdown?.connected ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }}
-              />
-              <div
-                className="bg-rose-500 h-full transition-all duration-500"
-                style={{ width: `${(displayCkBreakdown?.wrongNumber ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }}
-              />
-              <div
-                className="bg-orange-500 h-full transition-all duration-500"
-                style={{ width: `${(displayCkBreakdown?.switchedOff ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }}
-              />
-              <div
-                className="bg-amber-500 h-full transition-all duration-500"
-                style={{ width: `${(displayCkBreakdown?.untraceable ?? 0) / (displayCkBreakdown?.total ?? 1) * 100}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between text-xs text-muted-foreground/60">
-              <span>
-                <span className="text-muted-foreground font-medium">{(displayCkBreakdown?.total ?? 0).toLocaleString()}</span>
-                {' '}{anyPortalActive && sippyStats?.ckBreakdown != null ? 'calls last hour (Sippy CDRs)' : 'total attempts today'}
-              </span>
-              <span>
-                Failed: <span className="text-rose-400 font-medium">
-                  {((displayCkBreakdown?.total ?? 0) - (displayCkBreakdown?.connected ?? 0)).toLocaleString()}
-                </span>
+              <span className="text-muted-foreground">Call rate</span>
+              <span className="font-bold text-violet-400 tabular-nums">
+                {anyPortalActive && callRatePerMin > 0 ? `${callRatePerMin}/min` : '—'}
               </span>
             </div>
           </div>
-        )}
-        </>
-        )}
+        </div>
       </div>
 
-      </div>}{/* ── end Graphs Row grid ─── */}
+      {/* ── KPI Strip: ASR / MOS / PDD / ACD / NER / CPS ─────────────────── */}
+      <div className="grid gap-2 grid-cols-3 sm:grid-cols-6">
+        {[
+          {
+            label: 'ASR',
+            value: notConnected ? '—' : `${displayAsr.toFixed(1)}%`,
+            note: asrIsLiveEstimate ? 'live est.' : '',
+            good: displayAsr >= 50, warn: displayAsr >= 25,
+            testid: 'kpi-asr',
+          },
+          {
+            label: 'MOS',
+            value: notConnected || displayMos == null ? '—' : displayMos.toFixed(2),
+            note: mosLabel,
+            good: (displayMos ?? 0) >= 3.5, warn: (displayMos ?? 0) >= 2.5,
+            testid: 'kpi-mos',
+          },
+          {
+            label: 'PDD',
+            value: notConnected ? '—' : displayPdd > 0 ? `${displayPdd.toFixed(2)}s` : '—',
+            note: '',
+            good: displayPdd > 0 && displayPdd <= 2, warn: displayPdd > 0 && displayPdd <= 4,
+            testid: 'kpi-pdd',
+          },
+          {
+            label: 'ACD',
+            value: notConnected ? '—' : displayAcd > 0 ? `${displayAcd.toFixed(0)}s` : '—',
+            note: '',
+            good: displayAcd >= 60, warn: displayAcd >= 20,
+            testid: 'kpi-acd',
+          },
+          {
+            label: 'NER',
+            value: notConnected || displayNer == null ? '—' : `${displayNer.toFixed(1)}%`,
+            note: '',
+            good: (displayNer ?? 0) >= 90, warn: (displayNer ?? 0) >= 75,
+            testid: 'kpi-ner',
+          },
+          {
+            label: 'CPS',
+            value: notConnected ? '—' : displayCps > 0 ? displayCps.toFixed(2) : '—',
+            note: sippyStats?.cpsSource === 'cdr' ? 'est.' : '',
+            good: true, warn: true,
+            testid: 'kpi-cps',
+          },
+        ].map(kpi => (
+          <div key={kpi.label}
+            className="bg-card border border-border/40 rounded-xl px-4 py-3 flex flex-col gap-1 hover:border-border/70 transition-colors"
+            data-testid={kpi.testid}>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{kpi.label}</span>
+              {kpi.note && <span className="text-[9px] text-muted-foreground/50">{kpi.note}</span>}
+            </div>
+            <span className={`text-xl font-bold tabular-nums ${
+              kpi.value === '—' ? 'text-muted-foreground/30'
+              : kpi.good ? 'text-emerald-400'
+              : kpi.warn ? 'text-amber-400'
+              : 'text-rose-400'
+            }`}>
+              {kpi.value}
+            </span>
+          </div>
+        ))}
+      </div>
 
-      {/* ── FAS Events + Stats ───────────────────────────────────────────────── */}
-      {sectionVisible('fas_events') && fasAll.length > 0 && (
-        <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center gap-2 px-5 py-3 border-b border-rose-500/15">
-            <ShieldAlert className="w-4 h-4 text-rose-400" />
-            <h3 className="font-semibold text-sm text-rose-300">FAS Detections</h3>
-            <span className="ml-1 text-xs text-rose-400/70">— False Answer Supervision analysis</span>
-            <Link href="/fraud" className="ml-auto text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1">
+      {/* ── Active Incidents Strip ─────────────────────────────────────────── */}
+      {openIncidents.length > 0 ? (
+        <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 overflow-hidden" data-testid="panel-incidents">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-rose-500/15">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-400" />
+              <h3 className="font-semibold text-sm text-rose-300">Active Incidents</h3>
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-500/20 text-rose-400 text-[10px] font-bold">
+                {openIncidents.length}
+              </span>
+            </div>
+            <Link href="/ai-ops" className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+              data-testid="link-ai-ops-view-all">
               View all <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
-
-          {/* Stats + Chart row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-y md:divide-y-0 md:divide-x divide-rose-500/15">
-            {/* Stat chips */}
-            <div className="grid grid-cols-2 divide-x divide-y divide-rose-500/10">
-              {[
-                { label: 'Zero Billed',  count: fasZeroBilled,  cls: 'text-red-400',    bg: 'bg-red-500/10'    },
-                { label: 'High PDD',     count: fasHighPdd,     cls: 'text-orange-400', bg: 'bg-orange-500/10' },
-                { label: 'Short Billed', count: fasShortBilled, cls: 'text-violet-400', bg: 'bg-violet-500/10' },
-                { label: 'Early Answer', count: fasEarlyAnswer, cls: 'text-yellow-400', bg: 'bg-yellow-500/10' },
-              ].map(s => (
-                <div key={s.label} className={`flex flex-col items-center justify-center py-5 px-3 ${s.bg}`}>
-                  <span className={`text-2xl font-bold tabular-nums ${s.cls}`}>{s.count}</span>
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1 text-center">{s.label}</span>
-                </div>
-              ))}
-            </div>
-            {/* Bar chart */}
-            <div className="p-4">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Reason Breakdown</p>
-              <div className="h-[140px]">
-                <ResponsiveContainer width="100%" height={140}>
-                  <BarChart data={fasBarData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barCategoryGap="30%">
-                    <CartesianGrid {...BSE_GRID_PROPS} />
-                    <XAxis dataKey="name" {...BSE_AXIS_PROPS} />
-                    <YAxis {...BSE_AXIS_PROPS} allowDecimals={false} />
-                    <Tooltip content={<BseTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                    <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-                      {fasBarData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} fillOpacity={0.85} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-
-          {/* Events feed */}
-          <div className="divide-y divide-rose-500/10 border-t border-rose-500/15">
-            {recentFasEvents.map((ev: any) => {
-              const reasons: string[] = (ev.reason ?? '').split(',').map((r: string) => r.trim()).filter(Boolean);
+          <div className="divide-y divide-rose-500/10 max-h-64 overflow-y-auto">
+            {openIncidents.slice(0, 8).map((inc: any, i: number) => {
+              const sev = inc.severity ?? 'medium';
+              const sevCls = sev === 'critical'
+                ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                : sev === 'high'
+                ? 'bg-orange-500/15 text-orange-400 border-orange-500/30'
+                : sev === 'medium'
+                ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                : 'bg-blue-500/15 text-blue-400 border-blue-500/30';
+              const ageMs = inc.createdAt ? Date.now() - new Date(inc.createdAt).getTime() : 0;
+              const ageMin = Math.floor(ageMs / 60000);
+              const age = ageMin < 60 ? `${ageMin}m ago` : `${Math.floor(ageMin / 60)}h ago`;
               return (
-                <div key={ev.id} className="flex items-center gap-4 px-5 py-2.5 text-xs hover:bg-rose-500/5">
-                  <div className="flex-shrink-0 text-muted-foreground/60 w-28">
-                    {formatUTC(new Date(ev.detectedAt), 'dd MMM HH:mm:ss')}
-                  </div>
-                  <div className="flex-shrink-0 min-w-[90px]">
-                    <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary/80 font-medium">
-                      {ev.clientName || 'Unknown'}
-                    </span>
-                  </div>
-                  <div className="flex-shrink-0">
-                    {ev.vendor ? (
-                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-medium">
-                        <Server className="h-2.5 w-2.5" />{ev.vendor}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground/40">—</span>
-                    )}
-                  </div>
-                  <div className="font-mono text-muted-foreground truncate">
-                    {ev.caller ?? '—'} <span className="text-muted-foreground/40">→</span> {ev.callee ?? '—'}
-                  </div>
-                  <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
-                    {reasons.map(r => (
-                      <span key={r} className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${
-                        r === 'high_pdd'    ? 'bg-orange-500/15 text-orange-400' :
-                        r === 'zero_billed' ? 'bg-red-500/15 text-red-400' :
-                        r === 'short_billed'? 'bg-violet-500/15 text-violet-400' :
-                        r === 'early_answer'? 'bg-yellow-500/15 text-yellow-400' :
-                        'bg-muted/30 text-muted-foreground'
-                      }`}>
-                        {r.replace(/_/g, ' ')}
-                      </span>
-                    ))}
-                    <span className="ml-1 text-rose-400 font-bold">Score {ev.fraudScore ?? 0}</span>
-                  </div>
+                <div key={inc.id ?? i}
+                  className="flex items-center gap-3 px-5 py-2.5 hover:bg-rose-500/5 transition-colors"
+                  data-testid={`row-incident-${i}`}>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border uppercase tracking-wide flex-shrink-0 ${sevCls}`}>
+                    {sev}
+                  </span>
+                  <span className="text-sm text-foreground/90 flex-1 truncate">{inc.title ?? inc.type ?? 'Unnamed incident'}</span>
+                  <span className="text-xs text-muted-foreground/60 flex-shrink-0 tabular-nums">{age}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : anyPortalActive ? (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 flex items-center gap-3"
+          data-testid="panel-no-incidents">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-emerald-300">All systems operational</p>
+            <p className="text-xs text-muted-foreground mt-0.5">No open incidents detected</p>
+          </div>
+          <Link href="/ai-ops"
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 whitespace-nowrap"
+            data-testid="link-ai-ops">
+            AI Ops <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+      ) : null}
+
+      {/* ── What changed · last 15 min ───────────────────────────────────── */}
+      {anyPortalActive && (
+        <div className="rounded-xl border border-border/50 bg-card overflow-hidden" data-testid="panel-delta">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/40 bg-muted/10">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-indigo-400" />
+              <h3 className="font-semibold text-sm">What changed · last 15 min</h3>
+              {deltaSnap && (
+                <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+                  vs {Math.max(0, Math.round((Date.now() - deltaSnap.ts) / 60000))}m ago
+                </span>
+              )}
+            </div>
+            {!deltaSnap && (
+              <span className="text-[11px] text-muted-foreground/40 italic">Gathering baseline…</span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+            {([
+              {
+                label: 'Active Calls',
+                now: displayActiveCalls as number | null,
+                prev: deltaSnap?.activeCalls ?? null,
+                fmt: (v: number) => String(v),
+                higherBetter: true,
+                testid: 'delta-calls',
+              },
+              {
+                label: 'ASR',
+                now: displayAsr,
+                prev: deltaSnap?.asr ?? null,
+                fmt: (v: number) => `${v.toFixed(1)}%`,
+                higherBetter: true,
+                testid: 'delta-asr',
+              },
+              {
+                label: 'MOS',
+                now: displayMos,
+                prev: deltaSnap?.mos ?? null,
+                fmt: (v: number) => v.toFixed(2),
+                higherBetter: true,
+                testid: 'delta-mos',
+              },
+              {
+                label: 'PDD',
+                now: displayPdd > 0 ? displayPdd : null,
+                prev: (deltaSnap?.pdd ?? 0) > 0 ? (deltaSnap?.pdd ?? null) : null,
+                fmt: (v: number) => `${v.toFixed(2)}s`,
+                higherBetter: false,
+                testid: 'delta-pdd',
+              },
+              {
+                label: 'ACD',
+                now: displayAcd > 0 ? displayAcd : null,
+                prev: (deltaSnap?.acd ?? 0) > 0 ? (deltaSnap?.acd ?? null) : null,
+                fmt: (v: number) => `${v.toFixed(0)}s`,
+                higherBetter: true,
+                testid: 'delta-acd',
+              },
+              {
+                label: 'NER',
+                now: displayNer,
+                prev: deltaSnap?.ner ?? null,
+                fmt: (v: number) => `${v.toFixed(1)}%`,
+                higherBetter: true,
+                testid: 'delta-ner',
+              },
+            ] as const).map((item, idx) => {
+              const hasData = item.now != null && item.prev != null;
+              const diff = hasData ? (item.now as number) - (item.prev as number) : 0;
+              const significant = Math.abs(diff) > 0.05;
+              const improved = (item.higherBetter ? diff > 0 : diff < 0) && significant;
+              const worsened = (item.higherBetter ? diff < 0 : diff > 0) && significant;
+              const borderCls = idx < 5 ? 'border-r border-border/30' : '';
+              return (
+                <div key={item.label}
+                  className={`px-4 py-4 flex flex-col gap-1.5 ${borderCls} ${idx >= 3 ? 'border-t border-border/30 lg:border-t-0' : ''} ${idx >= 2 && idx < 4 ? 'sm:border-t sm:border-border/30 lg:border-t-0' : ''}`}
+                  data-testid={item.testid}>
+                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{item.label}</span>
+                  <span className="text-xl font-bold tabular-nums">
+                    {item.now != null ? item.fmt(item.now as number) : '—'}
+                  </span>
+                  {hasData && significant ? (
+                    <div className={`flex items-center gap-1 text-xs font-semibold ${
+                      improved ? 'text-emerald-400' : worsened ? 'text-rose-400' : 'text-muted-foreground/50'
+                    }`}>
+                      {improved
+                        ? <TrendingUp className="w-3 h-3" />
+                        : worsened
+                        ? <TrendingDown className="w-3 h-3" />
+                        : <Minus className="w-3 h-3" />}
+                      {diff > 0 ? '+' : ''}{item.fmt(Math.abs(diff))}
+                    </div>
+                  ) : hasData ? (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground/40">
+                      <Minus className="w-3 h-3" />
+                      No change
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground/30 italic">Waiting…</div>
+                  )}
+                  {item.prev != null && (
+                    <div className="text-[10px] text-muted-foreground/35">
+                      was {item.fmt(item.prev as number)}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
         </div>
       )}
-
-      {/* ── Dashboard Intelligence Row ──────────────────────────────────────── */}
-      {isSippyReachable && (sectionVisible('weekly_volume') || sectionVisible('top_clients') || sectionVisible('carrier_health') || sectionVisible('top_destinations')) && (() => {
-        // ── 7-day daily call volume (use server-computed daily buckets) ─────────
-        const weeklyBars: { day: string; answered: number; failed: number }[] =
-          (weeklyVolumeData as any)?.daily?.slice(-7) ?? [];
-
-        // ── Top clients donut (from CDR cache via graphs endpoint) ─────────────
-        const topClients = ((weeklyVolumeData as any)?.byClient ?? [])
-          .slice(0, 6)
-          .map((c: any) => ({ name: (c.name ?? 'Unknown').split(' ')[0], value: c.calls ?? 0 }));
-        const DONUT_COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'];
-
-        // ── Carrier health sparklines ─────────────────────────────────────────
-        const carriers = Array.isArray(carrierScoresRaw)
-          ? carrierScoresRaw.slice(0, 6)
-          : [];
-
-        // ── Top destinations by call volume ───────────────────────────────────
-        const topDests = ((weeklyVolumeData as any)?.byDestination ?? [])
-          .slice(0, 8)
-          .map((d: any) => ({ name: d.name ?? d.country ?? d.destination ?? 'Unknown', calls: d.calls ?? 0 }));
-        const maxDestCalls = Math.max(1, ...topDests.map((d: any) => d.calls));
-
-        return (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-
-            {/* ── 7-Day Call Volume ─────────────────────────────────────────── */}
-            {sectionVisible('weekly_volume') && <div className="rounded-xl border border-border bg-card p-6 shadow-sm" data-testid="widget-weekly-volume">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-semibold text-sm flex items-center gap-2">
-                    <BarChart2 className="w-4 h-4 text-primary" />
-                    7-Day Call Volume
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Answered vs Failed calls per day</p>
-                </div>
-                <Link href="/graphs" className="text-xs text-primary/70 hover:text-primary flex items-center gap-1">
-                  Full graphs <ArrowRight className="w-3 h-3" />
-                </Link>
-              </div>
-              {weeklyBars.length > 0 ? (
-                <div className="h-[200px]">
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={weeklyBars} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barCategoryGap="25%">
-                      <CartesianGrid {...BSE_GRID_PROPS} />
-                      <XAxis dataKey="day" {...BSE_AXIS_PROPS} />
-                      <YAxis {...BSE_AXIS_PROPS} allowDecimals={false} />
-                      <Tooltip content={<BseTooltip formatter={(v, k) => [v.toLocaleString(), k === 'answered' ? 'Answered' : 'Failed']} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                      <Bar dataKey="answered" fill="#10b981" radius={[3,3,0,0]} stackId="a" />
-                      <Bar dataKey="failed"   fill="#ef4444" radius={[3,3,0,0]} stackId="a" fillOpacity={0.75} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="h-[200px] flex flex-col items-center justify-center gap-3 text-muted-foreground">
-                  <BarChart2 className="w-8 h-8 opacity-20" />
-                  <p className="text-sm">No CDR volume data yet for last 7 days</p>
-                </div>
-              )}
-            </div>}
-
-            {/* ── Top Clients Donut ────────────────────────────────────────── */}
-            {sectionVisible('top_clients') && <div className="rounded-xl border border-border bg-card p-6 shadow-sm" data-testid="widget-top-clients">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-semibold text-sm flex items-center gap-2">
-                    <Users className="w-4 h-4 text-violet-400" />
-                    Top Clients by Volume
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">30-day call distribution</p>
-                </div>
-                <Link href="/analytics" className="text-xs text-primary/70 hover:text-primary flex items-center gap-1">
-                  Full analytics <ArrowRight className="w-3 h-3" />
-                </Link>
-              </div>
-              {topClients.length > 0 ? (
-                <div className="flex items-center gap-4">
-                  <div className="h-[160px] w-[160px] flex-shrink-0">
-                    <ResponsiveContainer width="100%" height={160}>
-                      <PieChart>
-                        <Pie data={topClients} dataKey="value" cx="50%" cy="50%" innerRadius={42} outerRadius={70} paddingAngle={2} strokeWidth={0}>
-                          {topClients.map((_e, i) => (
-                            <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} fillOpacity={0.9} />
-                          ))}
-                        </Pie>
-                        <Tooltip content={<BseTooltip formatter={(v, _k, props) => [v.toLocaleString() + ' calls', props?.payload?.name ?? '']} />} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="flex-1 space-y-1.5 min-w-0">
-                    {topClients.map((c, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
-                        <span className="flex-1 truncate text-muted-foreground" title={c.name}>{c.name}</span>
-                        <span className="font-mono font-semibold text-foreground/80 flex-shrink-0">{c.value.toLocaleString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="h-[160px] flex flex-col items-center justify-center gap-3 text-muted-foreground">
-                  <Users className="w-8 h-8 opacity-20" />
-                  <p className="text-sm">No client analytics available</p>
-                </div>
-              )}
-            </div>}
-
-            {/* ── Carrier Health Sparklines ─────────────────────────────────── */}
-            {sectionVisible('carrier_health') && <div className="rounded-xl border border-border bg-card p-6 shadow-sm" data-testid="widget-carrier-health">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-semibold text-sm flex items-center gap-2">
-                    <Signal className="w-4 h-4 text-cyan-400" />
-                    Carrier Health
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Last 24h stability scores</p>
-                </div>
-                <Link href="/carrier-scoring" className="text-xs text-primary/70 hover:text-primary flex items-center gap-1">
-                  Full scores <ArrowRight className="w-3 h-3" />
-                </Link>
-              </div>
-              {carriers.length > 0 ? (
-                <div className="space-y-3">
-                  {carriers.map((c: any, i: number) => {
-                    const score = Math.round(c.stabilityScore ?? c.score ?? 0);
-                    const asr   = c.asr != null ? parseFloat(c.asr).toFixed(1) : null;
-                    const color = score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-rose-500';
-                    const textColor = score >= 80 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-rose-400';
-                    return (
-                      <div key={i} className="flex items-center gap-3" data-testid={`carrier-health-${i}`}>
-                        <div className="w-28 flex-shrink-0 text-xs text-muted-foreground truncate" title={c.carrierName ?? c.name}>{c.carrierName ?? c.name ?? 'Carrier'}</div>
-                        <div className="flex-1 h-1.5 bg-muted/30 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${score}%` }} />
-                        </div>
-                        <div className={`w-10 text-right text-xs font-mono font-bold flex-shrink-0 ${textColor}`}>{score}</div>
-                        {asr && <div className="w-14 text-right text-xs text-muted-foreground flex-shrink-0">ASR {asr}%</div>}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 gap-3 text-muted-foreground">
-                  <Signal className="w-8 h-8 opacity-20" />
-                  <p className="text-sm">No carrier scores available</p>
-                  <p className="text-xs opacity-60">Scores populate from live CDR data</p>
-                </div>
-              )}
-            </div>}
-
-            {/* ── Top Destinations ─────────────────────────────────────────── */}
-            {sectionVisible('top_destinations') && <div className="rounded-xl border border-border bg-card p-6 shadow-sm" data-testid="widget-top-destinations">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-semibold text-sm flex items-center gap-2">
-                    <Globe className="w-4 h-4 text-amber-400" />
-                    Top Traffic Destinations
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Last 7 days by call volume</p>
-                </div>
-                <Link href="/traffic-map" className="text-xs text-primary/70 hover:text-primary flex items-center gap-1">
-                  Traffic map <ArrowRight className="w-3 h-3" />
-                </Link>
-              </div>
-              {topDests.length > 0 ? (
-                <div className="space-y-2.5">
-                  {topDests.map((d: any, i: number) => (
-                    <div key={i} className="flex items-center gap-3" data-testid={`dest-row-${i}`}>
-                      <div className="w-5 text-center text-xs text-muted-foreground/50 font-mono">{i+1}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs text-foreground/80 truncate mb-1">{d.name}</div>
-                        <div className="h-1.5 bg-muted/30 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-amber-500/70"
-                            style={{ width: `${Math.round(d.calls / maxDestCalls * 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                      <div className="w-16 text-right text-xs font-mono text-muted-foreground flex-shrink-0">
-                        {d.calls.toLocaleString()}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 gap-3 text-muted-foreground">
-                  <Globe className="w-8 h-8 opacity-20" />
-                  <p className="text-sm">No destination data for last 7 days</p>
-                </div>
-              )}
-            </div>}
-
-          </div>
-        );
-      })()}
-
-      {/* ── CK Drill-down Sheet ─────────────────────────────────────────────── */}
-      {(() => {
-        const labelMap: Record<string, { label: string; color: string; icon: any; desc: string }> = {
-          connected:   { label: 'Connected',    color: 'emerald', icon: CheckCircle2, desc: 'Calls answered by the actual user' },
-          wrongNumber: { label: 'Wrong Number', color: 'rose',    icon: PhoneMissed,  desc: 'Invalid / misrouted calls' },
-          switchedOff: { label: 'Switched Off', color: 'orange',  icon: PhoneOff,     desc: 'Device unreachable / subscriber absent' },
-          untraceable: { label: 'Untraceable',  color: 'amber',   icon: Signal,       desc: 'No route / no network signal' },
-        };
-
-        const activeStatus = ckDrillViewStatus ?? ckDrillStatus ?? 'connected';
-        const meta = labelMap[activeStatus] ?? labelMap.connected;
-        const records = ckDrillQuery.data?.records ?? [];
-        const total   = ckDrillQuery.data?.total ?? 0;
-
-        const colorClass: Record<string, string> = {
-          emerald: 'text-emerald-400',
-          rose:    'text-rose-400',
-          orange:  'text-orange-400',
-          amber:   'text-amber-400',
-        };
-        const bgClass: Record<string, string> = {
-          emerald: 'bg-emerald-500/10 border-emerald-500/20',
-          rose:    'bg-rose-500/10 border-rose-500/20',
-          orange:  'bg-orange-500/10 border-orange-500/20',
-          amber:   'bg-amber-500/10 border-amber-500/20',
-        };
-
-        function exportToExcel() {
-          const rows = records.map((r: any) => {
-            const dt = r.startTime ? new Date(r.startTime) : null;
-            const timeStr = dt ? formatInTz(dt, 'HH:mm:ss dd/MM/yyyy', tz) : '';
-            const durSec = Math.floor(Number(r.duration) || 0);
-            return {
-              'Mobile Number (CLD)': r.cld || '',
-              'CLI': r.cli || '',
-              'Client': r.clientName || '',
-              'Vendor': r.vendorName || '',
-              'Status': meta.label,
-              'Call Time': timeStr,
-              'Duration (sec)': durSec,
-              'Country': r.country !== '-' ? r.country : (r.areaName !== '-' ? r.areaName : ''),
-              'Cost': r.cost ?? 0,
-            };
-          });
-          const ws = XLSX.utils.json_to_sheet(rows);
-          const wb = XLSX.utils.book_new();
-          XLSX.utils.book_append_sheet(wb, ws, meta.label);
-          const filename = `CK_${meta.label.replace(/\s+/g, '_')}_${ckDrillHours}hr_${new Date().toISOString().slice(0,10)}.xlsx`;
-          XLSX.writeFile(wb, filename);
-        }
-
-        return (
-          <Sheet open={!!ckDrillStatus} onOpenChange={open => { if (!open) { setCkDrillStatus(null); setCkDrillViewStatus(null); } }}>
-            <SheetContent side="right" className="w-full sm:max-w-2xl md:max-w-3xl overflow-y-auto p-0">
-
-              {/* ── Header ──────────────────────────────────────────────────── */}
-              <SheetHeader className="px-6 py-4 border-b border-border/50 sticky top-0 bg-background/95 backdrop-blur z-10">
-                <div className="flex items-center gap-3">
-                  <span className={`p-2 rounded-lg border ${bgClass[meta.color]}`}>
-                    <meta.icon className={`w-4 h-4 ${colorClass[meta.color]}`} />
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <SheetTitle className="text-base flex items-center gap-2 flex-wrap">
-                      {meta.label}
-                      {!ckDrillQuery.isLoading && (
-                        <span className="text-sm font-normal text-muted-foreground">
-                          ({total.toLocaleString()} record{total !== 1 ? 's' : ''} · last {ckDrillHours}h)
-                        </span>
-                      )}
-                    </SheetTitle>
-                    <SheetDescription className="text-xs mt-0.5">{meta.desc}</SheetDescription>
-                  </div>
-                  {/* Excel export */}
-                  <button
-                    data-testid="button-export-excel"
-                    onClick={exportToExcel}
-                    disabled={records.length === 0 || ckDrillQuery.isLoading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-medium hover:bg-emerald-500/20 transition-colors disabled:opacity-40"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5" />
-                    Excel
-                  </button>
-                </div>
-
-                {/* ── Status chip switcher ──────────────────────────────── */}
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {Object.entries(labelMap).map(([key, info]) => {
-                    const isActive = activeStatus === key;
-                    return (
-                      <button
-                        key={key}
-                        data-testid={`chip-status-${key}`}
-                        onClick={() => setCkDrillViewStatus(key)}
-                        className={cn(
-                          "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors",
-                          isActive
-                            ? `${bgClass[info.color]} ${colorClass[info.color]}`
-                            : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border"
-                        )}
-                      >
-                        <info.icon className="w-3 h-3" />
-                        {info.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* ── Time filter chips ──────────────────────────────────── */}
-                <div className="flex items-center gap-2 mt-2 flex-wrap">
-                  <Clock className="w-3.5 h-3.5 text-muted-foreground/60 flex-shrink-0" />
-                  {[1, 2, 3, 6, 12, 24].map(h => (
-                    <button
-                      key={h}
-                      data-testid={`chip-hours-${h}`}
-                      onClick={() => setCkDrillHours(h)}
-                      className={cn(
-                        "px-2.5 py-0.5 rounded-full text-xs border transition-colors",
-                        ckDrillHours === h
-                          ? "bg-primary/10 border-primary/30 text-primary font-semibold"
-                          : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border"
-                      )}
-                    >
-                      {h}h
-                    </button>
-                  ))}
-                </div>
-              </SheetHeader>
-
-              {/* ── Body ──────────────────────────────────────────────────── */}
-              <div className="px-6 py-4">
-                {ckDrillQuery.isLoading ? (
-                  <div className="space-y-2">
-                    {Array.from({ length: 8 }).map((_, i) => (
-                      <Skeleton key={i} className="h-10 w-full rounded-lg" />
-                    ))}
-                  </div>
-                ) : records.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
-                    <meta.icon className="w-10 h-10 opacity-20" />
-                    <p className="text-sm">No {meta.label} records in the last {ckDrillHours} hour{ckDrillHours !== 1 ? 's' : ''}</p>
-                    <p className="text-xs opacity-60">Try a wider time window using the filters above</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto rounded-xl border border-border">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-border/50 bg-muted/30">
-                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Mobile Number (CLD)</th>
-                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">CLI</th>
-                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Client</th>
-                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Vendor</th>
-                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Status</th>
-                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Call Time</th>
-                          <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Duration</th>
-                          <th className="px-3 py-2.5 text-left text-muted-foreground font-medium whitespace-nowrap">Country</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {records.map((r: any, i: number) => {
-                          const dt = r.startTime ? new Date(r.startTime) : null;
-                          const timeStr = dt ? formatInTz(dt, 'HH:mm:ss dd/MM', tz) : '-';
-                          const durSec = Math.floor(Number(r.duration) || 0);
-                          const durStr = durSec > 0
-                            ? durSec >= 60
-                              ? `${Math.floor(durSec/60)}m ${durSec%60}s`
-                              : `${durSec}s`
-                            : '-';
-                          const rowMeta = labelMap[activeStatus] ?? meta;
-                          const statusBadge = (
-                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${bgClass[rowMeta.color]} ${colorClass[rowMeta.color]}`}>
-                              {rowMeta.label}
-                            </span>
-                          );
-
-                          return (
-                            <tr
-                              key={r.callId ?? i}
-                              data-testid={`row-ck-drill-${i}`}
-                              className={cn("border-b border-border/20", i % 2 === 0 ? "bg-card/20" : "bg-muted/10")}
-                            >
-                              <td className="px-3 py-2 font-mono font-semibold text-foreground/90" data-testid={`text-cld-${i}`}>
-                                {r.cld || '-'}
-                              </td>
-                              <td className="px-3 py-2 font-mono text-foreground/60" data-testid={`text-cli-${i}`}>
-                                {r.cli || '-'}
-                              </td>
-                              <td className="px-3 py-2 text-foreground/80 max-w-[120px] truncate" data-testid={`text-client-${i}`} title={r.clientName}>
-                                {r.clientName || <span className="text-muted-foreground/40">Unknown</span>}
-                              </td>
-                              <td className="px-3 py-2 text-foreground/60 max-w-[120px] truncate" data-testid={`text-vendor-${i}`} title={r.vendorName}>
-                                {r.vendorName || <span className="text-muted-foreground/40">-</span>}
-                              </td>
-                              <td className="px-3 py-2" data-testid={`text-status-${i}`}>
-                                {statusBadge}
-                              </td>
-                              <td className="px-3 py-2 font-mono text-foreground/60 whitespace-nowrap" data-testid={`text-time-${i}`}>
-                                {timeStr}
-                              </td>
-                              <td className="px-3 py-2 font-mono text-right whitespace-nowrap" data-testid={`text-dur-${i}`}>
-                                <span className={durSec > 0 ? 'text-emerald-400' : 'text-muted-foreground/40'}>
-                                  {durStr}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-foreground/60 whitespace-nowrap" data-testid={`text-country-${i}`}>
-                                {r.country !== '-' ? r.country : (r.areaName !== '-' ? r.areaName : '-')}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </SheetContent>
-          </Sheet>
-        );
-      })()}
 
     </div>
   );
