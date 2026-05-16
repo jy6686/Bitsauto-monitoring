@@ -11795,6 +11795,126 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/bitseye/graph-events — unified event timeline for graph overlay
+  // Returns events from incidents, Sippy change log, outage log, FAS spikes, audit.
+  // Sippy-safe: reads only from DB tables, no Sippy XML-RPC calls.
+  app.get('/api/bitseye/graph-events', async (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const hoursBack = Math.max(1, Math.min(48, Number(req.query.hours) || 4));
+    const since = new Date(Date.now() - hoursBack * 3_600_000);
+
+    try {
+      const { sippyChangeEvents: sceTable, auditEvents: aeTable } =
+        await import('@shared/schema');
+
+      type GraphEvent = {
+        ts: number; type: string; severity: string; label: string; detail: string;
+      };
+      const events: GraphEvent[] = [];
+
+      // ── 1. Incidents ──────────────────────────────────────────────────────────
+      const recentIncidents = await db.select({
+        id: incidentsTable.id, incidentType: incidentsTable.incidentType,
+        severity: incidentsTable.severity, title: incidentsTable.title,
+        entityName: incidentsTable.entityName, openedAt: incidentsTable.openedAt,
+      }).from(incidentsTable)
+        .where(gte(incidentsTable.openedAt, since))
+        .orderBy(desc(incidentsTable.openedAt))
+        .limit(50);
+
+      for (const inc of recentIncidents) {
+        events.push({
+          ts:       new Date(inc.openedAt).getTime(),
+          type:     'incident',
+          severity: inc.severity ?? 'medium',
+          label:    `⚠ ${inc.incidentType.replace(/_/g,' ')}`,
+          detail:   inc.title ?? `${inc.incidentType} on ${inc.entityName ?? 'entity'}`,
+        });
+      }
+
+      // ── 2. Sippy change events (routing / config changes) ─────────────────────
+      const sippyChanges = await db.select({
+        category: sceTable.category, changeType: sceTable.changeType,
+        subject: sceTable.subject, detectedAt: sceTable.detectedAt,
+      }).from(sceTable)
+        .where(gte(sceTable.detectedAt, since))
+        .orderBy(desc(sceTable.detectedAt))
+        .limit(30);
+
+      for (const ev of sippyChanges) {
+        events.push({
+          ts:       new Date(ev.detectedAt).getTime(),
+          type:     'routing_change',
+          severity: 'info',
+          label:    `↺ ${ev.changeType.replace(/_/g,' ')}`,
+          detail:   `[${ev.category}] ${ev.subject} — ${ev.changeType.replace(/_/g,' ')}`,
+        });
+      }
+
+      // ── 3. Outage log (Sippy / carrier unreachable) ───────────────────────────
+      const outages = await storage.getOutageLog(20);
+      for (const ev of outages) {
+        if (!ev.downAt) continue;
+        const ts = new Date(ev.downAt).getTime();
+        if (ts < since.getTime()) continue;
+        events.push({
+          ts, type: 'carrier_outage', severity: 'critical',
+          label:  '✕ Outage',
+          detail: ev.cause ? `Sippy unreachable: ${ev.cause}` : 'Sippy connectivity outage detected',
+        });
+      }
+
+      // ── 4. FAS spikes: group by hour, surface hours with 10+ events ──────────
+      const fasEvts = await storage.getFasEvents(500);
+      const fasHourMap: Map<number, number> = new Map();
+      for (const ev of fasEvts) {
+        if (!ev.detectedAt) continue;
+        const t = new Date(ev.detectedAt).getTime();
+        if (t < since.getTime()) continue;
+        const hr = Math.floor(t / 3_600_000) * 3_600_000; // hour bucket
+        fasHourMap.set(hr, (fasHourMap.get(hr) ?? 0) + 1);
+      }
+      for (const [hr, count] of fasHourMap) {
+        if (count < 5) continue; // only surface notable spikes
+        events.push({
+          ts: hr, type: 'fraud_spike', severity: count >= 50 ? 'critical' : 'high',
+          label:  `⚑ FAS ×${count}`,
+          detail: `${count} FAS events detected in this hour`,
+        });
+      }
+
+      // ── 5. Significant audit events (account blocks, role changes, etc.) ──────
+      const auditEvts = await db.select({
+        action: aeTable.action, targetName: aeTable.targetName,
+        severity: aeTable.severity, timestamp: aeTable.timestamp,
+        category: aeTable.category,
+      }).from(aeTable)
+        .where(and(
+          gte(aeTable.timestamp, since),
+          inArray(aeTable.severity, ['warning', 'critical']),
+        ))
+        .orderBy(desc(aeTable.timestamp))
+        .limit(20);
+
+      for (const ev of auditEvts) {
+        events.push({
+          ts:       new Date(ev.timestamp).getTime(),
+          type:     'account_change',
+          severity: ev.severity === 'critical' ? 'critical' : 'high',
+          label:    `● ${ev.action.replace(/_/g,' ')}`,
+          detail:   ev.targetName ? `${ev.action.replace(/_/g,' ')} → ${ev.targetName}` : ev.action.replace(/_/g,' '),
+        });
+      }
+
+      // Sort oldest → newest
+      events.sort((a, b) => a.ts - b.ts);
+
+      res.json({ events, window: { hoursBack, since: since.toISOString() } });
+    } catch (err: any) {
+      res.status(500).json({ events: [], error: err.message });
+    }
+  });
+
   // ── Reachability poller (every 60 s, was 30 s) ────────────────────────────────
   // Init state from DB first (restores open outage + closes phantom duplicates)
   setTimeout(async () => {

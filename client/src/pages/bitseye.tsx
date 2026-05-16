@@ -4,7 +4,7 @@ import { useSearch } from "wouter";
 import { useOrgScope } from "@/context/org-scope-context";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ComposedChart, Line,
+  ResponsiveContainer, ComposedChart, Line, ReferenceLine,
 } from "recharts";
 import {
   RefreshCw, ChevronRight, BarChart3,
@@ -442,6 +442,22 @@ interface TrendSummary {
 }
 interface CallTrendResponse { buckets: TrendBucket[]; summary: TrendSummary; }
 
+interface GraphEvent {
+  ts: number; type: string; severity: string; label: string; detail: string;
+  // resolved on client side:
+  bucketLabel?: string;
+}
+
+// ── Event config (type → color/icon) ──────────────────────────────────────────
+const EVENT_CONFIG: Record<string, { stroke: string; badge: string; icon: string }> = {
+  incident:       { stroke: '#f43f5e', badge: 'bg-rose-500/15 border-rose-500/30 text-rose-300',   icon: '⚠' },
+  routing_change: { stroke: '#60a5fa', badge: 'bg-blue-500/15 border-blue-500/30 text-blue-300',   icon: '↺' },
+  carrier_outage: { stroke: '#f97316', badge: 'bg-orange-500/15 border-orange-500/30 text-orange-300', icon: '✕' },
+  fraud_spike:    { stroke: '#a78bfa', badge: 'bg-violet-500/15 border-violet-500/30 text-violet-300', icon: '⚑' },
+  account_change: { stroke: '#fbbf24', badge: 'bg-amber-500/15 border-amber-500/30 text-amber-300',  icon: '●' },
+};
+const SEVERITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+
 // ── Graph tooltip ──────────────────────────────────────────────────────────────
 function GraphTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
@@ -474,9 +490,25 @@ function GraphTooltip({ active, payload, label }: any) {
   );
 }
 
+// ── Custom ReferenceLine label (event marker on chart) ─────────────────────────
+function EventMarkerLabel({ viewBox, event }: { viewBox?: any; event: GraphEvent }) {
+  const cfg = EVENT_CONFIG[event.type] ?? EVENT_CONFIG.incident;
+  const x = viewBox?.x ?? 0;
+  const y = viewBox?.y ?? 0;
+  return (
+    <g>
+      <circle cx={x} cy={y + 8} r={6} fill={cfg.stroke} fillOpacity={0.25} stroke={cfg.stroke} strokeWidth={1.5} />
+      <text x={x} y={y + 12} textAnchor="middle" fontSize={7} fill={cfg.stroke} fontWeight="bold">
+        {cfg.icon}
+      </text>
+    </g>
+  );
+}
+
 // ── BitsEye Graph View ─────────────────────────────────────────────────────────
 function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
   const [bucket, setBucket] = useState<5 | 15 | 60>(15);
+  const [showEvents, setShowEvents] = useState(true);
 
   // Hours shown scales with bucket size
   const hoursBack = bucket === 5 ? 2 : bucket === 15 ? 4 : 24;
@@ -491,47 +523,99 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
       return r.json();
     },
     staleTime:       55_000,
-    refetchInterval: 60_000,   // Sippy-safe: once per minute, CDR cache only
+    refetchInterval: 60_000,
+  });
+
+  const { data: eventsData, isFetching: evFetching } = useQuery<{ events: GraphEvent[] }>({
+    queryKey: ['/api/bitseye/graph-events', hoursBack],
+    queryFn: async () => {
+      const p = new URLSearchParams({ hours: String(hoursBack) });
+      const r = await fetch(`/api/bitseye/graph-events?${p}`);
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime:       55_000,
+    refetchInterval: 60_000,
   });
 
   const s = data?.summary;
   const buckets = data?.buckets ?? [];
-
-  // Thin ticks for dense bucket sets
   const tickInterval = buckets.length > 24 ? Math.ceil(buckets.length / 12) - 1 : 'preserveStartEnd';
 
+  // Map each event to the nearest bucket label
+  const mappedEvents = useMemo((): GraphEvent[] => {
+    if (!eventsData?.events?.length || !buckets.length) return [];
+    return eventsData.events.map(ev => {
+      let bestIdx = 0;
+      let bestDiff = Infinity;
+      buckets.forEach((b, i) => {
+        const d = Math.abs(b.ts - ev.ts);
+        if (d < bestDiff) { bestDiff = d; bestIdx = i; }
+      });
+      return { ...ev, bucketLabel: buckets[bestIdx]?.label };
+    }).filter(ev => ev.bucketLabel);
+  }, [eventsData, buckets]);
+
+  // Deduplicate: one ReferenceLine per bucket (pick highest-severity event)
+  const dedupedEvents = useMemo((): GraphEvent[] => {
+    const map = new Map<string, GraphEvent>();
+    for (const ev of mappedEvents) {
+      const key = ev.bucketLabel!;
+      const existing = map.get(key);
+      if (!existing || (SEVERITY_ORDER[ev.severity] ?? 99) < (SEVERITY_ORDER[existing.severity] ?? 99)) {
+        map.set(key, ev);
+      }
+    }
+    return Array.from(map.values());
+  }, [mappedEvents]);
+
   const kpiItems = [
-    { label: 'Total Calls',    value: s ? s.total.toLocaleString()     : '—', cls: 'text-foreground',   testid: 'graph-kpi-total' },
-    { label: 'Connected',      value: s ? s.connected.toLocaleString() : '—', cls: 'text-sky-400',      testid: 'graph-kpi-connected' },
-    { label: 'Failed',         value: s ? s.failed.toLocaleString()    : '—', cls: 'text-rose-400',     testid: 'graph-kpi-failed' },
-    { label: 'ASR',            value: s ? `${s.asr}%`                  : '—', cls: s ? (s.asr >= 60 ? 'text-emerald-400' : s.asr >= 40 ? 'text-amber-400' : 'text-rose-400') : 'text-muted-foreground/30', testid: 'graph-kpi-asr' },
-    { label: 'ACD',            value: s?.acd ? fmtAcd(s.acd)           : '—', cls: 'text-violet-400',   testid: 'graph-kpi-acd' },
+    { label: 'Total Calls', value: s ? s.total.toLocaleString()     : '—', cls: 'text-foreground',  testid: 'graph-kpi-total' },
+    { label: 'Connected',   value: s ? s.connected.toLocaleString() : '—', cls: 'text-sky-400',     testid: 'graph-kpi-connected' },
+    { label: 'Failed',      value: s ? s.failed.toLocaleString()    : '—', cls: 'text-rose-400',    testid: 'graph-kpi-failed' },
+    { label: 'ASR',         value: s ? `${s.asr}%`                  : '—',
+      cls: s ? (s.asr >= 60 ? 'text-emerald-400' : s.asr >= 40 ? 'text-amber-400' : 'text-rose-400') : 'text-muted-foreground/30',
+      testid: 'graph-kpi-asr' },
+    { label: 'ACD',         value: s?.acd ? fmtAcd(s.acd)           : '—', cls: 'text-violet-400',  testid: 'graph-kpi-acd' },
   ];
+
+  const hasEvents = mappedEvents.length > 0;
+  const eventCount = mappedEvents.length;
 
   return (
     <div className="flex flex-col gap-5" data-testid="bitseye-graph-view">
 
-      {/* ── Time window toggle ─────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 bg-muted/20 border border-border/30 rounded-lg p-0.5">
-          {([5, 15, 60] as const).map(b => (
-            <button
-              key={b}
-              onClick={() => setBucket(b)}
-              data-testid={`graph-bucket-${b}`}
-              className={cn(
-                "px-3 py-1 rounded-md text-xs font-semibold transition-all",
-                bucket === b
-                  ? "bg-card text-foreground shadow-sm border border-border/30"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {b === 60 ? '1h' : `${b}m`}
-            </button>
-          ))}
+      {/* ── Top bar: bucket toggle + event toggle + metadata ──────────────── */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          {/* Bucket toggle */}
+          <div className="flex items-center gap-0.5 bg-muted/20 border border-border/30 rounded-lg p-0.5">
+            {([5, 15, 60] as const).map(b => (
+              <button key={b} onClick={() => setBucket(b)} data-testid={`graph-bucket-${b}`}
+                className={cn("px-3 py-1 rounded-md text-xs font-semibold transition-all",
+                  bucket === b ? "bg-card text-foreground shadow-sm border border-border/30"
+                               : "text-muted-foreground hover:text-foreground")}>
+                {b === 60 ? '1h' : `${b}m`}
+              </button>
+            ))}
+          </div>
+          {/* Event overlay toggle */}
+          <button
+            data-testid="graph-toggle-events"
+            onClick={() => setShowEvents(v => !v)}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all",
+              showEvents
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
+                : "bg-muted/20 border-border/30 text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <AlertCircle className="w-3 h-3" />
+            Events{hasEvents ? ` (${eventCount})` : ''}
+          </button>
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/40">
-          {isFetching && <RefreshCw className="w-3 h-3 animate-spin" />}
+          {(isFetching || evFetching) && <RefreshCw className="w-3 h-3 animate-spin" />}
           <span>CDR-based · {hoursBack}h window · 60s refresh</span>
         </div>
       </div>
@@ -548,7 +632,7 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
         ))}
       </div>
 
-      {/* ── Main chart: Connected (blue) + Failed (red) stacked, Total line ── */}
+      {/* ── Call Volume chart ───────────────────────────────────────────────── */}
       <div className="bg-card border border-border/30 rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 border-b border-border/20">
           <div className="flex items-center gap-3">
@@ -559,6 +643,11 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
             <span className="flex items-center gap-1.5"><span className="w-8 h-0.5 bg-[#38bdf8] inline-block rounded-full" />Connected</span>
             <span className="flex items-center gap-1.5"><span className="w-8 h-0.5 bg-rose-500/70 inline-block rounded-full" />Failed</span>
             <span className="flex items-center gap-1.5"><span className="w-8 border-t border-dashed border-white/25 inline-block" />Total</span>
+            {showEvents && hasEvents && (
+              <span className="flex items-center gap-1.5 text-amber-400/70">
+                <AlertCircle className="w-3 h-3" />{eventCount} events
+              </span>
+            )}
           </div>
         </div>
 
@@ -571,7 +660,7 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
         ) : (
           <div className="px-4 pt-4 pb-3" style={{ height: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={buckets} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+              <ComposedChart data={buckets} margin={{ top: 20, right: 4, left: -18, bottom: 0 }}>
                 <defs>
                   <linearGradient id="gradConn" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%"   stopColor="#38bdf8" stopOpacity={0.40} />
@@ -585,52 +674,42 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
                   </linearGradient>
                 </defs>
                 <CartesianGrid horizontal vertical={false} stroke="rgba(255,255,255,0.04)" />
-                <XAxis
-                  dataKey="label"
+                <XAxis dataKey="label"
                   tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.45)', fontFamily: 'monospace' }}
-                  tickLine={false} axisLine={false}
-                  interval={tickInterval}
-                />
+                  tickLine={false} axisLine={false} interval={tickInterval} />
                 <YAxis
                   tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.45)', fontFamily: 'monospace' }}
-                  tickLine={false} axisLine={false}
-                  allowDecimals={false} width={30}
-                />
+                  tickLine={false} axisLine={false} allowDecimals={false} width={30} />
                 <Tooltip content={<GraphTooltip />}
                   cursor={{ stroke: 'rgba(148,163,184,0.15)', strokeWidth: 1, strokeDasharray: '4 2' }} />
-                {/* Failed — below connected */}
-                <Area
-                  type="monotone" dataKey="failed"
-                  stroke="#f43f5e" strokeWidth={1.5}
-                  fill="url(#gradFail)"
-                  dot={false}
+                {/* Event overlays */}
+                {showEvents && dedupedEvents.map((ev, i) => {
+                  const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.incident;
+                  return (
+                    <ReferenceLine key={i} x={ev.bucketLabel}
+                      stroke={cfg.stroke} strokeWidth={1.5} strokeDasharray="3 3" strokeOpacity={0.7}
+                      label={<EventMarkerLabel event={ev} />}
+                    />
+                  );
+                })}
+                <Area type="monotone" dataKey="failed"
+                  stroke="#f43f5e" strokeWidth={1.5} fill="url(#gradFail)" dot={false}
                   activeDot={{ r: 3.5, fill: '#f43f5e', stroke: 'hsl(var(--card))', strokeWidth: 2 }}
-                  strokeLinejoin="round" strokeLinecap="round"
-                />
-                {/* Connected — primary metric */}
-                <Area
-                  type="monotone" dataKey="connected"
-                  stroke="#38bdf8" strokeWidth={2.5}
-                  fill="url(#gradConn)"
-                  dot={false}
+                  strokeLinejoin="round" strokeLinecap="round" />
+                <Area type="monotone" dataKey="connected"
+                  stroke="#38bdf8" strokeWidth={2.5} fill="url(#gradConn)" dot={false}
                   activeDot={{ r: 4, fill: '#38bdf8', stroke: 'hsl(var(--card))', strokeWidth: 2 }}
-                  strokeLinejoin="round" strokeLinecap="round"
-                />
-                {/* Total — dashed reference line */}
-                <Line
-                  type="monotone" dataKey="total"
-                  stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
-                  strokeDasharray="4 3"
-                  dot={false}
-                  activeDot={{ r: 3, fill: 'rgba(255,255,255,0.5)', stroke: 'hsl(var(--card))', strokeWidth: 2 }}
-                />
+                  strokeLinejoin="round" strokeLinecap="round" />
+                <Line type="monotone" dataKey="total"
+                  stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} strokeDasharray="4 3" dot={false}
+                  activeDot={{ r: 3, fill: 'rgba(255,255,255,0.5)', stroke: 'hsl(var(--card))', strokeWidth: 2 }} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         )}
       </div>
 
-      {/* ── ASR trend mini-chart ────────────────────────────────────────────── */}
+      {/* ── ASR trend chart ─────────────────────────────────────────────────── */}
       <div className="bg-card border border-border/30 rounded-xl overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-3 border-b border-border/20">
           <span className="text-sm font-semibold">Answer Success Rate</span>
@@ -639,7 +718,7 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
         {buckets.length > 0 && (
           <div className="px-4 pt-4 pb-3" style={{ height: 180 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={buckets} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+              <AreaChart data={buckets} margin={{ top: 16, right: 4, left: -18, bottom: 0 }}>
                 <defs>
                   <linearGradient id="gradAsr" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%"   stopColor="#10b981" stopOpacity={0.40} />
@@ -660,24 +739,92 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
                     return (
                       <div className="rounded-xl border border-border/50 bg-card/98 px-3 py-2 text-xs shadow-xl">
                         <p className="text-muted-foreground/60 mb-1 text-[10px]">{lbl}</p>
-                        <p className={cn("font-bold", asr >= 60 ? 'text-emerald-400' : asr >= 40 ? 'text-amber-400' : 'text-rose-400')}>ASR {asr}%</p>
+                        <p className={cn("font-bold", asr >= 60 ? 'text-emerald-400' : asr >= 40 ? 'text-amber-400' : 'text-rose-400')}>
+                          ASR {asr}%
+                        </p>
                       </div>
                     );
                   }}
                   cursor={{ stroke: 'rgba(148,163,184,0.15)', strokeWidth: 1, strokeDasharray: '4 2' }}
                 />
+                {/* Event overlays on ASR chart too */}
+                {showEvents && dedupedEvents.map((ev, i) => {
+                  const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.incident;
+                  return (
+                    <ReferenceLine key={i} x={ev.bucketLabel}
+                      stroke={cfg.stroke} strokeWidth={1} strokeDasharray="3 3" strokeOpacity={0.5} />
+                  );
+                })}
                 <Area type="monotone" dataKey="asr"
-                  stroke="#10b981" strokeWidth={2}
-                  fill="url(#gradAsr)"
-                  dot={false}
+                  stroke="#10b981" strokeWidth={2} fill="url(#gradAsr)" dot={false}
                   activeDot={{ r: 3.5, fill: '#10b981', stroke: 'hsl(var(--card))', strokeWidth: 2 }}
-                  strokeLinejoin="round" strokeLinecap="round"
-                />
+                  strokeLinejoin="round" strokeLinecap="round" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         )}
       </div>
+
+      {/* ── Event timeline strip ────────────────────────────────────────────── */}
+      {showEvents && mappedEvents.length > 0 && (
+        <div className="bg-card border border-border/30 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-3 border-b border-border/20">
+            <AlertCircle className="w-4 h-4 text-amber-400" />
+            <span className="text-sm font-semibold">Event Timeline</span>
+            <span className="text-[10px] text-muted-foreground/40">{eventCount} events in {hoursBack}h window</span>
+          </div>
+          {/* Legend */}
+          <div className="flex items-center gap-4 px-5 pt-3 pb-1 flex-wrap">
+            {Object.entries(EVENT_CONFIG).map(([type, cfg]) => {
+              const count = mappedEvents.filter(e => e.type === type).length;
+              if (count === 0) return null;
+              return (
+                <span key={type} className={cn("flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-full border font-medium", cfg.badge)}>
+                  {cfg.icon} {type.replace(/_/g,' ')} ({count})
+                </span>
+              );
+            })}
+          </div>
+          {/* Event rows (newest first) */}
+          <div className="divide-y divide-border/10 max-h-60 overflow-y-auto">
+            {[...mappedEvents]
+              .sort((a, b) => b.ts - a.ts)
+              .map((ev, i) => {
+                const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.incident;
+                const time = new Date(ev.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                return (
+                  <div key={i} className="flex items-start gap-3 px-5 py-2.5 hover:bg-muted/10 transition-colors"
+                    data-testid={`event-row-${i}`}>
+                    <div className="mt-0.5 flex-shrink-0">
+                      <span className={cn("w-5 h-5 rounded flex items-center justify-center text-[10px] border font-bold", cfg.badge)}>
+                        {cfg.icon}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium leading-tight truncate">{ev.detail}</p>
+                      <p className="text-[10px] text-muted-foreground/40 mt-0.5">{time} · {ev.type.replace(/_/g,' ')}</p>
+                    </div>
+                    <span className={cn(
+                      "text-[9px] px-1.5 py-0.5 rounded-full border font-semibold uppercase tracking-wide flex-shrink-0",
+                      ev.severity === 'critical' ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                      : ev.severity === 'high'   ? 'bg-orange-500/10 border-orange-500/30 text-orange-300'
+                      : ev.severity === 'medium' ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                      : 'bg-muted/20 border-border/30 text-muted-foreground/50'
+                    )}>{ev.severity}</span>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Empty events state ──────────────────────────────────────────────── */}
+      {showEvents && mappedEvents.length === 0 && !evFetching && (
+        <div className="bg-card border border-border/20 rounded-xl px-5 py-4 flex items-center gap-3 text-sm text-muted-foreground/40">
+          <Check className="w-4 h-4 text-emerald-500/50" />
+          No incidents, routing changes, or alerts in the {hoursBack}h window
+        </div>
+      )}
     </div>
   );
 }
