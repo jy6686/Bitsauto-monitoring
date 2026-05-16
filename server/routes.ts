@@ -30,7 +30,9 @@ import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
 import { initSyntheticScheduler, computeInitialNextRunAt } from "./synthetic-scheduler";
 import { initCarrierScoringEngine, recomputeCarrierScores, setCdrProvider } from "./carrier-scoring-engine";
-import { APPROVAL_POLICY, type Role } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable } from "@shared/schema";
+import { db } from "./db";
+import { and, eq } from "drizzle-orm";
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode } from "./dial-lookup";
 import { readFileSync } from "fs";
@@ -3528,6 +3530,18 @@ export async function registerRoutes(
   const CDR_CACHE_MAX_HOURS = 72;
   const cdrCache = new Map<string, Awaited<ReturnType<typeof sippy.getSippyCDRs>>[0]>();
   let cdrCacheUpdatedAt: Date | null = null;
+
+  // ── Carrier Health Service cache (5-minute TTL, no Sippy calls) ───────────
+  type CarrierHealthEntry = {
+    carrierId: string; carrierName: string;
+    asr: number; acd: number; avgPddMs: number; failRate: number;
+    mosEstimate: number; sampleCount: number;
+    alertFired: boolean; alertRules: string[];
+    window: number; computedAt: string;
+  };
+  let _carrierHealthCache: CarrierHealthEntry[] = [];
+  let _carrierHealthCachedAt: number            = 0;
+  const CARRIER_HEALTH_TTL_MS                   = 5 * 60 * 1000;
 
   let _cdrCacheRunning = false;
   async function refreshCdrCache(): Promise<void> {
@@ -10631,44 +10645,40 @@ export async function registerRoutes(
     } catch (e: any) { res.json({ results: [], error: e.message }); }
   });
 
-  // GET /api/monitoring/carrier-asr — per-carrier ASR drop detection from CDRs
+  // GET /api/monitoring/carrier-asr — per-carrier ASR drop detection (CDR cache, no Sippy calls)
+  // Replaced live XML-RPC fetch with CDR cache read — eliminates per-request Sippy load.
   app.get('/api/monitoring/carrier-asr', async (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     try {
-      const settings = await storage.getSippySettings();
-      const credPairs = sippyXmlCredsPairs(settings);
-      const now = new Date();
-      const start = new Date(now.getTime() - 3 * 3600_000); // last 3 hours
-      const startDate = sippy.toSippyDate(start);
-      const endDate   = sippy.toSippyDate(now);
-      let cdrs: any[] = [];
-      for (const { username, password } of credPairs) {
-        try {
-          const rows = await sippy.getSippyCDRs(username, password, 1000, { startDate, endDate });
-          if (rows.length > 0) { cdrs = rows; break; }
-        } catch { continue; }
-      }
-      // Group by vendor/connection
+      const windowHours = 3;
+      const cutoffMs    = Date.now() - windowHours * 3_600_000;
+
+      // Group CDR cache entries by vendor name (same logic as computeCarrierHealth)
       const map = new Map<string, { total: number; answered: number; duration: number }>();
-      for (const c of cdrs) {
-        const key = c.vendor_name || c.termination_party || c.vendor || c.connection || 'Unknown';
+      for (const c of cdrCache.values()) {
+        const ts = sippy.parseSippyDate(c.startTime)?.getTime() ?? sippy.parseSippyDate((c as any).connectTime ?? null)?.getTime() ?? 0;
+        if (!ts || ts < cutoffMs) continue;
+        const key = (c as any).vendor ?? connectionVendorCache.get(String((c as any).iConnection ?? '')) ?? 'Unknown';
         const cur = map.get(key) ?? { total: 0, answered: 0, duration: 0 };
         cur.total++;
-        if (String(c.result) === '0' && (Number(c.duration) || 0) > 0) {
-          cur.answered++;
-          cur.duration += Number(c.duration) || 0;
-        }
+        const dur = Number((c as any).duration ?? 0);
+        if (dur > 0) { cur.answered++; cur.duration += dur; }
         map.set(key, cur);
       }
-      const carriers = Array.from(map.entries()).map(([carrier, s]) => ({
-        carrier,
-        total: s.total,
-        answered: s.answered,
-        asr: s.total > 0 ? parseFloat((s.answered / s.total * 100).toFixed(1)) : 0,
-        acd: s.answered > 0 ? Math.round(s.duration / s.answered) : 0,
-        alert: s.total >= 10 && (s.answered / s.total) < 0.2,  // alert if ASR < 20% with 10+ calls
-      })).sort((a, b) => b.total - a.total);
-      res.json({ carriers, period: 'last 3 hours', cdrs: cdrs.length });
+
+      const carriers = Array.from(map.entries())
+        .filter(([, s]) => s.total >= 3)
+        .map(([carrier, s]) => ({
+          carrier,
+          total:   s.total,
+          answered: s.answered,
+          asr:     s.total > 0 ? parseFloat((s.answered / s.total * 100).toFixed(1)) : 0,
+          acd:     s.answered > 0 ? Math.round(s.duration / s.answered) : 0,
+          alert:   s.total >= 10 && (s.answered / s.total) < 0.2,
+        }))
+        .sort((a, b) => b.total - a.total);
+
+      res.json({ carriers, period: 'last 3 hours', cdrs: cdrCache.size, source: 'cdr_cache' });
     } catch (e: any) { res.json({ carriers: [], error: e.message }); }
   });
 
@@ -15932,6 +15942,141 @@ export async function registerRoutes(
         };
       });
       res.json(delta);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Carrier Health Service ────────────────────────────────────────────────────
+  // Single source of truth for per-carrier ASR/ACD/PDD/MOS, derived from the CDR cache.
+  // 5-minute TTL — zero Sippy XML-RPC calls. Also fires carrier-typed incidents when
+  // alertRules thresholds are violated (bridging alert engine → incident stream).
+  async function computeCarrierHealth(windowHours: number): Promise<CarrierHealthEntry[]> {
+    const now      = Date.now();
+    const cutoffMs = now - windowHours * 3_600_000;
+
+    // Group CDR cache entries by vendor name
+    type Bucket = { total: number; answered: number; durationSum: number; pddSum: number; pddCount: number };
+    const buckets = new Map<string, Bucket>();
+    for (const c of cdrCache.values()) {
+      const ts = sippy.parseSippyDate(c.startTime)?.getTime() ?? sippy.parseSippyDate((c as any).connectTime ?? null)?.getTime() ?? 0;
+      if (!ts || ts < cutoffMs) continue;
+      const carrier = (c as any).vendor ?? connectionVendorCache.get(String((c as any).iConnection ?? '')) ?? 'Unknown';
+      const b = buckets.get(carrier) ?? { total: 0, answered: 0, durationSum: 0, pddSum: 0, pddCount: 0 };
+      b.total++;
+      const dur = Number((c as any).duration ?? 0);
+      if (dur > 0) { b.answered++; b.durationSum += dur; }
+      const pdd = Number((c as any).pdd ?? 0);
+      if (pdd > 0) { b.pddSum += pdd; b.pddCount++; }
+      buckets.set(carrier, b);
+    }
+
+    // Fetch active alertRules from DB (metric=asr_drop scoped to carriers)
+    let rules: Array<{ metric: string; threshold: number; comparison: string; carrier: string | null; label: string | null }> = [];
+    try {
+      rules = await db.select().from(alertRulesTable).then(r =>
+        r.filter((ar: any) => ar.enabled && ['asr_drop','cps_spike'].includes(ar.metric))
+      ) as any;
+    } catch { /* non-critical */ }
+
+    const entries: CarrierHealthEntry[] = [];
+    for (const [name, b] of buckets.entries()) {
+      if (b.total < 3) continue; // need minimum sample
+      const asr     = Math.round(b.answered / b.total * 100 * 10) / 10;
+      const acd     = b.answered > 0 ? Math.round(b.durationSum / b.answered) : 0;
+      const avgPddMs = b.pddCount > 0 ? Math.round(b.pddSum / b.pddCount * 1000) : 0;
+      const failRate = Math.round((1 - b.answered / b.total) * 100 * 10) / 10;
+      // Simplified MOS estimate: starts at 4.5, penalised by PDD and fail rate
+      const mosEstimate = Math.max(1, Math.min(4.5, 4.5 - (avgPddMs / 3000) * 0.8 - (failRate / 100) * 1.2));
+
+      // Check alertRules for this carrier
+      const firedRules: string[] = [];
+      for (const rule of rules) {
+        if (rule.carrier && rule.carrier !== name) continue;
+        if (rule.metric === 'asr_drop' && rule.comparison === 'lt' && asr < rule.threshold) {
+          firedRules.push(`asr_drop<${rule.threshold}% (actual ${asr}%)`);
+        }
+      }
+
+      entries.push({
+        carrierId:    name.toLowerCase().replace(/\s+/g, '_'),
+        carrierName:  name,
+        asr, acd, avgPddMs, failRate,
+        mosEstimate: Math.round(mosEstimate * 100) / 100,
+        sampleCount: b.total,
+        alertFired:  firedRules.length > 0,
+        alertRules:  firedRules,
+        window:      windowHours,
+        computedAt:  new Date().toISOString(),
+      });
+    }
+
+    entries.sort((a, b) => b.sampleCount - a.sampleCount);
+
+    // Bridge: fire carrier-typed incidents for any alertRule violations
+    for (const entry of entries.filter(e => e.alertFired)) {
+      try {
+        const [existing] = await db.select().from(incidentsTable).where(
+          and(
+            eq(incidentsTable.entityType,   'carrier'),
+            eq(incidentsTable.entityId,     entry.carrierId),
+            eq(incidentsTable.incidentType, 'CARRIER_ASR_DROP'),
+            eq(incidentsTable.status,       'active'),
+          )
+        );
+        const severity   = entry.asr < 20 ? 'critical' : entry.asr < 40 ? 'high' : 'medium';
+        const incidentData = {
+          entityType:      'carrier',
+          entityId:        entry.carrierId,
+          entityName:      entry.carrierName,
+          incidentType:    'CARRIER_ASR_DROP',
+          severity,
+          confidence:      Math.round(Math.min(95, 50 + entry.sampleCount * 0.5)),
+          title:           `${entry.carrierName}: ASR ${entry.asr}% — alert rule fired`,
+          summary:         `Carrier ${entry.carrierName} ASR dropped to ${entry.asr}% over the last ${windowHours}h window (${entry.sampleCount} calls). ${entry.alertRules.join('; ')}.`,
+          reasons:         entry.alertRules,
+          suggestedAction: 'Review carrier routing, escalate to NOC, or degrade carrier priority in routing groups.',
+          source:          'carrier_health_service',
+          status:          'active',
+          updatedAt:       new Date(),
+        };
+        if (existing) {
+          await db.update(incidentsTable).set(incidentData).where(eq(incidentsTable.id, existing.id));
+        } else {
+          await db.insert(incidentsTable).values({ ...incidentData, openedAt: new Date() });
+        }
+      } catch { /* non-critical */ }
+    }
+
+    return entries;
+  }
+
+  // GET /api/carrier/health?window=3 — unified carrier health (CDR cache, no Sippy calls)
+  app.get('/api/carrier/health', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator','viewer','team_lead'], req, res, next), async (req: any, res: any) => {
+    try {
+      const windowHours  = Math.max(1, Math.min(168, Number(req.query.window) || 3));
+      const now          = Date.now();
+      const stale        = now - _carrierHealthCachedAt > CARRIER_HEALTH_TTL_MS;
+
+      if (!stale && _carrierHealthCache.length > 0) {
+        return res.json({ carriers: _carrierHealthCache, cached: true, cacheAgeMs: now - _carrierHealthCachedAt });
+      }
+
+      const carriers     = await computeCarrierHealth(windowHours);
+      _carrierHealthCache    = carriers;
+      _carrierHealthCachedAt = now;
+      res.json({ carriers, cached: false, cacheAgeMs: 0 });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/carrier/health/refresh — bust the cache and recompute immediately
+  app.post('/api/carrier/health/refresh', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const windowHours = Number(req.query.window) || 3;
+      _carrierHealthCachedAt = 0; // bust cache
+      const carriers = await computeCarrierHealth(windowHours);
+      _carrierHealthCache    = carriers;
+      _carrierHealthCachedAt = Date.now();
+      console.log(`[carrier-health] manual refresh: ${carriers.length} carriers, ${carriers.filter(c => c.alertFired).length} alert(s) fired`);
+      res.json({ carriers, refreshed: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
