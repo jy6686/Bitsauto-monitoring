@@ -14,8 +14,9 @@ import {
   Globe, AlertTriangle, UserCheck, Phone, Mail, Plus, Trash2, Edit2,
   ChevronDown, ChevronRight, X, Check, Loader2, TrendingDown, Minus,
   Bell, BellOff, ShieldAlert, Map as MapIcon, Eye, ExternalLink,
-  Award, Zap, BarChart2, Gauge,
+  Award, Zap, BarChart2, Gauge, Info,
 } from "lucide-react";
+import { Tooltip as InfoTooltip, TooltipContent as InfoTooltipContent, TooltipProvider as InfoTooltipProvider, TooltipTrigger as InfoTooltipTrigger } from "@/components/ui/tooltip";
 import { AreaChart, Area, ReferenceLine } from "recharts";
 
 interface LiveGraphsData {
@@ -1390,7 +1391,21 @@ function MosTrendingSection() {
       >
         <Activity className="w-4 h-4 text-purple-400 shrink-0" />
         <div className="flex-1">
-          <span className="text-sm font-semibold">Est. MOS Trends</span>
+          <span className="text-sm font-semibold flex items-center gap-1.5">
+            Est. MOS Trends
+            <InfoTooltipProvider>
+              <InfoTooltip>
+                <InfoTooltipTrigger asChild>
+                  <Info className="w-3.5 h-3.5 text-muted-foreground/50 cursor-help hover:text-muted-foreground transition-colors" />
+                </InfoTooltipTrigger>
+                <InfoTooltipContent className="max-w-xs text-xs leading-relaxed">
+                  <p className="font-semibold mb-1">Estimated MOS (CDR-based)</p>
+                  <p>Derived from signalling delay (PDD/CDR data). Does not measure RTP media quality.</p>
+                  <p className="mt-1 text-muted-foreground">RTP-based MOS is available in probe and simulation metrics.</p>
+                </InfoTooltipContent>
+              </InfoTooltip>
+            </InfoTooltipProvider>
+          </span>
           {latestMos !== null && (
             <span className={`ml-2 text-xs font-mono font-bold ${mosBadge(latestMos)}`}>
               Latest: {latestMos.toFixed(2)}
@@ -1622,7 +1637,20 @@ function CarrierQualitySection() {
                 <div className="space-y-1.5">
                   <div className="grid grid-cols-5 text-xs text-muted-foreground px-3 py-1 font-medium">
                     <span className="col-span-2">Carrier</span>
-                    <span className="text-right">Est. MOS</span>
+                    <span className="text-right flex items-center justify-end gap-1">
+                      Est. MOS
+                      <InfoTooltipProvider>
+                        <InfoTooltip>
+                          <InfoTooltipTrigger asChild>
+                            <Info className="w-3 h-3 cursor-help hover:text-foreground transition-colors" />
+                          </InfoTooltipTrigger>
+                          <InfoTooltipContent className="max-w-xs text-xs leading-relaxed" side="top">
+                            <p className="font-semibold mb-1">Estimated MOS (CDR-based)</p>
+                            <p>Derived from signalling delay (PDD/CDR data). Does not measure RTP media quality.</p>
+                          </InfoTooltipContent>
+                        </InfoTooltip>
+                      </InfoTooltipProvider>
+                    </span>
                     <span className="text-right">Good%</span>
                     <span className="text-right">Poor%</span>
                   </div>

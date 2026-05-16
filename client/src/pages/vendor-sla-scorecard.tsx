@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ShieldCheck, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Download, RefreshCw, AlertTriangle, Globe } from "lucide-react";
+import { ShieldCheck, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Download, RefreshCw, AlertTriangle, Globe, Info } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -355,7 +356,24 @@ export default function VendorSlaScorecardPage() {
                 <th className={thRCls}>NER %</th>
                 <th className={thRCls} onClick={() => handleSort("acdSec")}>ACD <SortIcon k="acdSec" /></th>
                 <th className={thRCls} onClick={() => handleSort("avgPddSec")}>PDD <SortIcon k="avgPddSec" /></th>
-                <th className={thRCls} onClick={() => handleSort("mos")}>Est. MOS <SortIcon k="mos" /></th>
+                <th className={thRCls} onClick={() => handleSort("mos")}>
+                  <span className="inline-flex items-center gap-1">
+                    Est. MOS
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="w-3 h-3 text-muted-foreground/50 cursor-help hover:text-muted-foreground transition-colors" onClick={e => e.stopPropagation()} />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-xs leading-relaxed" side="top">
+                          <p className="font-semibold mb-1">Estimated MOS (CDR-based)</p>
+                          <p>Derived from signalling delay (PDD/CDR data). Does not measure RTP media quality.</p>
+                          <p className="mt-1 text-muted-foreground">RTP-based MOS is available in probe and simulation metrics.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <SortIcon k="mos" />
+                  </span>
+                </th>
                 <th className={thRCls} onClick={() => handleSort("totalMinutes")}>Minutes <SortIcon k="totalMinutes" /></th>
                 <th className={thRCls} onClick={() => handleSort("costPerMin")}>Cost/min <SortIcon k="costPerMin" /></th>
                 <th className="px-3 py-2.5 text-center text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">Overall</th>
