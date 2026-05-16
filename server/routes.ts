@@ -18017,5 +18017,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     });
   });
 
+  // GET /api/download/feature-cost-estimate — Feature Implementation Time & Cost Estimate
+  app.get('/api/download/feature-cost-estimate', (_req: any, res: any) => {
+    const filePath = _pathJoin(process.cwd(), 'client', 'public', 'downloads', 'BitsAuto_Feature_Cost_Estimate.docx');
+    res.download(filePath, 'BitsAuto_Feature_Cost_Estimate.docx', (err: any) => {
+      if (err && !res.headersSent) res.status(404).json({ error: 'File not found' });
+    });
+  });
+
   return httpServer;
 }
