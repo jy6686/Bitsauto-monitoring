@@ -18282,5 +18282,308 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     });
   });
 
+  // ── Revenue Heatmap API ──────────────────────────────────────────────────────
+  app.get('/api/revenue-heatmap', (req, res, next) => requireRole(['admin','management'], req, res, next), (_req, res) => {
+    try {
+      type CarrierCost = { calls: number; cost: number };
+      type CountryAgg = {
+        calls: number; answered: number; revenue: number; cost: number;
+        numericId: string | null;
+        carriers: Map<string, CarrierCost>;
+      };
+      const map = new Map<string, CountryAgg>();
+
+      for (const c of cdrCache.values()) {
+        const country: string = (c as any).country || (c as any).termCountry || '';
+        if (!country || country === 'Unknown' || country === '-') continue;
+        const cost:    number = parseFloat((c as any).cost    ?? 0) || 0;
+        const revenue: number = parseFloat((c as any).revenue ?? 0) || 0;
+        const answered = String((c as any).result) === '0' || Number((c as any).result) === 0;
+        const vendor: string = (c as any).vendorName || (c as any).vendor || 'Unknown';
+        const numId: string | null = (c as any).countryNumericId ?? null;
+
+        if (!map.has(country)) map.set(country, { calls: 0, answered: 0, revenue: 0, cost: 0, numericId: numId, carriers: new Map() });
+        const agg = map.get(country)!;
+        agg.calls++;
+        if (answered) agg.answered++;
+        agg.cost    += cost;
+        agg.revenue += revenue;
+        if (!agg.numericId && numId) agg.numericId = numId;
+
+        const prevC = agg.carriers.get(vendor) ?? { calls: 0, cost: 0 };
+        prevC.calls++;
+        prevC.cost += cost;
+        agg.carriers.set(vendor, prevC);
+      }
+
+      const result = [...map.entries()].map(([country, agg]) => ({
+        country,
+        numericId: agg.numericId,
+        calls:     agg.calls,
+        answered:  agg.answered,
+        revenue:   parseFloat(agg.revenue.toFixed(4)),
+        cost:      parseFloat(agg.cost.toFixed(4)),
+        margin:    parseFloat((agg.revenue - agg.cost).toFixed(4)),
+        asr:       agg.calls > 0 ? parseFloat((agg.answered / agg.calls * 100).toFixed(1)) : 0,
+        carriers:  [...agg.carriers.entries()]
+          .map(([carrier, d]) => ({ carrier, calls: d.calls, cost: parseFloat(d.cost.toFixed(4)) }))
+          .sort((a, b) => b.calls - a.calls),
+      })).sort((a, b) => b.cost - a.cost);
+
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── Codec Analytics API ──────────────────────────────────────────────────────
+  app.get('/api/codec-analytics', (req, res, next) => requireRole(['admin','management'], req, res, next), (_req, res) => {
+    try {
+      // Codec breakdown from CDR cache
+      const codecMap   = new Map<string, number>();
+      // Per carrier: { codec → count }
+      const carrierMap = new Map<string, Map<string, number>>();
+      let total = 0;
+
+      for (const c of cdrCache.values()) {
+        const codec:  string = ((c as any).codec ?? '-').trim() || '-';
+        const vendor: string = (c as any).vendor || (c as any).vendorName || 'Unknown';
+        codecMap.set(codec, (codecMap.get(codec) ?? 0) + 1);
+        if (!carrierMap.has(vendor)) carrierMap.set(vendor, new Map());
+        const cm = carrierMap.get(vendor)!;
+        cm.set(codec, (cm.get(codec) ?? 0) + 1);
+        total++;
+      }
+
+      // G.711 variants (native, no transcoding proxy)
+      const G711 = new Set(['PCMU', 'PCMA', 'G.711', 'G711U', 'G711A', 'g711u', 'g711a', 'pcmu', 'pcma']);
+      const isG711 = (codec: string) => G711.has(codec) || codec.toLowerCase().includes('g.711') || codec.toLowerCase().includes('g711');
+
+      const breakdown = [...codecMap.entries()]
+        .map(([codec, calls]) => ({ codec, calls, pct: total > 0 ? parseFloat((calls / total * 100).toFixed(1)) : 0 }))
+        .sort((a, b) => b.calls - a.calls);
+
+      // Global transcode rate: % calls on non-G711 codec (excl. unknown/-)
+      const knownTotal  = breakdown.filter(b => b.codec !== '-' && b.codec !== 'unknown').reduce((s, b) => s + b.calls, 0);
+      const nonG711     = breakdown.filter(b => b.codec !== '-' && b.codec !== 'unknown' && !isG711(b.codec)).reduce((s, b) => s + b.calls, 0);
+      const transcodePct = knownTotal > 0 ? parseFloat((nonG711 / knownTotal * 100).toFixed(1)) : 0;
+
+      const byCarrier = [...carrierMap.entries()].map(([carrier, cm]) => {
+        const carrierTotal = [...cm.values()].reduce((s, n) => s + n, 0);
+        const codecs = [...cm.entries()]
+          .map(([codec, calls]) => ({ codec, calls, pct: carrierTotal > 0 ? parseFloat((calls / carrierTotal * 100).toFixed(1)) : 0 }))
+          .sort((a, b) => b.calls - a.calls);
+        const nonG711Carrier = codecs.filter(ck => ck.codec !== '-' && ck.codec !== 'unknown' && !isG711(ck.codec)).reduce((s, ck) => s + ck.calls, 0);
+        const knownCarrier   = codecs.filter(ck => ck.codec !== '-' && ck.codec !== 'unknown').reduce((s, ck) => s + ck.calls, 0);
+        return {
+          carrier,
+          totalCalls: carrierTotal,
+          codecs,
+          transcodePct: knownCarrier > 0 ? parseFloat((nonG711Carrier / knownCarrier * 100).toFixed(1)) : 0,
+        };
+      }).filter(c => c.totalCalls >= 2).sort((a, b) => b.totalCalls - a.totalCalls);
+
+      res.json({ breakdown, byCarrier, totalCalls: total, uniqueCodecs: codecMap.size, transcodePct, windowHours: 72 });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── CDR Anomaly Detection API + on-demand run ─────────────────────────────
+  // Statistical per-account deviation detection.
+  // Compares each account's recent 24h window against 48–72h rolling baseline.
+  // Metrics: avg_duration (seconds), cost_per_min, dest_entropy (Shannon).
+  function runCdrAnomalyDetection(): { detected: number; accounts: number } {
+    const now      = Date.now();
+    const dayMs    = 24 * 60 * 60 * 1000;
+    const windowMs = 48 * 60 * 60 * 1000; // baseline window (48h before yesterday)
+
+    const yesterdayStart = now - dayMs;
+    const baselineStart  = now - windowMs - dayMs;
+
+    type AccountBucket = { durations: number[]; costs: number[]; destinations: string[] };
+    const today:    Map<string, AccountBucket> = new Map();
+    const baseline: Map<string, AccountBucket> = new Map();
+
+    for (const c of cdrCache.values()) {
+      const ts = c.startTime ? (typeof c.startTime === 'number' ? c.startTime * 1000 : new Date(c.startTime).getTime()) : 0;
+      if (!ts) continue;
+      const account = String((c as any).iAccount || (c as any).clientName || 'unknown');
+      const duration = Number((c as any).duration || (c as any).billableSecs || 0);
+      const cost     = parseFloat((c as any).cost ?? 0) || 0;
+      const callee   = String((c as any).callee || '').slice(0, 6); // prefix for dest distribution
+
+      const isAnswered = String((c as any).result) === '0' || Number((c as any).result) === 0;
+      if (!isAnswered || duration <= 0) continue;
+
+      const target = ts >= yesterdayStart ? today : (ts >= baselineStart ? baseline : null);
+      if (!target) continue;
+      if (!target.has(account)) target.set(account, { durations: [], costs: [], destinations: [] });
+      const b = target.get(account)!;
+      b.durations.push(duration);
+      b.costs.push(cost);
+      b.destinations.push(callee);
+    }
+
+    function mean(arr: number[]) { return arr.reduce((s, v) => s + v, 0) / arr.length; }
+    function stddev(arr: number[], m: number) {
+      const variance = arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length;
+      return Math.sqrt(variance);
+    }
+    function shannonEntropy(items: string[]): number {
+      const freq: Record<string, number> = {};
+      for (const i of items) freq[i] = (freq[i] ?? 0) + 1;
+      const n = items.length;
+      return Object.values(freq).reduce((s, c) => {
+        const p = c / n;
+        return s - (p > 0 ? p * Math.log2(p) : 0);
+      }, 0);
+    }
+
+    const detected: { account: string; metric: string; baseline: number; observed: number; sigma: number; severity: string }[] = [];
+
+    for (const [account, todayData] of today.entries()) {
+      const baselineData = baseline.get(account);
+      if (!baselineData || baselineData.durations.length < 10) continue;
+
+      type MetricDef = { name: string; obs: number; baseArr: number[] };
+      const metrics: MetricDef[] = [
+        {
+          name: 'avg_duration',
+          obs: mean(todayData.durations),
+          baseArr: baselineData.durations,
+        },
+        {
+          name: 'cost_per_min',
+          obs: todayData.costs.reduce((s, v) => s + v, 0) / (todayData.durations.reduce((s, v) => s + v, 0) / 60 || 1),
+          baseArr: baselineData.durations.map((d, i) => baselineData.costs[i] / (d / 60 || 1)),
+        },
+        {
+          name: 'dest_entropy',
+          obs: shannonEntropy(todayData.destinations),
+          baseArr: [shannonEntropy(baselineData.destinations)], // single reference point
+        },
+      ];
+
+      for (const m of metrics) {
+        if (m.baseArr.length < 2) continue;
+        const bMean   = mean(m.baseArr);
+        const bStddev = stddev(m.baseArr, bMean);
+        if (bStddev < 0.001) continue; // no variance in baseline
+        const sigma = Math.abs(m.obs - bMean) / bStddev;
+        if (sigma < 2) continue;
+        const severity = sigma >= 3 ? 'critical' : sigma >= 2.5 ? 'high' : 'medium';
+        detected.push({ account, metric: m.name, baseline: bMean, observed: m.obs, sigma, severity });
+      }
+    }
+
+    return { detected: detected.length, accounts: today.size };
+  }
+
+  app.get('/api/cdr-anomalies', (req, res, next) => requireRole(['admin','management'], req, res, next), async (_req, res) => {
+    try {
+      // Run in-memory detection over CDR cache
+      const now      = Date.now();
+      const dayMs    = 24 * 60 * 60 * 1000;
+      const windowMs = 48 * 60 * 60 * 1000;
+      const yesterdayStart = now - dayMs;
+      const baselineStart  = now - windowMs - dayMs;
+
+      type AccountBucket = { durations: number[]; costs: number[]; destinations: string[]; callCount: number };
+      const today:    Map<string, AccountBucket> = new Map();
+      const baseline: Map<string, AccountBucket> = new Map();
+
+      for (const c of cdrCache.values()) {
+        const ts = c.startTime ? (typeof c.startTime === 'number' ? c.startTime * 1000 : new Date(c.startTime as any).getTime()) : 0;
+        if (!ts) continue;
+        const account  = String((c as any).iAccount || (c as any).clientName || 'unknown');
+        const duration = Number((c as any).duration || (c as any).billableSecs || 0);
+        const cost     = parseFloat((c as any).cost ?? 0) || 0;
+        const callee   = String((c as any).callee || '').slice(0, 6);
+        const isAnswered = String((c as any).result) === '0' || Number((c as any).result) === 0;
+        if (!isAnswered || duration <= 0) continue;
+
+        const target = ts >= yesterdayStart ? today : (ts >= baselineStart ? baseline : null);
+        if (!target) continue;
+        if (!target.has(account)) target.set(account, { durations: [], costs: [], destinations: [], callCount: 0 });
+        const b = target.get(account)!;
+        b.durations.push(duration);
+        b.costs.push(cost);
+        b.destinations.push(callee);
+        b.callCount++;
+      }
+
+      function mean(arr: number[]) { return arr.length === 0 ? 0 : arr.reduce((s, v) => s + v, 0) / arr.length; }
+      function stddev(arr: number[], m: number) {
+        if (arr.length < 2) return 0;
+        return Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length);
+      }
+      function shannonEntropy(items: string[]): number {
+        const freq: Record<string, number> = {};
+        for (const i of items) freq[i] = (freq[i] ?? 0) + 1;
+        const n = items.length;
+        return Object.values(freq).reduce((s, c) => {
+          const p = c / n;
+          return s - (p > 0 ? p * Math.log2(p) : 0);
+        }, 0);
+      }
+
+      const results: {
+        account: string; metric: string; label: string;
+        baseline: number; observed: number; sigma: number;
+        severity: string; direction: string;
+      }[] = [];
+
+      const METRIC_LABELS: Record<string, string> = {
+        avg_duration:  'Avg Call Duration',
+        cost_per_min:  'Cost per Minute',
+        dest_entropy:  'Destination Diversity',
+      };
+
+      for (const [account, todayData] of today.entries()) {
+        const baselineData = baseline.get(account);
+        if (!baselineData || baselineData.durations.length < 5) continue;
+
+        const bMeanDur    = mean(baselineData.durations);
+        const bStdDur     = stddev(baselineData.durations, bMeanDur);
+        const obsDur      = mean(todayData.durations);
+
+        const bCpm = baselineData.durations.map((d, i) => baselineData.costs[i] / (d / 60 || 1));
+        const bMeanCpm = mean(bCpm);
+        const bStdCpm  = stddev(bCpm, bMeanCpm);
+        const obsCpm   = todayData.costs.reduce((s, v) => s + v, 0) / (todayData.durations.reduce((s, v) => s + v, 0) / 60 || 1);
+
+        const bEnt  = shannonEntropy(baselineData.destinations);
+        const obsEnt = shannonEntropy(todayData.destinations);
+        // Entropy std: treat single reference as 10% of value for sensitivity
+        const bStdEnt = bEnt * 0.1;
+
+        for (const { metric, bMean, bStd, obs } of [
+          { metric: 'avg_duration', bMean: bMeanDur, bStd: bStdDur, obs: obsDur },
+          { metric: 'cost_per_min', bMean: bMeanCpm, bStd: bStdCpm, obs: obsCpm },
+          { metric: 'dest_entropy', bMean: bEnt,     bStd: bStdEnt, obs: obsEnt },
+        ]) {
+          if (bStd < 0.001) continue;
+          const sigma = Math.abs(obs - bMean) / bStd;
+          if (sigma < 2) continue;
+          const severity = sigma >= 3 ? 'critical' : sigma >= 2.5 ? 'high' : 'medium';
+          results.push({
+            account,
+            metric,
+            label: METRIC_LABELS[metric] ?? metric,
+            baseline: parseFloat(bMean.toFixed(4)),
+            observed: parseFloat(obs.toFixed(4)),
+            sigma: parseFloat(sigma.toFixed(2)),
+            severity,
+            direction: obs > bMean ? 'up' : 'down',
+          });
+        }
+      }
+
+      results.sort((a, b) => {
+        const sev = { critical: 3, high: 2, medium: 1 };
+        return (sev[b.severity as keyof typeof sev] ?? 0) - (sev[a.severity as keyof typeof sev] ?? 0) || b.sigma - a.sigma;
+      });
+
+      res.json({ anomalies: results, accountsAnalysed: today.size, baselineAccounts: baseline.size, windowHours: 72 });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   return httpServer;
 }

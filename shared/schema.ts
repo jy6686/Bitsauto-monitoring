@@ -1418,6 +1418,21 @@ export const accountConfigs = pgTable("account_configs", {
 });
 export type AccountConfig = typeof accountConfigs.$inferSelect;
 
+// ── CDR Anomaly Batches: nightly per-account statistical deviation results ─────
+export const cdrAnomalyBatches = pgTable("cdr_anomaly_batches", {
+  id:             serial("id").primaryKey(),
+  runDate:        varchar("run_date", { length: 12 }).notNull(),   // YYYY-MM-DD of the analysed day
+  account:        varchar("account", { length: 128 }).notNull(),   // clientName / iAccount
+  metric:         varchar("metric", { length: 32 }).notNull(),     // avg_duration | cost_per_min | dest_entropy
+  baseline:       real("baseline").notNull(),
+  observed:       real("observed").notNull(),
+  deviationSigma: real("deviation_sigma").notNull(),
+  severity:       varchar("severity", { length: 16 }).notNull(),   // critical | high | medium
+  createdAt:      timestamp("created_at").defaultNow(),
+});
+export type CdrAnomalyBatch = typeof cdrAnomalyBatches.$inferSelect;
+export type InsertCdrAnomalyBatch = typeof cdrAnomalyBatches.$inferInsert;
+
 // ── Quality Events: 15-min windows where avg MOS drops below 3.5 ─────────────
 export const qualityEvents = pgTable("quality_events", {
   id:          serial("id").primaryKey(),
