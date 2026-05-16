@@ -6,8 +6,9 @@ import { incidents, accountState, fasEvents } from "@shared/schema";
 import { eq, and, gte, inArray } from "drizzle-orm";
 
 export const INC_TYPES = {
-  ACCOUNT_HEALTH: 'ACCOUNT_HEALTH',
-  FAS_SPIKE:      'FAS_SPIKE',
+  ACCOUNT_HEALTH:   'ACCOUNT_HEALTH',
+  FAS_SPIKE:        'FAS_SPIKE',
+  ACCOUNT_EXPOSURE: 'ACCOUNT_EXPOSURE',
 } as const;
 
 // ── Upsert helper ─────────────────────────────────────────────────────────────
@@ -192,6 +193,54 @@ export async function runIncidentEngine(): Promise<{ opened: number; updated: nu
     );
     for (const inc of activeFasIncidents) {
       if (!activeFasKeys.includes(inc.entityId ?? '')) {
+        await db.update(incidents)
+          .set({ status: 'resolved', resolvedAt: now, updatedAt: now })
+          .where(eq(incidents.id, inc.id));
+        resolved++;
+      }
+    }
+
+    // ── 3. Account exposure incidents ─────────────────────────────────────────
+    const exposedAccts      = allStates.filter(a => (a.authExposureScore ?? 0) > 60);
+    const safeExposureIds   = allStates.filter(a => (a.authExposureScore ?? 0) <= 50).map(a => a.accountId);
+
+    for (const acct of exposedAccts) {
+      const score      = acct.authExposureScore ?? 0;
+      const rawSignals = (acct.authExposureSignals as any);
+      const signals    = (rawSignals?.signals as string[]) ?? [];
+      const severity   = score >= 75 ? 'critical' : score >= 50 ? 'high' : 'medium';
+      const confidence = Math.min(95, 60 + Math.round(score / 5));
+
+      const result = await upsertIncident({
+        entityType:      'account',
+        entityId:        acct.accountId,
+        entityName:      acct.accountName ?? acct.accountId,
+        incidentType:    INC_TYPES.ACCOUNT_EXPOSURE,
+        severity,
+        confidence,
+        title:           `${acct.accountName ?? acct.accountId}: Auth exposure ${score}/100 — ${acct.exposureRiskLevel ?? 'unknown'} risk`,
+        summary:         signals.slice(0, 2).join('. ') || undefined,
+        reasons:         signals,
+        suggestedAction: score >= 75
+          ? 'Immediately restrict IP to /32 and enable CLI authentication to reduce attack surface.'
+          : 'Review IP restriction rules and consider enforcing CLI/CLD authentication.',
+        source:          'auth_exposure',
+      });
+
+      if (result === 'opened') opened++;
+      else updated++;
+    }
+
+    // Auto-resolve ACCOUNT_EXPOSURE for accounts now safe
+    if (safeExposureIds.length > 0) {
+      const toResolveExp = await db.select().from(incidents).where(
+        and(
+          eq(incidents.incidentType, INC_TYPES.ACCOUNT_EXPOSURE),
+          eq(incidents.status,       'active'),
+          inArray(incidents.entityId, safeExposureIds),
+        )
+      );
+      for (const inc of toResolveExp) {
         await db.update(incidents)
           .set({ status: 'resolved', resolvedAt: now, updatedAt: now })
           .where(eq(incidents.id, inc.id));

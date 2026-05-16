@@ -2216,6 +2216,9 @@ interface AccountStateRecord {
   state: string; reasons: string[] | null; activeIncidentCount: number;
   trendDirection?: string | null; scoreDelta24h?: number | null;
   previousHealthScore?: number | null; updatedAt?: string | null;
+  authExposureScore?: number | null;
+  exposureRiskLevel?: string | null;
+  authExposureSignals?: { ipRisk: number; authWeakness: number; accessBreadth: number; configMisalignment: number; signals: string[] } | null;
 }
 function MiniSparkline({ values, color = '#6b7280', width = 48, height = 12 }: {
   values: number[]; color?: string; width?: number; height?: number;
@@ -2387,19 +2390,38 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm truncate">{acc.username}</span>
                         {(() => {
-                          const hs   = stateByAccountId.get(String(acc.iAccount));
-                          const hist = acctHistory[String(acc.iAccount)];
-                          if (!hs || hs.state === 'healthy') return null;
+                          const hs        = stateByAccountId.get(String(acc.iAccount));
+                          const hist      = acctHistory[String(acc.iAccount)];
+                          if (!hs) return null;
+                          const expScore  = hs.authExposureScore ?? 0;
+                          const expLevel  = hs.exposureRiskLevel ?? 'low';
+                          const expSigs   = hs.authExposureSignals?.signals ?? [];
+                          const showExp   = expLevel !== 'low' && expScore > 0;
+                          const expCfg    =
+                            expLevel === 'critical' ? { pill: 'bg-rose-500/15 text-rose-400 border-rose-500/30',   dot: 'bg-rose-400'   } :
+                            expLevel === 'high'     ? { pill: 'bg-orange-500/15 text-orange-400 border-orange-500/30', dot: 'bg-orange-400' } :
+                                                      { pill: 'bg-amber-500/15 text-amber-400 border-amber-500/30', dot: 'bg-amber-400'  };
                           return (
-                            <span className="inline-flex items-center gap-1.5">
-                              <HealthBadge state={hs.state} score={hs.healthScore} reasons={hs.reasons} trend={hs.trendDirection} delta={hs.scoreDelta24h} />
-                              {hist && hist.length >= 2 && (
-                                <MiniSparkline
-                                  values={hist.map(s => s.healthScore)}
-                                  color={hs.state === 'critical' ? '#f87171' : '#fbbf24'}
-                                />
+                            <>
+                              {hs.state !== 'healthy' && (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <HealthBadge state={hs.state} score={hs.healthScore} reasons={hs.reasons} trend={hs.trendDirection} delta={hs.scoreDelta24h} />
+                                  {hist && hist.length >= 2 && (
+                                    <MiniSparkline values={hist.map(s => s.healthScore)} color={hs.state === 'critical' ? '#f87171' : '#fbbf24'} />
+                                  )}
+                                </span>
                               )}
-                            </span>
+                              {showExp && (
+                                <span
+                                  title={expSigs.slice(0, 3).join(' · ') || `Auth exposure: ${expScore}/100`}
+                                  className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${expCfg.pill} cursor-help`}
+                                  data-testid={`badge-exposure-${acc.iAccount}`}
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full ${expCfg.dot}`} />
+                                  Exposed
+                                </span>
+                              )}
+                            </>
                           );
                         })()}
                         {acc.blocked && (

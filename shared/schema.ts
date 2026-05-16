@@ -1525,6 +1525,10 @@ export const accountState = pgTable("account_state", {
   previousState:      varchar("previous_state",     { length: 20 }),
   trendDirection:     varchar("trend_direction",     { length: 20 }).notNull().default('stable'),
   scoreDelta24h:      integer("score_delta_24h").notNull().default(0),
+  // Auth exposure scoring (B2 — structural vulnerability layer)
+  authExposureScore:   integer("auth_exposure_score").notNull().default(0),
+  exposureRiskLevel:   varchar("exposure_risk_level", { length: 20 }).notNull().default('low'),
+  authExposureSignals: json("auth_exposure_signals").$type<{ ipRisk: number; authWeakness: number; accessBreadth: number; configMisalignment: number; signals: string[] }>(),
   updatedAt:          timestamp("updated_at").defaultNow().notNull(),
 });
 export type AccountState       = typeof accountState.$inferSelect;

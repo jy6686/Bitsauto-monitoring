@@ -254,7 +254,7 @@ export default function AiOpsPage() {
   const pendingSuggestions = suggestions.filter(s => s.status === 'pending');
 
   // Account health state
-  interface AcctState { accountId: string; accountName: string | null; state: string; healthScore: number; reasons: string[] | null; activeIncidentCount: number; trendDirection?: string | null; scoreDelta24h?: number | null; updatedAt?: string | null }
+  interface AcctState { accountId: string; accountName: string | null; state: string; healthScore: number; reasons: string[] | null; activeIncidentCount: number; trendDirection?: string | null; scoreDelta24h?: number | null; updatedAt?: string | null; authExposureScore?: number | null; exposureRiskLevel?: string | null; }
   const { data: acctStateList } = useQuery<AcctState[]>({
     queryKey: ['/api/account-state'],
     staleTime: 60_000,
@@ -1238,6 +1238,17 @@ export default function AiOpsPage() {
                           <div className="flex items-center justify-between gap-1">
                             <span className="text-xs font-medium truncate">{acct.accountName ?? acct.accountId}</span>
                             <div className="flex items-center gap-1.5 shrink-0">
+                              {acct.exposureRiskLevel && acct.exposureRiskLevel !== 'low' && (acct.authExposureScore ?? 0) > 0 && (
+                                <span
+                                  title={`Auth exposure: ${acct.authExposureScore}/100`}
+                                  className={cn(
+                                    "text-[9px] font-bold px-1 py-0.5 rounded leading-none",
+                                    acct.exposureRiskLevel === 'critical' ? 'bg-rose-500/20 text-rose-400' :
+                                    acct.exposureRiskLevel === 'high'     ? 'bg-orange-500/20 text-orange-400' :
+                                                                            'bg-amber-500/20 text-amber-400'
+                                  )}
+                                >EXP</span>
+                              )}
                               {trendEl}
                               {deltaLabel}
                               <span className={`text-[10px] font-bold tabular-nums ${textColor}`}>{acct.healthScore}</span>

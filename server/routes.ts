@@ -20,6 +20,7 @@ import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
 import { updateAccountState } from "./account-state";
 import { runIncidentEngine } from "./incident-engine";
+import { runAuthExposureScorer } from "./auth-exposure";
 import { writeAudit, queryAudit, auditStats } from "./audit";
 import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
@@ -16722,6 +16723,23 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     setInterval(_runAnomalyEngine, 15 * 60 * 1000);
   }, 300_000); // T+5 min stagger
 
+  // Auth Exposure Scorer — runs every 6 hours (T+2 min stagger, slow interval to minimise Sippy load)
+  setTimeout(() => {
+    const _runAuthExposure = async () => {
+      try {
+        const settings = await storage.getSippySettings();
+        const result   = await runAuthExposureScorer(settings);
+        if (result.scored > 0) {
+          console.log(`[auth-exposure] scored=${result.scored} errors=${result.errors}`);
+        }
+        // Re-run incident engine so ACCOUNT_EXPOSURE incidents are emitted immediately
+        try { await runIncidentEngine(); } catch (_) {}
+      } catch (e: any) { console.warn('[auth-exposure] run error:', e.message); }
+    };
+    _runAuthExposure();
+    setInterval(_runAuthExposure, 6 * 60 * 60 * 1000);
+  }, 120_000); // T+2 min
+
   // Correlation Engine — run every 5 minutes (T+6 min stagger)
   setTimeout(() => {
     const _runCorrelationEngine = async () => {
@@ -18772,6 +18790,31 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   // Unified Incidents — manually trigger the incident engine
+  // GET /api/account-exposure — return current auth exposure scores for all accounts
+  app.get('/api/account-exposure', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const rows = await db.select({
+        accountId:           accountState.accountId,
+        accountName:         accountState.accountName,
+        authExposureScore:   accountState.authExposureScore,
+        exposureRiskLevel:   accountState.exposureRiskLevel,
+        authExposureSignals: accountState.authExposureSignals,
+        updatedAt:           accountState.updatedAt,
+      }).from(accountState).orderBy(accountState.authExposureScore);
+      res.json(rows.reverse()); // highest exposure first
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/account-exposure/run — manually trigger the auth exposure scorer
+  app.post('/api/account-exposure/run', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const settings = await storage.getSippySettings();
+      const result   = await runAuthExposureScorer(settings);
+      try { await runIncidentEngine(); } catch (_) {}
+      res.json({ ok: true, ...result });
+    } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
   app.post('/api/incidents/run', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (_req: any, res: any) => {
     try {
       const result = await runIncidentEngine();
