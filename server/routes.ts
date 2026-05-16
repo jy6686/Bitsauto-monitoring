@@ -16730,9 +16730,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       try {
         const settings = await storage.getSippySettings();
         const result   = await runAuthExposureScorer(settings);
-        if (result.scored > 0) {
-          console.log(`[auth-exposure] scored=${result.scored} errors=${result.errors}`);
-        }
+        console.log(`[auth-exposure] scored=${result.scored} errors=${result.errors}`);
         // Re-run incident engine so ACCOUNT_EXPOSURE incidents are emitted immediately
         try { await runIncidentEngine(); } catch (_) {}
       } catch (e: any) { console.warn('[auth-exposure] run error:', e.message); }
@@ -16746,9 +16744,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     const _runRecommendations = async () => {
       try {
         const result = await runRecommendationEngine();
-        if (result.ranked > 0) {
-          console.log(`[recommendation-engine] ranked=${result.ranked} immediate=${result.immediate} today=${result.today} monitor=${result.monitor}`);
-        }
+        console.log(`[recommendation-engine] ranked=${result.ranked} immediate=${result.immediate} today=${result.today} monitor=${result.monitor}`);
       } catch (e: any) { console.warn('[recommendation-engine] run error:', e.message); }
     };
     _runRecommendations();
