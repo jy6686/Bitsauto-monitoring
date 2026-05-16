@@ -87,7 +87,7 @@ interface TimelineEntry {
   type: 'signal' | 'score_drop' | 'escalation' | 'resolution';
 }
 
-type FeedTab = 'all' | 'anomalies' | 'signals' | 'incidents' | 'accounts';
+type FeedTab = 'all' | 'anomalies' | 'signals' | 'incidents' | 'accounts' | 'actions';
 
 const SIGNAL_TYPE_CONFIG: Record<string, { label: string; icon: any; bg: string; badge: string; color: string }> = {
   ROUTING_FAILURE:          { label: 'Routing Failure',       icon: AlertTriangle, bg: 'bg-rose-500/5 border-rose-500/30',     badge: 'bg-rose-500/15 text-rose-400 border-rose-500/30',   color: 'text-rose-400'   },
@@ -292,6 +292,34 @@ export default function AiOpsPage() {
     onError: () => toast({ title: 'Incident engine error', variant: 'destructive' }),
   });
 
+  // ── C1 Recommendations ────────────────────────────────────────────────────
+  interface Recommendation {
+    accountId: string; accountName: string | null;
+    riskScore: number; priority: number;
+    urgency: 'immediate' | 'today' | 'monitor';
+    dominantSignal: 'exposure' | 'fraud' | 'health' | 'anomaly';
+    primaryAction: string; actionReason: string[]; confidence: number;
+    signalSummary: { healthScore: number; fraudRisk: number; authExposureScore: number; anomalyScore: number; activeIncidents: number };
+    computedAt: string;
+  }
+  const { data: recommendations = [], isLoading: recsLoading, refetch: refetchRecs } = useQuery<Recommendation[]>({
+    queryKey: ['/api/recommendations'],
+    refetchInterval: 120_000,
+    staleTime: 60_000,
+    enabled: feedTab === 'actions',
+  });
+  const runRecsMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/recommendations/run'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/recommendations'] });
+      toast({ title: 'Recommendation engine run complete' });
+    },
+    onError: () => toast({ title: 'Recommendation engine error', variant: 'destructive' }),
+  });
+  const immediateRecs = recommendations.filter(r => r.urgency === 'immediate');
+  const todayRecs     = recommendations.filter(r => r.urgency === 'today');
+  const monitorRecs   = recommendations.filter(r => r.urgency === 'monitor');
+
   const anomalies      = rawAnomalies;
   const activeCount    = rawAnomalies.filter(a => !a.resolved).length;
   const criticalCount  = rawAnomalies.filter(a => a.severity === 'critical' && !a.resolved).length;
@@ -489,6 +517,7 @@ export default function AiOpsPage() {
                   { key: 'signals',   label: 'Signals',   count: rawSignals.length },
                   { key: 'incidents', label: 'Incidents', count: incidents.length + normalizedIncidents.length, active: activeIncidents.length + activeNormIncidents.length },
                   { key: 'accounts', label: 'Accounts',  count: accountAnomalyData?.anomalies.length ?? 0 },
+                  { key: 'actions',  label: 'Actions',   count: recommendations.length, active: immediateRecs.length },
                 ] as Array<{ key: FeedTab; label: string; count: number; active?: number }>).map(tab => (
                   <button
                     key={tab.key}
@@ -820,6 +849,173 @@ export default function AiOpsPage() {
                   </AnimatePresence>
                 </div>
               )
+            ) : feedTab === 'actions' ? (
+              // ── C1 Actions Panel — ranked operator queue ─────────────────────
+              <div className="space-y-4">
+                {/* Header bar */}
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Brain className="h-3.5 w-3.5 text-primary/70" />
+                    {recsLoading
+                      ? 'Computing ranked action queue…'
+                      : recommendations.length === 0
+                        ? 'No recommendations yet — run the engine to generate the queue'
+                        : `${recommendations.length} accounts ranked · ${immediateRecs.length} immediate · ${todayRecs.length} today · ${monitorRecs.length} monitoring`
+                    }
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => refetchRecs()}
+                      disabled={recsLoading}
+                      data-testid="button-refresh-recommendations"
+                      className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={cn("h-3 w-3", recsLoading && "animate-spin")} />
+                      Refresh
+                    </button>
+                    <button
+                      onClick={() => runRecsMutation.mutate()}
+                      disabled={runRecsMutation.isPending}
+                      data-testid="button-run-recommendations"
+                      className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                    >
+                      <Play className="h-3 w-3" />
+                      {runRecsMutation.isPending ? 'Running…' : 'Run engine'}
+                    </button>
+                  </div>
+                </div>
+
+                {recsLoading ? (
+                  <div className="space-y-2">
+                    {[1,2,3].map(i => (
+                      <div key={i} className="bg-card border border-border rounded-xl p-4 animate-pulse">
+                        <div className="h-3 bg-muted/40 rounded w-1/3 mb-2" />
+                        <div className="h-3 bg-muted/30 rounded w-full mb-1" />
+                        <div className="h-3 bg-muted/20 rounded w-2/3" />
+                      </div>
+                    ))}
+                  </div>
+                ) : recommendations.length === 0 ? (
+                  <div className="bg-card border border-border rounded-xl p-12 text-center">
+                    <Brain className="h-10 w-10 text-primary/30 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground">No ranked actions yet</p>
+                    <p className="text-xs text-muted-foreground/60 mt-1">
+                      The recommendation engine ranks accounts by composite risk score.<br />
+                      It runs automatically every 30 minutes, or trigger it manually.
+                    </p>
+                    <button
+                      onClick={() => runRecsMutation.mutate()}
+                      disabled={runRecsMutation.isPending}
+                      data-testid="button-run-recommendations-empty"
+                      className="mt-4 text-xs px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-colors flex items-center gap-1.5 mx-auto"
+                    >
+                      <Play className="h-3 w-3" />
+                      {runRecsMutation.isPending ? 'Running…' : 'Generate action queue'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    {/* Summary pills */}
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { label: 'Immediate', count: immediateRecs.length, bg: 'bg-rose-500/5 border-rose-500/20', text: 'text-rose-400' },
+                        { label: 'Today',     count: todayRecs.length,     bg: 'bg-amber-500/5 border-amber-500/20', text: 'text-amber-400' },
+                        { label: 'Monitor',   count: monitorRecs.length,   bg: 'bg-muted/20 border-border',          text: 'text-muted-foreground' },
+                      ].map(g => (
+                        <div key={g.label} className={cn("rounded-xl border p-4", g.bg)}>
+                          <div className={cn("text-3xl font-bold font-mono", g.text)}>{g.count}</div>
+                          <div className="text-xs text-muted-foreground mt-1">{g.label}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Ranked queue grouped by urgency */}
+                    {([
+                      { urgency: 'immediate', items: immediateRecs, label: 'Immediate', dotColor: 'bg-rose-400',  ringColor: 'border-rose-500/20', badgeCls: 'bg-rose-500/15 text-rose-400 border-rose-500/30'   },
+                      { urgency: 'today',     items: todayRecs,     label: 'Today',     dotColor: 'bg-amber-400', ringColor: 'border-amber-500/20', badgeCls: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
+                      { urgency: 'monitor',   items: monitorRecs,   label: 'Monitor',   dotColor: 'bg-muted-foreground/40', ringColor: 'border-border', badgeCls: 'bg-muted/20 text-muted-foreground border-border' },
+                    ] as const).map(group => group.items.length === 0 ? null : (
+                      <div key={group.urgency} className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className={cn("w-1.5 h-1.5 rounded-full", group.dotColor)} />
+                          <span className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider">{group.label}</span>
+                          <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-full border leading-none", group.badgeCls)}>{group.items.length}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {group.items.map(rec => {
+                            const signalCfg = {
+                              exposure: { label: 'Auth Exposure', cls: 'bg-orange-500/15 text-orange-400 border-orange-500/30' },
+                              fraud:    { label: 'Fraud Risk',    cls: 'bg-rose-500/15 text-rose-400 border-rose-500/30'       },
+                              health:   { label: 'Health',        cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30'    },
+                              anomaly:  { label: 'Anomaly',       cls: 'bg-violet-500/15 text-violet-400 border-violet-500/30' },
+                            }[rec.dominantSignal];
+                            return (
+                              <div
+                                key={rec.accountId}
+                                className="bg-card border border-border rounded-xl p-4 space-y-3"
+                                data-testid={`rec-card-${rec.accountId}`}
+                              >
+                                {/* Row 1: rank + name + risk score */}
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="text-[10px] font-mono font-bold text-muted-foreground/50 shrink-0">#{rec.priority}</span>
+                                    <span className="text-xs font-semibold truncate">{rec.accountName ?? rec.accountId}</span>
+                                    <span className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded border leading-none shrink-0", signalCfg.cls)}>{signalCfg.label}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <div className="flex items-center gap-1">
+                                      <div className="w-16 h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                                        <div
+                                          className={cn("h-full rounded-full transition-all duration-700",
+                                            rec.riskScore >= 70 ? 'bg-rose-400' : rec.riskScore >= 40 ? 'bg-amber-400' : 'bg-muted-foreground/40'
+                                          )}
+                                          style={{ width: `${rec.riskScore}%` }}
+                                        />
+                                      </div>
+                                      <span className="text-[10px] font-mono font-bold tabular-nums text-muted-foreground">{rec.riskScore}</span>
+                                    </div>
+                                    <span className="text-[9px] text-muted-foreground/40 tabular-nums">{rec.confidence}% conf</span>
+                                  </div>
+                                </div>
+
+                                {/* Row 2: primary action */}
+                                <div className="flex items-start gap-2">
+                                  <ArrowRight className="h-3 w-3 text-primary/60 mt-0.5 shrink-0" />
+                                  <p className="text-xs leading-snug text-foreground/80">{rec.primaryAction}</p>
+                                </div>
+
+                                {/* Row 3: reasons */}
+                                {rec.actionReason.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {rec.actionReason.map((r, i) => (
+                                      <span key={i} className="text-[9px] text-muted-foreground/60 bg-muted/20 border border-border/40 px-1.5 py-0.5 rounded">{r}</span>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Row 4: signal summary chips */}
+                                <div className="flex flex-wrap gap-2 pt-1 border-t border-border/20">
+                                  {[
+                                    { label: 'Health',   value: rec.signalSummary.healthScore,       suffix: '' },
+                                    { label: 'Fraud',    value: rec.signalSummary.fraudRisk,          suffix: '' },
+                                    { label: 'Exposure', value: rec.signalSummary.authExposureScore,  suffix: '' },
+                                    { label: 'Anomaly',  value: rec.signalSummary.anomalyScore,       suffix: '' },
+                                    { label: 'Incidents',value: rec.signalSummary.activeIncidents,    suffix: '' },
+                                  ].map(chip => (
+                                    <span key={chip.label} className="text-[9px] text-muted-foreground/50 tabular-nums">
+                                      <span className="text-muted-foreground/70 font-medium">{chip.label}:</span> {chip.value}{chip.suffix}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : feedTab === 'accounts' ? (
               // ── Account-level CDR Anomalies Tab ─────────────────────────────
               <div className="space-y-4">

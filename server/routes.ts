@@ -21,6 +21,7 @@ import { runAnomalyEngine } from "./anomaly-engine";
 import { updateAccountState } from "./account-state";
 import { runIncidentEngine } from "./incident-engine";
 import { runAuthExposureScorer } from "./auth-exposure";
+import { runRecommendationEngine } from "./recommendation-engine";
 import { writeAudit, queryAudit, auditStats } from "./audit";
 import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
@@ -16740,6 +16741,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     setInterval(_runAuthExposure, 6 * 60 * 60 * 1000);
   }, 120_000); // T+2 min
 
+  // Recommendation Engine — runs every 30 min (T+3 min stagger, after account-state + auth-exposure are populated)
+  setTimeout(() => {
+    const _runRecommendations = async () => {
+      try {
+        const result = await runRecommendationEngine();
+        if (result.ranked > 0) {
+          console.log(`[recommendation-engine] ranked=${result.ranked} immediate=${result.immediate} today=${result.today} monitor=${result.monitor}`);
+        }
+      } catch (e: any) { console.warn('[recommendation-engine] run error:', e.message); }
+    };
+    _runRecommendations();
+    setInterval(_runRecommendations, 30 * 60 * 1000);
+  }, 180_000); // T+3 min
+
   // Correlation Engine — run every 5 minutes (T+6 min stagger)
   setTimeout(() => {
     const _runCorrelationEngine = async () => {
@@ -18790,6 +18805,32 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   // Unified Incidents — manually trigger the incident engine
+  // GET /api/recommendations — global ranked action queue (sorted by priority asc = rank 1 first)
+  app.get('/api/recommendations', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const rows = await db.select({
+        accountId:      accountState.accountId,
+        accountName:    accountState.accountName,
+        recommendation: accountState.recommendation,
+        updatedAt:      accountState.updatedAt,
+      }).from(accountState);
+      // Filter to accounts that have recommendations, sort by priority
+      const ranked = rows
+        .filter(r => r.recommendation != null)
+        .map(r => ({ accountId: r.accountId, accountName: r.accountName, ...(r.recommendation as any) }))
+        .sort((a: any, b: any) => (a.priority ?? 999) - (b.priority ?? 999));
+      res.json(ranked);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/recommendations/run — manually trigger the recommendation engine
+  app.post('/api/recommendations/run', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const result = await runRecommendationEngine();
+      res.json({ ok: true, ...result });
+    } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
   // GET /api/account-exposure — return current auth exposure scores for all accounts
   app.get('/api/account-exposure', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (_req: any, res: any) => {
     try {

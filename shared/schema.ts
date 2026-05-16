@@ -1529,6 +1529,18 @@ export const accountState = pgTable("account_state", {
   authExposureScore:   integer("auth_exposure_score").notNull().default(0),
   exposureRiskLevel:   varchar("exposure_risk_level", { length: 20 }).notNull().default('low'),
   authExposureSignals: json("auth_exposure_signals").$type<{ ipRisk: number; authWeakness: number; accessBreadth: number; configMisalignment: number; signals: string[] }>(),
+  // C1 Recommendation Engine — per-account ranked action output
+  recommendation: json("recommendation").$type<{
+    riskScore: number;
+    priority: number;
+    urgency: 'immediate' | 'today' | 'monitor';
+    dominantSignal: 'exposure' | 'fraud' | 'health' | 'anomaly';
+    primaryAction: string;
+    actionReason: string[];
+    confidence: number;
+    signalSummary: { healthScore: number; fraudRisk: number; authExposureScore: number; anomalyScore: number; activeIncidents: number };
+    computedAt: string;
+  }>(),
   updatedAt:          timestamp("updated_at").defaultNow().notNull(),
 });
 export type AccountState       = typeof accountState.$inferSelect;
