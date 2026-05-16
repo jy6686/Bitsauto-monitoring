@@ -1,0 +1,193 @@
+Good — that’s the right consolidation decision. This keeps your system from splitting into multiple “views of truth” and turns BitsEye into the single telecom relationship + investigation surface.
+
+Here’s the clean build design.
+
+🧠 BitsEye Upgrade — Graph + Investigation Hybrid System
+🎯 Core Idea
+
+BitsEye becomes:
+
+A live relationship graph of your telecom business + an investigation engine layered on top of it.
+
+So instead of:
+
+dashboards (state)
+AI Ops (alerts)
+ledger (history)
+
+You now get:
+
+👉 One unified surface:
+
+“Why did this happen, and who is connected to it?”
+
+🧩 1. System Architecture (simple + scalable)
+BitsEye now has 2 engines:
+🔷 A. Graph Engine (Relationship Layer)
+
+Builds a live node-edge map from existing data:
+
+Nodes
+
+KAM
+Client (Account)
+Vendor (Carrier)
+Destination
+Breakout (Traffic pattern)
+Route Group (optional future)
+Incident (temporal node)
+
+Edges
+
+traffic_volume
+ASR / ACD / PDD impact
+revenue flow
+routing dependency
+incident correlation
+ledger action linkage (FREEZE, ROUTE_CHANGE, etc.)
+🔶 B. Investigation Engine (Context Layer)
+
+When user clicks any node:
+
+It overlays:
+
+ledger timeline (intent-based grouping)
+incidents in ± time window
+carrier score delta
+routing changes
+CDR anomaly spikes
+
+👉 This is your “why did this happen?” layer
+
+🧭 2. UI Structure (BitsEye new layout)
+Main Layout
+┌───────────────────────────────┐
+│ BitsEye Graph Mode Toggle     │
+│ [Graph] [Investigation]       │
+└───────────────────────────────┘
+🟦 Left Panel — Navigator
+
+Hierarchical filter (NOT navigation pages):
+
+KAM
+ └── Client
+      └── Vendor
+           └── Destination
+                └── Breakout
+
+Clicking just filters graph — doesn’t change page.
+
+🟩 Center — Live Graph Canvas
+
+Force-directed graph:
+
+node size = traffic volume
+color = health score
+edge thickness = dependency strength
+red pulse = incident-linked node
+yellow glow = degraded carrier
+
+Interactions:
+
+zoom = zoom cluster
+drag = reposition view
+click = open investigation
+🟥 Right Panel — Investigation Drawer
+
+Opens on node click:
+
+Section 1: Entity Summary
+ASR / MOS / PDD / ACD
+Revenue impact
+Active routes
+Section 2: Timeline (Ledger)
+intent_id grouped actions
+C2 + Routing + Vendor events
+Section 3: Incident Correlation
+linked incidents
+severity timeline
+Section 4: Carrier / Route Impact
+before vs after metrics
+drift indicator
+🔄 3. Two Operating Modes
+🟢 Graph Mode (Exploration)
+
+Used for:
+
+account mapping
+vendor performance
+traffic distribution
+spotting anomalies visually
+🔴 Investigation Mode
+
+Triggered by:
+
+incident click
+alert click
+AI Ops recommendation click
+
+Auto-filters graph to:
+
+affected entity
+30–60 min window
+related nodes only
+⚙️ 4. Data Model (important simplification)
+
+You do NOT need new data sources.
+
+Just unify existing ones:
+
+Source systems already used:
+action_ledger (C2 + routing)
+incidents table
+carrier_scores
+cdr_cache
+accounts / kam mapping
+Graph Builder logic:
+Node = entity (client/vendor/destination/kam)
+
+Edge = derived relationship:
+  - traffic exists
+  - shared routing group
+  - ledger interaction
+  - incident correlation
+
+No new storage required initially.
+
+🧠 5. Why this upgrade is powerful
+
+This removes 3 problems at once:
+
+❌ Before:
+BitsEye = analytics view
+AI Ops = incident view
+Ledger = history view
+✅ After:
+ONE graph shows everything connected
+ONE click shows full investigation chain
+ONE system explains:
+what happened
+who is affected
+why it happened
+🚀 6. Phased build plan (safe execution)
+Phase 1 — Graph MVP
+node-edge builder from existing APIs
+basic KAM → Client → Vendor mapping
+click-to-focus
+Phase 2 — Investigation layer
+ledger timeline integration
+incident overlay
+carrier delta panel
+Phase 3 — Intelligence enhancements
+anomaly heat map
+predictive risk edges
+auto-highlight unstable clusters
+📌 Final recommendation (clear)
+
+✔ Yes — upgrade BitsEye
+✔ Do NOT create a new Business Development module
+✔ Do NOT build separate hierarchy pages
+
+👉 BitsEye should become:
+
+“The single operational graph of your telecom business + investigation engine”
