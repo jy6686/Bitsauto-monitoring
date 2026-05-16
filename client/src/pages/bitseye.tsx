@@ -4,12 +4,13 @@ import { useSearch } from "wouter";
 import { useOrgScope } from "@/context/org-scope-context";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
+  ResponsiveContainer, ComposedChart, Line,
 } from "recharts";
 import {
   RefreshCw, ChevronRight, BarChart3,
   TrendingUp, TrendingDown, Minus, AlertCircle, Globe, Users, Layers,
   ArrowRight, ArrowLeft, LayoutGrid, Maximize2, WifiOff, Plus, Check,
+  Activity, TableProperties,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -430,6 +431,257 @@ function EntityPanel({ entity, dimmed, onDrillDown, drillLabel }: {
 }
 
 
+// ── Graph view types ───────────────────────────────────────────────────────────
+interface TrendBucket {
+  label: string; ts: number;
+  total: number; connected: number; failed: number; asr: number;
+}
+interface TrendSummary {
+  total: number; connected: number; failed: number;
+  asr: number; acd: number; cdrWindow: string; bucketMin: number;
+}
+interface CallTrendResponse { buckets: TrendBucket[]; summary: TrendSummary; }
+
+// ── Graph tooltip ──────────────────────────────────────────────────────────────
+function GraphTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const d: Record<string, number> = {};
+  for (const p of payload) d[p.dataKey] = p.value ?? 0;
+  const total = d.total ?? (d.connected ?? 0) + (d.failed ?? 0);
+  const asr   = total > 0 ? Math.round((d.connected ?? 0) / total * 1000) / 10 : 0;
+  return (
+    <div className="rounded-xl border border-border/50 bg-card/98 backdrop-blur-md px-3.5 py-2.5 text-xs shadow-2xl min-w-[150px]">
+      <p className="font-semibold text-muted-foreground/70 mb-2 text-[10px] uppercase tracking-wide">{label}</p>
+      <div className="space-y-1">
+        <div className="flex justify-between gap-4">
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-[#38bdf8] inline-block" />Connected</span>
+          <span className="font-bold tabular-nums">{d.connected ?? 0}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-rose-500 inline-block" />Failed</span>
+          <span className="font-bold tabular-nums text-rose-400">{d.failed ?? 0}</span>
+        </div>
+        <div className="flex justify-between gap-4 border-t border-border/20 pt-1">
+          <span className="text-muted-foreground/60">Total</span>
+          <span className="font-bold tabular-nums">{total}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-muted-foreground/60">ASR</span>
+          <span className={cn("font-bold tabular-nums", asr >= 60 ? 'text-emerald-400' : asr >= 40 ? 'text-amber-400' : 'text-rose-400')}>{asr}%</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── BitsEye Graph View ─────────────────────────────────────────────────────────
+function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
+  const [bucket, setBucket] = useState<5 | 15 | 60>(15);
+
+  // Hours shown scales with bucket size
+  const hoursBack = bucket === 5 ? 2 : bucket === 15 ? 4 : 24;
+
+  const { data, isFetching } = useQuery<CallTrendResponse>({
+    queryKey: ['/api/bitseye/call-trend', bucket, hoursBack, kamId],
+    queryFn: async () => {
+      const p = new URLSearchParams({ bucket: String(bucket), hours: String(hoursBack) });
+      if (kamId) p.set('kamId', String(kamId));
+      const r = await fetch(`/api/bitseye/call-trend?${p}`);
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime:       55_000,
+    refetchInterval: 60_000,   // Sippy-safe: once per minute, CDR cache only
+  });
+
+  const s = data?.summary;
+  const buckets = data?.buckets ?? [];
+
+  // Thin ticks for dense bucket sets
+  const tickInterval = buckets.length > 24 ? Math.ceil(buckets.length / 12) - 1 : 'preserveStartEnd';
+
+  const kpiItems = [
+    { label: 'Total Calls',    value: s ? s.total.toLocaleString()     : '—', cls: 'text-foreground',   testid: 'graph-kpi-total' },
+    { label: 'Connected',      value: s ? s.connected.toLocaleString() : '—', cls: 'text-sky-400',      testid: 'graph-kpi-connected' },
+    { label: 'Failed',         value: s ? s.failed.toLocaleString()    : '—', cls: 'text-rose-400',     testid: 'graph-kpi-failed' },
+    { label: 'ASR',            value: s ? `${s.asr}%`                  : '—', cls: s ? (s.asr >= 60 ? 'text-emerald-400' : s.asr >= 40 ? 'text-amber-400' : 'text-rose-400') : 'text-muted-foreground/30', testid: 'graph-kpi-asr' },
+    { label: 'ACD',            value: s?.acd ? fmtAcd(s.acd)           : '—', cls: 'text-violet-400',   testid: 'graph-kpi-acd' },
+  ];
+
+  return (
+    <div className="flex flex-col gap-5" data-testid="bitseye-graph-view">
+
+      {/* ── Time window toggle ─────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1 bg-muted/20 border border-border/30 rounded-lg p-0.5">
+          {([5, 15, 60] as const).map(b => (
+            <button
+              key={b}
+              onClick={() => setBucket(b)}
+              data-testid={`graph-bucket-${b}`}
+              className={cn(
+                "px-3 py-1 rounded-md text-xs font-semibold transition-all",
+                bucket === b
+                  ? "bg-card text-foreground shadow-sm border border-border/30"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {b === 60 ? '1h' : `${b}m`}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/40">
+          {isFetching && <RefreshCw className="w-3 h-3 animate-spin" />}
+          <span>CDR-based · {hoursBack}h window · 60s refresh</span>
+        </div>
+      </div>
+
+      {/* ── KPI strip ──────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-5 gap-2">
+        {kpiItems.map(k => (
+          <div key={k.label}
+            className="bg-card border border-border/30 rounded-xl px-4 py-3 flex flex-col gap-1"
+            data-testid={k.testid}>
+            <span className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-wider">{k.label}</span>
+            <span className={cn("text-2xl font-bold tabular-nums", k.cls)}>{k.value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Main chart: Connected (blue) + Failed (red) stacked, Total line ── */}
+      <div className="bg-card border border-border/30 rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border/20">
+          <div className="flex items-center gap-3">
+            <Activity className="w-4 h-4 text-amber-400" />
+            <span className="text-sm font-semibold">Call Volume</span>
+          </div>
+          <div className="flex items-center gap-5 text-[10px] text-muted-foreground/50">
+            <span className="flex items-center gap-1.5"><span className="w-8 h-0.5 bg-[#38bdf8] inline-block rounded-full" />Connected</span>
+            <span className="flex items-center gap-1.5"><span className="w-8 h-0.5 bg-rose-500/70 inline-block rounded-full" />Failed</span>
+            <span className="flex items-center gap-1.5"><span className="w-8 border-t border-dashed border-white/25 inline-block" />Total</span>
+          </div>
+        </div>
+
+        {buckets.length === 0 && !isFetching ? (
+          <div className="h-72 flex items-center justify-center text-sm text-muted-foreground/30">
+            No CDR data in window — calls will appear once processed
+          </div>
+        ) : isFetching && buckets.length === 0 ? (
+          <div className="h-72 bg-muted/10 animate-pulse rounded-b-xl" />
+        ) : (
+          <div className="px-4 pt-4 pb-3" style={{ height: 300 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={buckets} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gradConn" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor="#38bdf8" stopOpacity={0.40} />
+                    <stop offset="80%"  stopColor="#38bdf8" stopOpacity={0.06} />
+                    <stop offset="100%" stopColor="#38bdf8" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="gradFail" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor="#f43f5e" stopOpacity={0.35} />
+                    <stop offset="80%"  stopColor="#f43f5e" stopOpacity={0.05} />
+                    <stop offset="100%" stopColor="#f43f5e" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid horizontal vertical={false} stroke="rgba(255,255,255,0.04)" />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.45)', fontFamily: 'monospace' }}
+                  tickLine={false} axisLine={false}
+                  interval={tickInterval}
+                />
+                <YAxis
+                  tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.45)', fontFamily: 'monospace' }}
+                  tickLine={false} axisLine={false}
+                  allowDecimals={false} width={30}
+                />
+                <Tooltip content={<GraphTooltip />}
+                  cursor={{ stroke: 'rgba(148,163,184,0.15)', strokeWidth: 1, strokeDasharray: '4 2' }} />
+                {/* Failed — below connected */}
+                <Area
+                  type="monotone" dataKey="failed"
+                  stroke="#f43f5e" strokeWidth={1.5}
+                  fill="url(#gradFail)"
+                  dot={false}
+                  activeDot={{ r: 3.5, fill: '#f43f5e', stroke: 'hsl(var(--card))', strokeWidth: 2 }}
+                  strokeLinejoin="round" strokeLinecap="round"
+                />
+                {/* Connected — primary metric */}
+                <Area
+                  type="monotone" dataKey="connected"
+                  stroke="#38bdf8" strokeWidth={2.5}
+                  fill="url(#gradConn)"
+                  dot={false}
+                  activeDot={{ r: 4, fill: '#38bdf8', stroke: 'hsl(var(--card))', strokeWidth: 2 }}
+                  strokeLinejoin="round" strokeLinecap="round"
+                />
+                {/* Total — dashed reference line */}
+                <Line
+                  type="monotone" dataKey="total"
+                  stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  dot={false}
+                  activeDot={{ r: 3, fill: 'rgba(255,255,255,0.5)', stroke: 'hsl(var(--card))', strokeWidth: 2 }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* ── ASR trend mini-chart ────────────────────────────────────────────── */}
+      <div className="bg-card border border-border/30 rounded-xl overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-border/20">
+          <span className="text-sm font-semibold">Answer Success Rate</span>
+          <span className="text-[10px] text-muted-foreground/40">per bucket</span>
+        </div>
+        {buckets.length > 0 && (
+          <div className="px-4 pt-4 pb-3" style={{ height: 180 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={buckets} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gradAsr" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor="#10b981" stopOpacity={0.40} />
+                    <stop offset="100%" stopColor="#10b981" stopOpacity={0.03} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid horizontal vertical={false} stroke="rgba(255,255,255,0.04)" />
+                <XAxis dataKey="label"
+                  tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.45)', fontFamily: 'monospace' }}
+                  tickLine={false} axisLine={false} interval={tickInterval} />
+                <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`}
+                  tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.45)', fontFamily: 'monospace' }}
+                  tickLine={false} axisLine={false} width={34} />
+                <Tooltip
+                  content={({ active, payload, label: lbl }: any) => {
+                    if (!active || !payload?.length) return null;
+                    const asr = payload[0]?.value ?? 0;
+                    return (
+                      <div className="rounded-xl border border-border/50 bg-card/98 px-3 py-2 text-xs shadow-xl">
+                        <p className="text-muted-foreground/60 mb-1 text-[10px]">{lbl}</p>
+                        <p className={cn("font-bold", asr >= 60 ? 'text-emerald-400' : asr >= 40 ? 'text-amber-400' : 'text-rose-400')}>ASR {asr}%</p>
+                      </div>
+                    );
+                  }}
+                  cursor={{ stroke: 'rgba(148,163,184,0.15)', strokeWidth: 1, strokeDasharray: '4 2' }}
+                />
+                <Area type="monotone" dataKey="asr"
+                  stroke="#10b981" strokeWidth={2}
+                  fill="url(#gradAsr)"
+                  dot={false}
+                  activeDot={{ r: 3.5, fill: '#10b981', stroke: 'hsl(var(--card))', strokeWidth: 2 }}
+                  strokeLinejoin="round" strokeLinecap="round"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function BitsEyePage() {
   useAuth();
@@ -441,9 +693,10 @@ export default function BitsEyePage() {
 
   const initNav = useMemo<NavState>(() => urlToNav(urlView, urlParams), [urlView]);
 
-  // ── Nav state ─────────────────────────────────────────────────────────────
+  // ── Nav + view mode state ──────────────────────────────────────────────────
   const [nav, setNav] = useState<NavState>(initNav);
   const [lastRefresh,  setLastRefresh]  = useState(Date.now());
+  const [viewMode, setViewMode] = useState<'table' | 'graph'>('table');
 
   // Sync nav when URL view / kamId changes (sidebar clicks)
   useEffect(() => {
@@ -789,6 +1042,36 @@ export default function BitsEyePage() {
             </span>
           )}
 
+          {/* View mode toggle */}
+          <div className="flex items-center gap-0.5 bg-muted/20 border border-border/30 rounded-lg p-0.5">
+            <button
+              data-testid="btn-view-table"
+              onClick={() => setViewMode('table')}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all",
+                viewMode === 'table'
+                  ? "bg-card text-foreground shadow-sm border border-border/30"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <TableProperties className="w-3.5 h-3.5" />
+              Table
+            </button>
+            <button
+              data-testid="btn-view-graph"
+              onClick={() => setViewMode('graph')}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all",
+                viewMode === 'graph'
+                  ? "bg-card text-foreground shadow-sm border border-border/30"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Activity className="w-3.5 h-3.5" />
+              Graph
+            </button>
+          </div>
+
           <button
             data-testid="btn-refresh"
             onClick={doRefresh}
@@ -871,7 +1154,9 @@ export default function BitsEyePage() {
 
         {/* Content area */}
         <div className="flex-1 overflow-y-auto p-5">
-          {nav.type === 'welcome' ? (
+          {viewMode === 'graph' ? (
+            <BitsEyeGraphView kamId={activeKamId} />
+          ) : nav.type === 'welcome' ? (
             /* Welcome screen */
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 text-center">
               <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl">

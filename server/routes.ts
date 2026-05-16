@@ -11704,6 +11704,97 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/bitseye/call-trend — time-bucketed call totals from CDR cache for graph view
+  // Sippy-safe: reads only from in-memory cdrCache, no Sippy calls.
+  app.get('/api/bitseye/call-trend', async (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const bucketMin = Math.max(1, Math.min(60, Number(req.query.bucket) || 15)); // 5 / 15 / 60
+    const hoursBack = Math.max(1, Math.min(48, Number(req.query.hours)  || 4));
+    const kamIdParam = req.query.kamId ? Number(req.query.kamId) : null;
+
+    const now       = Date.now();
+    const windowMs  = hoursBack * 3_600_000;
+    const bucketMs  = bucketMin * 60_000;
+    const numBuckets = Math.ceil(windowMs / bucketMs);
+
+    // KAM client filter (optional)
+    let kamClientSet: Set<string> | null = null;
+    if (kamIdParam) {
+      try {
+        const kams    = await storage.getKams();
+        const allAccs = await storage.getKamAccounts();
+        const kamName = kams.find(k => k.id === kamIdParam)?.name;
+        if (kamName) {
+          const accs = allAccs.filter(a => a.kamId === kamIdParam);
+          kamClientSet = new Set(accs.map(a => a.clientName || `Acct.${a.accountId}`).filter(Boolean));
+        }
+      } catch (_) {}
+    }
+
+    // Pre-build bucket array (oldest → newest)
+    type TrendBucket = { ts: number; label: string; total: number; connected: number; failed: number };
+    const buckets: TrendBucket[] = [];
+    for (let i = numBuckets - 1; i >= 0; i--) {
+      const ts = now - i * bucketMs;
+      const d  = new Date(ts);
+      const label = bucketMin < 60
+        ? d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' })
+        : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', hour12: true, timeZone: 'UTC' });
+      buckets.push({ ts, label, total: 0, connected: 0, failed: 0 });
+    }
+
+    let totalDurSecs = 0;
+
+    for (const c of cdrCache.values()) {
+      const ts = c.startTime
+        ? new Date(c.startTime).getTime()
+        : (c as any).connectTime ? new Date((c as any).connectTime).getTime() : 0;
+      if (!ts || ts < now - windowMs || ts > now) continue;
+
+      // Optional KAM filter
+      if (kamClientSet) {
+        const cName = (c as any).clientName || accountNameCache.get(String((c as any).iAccount ?? '')) || '';
+        if (!kamClientSet.has(cName)) continue;
+      }
+
+      const age      = now - ts;
+      const bIdx     = numBuckets - 1 - Math.floor(age / bucketMs);
+      if (bIdx < 0 || bIdx >= numBuckets) continue;
+
+      const isConn = (c.duration ?? 0) > 0;
+      buckets[bIdx].total++;
+      if (isConn) {
+        buckets[bIdx].connected++;
+        totalDurSecs += Number(c.duration ?? 0);
+      } else {
+        buckets[bIdx].failed++;
+      }
+    }
+
+    const totalCalls     = buckets.reduce((s, b) => s + b.total,     0);
+    const connectedCalls = buckets.reduce((s, b) => s + b.connected, 0);
+
+    res.json({
+      buckets: buckets.map(b => ({
+        label:     b.label,
+        ts:        b.ts,
+        total:     b.total,
+        connected: b.connected,
+        failed:    b.failed,
+        asr:       b.total > 0 ? Math.round(b.connected / b.total * 1000) / 10 : 0,
+      })),
+      summary: {
+        total:     totalCalls,
+        connected: connectedCalls,
+        failed:    totalCalls - connectedCalls,
+        asr:       totalCalls > 0 ? Math.round(connectedCalls / totalCalls * 1000) / 10 : 0,
+        acd:       connectedCalls > 0 ? Math.round(totalDurSecs / connectedCalls) : 0,
+        cdrWindow: `${hoursBack}h`,
+        bucketMin,
+      },
+    });
+  });
+
   // ── Reachability poller (every 60 s, was 30 s) ────────────────────────────────
   // Init state from DB first (restores open outage + closes phantom duplicates)
   setTimeout(async () => {
