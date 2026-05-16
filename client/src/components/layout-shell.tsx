@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus, UserPlus, ClipboardList } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus, UserPlus, ClipboardList, Brain } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -152,6 +152,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/alerts",       label: "Alerts",            icon: Bell,     roles: ['admin','management']          },
       { href: "/sbc-monitor",  label: "SBC Monitor",       icon: Network,  roles: ['admin','management']          },
       { href: "/ai-ops",       label: "AI Ops Center",     icon: Bot,      roles: ['admin','management'], isNew: true },
+      { href: "/intelligence", label: "Intelligence Hub",   icon: Brain,    roles: ['admin','management'], isNew: true },
       { href: "/noc-command",  label: "NOC View",          icon: Monitor,  roles: ['admin','management'], isNew: true },
       { href: "/multi-switch", label: "Multi-Switch View", icon: Layers,   roles: ['admin','management']          },
     ],

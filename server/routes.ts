@@ -19238,5 +19238,110 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── System Intelligence Hub ───────────────────────────────────────────────
+  // GET /api/intelligence/chain?window=60
+  // Returns a unified causal timeline: ledger intent groups + incidents + carrier scores.
+  // This is the Layer 2 data contract — all three hub panels read from here.
+  app.get('/api/intelligence/chain', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const windowMinutes = Math.min(Number(req.query.window ?? 60), 1440);
+      const fromIso = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString();
+
+      const { incidents: incTable } = await import('@shared/schema');
+      const { desc: drizzleDesc, gte } = await import('drizzle-orm');
+
+      const [rawLedger, recentIncidents, carrierScores] = await Promise.all([
+        queryLedger({ fromIso, limit: 500 }),
+        db.select().from(incTable)
+          .where(gte(incTable.openedAt, new Date(fromIso)))
+          .orderBy(drizzleDesc(incTable.openedAt)),
+        storage.getCarrierQualityScores(Math.ceil(windowMinutes / 60) || 24),
+      ]);
+
+      // Group ledger events by intent_id (business objective layer)
+      const intentMap = new Map<string, {
+        intentId: string; intentLabel: string | null;
+        events: any[]; systems: Set<string>;
+        firstAt: string; lastAt: string;
+      }>();
+      const noIntentEvents: any[] = [];
+
+      for (const ev of rawLedger) {
+        if (ev.intent_id) {
+          const key = ev.intent_id;
+          if (!intentMap.has(key)) {
+            intentMap.set(key, {
+              intentId: key,
+              intentLabel: ev.intent_label ?? null,
+              events: [],
+              systems: new Set(),
+              firstAt: ev.created_at,
+              lastAt:  ev.created_at,
+            });
+          }
+          const g = intentMap.get(key)!;
+          g.events.push(ev);
+          g.systems.add(ev.source_system);
+          if (new Date(ev.created_at) < new Date(g.firstAt)) g.firstAt = ev.created_at;
+          if (new Date(ev.created_at) > new Date(g.lastAt))  g.lastAt  = ev.created_at;
+        } else {
+          noIntentEvents.push(ev);
+        }
+      }
+
+      const intentGroups = [...intentMap.values()].map(g => ({
+        ...g,
+        systems: [...g.systems],
+        eventCount: g.events.length,
+      })).sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
+
+      // Enrich each incident with overlapping ledger events (±15 min window)
+      const enrichedIncidents = recentIncidents.map((inc: any) => {
+        const incTime = new Date(inc.openedAt).getTime();
+        const overlap = rawLedger.filter(ev => {
+          const evTime = new Date(ev.created_at).getTime();
+          return Math.abs(evTime - incTime) <= 15 * 60 * 1000;
+        });
+        return { ...inc, correlatedLedgerEvents: overlap };
+      });
+
+      // Build a unified event timeline merging ledger + incidents (for drift panel)
+      const timeline: { ts: string; type: 'ledger' | 'incident'; label: string; severity?: string; system?: string }[] = [];
+      for (const ev of rawLedger) {
+        timeline.push({
+          ts: ev.created_at,
+          type: 'ledger',
+          label: `${ev.action_type} (${ev.source_system})`,
+          system: ev.source_system,
+        });
+      }
+      for (const inc of recentIncidents) {
+        timeline.push({
+          ts: (inc as any).openedAt,
+          type: 'incident',
+          label: (inc as any).title,
+          severity: (inc as any).severity,
+        });
+      }
+      timeline.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
+
+      res.json({
+        windowMinutes,
+        fromIso,
+        intentGroups,
+        noIntentEvents: noIntentEvents.slice(0, 50),
+        incidents: enrichedIncidents,
+        carrierScores,
+        timeline: timeline.slice(0, 200),
+        totals: {
+          ledgerEvents: rawLedger.length,
+          incidents: recentIncidents.length,
+          intentGroups: intentGroups.length,
+          carriers: carrierScores.length,
+        },
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   return httpServer;
 }

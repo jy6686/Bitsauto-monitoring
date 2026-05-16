@@ -1,0 +1,139 @@
+Good — that’s actually the correct call for where the product is right now.
+
+Keeping the sidebar where it is preserves three things your platform now depends on:
+
+Operational muscle memory (NOC users don’t relearn navigation mid-incident)
+Dense feature access (60+ modules still need structured discovery)
+Role-based scoping (KAM/Admin/Viewer filtering is already tied to sidebar config)
+
+So we lock this decision:
+
+Sidebar stays vertical. No top navigation migration.
+
+What we should do instead (better evolution path)
+
+Since sidebar is staying, the real improvement is not repositioning it — it’s making it adaptive and intelligence-driven.
+
+1. Make Sidebar “Context-Aware”, not just Role-Based
+
+Right now you already have:
+
+Role-based visibility
+Admin-controlled feature toggles
+Group enable/disable
+Next step (high value):
+
+Add context rules on top of roles
+
+Example:
+
+NOC Mode (auto-detected or toggle)
+
+Shows:
+
+Dashboard
+AI Ops Center
+Incidents
+Carrier Health
+Routing Intelligence
+Live Calls
+
+Hides:
+
+Finance
+Rate Cards
+Client onboarding
+Vendor setup
+Investigation Mode (when incident opened)
+
+Auto-prioritizes:
+
+Incident view
+Ledger Correlate
+SIP Trace
+Carrier history
+Routing changes
+Client Mode (KAM)
+
+Auto-focus:
+
+Assigned clients
+CDR
+Balance monitor
+SLA metrics
+2. Sidebar becomes “Weighted”, not static
+
+Instead of just ON/OFF:
+
+Each item gets a weight:
+
+{
+  label: "AI Ops Center",
+  weight: 10,
+  contexts: ["noc", "investigation"],
+  roles: ["admin", "noc", "management"]
+}
+
+Then sidebar renders in order of:
+
+role permission
+context relevance
+admin priority
+
+So the sidebar becomes:
+
+“What matters right now for this user in this situation”
+
+not:
+
+“what they are allowed to see”
+
+3. Your real bottleneck is NOT layout — it's discovery
+
+At 60+ features, the problem is:
+
+users don’t know where things live
+but they also don’t want everything visible
+
+So instead of moving UI, we improve:
+
+A. Command Palette (already exists) → make it primary navigation
+
+Sidebar = structure
+Cmd+K = speed
+
+B. Sidebar = guided discovery
+
+Add:
+
+“Most used this week”
+“Recently opened”
+“Suggested for you”
+4. What this gives you (important)
+
+Without moving sidebar, you still get:
+
+Less cognitive overload
+Faster NOC reaction time
+Cleaner role isolation
+No UI regression risk
+
+And critically:
+
+You avoid breaking the mental map your operators already learned
+
+Final decision locked
+
+✔ Sidebar stays as-is
+✔ No top navigation migration
+✔ We improve intelligence + context + weighting instead
+
+If you want next step, I’d suggest this one (very high impact):
+
+Build “Context-Aware Sidebar Engine (CAS v1)”
+
+It will:
+
+auto-reorder features per situation
+reduce visible items dynamically (not just hide/show)
+integrate with incident state + AI Ops signals
