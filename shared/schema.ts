@@ -1545,3 +1545,25 @@ export const accountStateHistory = pgTable("account_state_history", {
 });
 export type AccountStateHistory       = typeof accountStateHistory.$inferSelect;
 export type InsertAccountStateHistory = typeof accountStateHistory.$inferInsert;
+
+// Unified Incidents: normalized operational incidents from all signal sources
+export const incidents = pgTable("incidents", {
+  id:              serial("id").primaryKey(),
+  entityType:      varchar("entity_type",    { length: 32  }).notNull(),
+  entityId:        varchar("entity_id",      { length: 128 }).notNull(),
+  entityName:      varchar("entity_name",    { length: 255 }),
+  incidentType:    varchar("incident_type",  { length: 64  }).notNull(),
+  severity:        varchar("severity",       { length: 20  }).notNull().default('medium'),
+  confidence:      integer("confidence").notNull().default(70),
+  title:           text("title").notNull(),
+  summary:         text("summary"),
+  reasons:         json("reasons").$type<string[]>().default([]),
+  suggestedAction: text("suggested_action"),
+  status:          varchar("status",         { length: 20  }).notNull().default('active'),
+  source:          varchar("source",         { length: 64  }).notNull(),
+  openedAt:        timestamp("opened_at").defaultNow().notNull(),
+  updatedAt:       timestamp("updated_at").defaultNow().notNull(),
+  resolvedAt:      timestamp("resolved_at"),
+});
+export type Incident       = typeof incidents.$inferSelect;
+export type InsertIncident = typeof incidents.$inferInsert;

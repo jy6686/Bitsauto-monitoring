@@ -2217,6 +2217,24 @@ interface AccountStateRecord {
   trendDirection?: string | null; scoreDelta24h?: number | null;
   previousHealthScore?: number | null; updatedAt?: string | null;
 }
+function MiniSparkline({ values, color = '#6b7280', width = 48, height = 12 }: {
+  values: number[]; color?: string; width?: number; height?: number;
+}) {
+  if (values.length < 2) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * width;
+    const y = height - ((v - min) / range) * height * 0.85 - height * 0.075;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return (
+    <svg width={width} height={height} className="flex-shrink-0 overflow-visible opacity-80">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 function HealthBadge({ state, score, reasons, trend, delta }: {
   state: string; score: number; reasons?: string[] | null;
   trend?: string | null; delta?: number | null;
@@ -2257,6 +2275,12 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
   const stateByAccountId = new Map<string, AccountStateRecord>(
     (acctStateData ?? []).map(r => [r.accountId, r])
   );
+
+  const { data: acctHistory = {} } = useQuery<Record<string, { healthScore: number; state: string; snapshotAt: string }[]>>({
+    queryKey: ['/api/account-state/history'],
+    staleTime: 300_000,
+    refetchInterval: 600_000,
+  });
 
   const { data, isLoading, refetch } = useQuery<{ accounts: SippyAccount[]; error?: string }>({
     queryKey: ['/api/sippy/accounts'],
@@ -2363,10 +2387,20 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm truncate">{acc.username}</span>
                         {(() => {
-                          const hs = stateByAccountId.get(String(acc.iAccount));
-                          return hs && hs.state !== 'healthy' ? (
-                            <HealthBadge state={hs.state} score={hs.healthScore} reasons={hs.reasons} trend={hs.trendDirection} delta={hs.scoreDelta24h} />
-                          ) : null;
+                          const hs   = stateByAccountId.get(String(acc.iAccount));
+                          const hist = acctHistory[String(acc.iAccount)];
+                          if (!hs || hs.state === 'healthy') return null;
+                          return (
+                            <span className="inline-flex items-center gap-1.5">
+                              <HealthBadge state={hs.state} score={hs.healthScore} reasons={hs.reasons} trend={hs.trendDirection} delta={hs.scoreDelta24h} />
+                              {hist && hist.length >= 2 && (
+                                <MiniSparkline
+                                  values={hist.map(s => s.healthScore)}
+                                  color={hs.state === 'critical' ? '#f87171' : '#fbbf24'}
+                                />
+                              )}
+                            </span>
+                          );
                         })()}
                         {acc.blocked && (
                           <span className="text-[10px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Blocked</span>

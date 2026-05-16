@@ -151,6 +151,26 @@ function buildPredictions(anomalies: AnomalyEvent[]): Prediction[] {
   return predictions;
 }
 
+// ─── MiniSparkline ────────────────────────────────────────────────────────────
+function MiniSparkline({ values, color = '#6b7280', width = 52, height = 14 }: {
+  values: number[]; color?: string; width?: number; height?: number;
+}) {
+  if (values.length < 2) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * width;
+    const y = height - ((v - min) / range) * height * 0.85 - height * 0.075;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return (
+    <svg width={width} height={height} className="flex-shrink-0 overflow-visible">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity={0.75} />
+    </svg>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AiOpsPage() {
@@ -240,6 +260,37 @@ export default function AiOpsPage() {
     staleTime: 60_000,
   });
   const criticalAccounts = (acctStateList ?? []).filter(a => a.state !== 'healthy').sort((a, b) => a.healthScore - b.healthScore).slice(0, 5);
+
+  // Account state history for sparklines
+  const { data: stateHistory = {} } = useQuery<Record<string, { healthScore: number; state: string; snapshotAt: string }[]>>({
+    queryKey: ['/api/account-state/history'],
+    staleTime: 180_000,
+    refetchInterval: 600_000,
+  });
+
+  // Normalized incident engine output (account health + FAS spike incidents)
+  interface NormalizedIncident {
+    id: number; entityType: string; entityId: string; entityName: string | null;
+    incidentType: string; severity: string; confidence: number;
+    title: string; summary: string | null; reasons: string[]; suggestedAction: string | null;
+    status: string; source: string; openedAt: string; updatedAt: string; resolvedAt: string | null;
+  }
+  const { data: normalizedIncidents = [], isLoading: normIncLoading } = useQuery<NormalizedIncident[]>({
+    queryKey: ['/api/incidents'],
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    enabled: feedTab === 'incidents',
+  });
+  const activeNormIncidents = normalizedIncidents.filter(i => i.status === 'active');
+
+  const runIncidentsMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/incidents/run'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/incidents'] });
+      toast({ title: 'Incident engine run complete' });
+    },
+    onError: () => toast({ title: 'Incident engine error', variant: 'destructive' }),
+  });
 
   const anomalies      = rawAnomalies;
   const activeCount    = rawAnomalies.filter(a => !a.resolved).length;
@@ -436,7 +487,7 @@ export default function AiOpsPage() {
                   { key: 'all',       label: 'All',       count: rawAnomalies.length + rawSignals.length },
                   { key: 'anomalies', label: 'Anomalies', count: rawAnomalies.length },
                   { key: 'signals',   label: 'Signals',   count: rawSignals.length },
-                  { key: 'incidents', label: 'Incidents', count: incidents.length, active: activeIncidents.length },
+                  { key: 'incidents', label: 'Incidents', count: incidents.length + normalizedIncidents.length, active: activeIncidents.length + activeNormIncidents.length },
                   { key: 'accounts', label: 'Accounts',  count: accountAnomalyData?.anomalies.length ?? 0 },
                 ] as Array<{ key: FeedTab; label: string; count: number; active?: number }>).map(tab => (
                   <button
@@ -475,26 +526,106 @@ export default function AiOpsPage() {
                     </div>
                   ))}
                 </div>
-              ) : incidents.length === 0 ? (
+              ) : incidents.length === 0 && normalizedIncidents.length === 0 ? (
                 <div className="bg-card border border-border rounded-xl p-12 text-center">
                   <CheckCircle2 className="h-10 w-10 text-emerald-400/50 mx-auto mb-3" />
                   <p className="text-sm text-muted-foreground">No incidents detected</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    The correlation engine groups signals + anomalies into root-cause incidents.
-                    Run it manually or wait for the 5-minute scheduler.
+                    The incident engine normalizes account health + fraud signals into incidents.
+                    Run it manually or wait for the next cycle.
                   </p>
-                  <button
-                    onClick={() => runCorrelationMutation.mutate()}
-                    disabled={runCorrelationMutation.isPending}
-                    data-testid="button-run-correlation"
-                    className="mt-4 text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors flex items-center gap-1.5 mx-auto"
-                  >
-                    <Play className="h-3 w-3" />
-                    {runCorrelationMutation.isPending ? 'Running…' : 'Run now'}
-                  </button>
+                  <div className="flex items-center gap-2 justify-center mt-4">
+                    <button
+                      onClick={() => runIncidentsMutation.mutate()}
+                      disabled={runIncidentsMutation.isPending}
+                      data-testid="button-run-incidents"
+                      className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors flex items-center gap-1.5"
+                    >
+                      <Play className="h-3 w-3" />
+                      {runIncidentsMutation.isPending ? 'Running…' : 'Run entities'}
+                    </button>
+                    <button
+                      onClick={() => runCorrelationMutation.mutate()}
+                      disabled={runCorrelationMutation.isPending}
+                      data-testid="button-run-correlation"
+                      className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors flex items-center gap-1.5"
+                    >
+                      <Play className="h-3 w-3" />
+                      {runCorrelationMutation.isPending ? 'Running…' : 'Run correlation'}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">
+                  {/* ── Entity incidents (account health + FAS spike) ─────── */}
+                  {normalizedIncidents.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider">Entity Incidents</span>
+                        {activeNormIncidents.length > 0 && (
+                          <span className="text-[9px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-full px-1.5 py-0.5 leading-none">{activeNormIncidents.length}</span>
+                        )}
+                        <button
+                          onClick={() => runIncidentsMutation.mutate()}
+                          disabled={runIncidentsMutation.isPending}
+                          data-testid="button-run-incidents-refresh"
+                          className="ml-auto text-[10px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                        >
+                          <RefreshCw className={cn("h-2.5 w-2.5", runIncidentsMutation.isPending && "animate-spin")} />
+                          {runIncidentsMutation.isPending ? 'Running…' : 'Refresh'}
+                        </button>
+                      </div>
+                      {normalizedIncidents.map(inc => {
+                        const sev = (inc.severity in SEVERITY_CONFIG ? inc.severity : 'medium') as keyof typeof SEVERITY_CONFIG;
+                        const cfg = SEVERITY_CONFIG[sev];
+                        const isActive = inc.status === 'active';
+                        const updatedMs = new Date(inc.updatedAt).getTime();
+                        const minAgo = Math.round((Date.now() - updatedMs) / 60000);
+                        const timeLabel = minAgo < 1 ? 'just now' : minAgo < 60 ? `${minAgo}m ago` : `${Math.round(minAgo / 60)}h ago`;
+                        const incTypeLabel = inc.incidentType === 'ACCOUNT_HEALTH' ? 'Account Health'
+                          : inc.incidentType === 'FAS_SPIKE' ? 'FAS Spike'
+                          : inc.incidentType;
+                        const sourceLabel = inc.source === 'account_state' ? 'State Engine'
+                          : inc.source === 'fas_engine' ? 'Fraud Engine'
+                          : inc.source;
+                        return (
+                          <div
+                            key={inc.id}
+                            className={cn("rounded-xl border p-4 transition-opacity", cfg.bg, !isActive && "opacity-50")}
+                            data-testid={`incident-entity-${inc.id}`}
+                          >
+                            <div className="flex items-start justify-between gap-2 mb-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded border leading-none", cfg.badge)}>{cfg.label}</span>
+                                <span className="text-[10px] text-muted-foreground/60 border border-border rounded px-1.5 py-0.5 leading-none">{incTypeLabel}</span>
+                                <span className="text-[10px] text-muted-foreground/40 border border-border/40 rounded px-1.5 py-0.5 leading-none">{sourceLabel}</span>
+                                {!isActive && <span className="text-[10px] text-emerald-400 border border-emerald-500/30 bg-emerald-500/10 rounded px-1.5 py-0.5 leading-none">Resolved</span>}
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-[9px] tabular-nums text-muted-foreground/40">{timeLabel}</span>
+                                <span className="text-[10px] font-mono text-muted-foreground/40">{inc.confidence}%</span>
+                              </div>
+                            </div>
+                            <p className="text-xs font-medium leading-snug">{inc.title}</p>
+                            {inc.summary && <p className="text-[10px] text-muted-foreground/70 leading-snug mt-0.5">{inc.summary}</p>}
+                            {inc.suggestedAction && isActive && (
+                              <div className="mt-2 pt-2 border-t border-border/30">
+                                <p className="text-[10px] text-muted-foreground/60 italic">
+                                  <span className="font-semibold not-italic text-muted-foreground/70">Action: </span>{inc.suggestedAction}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {incidents.length > 0 && (
+                        <div className="border-t border-border/30 pt-2">
+                          <span className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider">Correlation Incidents</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {/* ── Correlation engine incidents ─────────────────────── */}
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-muted-foreground/50">
                       {activeIncidents.length} active · {incidents.length - activeIncidents.length} resolved
@@ -1112,8 +1243,16 @@ export default function AiOpsPage() {
                               <span className={`text-[10px] font-bold tabular-nums ${textColor}`}>{acct.healthScore}</span>
                             </div>
                           </div>
-                          <div className="mt-1 h-1 rounded-full bg-muted/40 overflow-hidden">
-                            <div className={`h-full rounded-full ${barColor} opacity-70 transition-all duration-700`} style={{ width: `${acct.healthScore}%` }} />
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <div className="flex-1 h-1 rounded-full bg-muted/40 overflow-hidden">
+                              <div className={`h-full rounded-full ${barColor} opacity-70 transition-all duration-700`} style={{ width: `${acct.healthScore}%` }} />
+                            </div>
+                            {(stateHistory[acct.accountId] ?? []).length >= 2 && (
+                              <MiniSparkline
+                                values={(stateHistory[acct.accountId] ?? []).map(s => s.healthScore)}
+                                color={isCrit ? '#f87171' : '#fbbf24'}
+                              />
+                            )}
                           </div>
                           {acct.reasons && acct.reasons.length > 0 && (
                             <p className="text-[10px] text-muted-foreground mt-1 truncate">{acct.reasons[0]}</p>

@@ -19,6 +19,7 @@ import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, c
 import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
 import { updateAccountState } from "./account-state";
+import { runIncidentEngine } from "./incident-engine";
 import { writeAudit, queryAudit, auditStats } from "./audit";
 import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
@@ -16714,6 +16715,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       } catch (e: any) { console.warn('[anomaly-engine] run error:', e.message); }
       // Update account operational state after each anomaly engine run
       try { await updateAccountState(cdrCache, accountNameCache); } catch (_) {}
+      // Normalize state signals into unified incidents table
+      try { await runIncidentEngine(); } catch (_) {}
     };
     _runAnomalyEngine();
     setInterval(_runAnomalyEngine, 15 * 60 * 1000);
@@ -18730,6 +18733,49 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const [row] = await db.select().from(acctStateTable).where(drizzleEq(acctStateTable.accountId, req.params.accountId));
       if (!row) return res.status(404).json({ message: 'Not found' });
       res.json(row);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Account State History — last 48h snapshots, grouped by accountId (for sparklines)
+  app.get('/api/account-state/history', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const { accountStateHistory } = await import('@shared/schema');
+      const { gte: drizzleGte, asc: drizzleAsc } = await import('drizzle-orm');
+      const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      const rows  = await db.select().from(accountStateHistory)
+        .where(drizzleGte(accountStateHistory.snapshotAt, since))
+        .orderBy(drizzleAsc(accountStateHistory.snapshotAt));
+      // Group by accountId (ascending time so sparklines render L→R)
+      const grouped: Record<string, { healthScore: number; fraudRisk: number; qualityScore: number; state: string; snapshotAt: string }[]> = {};
+      for (const r of rows) {
+        if (!grouped[r.accountId]) grouped[r.accountId] = [];
+        grouped[r.accountId].push({
+          healthScore:  r.healthScore,
+          fraudRisk:    r.fraudRisk,
+          qualityScore: r.qualityScore,
+          state:        r.state,
+          snapshotAt:   r.snapshotAt.toISOString(),
+        });
+      }
+      res.json(grouped);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Unified Incidents — list all (newest first)
+  app.get('/api/incidents', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator','viewer','team_lead','super_admin'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const { incidents: incTable } = await import('@shared/schema');
+      const { desc: drizzleDesc } = await import('drizzle-orm');
+      const rows = await db.select().from(incTable).orderBy(drizzleDesc(incTable.updatedAt));
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Unified Incidents — manually trigger the incident engine
+  app.post('/api/incidents/run', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const result = await runIncidentEngine();
+      res.json({ success: true, ...result });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
