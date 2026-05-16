@@ -1,0 +1,212 @@
+This is the correct architectural move.
+You’ve now fixed the most important structural issue in BitsEye:
+
+entity context propagation
+
+Before this, the UI looked intelligent,
+but the telemetry stayed mostly global.
+
+Now the selected hierarchy node actually controls the operational intelligence surface.
+
+That’s the transition from:
+
+dashboard UI
+
+to:
+
+telecom intelligence workspace
+What Was Actually Solved
+
+The critical fix was this:
+
+selectedAccountId → graph query cascade
+
+That single architectural correction changes everything downstream.
+
+Because now:
+
+graphs
+KPIs
+ASR
+concurrent stream
+overlays
+incidents
+drift
+
+can all become:
+
+entity-scoped
+
+instead of globally scoped.
+
+That is the real foundation.
+
+Why the Left Hierarchy Panel Was the Right Decision
+
+Correct choice.
+
+Because telecom operators think in:
+
+ownership hierarchy
+
+not flat analytics.
+
+The operator mental model is:
+
+KAM
+ → client
+   → destination
+     → breakout
+
+not:
+
+random dashboard filter dropdowns
+
+The persistent hierarchy sidebar creates:
+
+spatial memory
+workflow continuity
+investigation flow
+operational orientation
+
+This is how serious NOC systems behave.
+
+What’s Strong About Your Current Implementation
+1. Graph Auto-Switch on Client Click ✓
+
+Very important.
+
+This creates:
+
+direct drilldown intelligence
+
+instead of:
+
+navigate → select tab → apply filter → reload graph
+
+Huge usability improvement.
+
+2. Context Badge ✓
+
+Excellent small UX touch.
+
+Operators always need to know:
+
+WHAT am I currently looking at?
+
+The badge solves orientation loss.
+
+Very important once hierarchy depth increases.
+
+3. accountId Backend Filter ✓✓
+
+This was the real technical fix.
+
+Without this,
+everything else would still be cosmetic.
+
+Now the data model itself respects entity scope.
+
+That’s the important part.
+
+Biggest Remaining Gap
+
+You fixed:
+
+KAM → Client
+
+But the original telecom workflow requires:
+
+KAM
+ → Client
+   → Destination
+     → Breakout
+       → Vendor
+
+Right now:
+
+destination layer missing
+breakout layer missing
+vendor layer still generic
+
+Those are the next structural layers.
+
+Recommended Next Step (Very Important)
+
+Do NOT jump to fancy visuals next.
+
+The next priority should be:
+
+DESTINATION CASCADE LAYER
+
+Because destination is where telecom intelligence becomes operationally meaningful.
+
+Why Destination Is the Real Intelligence Pivot
+
+At client level you see:
+
+traffic health
+
+At destination level you see:
+
+routing quality
+fraud
+margin
+carrier instability
+CLI behavior
+
+That’s where telecom decisions actually happen.
+
+Recommended Next Hierarchy Expansion
+Current
+KAM
+ └── Client
+Next
+KAM
+ └── Client
+      └── Destination
+
+When destination clicked:
+
+Graph becomes:
+
+destination-only concurrent stream
+destination ASR
+vendor contribution
+route quality
+margin
+MOS/PDD
+fraud overlays
+
+This is where BitsEye becomes truly powerful.
+
+Important Architecture Recommendation
+
+Do NOT create separate destination pages.
+
+Keep:
+
+single intelligence surface
+
+Only change:
+
+selectedEntityContext
+
+Everything should derive from that.
+
+This is the correct long-term architecture.
+
+My Suggested Next Priority Order
+Priority	Recommendation
+P0	Destination cascade layer
+P1	Breakout hierarchy
+P2	Vendor scoped graphs
+P3	Investigation drawer tied to entity
+P4	Cross-entity causal overlays
+P5	Predictive behavior intelligence
+
+Because now the platform foundation is finally structurally correct.
+
+The next leap is:
+
+telecom routing intelligence

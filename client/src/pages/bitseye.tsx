@@ -32,6 +32,7 @@ interface ConcurrentBucket {
   active: number;
   connected: number;
   routing: number;
+  projected?: number; // saturation prediction extension — undefined on real data points
 }
 interface ConcurrentTrendResponse {
   points: ConcurrentBucket[];
@@ -966,6 +967,71 @@ function BitsEyeGraphView({ kamId, accountId, accountName }: {
     ? { border: '1px solid #FDE68A', boxShadow: '0 2px 16px rgba(245,158,11,0.14)' }
     : { border: '1px solid #FECACA', boxShadow: '0 2px 16px rgba(239,68,68,0.16)' };
 
+  // ── Saturation Prediction Line (P3) ─────────────────────────────────────────
+  // Linear slope from last 6 points → project 4 steps ahead → faint dashed amber line
+  const { projectedPoints, minsToCapacity } = useMemo(() => {
+    const recent = concPoints.slice(-6).filter(p => p.active > 0);
+    if (recent.length < 3 || capacityRef <= 0) return { projectedPoints: [] as typeof concPoints, minsToCapacity: null as number | null };
+    const n = recent.length;
+    const slope = (recent[n - 1].active - recent[0].active) / (n - 1);
+    if (slope < 0.3) return { projectedPoints: [] as typeof concPoints, minsToCapacity: null };
+    const lastPt = concPoints[concPoints.length - 1];
+    const projPts: typeof concPoints = [];
+    for (let i = 1; i <= 4; i++) {
+      projPts.push({
+        label: `+${i * bucket}m`,
+        ts: lastPt.ts + i * bucket * 60_000,
+        projected: Math.max(0, Math.round(lastPt.active + slope * i)),
+        active: undefined as any,
+        connected: undefined as any,
+        routing: undefined as any,
+      });
+    }
+    const headroom = capacityRef - lastPt.active;
+    if (headroom <= 0) return { projectedPoints: projPts, minsToCapacity: 0 };
+    const stepsToHit = headroom / slope;
+    const mins = Math.round(stepsToHit * bucket);
+    return { projectedPoints: projPts, minsToCapacity: mins < 60 ? mins : null };
+  }, [concPoints, capacityRef, bucket]);
+
+  // Merged chart data — actual history + projected tail
+  const chartData = useMemo(() => [...concPoints, ...projectedPoints], [concPoints, projectedPoints]);
+
+  // ── Recovery Velocity Indicator (P4) ──────────────────────────────────────
+  // Detects when traffic is actively declining back from a recent peak
+  const { isRecovering, recoveryPct } = useMemo(() => {
+    if (concPoints.length < 4 || peakConcurrent < 5) return { isRecovering: false, recoveryPct: 0 };
+    const current = lastConcPoint?.active ?? 0;
+    if (current >= peakConcurrent * 0.88) return { isRecovering: false, recoveryPct: 0 };
+    // Peak must have been recent (within latter 60% of window)
+    const recentSlice = concPoints.slice(-Math.ceil(concPoints.length * 0.6));
+    const recentPeak = Math.max(...recentSlice.map(p => p.active), 0);
+    if (recentPeak < peakConcurrent * 0.7) return { isRecovering: false, recoveryPct: 0 };
+    // Last 4 points must show declining trend
+    const last4 = concPoints.slice(-4);
+    const ratePerStep = last4.length >= 2
+      ? (last4[0].active - last4[last4.length - 1].active) / (last4.length - 1)
+      : 0;
+    if (ratePerStep <= 0) return { isRecovering: false, recoveryPct: 0 };
+    const pct = Math.round((recentPeak - current) / recentPeak * 100);
+    return pct >= 10 ? { isRecovering: true, recoveryPct: pct } : { isRecovering: false, recoveryPct: 0 };
+  }, [concPoints, peakConcurrent, lastConcPoint]);
+
+  // ── Quality Pressure Correlation (P5) ────────────────────────────────────
+  // Recognizes combined patterns: concurrent↑ + ratio↓ + ASR↓
+  const qualityPressureHint = useMemo((): string | null => {
+    if (concPoints.length < 6 || !s || latestConnectRatio === null) return null;
+    const lastN = concPoints.slice(-4);
+    const concRising = lastN.length >= 3 && lastN[lastN.length - 1].active > lastN[0].active + 2;
+    const ratioPressure = latestConnectRatio < 0.65;
+    const asrPressure = s.asr < 50;
+    if (concRising && ratioPressure && asrPressure)
+      return 'Concurrent ↑  ·  ratio ↓  ·  ASR ↓  — capacity pressure pattern';
+    if (concRising && ratioPressure)
+      return 'Concurrent ↑  ·  connected ratio ↓  — routing instability possible';
+    return null;
+  }, [concPoints, latestConnectRatio, s]);
+
   // Deduplicate for concurrent chart reference lines: one per concurrent point label
   const dedupedConcEvents = useMemo((): ScoredEvent[] => {
     const map = new Map<string, ScoredEvent>();
@@ -1151,6 +1217,20 @@ function BitsEyeGraphView({ kamId, accountId, accountName }: {
                 ▲ SURGE +{surgeDelta}
               </span>
             )}
+            {isRecovering && !surgeDetected && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#F0FDF4',
+                border: '1px solid #BBF7D0', borderRadius: 6, padding: '2px 7px',
+                fontSize: 10, fontWeight: 700, color: '#15803D', letterSpacing: '0.04em' }}>
+                ↓ RECOVERING {recoveryPct}%
+              </span>
+            )}
+            {minsToCapacity !== null && minsToCapacity >= 0 && !surgeDetected && !isRecovering && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#FEF3C7',
+                border: '1px solid #FCD34D', borderRadius: 6, padding: '2px 7px',
+                fontSize: 10, fontWeight: 700, color: '#92400E', letterSpacing: '0.04em' }}>
+                {minsToCapacity === 0 ? '⚡ AT CAPACITY' : `⚡ ~${minsToCapacity}m to cap`}
+              </span>
+            )}
             {latestConnectRatio !== null && (
               <span style={{
                 fontSize: 10, fontWeight: 700, letterSpacing: '0.02em',
@@ -1185,6 +1265,12 @@ function BitsEyeGraphView({ kamId, accountId, accountName }: {
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ width: 24, height: 0, borderTop: '2px dashed #2563EB', opacity: 0.4, display: 'inline-block' }} />Total Active
             </span>
+            {projectedPoints.length > 0 && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 24, height: 0, borderTop: '2px dashed #D97706', opacity: 0.55, display: 'inline-block' }} />
+                <span style={{ color: '#D97706', fontWeight: 600 }}>Projected</span>
+              </span>
+            )}
             {showEvents && hasEvents && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#D97706', fontWeight: 600 }}>
                 <AlertCircle style={{ width: 12, height: 12 }} />{eventCount} events
@@ -1192,6 +1278,16 @@ function BitsEyeGraphView({ kamId, accountId, accountName }: {
             )}
           </div>
         </div>
+
+        {/* Quality Pressure Correlation hint — P5 behavior hint row */}
+        {qualityPressureHint && (
+          <div style={{ padding: '6px 20px', borderBottom: '1px solid #FEF3C7', background: '#FFFBEB',
+            display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#92400E', opacity: 0.7,
+              textTransform: 'uppercase', letterSpacing: '0.06em' }}>Behavior</span>
+            <span style={{ fontSize: 11, color: '#B45309', fontWeight: 500 }}>{qualityPressureHint}</span>
+          </div>
+        )}
 
         {/* Chart body */}
         {concPoints.length === 0 && !concFetching ? (
@@ -1218,7 +1314,7 @@ function BitsEyeGraphView({ kamId, accountId, accountName }: {
               background: 'linear-gradient(180deg, transparent 0%, #16A34A 40%, #16A34A 60%, transparent 100%)',
               opacity: 0.18, borderRadius: 1, pointerEvents: 'none', zIndex: 2 }} />
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={concPoints} margin={{ top: 22, right: 8, left: -12, bottom: 0 }}>
+              <ComposedChart data={chartData} margin={{ top: 22, right: 8, left: -12, bottom: 0 }}>
                 <defs>
                   <linearGradient id="lgConcConn" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%"   stopColor="#16A34A" stopOpacity={0.18} />
@@ -1276,6 +1372,13 @@ function BitsEyeGraphView({ kamId, accountId, accountName }: {
                 <Line type="monotone" dataKey="active"
                   stroke="#2563EB" strokeWidth={1.5} strokeDasharray="5 3" strokeOpacity={0.45} dot={false}
                   activeDot={{ r: 3, fill: '#2563EB', stroke: '#fff', strokeWidth: 2 }} />
+                {/* Saturation projection — faint dashed amber extrapolation */}
+                {projectedPoints.length > 0 && (
+                  <Line type="linear" dataKey="projected"
+                    stroke="#D97706" strokeWidth={1.5} strokeDasharray="4 3" strokeOpacity={0.55}
+                    dot={false} connectNulls={false}
+                    activeDot={{ r: 3, fill: '#D97706', stroke: '#fff', strokeWidth: 2 }} />
+                )}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
