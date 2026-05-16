@@ -11711,6 +11711,46 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/bitseye/account-destinations — top destination names from CDR cache for a Sippy accountId
+  // Used by the hierarchy panel to show the 3rd cascade level: Client → Destinations
+  // Sippy-safe: reads only cdrCache, no Sippy calls.
+  app.get('/api/bitseye/account-destinations', async (req: any, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const accountId = req.query.accountId ? Number(req.query.accountId) : null;
+    if (!accountId) return res.json({ destinations: [] });
+
+    const destCounts = new Map<string, { total: number; connected: number }>();
+    for (const c of cdrCache.values()) {
+      if (Number((c as any).iAccount ?? -1) !== accountId) continue;
+      // Resolve destination name using same logic as per-entity destinations
+      const dialMatch = lookupDialCode((c as any).callee ?? '');
+      let dest: string | null = dialMatch?.destination ?? null;
+      if (!dest) {
+        const country = (c as any).country || null;
+        const area    = (c as any).areaName || null;
+        if (country && area) dest = `${country} - ${area}`;
+        else dest = country || area || null;
+      }
+      if (!dest) continue;
+      const entry = destCounts.get(dest) ?? { total: 0, connected: 0 };
+      entry.total++;
+      if ((c.duration ?? 0) > 0) entry.connected++;
+      destCounts.set(dest, entry);
+    }
+
+    const destinations = Array.from(destCounts.entries())
+      .map(([name, s]) => ({
+        name,
+        total:     s.total,
+        connected: s.connected,
+        asr:       s.total > 0 ? Math.round(s.connected / s.total * 100) : 0,
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 40);
+
+    res.json({ destinations });
+  });
+
   // GET /api/bitseye/concurrent-trend — concurrent call history for NOC live graph
   // Uses concurrentHistory (sampled every 60s), bucketed by time window.
   // Sippy-safe: reads only from in-memory buffer, no Sippy calls.
@@ -11779,6 +11819,7 @@ export async function registerRoutes(
     const hoursBack = Math.max(1, Math.min(48, Number(req.query.hours)  || 4));
     const kamIdParam     = req.query.kamId     ? Number(req.query.kamId)     : null;
     const accountIdParam = req.query.accountId ? Number(req.query.accountId) : null;
+    const destFilterParam = req.query.destFilter ? String(req.query.destFilter) : null;
 
     const now       = Date.now();
     const windowMs  = hoursBack * 3_600_000;
@@ -11826,6 +11867,18 @@ export async function registerRoutes(
       }
       // Optional specific account filter (Sippy accountId — takes precedence over KAM filter)
       if (accountIdParam && Number((c as any).iAccount ?? -1) !== accountIdParam) continue;
+      // Optional destination filter — resolved using same dial-code logic as per-entity destinations
+      if (destFilterParam) {
+        const dialMatch = lookupDialCode((c as any).callee ?? '');
+        let cDest: string | null = dialMatch?.destination ?? null;
+        if (!cDest) {
+          const country = (c as any).country || null;
+          const area    = (c as any).areaName || null;
+          if (country && area) cDest = `${country} - ${area}`;
+          else cDest = country || area || null;
+        }
+        if (cDest !== destFilterParam) continue;
+      }
 
       const age      = now - ts;
       const bIdx     = numBuckets - 1 - Math.floor(age / bucketMs);
