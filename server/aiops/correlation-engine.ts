@@ -20,6 +20,7 @@
  *   - Purely deterministic — no ML, no external calls.
  */
 
+import { Pool } from "pg";
 import { db } from "../db";
 import { aiOpsEvents, anomalyEvents, aiOpsIncidents } from "../../shared/schema";
 import { gte, eq, and, lt } from "drizzle-orm";

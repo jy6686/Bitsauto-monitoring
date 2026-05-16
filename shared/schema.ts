@@ -1623,6 +1623,11 @@ export const actionLedger = pgTable("action_ledger", {
   actorName:           varchar("actor_name",           { length: 255 }),
   // Freeform audit note for this event
   note:                text("note"),
+  // Business-level grouping — one intent_id spans multiple ledger_ids when they
+  // represent the same operational objective (e.g. "carrier-failure-mitigation").
+  // Higher-order than ledger_id (which is the technical action thread).
+  intentId:            varchar("intent_id",    { length: 64 }),
+  intentLabel:         varchar("intent_label", { length: 128 }),
   createdAt:           timestamp("created_at").defaultNow().notNull(),
 });
 export type ActionLedgerEntry       = typeof actionLedger.$inferSelect;
