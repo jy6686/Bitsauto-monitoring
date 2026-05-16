@@ -2214,21 +2214,33 @@ interface AccountStateRecord {
   accountId: string; accountName: string | null;
   healthScore: number; fraudRisk: number; anomalyScore: number; qualityScore: number;
   state: string; reasons: string[] | null; activeIncidentCount: number;
+  trendDirection?: string | null; scoreDelta24h?: number | null;
+  previousHealthScore?: number | null; updatedAt?: string | null;
 }
-function HealthBadge({ state, score, reasons }: { state: string; score: number; reasons?: string[] | null }) {
+function HealthBadge({ state, score, reasons, trend, delta }: {
+  state: string; score: number; reasons?: string[] | null;
+  trend?: string | null; delta?: number | null;
+}) {
   const cfg =
     state === 'critical' ? { pill: 'bg-rose-500/15 text-rose-400 border-rose-500/30', dot: 'bg-rose-400' } :
     state === 'warning'  ? { pill: 'bg-amber-500/15 text-amber-400 border-amber-500/30', dot: 'bg-amber-400' } :
                            { pill: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', dot: 'bg-emerald-400' };
   const label = state === 'critical' ? 'Critical' : state === 'warning' ? 'Warning' : 'Healthy';
+  const trendArrow =
+    trend === 'improving' ? { glyph: '↑', color: 'text-emerald-400' } :
+    trend === 'worsening' ? { glyph: '↓', color: 'text-rose-400'    } :
+                            null;
+  const tooltipParts = reasons?.length ? [...reasons] : [`Health: ${score}`];
+  if (delta !== null && delta !== undefined && delta !== 0) tooltipParts.push(`Δ${delta > 0 ? '+' : ''}${delta} pts`);
   return (
     <span
-      title={reasons?.length ? reasons.join(' · ') : `Health score: ${score}`}
+      title={tooltipParts.join(' · ')}
       className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${cfg.pill} cursor-help`}
       data-testid={`badge-health-${state}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
       {label}
+      {trendArrow && <span className={`${trendArrow.color} leading-none`}>{trendArrow.glyph}</span>}
     </span>
   );
 }
@@ -2353,7 +2365,7 @@ function SippyAccountsTab({ isManagement }: { isManagement: boolean }) {
                         {(() => {
                           const hs = stateByAccountId.get(String(acc.iAccount));
                           return hs && hs.state !== 'healthy' ? (
-                            <HealthBadge state={hs.state} score={hs.healthScore} reasons={hs.reasons} />
+                            <HealthBadge state={hs.state} score={hs.healthScore} reasons={hs.reasons} trend={hs.trendDirection} delta={hs.scoreDelta24h} />
                           ) : null;
                         })()}
                         {acc.blocked && (

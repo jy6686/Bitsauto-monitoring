@@ -408,7 +408,7 @@ function SwitchPanel({
   const viewerAccountIds = new Set(viewerAccounts?.accountIds ?? []);
 
   // Account health state — keyed by accountName for call-row lookup
-  interface AcctState { accountId: string; accountName: string | null; state: string; healthScore: number; reasons: string[] | null }
+  interface AcctState { accountId: string; accountName: string | null; state: string; healthScore: number; reasons: string[] | null; trendDirection?: string | null }
   const { data: acctStateList } = useQuery<AcctState[]>({
     queryKey: ['/api/account-state'],
     staleTime: 60_000,
@@ -842,7 +842,9 @@ function SwitchPanel({
                                     const st = stateByName.get(call.clientName.toLowerCase());
                                     if (!st || st.state === 'healthy') return null;
                                     const dot = st.state === 'critical' ? 'bg-rose-400' : 'bg-amber-400';
-                                    return <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} title={st.reasons?.join(' · ') ?? st.state} />;
+                                    const trendGlyph = st.trendDirection === 'improving' ? '↑' : st.trendDirection === 'worsening' ? '↓' : '';
+                                    const tip = [st.state, ...(st.reasons ?? [])].join(' · ') + (trendGlyph ? ` ${trendGlyph}` : '');
+                                    return <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} title={tip} />;
                                   })()}
                                   <span className="font-medium text-foreground">{call.clientName}</span>
                                 </span>

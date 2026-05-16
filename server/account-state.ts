@@ -12,8 +12,8 @@
  */
 
 import { db } from "./db";
-import { fasEvents, accountState } from "@shared/schema";
-import { gte } from "drizzle-orm";
+import { fasEvents, accountState, accountStateHistory } from "@shared/schema";
+import { gte, lt } from "drizzle-orm";
 import type { SippyCDR } from "./sippy";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -208,28 +208,76 @@ export async function updateAccountState(
 
     if (records.length === 0) return;
 
-    // ── Step 4: Upsert ───────────────────────────────────────────────────
-    for (const r of records) {
+    // ── Step 4: Fetch previous states for trend computation ──────────────
+    const existingRows = await db.select().from(accountState);
+    const prevMap = new Map(existingRows.map(r => [r.accountId, r]));
+
+    // ── Step 5: Enrich records with trend data ────────────────────────────
+    const enriched = records.map(r => {
+      const prev = prevMap.get(r.accountId!);
+      const prevScore = prev?.healthScore ?? null;
+      const delta = prevScore !== null ? (r.healthScore! - prevScore) : 0;
+      // Only classify trend if delta is meaningful (>4 pts avoids noise)
+      const trendDirection =
+        prevScore === null   ? 'stable' :
+        delta >= 5           ? 'improving' :
+        delta <= -5          ? 'worsening' :
+                               'stable';
+      return {
+        ...r,
+        previousHealthScore: prevScore ?? undefined,
+        previousState:       prev?.state ?? undefined,
+        trendDirection,
+        scoreDelta24h:       delta,
+      };
+    });
+
+    // ── Step 6: Upsert enriched records ─────────────────────────────────
+    for (const r of enriched) {
       await db.insert(accountState)
         .values(r)
         .onConflictDoUpdate({
           target: accountState.accountId,
           set: {
-            accountName:         r.accountName,
-            healthScore:         r.healthScore,
-            fraudRisk:           r.fraudRisk,
-            anomalyScore:        r.anomalyScore,
-            qualityScore:        r.qualityScore,
-            balanceTrend:        r.balanceTrend,
-            activeIncidentCount: r.activeIncidentCount,
-            state:               r.state,
-            reasons:             r.reasons,
-            updatedAt:           r.updatedAt,
+            accountName:          r.accountName,
+            healthScore:          r.healthScore,
+            fraudRisk:            r.fraudRisk,
+            anomalyScore:         r.anomalyScore,
+            qualityScore:         r.qualityScore,
+            balanceTrend:         r.balanceTrend,
+            activeIncidentCount:  r.activeIncidentCount,
+            state:                r.state,
+            reasons:              r.reasons,
+            previousHealthScore:  r.previousHealthScore,
+            previousState:        r.previousState,
+            trendDirection:       r.trendDirection,
+            scoreDelta24h:        r.scoreDelta24h,
+            updatedAt:            r.updatedAt,
           },
         });
     }
 
-    console.log(`[account-state] Upserted ${records.length} account state records`);
+    // ── Step 7: Write history snapshots ──────────────────────────────────
+    const historyRows: typeof accountStateHistory.$inferInsert[] = enriched.map(r => ({
+      accountId:   r.accountId!,
+      accountName: r.accountName,
+      healthScore: r.healthScore!,
+      fraudRisk:   r.fraudRisk!,
+      anomalyScore:r.anomalyScore!,
+      qualityScore:r.qualityScore!,
+      state:       r.state!,
+      reasons:     r.reasons,
+      snapshotAt:  r.updatedAt,
+    }));
+    if (historyRows.length > 0) {
+      await db.insert(accountStateHistory).values(historyRows);
+    }
+
+    // ── Step 8: Prune history older than 30 days ─────────────────────────
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    await db.delete(accountStateHistory).where(lt(accountStateHistory.snapshotAt, thirtyDaysAgo));
+
+    console.log(`[account-state] Upserted ${enriched.length} records (${enriched.filter(r => r.trendDirection !== 'stable').length} trending)`);
   } catch (e: any) {
     console.error('[account-state] Update failed:', e.message);
   }

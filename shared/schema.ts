@@ -1520,7 +1520,28 @@ export const accountState = pgTable("account_state", {
   state:              varchar("state", { length: 20 }).notNull().default('healthy'),
   reasons:            json("reasons").$type<string[]>().default([]),
   lastIncidentAt:     timestamp("last_incident_at"),
+  // Trend tracking (populated after first two cycles)
+  previousHealthScore:integer("previous_health_score"),
+  previousState:      varchar("previous_state",     { length: 20 }),
+  trendDirection:     varchar("trend_direction",     { length: 20 }).notNull().default('stable'),
+  scoreDelta24h:      integer("score_delta_24h").notNull().default(0),
   updatedAt:          timestamp("updated_at").defaultNow().notNull(),
 });
 export type AccountState       = typeof accountState.$inferSelect;
 export type InsertAccountState = typeof accountState.$inferInsert;
+
+// Account State History: one snapshot per engine cycle per account (kept 30 days)
+export const accountStateHistory = pgTable("account_state_history", {
+  id:          serial("id").primaryKey(),
+  accountId:   varchar("account_id",   { length: 64  }).notNull(),
+  accountName: varchar("account_name", { length: 255 }),
+  healthScore: integer("health_score").notNull(),
+  fraudRisk:   integer("fraud_risk").notNull(),
+  anomalyScore:integer("anomaly_score").notNull(),
+  qualityScore:integer("quality_score").notNull(),
+  state:       varchar("state", { length: 20 }).notNull(),
+  reasons:     json("reasons").$type<string[]>().default([]),
+  snapshotAt:  timestamp("snapshot_at").defaultNow().notNull(),
+});
+export type AccountStateHistory       = typeof accountStateHistory.$inferSelect;
+export type InsertAccountStateHistory = typeof accountStateHistory.$inferInsert;

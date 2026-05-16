@@ -234,7 +234,7 @@ export default function AiOpsPage() {
   const pendingSuggestions = suggestions.filter(s => s.status === 'pending');
 
   // Account health state
-  interface AcctState { accountId: string; accountName: string | null; state: string; healthScore: number; reasons: string[] | null; activeIncidentCount: number }
+  interface AcctState { accountId: string; accountName: string | null; state: string; healthScore: number; reasons: string[] | null; activeIncidentCount: number; trendDirection?: string | null; scoreDelta24h?: number | null; updatedAt?: string | null }
   const { data: acctStateList } = useQuery<AcctState[]>({
     queryKey: ['/api/account-state'],
     staleTime: 60_000,
@@ -1086,19 +1086,34 @@ export default function AiOpsPage() {
                 <div className="divide-y divide-border/30">
                   {criticalAccounts.map(acct => {
                     const isCrit = acct.state === 'critical';
-                    const barColor = isCrit ? 'bg-rose-400' : 'bg-amber-400';
+                    const barColor  = isCrit ? 'bg-rose-400'  : 'bg-amber-400';
                     const textColor = isCrit ? 'text-rose-400' : 'text-amber-400';
-                    const dotColor  = isCrit ? 'bg-rose-400' : 'bg-amber-400';
+                    const dotColor  = isCrit ? 'bg-rose-400'  : 'bg-amber-400';
+                    const trend = acct.trendDirection;
+                    const trendEl = trend === 'improving'
+                      ? <span className="text-emerald-400 text-[10px] font-bold leading-none" title="Improving">↑</span>
+                      : trend === 'worsening'
+                      ? <span className="text-rose-400 text-[10px] font-bold leading-none" title="Worsening">↓</span>
+                      : <span className="text-muted-foreground/40 text-[10px] leading-none" title="Stable">→</span>;
+                    const deltaLabel = acct.scoreDelta24h !== null && acct.scoreDelta24h !== 0
+                      ? <span className={`text-[9px] font-mono ${(acct.scoreDelta24h ?? 0) > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {(acct.scoreDelta24h ?? 0) > 0 ? '+' : ''}{acct.scoreDelta24h}
+                        </span>
+                      : null;
                     return (
                       <div key={acct.accountId} className="px-4 py-2.5 flex items-start gap-3" data-testid={`row-acct-health-${acct.accountId}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full mt-1 shrink-0 ${dotColor}`} />
+                        <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${dotColor}`} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-1">
                             <span className="text-xs font-medium truncate">{acct.accountName ?? acct.accountId}</span>
-                            <span className={`text-[10px] font-bold ${textColor}`}>{acct.healthScore}</span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {trendEl}
+                              {deltaLabel}
+                              <span className={`text-[10px] font-bold tabular-nums ${textColor}`}>{acct.healthScore}</span>
+                            </div>
                           </div>
                           <div className="mt-1 h-1 rounded-full bg-muted/40 overflow-hidden">
-                            <div className={`h-full rounded-full ${barColor} opacity-70`} style={{ width: `${acct.healthScore}%` }} />
+                            <div className={`h-full rounded-full ${barColor} opacity-70 transition-all duration-700`} style={{ width: `${acct.healthScore}%` }} />
                           </div>
                           {acct.reasons && acct.reasons.length > 0 && (
                             <p className="text-[10px] text-muted-foreground mt-1 truncate">{acct.reasons[0]}</p>
@@ -1108,8 +1123,16 @@ export default function AiOpsPage() {
                     );
                   })}
                 </div>
-                <div className="px-4 py-2 border-t border-border/30 bg-muted/10">
-                  <p className="text-[10px] text-muted-foreground/60">Updated every 15 min · hover account badges for details</p>
+                <div className="px-4 py-2 border-t border-border/30 bg-muted/10 flex items-center justify-between">
+                  <p className="text-[10px] text-muted-foreground/60">↑ improving · → stable · ↓ worsening</p>
+                  {criticalAccounts[0]?.updatedAt && (
+                    <p className="text-[10px] text-muted-foreground/40">
+                      {(() => {
+                        const diff = Math.floor((Date.now() - new Date(criticalAccounts[0].updatedAt!).getTime()) / 60000);
+                        return diff < 1 ? 'just now' : diff < 60 ? `${diff}m ago` : `${Math.floor(diff/60)}h ago`;
+                      })()}
+                    </p>
+                  )}
                 </div>
               </div>
             )}
