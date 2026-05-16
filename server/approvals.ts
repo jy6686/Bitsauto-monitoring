@@ -20,6 +20,7 @@ import { type Role, type ApprovalRequest, type InsertApprovalRequest, APPROVAL_P
 import { db as _db } from "./db";
 import { approvalRequests as _arTable, aiOpsEvents as _aiOpsEventsTable } from "../shared/schema";
 import { mapExecToSignals } from "./aiops/signal-mapper";
+import { appendToLedger, ledgerIdForApproval } from "./action-ledger";
 
 // ─── Operation type registry ────────────────────────────────────────────────
 
@@ -134,6 +135,25 @@ export async function submitApprovalRequest(params: {
     actorName: params.requestedByName ?? null,
     actorRole: null,
     note: `Request submitted for ${OPERATION_LABELS[params.operationType]}`,
+  });
+
+  // ── Ledger: submitted event ───────────────────────────────────────────────
+  await appendToLedger({
+    ledgerId:       ledgerIdForApproval(request.id),
+    scope:          'routing',
+    sourceSystem:   'ROUTING',
+    actionType:     params.operationType,
+    entityId:       params.entityId !== undefined ? String(params.entityId) : null,
+    entityName:     params.entityName ?? null,
+    payload:        { before: params.payloadBefore, after: params.payloadAfter },
+    approvalState:  'pending',
+    executionState: 'not_executed',
+    verificationState: 'not_applicable',
+    sourceRecordId: String(request.id),
+    eventType:      'submitted',
+    requestedBy:    params.requestedBy,
+    requestedByName: params.requestedByName ?? null,
+    note:           `Routing request submitted: ${OPERATION_LABELS[params.operationType]}${params.source !== 'manual' ? ` (source: ${params.source})` : ''}`,
   });
 
   return request;
@@ -280,6 +300,26 @@ export async function approveRequest(
       actorRole: actor.role,
       note: `Execution FAILED: ${execResult.message}`,
     });
+    // ── Ledger: execution_failed event ──────────────────────────────────────
+    await appendToLedger({
+      ledgerId:          ledgerIdForApproval(requestId),
+      scope:             'routing',
+      sourceSystem:      'ROUTING',
+      actionType:        request.operationType,
+      entityId:          request.entityId ?? null,
+      entityName:        request.entityName ?? null,
+      payload:           { execResult },
+      approvalState:     'approved',
+      executionState:    'failed',
+      verificationState: 'FAILED_CONFIRMED',
+      sourceRecordId:    String(requestId),
+      eventType:         'execution_failed',
+      requestedBy:       request.requestedBy,
+      requestedByName:   request.requestedByName ?? null,
+      actorId:           actor.id,
+      actorName:         actor.name ?? null,
+      note:              `Sippy execution FAILED: ${execResult.message}`,
+    });
     return { success: false, error: `Sippy execution failed: ${execResult.message}` };
   }
 
@@ -300,6 +340,29 @@ export async function approveRequest(
     actorName: actor.name ?? null,
     actorRole: actor.role,
     note: isSelfApproval ? '[SELF-APPROVAL — emergency override]' : null,
+  });
+
+  // ── Ledger: approved + executed event ────────────────────────────────────
+  await appendToLedger({
+    ledgerId:          ledgerIdForApproval(requestId),
+    scope:             'routing',
+    sourceSystem:      'ROUTING',
+    actionType:        request.operationType,
+    entityId:          request.entityId ?? null,
+    entityName:        request.entityName ?? null,
+    payload:           { execResult },
+    approvalState:     'approved',
+    executionState:    'executed',
+    verificationState: 'SUCCESS_CONFIRMED',
+    sourceRecordId:    String(requestId),
+    eventType:         'executed',
+    requestedBy:       request.requestedBy,
+    requestedByName:   request.requestedByName ?? null,
+    actorId:           actor.id,
+    actorName:         actor.name ?? null,
+    note:              isSelfApproval
+      ? `Approved + executed [SELF-APPROVAL — emergency override] (${execResult.durationMs}ms)`
+      : `Approved + executed against Sippy (${execResult.durationMs}ms)`,
   });
 
   return { success: true, result: execResult };
@@ -337,6 +400,26 @@ export async function rejectRequest(
     note: reason,
   });
 
+  // ── Ledger: rejected event ────────────────────────────────────────────────
+  await appendToLedger({
+    ledgerId:          ledgerIdForApproval(requestId),
+    scope:             'routing',
+    sourceSystem:      'ROUTING',
+    actionType:        request.operationType,
+    entityId:          request.entityId ?? null,
+    entityName:        request.entityName ?? null,
+    approvalState:     'rejected',
+    executionState:    'not_executed',
+    verificationState: 'not_applicable',
+    sourceRecordId:    String(requestId),
+    eventType:         'rejected',
+    requestedBy:       request.requestedBy,
+    requestedByName:   request.requestedByName ?? null,
+    actorId:           actor.id,
+    actorName:         actor.name ?? null,
+    note:              reason || 'No reason provided',
+  });
+
   return { success: true };
 }
 
@@ -364,6 +447,27 @@ export async function submitRollback(
     teamId: original.teamId,
     source: 'rollback',
     rollbackOf: originalId,
+  });
+
+  // ── Ledger: rolled_back event on the ORIGINAL request ────────────────────
+  // The new rollback request gets its own ledger thread via submitApprovalRequest above.
+  await appendToLedger({
+    ledgerId:          ledgerIdForApproval(originalId),
+    scope:             'routing',
+    sourceSystem:      'ROUTING',
+    actionType:        original.operationType,
+    entityId:          original.entityId ?? null,
+    entityName:        original.entityName ?? null,
+    approvalState:     'approved',
+    executionState:    'rolled_back',
+    verificationState: 'not_applicable',
+    sourceRecordId:    String(originalId),
+    eventType:         'rolled_back',
+    requestedBy:       original.requestedBy,
+    requestedByName:   original.requestedByName ?? null,
+    actorId:           actor.id,
+    actorName:         actor.name ?? null,
+    note:              `Rollback initiated — new request #${req.id} created`,
   });
 
   return { success: true, request: req };

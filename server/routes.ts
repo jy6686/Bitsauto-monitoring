@@ -25,6 +25,7 @@ import { runRecommendationEngine } from "./recommendation-engine";
 import { executeAction, buildSippyParams, recommendationToActionType, computeIdempotencyKey } from "./action-executor";
 import { evaluateFirewall } from "./action-firewall";
 import { listActions, createAction, getAction, approveAction, rejectAction, snoozeAction, rollbackAction } from "./action-store";
+import { queryLedger, queryLedgerStats } from "./action-ledger";
 import { writeAudit, queryAudit, auditStats } from "./audit";
 import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
@@ -19184,6 +19185,34 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const updated  = await rollbackAction(action.id, userId, userName);
       console.log(`[action-ledger] id=${action.id} account=${action.account_name} rolled back by=${userName}`);
       res.json({ success: true, action: updated });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Unified Action Ledger — cross-system append-only audit spine ─────────────
+
+  // GET /api/action-ledger — query correlated mutation events across C2 + Routing
+  // Supports: ?scope=account|routing|system  ?sourceSystem=C2|ROUTING|MANUAL
+  //           ?entityId=X  ?ledgerId=X  ?eventType=X  ?from=ISO  ?limit=N
+  app.get('/api/action-ledger', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const rows = await queryLedger({
+        scope:        req.query.scope        || undefined,
+        sourceSystem: req.query.sourceSystem || undefined,
+        entityId:     req.query.entityId     || undefined,
+        ledgerId:     req.query.ledgerId     || undefined,
+        eventType:    req.query.eventType    || undefined,
+        fromIso:      req.query.from         || undefined,
+        limit:        req.query.limit ? Math.min(Number(req.query.limit), 500) : 200,
+      });
+      res.json({ events: rows, count: rows.length });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/action-ledger/stats — aggregated counts by scope, source, and event type
+  app.get('/api/action-ledger/stats', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const stats = await queryLedgerStats();
+      res.json(stats);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

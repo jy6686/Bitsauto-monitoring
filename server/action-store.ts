@@ -1,7 +1,19 @@
 // server/action-store.ts
-// ── C2 Action Ledger — DB CRUD for account_actions ───────────────────────────
+// ── C2 Action Store — DB CRUD for account_actions + Unified Ledger adapter ───
+//
+// Every state transition writes to account_actions (source of truth) AND
+// appends an event to action_ledger (cross-system audit spine) via the thin
+// action-ledger module. Ledger writes are best-effort and never block the
+// primary mutation path.
 
 import { Pool } from 'pg';
+import {
+  appendToLedger,
+  ledgerIdForC2Action,
+  type LedgerApprovalState,
+  type LedgerExecutionState,
+  type LedgerVerificationState,
+} from './action-ledger';
 
 type AuditEntry = {
   timestamp: string;
@@ -81,7 +93,30 @@ export async function createAction(data: {
       data.requestedBy, data.requestedByName, JSON.stringify(trail),
       data.idempotencyKey ?? null,
     ]);
-    return r.rows[0];
+    const action = r.rows[0];
+
+    // ── Ledger: created event ─────────────────────────────────────────────────
+    await appendToLedger({
+      ledgerId:          ledgerIdForC2Action(data.idempotencyKey),
+      scope:             'account',
+      sourceSystem:      'C2',
+      actionType:        data.actionType,
+      entityId:          data.accountId,
+      entityName:        data.accountName,
+      payload:           { primaryAction: data.primaryAction, sippyParams: data.sippyParams },
+      idempotencyKey:    data.idempotencyKey ?? null,
+      riskIndexSnapshot: null,
+      approvalState:     'pending',
+      executionState:    'not_executed',
+      verificationState: 'not_applicable',
+      sourceRecordId:    String(action.id),
+      eventType:         'created',
+      requestedBy:       data.requestedBy,
+      requestedByName:   data.requestedByName,
+      note:              `C2 action created for ${data.accountName}`,
+    });
+
+    return action;
   } finally { await pool.end(); }
 }
 
@@ -103,9 +138,10 @@ export async function approveAction(
 ) {
   const pool = getPool();
   try {
-    const ex = await pool.query('SELECT audit_trail FROM account_actions WHERE id = $1', [id]);
+    const ex = await pool.query('SELECT * FROM account_actions WHERE id = $1', [id]);
     if (!ex.rows.length) return null;
-    const trail: AuditEntry[] = Array.isArray(ex.rows[0].audit_trail) ? ex.rows[0].audit_trail : [];
+    const row = ex.rows[0];
+    const trail: AuditEntry[] = Array.isArray(row.audit_trail) ? row.audit_trail : [];
     trail.push({
       timestamp: new Date().toISOString(),
       event:     'approved',
@@ -121,23 +157,83 @@ export async function approveAction(
           sippy_result=$4, audit_trail=$5, verification_state=$6, updated_at=NOW()
       WHERE id=$7 RETURNING *
     `, [newStatus, userId, userName, JSON.stringify(sippyResult), JSON.stringify(trail), verificationState, id]);
-    return r.rows[0] ?? null;
+    const updated = r.rows[0] ?? null;
+
+    if (updated) {
+      // ── Ledger: approved / executed event ──────────────────────────────────
+      const execState: LedgerExecutionState = newStatus === 'executed' ? 'executed' : 'not_executed';
+      const isExecFailed = newStatus === 'failed';
+      await appendToLedger({
+        ledgerId:          ledgerIdForC2Action(row.idempotency_key),
+        scope:             'account',
+        sourceSystem:      'C2',
+        actionType:        row.action_type,
+        entityId:          row.account_id,
+        entityName:        row.account_name,
+        payload:           { sippyResult },
+        idempotencyKey:    row.idempotency_key,
+        riskIndexSnapshot: row.risk_index ?? null,
+        approvalState:     'approved',
+        executionState:    isExecFailed ? 'failed' : execState,
+        verificationState: verificationState as LedgerVerificationState,
+        sourceRecordId:    String(id),
+        eventType:         isExecFailed ? 'execution_failed' : (newStatus === 'executed' ? 'executed' : 'approved'),
+        actorId:           userId,
+        actorName:         userName,
+        requestedBy:       row.requested_by,
+        requestedByName:   row.requested_by_name,
+        note:              isExecFailed
+          ? `Execution failed — ${(sippyResult as any)?.error ?? 'unknown error'}`
+          : newStatus === 'executed'
+            ? `Executed against Sippy — verification: ${verificationState}`
+            : 'Dry-run approval recorded',
+      });
+    }
+
+    return updated;
   } finally { await pool.end(); }
 }
 
 export async function rejectAction(id: number, userId: string, userName: string, reason: string) {
   const pool = getPool();
   try {
-    const ex = await pool.query('SELECT audit_trail FROM account_actions WHERE id = $1', [id]);
+    const ex = await pool.query('SELECT * FROM account_actions WHERE id = $1', [id]);
     if (!ex.rows.length) return null;
-    const trail: AuditEntry[] = Array.isArray(ex.rows[0].audit_trail) ? ex.rows[0].audit_trail : [];
+    const row = ex.rows[0];
+    const trail: AuditEntry[] = Array.isArray(row.audit_trail) ? row.audit_trail : [];
     trail.push({ timestamp: new Date().toISOString(), event: 'rejected', userId, userName, details: reason || 'No reason provided' });
     const r = await pool.query(`
       UPDATE account_actions
       SET status='rejected', rejected_by=$1, rejection_reason=$2, audit_trail=$3, updated_at=NOW()
       WHERE id=$4 RETURNING *
     `, [userId, reason || null, JSON.stringify(trail), id]);
-    return r.rows[0] ?? null;
+    const updated = r.rows[0] ?? null;
+
+    if (updated) {
+      // ── Ledger: rejected event ────────────────────────────────────────────
+      await appendToLedger({
+        ledgerId:          ledgerIdForC2Action(row.idempotency_key),
+        scope:             'account',
+        sourceSystem:      'C2',
+        actionType:        row.action_type,
+        entityId:          row.account_id,
+        entityName:        row.account_name,
+        idempotencyKey:    row.idempotency_key,
+        riskIndexSnapshot: row.risk_index ?? null,
+        approvalState:     'rejected',
+        executionState:    'not_executed',
+        verificationState: 'not_applicable',
+        sourceRecordId:    String(id),
+        eventType:         'rejected',
+        actorId:           userId,
+        actorName:         userName,
+        requestedBy:       row.requested_by,
+        requestedByName:   row.requested_by_name,
+        note:              reason || 'No reason provided',
+      });
+    }
+
+    return updated;
   } finally { await pool.end(); }
 }
 
@@ -145,31 +241,85 @@ export async function snoozeAction(id: number, userId: string, userName: string,
   const pool = getPool();
   try {
     const snoozedUntil = new Date(Date.now() + hours * 60 * 60 * 1000);
-    const ex = await pool.query('SELECT audit_trail FROM account_actions WHERE id = $1', [id]);
+    const ex = await pool.query('SELECT * FROM account_actions WHERE id = $1', [id]);
     if (!ex.rows.length) return null;
-    const trail: AuditEntry[] = Array.isArray(ex.rows[0].audit_trail) ? ex.rows[0].audit_trail : [];
+    const row = ex.rows[0];
+    const trail: AuditEntry[] = Array.isArray(row.audit_trail) ? row.audit_trail : [];
     trail.push({ timestamp: new Date().toISOString(), event: 'snoozed', userId, userName, details: `Snoozed for ${hours}h until ${snoozedUntil.toISOString()}` });
     const r = await pool.query(`
       UPDATE account_actions
       SET status='snoozed', snoozed_until=$1, audit_trail=$2, updated_at=NOW()
       WHERE id=$3 RETURNING *
     `, [snoozedUntil.toISOString(), JSON.stringify(trail), id]);
-    return r.rows[0] ?? null;
+    const updated = r.rows[0] ?? null;
+
+    if (updated) {
+      // ── Ledger: snoozed event ─────────────────────────────────────────────
+      await appendToLedger({
+        ledgerId:          ledgerIdForC2Action(row.idempotency_key),
+        scope:             'account',
+        sourceSystem:      'C2',
+        actionType:        row.action_type,
+        entityId:          row.account_id,
+        entityName:        row.account_name,
+        idempotencyKey:    row.idempotency_key,
+        riskIndexSnapshot: row.risk_index ?? null,
+        approvalState:     'snoozed',
+        executionState:    'not_executed',
+        verificationState: 'not_applicable',
+        sourceRecordId:    String(id),
+        eventType:         'snoozed',
+        actorId:           userId,
+        actorName:         userName,
+        requestedBy:       row.requested_by,
+        requestedByName:   row.requested_by_name,
+        note:              `Snoozed for ${hours}h until ${snoozedUntil.toISOString()}`,
+      });
+    }
+
+    return updated;
   } finally { await pool.end(); }
 }
 
 export async function rollbackAction(id: number, userId: string, userName: string) {
   const pool = getPool();
   try {
-    const ex = await pool.query('SELECT audit_trail FROM account_actions WHERE id = $1', [id]);
+    const ex = await pool.query('SELECT * FROM account_actions WHERE id = $1', [id]);
     if (!ex.rows.length) return null;
-    const trail: AuditEntry[] = Array.isArray(ex.rows[0].audit_trail) ? ex.rows[0].audit_trail : [];
+    const row = ex.rows[0];
+    const trail: AuditEntry[] = Array.isArray(row.audit_trail) ? row.audit_trail : [];
     trail.push({ timestamp: new Date().toISOString(), event: 'rolled_back', userId, userName, details: 'Action manually rolled back' });
     const r = await pool.query(`
       UPDATE account_actions
       SET status='rolled_back', audit_trail=$1, updated_at=NOW()
       WHERE id=$2 RETURNING *
     `, [JSON.stringify(trail), id]);
-    return r.rows[0] ?? null;
+    const updated = r.rows[0] ?? null;
+
+    if (updated) {
+      // ── Ledger: rolled_back event ─────────────────────────────────────────
+      await appendToLedger({
+        ledgerId:          ledgerIdForC2Action(row.idempotency_key),
+        scope:             'account',
+        sourceSystem:      'C2',
+        actionType:        row.action_type,
+        entityId:          row.account_id,
+        entityName:        row.account_name,
+        idempotencyKey:    row.idempotency_key,
+        riskIndexSnapshot: row.risk_index ?? null,
+        approvalState:     'rejected',
+        executionState:    'rolled_back',
+        verificationState: 'not_applicable',
+        sourceRecordId:    String(id),
+        eventType:         'rolled_back',
+        actorId:           userId,
+        actorName:         userName,
+        requestedBy:       row.requested_by,
+        requestedByName:   row.requested_by_name,
+        note:              'Action manually rolled back',
+      });
+    }
+
+    return updated;
   } finally { await pool.end(); }
 }

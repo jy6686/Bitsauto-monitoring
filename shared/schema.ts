@@ -1587,6 +1587,47 @@ export const incidents = pgTable("incidents", {
 export type Incident       = typeof incidents.$inferSelect;
 export type InsertIncident = typeof incidents.$inferInsert;
 
+// ── Unified Action Ledger — append-only cross-system audit spine ─────────────
+// One row per event (not per action). Every mutation system writes here.
+// Source systems (account_actions, approval_requests) remain domain sources of truth.
+// This table is the correlated audit view across all mutation domains.
+export const actionLedger = pgTable("action_ledger", {
+  id:                  serial("id").primaryKey(),
+  // Groups all events for a single action lifecycle (UUID set at creation, shared across events)
+  ledgerId:            varchar("ledger_id",            { length: 64 }).notNull(),
+  // Mutation domain classification
+  scope:               varchar("scope",               { length: 20 }).notNull(), // 'account' | 'routing' | 'system'
+  sourceSystem:        varchar("source_system",        { length: 20 }).notNull(), // 'C2' | 'ROUTING' | 'MANUAL'
+  // Action identity
+  actionType:          varchar("action_type",          { length: 64 }).notNull(),
+  entityId:            varchar("entity_id",            { length: 128 }),
+  entityName:          varchar("entity_name",          { length: 255 }),
+  // Event payload (what changed)
+  payload:             json("payload").$type<Record<string, unknown>>(),
+  // Idempotency key — shared with the source system's key when available
+  idempotencyKey:      varchar("idempotency_key",      { length: 128 }),
+  // Risk context snapshot at event time
+  riskIndexSnapshot:   integer("risk_index_snapshot"),
+  // State at the time of this event (point-in-time snapshot, not mutable)
+  approvalState:       varchar("approval_state",       { length: 30 }).notNull().default('pending'),
+  executionState:      varchar("execution_state",      { length: 30 }).notNull().default('not_executed'),
+  verificationState:   varchar("verification_state",   { length: 30 }).notNull().default('not_applicable'),
+  // Back-reference to the source record (not FK — keeps ledger decoupled)
+  sourceRecordId:      varchar("source_record_id",     { length: 64 }),
+  // Event classification (the append-only dimension)
+  eventType:           varchar("event_type",           { length: 30 }).notNull(), // 'created' | 'approved' | 'rejected' | 'snoozed' | 'executed' | 'rolled_back' | 'submitted' | 'failed'
+  // Actor
+  requestedBy:         varchar("requested_by",         { length: 255 }),
+  requestedByName:     varchar("requested_by_name",    { length: 255 }),
+  actorId:             varchar("actor_id",             { length: 255 }),
+  actorName:           varchar("actor_name",           { length: 255 }),
+  // Freeform audit note for this event
+  note:                text("note"),
+  createdAt:           timestamp("created_at").defaultNow().notNull(),
+});
+export type ActionLedgerEntry       = typeof actionLedger.$inferSelect;
+export type InsertActionLedgerEntry = typeof actionLedger.$inferInsert;
+
 // ── C2 Action Execution Layer — governed mutation ledger ─────────────────────
 export const accountActions = pgTable("account_actions", {
   id:                serial("id").primaryKey(),
