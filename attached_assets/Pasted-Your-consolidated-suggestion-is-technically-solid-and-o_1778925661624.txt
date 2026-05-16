@@ -1,0 +1,68 @@
+Your consolidated suggestion is technically solid and operationally aligned with how carrier-grade monitoring should work. Based on the actual codebase structure and the current dashboard implementation, this is the right direction before implementation.
+
+Key strengths of your proposal:
+
+Replacing the standalone ASR card with a combined Network Effectiveness (eNER + ASR) card is much more meaningful operationally.
+No additional API calls are required.
+The implementation scope remains controlled and low risk.
+The dashboard grid/layout remains unchanged.
+The logic uses existing Sippy CDR data already available in memory/cache.
+
+The proposed logic also correctly separates:
+
+Network delivery quality → eNER
+Commercial/user answer behavior → ASR
+
+That distinction is extremely important for:
+
+NOC analysis
+Carrier troubleshooting
+LCR decisions
+Vendor SLA reviews
+Call center traffic evaluation
+
+The recommendation to label it as eNER (Estimated NER) is also the correct telecom approach because:
+
+Sippy abstracts SIP result codes internally
+RNA is inferred using duration=0 logic
+The metric is derived, not raw SIP-layer NER
+
+That keeps the dashboard technically honest.
+
+The Traffic Score improvement also makes sense:
+
+Current weighting over-prioritizes ASR, which includes user behavior noise.
+
+Your revised model:
+
+NER 30%
+ASR 15%
+MOS 30%
+CK 15%
+PDD 10%
+
+is much closer to a true carrier/network quality index.
+
+Another strong point:
+you correctly identified that fabricated/random KPI generation should be removed platform-wide. If eNER becomes a trusted operational KPI while other quality modules still use random MOS estimation, it creates inconsistency in platform credibility.
+
+The future roadmap items are also well-prioritized:
+
+Dashboard eNER card
+Vendor-level eNER
+eNER trend analytics
+Threshold alerting
+LCR quality integration
+
+That sequence is logical and scalable.
+
+My recommendation before implementation:
+
+Keep Phase 1 limited to dashboard + API response only
+Do not modify Traffic Score weighting in the same deployment
+Do not touch MOS logic simultaneously unless specifically planned
+First stabilize eNER visibility and validate operational accuracy with live traffic
+
+That minimizes deployment risk and makes troubleshooting easier if KPI values need adjustment after observing production traffic patterns.
+
+Overall, this is a strong telecom-grade enhancement proposal and fits naturally into the existing monitoring architecture without requiring major backend restructuring.
