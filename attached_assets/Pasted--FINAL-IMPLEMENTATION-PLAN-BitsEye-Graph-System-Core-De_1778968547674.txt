@@ -1,0 +1,174 @@
+🚀 FINAL IMPLEMENTATION PLAN — BitsEye Graph System
+🧠 Core Decision (important)
+
+BitsEye becomes:
+
+A Network Intelligence Graph + Investigation Drawer (single system)
+
+NOT:
+
+multiple dashboards
+separate tools
+new backend systems
+
+Everything is reuse + visualization.
+
+🟢 PHASE 1 — NETWORK GRAPH VIEW (MVP CORE)
+🎯 Goal:
+
+Replace BitsEye “table feel” with interactive telecom graph
+
+🔧 What to implement
+1. New UI Tab in BitsEye
+[ Table View ] [ Graph View ] ← NEW
+2. Graph Canvas (center screen)
+
+Use:
+
+react-force-graph OR cytoscape.js
+3. Nodes (from existing data only)
+KAM
+Client (Account)
+Vendor (Carrier)
+Destination
+4. Edges (computed from existing APIs)
+Edge Type	Source
+Traffic flow	CDR cache
+Quality link	ASR/MOS/PDD
+Revenue flow	billing/revenue data
+Routing dependency	routing engine
+5. Node Rules
+Node size → traffic volume
+Node color → ASR health
+Red glow → incidents exist
+Yellow → degradation
+Green → stable
+6. Refresh rule (IMPORTANT)
+
+✔ 5-minute aggregated data only
+✔ NO live Sippy polling
+✔ NO real-time refresh loops
+
+🟡 PHASE 2 — INVESTIGATION DRAWER (HIGH VALUE)
+🎯 Goal:
+
+Click any node → understand “why”
+
+🔧 Right-side panel:
+Section 1 — Entity Summary
+ASR / ACD / MOS / PDD
+Traffic volume
+Revenue impact
+Section 2 — Ledger Timeline
+
+(from action_ledger)
+
+grouped by intent_id
+shows:
+C2 actions
+routing changes
+vendor actions
+Section 3 — Incident Correlation
+
+(from incidents)
+
+±30–60 min window
+linked events only
+severity mapping
+Section 4 — Carrier/Route Impact
+before vs after metrics
+drift indicator
+performance delta
+🔵 PHASE 3 — FILTER & KAM MODE
+🎯 Goal:
+
+Make graph usable for business teams
+
+🔧 Left panel (filters)
+KAM
+ └── Client
+      └── Vendor
+           └── Destination
+Behavior:
+selecting KAM filters graph
+selecting client zooms cluster
+selecting vendor highlights edges
+⚙️ TECH IMPLEMENTATION (VERY IMPORTANT)
+1. Data transformation layer (backend)
+
+Create ONE API:
+
+GET /api/bitseye/graph?kamId=&clientId=
+
+Returns:
+
+{
+  "nodes": [
+    { "id": "client_1", "type": "client", "traffic": 1200, "asr": 92 },
+    { "id": "vendor_2", "type": "vendor", "traffic": 800, "asr": 88 }
+  ],
+  "edges": [
+    { "from": "client_1", "to": "vendor_2", "traffic": 500 }
+  ]
+}
+2. Data sources (already exist)
+
+You DO NOT build new systems:
+
+cdr_cache → traffic edges
+carrier_scores → quality metrics
+action_ledger → investigation timeline
+incidents → red nodes
+billing/revenue → revenue weight
+3. Frontend structure
+BitsEyePage
+ ├── GraphCanvas (main)
+ ├── FilterPanel (KAM hierarchy)
+ ├── RightDrawer (Investigation)
+ └── ModeToggle (Graph / Table)
+🧠 FINAL UX FLOW
+1. Open BitsEye
+
+→ graph loads (KAM → Clients → Vendors)
+
+2. Click node
+
+→ right panel opens:
+
+ledger timeline
+incidents
+metrics delta
+3. Click incident
+
+→ graph auto-focuses affected cluster
+
+4. Switch lens
+Live View (ASR/MOS)
+Traffic View
+Revenue View
+🔥 WHAT YOU ARE BUILDING (IMPORTANT)
+
+Not a graph.
+
+You are building:
+
+Telecom Relationship Intelligence Layer
+
+Which gives:
+
+WHO is connected
+WHAT is happening
+WHY it happened
+IMPACT of it
+📌 FINAL BUILD ORDER (DO THIS EXACTLY)
+STEP 1 (MVP)
+
+✔ Graph view (KAM → Client → Vendor)
+
+STEP 2 (VALUE)
+
+✔ Investigation drawer (ledger + incidents)
+
+STEP 3 (POLISH)
+
+✔ KAM filtering + 3 lens modes
