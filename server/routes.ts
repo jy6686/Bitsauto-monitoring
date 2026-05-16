@@ -18,6 +18,7 @@ import { setupChatWebSocket } from "./chat-ws";
 import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, canSubmit, type OperationType } from "./approvals";
 import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
+import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
 import { initSyntheticScheduler, computeInitialNextRunAt } from "./synthetic-scheduler";
 import { initCarrierScoringEngine, recomputeCarrierScores, setCdrProvider } from "./carrier-scoring-engine";
@@ -932,12 +933,9 @@ export async function registerRoutes(
       let packetLoss = Math.random() * 0.5;
       if (Math.random() > 0.95) packetLoss += 5; // Spike
 
-      // Calculate MOS (Mean Opinion Score)
-      let rFactor = 94 - (latency / 20) - jitter - (packetLoss * 20);
-      if (rFactor < 0) rFactor = 0;
-      let mos = 1 + (0.035 * rFactor) + (rFactor * (rFactor - 60) * (100 - rFactor) * 0.000007);
-      if (mos > 4.5) mos = 4.5;
-      if (mos < 1) mos = 1;
+      // Calculate MOS — ITU-T G.107 E-Model via shared computeMOS()
+      // latency here is simulated one-way delay; jitter and packetLoss are also simulated.
+      const mos = computeMOS({ oneWayDelayMs: latency, jitterMs: jitter, packetLossPct: packetLoss }) ?? 1.0;
       
       // Add metric
       await storage.createMetric({
@@ -3106,14 +3104,13 @@ export async function registerRoutes(
       const nerNumerator = ckConnected + rnaCount + ckSwitchedOff;
       const ner: number | null = ckTotal > 0 ? parseFloat((nerNumerator / ckTotal * 100).toFixed(1)) : null;
 
-      // ── MOS estimate (E-model RFC 3611 approximation) ─────────────────────
-      // Use probe latency (network RTT) — PDD is signaling delay, not network delay
+      // ── MOS estimate from probe RTT — ITU-T G.107 E-Model ─────────────────
+      // Uses probe round-trip latency (RTT ÷ 2 = one-way delay). No jitter/loss
+      // data from probes, so G.711 baseline is assumed (Ie=0, Ppl=0).
       let estimatedMos: number | null = null;
       const probeLatency = lastProbeResult?.latency ?? lastSwitchProbeResult?.latency ?? null;
-      if (probeLatency && probeLatency > 0 && probeLatency < 500) {
-        const d = probeLatency * 0.3; // one-way delay from RTT
-        const R = Math.max(0, 94.2 - 0.024 * d - 0.11 * (d > 177.3 ? d - 177.3 : 0));
-        estimatedMos = R > 0 ? parseFloat((1 + 0.035 * R + 7e-6 * R * (R - 60) * (100 - R)).toFixed(2)) : null;
+      if (probeLatency && probeLatency > 0 && probeLatency < 1000) {
+        estimatedMos = computeMOS({ oneWayDelayMs: probeLatency * 0.5 });
       }
 
       // ── ASR / ACD ────────────────────────────────────────────────────────────
@@ -12662,13 +12659,8 @@ export async function registerRoutes(
 
       for (const [carrier, { pddList }] of vendorMap.entries()) {
         if (pddList.length === 0) continue;
-        // Estimate MOS from PDD: PDD<2s → 4.2, 2-5s → 3.8, 5-10s → 3.2, >10s → 2.5
-        const mosList = pddList.map(p => {
-          if (p < 2)  return 4.2 + Math.random() * 0.3 - 0.15;
-          if (p < 5)  return 3.8 + Math.random() * 0.4 - 0.2;
-          if (p < 10) return 3.2 + Math.random() * 0.5 - 0.25;
-          return 2.5 + Math.random() * 0.5 - 0.25;
-        });
+        // Estimate MOS from PDD using ITU-T G.107 E-Model (pdd stored in seconds)
+        const mosList = pddList.map(p => estimateMOSFromPDD(p * 1000));
         const avgMos = mosList.reduce((a, b) => a + b, 0) / mosList.length;
         const goodPct = (mosList.filter(m => m >= 3.5).length / mosList.length) * 100;
         const poorPct = (mosList.filter(m => m < 3.0).length / mosList.length) * 100;
@@ -13291,7 +13283,7 @@ export async function registerRoutes(
       const gradeMOS = (v: number) => v >= 4.0 ? 'A' : v >= 3.5 ? 'B' : v >= 3.0 ? 'C' : v >= 2.5 ? 'D' : 'F';
       const gp = (g: string) => g === 'A' ? 4 : g === 'B' ? 3 : g === 'C' ? 2 : g === 'D' ? 1 : 0;
       const pg = (p: number) => p >= 3.5 ? 'A' : p >= 2.5 ? 'B' : p >= 1.5 ? 'C' : p >= 0.5 ? 'D' : 'F';
-      const estimateMOS = (pddSec: number) => Math.max(1.0, Math.min(4.5, 4.5 - pddSec * 0.5));
+      const estimateMOS = (pddSec: number) => estimateMOSFromPDD(pddSec * 1000);
 
       const rows = [];
       for (const [vendor, calls] of groups) {
@@ -17668,17 +17660,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         matrix.set(carrier, e);
       }
 
-      // Estimate MOS from PDD using simplified E-model
-      function estimateMOS(pddMs: number): number {
-        const pddSec = pddMs / 1000;
-        const Id = pddSec < 0.15 ? 0 : pddSec < 0.4 ? (pddSec - 0.15) * 80 : 20 + (pddSec - 0.4) * 60;
-        const R = Math.max(0, Math.min(100, 93.2 - Id));
-        const mos = 1 + 0.035 * R + R * (R - 60) * (100 - R) * 7e-6;
-        return parseFloat(Math.max(1.0, Math.min(4.5, mos)).toFixed(2));
-      }
-      function mosGrade(m: number): string {
-        return m >= 4.0 ? 'A' : m >= 3.5 ? 'B' : m >= 3.0 ? 'C' : m >= 2.5 ? 'D' : 'F';
-      }
+      // MOS estimation and grading — delegates to shared ITU-T G.107 utility
+      const estimateMOS = (pddMs: number) => estimateMOSFromPDD(pddMs);
+      const mosGrade    = (m: number)     => mosToGrade(m);
 
       const rows = [...matrix.entries()]
         .filter(([, e]) => e.total >= 2)
