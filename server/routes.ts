@@ -22,6 +22,8 @@ import { updateAccountState } from "./account-state";
 import { runIncidentEngine } from "./incident-engine";
 import { runAuthExposureScorer } from "./auth-exposure";
 import { runRecommendationEngine } from "./recommendation-engine";
+import { executeAction, buildSippyParams, recommendationToActionType } from "./action-executor";
+import { listActions, createAction, getAction, approveAction, rejectAction, snoozeAction, rollbackAction } from "./action-store";
 import { writeAudit, queryAudit, auditStats } from "./audit";
 import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
@@ -18856,6 +18858,166 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const result = await runIncidentEngine();
       res.json({ success: true, ...result });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // C2 — Engine Control API (deterministic execution + trace)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // POST /api/engine/run-all — run all 4 engines sequentially, return trace
+  app.post('/api/engine/run-all', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (_req: any, res: any) => {
+    const runId = `run-${Date.now()}`;
+    const steps: Array<{ step: string; status: string; duration: number; [k: string]: unknown }> = [];
+
+    const run = async (label: string, fn: () => Promise<Record<string, unknown>>) => {
+      const t = Date.now();
+      try {
+        const extra = await fn();
+        steps.push({ step: label, status: 'success', duration: Date.now() - t, ...extra });
+      } catch (e: any) {
+        steps.push({ step: label, status: 'error', duration: Date.now() - t, error: e.message });
+      }
+    };
+
+    await run('account-state',   async () => { await updateAccountState(); return {}; });
+    await run('auth-exposure',    async () => { const s = await storage.getSippySettings(); return await runAuthExposureScorer(s) as Record<string, unknown>; });
+    await run('incidents',        async () => { return await runIncidentEngine() as unknown as Record<string, unknown>; });
+    await run('recommendations',  async () => { return await runRecommendationEngine() as unknown as Record<string, unknown>; });
+
+    console.log(`[engine/run-all] runId=${runId} steps=${steps.map(s => `${s.step}:${s.status}`).join(',')}`);
+    res.json({ runId, completedAt: new Date().toISOString(), steps });
+  });
+
+  app.post('/api/engine/run/account-state', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (_req: any, res: any) => {
+    const t = Date.now();
+    try { await updateAccountState(); res.json({ ok: true, step: 'account-state', status: 'success', duration: Date.now() - t }); }
+    catch (e: any) { res.status(500).json({ ok: false, step: 'account-state', error: e.message }); }
+  });
+
+  app.post('/api/engine/run/auth-exposure', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (_req: any, res: any) => {
+    const t = Date.now();
+    try {
+      const settings = await storage.getSippySettings();
+      const result = await runAuthExposureScorer(settings);
+      res.json({ ok: true, step: 'auth-exposure', status: 'success', duration: Date.now() - t, ...result });
+    } catch (e: any) { res.status(500).json({ ok: false, step: 'auth-exposure', error: e.message }); }
+  });
+
+  app.post('/api/engine/run/recommendations', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (_req: any, res: any) => {
+    const t = Date.now();
+    try {
+      const result = await runRecommendationEngine();
+      res.json({ ok: true, step: 'recommendations', status: 'success', duration: Date.now() - t, ...result });
+    } catch (e: any) { res.status(500).json({ ok: false, step: 'recommendations', error: e.message }); }
+  });
+
+  app.post('/api/engine/run/incidents', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (_req: any, res: any) => {
+    const t = Date.now();
+    try {
+      const result = await runIncidentEngine();
+      res.json({ ok: true, step: 'incidents', status: 'success', duration: Date.now() - t, ...result });
+    } catch (e: any) { res.status(500).json({ ok: false, step: 'incidents', error: e.message }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // C2 — Action Execution Layer (governed mutation ledger)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /api/actions
+  app.get('/api/actions', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator','team_lead'], req, res, next), async (req: any, res: any) => {
+    try {
+      const rows = await listActions({ accountId: req.query.accountId, status: req.query.status });
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/actions — create action from recommendation
+  app.post('/api/actions', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { accountId, accountName, dominantSignal, primaryAction, recommendationRef } = req.body as {
+        accountId: string; accountName: string; dominantSignal: string;
+        primaryAction: string; recommendationRef: Record<string, unknown>;
+      };
+      const userId      = req.user?.claims?.sub ?? 'unknown';
+      const userRole    = await storage.getUserRole(userId);
+      const userName    = `${userRole ?? 'user'} (${userId.slice(0, 8)})`;
+      const actionType  = recommendationToActionType(dominantSignal);
+      const sippyParams = buildSippyParams(accountId, actionType);
+      const action = await createAction({ accountId, accountName, actionType, primaryAction, recommendationRef, sippyParams, requestedBy: userId, requestedByName: userName });
+      res.json(action);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/actions/:id
+  app.get('/api/actions/:id', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator','team_lead'], req, res, next), async (req: any, res: any) => {
+    try {
+      const action = await getAction(Number(req.params.id));
+      if (!action) return res.status(404).json({ message: 'Action not found' });
+      res.json(action);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/actions/:id/approve
+  app.post('/api/actions/:id/approve', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const action = await getAction(Number(req.params.id));
+      if (!action) return res.status(404).json({ message: 'Action not found' });
+      if (!['pending','snoozed'].includes(action.status)) return res.status(400).json({ message: `Cannot approve action with status '${action.status}'` });
+      const userId   = req.user?.claims?.sub ?? 'unknown';
+      const userRole = await storage.getUserRole(userId);
+      const userName = `${userRole ?? 'user'} (${userId.slice(0, 8)})`;
+      const execResult = await executeAction(action.id, action.sippy_params ?? {});
+      const newStatus  = execResult.mode === 'dry_run' ? 'approved' : (execResult.success ? 'executed' : 'approved');
+      const updated    = await approveAction(action.id, userId, userName, execResult, newStatus);
+      console.log(`[action-ledger] id=${action.id} account=${action.account_name} approved by=${userName} mode=${execResult.mode} status=${newStatus}`);
+      res.json({ success: true, action: updated, executionMode: execResult.mode });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/actions/:id/reject
+  app.post('/api/actions/:id/reject', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (req: any, res: any) => {
+    try {
+      const action = await getAction(Number(req.params.id));
+      if (!action) return res.status(404).json({ message: 'Action not found' });
+      if (action.status === 'rejected') return res.status(400).json({ message: 'Action already rejected' });
+      const userId   = req.user?.claims?.sub ?? 'unknown';
+      const userRole = await storage.getUserRole(userId);
+      const userName = `${userRole ?? 'user'} (${userId.slice(0, 8)})`;
+      const { reason = '' } = req.body as { reason?: string };
+      const updated  = await rejectAction(action.id, userId, userName, reason);
+      console.log(`[action-ledger] id=${action.id} account=${action.account_name} rejected by=${userName}`);
+      res.json({ success: true, action: updated });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/actions/:id/snooze
+  app.post('/api/actions/:id/snooze', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (req: any, res: any) => {
+    try {
+      const action = await getAction(Number(req.params.id));
+      if (!action) return res.status(404).json({ message: 'Action not found' });
+      const userId   = req.user?.claims?.sub ?? 'unknown';
+      const userRole = await storage.getUserRole(userId);
+      const userName = `${userRole ?? 'user'} (${userId.slice(0, 8)})`;
+      const { hours = 24 } = req.body as { hours?: number };
+      const updated  = await snoozeAction(action.id, userId, userName, hours);
+      console.log(`[action-ledger] id=${action.id} account=${action.account_name} snoozed ${hours}h by=${userName}`);
+      res.json({ success: true, action: updated });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/actions/:id/rollback
+  app.post('/api/actions/:id/rollback', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const action = await getAction(Number(req.params.id));
+      if (!action) return res.status(404).json({ message: 'Action not found' });
+      if (!['approved','executed'].includes(action.status)) return res.status(400).json({ message: `Cannot rollback action with status '${action.status}'` });
+      const userId   = req.user?.claims?.sub ?? 'unknown';
+      const userRole = await storage.getUserRole(userId);
+      const userName = `${userRole ?? 'user'} (${userId.slice(0, 8)})`;
+      const updated  = await rollbackAction(action.id, userId, userName);
+      console.log(`[action-ledger] id=${action.id} account=${action.account_name} rolled back by=${userName}`);
+      res.json({ success: true, action: updated });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

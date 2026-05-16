@@ -1583,3 +1583,42 @@ export const incidents = pgTable("incidents", {
 });
 export type Incident       = typeof incidents.$inferSelect;
 export type InsertIncident = typeof incidents.$inferInsert;
+
+// ── C2 Action Execution Layer — governed mutation ledger ─────────────────────
+export const accountActions = pgTable("account_actions", {
+  id:                serial("id").primaryKey(),
+  accountId:         varchar("account_id",        { length: 64  }).notNull(),
+  accountName:       varchar("account_name",       { length: 255 }),
+  recommendationRef: json("recommendation_ref").$type<{
+    priority:       number;
+    riskScore:      number;
+    urgency:        'immediate' | 'today' | 'monitor';
+    dominantSignal: string;
+    computedAt:     string;
+  }>(),
+  actionType:        varchar("action_type",        { length: 50  }).notNull(),
+  status:            varchar("status",             { length: 30  }).notNull().default('pending'),
+  executionMode:     varchar("execution_mode",     { length: 20  }).notNull().default('dry_run'),
+  primaryAction:     text("primary_action"),
+  sippyParams:       json("sippy_params").$type<Record<string, unknown>>(),
+  sippyResult:       json("sippy_result").$type<Record<string, unknown>>(),
+  requestedBy:       varchar("requested_by",       { length: 255 }),
+  requestedByName:   varchar("requested_by_name",  { length: 255 }),
+  approvedBy:        varchar("approved_by",        { length: 255 }),
+  approvedByName:    varchar("approved_by_name",   { length: 255 }),
+  rejectedBy:        varchar("rejected_by",        { length: 255 }),
+  rejectionReason:   text("rejection_reason"),
+  snoozedUntil:      timestamp("snoozed_until"),
+  notes:             text("notes"),
+  auditTrail:        json("audit_trail").$type<Array<{
+    timestamp: string;
+    event:     string;
+    userId?:   string;
+    userName?: string;
+    details?:  string;
+  }>>(),
+  createdAt:         timestamp("created_at").defaultNow(),
+  updatedAt:         timestamp("updated_at").defaultNow(),
+});
+export type AccountAction       = typeof accountActions.$inferSelect;
+export type InsertAccountAction = typeof accountActions.$inferInsert;

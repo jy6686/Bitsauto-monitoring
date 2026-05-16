@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, BellOff, Sparkles, GitBranch, Volume2, VolumeX, MessageCircle } from "lucide-react";
+import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, BellOff, Sparkles, GitBranch, Volume2, VolumeX, MessageCircle, ShieldCheck, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -302,12 +302,43 @@ export default function AiOpsPage() {
     signalSummary: { healthScore: number; fraudRisk: number; authExposureScore: number; anomalyScore: number; activeIncidents: number };
     computedAt: string;
   }
+  interface AccountAction {
+    id: number; account_id: string; account_name: string | null;
+    action_type: string; status: string; execution_mode: string;
+    primary_action: string | null;
+    sippy_params: Record<string, unknown> | null;
+    sippy_result: Record<string, unknown> | null;
+    requested_by_name: string | null; approved_by_name: string | null;
+    rejected_by: string | null; rejection_reason: string | null;
+    snoozed_until: string | null;
+    audit_trail: Array<{ timestamp: string; event: string; userId?: string; userName?: string; details?: string }> | null;
+    created_at: string; updated_at: string;
+  }
+
+  // ── C2 Action Ledger state ─────────────────────────────────────────────────
+  const [actionModal, setActionModal] = useState<{ rec: Recommendation; intent: 'approve' | 'reject' | 'snooze' } | null>(null);
+  const [rejectReason, setRejectReason]  = useState('');
+  const [snoozeHours,  setSnoozeHours]   = useState(24);
+
   const { data: recommendations = [], isLoading: recsLoading, refetch: refetchRecs } = useQuery<Recommendation[]>({
     queryKey: ['/api/recommendations'],
     refetchInterval: 120_000,
     staleTime: 60_000,
     enabled: feedTab === 'actions',
   });
+  const { data: existingActions = [] } = useQuery<AccountAction[]>({
+    queryKey: ['/api/actions'],
+    refetchInterval: 30_000,
+    enabled: feedTab === 'actions',
+  });
+  // Index actions by accountId — most recent pending/approved per account
+  const actionByAccountId = existingActions.reduce<Record<string, AccountAction>>((acc, a) => {
+    if (!acc[a.account_id] || new Date(a.created_at) > new Date(acc[a.account_id].created_at)) {
+      acc[a.account_id] = a;
+    }
+    return acc;
+  }, {});
+
   const runRecsMutation = useMutation({
     mutationFn: () => apiRequest('POST', '/api/recommendations/run'),
     onSuccess: () => {
@@ -315,6 +346,43 @@ export default function AiOpsPage() {
       toast({ title: 'Recommendation engine run complete' });
     },
     onError: () => toast({ title: 'Recommendation engine error', variant: 'destructive' }),
+  });
+  const runAllEnginesMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/engine/run-all'),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ['/api/recommendations'] });
+      qc.invalidateQueries({ queryKey: ['/api/actions'] });
+      const ok    = data?.steps?.filter((s: any) => s.status === 'success').length ?? 0;
+      const total = data?.steps?.length ?? 0;
+      toast({ title: `Full pipeline run: ${ok}/${total} engines succeeded`, description: data?.runId });
+    },
+    onError: () => toast({ title: 'Engine run error', variant: 'destructive' }),
+  });
+
+  // Create action then take the intended action (approve / reject / snooze)
+  const commitActionMutation = useMutation({
+    mutationFn: async ({ rec, intent, reason, hours }: { rec: Recommendation; intent: 'approve' | 'reject' | 'snooze'; reason: string; hours: number }) => {
+      // 1. Create the action record
+      const action: AccountAction = await apiRequest('POST', '/api/actions', {
+        accountId:         rec.accountId,
+        accountName:       rec.accountName ?? rec.accountId,
+        dominantSignal:    rec.dominantSignal,
+        primaryAction:     rec.primaryAction,
+        recommendationRef: { priority: rec.priority, riskScore: rec.riskScore, urgency: rec.urgency, dominantSignal: rec.dominantSignal, computedAt: rec.computedAt },
+      });
+      // 2. Take the action
+      if (intent === 'approve') return apiRequest('POST', `/api/actions/${action.id}/approve`);
+      if (intent === 'reject')  return apiRequest('POST', `/api/actions/${action.id}/reject`,  { reason });
+      if (intent === 'snooze')  return apiRequest('POST', `/api/actions/${action.id}/snooze`,  { hours });
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['/api/actions'] });
+      const label = vars.intent === 'approve' ? 'Approved (dry-run)' : vars.intent === 'reject' ? 'Rejected' : `Snoozed ${vars.hours}h`;
+      toast({ title: `${label}: ${vars.rec.accountName ?? vars.rec.accountId}` });
+      setActionModal(null);
+      setRejectReason('');
+    },
+    onError: (e: any) => toast({ title: 'Action failed', description: e.message, variant: 'destructive' }),
   });
   const immediateRecs = recommendations.filter(r => r.urgency === 'immediate');
   const todayRecs     = recommendations.filter(r => r.urgency === 'today');
@@ -414,6 +482,149 @@ export default function AiOpsPage() {
   return (
     <div className="min-h-screen bg-background">
       <AiCopilot open={copilotOpen} onClose={() => setCopilotOpen(false)} />
+
+      {/* ── C2 Action Confirmation Modal ─────────────────────────────────── */}
+      <AnimatePresence>
+        {actionModal && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm px-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl"
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.15 }}
+            >
+              {/* Modal header */}
+              <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border/50">
+                <div className="flex items-center gap-2">
+                  {actionModal.intent === 'approve' && <ShieldCheck className="h-4 w-4 text-emerald-400" />}
+                  {actionModal.intent === 'reject'  && <ThumbsDown className="h-4 w-4 text-muted-foreground" />}
+                  {actionModal.intent === 'snooze'  && <BellOff className="h-4 w-4 text-violet-400" />}
+                  <span className="text-sm font-semibold capitalize">{actionModal.intent} action</span>
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/30 leading-none">DRY RUN</span>
+                </div>
+                <button onClick={() => setActionModal(null)} className="text-muted-foreground hover:text-foreground transition-colors">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Modal body */}
+              <div className="px-5 py-4 space-y-4">
+                {/* Account + risk */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold">{actionModal.rec.accountName ?? actionModal.rec.accountId}</p>
+                    <p className="text-[10px] text-muted-foreground">Account ID: {actionModal.rec.accountId}</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs font-mono font-bold text-muted-foreground">Risk {actionModal.rec.riskScore}</div>
+                    <div className="text-[9px] text-muted-foreground/60 capitalize">{actionModal.rec.urgency}</div>
+                  </div>
+                </div>
+
+                {/* Primary action */}
+                <div className="bg-muted/20 rounded-lg p-3 border border-border/40">
+                  <p className="text-[10px] text-muted-foreground/70 uppercase tracking-widest mb-1">Recommended action</p>
+                  <p className="text-xs leading-snug">{actionModal.rec.primaryAction}</p>
+                </div>
+
+                {/* What would be sent to Sippy */}
+                {actionModal.intent === 'approve' && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-muted-foreground/70 uppercase tracking-widest">Sippy call (dry-run — not sent)</p>
+                    <div className="bg-muted/30 rounded-lg p-3 border border-border/30 font-mono text-[10px] leading-relaxed text-muted-foreground space-y-1">
+                      {(() => {
+                        const sig    = actionModal.rec.dominantSignal;
+                        const typeMap: Record<string, string> = { fraud: 'RATE_LIMIT', exposure: 'EXPOSURE_RESTRICT', health: 'ROUTE_BLOCK', anomaly: 'ACCOUNT_FREEZE' };
+                        const paramsMap: Record<string, string> = {
+                          fraud:    `{ i_account: ${actionModal.rec.accountId}, max_calls: 10, max_cps: "0.5" }`,
+                          exposure: `{ i_account: ${actionModal.rec.accountId}, ip_auth_enabled: 1 }`,
+                          health:   `{ i_account: ${actionModal.rec.accountId}, routing_plan_id: null }`,
+                          anomaly:  `{ i_account: ${actionModal.rec.accountId}, blocked: 1 }`,
+                        };
+                        return (
+                          <>
+                            <div><span className="text-muted-foreground/50">method:</span>  updateAccount</div>
+                            <div><span className="text-muted-foreground/50">type:</span>    {typeMap[sig] ?? 'MANUAL'}</div>
+                            <div><span className="text-muted-foreground/50">params:</span>  {paramsMap[sig] ?? '{ note: "manual review" }'}</div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Reject reason input */}
+                {actionModal.intent === 'reject' && (
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-muted-foreground/70 uppercase tracking-widest">Reason (optional)</label>
+                    <Input
+                      data-testid="input-reject-reason"
+                      value={rejectReason}
+                      onChange={e => setRejectReason(e.target.value)}
+                      placeholder="e.g. False positive — reviewed manually"
+                      className="text-xs h-8"
+                    />
+                  </div>
+                )}
+
+                {/* Snooze hours input */}
+                {actionModal.intent === 'snooze' && (
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-muted-foreground/70 uppercase tracking-widest">Snooze duration (hours)</label>
+                    <div className="flex gap-1.5">
+                      {[4, 8, 24, 48].map(h => (
+                        <button key={h}
+                          onClick={() => setSnoozeHours(h)}
+                          className={cn("text-[10px] px-2.5 py-1.5 rounded-lg border transition-colors",
+                            snoozeHours === h
+                              ? 'border-primary/40 bg-primary/10 text-primary'
+                              : 'border-border text-muted-foreground hover:text-foreground'
+                          )}
+                        >{h}h</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal footer */}
+              <div className="flex items-center justify-end gap-2 px-5 pb-5">
+                <button
+                  onClick={() => setActionModal(null)}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  data-testid={`modal-confirm-${actionModal.intent}`}
+                  disabled={commitActionMutation.isPending}
+                  onClick={() => commitActionMutation.mutate({ rec: actionModal.rec, intent: actionModal.intent, reason: rejectReason, hours: snoozeHours })}
+                  className={cn(
+                    "flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50",
+                    actionModal.intent === 'approve' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20' :
+                    actionModal.intent === 'reject'  ? 'border-border text-muted-foreground hover:text-foreground' :
+                    'border-violet-500/30 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20'
+                  )}
+                >
+                  {commitActionMutation.isPending
+                    ? <><Loader2 className="h-3 w-3 animate-spin" /> Processing…</>
+                    : actionModal.intent === 'approve' ? <><ShieldCheck className="h-3 w-3" /> Confirm approval</>
+                    : actionModal.intent === 'reject'  ? <><ThumbsDown className="h-3 w-3" /> Confirm rejection</>
+                    : <><BellOff className="h-3 w-3" /> Snooze {snoozeHours}h</>
+                  }
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
 
         {/* Header */}
@@ -877,10 +1088,19 @@ export default function AiOpsPage() {
                       onClick={() => runRecsMutation.mutate()}
                       disabled={runRecsMutation.isPending}
                       data-testid="button-run-recommendations"
-                      className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                      className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                     >
                       <Play className="h-3 w-3" />
-                      {runRecsMutation.isPending ? 'Running…' : 'Run engine'}
+                      {runRecsMutation.isPending ? 'Running…' : 'Rankings'}
+                    </button>
+                    <button
+                      onClick={() => runAllEnginesMutation.mutate()}
+                      disabled={runAllEnginesMutation.isPending}
+                      data-testid="button-run-all-engines"
+                      className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                    >
+                      {runAllEnginesMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                      {runAllEnginesMutation.isPending ? 'Running pipeline…' : 'Run full pipeline'}
                     </button>
                   </div>
                 </div>
@@ -1007,6 +1227,57 @@ export default function AiOpsPage() {
                                     </span>
                                   ))}
                                 </div>
+
+                                {/* Row 5: C2 action controls */}
+                                {(() => {
+                                  const existing = actionByAccountId[rec.accountId];
+                                  const statusCfg: Record<string, { cls: string; label: string }> = {
+                                    pending:      { cls: 'bg-amber-500/10 text-amber-400 border-amber-500/30',   label: 'Pending' },
+                                    approved:     { cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30', label: 'Approved (dry-run)' },
+                                    executed:     { cls: 'bg-blue-500/10 text-blue-400 border-blue-500/30',      label: 'Executed' },
+                                    rejected:     { cls: 'bg-muted/20 text-muted-foreground border-border',      label: 'Rejected' },
+                                    snoozed:      { cls: 'bg-violet-500/10 text-violet-400 border-violet-500/30', label: 'Snoozed' },
+                                    rolled_back:  { cls: 'bg-muted/20 text-muted-foreground border-border',      label: 'Rolled back' },
+                                  };
+                                  const sc = existing ? statusCfg[existing.status] : null;
+                                  const isActed = existing && !['pending','snoozed'].includes(existing.status);
+                                  return (
+                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/20">
+                                      {sc ? (
+                                        <span className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded border leading-none", sc.cls)}>
+                                          {sc.label}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[9px] text-muted-foreground/30">No action taken</span>
+                                      )}
+                                      {!isActed && (
+                                        <div className="flex items-center gap-1.5">
+                                          <button
+                                            data-testid={`rec-approve-${rec.accountId}`}
+                                            onClick={() => setActionModal({ rec, intent: 'approve' })}
+                                            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                                          >
+                                            <ThumbsUp className="h-2.5 w-2.5" /> Approve
+                                          </button>
+                                          <button
+                                            data-testid={`rec-reject-${rec.accountId}`}
+                                            onClick={() => setActionModal({ rec, intent: 'reject' })}
+                                            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground transition-colors"
+                                          >
+                                            <ThumbsDown className="h-2.5 w-2.5" /> Reject
+                                          </button>
+                                          <button
+                                            data-testid={`rec-snooze-${rec.accountId}`}
+                                            onClick={() => setActionModal({ rec, intent: 'snooze' })}
+                                            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground transition-colors"
+                                          >
+                                            <BellOff className="h-2.5 w-2.5" /> Snooze
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           })}
