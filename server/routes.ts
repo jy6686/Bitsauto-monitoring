@@ -11777,7 +11777,8 @@ export async function registerRoutes(
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const bucketMin = Math.max(1, Math.min(60, Number(req.query.bucket) || 15)); // 5 / 15 / 60
     const hoursBack = Math.max(1, Math.min(48, Number(req.query.hours)  || 4));
-    const kamIdParam = req.query.kamId ? Number(req.query.kamId) : null;
+    const kamIdParam     = req.query.kamId     ? Number(req.query.kamId)     : null;
+    const accountIdParam = req.query.accountId ? Number(req.query.accountId) : null;
 
     const now       = Date.now();
     const windowMs  = hoursBack * 3_600_000;
@@ -11818,11 +11819,13 @@ export async function registerRoutes(
         : (c as any).connectTime ? new Date((c as any).connectTime).getTime() : 0;
       if (!ts || ts < now - windowMs || ts > now) continue;
 
-      // Optional KAM filter
+      // Optional KAM filter (by client name set derived from KAM accounts)
       if (kamClientSet) {
         const cName = (c as any).clientName || accountNameCache.get(String((c as any).iAccount ?? '')) || '';
         if (!kamClientSet.has(cName)) continue;
       }
+      // Optional specific account filter (Sippy accountId — takes precedence over KAM filter)
+      if (accountIdParam && Number((c as any).iAccount ?? -1) !== accountIdParam) continue;
 
       const age      = now - ts;
       const bIdx     = numBuckets - 1 - Math.floor(age / bucketMs);

@@ -77,6 +77,10 @@ interface PerEntityResponse {
   summary: Summary;
 }
 
+// ── KAM hierarchy types (for left panel tree) ─────────────────────────────────
+interface KamAccount { id: number; kamId: number; accountId: number; clientName: string | null; dropThreshold?: number; }
+interface KamNode    { id: number; name: string; email: string; active?: boolean; accounts: KamAccount[]; }
+
 // ── Nav state ─────────────────────────────────────────────────────────────────
 type NavType =
   | 'welcome'
@@ -94,6 +98,9 @@ interface NavState {
   kamId?: number;         // active KAM id (from URL ?kamId=N)
   destName?: string;      // active destination name
   destCountryFilter?: string; // country filter on destinations view
+  // Hierarchy panel selection
+  clientId?: number;      // selected Sippy accountId (cascades to all graph queries)
+  clientName?: string;    // display name of selected client
 }
 
 function urlToNav(urlView: string, urlParams: URLSearchParams): NavState {
@@ -679,8 +686,162 @@ function LatestPulseDot(props: any) {
   );
 }
 
+// ── Hierarchy Panel — left sidebar KAM → Client tree ──────────────────────────
+function HierarchyPanel({
+  kams, selectedKamId, selectedAccountId,
+  onSelectKam, onSelectClient, onClearClient,
+}: {
+  kams: KamNode[];
+  selectedKamId: number | null;
+  selectedAccountId: number | null;
+  onSelectKam: (kam: KamNode) => void;
+  onSelectClient: (accountId: number, name: string, kamId: number) => void;
+  onClearClient: () => void;
+}) {
+  const [expandedKams, setExpandedKams] = useState<Set<number>>(new Set());
+  const [search, setSearch] = useState('');
+  const q = search.toLowerCase().trim();
+
+  const toggleKam = (id: number) => {
+    setExpandedKams(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const filteredKams = kams.filter(k =>
+    !q || k.name.toLowerCase().includes(q) ||
+    k.accounts.some(a => (a.clientName ?? '').toLowerCase().includes(q))
+  );
+
+  return (
+    <div style={{
+      width: 232, flexShrink: 0, borderRight: '1px solid hsl(var(--border) / 0.4)',
+      background: 'hsl(var(--card) / 0.6)', display: 'flex', flexDirection: 'column',
+      overflow: 'hidden',
+    }}>
+      {/* Panel header */}
+      <div style={{ padding: '12px 14px 8px', borderBottom: '1px solid hsl(var(--border) / 0.3)' }}>
+        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+          color: 'hsl(var(--muted-foreground) / 0.5)', marginBottom: 8 }}>
+          Intelligence Context
+        </div>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Filter KAMs or clients…"
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            fontSize: 11, padding: '5px 8px', borderRadius: 7,
+            border: '1px solid hsl(var(--border) / 0.4)',
+            background: 'hsl(var(--muted) / 0.3)',
+            color: 'hsl(var(--foreground))',
+            outline: 'none',
+          }}
+        />
+        {selectedAccountId && (
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6,
+            background: 'hsl(38 92% 50% / 0.12)', border: '1px solid hsl(38 92% 50% / 0.25)',
+            borderRadius: 7, padding: '4px 8px', fontSize: 10 }}>
+            <span style={{ flex: 1, fontWeight: 600, color: 'hsl(38 92% 50%)', overflow: 'hidden',
+              textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              ⬡ {kams.flatMap(k => k.accounts).find(a => a.accountId === selectedAccountId)?.clientName ?? `Acct.${selectedAccountId}`}
+            </span>
+            <button onClick={onClearClient}
+              style={{ fontSize: 10, color: 'hsl(var(--muted-foreground) / 0.5)',
+                background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 1 }}>
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* KAM tree */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
+        {filteredKams.length === 0 && (
+          <div style={{ padding: '20px 14px', fontSize: 11, color: 'hsl(var(--muted-foreground) / 0.4)',
+            textAlign: 'center' }}>
+            No KAMs found
+          </div>
+        )}
+        {filteredKams.map(kam => {
+          const isKamSelected = selectedKamId === kam.id;
+          const isExpanded    = expandedKams.has(kam.id) || (q.length > 0);
+          const visibleAccts  = q
+            ? kam.accounts.filter(a => (a.clientName ?? '').toLowerCase().includes(q) || kam.name.toLowerCase().includes(q))
+            : kam.accounts;
+
+          return (
+            <div key={kam.id}>
+              {/* KAM row */}
+              <div
+                onClick={() => { toggleKam(kam.id); onSelectKam(kam); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
+                  cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                  background: isKamSelected ? 'hsl(var(--muted) / 0.5)' : 'transparent',
+                  color: isKamSelected ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground) / 0.75)',
+                  transition: 'background 0.15s',
+                  borderLeft: isKamSelected ? '2px solid hsl(38 92% 50%)' : '2px solid transparent',
+                }}
+              >
+                <span style={{ fontSize: 9, opacity: 0.5, transform: isExpanded ? 'rotate(90deg)' : 'none',
+                  transition: 'transform 0.2s', lineHeight: 1 }}>▶</span>
+                <Users style={{ width: 12, height: 12, flexShrink: 0, opacity: 0.6 }} />
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {kam.name}
+                </span>
+                {kam.accounts.length > 0 && (
+                  <span style={{ fontSize: 9, opacity: 0.4, fontWeight: 400, flexShrink: 0 }}>
+                    {kam.accounts.length}
+                  </span>
+                )}
+              </div>
+
+              {/* Client rows */}
+              {isExpanded && visibleAccts.map(acc => {
+                const name      = acc.clientName ?? `Acct.${acc.accountId}`;
+                const isSelected = selectedAccountId === acc.accountId;
+                return (
+                  <div
+                    key={acc.id}
+                    onClick={() => onSelectClient(acc.accountId, name, kam.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 5,
+                      padding: '5px 14px 5px 30px', cursor: 'pointer', fontSize: 10.5, fontWeight: 500,
+                      background: isSelected ? 'hsl(217 91% 60% / 0.12)' : 'transparent',
+                      color: isSelected ? 'hsl(217 91% 65%)' : 'hsl(var(--muted-foreground) / 0.6)',
+                      transition: 'background 0.15s',
+                      borderLeft: isSelected ? '2px solid hsl(217 91% 60%)' : '2px solid transparent',
+                    }}
+                  >
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                      background: isSelected ? 'hsl(217 91% 60%)' : 'hsl(var(--muted-foreground) / 0.2)' }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer */}
+      <div style={{ padding: '8px 14px', borderTop: '1px solid hsl(var(--border) / 0.3)',
+        fontSize: 9, color: 'hsl(var(--muted-foreground) / 0.35)', textAlign: 'center' }}>
+        KAM → Client → Graph context cascade
+      </div>
+    </div>
+  );
+}
+
 // ── BitsEye Graph View ─────────────────────────────────────────────────────────
-function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
+function BitsEyeGraphView({ kamId, accountId, accountName }: {
+  kamId?: number | null;
+  accountId?: number | null;
+  accountName?: string | null;
+}) {
   const [bucket, setBucket] = useState<5 | 15 | 60>(15);
   const [showEvents, setShowEvents] = useState(true);
   const [showSecondary, setShowSecondary] = useState(false);
@@ -689,11 +850,13 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
   const hoursBack = bucket === 5 ? 2 : bucket === 15 ? 4 : 24;
 
   // CDR-based trend — used for KPI summary cards and ASR chart
+  // accountId takes precedence over kamId for entity-specific filtering
   const { data, isFetching } = useQuery<CallTrendResponse>({
-    queryKey: ['/api/bitseye/call-trend', bucket, hoursBack, kamId],
+    queryKey: ['/api/bitseye/call-trend', bucket, hoursBack, kamId, accountId],
     queryFn: async () => {
       const p = new URLSearchParams({ bucket: String(bucket), hours: String(hoursBack) });
-      if (kamId) p.set('kamId', String(kamId));
+      if (accountId) p.set('accountId', String(accountId));
+      else if (kamId) p.set('kamId', String(kamId));
       const r = await fetch(`/api/bitseye/call-trend?${p}`);
       if (!r.ok) throw new Error(await r.text());
       return r.json();
@@ -864,7 +1027,14 @@ function BitsEyeGraphView({ kamId }: { kamId?: number | null }) {
             Call Intelligence
           </h2>
           <p style={{ fontSize: 11, color: '#9CA3AF', margin: '2px 0 0', fontWeight: 500 }}>
-            Concurrent live · {hoursBack}h window · 60s sampling
+            {accountId && accountName ? (
+              <span style={{ color: '#2563EB', fontWeight: 700 }}>{accountName}</span>
+            ) : kamId ? (
+              <span style={{ color: '#7C3AED', fontWeight: 600 }}>KAM scope</span>
+            ) : (
+              <span>All traffic</span>
+            )}
+            {' · '}Concurrent live · {hoursBack}h · 60s sampling
             {(isFetching || concFetching || evFetching) && <span style={{ marginLeft: 8, color: '#2563EB' }}>↻</span>}
             {concSummary && (
               <span style={{ marginLeft: 8, color: '#2563EB', fontWeight: 600 }}>
@@ -1305,6 +1475,11 @@ export default function BitsEyePage() {
   const [lastRefresh,  setLastRefresh]  = useState(Date.now());
   const [viewMode, setViewMode] = useState<'table' | 'graph'>('table');
 
+  // ── Hierarchy panel selection — cascades to all graph queries ─────────────
+  const [hierarchyKamId,     setHierarchyKamId]     = useState<number | null>(null);
+  const [hierarchyAccountId, setHierarchyAccountId] = useState<number | null>(null);
+  const [hierarchyAcctName,  setHierarchyAcctName]  = useState<string | null>(null);
+
   // Sync nav when URL view / kamId changes (sidebar clicks)
   useEffect(() => {
     setNav(urlToNav(urlView, urlParams));
@@ -1337,6 +1512,20 @@ export default function BitsEyePage() {
       staleTime: 4 * 60_000,
       refetchInterval: 5 * 60_000,
     });
+
+  // ── KAM hierarchy tree — always fetched for the left HierarchyPanel ─────────
+  // /api/kam returns KamNode[] directly (flat array, not wrapped)
+  const { data: kamHierarchyData } = useQuery<KamNode[]>({
+    queryKey: ['/api/kam'],
+    queryFn: async () => {
+      const r = await fetch('/api/kam');
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 5 * 60_000,
+    refetchInterval: 10 * 60_000,
+  });
+  const kamHierarchyList = useMemo(() => kamHierarchyData ?? [], [kamHierarchyData]);
 
   // KAMs — fetched when needed (country drill-down or KAM views)
   const fetchKams = !!activeCountry || nav.type.startsWith('kam');
@@ -1595,6 +1784,29 @@ export default function BitsEyePage() {
   return (
     <div className="flex h-full min-h-screen bg-background overflow-hidden">
 
+      {/* ── Left Hierarchy Panel ─────────────────────────────────────── */}
+      <HierarchyPanel
+        kams={kamHierarchyList}
+        selectedKamId={hierarchyKamId}
+        selectedAccountId={hierarchyAccountId}
+        onSelectKam={kam => {
+          setHierarchyKamId(kam.id);
+          setHierarchyAccountId(null);
+          setHierarchyAcctName(null);
+          setNav(prev => ({ ...prev, kamId: kam.id, kamName: kam.name, type: 'kam' }));
+        }}
+        onSelectClient={(accountId, name, kamId) => {
+          setHierarchyAccountId(accountId);
+          setHierarchyAcctName(name);
+          setHierarchyKamId(kamId);
+          setViewMode('graph');
+        }}
+        onClearClient={() => {
+          setHierarchyAccountId(null);
+          setHierarchyAcctName(null);
+        }}
+      />
+
       {/* ── Main content ─────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
@@ -1762,7 +1974,11 @@ export default function BitsEyePage() {
         {/* Content area */}
         <div className="flex-1 overflow-y-auto p-5">
           {viewMode === 'graph' ? (
-            <BitsEyeGraphView kamId={activeKamId} />
+            <BitsEyeGraphView
+              kamId={hierarchyAccountId ? null : activeKamId}
+              accountId={hierarchyAccountId}
+              accountName={hierarchyAcctName}
+            />
           ) : nav.type === 'welcome' ? (
             /* Welcome screen */
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 text-center">
