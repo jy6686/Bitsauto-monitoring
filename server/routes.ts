@@ -3598,7 +3598,7 @@ export async function registerRoutes(
         if (r.totalCalls === 0) return 'UNSCORED';
         if (fas === 'CRITICAL' || fas === 'MEDIUM') return 'FAS_RISK';
         if (r.totalCalls >= 10 && r.asr === 0) return 'CRITICAL';
-        if (score >= 75) return 'HEALTHY';
+        if (score >= 70) return 'HEALTHY';
         if (score >= 55) return 'STABLE';
         if (score >= 35) return 'DEGRADED';
         return 'CRITICAL';
@@ -9909,7 +9909,7 @@ export async function registerRoutes(
         const conf = Math.min(1, Math.log10(r.totalCalls + 1) / 2);
         const hs   = Math.max(0, Math.min(100, Math.round((Math.min(100, (r.asr / 50) * 100) * 0.35) + (Math.min(100, (Math.min(r.acdSec, 120) / 120) * 100) * 0.30) + (Math.max(0, 100 - (r.avgPdd / 10) * 100) * 0.15) + (conf * 10 * 0.20))));
         const fas  = (r.asr > 55 && r.acdSec > 0 && r.acdSec < 30) ? 'CRITICAL' : (r.asr > 45 && r.acdSec > 0 && r.acdSec < 45) ? 'MEDIUM' : null;
-        const state = fas ? 'FAS_RISK' : (r.totalCalls >= 10 && r.asr === 0) ? 'CRITICAL' : hs >= 75 ? 'HEALTHY' : hs >= 55 ? 'STABLE' : hs >= 35 ? 'DEGRADED' : 'CRITICAL';
+        const state = fas ? 'FAS_RISK' : (r.totalCalls >= 10 && r.asr === 0) ? 'CRITICAL' : hs >= 70 ? 'HEALTHY' : hs >= 55 ? 'STABLE' : hs >= 35 ? 'DEGRADED' : 'CRITICAL';
         return { healthScore: hs, state, confidence: r.totalCalls >= 100 ? 'HIGH' : r.totalCalls >= 20 ? 'MEDIUM' : 'LOW', asr: r.asr };
       }
       const ciMap = new Map<string, ReturnType<typeof computeCI>>();
@@ -9967,7 +9967,11 @@ export async function registerRoutes(
           const rw   = rest.reduce((s: number, e: any) => s + e.weight, 0) || 1;
           const proj = Math.round(rest.reduce((s: number, e: any) => s + (e.weight / rw) * (e.ciHealth?.healthScore ?? 50), 0));
           const delta = proj - baselineHS;
-          return { removedEntry: removed.connectionName, projectedHealthScore: proj, delta, riskDelta: delta > 5 ? 'IMPROVES' : delta < -5 ? 'WORSENS' : 'NEUTRAL', trafficRedistribution: rest.map((e: any) => ({ connectionName: e.connectionName, newContributionPct: Math.round((e.weight / rw) * 100), oldContributionPct: Math.round((e.weight / totalWeight) * 100) })) };
+          const floorDist = (raw: number[]) => { const fl = raw.map(Math.floor); const rem = 100 - fl.reduce((s, v) => s + v, 0); const mi = raw.reduce((best, v, i) => (v % 1) > (raw[best] % 1) ? i : best, 0); return fl.map((v, i) => i === mi ? v + Math.max(0, rem) : v); };
+          const newPcts = floorDist(rest.map((e: any) => (e.weight / rw) * 100));
+          const oldPcts = floorDist(rest.map((e: any) => (e.weight / totalWeight) * 100));
+          const trafficRedistribution = rest.map((e: any, i: number) => ({ connectionName: e.connectionName, newContributionPct: newPcts[i], oldContributionPct: oldPcts[i] }));
+          return { removedEntry: removed.connectionName, projectedHealthScore: proj, delta, riskDelta: delta > 5 ? 'IMPROVES' : delta < -5 ? 'WORSENS' : 'NEUTRAL', trafficRedistribution };
         }).sort((a: any, b: any) => Math.abs(b.delta) - Math.abs(a.delta));
 
         result.push({ groupId: grp.i_routing_group, groupName: grp.name, policy: grp.policy ?? null, baseline: { healthScore: baselineHS, riskLevel: baselineRisk, entriesCount: allCount, activeEntriesCount: entries.length }, entries: entries.map((e: any) => ({ connectionName: e.connectionName, vendorName: e.vendorName, weight: e.weight, preference: e.preference, contributionPct: Math.round((e.weight / totalWeight) * 100), ciHealth: e.ciHealth ? { healthScore: e.ciHealth.healthScore, state: e.ciHealth.state, confidence: e.ciHealth.confidence, asr: e.ciHealth.asr } : null, aiOpsSignal: e.aiOpsSignal })), simulations });
@@ -18020,7 +18024,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         if (r.totalCalls === 0) return 'UNSCORED';
         if (fas === 'CRITICAL' || fas === 'MEDIUM') return 'FAS_RISK';
         if (r.totalCalls >= 10 && r.asr === 0) return 'CRITICAL';
-        if (score >= 75) return 'HEALTHY';
+        if (score >= 70) return 'HEALTHY';
         if (score >= 55) return 'STABLE';
         if (score >= 35) return 'DEGRADED';
         return 'CRITICAL';
@@ -18155,7 +18159,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         if (r.totalCalls === 0) return 'UNSCORED';
         if (fas) return 'FAS_RISK';
         if (r.totalCalls >= 10 && r.asr === 0) return 'CRITICAL';
-        return hs >= 75 ? 'HEALTHY' : hs >= 55 ? 'STABLE' : hs >= 35 ? 'DEGRADED' : 'CRITICAL';
+        return hs >= 70 ? 'HEALTHY' : hs >= 55 ? 'STABLE' : hs >= 35 ? 'DEGRADED' : 'CRITICAL';
       }
 
       const ciMap = new Map(baseRows.map(r => {
