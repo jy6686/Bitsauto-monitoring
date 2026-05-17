@@ -3502,6 +3502,187 @@ export async function registerRoutes(
     }
   });
 
+  // ── GET /api/carrier-intelligence ─────────────────────────────────────────────
+  // Computes Carrier Intelligence metrics from per-account-stats vendor rows.
+  // Adds: healthScore, healthBand, state, fasSeverity, confidenceLevel, recommendation, flags.
+  app.get('/api/carrier-intelligence', async (req: any, res) => {
+    const period = Math.min(parseInt((req.query.period as string) || '90', 10), 1440);
+    try {
+      const settings = await storage.getSettings();
+      const credPairs = sippyXmlCredsPairs(settings);
+
+      // Reuse the same per-account-stats vendor data
+      const now   = new Date();
+      const start = new Date(now.getTime() - period * 60_000);
+      const startDate = sippy.toSippyDate(start);
+      const endDate   = sippy.toSippyDate(now);
+
+      let cdrs: any[] = [];
+      const perAcctPortalUrl = sippyPortalUrl(settings!);
+      if (!xmlRpcCircuitGuard()) {
+        for (const { username, password } of credPairs) {
+          try {
+            const fetched = await sippy.getSippyCDRs(username, password, 2000, { startDate, endDate }, perAcctPortalUrl);
+            if (fetched && fetched.length > 0) { cdrs = fetched; xmlRpcRecordSuccess(); break; }
+          } catch { continue; }
+        }
+      }
+
+      function cdrToRow(name: string, slice: any[]) {
+        const totalCalls    = slice.length;
+        const completed     = slice.filter(c => String(c.result) === '0');
+        const billable      = completed.filter(c => (Number(c.duration) || 0) > 0);
+        const billableCalls = billable.length;
+        const durationSec   = completed.reduce((s, c) => s + (Number(c.duration) || 0), 0);
+        const acdSec        = billableCalls > 0 ? parseFloat((durationSec / billableCalls).toFixed(1)) : 0;
+        const asr           = totalCalls > 0 ? parseFloat((billableCalls / totalCalls * 100).toFixed(2)) : 0;
+        const pddArr        = completed.map(c => Number(c.pdd1xx ?? c.pdd) || 0).filter(v => v > 0);
+        const avgPdd        = pddArr.length > 0 ? parseFloat((pddArr.reduce((a, b) => a + b, 0) / pddArr.length).toFixed(2)) : 0;
+        const amount        = parseFloat(completed.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0).toFixed(4));
+        return { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount };
+      }
+
+      // Try portal for vendor connection names
+      let baseRows: ReturnType<typeof cdrToRow>[] = [];
+      try {
+        const portalUser = settings?.portalUsername ?? '';
+        const portalPass = settings?.portalPassword ?? '';
+        const adminUser  = settings?.apiAdminUsername ?? '';
+        const adminPass  = settings?.apiAdminPassword ?? '';
+        const portal = await sippy.getSippyPerAccountStats(portalUser, portalPass, period, adminUser, adminPass);
+        if (portal.ok && portal.vendors.length > 0) {
+          const hasData = portal.vendors.some(v => v.totalCalls > 0);
+          if (hasData) {
+            baseRows = portal.vendors.map(v => ({
+              name: v.name, totalCalls: v.totalCalls, billableCalls: v.billableCalls,
+              durationSec: v.durationSec, acdSec: v.acdSec, asr: v.asr, avgPdd: v.avgPdd, amount: v.amount,
+            }));
+          }
+        }
+      } catch { /* fall through to CDR */ }
+
+      if (baseRows.length === 0) {
+        // Group CDRs by connection name (carrier) as fallback
+        const groups: Record<string, any[]> = {};
+        for (const c of cdrs) {
+          const key = c.carrier || c.connName || c.vendorName || 'Unknown';
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(c);
+        }
+        if (Object.keys(groups).length > 0) {
+          baseRows = Object.entries(groups).map(([name, slice]) => cdrToRow(name, slice));
+        } else {
+          baseRows = [cdrToRow('All Connections', cdrs)];
+        }
+      }
+
+      // ── Carrier Intelligence computation ──────────────────────────────────────
+      function computeHealthScore(r: { asr: number; acdSec: number; avgPdd: number; totalCalls: number }): number {
+        if (r.totalCalls === 0) return 0;
+        const confidence = Math.min(1, Math.log10(r.totalCalls + 1) / 2);
+        const asrScore   = Math.min(100, (r.asr / 50) * 100);
+        const acdScore   = Math.min(100, (Math.min(r.acdSec, 120) / 120) * 100);
+        const pddScore   = Math.max(0, 100 - (r.avgPdd / 10) * 100);
+        const raw = (asrScore * 0.35) + (acdScore * 0.30) + (pddScore * 0.15) + (confidence * 10 * 0.20);
+        return Math.max(0, Math.min(100, Math.round(raw)));
+      }
+
+      function computeFasSeverity(asr: number, acdSec: number): string | null {
+        if (asr > 55 && acdSec > 0 && acdSec < 30) return 'CRITICAL';
+        if (asr > 45 && acdSec > 0 && acdSec < 45) return 'MEDIUM';
+        if (asr > 35 && acdSec > 0 && acdSec < 60) return 'LOW';
+        return null;
+      }
+
+      function computeState(r: { asr: number; acdSec: number; totalCalls: number }, score: number, fas: string | null): string {
+        if (r.totalCalls === 0) return 'UNSCORED';
+        if (fas === 'CRITICAL' || fas === 'MEDIUM') return 'FAS_RISK';
+        if (r.totalCalls >= 10 && r.asr === 0) return 'CRITICAL';
+        if (score >= 75) return 'HEALTHY';
+        if (score >= 55) return 'STABLE';
+        if (score >= 35) return 'DEGRADED';
+        return 'CRITICAL';
+      }
+
+      function computeHealthBand(score: number): string {
+        if (score >= 90) return 'excellent';
+        if (score >= 70) return 'stable';
+        if (score >= 50) return 'warning';
+        if (score > 0)   return 'critical';
+        return 'unscored';
+      }
+
+      function computeConfidence(calls: number): string {
+        if (calls >= 100) return 'HIGH';
+        if (calls >= 20)  return 'MEDIUM';
+        if (calls > 0)    return 'LOW';
+        return 'NONE';
+      }
+
+      function computeRecommendation(state: string, fas: string | null, asr: number, calls: number): string | null {
+        if (fas === 'CRITICAL') return 'INVESTIGATE_FAS';
+        if (fas === 'MEDIUM')   return 'INVESTIGATE_FAS';
+        if (fas === 'LOW')      return 'MONITOR_FAS';
+        if (calls >= 30 && asr === 0) return 'SUPPRESS_ROUTE';
+        if (state === 'CRITICAL') return 'PENALIZE_PRIORITY';
+        if (state === 'DEGRADED') return 'MONITOR_CLOSELY';
+        return null;
+      }
+
+      const connections = baseRows.map((r, idx) => {
+        const healthScore    = computeHealthScore(r);
+        const fasSeverity    = computeFasSeverity(r.asr, r.acdSec);
+        const state          = computeState(r, healthScore, fasSeverity);
+        const healthBand     = computeHealthBand(healthScore);
+        const confidenceLevel= computeConfidence(r.totalCalls);
+        const recommendation = computeRecommendation(state, fasSeverity, r.asr, r.totalCalls);
+        const flags: string[] = [];
+        if (fasSeverity)                          flags.push(`FAS_${fasSeverity}`);
+        if (r.totalCalls >= 30 && r.asr === 0)    flags.push('ZERO_ASR');
+        if (r.totalCalls > 0 && r.asr > 90)       flags.push('VERY_HIGH_ASR');
+        return {
+          id:              idx + 1,
+          connectionName:  r.name,
+          totalCalls:      r.totalCalls,
+          connectedCalls:  r.billableCalls,
+          asr:             r.asr,
+          acd:             r.acdSec,
+          pdd:             r.avgPdd,
+          cost:            r.amount,
+          healthScore,
+          healthBand,
+          state,
+          fasSeverity,
+          confidenceLevel,
+          recommendation,
+          flags,
+        };
+      }).sort((a, b) => {
+        // Critical first, then by health score ascending (worst → best)
+        const stateOrder: Record<string, number> = { CRITICAL: 0, FAS_RISK: 1, DEGRADED: 2, STABLE: 3, HEALTHY: 4, UNSCORED: 5 };
+        const ao = stateOrder[a.state] ?? 5;
+        const bo = stateOrder[b.state] ?? 5;
+        if (ao !== bo) return ao - bo;
+        return a.healthScore - b.healthScore;
+      });
+
+      const summary = {
+        total:        connections.length,
+        healthy:      connections.filter(c => c.state === 'HEALTHY').length,
+        stable:       connections.filter(c => c.state === 'STABLE').length,
+        degraded:     connections.filter(c => c.state === 'DEGRADED').length,
+        critical:     connections.filter(c => c.state === 'CRITICAL').length,
+        fasRisk:      connections.filter(c => c.state === 'FAS_RISK').length,
+        unscored:     connections.filter(c => c.state === 'UNSCORED').length,
+        needsAction:  connections.filter(c => c.recommendation !== null).length,
+      };
+
+      res.json({ ok: true, period: `${period} min`, fetchedAt: new Date().toISOString(), summary, connections });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message, connections: [], summary: {} });
+    }
+  });
+
   // GET /api/sippy/call-stats — lightweight active call count summary (getAccountCallStats)
   // Root-only (all accounts). Returns { i_account: [total, connected] }
   app.get('/api/sippy/call-stats', async (_req, res) => {

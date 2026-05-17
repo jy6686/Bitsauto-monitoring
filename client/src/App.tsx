@@ -96,6 +96,7 @@ import ResellerPage from "@/pages/reseller";
 import CompliancePage from "@/pages/compliance";
 import SmsMonitorPage from "@/pages/sms-monitor";
 import AiOpsPage from "@/pages/ai-ops";
+import CarrierIntelligencePage from "@/pages/carrier-intelligence";
 import IntelligencePage from "@/pages/intelligence";
 import RtpAnalyticsPage from "@/pages/rtp-analytics";
 import ReplayEnginePage from "@/pages/replay";
@@ -404,6 +405,9 @@ function Router() {
       </Route>
       <Route path="/ai-ops">
         {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management']} mgmtFeature="ai_ops" />}
+      </Route>
+      <Route path="/carrier-intelligence">
+        {() => <ProtectedRoute component={CarrierIntelligencePage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/intelligence">
         {() => <ProtectedRoute component={IntelligencePage} requiredRoles={['admin','management']} />}
