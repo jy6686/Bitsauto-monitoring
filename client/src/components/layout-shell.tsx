@@ -142,147 +142,148 @@ const NAV_PINNED_BOTTOM: NavItem[] = [
 ];
 
 export const SIDEBAR_GROUPS: NavGroup[] = [
-  // ─── 1. Live Operations ──────────────────────────────────────────────────────
+  // ─── 1. Company ──────────────────────────────────────────────────────────────
   {
-    key: 'live_ops',
-    label: 'Live Operations',
+    key: 'company',
+    label: 'Company',
+    roles: ['admin','management'],
+    items: [
+      { href: "/company/list",    label: "Company Profile", icon: Building2,     roles: ['admin','management'], hasSubmenu: 'company_grp' as const },
+      { href: "/clients",         label: "Accounts",        icon: Users,         roles: ['admin','management']                                      },
+      { href: "/balance",         label: "Balance",         icon: Wallet,        roles: ['admin','management']                                      },
+      { href: "/client-portal",   label: "Client Portal",   icon: Globe,         roles: ['admin','management']                                      },
+      { href: "/dids",            label: "DID Management",  icon: PhoneIncoming, roles: ['admin','management']                                      },
+      { href: "/client/wizard",   label: "Create Account",  icon: UserPlus,      roles: ['admin','management']                                      },
+    ],
+  },
+  // ─── 2. Operations (Execution Layer) ─────────────────────────────────────────
+  {
+    key: 'operations',
+    label: 'Operations',
+    roles: ['admin','management'],
+    items: [
+      { href: "/routing-manager",                      label: "Routing Manager",   icon: Database,    roles: ['admin','management'], hasSubmenu: 'routingmgr'                              },
+      { href: "/vendors",                              label: "Vendors",            icon: Building2,   roles: ['admin','management']                                                         },
+      { href: "/routing-manager?tab=connections",      label: "Connections",        icon: Network,     roles: ['admin','management']                                                         },
+      { href: "/routing-manager?tab=destination-sets", label: "Destination Sets",   icon: Layers,      roles: ['admin','management']                                                         },
+      { href: "/lcr-analyser",                         label: "LCR Analyser",       icon: GitBranch,   roles: ['admin','management']                                                         },
+      { href: "/self-heal",                            label: "Self-Heal Routes",   icon: HeartPulse,  roles: ['admin','management'], isNew: true                                           },
+      { href: "/approvals",                            label: "Approval Queue",     icon: ShieldCheck, roles: ['admin','management','super_admin','noc_operator','team_lead'], status: 'live' },
+      { href: "/rate-cards",                           label: "Rate Cards",         icon: CreditCard,  roles: ['admin','management'], hasSubmenu: 'ratecards'                               },
+      { href: "/company-profile",                      label: "Rate Plan",          icon: ContactRound,roles: ['admin','management']                                                         },
+    ],
+  },
+  // ─── 3. Live Network ─────────────────────────────────────────────────────────
+  {
+    key: 'live_network',
+    label: 'Live Network',
     roles: ['admin','management','viewer'],
     items: [
       { href: "/calls",        label: "Live Calls",        icon: Phone,    roles: ['admin','management','viewer'], hasSubmenu: 'calls', status: 'live' },
-      { href: "/alerts",       label: "Alerts",            icon: Bell,     roles: ['admin','management']          },
-      { href: "/sbc-monitor",  label: "SBC Monitor",       icon: Network,  roles: ['admin','management']          },
-      { href: "/ai-ops",               label: "AI Ops Center",        icon: Bot,        roles: ['admin','management'], isNew: true },
-      { href: "/carrier-intelligence", label: "Carrier Intelligence",  icon: Activity,   roles: ['admin','management'], isNew: true },
-      { href: "/intelligence",         label: "Intelligence Hub",      icon: Brain,      roles: ['admin','management'], isNew: true },
-      { href: "/noc-command",  label: "NOC View",          icon: Monitor,  roles: ['admin','management'], isNew: true },
-      { href: "/multi-switch", label: "Multi-Switch View", icon: Layers,   roles: ['admin','management']          },
+      { href: "/alerts",       label: "Alerts",            icon: Bell,     roles: ['admin','management']                                              },
+      { href: "/sbc-monitor",  label: "SBC Monitor",       icon: Network,  roles: ['admin','management']                                              },
+      { href: "/traffic-map",  label: "Traffic Map",       icon: Globe,    roles: ['admin','management']                                              },
+      { href: "/multi-switch", label: "Multi-Switch View", icon: Layers,   roles: ['admin','management']                                              },
+      { href: "/noc-command",  label: "NOC View",          icon: Monitor,  roles: ['admin','management'], isNew: true                                 },
     ],
   },
-  // ─── 2. Client Operations ────────────────────────────────────────────────────
+  // ─── 4. Intelligence (observation + health signals) ──────────────────────────
   {
-    key: 'client_ops',
-    label: 'Client Operations',
+    key: 'intelligence',
+    label: 'Intelligence',
     roles: ['admin','management'],
     items: [
-      { href: "/company-profile", label: "Rate Plan",      icon: ContactRound,  roles: ['admin','management']                        },
-      { href: "/clients",         label: "Accounts",       icon: Users,         roles: ['admin','management']                        },
-      { href: "/balance",         label: "Balance",        icon: Wallet,        roles: ['admin','management']                        },
-      { href: "/client-portal",   label: "Client Portal",  icon: Globe,         roles: ['admin','management']                        },
-      { href: "/bitseye",         label: "BitsEye",        icon: Eye,           roles: ['admin','management'], hasSubmenu: 'bitseye' },
-      { href: "/traffic-map",     label: "Traffic Map",    icon: Globe,         roles: ['admin','management']                        },
-      { href: "/dids",            label: "DID Management", icon: PhoneIncoming, roles: ['admin','management']                        },
+      { href: "/carrier-intelligence",      label: "Carrier Intelligence", icon: Activity,  roles: ['admin','management'], isNew: true },
+      { href: "/carrier-scoring",           label: "Carrier Scoring",      icon: BarChart3, roles: ['admin','management'], isNew: true },
+      { href: "/intelligence",              label: "Intelligence Hub",     icon: Brain,     roles: ['admin','management'], isNew: true },
+      { href: "/ai-ops?tab=decision-overlay", label: "Decision Overlay",  icon: Eye,       roles: ['admin','management'], isNew: true },
     ],
   },
-  // ─── 2b. Account Management ──────────────────────────────────────────────────
+  // ─── 5. AI Ops (anomaly + interpretation) ────────────────────────────────────
   {
-    key: 'account_mgmt',
-    label: 'Account Management',
+    key: 'ai_ops',
+    label: 'AI Ops',
     roles: ['admin','management'],
     items: [
-      { href: "/company/list",  label: "Company", icon: Building2, roles: ['admin','management'], hasSubmenu: 'company_grp' as const },
-      { href: "/client/wizard", label: "Client",  icon: Users,     roles: ['admin','management'], hasSubmenu: 'client_grp'  as const },
+      { href: "/ai-ops",  label: "AI Ops Center", icon: Bot,        roles: ['admin','management'], isNew: true },
+      { href: "/fraud",   label: "Fraud / FAS",   icon: ShieldAlert,roles: ['admin','management']              },
     ],
   },
-  // ─── 3. Vendor Operations ────────────────────────────────────────────────────
+  // ─── 6. Simulation (what-if — isolated, read-only) ───────────────────────────
   {
-    key: 'vendor_ops',
-    label: 'Vendor Operations',
+    key: 'simulation',
+    label: 'Simulation',
     roles: ['admin','management'],
     items: [
-      { href: "/vendors",                               label: "Vendors",            icon: Building2,     roles: ['admin','management'] },
-      { href: "/routing-manager?tab=connections",       label: "Connections",        icon: Network,       roles: ['admin','management'] },
-      { href: "/routing-manager?tab=destination-sets",  label: "Destination Sets",   icon: Layers,        roles: ['admin','management'] },
-      { href: "/routing-manager?tab=routing-groups",    label: "Routing Groups",     icon: Database,      roles: ['admin','management'] },
-      { href: "/tools?tab=translation",                 label: "Translation Tester", icon: ArrowRightLeft,roles: ['admin','management'] },
+      { href: "/routing-manager?tab=impact-sim",  label: "Impact Simulator",  icon: Zap,         roles: ['admin','management'], isNew: true },
+      { href: "/routing-manager?tab=policy-sim",  label: "Policy Simulator",  icon: Calculator,  roles: ['admin','management']              },
+      { href: "/call-flow-simulator",             label: "Call Flow Sim",     icon: Workflow,    roles: ['admin','management']              },
     ],
   },
-  // ─── 4. Routing & LCR ────────────────────────────────────────────────────────
-  {
-    key: 'routing',
-    label: 'Routing & LCR',
-    roles: ['admin','management'],
-    items: [
-      { href: "/routing-manager",  label: "Routing Manager",  icon: Database,    roles: ['admin','management'], hasSubmenu: 'routingmgr'                                     },
-      { href: "/lcr-analyser",     label: "LCR Analyser",     icon: GitBranch,   roles: ['admin','management']                                                               },
-      { href: "/self-heal",        label: "Self-Heal Routes",  icon: HeartPulse,  roles: ['admin','management'], isNew: true                                                  },
-      { href: "/approvals",        label: "Approval Queue",   icon: ShieldCheck, roles: ['admin','management','super_admin','noc_operator','team_lead'], status: 'live'       },
-      { href: "/carrier-scoring",  label: "Carrier Scoring",  icon: BarChart3,   roles: ['admin','management'], isNew: true                                                  },
-    ],
-  },
-  // ─── 5. Analytics & Reporting ────────────────────────────────────────────────
+  // ─── 7. Analytics ────────────────────────────────────────────────────────────
   {
     key: 'analytics',
-    label: 'Analytics & Reporting',
+    label: 'Analytics',
     roles: ['admin','management'],
     items: [
-      { href: "/analytics",        label: "Revenue Analytics",  icon: TrendingUp, roles: ['admin','management']                    },
-      { href: "/cdrs",             label: "CDR Viewer",         icon: FileText,   roles: ['admin','management'], hasSubmenu: 'cdr' },
-      { href: "/graphs",           label: "Graphs",             icon: LineChart,  roles: ['admin','management']                    },
-      { href: "/qos-heatmap",      label: "QoS Heatmap",        icon: Activity,   roles: ['admin','management']                    },
-      { href: "/revenue-heatmap",  label: "Revenue Heatmap",    icon: Globe,      roles: ['admin','management'], isNew: true      },
-      { href: "/codec-analytics",  label: "Codec Analytics",    icon: Radio,      roles: ['admin','management'], isNew: true      },
-      { href: "/traffic-forecast", label: "Traffic Forecast",   icon: TrendingUp, roles: ['admin','management'], isNew: true      },
-      { href: "/reports",          label: "Reports",            icon: BarChart2,  roles: ['admin','management']                    },
+      { href: "/analytics",        label: "Revenue Analytics",  icon: TrendingUp,  roles: ['admin','management']                    },
+      { href: "/cdrs",             label: "CDR Viewer",         icon: FileText,    roles: ['admin','management'], hasSubmenu: 'cdr' },
+      { href: "/graphs",           label: "Graphs",             icon: LineChart,   roles: ['admin','management']                    },
+      { href: "/qos-heatmap",      label: "QoS Heatmap",        icon: Activity,    roles: ['admin','management']                    },
+      { href: "/revenue-heatmap",  label: "Revenue Heatmap",    icon: Globe,       roles: ['admin','management'], isNew: true      },
+      { href: "/codec-analytics",  label: "Codec Analytics",    icon: Radio,       roles: ['admin','management'], isNew: true      },
+      { href: "/traffic-forecast", label: "Traffic Forecast",   icon: TrendingUp,  roles: ['admin','management'], isNew: true      },
+      { href: "/reports",          label: "Reports",            icon: BarChart2,   roles: ['admin','management']                    },
+      { href: "/bitseye",          label: "BitsEye",            icon: Eye,         roles: ['admin','management'], hasSubmenu: 'bitseye' },
+      { href: "/cost-optimisation",label: "Cost Optimisation",  icon: Lightbulb,   roles: ['admin','management']                    },
     ],
   },
-  // ─── 6. Troubleshooting ──────────────────────────────────────────────────────
+  // ─── 8. Troubleshooting (keep cohesive — do not fragment) ────────────────────
   {
     key: 'troubleshooting',
     label: 'Troubleshooting',
     roles: ['admin','management'],
     items: [
-      { href: "/sip-trace",           label: "SIP Trace Viewer",   icon: GitBranch,  roles: ['admin','management'], isNew: true              },
-      { href: "/rtp-analytics",       label: "RTP Analytics",      icon: Radio,      roles: ['admin','management']                           },
-      { href: "/replay",              label: "Replay Engine",      icon: Rewind,     roles: ['admin','management'], isNew: true              },
-      { href: "/server-monitoring",   label: "Server Monitoring",  icon: Server,     roles: ['admin','management'], hasSubmenu: 'monitoring' },
-      { href: "/network-topology",    label: "Network Topology",   icon: Network,    roles: ['admin','management'], isNew: true              },
-      { href: "/number-intelligence", label: "Number Intelligence",icon: ScanSearch, roles: ['admin','management']                           },
-      { href: "/test-call",           label: "Test Suite",         icon: PhoneCall,  roles: ['admin','management'], hasSubmenu: 'testing'    },
-      { href: "/call-flow-simulator", label: "Call Flow Sim",      icon: Workflow,   roles: ['admin','management']                           },
-      { href: "/tools",               label: "Tools",              icon: Wrench,     roles: ['admin','management'], hasSubmenu: 'tools' as SubmenuType },
+      { href: "/sip-trace",           label: "SIP Trace Viewer",    icon: GitBranch,  roles: ['admin','management'], isNew: true              },
+      { href: "/rtp-analytics",       label: "RTP Analytics",       icon: Radio,      roles: ['admin','management']                           },
+      { href: "/replay",              label: "Replay Engine",       icon: Rewind,     roles: ['admin','management'], isNew: true              },
+      { href: "/server-monitoring",   label: "Server Monitoring",   icon: Server,     roles: ['admin','management'], hasSubmenu: 'monitoring' },
+      { href: "/network-topology",    label: "Network Topology",    icon: Network,    roles: ['admin','management'], isNew: true              },
+      { href: "/number-intelligence", label: "Number Intelligence", icon: ScanSearch, roles: ['admin','management']                           },
+      { href: "/test-call",           label: "Test Suite",          icon: PhoneCall,  roles: ['admin','management'], hasSubmenu: 'testing'    },
+      { href: "/tools",               label: "Tools",               icon: Wrench,     roles: ['admin','management'], hasSubmenu: 'tools' as SubmenuType },
     ],
   },
-  // ─── 7. Security & Compliance ────────────────────────────────────────────────
+  // ─── 9. Security & Compliance ────────────────────────────────────────────────
   {
     key: 'security',
     label: 'Security & Compliance',
     roles: ['admin','management'],
     items: [
-      { href: "/fraud",                label: "Fraud / FAS",      icon: ShieldAlert,   roles: ['admin','management'] },
       { href: "/audit-log",            label: "Audit Log",        icon: ClipboardList, roles: ['admin','management'], isNew: true },
-      { href: "/stir-shaken",          label: "STIR/SHAKEN",      icon: Lock,          roles: ['admin','management'] },
-      { href: "/call-recordings",      label: "Call Recordings",  icon: Mic,           roles: ['admin','management'] },
-      { href: "/vendor-sla-scorecard", label: "SLA Management",   icon: ShieldCheck,   roles: ['admin','management'] },
-      { href: "/firewall",             label: "Firewall Manager", icon: Shield,        roles: ['admin','management'] },
-      { href: "/compliance",           label: "Compliance",       icon: FileCheck2,    roles: ['admin','management'] },
+      { href: "/stir-shaken",          label: "STIR/SHAKEN",      icon: Lock,          roles: ['admin','management']              },
+      { href: "/call-recordings",      label: "Call Recordings",  icon: Mic,           roles: ['admin','management']              },
+      { href: "/vendor-sla-scorecard", label: "SLA Management",   icon: ShieldCheck,   roles: ['admin','management']              },
+      { href: "/firewall",             label: "Firewall Manager", icon: Shield,        roles: ['admin','management']              },
+      { href: "/compliance",           label: "Compliance",       icon: FileCheck2,    roles: ['admin','management']              },
     ],
   },
-  // ─── 8. Finance & Billing ────────────────────────────────────────────────────
-  {
-    key: 'finance',
-    label: 'Finance & Billing',
-    roles: ['admin','management'],
-    items: [
-      { href: "/cost-optimisation", label: "Cost Optimisation", icon: Lightbulb,  roles: ['admin','management']                   },
-      { href: "/billing-disputes",  label: "Billing Disputes",  icon: FileText,   roles: ['admin','management']                   },
-      { href: "/rate-cards",        label: "Rate Cards",        icon: CreditCard, roles: ['admin','management'], hasSubmenu: 'ratecards' },
-      { href: "/products",          label: "Products",          icon: Package,    roles: ['admin','management']                   },
-    ],
-  },
-  // ─── 9. Platform ─────────────────────────────────────────────────────────────
+  // ─── 10. Platform ────────────────────────────────────────────────────────────
   {
     key: 'platform',
     label: 'Platform',
     roles: ['admin','management'],
     items: [
-      { href: "/settings",         label: "Settings",      icon: Settings,         roles: ['admin'],             hasSubmenu: 'settings'      },
-      { href: "/team",             label: "Team & KAM",    icon: Users,            roles: ['admin']                                          },
-      { href: "/reseller",         label: "Reseller Mgmt", icon: Layers,           roles: ['admin','management']                             },
-      { href: "/api-keys",         label: "API Keys",      icon: Key,              roles: ['admin']                                          },
-      { href: "/vpn-config",       label: "VPN Config",    icon: Lock,             roles: ['admin']                                          },
-      { href: "/email-centre",     label: "Notifications", icon: Mail,             roles: ['admin'],             hasSubmenu: 'notifications' },
-      { href: "/sms-monitor",      label: "SMS / A2P",     icon: MessageCircle,    roles: ['admin','management'], status: 'planned'          },
-      { href: "/sidebar-settings", label: "Sidebar Menu",  icon: SlidersHorizontal,roles: ['admin']                                          },
+      { href: "/settings",         label: "Settings",      icon: Settings,         roles: ['admin'],              hasSubmenu: 'settings'      },
+      { href: "/team",             label: "Team & KAM",    icon: Users,            roles: ['admin']                                           },
+      { href: "/reseller",         label: "Reseller Mgmt", icon: Layers,           roles: ['admin','management']                              },
+      { href: "/api-keys",         label: "API Keys",      icon: Key,              roles: ['admin']                                           },
+      { href: "/vpn-config",       label: "VPN Config",    icon: Lock,             roles: ['admin']                                           },
+      { href: "/email-centre",     label: "Notifications", icon: Mail,             roles: ['admin'],              hasSubmenu: 'notifications' },
+      { href: "/products",         label: "Products",      icon: Package,          roles: ['admin','management']                              },
+      { href: "/billing-disputes", label: "Billing",       icon: FileText,         roles: ['admin','management']                              },
+      { href: "/sms-monitor",      label: "SMS / A2P",     icon: MessageCircle,    roles: ['admin','management'],  status: 'planned'          },
+      { href: "/sidebar-settings", label: "Sidebar Menu",  icon: SlidersHorizontal,roles: ['admin']                                           },
     ],
   },
 ];
@@ -320,29 +321,29 @@ const DEFAULT_GROUP_ORDER = SIDEBAR_GROUPS.map(g => g.key);
 
 // ── Icon accent per group ──────────────────────────────────────────────────────
 const GROUP_TINT: Record<string, string> = {
-  live_ops:        'text-emerald-400',
-  client_ops:      'text-amber-400',
-  account_mgmt:    'text-amber-300',
-  vendor_ops:      'text-cyan-400',
-  routing:         'text-blue-400',
-  analytics:       'text-violet-400',
+  company:         'text-amber-400',
+  operations:      'text-blue-400',
+  live_network:    'text-emerald-400',
+  intelligence:    'text-cyan-400',
+  ai_ops:          'text-violet-400',
+  simulation:      'text-orange-400',
+  analytics:       'text-indigo-400',
   troubleshooting: 'text-orange-400',
   security:        'text-rose-400',
-  finance:         'text-green-400',
   platform:        'text-slate-400',
 };
 
 // Static bg mapping — must be explicit so Tailwind includes them in the bundle
 const GROUP_DOT_BG: Record<string, string> = {
-  live_ops:        'bg-emerald-400',
-  client_ops:      'bg-amber-400',
-  account_mgmt:    'bg-amber-300',
-  vendor_ops:      'bg-cyan-400',
-  routing:         'bg-blue-400',
-  analytics:       'bg-violet-400',
+  company:         'bg-amber-400',
+  operations:      'bg-blue-400',
+  live_network:    'bg-emerald-400',
+  intelligence:    'bg-cyan-400',
+  ai_ops:          'bg-violet-400',
+  simulation:      'bg-orange-400',
+  analytics:       'bg-indigo-400',
   troubleshooting: 'bg-orange-400',
   security:        'bg-rose-400',
-  finance:         'bg-green-400',
   platform:        'bg-slate-400',
 };
 
