@@ -3564,6 +3564,35 @@ export async function registerRoutes(
       return { name: 'Total', totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd: 0, amount };
     }
 
+    // Build a country→connection lookup from the connection name cache.
+    // Connection names often embed the destination country (e.g. "XYC-Pakistan").
+    // When a portal-scraped CDR has no iConnection, we use the CDR's country field
+    // to find the best-matching connection by substring search.
+    // Map: normalised-country → { vendorName, connName }
+    const countryConnMap = new Map<string, { vendorName: string; connName: string }>();
+    for (const [key, connName] of connectionNameCache.entries()) {
+      const vendorName = connectionVendorCache.get(key) || connectionVendorCache.get(connName) || '';
+      if (!vendorName || !connName) continue;
+      // Extract potential country keywords from the connection name.
+      // Split on common separators and collect tokens >= 3 chars.
+      const tokens = connName.replace(/[-_./()]/g, ' ').split(/\s+/).filter(t => t.length >= 3);
+      for (const tok of tokens) {
+        const lower = tok.toLowerCase();
+        if (!countryConnMap.has(lower)) {
+          countryConnMap.set(lower, { vendorName, connName });
+        }
+      }
+    }
+
+    // Also build a flat list of all (vendorName, connName) pairs for full-name matching.
+    const allConns: { vendorName: string; connName: string }[] = [];
+    for (const [key, connName] of connectionNameCache.entries()) {
+      const vendorName = connectionVendorCache.get(key) || connectionVendorCache.get(connName) || '';
+      if (vendorName && connName && !allConns.some(c => c.connName === connName)) {
+        allConns.push({ vendorName, connName });
+      }
+    }
+
     // Helper: resolve origination key from a CDR based on groupOrig
     function origKey(cdr: any): string {
       const accountName = cdr.clientName
@@ -3578,22 +3607,45 @@ export async function registerRoutes(
     // Helper: resolve termination key from a CDR based on groupTerm
     function termKey(cdr: any): string {
       if (groupTerm === 'none') return 'All Termination';
+
+      // ── Primary: use iConnection if present in CDR (XML-RPC path) ──────────
       const connId = String(cdr.iConnection ?? '');
-      const vendorName = (connId ? connectionVendorCache.get(connId) : undefined) || cdr.vendor || '';
-      const connName   = (connId ? connectionNameCache.get(connId)   : undefined) || '';
-      // If we have connection-level data, use it
-      if (groupTerm === 'vendor') {
-        if (vendorName) return vendorName;
-        // Fallback: country from portal-scraped CDRs
-        return cdr.country ? `(${cdr.country})` : 'Unresolved';
+      const vendorNameDirect = (connId ? connectionVendorCache.get(connId) : undefined) || cdr.vendor || '';
+      const connNameDirect   = (connId ? connectionNameCache.get(connId)   : undefined) || '';
+      if (vendorNameDirect) {
+        if (groupTerm === 'vendor') return vendorNameDirect;
+        return connNameDirect ? `${vendorNameDirect} / ${connNameDirect}` : vendorNameDirect;
       }
-      // connection (default)
-      if (vendorName && connName) return `${vendorName} / ${connName}`;
-      if (vendorName)             return vendorName;
-      if (connName)               return connName;
-      if (connId)                 return `Connection#${connId}`;
-      // Fallback: country from portal-scraped CDRs (i_connection not in portal CDR data)
-      return cdr.country ? `(${cdr.country})` : 'Unresolved';
+
+      // ── Secondary: match by CDR country against connection name tokens ──────
+      // Portal-scraped CDRs have no iConnection; use the country field to find
+      // the best-matching connection (e.g. country "Pakistan" → "XYC-Pakistan").
+      const country = (cdr.country || '').trim();
+      if (country) {
+        const lc = country.toLowerCase();
+        // 1. Direct token match
+        const tokenMatch = countryConnMap.get(lc);
+        if (tokenMatch) {
+          if (groupTerm === 'vendor') return tokenMatch.vendorName;
+          return `${tokenMatch.vendorName} / ${tokenMatch.connName}`;
+        }
+        // 2. Substring match — country appears anywhere in the connection name
+        const subMatch = allConns.find(c => c.connName.toLowerCase().includes(lc));
+        if (subMatch) {
+          if (groupTerm === 'vendor') return subMatch.vendorName;
+          return `${subMatch.vendorName} / ${subMatch.connName}`;
+        }
+        // 3. Partial token match — a connection name token appears in the country string
+        for (const [tok, entry] of countryConnMap) {
+          if (lc.includes(tok)) {
+            if (groupTerm === 'vendor') return entry.vendorName;
+            return `${entry.vendorName} / ${entry.connName}`;
+          }
+        }
+      }
+
+      // ── Fallback: show country or "Unresolved" ────────────────────────────
+      return country || 'Unresolved';
     }
 
     // Filter CDR cache by time window + CLI/CLD text + account/vendor selectors
