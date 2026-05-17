@@ -156,6 +156,18 @@ export async function submitApprovalRequest(params: {
     note:           `Routing request submitted: ${OPERATION_LABELS[params.operationType]}${params.source !== 'manual' ? ` (source: ${params.source})` : ''}`,
   });
 
+  // ── Notification: write an alert so the approval surfaces in the Alerts page ─
+  try {
+    const label = OPERATION_LABELS[params.operationType] ?? params.operationType;
+    const who   = params.requestedByName ?? params.requestedBy;
+    await storage.createAlert({
+      type:     'approval_pending',
+      severity: 'info',
+      message:  `Approval required: ${label}${params.entityName ? ` — "${params.entityName}"` : ''} (submitted by ${who}, request #${request.id})`,
+      resolved: false,
+    } as any);
+  } catch { /* non-critical — don't fail the approval creation */ }
+
   return request;
 }
 

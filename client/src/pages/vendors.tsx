@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation, useSearch } from "wouter";
+import { useLocation, useSearch, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1063,6 +1063,14 @@ function VendorListView({ onSelect }: { onSelect: (v: SippyVendor) => void }) {
                   {fmtBalance(v.balance, v.baseCurrency)}
                 </span>
                 <div className="flex items-center justify-center gap-1.5">
+                  <Link href={`/vendors/${encodeURIComponent(v.name)}`}>
+                    <button
+                      className="flex items-center gap-1 text-xs font-medium text-sky-500 hover:text-sky-400 transition-colors px-2 py-1 rounded border border-sky-500/30 hover:border-sky-500/60"
+                      data-testid={`btn-vendor-profile-${v.iVendor}`}
+                    >
+                      <Eye className="h-3 w-3" /> Profile
+                    </button>
+                  </Link>
                   <button
                     className="flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/70 transition-colors px-2 py-1 rounded border border-primary/30 hover:border-primary/60"
                     onClick={() => onSelect(v)}

@@ -13,6 +13,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@shared/schema";
 import { Link } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -323,6 +324,8 @@ function IntelligenceView({ clusters }: { clusters: AlertCluster[] }) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AlertsPage() {
+  const { role } = useAuth();
+  const canResolve = role !== 'noc_operator';
   const { data: alerts, isLoading, dataUpdatedAt: alertsUpdatedAt, isFetching: alertsFetching } = useAlerts();
   const [filter, setFilter]     = useState<LifecycleFilter>("all");
   const [view, setView]         = useState<PageView>("list");
@@ -595,13 +598,15 @@ export default function AlertsPage() {
                               <Eye className="w-3.5 h-3.5" /> Acknowledge
                             </Button>
                           )}
-                          <Button size="sm" variant="outline"
-                            data-testid={`button-resolve-${alert.id}`}
-                            disabled={isPending}
-                            onClick={() => resolveMutation.mutate(alert.id)}
-                            className="text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10 h-7 text-xs gap-1.5">
-                            <XCircle className="w-3.5 h-3.5" /> Resolve
-                          </Button>
+                          {canResolve && (
+                            <Button size="sm" variant="outline"
+                              data-testid={`button-resolve-${alert.id}`}
+                              disabled={isPending}
+                              onClick={() => resolveMutation.mutate(alert.id)}
+                              className="text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10 h-7 text-xs gap-1.5">
+                              <XCircle className="w-3.5 h-3.5" /> Resolve
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>

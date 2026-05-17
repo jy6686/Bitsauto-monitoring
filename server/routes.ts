@@ -1331,10 +1331,12 @@ export async function registerRoutes(
     try {
       await storage.setUserRole(userId, role as Role, requesterId, teamId ?? null);
       res.json({ message: 'Role updated', userId, role, teamId: teamId ?? null });
-      writeAudit({ category: 'user', action: 'ROLE_CHANGED', actor: requesterId, actorType: 'user', targetType: 'user', targetId: userId, severity: 'warning', metadata: { newRole: role, teamId: teamId ?? null } });
-    } catch (err) {
-      res.status(500).json({ message: 'Failed to update role' });
+    } catch (err: any) {
+      console.error('[team/role] setUserRole failed:', err);
+      return res.status(500).json({ message: 'Failed to update role', detail: err?.message ?? String(err) });
     }
+    // fire-and-forget after response is sent
+    writeAudit({ category: 'user', action: 'ROLE_CHANGED', actor: requesterId, actorType: 'user', targetType: 'user', targetId: userId, severity: 'warning', metadata: { newRole: role, teamId: teamId ?? null } });
   });
 
   // GET /api/team/monitoring-assignments — all assignments (admin only)
@@ -4142,6 +4144,10 @@ export async function registerRoutes(
                 if (cleanIp && vendorName) meraByIp.set(`${vendorName}:${cleanIp}`, payload);
               }
               console.log(`[cdr-cache] Mera indexes built: byConfId=${meraByConfId.size} byIp=${meraByIp.size}`);
+              // Debug: compare sample confIds to diagnose mismatches
+              const sampleMeraIds = [...meraByConfId.keys()].filter(k => k.length > 15).slice(0, 3);
+              const sampleCdrIds  = [...cdrCache.values()].filter(c => c.callId && c.callId !== '-').slice(0, 3).map(c => c.callId);
+              console.log(`[cdr-cache] confId-sample — Mera: ${JSON.stringify(sampleMeraIds)} | CDR callIds: ${JSON.stringify(sampleCdrIds)}`);
 
               // Enrich CDRs in the cache:
               //   - Vendor name + iConnection: only set for CDRs that are currently unresolved
