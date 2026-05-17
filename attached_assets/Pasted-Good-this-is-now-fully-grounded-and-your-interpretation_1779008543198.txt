@@ -1,0 +1,192 @@
+Good — this is now fully grounded, and your interpretation is correct: Sippy stays source of truth, BitsAuto becomes a read-through intelligence + control plane UI (no persistence layer for routing).
+
+So we lock this in:
+
+No local routing DB
+No sync engine
+No write-back layer
+Sippy XML-RPC = system of record
+
+That simplifies the architecture a lot and also prevents the “dual truth” problem you correctly identified earlier.
+
+What we are actually building (clean decomposition)
+
+We are not “rebuilding routing.”
+
+We are doing a progressive UI modernization of a legacy Sippy control panel:
+
+Layer 1 — Data Plane (Sippy)
+Routing Groups
+Connections
+Destination Sets
+Entries
+Policies
+
+👉 unchanged, authoritative, remote
+
+Layer 2 — BitsAuto (read-only intelligence layer)
+Fetch via XML-RPC
+Normalize responses for UI
+Cache optionally in-memory (NOT DB)
+Provide unified API to frontend
+
+Example:
+
+GET /api/sippy/connections
+GET /api/sippy/routing-groups
+GET /api/sippy/destination-sets
+
+👉 important: this is NOT storage, only translation
+
+Layer 3 — UI (React replacement of ExtJS)
+
+We replace:
+
+conns.push([...])
+setConnectionsList()
+Ext.ComboBox
+Ext.ToolTip
+Ext.DateField
+DOM manipulation loops
+
+With:
+
+React state
+React Query
+Controlled selects
+Derived UI logic
+Correct implementation strategy (based on your doc)
+Phase 1 (DO THIS FIRST — correct entry point)
+Goal:
+
+Replace all static + imperative JS arrays with live Sippy data fetch
+
+Before (current problem)
+var conns = [];
+conns.push([139, 26936, 'ASTRA-BD-PR-PR(In2net)']);
+function setConnectionsList(id) {
+  for (i = 0; i < conns.length; i++) {
+    if (conns[i][0] == id) {
+      addOption(...)
+    }
+  }
+}
+
+👉 global mutation + DOM injection + no state model
+
+After (correct model)
+const { data: connections } = useQuery({
+  queryKey: ['sippy-connections'],
+  queryFn: fetchConnectionsFromSippy
+});
+
+Then derive:
+
+const filteredConnections = useMemo(() => {
+  return connections?.filter(c => c.vendorId === selectedVendorId) ?? [];
+}, [connections, selectedVendorId]);
+
+And render:
+
+<select>
+  {filteredConnections.map(c => (
+    <option value={c.id}>
+      {c.name}
+    </option>
+  ))}
+</select>
+Backend (minimal required change)
+
+You already likely have Sippy sync logic in:
+
+sippy.ts
+or XML-RPC client layer used by Carrier Intelligence
+
+We just reuse it, not expand it.
+
+Add only:
+
+GET /api/sippy/connections?vendorId=139
+
+OR better (cleaner):
+
+GET /api/sippy/connections
+
+and filter on frontend.
+
+Phase 2 (UI modernization)
+
+Replace ExtJS blocks:
+
+Remove:
+Ext.ComboBox
+Ext.ToolTip
+Ext.DateField
+Ext.namespace
+Ext.onReady
+Replace with:
+React component lifecycle
+shadcn/ui (or native selects initially)
+React Hook Form (optional later)
+Phase 3 (future — DO NOT BUILD YET)
+
+This is where AI Ops eventually plugs in:
+
+“What-if routing simulation”
+“Suppress route recommendation overlay”
+“Compare routing policies impact”
+
+But important:
+
+These are not execution actions
+They are advisory overlays only
+
+Key architectural rule (now locked)
+
+From your latest clarification:
+
+Carrier Intelligence = Observe
+AI Ops = Recommend
+Routing Manager = Execute (via Sippy only)
+
+So:
+
+Carrier Intelligence ❌ does NOT suppress routes
+AI Ops ❌ does NOT write routing
+Routing Manager UI ❌ does NOT compute health
+
+Each system has one job.
+
+What I recommend next step (very specific)
+
+Start with Phase 1 only, but scoped tightly:
+
+First migration target:
+
+👉 setConnectionsList(id) + conns[]
+
+Because:
+
+It is the highest entropy legacy logic
+It directly affects dropdown correctness
+It blocks all further UI cleanup
+Before I write code
+
+I need one confirmation:
+
+Do you want Phase 1 implemented as:
+
+Option A (safer incremental)
+
+Replace only:
+
+Connections dropdown
+Keep rest of routing page unchanged
+Option B (full Phase 1 sweep)
+
+Replace:
+
+Connections
+Vendors
+Destination sets
+Routing entries table data source (read-only)
