@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useLiveTrafficWs } from "@/hooks/use-live-traffic-ws";
@@ -108,7 +109,15 @@ function TrafficTable({ title, icon, rows, emptyMsg, testIdPrefix }: TrafficTabl
                   )}
                 >
                   <td className="px-4 py-2 font-medium truncate max-w-[180px]" title={row.name}>
-                    {row.name}
+                    {row.iConnection ? (
+                      <Link
+                        href={`/routing-manager?tab=connections&iConnection=${row.iConnection}`}
+                        className="hover:text-primary hover:underline transition-colors"
+                        data-testid={`link-traffic-conn-${row.iConnection}`}
+                      >
+                        {row.name}
+                      </Link>
+                    ) : row.name}
                   </td>
                   <td className="text-right px-3 py-2 tabular-nums">{row.calls.toLocaleString()}</td>
                   <td className="text-right px-3 py-2 tabular-nums">{row.billable.toLocaleString()}</td>

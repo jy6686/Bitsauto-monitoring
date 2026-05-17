@@ -217,6 +217,8 @@ const connectionIpToNameCache: Map<string, string> = new Map();
 const connectionToVendorIdCache: Map<string, number> = new Map();
 // vendor SIP peer host (IP) → iConnection — bridges IP-resolved portal CDRs to their connection ID.
 const connectionIpToConnectionIdCache: Map<string, number> = new Map();
+// connection name (string) → iConnection — reverse-lookup for name-keyed entity systems (entity-verdict, live traffic).
+const connectionNameToIdCache: Map<string, number> = new Map();
 
 let _connVendorCacheRunning = false;
 async function refreshConnectionVendorCache(): Promise<void> {
@@ -242,6 +244,7 @@ async function refreshConnectionVendorCache(): Promise<void> {
     connectionIpToNameCache.clear();
     connectionToVendorIdCache.clear();
     connectionIpToConnectionIdCache.clear();
+    connectionNameToIdCache.clear();
     await Promise.all(vendors.map(async (v: any) => {
       if (!v.iVendor) return;
       const vendorName = v.name ?? `Vendor#${v.iVendor}`;
@@ -258,6 +261,8 @@ async function refreshConnectionVendorCache(): Promise<void> {
             if (conn.name) connectionNameCache.set(String(conn.iConnection), conn.name);
             // iConnection → iVendor for report row entity linking (/vendors?id=)
             connectionToVendorIdCache.set(String(conn.iConnection), v.iVendor);
+            // connection name → iConnection for name-keyed entity systems (live traffic, entity-verdict)
+            if (conn.name) connectionNameToIdCache.set(conn.name, conn.iConnection);
           }
           if (conn.name) {
             connectionVendorCache.set(conn.name, vendorName);
@@ -4077,7 +4082,7 @@ export async function registerRoutes(
   function computeLiveWindow(windowMs: number): LiveTrafficWindow {
     const cutoff = Date.now() - windowMs;
     const origAgg = new Map<string, { calls: number; billable: number; duration: number }>();
-    const termAgg = new Map<string, { calls: number; billable: number; duration: number }>();
+    const termAgg = new Map<string, { calls: number; billable: number; duration: number; iConnection?: number; iVendor?: number }>();
     let totalCalls = 0;
     let totalBillable = 0;
 
@@ -4109,10 +4114,21 @@ export async function registerRoutes(
       const tRow = termAgg.get(termName) ?? { calls: 0, billable: 0, duration: 0 };
       tRow.calls++;
       if (isBillable) { tRow.billable++; tRow.duration += durationSec; }
+      // Capture entity IDs on first encounter — used by Live Traffic navigation links
+      if (!tRow.iConnection) {
+        if (connId) {
+          tRow.iConnection = Number(connId);
+          tRow.iVendor = connectionToVendorIdCache.get(connId);
+        } else if ((c as any).remoteIp) {
+          const host = String((c as any).remoteIp).split(':')[0].trim();
+          const cid  = connectionIpToConnectionIdCache.get(host);
+          if (cid) { tRow.iConnection = cid; tRow.iVendor = connectionToVendorIdCache.get(String(cid)); }
+        }
+      }
       termAgg.set(termName, tRow);
     }
 
-    function toRows(agg: Map<string, { calls: number; billable: number; duration: number }>,
+    function toRows(agg: Map<string, { calls: number; billable: number; duration: number; iConnection?: number; iVendor?: number }>,
                     side: 'orig' | 'term',
                     prevWindow: LiveTrafficWindow | undefined): LiveTrafficRow[] {
       return [...agg.entries()]
@@ -4122,7 +4138,8 @@ export async function registerRoutes(
           const prevRows = side === 'orig' ? prevWindow?.origination : prevWindow?.termination;
           const prev = prevRows?.find(r => r.name === name);
           const delta = prev != null ? parseFloat((asr - prev.asr).toFixed(1)) : null;
-          return { name, calls: v.calls, billable: v.billable, asr, acd, duration: v.duration, delta };
+          return { name, calls: v.calls, billable: v.billable, asr, acd, duration: v.duration, delta,
+                   iVendor: v.iVendor, iConnection: v.iConnection };
         })
         .sort((a, b) => b.calls - a.calls);
     }
@@ -18473,8 +18490,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const matched       = findMatches(ci.name, events);
         const corroboration = corrobLevel(matched);
         const verdict       = overlayVerdict(ci.state, corroboration, { healthScore: ci.healthScore, fasSeverity: ci.fasSeverity, asr: ci.asr, confidence: ci.confidence });
+        const iConnId = connectionNameToIdCache.get(ci.name);
         return {
           connection: ci.name,
+          iConnection: iConnId ?? undefined,
+          iVendor: iConnId ? (connectionToVendorIdCache.get(String(iConnId)) ?? undefined) : undefined,
           ci: { state: ci.state, healthScore: ci.healthScore, confidence: ci.confidence, asr: ci.asr, totalCalls: ci.totalCalls },
           aiOps: {
             recentEvents: matched.slice(0, 5).map(e => ({ severity: e.severity, type: e.type, message: e.message, ts: e.createdAt.toISOString() })),
@@ -18636,6 +18656,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const result = fuse(ciT, ci?.conf ?? 'NONE', ci?.state ?? 'UNSCORED', ci?.fas ?? null, stT, (st?.sampleCount ?? 0) >= 500 ? 'HIGH' : (st?.sampleCount ?? 0) >= 100 ? 'MEDIUM' : (st?.sampleCount ?? 0) >= 10 ? 'LOW' : 'NONE', st?.stabilityDelta ?? null, ao.tier, ao.conf, ao.count);
         return {
           entity: name,
+          iConnection: connectionNameToIdCache.get(name) ?? null,
+          iVendor: (() => { const cid = connectionNameToIdCache.get(name); return cid ? (connectionToVendorIdCache.get(String(cid)) ?? null) : null; })(),
           verdict: result.verdict, confidence: result.confidence, reason: result.reason, rulesApplied: result.rules,
           signals: {
             ciHealth:  ci  ? { score: ci.hs, state: ci.state, tier: ciT, confidence: ci.conf, asr: ci.asr, totalCalls: ci.totalCalls } : null,

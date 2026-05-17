@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { Link } from "wouter";
 import { ShieldCheck, ShieldAlert, AlertTriangle, HelpCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 
@@ -9,6 +10,8 @@ export type Corroboration = "YES" | "PARTIAL" | "NONE";
 
 export interface VerdictCardData {
   connection: string;
+  iVendor?: number;
+  iConnection?: number;
   ci: {
     state: CiState;
     healthScore: number;
@@ -101,9 +104,20 @@ export function VerdictCard({ data, compact = false }: VerdictCardProps) {
         <HealthRing score={data.ci.healthScore} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-sm truncate" title={data.connection}>
-              {data.connection}
-            </span>
+            {data.iConnection ? (
+              <Link
+                href={`/routing-manager?tab=connections&iConnection=${data.iConnection}`}
+                className="font-semibold text-sm truncate hover:text-primary hover:underline transition-colors"
+                title={data.connection}
+                data-testid={`link-verdict-conn-${data.iConnection}`}
+              >
+                {data.connection}
+              </Link>
+            ) : (
+              <span className="font-semibold text-sm truncate" title={data.connection}>
+                {data.connection}
+              </span>
+            )}
             <span className={cn("inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium", cfg.badge)}>
               {cfg.icon}
               {cfg.label}

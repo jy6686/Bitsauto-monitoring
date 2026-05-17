@@ -9,6 +9,8 @@ export interface LiveTrafficRow {
   acd: number;
   duration: number;
   delta: number | null;
+  iVendor?: number;
+  iConnection?: number;
 }
 
 export interface LiveTrafficWindow {

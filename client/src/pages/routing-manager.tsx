@@ -2263,13 +2263,32 @@ function CoverageMapView() {
 
 type SippyVendorItem = { iVendor: number; name: string };
 
-function ConnectionsTab() {
+function ConnectionsTab({ highlightConnId }: { highlightConnId?: number }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<'list' | 'coverage'>('list');
   const [search, setSearch] = useState("");
   const [showBlocked, setShowBlocked] = useState(true);
+  const [pulseId, setPulseId] = useState<number | null>(null);
+
+  // Deep-link: auto-scroll + 3s highlight when highlightConnId is present
+  useEffect(() => {
+    if (!highlightConnId) return;
+    setViewMode('list');
+    const tryScroll = (attempts = 0) => {
+      const el = document.querySelector(`[data-testid="conn-row-${highlightConnId}"]`) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setPulseId(highlightConnId);
+        const t = setTimeout(() => setPulseId(null), 3000);
+        return () => clearTimeout(t);
+      } else if (attempts < 10) {
+        setTimeout(() => tryScroll(attempts + 1), 200);
+      }
+    };
+    tryScroll();
+  }, [highlightConnId]);
 
   // ── Add Vendor dialog state ──
   const [vendorOpen, setVendorOpen] = useState(false);
@@ -2498,8 +2517,10 @@ function ConnectionsTab() {
                   <div
                     key={conn.i_connection}
                     data-testid={`conn-row-${conn.i_connection}`}
-                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-colors ${
-                      conn.blocked
+                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all duration-300 ${
+                      pulseId === conn.i_connection
+                        ? "border-primary/60 bg-primary/10 ring-2 ring-primary/40"
+                        : conn.blocked
                         ? "border-rose-500/30 bg-rose-500/5"
                         : "border-border/50 bg-card/60 hover:bg-card"
                     }`}
@@ -4178,7 +4199,9 @@ export default function RoutingManagerPage() {
       {/* Tab content */}
       {activeTab === "routing-groups"   && <RoutingGroupsTab />}
       {activeTab === "destination-sets" && <DestinationSetsTab />}
-      {activeTab === "connections"      && <ConnectionsTab />}
+      {activeTab === "connections"      && <ConnectionsTab highlightConnId={
+        parseInt((new URLSearchParams(rawSearch ?? "")).get("iConnection") ?? "", 10) || undefined
+      } />}
       {activeTab === "qbr"       && <QbrTab />}
       {activeTab === "on-net"    && <OnNetTab />}
       {activeTab === "policy-sim" && <PolicySimTab />}
