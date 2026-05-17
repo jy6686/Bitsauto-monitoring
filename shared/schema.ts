@@ -50,6 +50,8 @@ export const alerts = pgTable("alerts", {
   type: varchar("type", { length: 50 }).notNull(), // 'high_jitter', 'packet_loss', 'poor_mos'
   severity: varchar("severity", { length: 20 }).notNull(), // warning, critical
   message: text("message").notNull(),
+  vendor: varchar("vendor", { length: 128 }),       // originating vendor/carrier name
+  connection: varchar("connection", { length: 128 }), // originating connection/trunk name
   resolved: boolean("resolved").default(false),
   acknowledgedAt: timestamp("acknowledged_at"),
   acknowledgedBy: varchar("acknowledged_by", { length: 128 }),

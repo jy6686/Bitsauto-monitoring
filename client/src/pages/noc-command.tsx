@@ -61,14 +61,14 @@ function stabilityColor(score: number | null): "green" | "amber" | "red" {
 function IncidentTicker({ incidents }: { incidents: AiOpsIncident[] }) {
   const active = incidents.filter(i => i.status === "active" || i.status === "open");
   if (active.length === 0) return (
-    <div className="flex items-center gap-2 text-green-400 text-xs font-mono">
+    <div className="flex items-center gap-2 text-green-600 text-xs font-mono">
       <CheckCircle2 className="h-3.5 w-3.5" />
       All systems nominal — no active incidents
     </div>
   );
   return (
     <div className="flex items-center gap-3 overflow-hidden">
-      <span className="text-[10px] font-bold uppercase tracking-widest text-red-400 flex-shrink-0 flex items-center gap-1">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-red-600 flex-shrink-0 flex items-center gap-1">
         <Pulse color="red" size={1} /> INCIDENT
       </span>
       <div className="overflow-hidden flex-1">
@@ -78,7 +78,7 @@ function IncidentTicker({ incidents }: { incidents: AiOpsIncident[] }) {
           transition={{ duration: 20, repeat: Infinity, ease: "linear", repeatType: "loop" }}
         >
           {[...active, ...active].map((inc, i) => (
-            <span key={`${inc.id}-${i}`} className={cn("text-xs font-mono flex-shrink-0", inc.severity === "critical" ? "text-red-400" : "text-amber-400")}>
+            <span key={`${inc.id}-${i}`} className={cn("text-xs font-mono flex-shrink-0", inc.severity === "critical" ? "text-red-600" : "text-amber-600")}>
               [{inc.severity.toUpperCase()}] {inc.title} — {inc.entityName ?? "unknown entity"}
             </span>
           ))}
@@ -94,48 +94,59 @@ function CarrierCard({ score, index }: { score: CarrierScore; index: number }) {
   const color = stabilityColor(score.stabilityScore);
   const s = score.stabilityScore ?? 0;
   const barColor = { green: "bg-green-500", amber: "bg-amber-500", red: "bg-red-500" }[color];
+  const cardStyle = {
+    green: "bg-green-50 border-green-200",
+    amber: "bg-amber-50 border-amber-200",
+    red:   "bg-red-50 border-red-200",
+  }[color];
+  const glowStyle = {
+    green: "bg-green-300",
+    amber: "bg-amber-300",
+    red:   "bg-red-300",
+  }[color];
+  const scoreColor = {
+    green: "text-green-600",
+    amber: "text-amber-600",
+    red:   "text-red-600",
+  }[color];
+  const statusLabel = { green: "healthy", amber: "degraded", red: "critical" }[color];
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.06 }}
-      className={cn("rounded-xl border p-4 relative overflow-hidden",
-        color === "green" ? "bg-green-500/5 border-green-500/20" :
-        color === "amber" ? "bg-amber-500/5 border-amber-500/20" : "bg-red-500/5 border-red-500/20")}
+      className={cn("rounded-xl border p-4 relative overflow-hidden", cardStyle)}
     >
-      <div className={cn("absolute inset-0 opacity-5 blur-xl",
-        color === "green" ? "bg-green-400" : color === "amber" ? "bg-amber-400" : "bg-red-400")} />
+      <div className={cn("absolute inset-0 opacity-[0.04] blur-xl", glowStyle)} />
       <div className="relative">
         <div className="flex items-start justify-between mb-3">
           <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide font-mono truncate max-w-[120px]">{score.carrierName}</p>
+            <p className="text-xs text-slate-500 uppercase tracking-wide font-mono truncate max-w-[120px]">{score.carrierName}</p>
             <div className="flex items-center gap-1.5 mt-0.5">
               <Pulse color={color} size={1} />
-              <span className="text-[10px] text-muted-foreground capitalize">
-                {color === "green" ? "healthy" : color === "amber" ? "degraded" : "critical"}
-              </span>
+              <span className="text-[10px] text-slate-500 capitalize">{statusLabel}</span>
             </div>
           </div>
           <motion.div key={s} initial={{ scale: 0.8 }} animate={{ scale: 1 }}
-            className={cn("text-2xl font-black tabular-nums",
-              color === "green" ? "text-green-400" : color === "amber" ? "text-amber-400" : "text-red-400")}>
+            className={cn("text-2xl font-black tabular-nums", scoreColor)}>
             {s.toFixed(0)}
           </motion.div>
         </div>
-        <div className="h-1 bg-black/30 rounded-full overflow-hidden mb-3">
+        <div className="h-1 bg-slate-200 rounded-full overflow-hidden mb-3">
           <motion.div className={cn("h-full rounded-full", barColor)}
             initial={{ width: 0 }} animate={{ width: `${s}%` }}
             transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }} />
         </div>
         <div className="grid grid-cols-2 gap-2 text-xs">
-          <div><p className="text-muted-foreground/60 text-[10px]">ASR</p><p className="font-bold tabular-nums">{score.rollingAsr?.toFixed(1) ?? "—"}%</p></div>
-          <div><p className="text-muted-foreground/60 text-[10px]">PDD</p><p className="font-bold tabular-nums">{score.avgPddMs != null ? `${score.avgPddMs.toFixed(0)}ms` : "—"}</p></div>
-          <div><p className="text-muted-foreground/60 text-[10px]">Fail Rate</p>
-            <p className={cn("font-bold tabular-nums", score.failureRate != null && score.failureRate > 20 ? "text-red-400" : "")}>
+          <div><p className="text-slate-400 text-[10px]">ASR</p><p className="font-bold tabular-nums text-slate-700">{score.rollingAsr?.toFixed(1) ?? "—"}%</p></div>
+          <div><p className="text-slate-400 text-[10px]">PDD</p><p className="font-bold tabular-nums text-slate-700">{score.avgPddMs != null ? `${score.avgPddMs.toFixed(0)}ms` : "—"}</p></div>
+          <div>
+            <p className="text-slate-400 text-[10px]">Fail Rate</p>
+            <p className={cn("font-bold tabular-nums", score.failureRate != null && score.failureRate > 20 ? "text-red-600" : "text-slate-700")}>
               {score.failureRate?.toFixed(1) ?? "—"}%
             </p>
           </div>
-          <div><p className="text-muted-foreground/60 text-[10px]">Samples</p><p className="font-bold tabular-nums">{score.sampleCount}</p></div>
+          <div><p className="text-slate-400 text-[10px]">Samples</p><p className="font-bold tabular-nums text-slate-700">{score.sampleCount}</p></div>
         </div>
       </div>
     </motion.div>
@@ -149,14 +160,14 @@ function BigMetric({ label, value, icon: Icon, color, sub }: {
 }) {
   return (
     <motion.div
-      className="flex flex-col items-center justify-center gap-1 p-4 rounded-xl bg-white/[0.03] border border-white/[0.07]"
+      className="flex flex-col items-center justify-center gap-1 p-4 rounded-xl bg-white border border-slate-200 shadow-sm"
       animate={{ scale: [1, 1.01, 1] }}
       transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
     >
-      <Icon className={cn("h-5 w-5 opacity-60", color)} />
+      <Icon className={cn("h-5 w-5 opacity-70", color)} />
       <p className={cn("text-3xl font-black tabular-nums", color)}>{value}</p>
-      <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-mono">{label}</p>
-      {sub && <p className="text-[9px] text-muted-foreground/50 font-mono">{sub}</p>}
+      <p className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">{label}</p>
+      {sub && <p className="text-[9px] text-slate-400 font-mono">{sub}</p>}
     </motion.div>
   );
 }
@@ -172,14 +183,17 @@ function NocAlertRow({ alert, onAck, onResolve, pending }: {
       initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }}
       className={cn(
         "flex items-start gap-2 p-2.5 rounded-lg border text-xs",
-        alert.severity === "critical" ? "bg-red-500/8 border-red-500/20" : "bg-amber-500/8 border-amber-500/20"
+        alert.severity === "critical" ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"
       )}
     >
       <AlertTriangle className={cn("h-3.5 w-3.5 flex-shrink-0 mt-0.5",
-        alert.severity === "critical" ? "text-red-400" : "text-amber-400")} />
+        alert.severity === "critical" ? "text-red-500" : "text-amber-500")} />
       <div className="flex-1 min-w-0">
-        <p className="font-medium truncate">{alert.type.split("_").join(" ").toUpperCase()}</p>
-        <p className="text-muted-foreground text-[10px] truncate">{alert.message}</p>
+        <p className="font-medium truncate text-slate-800">{alert.type.split("_").join(" ").toUpperCase()}</p>
+        <p className="text-slate-500 text-[10px] truncate">{alert.message}</p>
+        {(alert as any).vendor && (
+          <p className="text-[9px] text-slate-400 font-mono mt-0.5">via {(alert as any).vendor}</p>
+        )}
       </div>
       <div className="flex gap-1 flex-shrink-0">
         {!isAcked && (
@@ -187,7 +201,7 @@ function NocAlertRow({ alert, onAck, onResolve, pending }: {
             data-testid={`noc-ack-${alert.id}`}
             disabled={pending}
             onClick={onAck}
-            className="p-1 rounded hover:bg-amber-500/20 text-amber-400 disabled:opacity-40 transition-colors"
+            className="p-1 rounded hover:bg-amber-100 text-amber-600 disabled:opacity-40 transition-colors"
             title="Acknowledge"
           >
             <Eye className="h-3 w-3" />
@@ -197,7 +211,7 @@ function NocAlertRow({ alert, onAck, onResolve, pending }: {
           data-testid={`noc-resolve-${alert.id}`}
           disabled={pending}
           onClick={onResolve}
-          className="p-1 rounded hover:bg-green-500/20 text-green-400 disabled:opacity-40 transition-colors"
+          className="p-1 rounded hover:bg-green-100 text-green-600 disabled:opacity-40 transition-colors"
           title="Resolve"
         >
           <ShieldCheck className="h-3 w-3" />
@@ -216,7 +230,7 @@ function LiveClock() {
     return () => clearInterval(t);
   }, []);
   return (
-    <span className="font-mono text-sm text-muted-foreground tabular-nums">
+    <span className="font-mono text-sm text-slate-500 tabular-nums">
       {time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
     </span>
   );
@@ -225,14 +239,14 @@ function LiveClock() {
 // ── Quick action links ─────────────────────────────────────────────────────────
 
 const QUICK_LINKS = [
-  { href: "/analytics",       label: "Analytics",    icon: BarChart3,   color: "text-violet-400" },
-  { href: "/routing-manager", label: "Routing",      icon: GitBranch,   color: "text-cyan-400"   },
-  { href: "/bitseye",         label: "BitsEye",      icon: Activity,    color: "text-emerald-400" },
-  { href: "/fraud",           label: "Fraud",        icon: Siren,       color: "text-rose-400"   },
-  { href: "/alerts",          label: "All Alerts",   icon: AlertTriangle, color: "text-amber-400" },
-  { href: "/aiops",           label: "AIOps",        icon: BrainCircuit, color: "text-sky-400"   },
-  { href: "/live-traffic",    label: "Live Traffic", icon: Layers,      color: "text-teal-400"   },
-  { href: "/server-monitoring", label: "Servers",    icon: Cpu,         color: "text-purple-400" },
+  { href: "/analytics",       label: "Analytics",    icon: BarChart3,   color: "text-violet-600" },
+  { href: "/routing-manager", label: "Routing",      icon: GitBranch,   color: "text-cyan-600"   },
+  { href: "/bitseye",         label: "BitsEye",      icon: Activity,    color: "text-emerald-600" },
+  { href: "/fraud",           label: "Fraud",        icon: Siren,       color: "text-rose-600"   },
+  { href: "/alerts",          label: "All Alerts",   icon: AlertTriangle, color: "text-amber-600" },
+  { href: "/aiops",           label: "AIOps",        icon: BrainCircuit, color: "text-sky-600"   },
+  { href: "/live-traffic",    label: "Live Traffic", icon: Layers,      color: "text-teal-600"   },
+  { href: "/server-monitoring", label: "Servers",    icon: Cpu,         color: "text-purple-600" },
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -298,20 +312,20 @@ export default function NocCommandPage() {
   };
 
   return (
-    <div className={cn("bg-[#06080f] text-white min-h-screen flex flex-col", fullscreen && "fixed inset-0 z-[9999]")}>
+    <div className={cn("bg-slate-50 text-slate-900 min-h-screen flex flex-col", fullscreen && "fixed inset-0 z-[9999]")}>
       {/* Top bar */}
-      <div className="border-b border-white/[0.06] px-6 py-3 flex items-center gap-4 flex-shrink-0">
+      <div className="border-b border-slate-200 px-6 py-3 flex items-center gap-4 flex-shrink-0 bg-white shadow-sm">
         <div className="flex items-center gap-2">
-          <div className="bg-violet-600/20 p-1.5 rounded-lg">
-            <Radio className="h-4 w-4 text-violet-400" />
+          <div className="bg-violet-100 p-1.5 rounded-lg">
+            <Radio className="h-4 w-4 text-violet-600" />
           </div>
           <div>
-            <p className="text-xs font-bold tracking-widest uppercase text-violet-300 font-mono">Bitsauto NOC</p>
-            <p className="text-[9px] text-muted-foreground font-mono">Unified Operations Console · v2.6</p>
+            <p className="text-xs font-bold tracking-widest uppercase text-violet-700 font-mono">Bitsauto NOC</p>
+            <p className="text-[9px] text-slate-400 font-mono">Unified Operations Console · v2.6</p>
           </div>
         </div>
 
-        <div className="flex-1 border border-white/[0.06] rounded-lg px-4 py-2 bg-black/20">
+        <div className="flex-1 border border-slate-200 rounded-lg px-4 py-2 bg-slate-50">
           <IncidentTicker incidents={incidents} />
         </div>
 
@@ -320,7 +334,7 @@ export default function NocCommandPage() {
           <button
             data-testid="btn-fullscreen"
             onClick={toggleFullscreen}
-            className="p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-muted-foreground hover:text-white"
+            className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-700"
           >
             {fullscreen ? <Minimize className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
@@ -335,17 +349,17 @@ export default function NocCommandPage() {
 
           {/* KPI row — 6 metrics */}
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-            <BigMetric label="Live Calls" value={String(liveSummary?.totalActiveCalls ?? 0)} icon={Phone} color="text-cyan-400" />
+            <BigMetric label="Live Calls" value={String(liveSummary?.totalActiveCalls ?? 0)} icon={Phone} color="text-cyan-600" />
             <BigMetric label="Open Alerts" value={String(openAlerts.length)}
-              icon={AlertTriangle} color={openAlerts.length > 0 ? "text-red-400" : "text-green-400"} />
+              icon={AlertTriangle} color={openAlerts.length > 0 ? "text-red-600" : "text-green-600"} />
             <BigMetric label="Acknowledged" value={String(ackedAlerts.length)}
-              icon={Eye} color={ackedAlerts.length > 0 ? "text-amber-400" : "text-muted-foreground"} />
+              icon={Eye} color={ackedAlerts.length > 0 ? "text-amber-600" : "text-slate-400"} />
             <BigMetric label="Anomalies" value={String(activeAnomalies.length)}
-              icon={Zap} color={activeAnomalies.length > 0 ? "text-orange-400" : "text-muted-foreground"} />
+              icon={Zap} color={activeAnomalies.length > 0 ? "text-orange-600" : "text-slate-400"} />
             <BigMetric label="Healthy Carriers" value={`${healthyCarriers}/${scores.length}`}
-              icon={Shield} color="text-green-400" />
+              icon={Shield} color="text-green-600" />
             <BigMetric label="Active Incidents" value={String(activeIncidents.length)}
-              icon={TrendingUp} color={activeIncidents.length > 0 ? (criticalCount > 0 ? "text-red-400" : "text-amber-400") : "text-muted-foreground"}
+              icon={TrendingUp} color={activeIncidents.length > 0 ? (criticalCount > 0 ? "text-red-600" : "text-amber-600") : "text-slate-400"}
               sub={criticalCount > 0 ? `${criticalCount} critical` : undefined} />
           </div>
 
@@ -355,7 +369,7 @@ export default function NocCommandPage() {
               <Pulse color="green" size={1} />
             </PanelHeader>
             {scores.length === 0 ? (
-              <div className="text-center text-muted-foreground text-xs py-8 border border-white/[0.06] rounded-xl">
+              <div className="text-center text-slate-400 text-xs py-8 border border-slate-200 rounded-xl bg-white">
                 No carrier scores yet — run a synthetic test campaign to populate
               </div>
             ) : (
@@ -366,16 +380,16 @@ export default function NocCommandPage() {
           </div>
 
           {/* Quick Access */}
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50 font-mono mb-3">Quick Access</p>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-[10px] uppercase tracking-widest text-slate-400 font-mono mb-3">Quick Access</p>
             <div className="grid grid-cols-4 gap-2">
               {QUICK_LINKS.map(({ href, label, icon: Icon, color }) => (
                 <Link key={href} href={href}>
                   <a data-testid={`noc-link-${label.toLowerCase().replace(/\s/g,'-')}`}
-                    className="flex items-center gap-2 p-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.06] hover:border-white/[0.12] transition-all group cursor-pointer">
+                    className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300 transition-all group cursor-pointer">
                     <Icon className={cn("h-4 w-4 flex-shrink-0", color)} />
-                    <span className="text-xs text-muted-foreground group-hover:text-white transition-colors truncate">{label}</span>
-                    <ArrowRight className="h-3 w-3 text-muted-foreground/30 ml-auto group-hover:text-white/50 transition-colors flex-shrink-0" />
+                    <span className="text-xs text-slate-500 group-hover:text-slate-800 transition-colors truncate">{label}</span>
+                    <ArrowRight className="h-3 w-3 text-slate-300 ml-auto group-hover:text-slate-500 transition-colors flex-shrink-0" />
                   </a>
                 </Link>
               ))}
@@ -387,7 +401,7 @@ export default function NocCommandPage() {
         <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
 
           {/* System Status — live */}
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <PanelHeader label="System Status" updatedAt={liveUpdatedAt} intervalMs={15_000} isFetching={liveFetching} />
             <div className="space-y-2">
               {[
@@ -399,26 +413,26 @@ export default function NocCommandPage() {
               ].map(({ label, ok }) => (
                 <div key={label} className="flex items-center gap-2 text-xs">
                   <Pulse color={ok ? "green" : "red"} size={1} />
-                  <span className="flex-1 text-muted-foreground">{label}</span>
-                  <span className={ok ? "text-green-400" : "text-red-400"}>{ok ? "Online" : "Offline"}</span>
+                  <span className="flex-1 text-slate-500">{label}</span>
+                  <span className={ok ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{ok ? "Online" : "Offline"}</span>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Vendor Balances */}
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <PanelHeader label="Vendor Balances" updatedAt={balancesUpdatedAt} intervalMs={60_000} isFetching={balancesFetching}>
-              <DollarSign className="h-3 w-3 text-muted-foreground/50" />
+              <DollarSign className="h-3 w-3 text-slate-400" />
             </PanelHeader>
             {!balancesData?.vendors?.length ? (
-              <p className="text-xs text-muted-foreground/40 text-center py-2">No balance data yet</p>
+              <p className="text-xs text-slate-400 text-center py-2">No balance data yet</p>
             ) : (
               <div className="space-y-1.5">
                 {balancesData.vendors.map(v => (
                   <div key={v.name} className="flex items-center gap-2 text-xs">
-                    <span className="flex-1 text-muted-foreground truncate font-mono">{v.name}</span>
-                    <span className={cn("font-bold tabular-nums", v.balance < 10 ? "text-red-400" : v.balance < 50 ? "text-amber-400" : "text-green-400")}>
+                    <span className="flex-1 text-slate-500 truncate font-mono">{v.name}</span>
+                    <span className={cn("font-bold tabular-nums", v.balance < 10 ? "text-red-600" : v.balance < 50 ? "text-amber-600" : "text-green-600")}>
                       ${v.balance.toFixed(2)}
                     </span>
                   </div>
@@ -428,21 +442,21 @@ export default function NocCommandPage() {
           </div>
 
           {/* Active System Alerts — with inline Acknowledge/Resolve */}
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 flex-1">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 flex-1 shadow-sm">
             <PanelHeader label="System Alerts" updatedAt={alertsUpdatedAt} intervalMs={20_000} isFetching={alertsFetching}>
               <Pulse color={openAlerts.length > 0 ? "red" : "green"} size={1} />
               {openAlerts.length > 0 && (
-                <span className="text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-bold">
+                <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">
                   {openAlerts.length} OPEN
                 </span>
               )}
               {openAlerts.length === 0 && activeAlerts.length === 0 && (
-                <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full font-bold">CLEAR</span>
+                <span className="text-[9px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full font-bold">CLEAR</span>
               )}
             </PanelHeader>
             {activeAlerts.length === 0 ? (
-              <div className="text-center text-muted-foreground text-xs py-4 flex flex-col items-center gap-2">
-                <CheckCircle2 className="h-6 w-6 text-green-400/40" />
+              <div className="text-center text-slate-400 text-xs py-4 flex flex-col items-center gap-2">
+                <CheckCircle2 className="h-6 w-6 text-green-500/60" />
                 All alerts resolved
               </div>
             ) : (
@@ -461,41 +475,41 @@ export default function NocCommandPage() {
               </div>
             )}
             <Link href="/alerts">
-              <a className="mt-3 flex items-center gap-1.5 text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors font-mono">
+              <a className="mt-3 flex items-center gap-1.5 text-[10px] text-slate-400 hover:text-slate-600 transition-colors font-mono">
                 <ArrowRight className="h-3 w-3" /> View all alerts
               </a>
             </Link>
           </div>
 
           {/* AIOps incident feed */}
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <PanelHeader label="AI Ops Feed" updatedAt={incidentsUpdatedAt} intervalMs={30_000} isFetching={incidentsFetching}>
               <Pulse color={activeIncidents.length > 0 ? "red" : "green"} size={1} />
               {activeIncidents.length > 0 && (
-                <span className="text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-bold">
+                <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">
                   {activeIncidents.length} ACTIVE
                 </span>
               )}
             </PanelHeader>
             {incidents.length === 0 ? (
-              <div className="text-center text-muted-foreground text-xs py-3">No incidents detected</div>
+              <div className="text-center text-slate-400 text-xs py-3">No incidents detected</div>
             ) : (
               <div className="space-y-2 max-h-44 overflow-y-auto">
                 <AnimatePresence>
                   {incidents.slice(0, 6).map((inc, i) => (
                     <motion.div key={inc.id} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.06 }}
                       className={cn("flex items-start gap-2 p-2 rounded-lg border text-xs",
-                        inc.severity === "critical" ? "bg-red-500/8 border-red-500/20" :
-                        inc.severity === "high"     ? "bg-orange-500/8 border-orange-500/20" :
-                                                     "bg-yellow-500/8 border-yellow-500/20")}>
+                        inc.severity === "critical" ? "bg-red-50 border-red-200" :
+                        inc.severity === "high"     ? "bg-orange-50 border-orange-200" :
+                                                     "bg-yellow-50 border-yellow-200")}>
                       <AlertTriangle className={cn("h-3.5 w-3.5 flex-shrink-0 mt-0.5",
-                        inc.severity === "critical" ? "text-red-400" : inc.severity === "high" ? "text-orange-400" : "text-yellow-400")} />
+                        inc.severity === "critical" ? "text-red-500" : inc.severity === "high" ? "text-orange-500" : "text-yellow-600")} />
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium truncate">{inc.title}</p>
-                        <p className="text-muted-foreground text-[10px]">{inc.entityName} · {new Date(inc.createdAt).toLocaleTimeString()}</p>
+                        <p className="font-medium truncate text-slate-800">{inc.title}</p>
+                        <p className="text-slate-500 text-[10px]">{inc.entityName} · {new Date(inc.createdAt).toLocaleTimeString()}</p>
                       </div>
                       <span className={cn("flex-shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full",
-                        inc.status === "active" ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400")}>
+                        inc.status === "active" ? "bg-red-100 text-red-600" : "bg-green-100 text-green-600")}>
                         {inc.status}
                       </span>
                     </motion.div>
@@ -508,7 +522,7 @@ export default function NocCommandPage() {
       </div>
 
       {/* Footer */}
-      <div className="border-t border-white/[0.04] px-6 py-2 flex items-center gap-4 text-[10px] text-muted-foreground/40 font-mono flex-shrink-0">
+      <div className="border-t border-slate-200 px-6 py-2 flex items-center gap-4 text-[10px] text-slate-400 font-mono flex-shrink-0 bg-white">
         <span>BITSAUTO MONITORING PLATFORM v2.6.0-stable</span>
         <span className="flex-1" />
         {balancesData?.snapshotCount != null && (

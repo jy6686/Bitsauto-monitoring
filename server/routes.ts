@@ -15693,6 +15693,100 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/entity-timeline?entity=X&limit=N — merged chronological event feed (Option C)
+  app.get('/api/entity-timeline', (req: any, res: any, next: any) =>
+    requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const entity    = (req.query.entity as string | undefined) ?? '';
+      const limit     = Math.min(Number(req.query.limit) || 60, 200);
+      const cutoff    = new Date(Date.now() - 48 * 60 * 60_000);
+      const { db }    = await import('./db');
+      const { alerts: alertsTable, anomalyEvents, aiOpsIncidents } = await import('../shared/schema');
+      const { desc, gte, or, ilike, sql } = await import('drizzle-orm');
+      const entLower = entity.toLowerCase();
+
+      type TimelineEvent = {
+        id: string; kind: 'alert' | 'anomaly' | 'incident';
+        ts: Date; title: string; severity: string;
+        entity: string | null; status: string; detail?: string;
+      };
+
+      const events: TimelineEvent[] = [];
+
+      // ── 1. Alerts ─────────────────────────────────────────────────────────────
+      const rawAlerts = await db.select().from(alertsTable)
+        .where(gte(alertsTable.createdAt, cutoff))
+        .orderBy(desc(alertsTable.createdAt))
+        .limit(500);
+
+      for (const a of rawAlerts) {
+        const vendorMatch = a.vendor && a.vendor.toLowerCase().includes(entLower);
+        const connMatch   = a.connection && a.connection.toLowerCase().includes(entLower);
+        const msgMatch    = a.message.toLowerCase().includes(entLower);
+        const entityMatch = entLower === '' || vendorMatch || connMatch || msgMatch;
+        if (!entityMatch) continue;
+        events.push({
+          id: `alert-${a.id}`, kind: 'alert',
+          ts: a.createdAt ?? new Date(),
+          title: a.type.split('_').join(' ').toUpperCase(),
+          severity: a.severity,
+          entity: a.vendor ?? a.connection ?? null,
+          status: a.resolved ? 'resolved' : a.acknowledgedAt ? 'acknowledged' : 'active',
+          detail: a.message,
+        });
+      }
+
+      // ── 2. Anomaly events ─────────────────────────────────────────────────────
+      const rawAnomalies = await db.select().from(anomalyEvents)
+        .where(gte(anomalyEvents.detectedAt, cutoff))
+        .orderBy(desc(anomalyEvents.detectedAt))
+        .limit(200);
+
+      for (const a of rawAnomalies) {
+        const vendorMatch   = a.vendor && a.vendor.toLowerCase().includes(entLower);
+        const entityArrMatch = a.affectedEntities.some((e: string) => e.toLowerCase().includes(entLower));
+        const titleMatch    = a.title.toLowerCase().includes(entLower);
+        const entityMatch   = entLower === '' || vendorMatch || entityArrMatch || titleMatch;
+        if (!entityMatch) continue;
+        events.push({
+          id: `anomaly-${a.id}`, kind: 'anomaly',
+          ts: a.detectedAt,
+          title: a.title,
+          severity: a.severity,
+          entity: a.vendor ?? null,
+          status: a.resolved ? 'resolved' : 'active',
+          detail: `${a.metric} · ${a.deviationSigma.toFixed(1)}σ deviation`,
+        });
+      }
+
+      // ── 3. AI Ops Incidents ───────────────────────────────────────────────────
+      const rawIncidents = await db.select().from(aiOpsIncidents)
+        .where(gte(aiOpsIncidents.createdAt, cutoff))
+        .orderBy(desc(aiOpsIncidents.createdAt))
+        .limit(100);
+
+      for (const inc of rawIncidents) {
+        const entityMatch = entLower === '' ||
+          (inc.entity && inc.entity.toLowerCase().includes(entLower)) ||
+          inc.title.toLowerCase().includes(entLower);
+        if (!entityMatch) continue;
+        events.push({
+          id: `incident-${inc.id}`, kind: 'incident',
+          ts: inc.createdAt,
+          title: inc.title,
+          severity: inc.severity,
+          entity: inc.entity ?? null,
+          status: inc.status,
+          detail: inc.narrative ?? undefined,
+        });
+      }
+
+      // Sort by ts descending and return
+      events.sort((a, b) => b.ts.getTime() - a.ts.getTime());
+      res.json({ entity, events: events.slice(0, limit), total: events.length });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // GET /api/vendors/balance-history?vendor=X — in-memory time-series for sparkline
   app.get('/api/vendors/balance-history', async (req: any, res: any) => {
     if (!req.user) return res.status(401).json({ message: 'Unauthorized' });

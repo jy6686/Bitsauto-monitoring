@@ -548,6 +548,16 @@ export default function AlertsPage() {
                           <span className={cn("text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full border", meta.pill)}>
                             {meta.label}
                           </span>
+                          {(alert as any).vendor && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border bg-sky-500/10 text-sky-500 border-sky-500/30">
+                              {(alert as any).vendor}
+                            </span>
+                          )}
+                          {(alert as any).connection && !(alert as any).vendor && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border bg-slate-500/10 text-slate-500 border-slate-500/30">
+                              {(alert as any).connection}
+                            </span>
+                          )}
                         </div>
                         <p className="text-sm text-muted-foreground">{alert.message}</p>
                         <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">

@@ -5,6 +5,7 @@ import {
   Activity, AlertTriangle, CheckCircle2, XCircle, Shield, Zap,
   Phone, BrainCircuit, TrendingUp, TrendingDown, Minus, ArrowRight,
   RefreshCw, ChevronDown, Eye, ShieldCheck, DollarSign, BarChart2,
+  Clock, GitMerge,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -41,6 +42,12 @@ interface CdrDestRow {
   asr: number; acd: number; minutes: number; avgPddMs: number; cost: number;
 }
 interface CdrVendorSummary { vendor: string; rows: CdrDestRow[]; totalCdrs: number; cacheSize: number; }
+interface TimelineEvent {
+  id: string; kind: 'alert' | 'anomaly' | 'incident';
+  ts: string; title: string; severity: string;
+  entity: string | null; status: string; detail?: string;
+}
+interface EntityTimeline { entity: string; events: TimelineEvent[]; total: number; }
 
 // ── Verdict logic ──────────────────────────────────────────────────────────────
 
@@ -239,6 +246,13 @@ export default function OpsConsolePage() {
     refetchInterval: 120_000,
   });
 
+  const { data: timeline, dataUpdatedAt: timelineUpdatedAt, isFetching: timelineFetching } = useQuery<EntityTimeline>({
+    queryKey: ["/api/entity-timeline", selectedEntity],
+    queryFn: () => fetch(`/api/entity-timeline?entity=${encodeURIComponent(selectedEntity)}&limit=40`).then(r => r.json()),
+    enabled: !isAll,
+    refetchInterval: 30_000,
+  });
+
   const acknowledgeMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/alerts/${id}/acknowledge`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/alerts"] }),
@@ -272,16 +286,22 @@ export default function OpsConsolePage() {
     return calls.filter(c => matches(c.vendor, selectedEntity) || matches(c.connection, selectedEntity));
   }, [liveData, selectedEntity, isAll]);
 
+  // Alert match: prefer structured vendor/connection fields, fall back to message fuzzy
+  const alertMatches = (a: Alert, entity: string) =>
+    matches((a as any).vendor, entity) ||
+    matches((a as any).connection, entity) ||
+    matches(a.message, entity);
+
   const openAlerts = useMemo(() => {
     const open = alertsData.filter(a => !a.resolved && !a.acknowledgedAt);
     if (isAll) return open;
-    return open.filter(a => matches(a.message, selectedEntity));
+    return open.filter(a => alertMatches(a, selectedEntity));
   }, [alertsData, selectedEntity, isAll]);
 
   const ackedAlerts = useMemo(() => {
     const acked = alertsData.filter(a => !a.resolved && a.acknowledgedAt);
     if (isAll) return acked;
-    return acked.filter(a => matches(a.message, selectedEntity));
+    return acked.filter(a => alertMatches(a, selectedEntity));
   }, [alertsData, selectedEntity, isAll]);
 
   const activeAnomalies = useMemo(() => {
@@ -714,6 +734,86 @@ export default function OpsConsolePage() {
             })()}
           </SignalPanel>
         </div>
+      )}
+
+      {/* ── System Health Timeline — only shown when a specific entity is selected ── */}
+      {!isAll && (
+        <SignalPanel
+          title="System Health Timeline"
+          count={timeline?.total}
+          updatedAt={timelineUpdatedAt}
+          intervalMs={30_000}
+          isFetching={timelineFetching}
+        >
+          {(() => {
+            const events = timeline?.events ?? [];
+            if (!timeline) return <EmptyState label="Loading timeline…" />;
+            if (events.length === 0) return <EmptyState label="No events in the last 48h for this entity" />;
+
+            const kindMeta = {
+              alert:    { icon: AlertTriangle, color: "text-rose-500",   bg: "bg-rose-500/8 border-rose-500/20",   label: "ALERT"    },
+              anomaly:  { icon: Zap,           color: "text-orange-500", bg: "bg-orange-500/8 border-orange-500/20", label: "ANOMALY" },
+              incident: { icon: BrainCircuit,  color: "text-violet-500", bg: "bg-violet-500/8 border-violet-500/20", label: "INCIDENT"},
+            } as const;
+
+            const sevColor = (sev: string) =>
+              sev === "critical" ? "text-red-400" : sev === "high" ? "text-orange-400" : sev === "warning" ? "text-amber-400" : "text-sky-400";
+
+            return (
+              <div className="space-y-1 max-h-80 overflow-y-auto pr-0.5">
+                {events.map((ev, idx) => {
+                  const meta  = kindMeta[ev.kind];
+                  const KIcon = meta.icon;
+                  const isLast = idx === events.length - 1;
+                  const tsDate = new Date(ev.ts);
+                  return (
+                    <div key={ev.id} className="flex gap-3">
+                      {/* Timeline spine */}
+                      <div className="flex flex-col items-center flex-shrink-0 w-5">
+                        <div className={cn("w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border", meta.bg)}>
+                          <KIcon className={cn("h-2.5 w-2.5", meta.color)} />
+                        </div>
+                        {!isLast && <div className="w-px flex-1 bg-white/[0.06] min-h-[8px] mt-0.5" />}
+                      </div>
+                      {/* Content */}
+                      <div className={cn("flex-1 pb-2 text-xs", isLast ? "" : "")}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={cn("text-[9px] font-bold uppercase tracking-widest font-mono", meta.color)}>{meta.label}</span>
+                              <span className={cn("text-[9px] font-bold uppercase", sevColor(ev.severity))}>{ev.severity}</span>
+                              {ev.status !== "active" && (
+                                <span className={cn("text-[9px] px-1 rounded font-mono",
+                                  ev.status === "resolved" ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400")}>
+                                  {ev.status}
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-medium text-xs mt-0.5 leading-tight">{ev.title}</p>
+                            {ev.detail && <p className="text-muted-foreground/60 text-[10px] truncate mt-0.5">{ev.detail}</p>}
+                          </div>
+                          <div className="flex-shrink-0 text-right">
+                            <p className="text-[10px] font-mono text-muted-foreground/50 whitespace-nowrap">
+                              {tsDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </p>
+                            <p className="text-[9px] font-mono text-muted-foreground/30 whitespace-nowrap">
+                              {tsDate.toLocaleDateString([], { month: "short", day: "numeric" })}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {timeline.total > events.length && (
+                  <p className="text-[10px] text-muted-foreground/40 font-mono text-center pt-1">
+                    showing {events.length} of {timeline.total} events
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+        </SignalPanel>
       )}
 
       {/* Footer — cross-links */}
