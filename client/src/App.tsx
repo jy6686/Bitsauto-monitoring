@@ -115,6 +115,7 @@ import RevenueHeatmapPage from "@/pages/revenue-heatmap";
 import CodecAnalyticsPage from "@/pages/codec-analytics";
 import TrafficForecastPage from "@/pages/traffic-forecast";
 import AuditLogPage from "@/pages/audit-log";
+import AsrAcdReportPage from "@/pages/asr-acd-report";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -296,6 +297,9 @@ function Router() {
       </Route>
       <Route path="/bitseye">
         {() => <ProtectedRoute component={BitsEyePage} requiredRoles={['admin','management']} viewerAssignment="bitseye" mgmtFeature="bitseye" />}
+      </Route>
+      <Route path="/asr-acd">
+        {() => <ProtectedRoute component={AsrAcdReportPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/account">
         {() => <ProtectedRoute component={AccountPage} requiredRoles={['admin','management','viewer']} />}

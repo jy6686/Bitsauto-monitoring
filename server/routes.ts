@@ -3502,6 +3502,110 @@ export async function registerRoutes(
     }
   });
 
+  // ── GET /api/reports/asr-acd ──────────────────────────────────────────────────
+  // Sippy-style ASR/ACD report — CDR ground truth layer only.
+  // No CI scoring, no AI Ops signals. Raw CDR aggregation.
+  // Origination: grouped by account (clientName / iAccount).
+  // Termination: grouped by vendor name.
+  app.get('/api/reports/asr-acd', async (req: any, res) => {
+    const period         = (req.query.period as string) || '1h';
+    const cli            = ((req.query.cli  as string) || '').trim();
+    const cld            = ((req.query.cld  as string) || '').trim();
+    const highlightBelow = parseFloat((req.query.highlightBelow as string) || '10');
+    const hideEmpty      = (req.query.hideEmpty as string) !== 'false';
+    const sortOrig       = (req.query.sortOrig as string) || 'calls';
+    const sortTerm       = (req.query.sortTerm as string) || 'calls';
+
+    const now = Date.now();
+    const PERIODS: Record<string, number> = { '30m': 30, '1h': 60, '4h': 240, '24h': 1440 };
+    const startMs = req.query.startTime
+      ? new Date(req.query.startTime as string).getTime()
+      : now - (PERIODS[period] ?? 60) * 60_000;
+    const endMs = req.query.endTime
+      ? new Date(req.query.endTime as string).getTime()
+      : now;
+
+    function buildRow(name: string, slice: any[]) {
+      const totalCalls    = slice.length;
+      const completed     = slice.filter((c: any) => String(c.result) === '0');
+      const billable      = completed.filter((c: any) => (Number(c.duration) || 0) > 0);
+      const billableCalls = billable.length;
+      const durationSec   = billable.reduce((s: number, c: any) => s + (Number(c.duration) || 0), 0);
+      const acdSec        = billableCalls > 0 ? parseFloat((durationSec / billableCalls).toFixed(1)) : 0;
+      const asr           = totalCalls > 0 ? parseFloat((billableCalls / totalCalls * 100).toFixed(4)) : 0;
+      const pddArr        = completed.map((c: any) => Number(c.pdd1xx ?? c.pdd) || 0).filter((v: number) => v > 0);
+      const avgPdd        = pddArr.length > 0 ? parseFloat((pddArr.reduce((a: number, b: number) => a + b, 0) / pddArr.length).toFixed(4)) : 0;
+      const amount        = parseFloat(billable.reduce((s: number, c: any) => s + (parseFloat(c.cost) || 0), 0).toFixed(7));
+      return { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount };
+    }
+
+    function sortRows<T extends { totalCalls: number; asr: number; acdSec: number; amount: number }>(rows: T[], by: string): T[] {
+      return [...rows].sort((a, b) => {
+        if (by === 'asr')                    return b.asr - a.asr;
+        if (by === 'acd')                    return b.acdSec - a.acdSec;
+        if (by === 'revenue' || by === 'cost') return b.amount - a.amount;
+        return b.totalCalls - a.totalCalls;
+      });
+    }
+
+    function calcTotal(rows: ReturnType<typeof buildRow>[]) {
+      const totalCalls    = rows.reduce((s, r) => s + r.totalCalls, 0);
+      const billableCalls = rows.reduce((s, r) => s + r.billableCalls, 0);
+      const durationSec   = rows.reduce((s, r) => s + r.durationSec, 0);
+      const amount        = parseFloat(rows.reduce((s, r) => s + r.amount, 0).toFixed(7));
+      const asr           = totalCalls > 0 ? parseFloat((billableCalls / totalCalls * 100).toFixed(4)) : 0;
+      const acdSec        = billableCalls > 0 ? parseFloat((durationSec / billableCalls).toFixed(1)) : 0;
+      return { name: 'Total', totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd: 0, amount };
+    }
+
+    const allCdrs = [...cdrCache.values()].filter((c: any) => {
+      const ts = c.startTime ? new Date(c.startTime).getTime() : NaN;
+      if (isNaN(ts) || ts < startMs || ts > endMs) return false;
+      if (cli && !String(c.caller ?? '').toLowerCase().includes(cli.toLowerCase())) return false;
+      if (cld && !String(c.callee ?? '').toLowerCase().includes(cld.toLowerCase())) return false;
+      return true;
+    });
+
+    // Origination: group by clientName / iAccount
+    const origGroups: Record<string, any[]> = {};
+    for (const cdr of allCdrs) {
+      const name = (cdr as any).clientName
+        || accountNameCache.get(String((cdr as any).iAccount ?? ''))
+        || ((cdr as any).iAccount ? `Acct.${(cdr as any).iAccount}` : 'Unknown');
+      if (!origGroups[name]) origGroups[name] = [];
+      origGroups[name].push(cdr);
+    }
+    const origRows = sortRows(
+      Object.entries(origGroups).map(([n, s]) => buildRow(n, s)).filter(r => !hideEmpty || r.totalCalls > 0),
+      sortOrig,
+    );
+
+    // Termination: group by vendor name (from CDR vendor field)
+    const termGroups: Record<string, any[]> = {};
+    for (const cdr of allCdrs) {
+      const name = (cdr as any).vendor
+        || ((cdr as any).iConnection ? `Connection#${(cdr as any).iConnection}` : 'Unknown');
+      if (!termGroups[name]) termGroups[name] = [];
+      termGroups[name].push(cdr);
+    }
+    const termRows = sortRows(
+      Object.entries(termGroups).map(([n, s]) => buildRow(n, s)).filter(r => !hideEmpty || r.totalCalls > 0),
+      sortTerm,
+    );
+
+    res.json({
+      ok:          true,
+      period,
+      highlightBelow,
+      generatedAt: new Date().toISOString(),
+      cdrCount:    allCdrs.length,
+      origination: origRows,
+      termination: termRows,
+      origTotal:   calcTotal(origRows),
+      termTotal:   calcTotal(termRows),
+    });
+  });
+
   // ── GET /api/carrier-intelligence ─────────────────────────────────────────────
   // Computes Carrier Intelligence metrics from per-account-stats vendor rows.
   // Adds: healthScore, healthBand, state, fasSeverity, confidenceLevel, recommendation, flags.

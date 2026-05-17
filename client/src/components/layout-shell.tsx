@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus, UserPlus, ClipboardList, Brain } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus, UserPlus, ClipboardList, Brain, FileSpreadsheet } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -238,7 +238,16 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/cost-optimisation",label: "Cost Optimisation",  icon: Lightbulb,   roles: ['admin','management']                    },
     ],
   },
-  // ─── 8. Troubleshooting (keep cohesive — do not fragment) ────────────────────
+  // ─── 8. Reports (Sippy-parity truth layer — auditable, filterable, exportable) ─
+  {
+    key: 'reports',
+    label: 'Reports',
+    roles: ['admin','management'],
+    items: [
+      { href: "/asr-acd", label: "ASR / ACD Report", icon: FileSpreadsheet, roles: ['admin','management'], isNew: true },
+    ],
+  },
+  // ─── 9. Troubleshooting (keep cohesive — do not fragment) ────────────────────
   {
     key: 'troubleshooting',
     label: 'Troubleshooting',
@@ -328,6 +337,7 @@ const GROUP_TINT: Record<string, string> = {
   ai_ops:          'text-violet-400',
   simulation:      'text-orange-400',
   analytics:       'text-indigo-400',
+  reports:         'text-emerald-400',
   troubleshooting: 'text-orange-400',
   security:        'text-rose-400',
   platform:        'text-slate-400',
@@ -342,6 +352,7 @@ const GROUP_DOT_BG: Record<string, string> = {
   ai_ops:          'bg-violet-400',
   simulation:      'bg-orange-400',
   analytics:       'bg-indigo-400',
+  reports:         'bg-emerald-400',
   troubleshooting: 'bg-orange-400',
   security:        'bg-rose-400',
   platform:        'bg-slate-400',
