@@ -219,6 +219,10 @@ const connectionToVendorIdCache: Map<string, number> = new Map();
 const connectionIpToConnectionIdCache: Map<string, number> = new Map();
 // connection name (string) → iConnection — reverse-lookup for name-keyed entity systems (entity-verdict, live traffic).
 const connectionNameToIdCache: Map<string, number> = new Map();
+// "${vendorName}:${ip}" → iConnection — disambiguates shared IPs across multiple vendors.
+// Used by Mera enrichment where DST-NAME gives us the exact vendor, so we can resolve the
+// correct connection even when two vendors point to the same peer IP.
+const vendorNameIpToConnectionIdCache: Map<string, number> = new Map();
 
 let _connVendorCacheRunning = false;
 async function refreshConnectionVendorCache(): Promise<void> {
@@ -240,6 +244,7 @@ async function refreshConnectionVendorCache(): Promise<void> {
     if (!vendors?.length) return;
     connectionVendorCache.clear();
     connectionNameCache.clear();
+    vendorNameIpToConnectionIdCache.clear();
     connectionIpCache.clear();
     connectionIpToNameCache.clear();
     connectionToVendorIdCache.clear();
@@ -276,14 +281,17 @@ async function refreshConnectionVendorCache(): Promise<void> {
             const destHost = conn.destination.split(':')[0].trim();
             if (destHost) {
               connectionIpCache.set(destHost, vendorName);
-              if (conn.name)       connectionIpToNameCache.set(destHost, conn.name);
+              if (conn.name)        connectionIpToNameCache.set(destHost, conn.name);
               if (conn.iConnection) connectionIpToConnectionIdCache.set(destHost, conn.iConnection);
+              // Composite key: vendorName:ip → connId (allows Mera enrichment to find the
+              // correct connection when multiple vendors share the same peer IP).
+              if (conn.iConnection) vendorNameIpToConnectionIdCache.set(`${vendorName}:${destHost}`, conn.iConnection);
             }
           }
         }
       } catch { /* skip per-vendor connection fetch failures */ }
     }));
-    console.log(`[routes] connectionVendorCache refreshed: ${connectionVendorCache.size} entries, nameCache: ${connectionNameCache.size} names, ipCache: ${connectionIpCache.size} IPs`);
+    console.log(`[routes] connectionVendorCache refreshed: ${connectionVendorCache.size} entries, nameCache: ${connectionNameCache.size} names, ipCache: ${connectionIpCache.size} IPs, vendorIpCache: ${vendorNameIpToConnectionIdCache.size} entries`);
   } catch (e: any) {
     console.warn('[routes] connectionVendorCache refresh failed:', e.message);
   } finally { _connVendorCacheRunning = false; }
@@ -4100,7 +4108,10 @@ export async function registerRoutes(
                   console.log(`[cdr-cache] Mera CDR[0] → confId=${mc.confId?.slice(0,24)} dstIp=${mc.dstIp} vendorResolved=${vendorName}`);
                 }
                 if (mc.confId) meraByConfId.set(mc.confId.trim(), payload);
+                // IP index: keyed both as plain IP and as "vendorName:IP" composite.
+                // The composite key disambiguates shared IPs (e.g. TALK + Callntalk on same IP).
                 if (cleanIp && !meraByIp.has(cleanIp)) meraByIp.set(cleanIp, payload);
+                if (cleanIp && vendorName) meraByIp.set(`${vendorName}:${cleanIp}`, payload);
               }
               console.log(`[cdr-cache] Mera indexes built: byConfId=${meraByConfId.size} byIp=${meraByIp.size}`);
 
@@ -4116,7 +4127,13 @@ export async function registerRoutes(
                   if (hit.vendorName) c.vendor = hit.vendorName;
                   if (hit.dstIpClean) {
                     c.remoteIp = hit.dstIpClean;
-                    const connId = connectionIpToConnectionIdCache.get(hit.dstIpClean);
+                    // Prefer composite key (vendorName:IP) to avoid IP collisions where two
+                    // vendors share the same peer address — e.g. Callntalk and TALK both use
+                    // 45.59.163.182, so the plain IP cache resolves to whichever was written last.
+                    const connId = (hit.vendorName
+                        ? vendorNameIpToConnectionIdCache.get(`${hit.vendorName}:${hit.dstIpClean}`)
+                        : undefined)
+                      ?? connectionIpToConnectionIdCache.get(hit.dstIpClean);
                     if (connId) (c as any).iConnection = String(connId);
                   }
                   enriched++;
