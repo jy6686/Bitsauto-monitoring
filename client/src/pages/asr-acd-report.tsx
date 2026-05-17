@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutShell } from "@/components/layout-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -267,8 +266,7 @@ export default function AsrAcdReportPage() {
   };
 
   return (
-    <LayoutShell>
-      <div className="p-6 space-y-5 max-w-full">
+    <div className="p-6 space-y-5 max-w-full">
 
         {/* Page header */}
         <div className="flex items-start justify-between gap-4">
@@ -573,8 +571,7 @@ export default function AsrAcdReportPage() {
             />
           </div>
         )}
-      </div>
-    </LayoutShell>
+    </div>
   );
 }
 

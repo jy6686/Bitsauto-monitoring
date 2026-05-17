@@ -3579,15 +3579,21 @@ export async function registerRoutes(
     function termKey(cdr: any): string {
       if (groupTerm === 'none') return 'All Termination';
       const connId = String(cdr.iConnection ?? '');
-      const vendorName = connectionVendorCache.get(connId) || cdr.vendor || '';
-      const connName   = connectionNameCache.get(connId) || '';
-      if (groupTerm === 'vendor')     return vendorName || (connId ? `Vendor#${connId}` : 'Unknown');
+      const vendorName = (connId ? connectionVendorCache.get(connId) : undefined) || cdr.vendor || '';
+      const connName   = (connId ? connectionNameCache.get(connId)   : undefined) || '';
+      // If we have connection-level data, use it
+      if (groupTerm === 'vendor') {
+        if (vendorName) return vendorName;
+        // Fallback: country from portal-scraped CDRs
+        return cdr.country ? `(${cdr.country})` : 'Unresolved';
+      }
       // connection (default)
       if (vendorName && connName) return `${vendorName} / ${connName}`;
       if (vendorName)             return vendorName;
       if (connName)               return connName;
       if (connId)                 return `Connection#${connId}`;
-      return cdr.vendor || 'Unknown';
+      // Fallback: country from portal-scraped CDRs (i_connection not in portal CDR data)
+      return cdr.country ? `(${cdr.country})` : 'Unresolved';
     }
 
     // Filter CDR cache by time window + CLI/CLD text + account/vendor selectors
