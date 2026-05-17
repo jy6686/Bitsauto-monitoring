@@ -3977,6 +3977,9 @@ export async function registerRoutes(
           if (batch.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
         }
         // empty CDR result is not a circuit failure
+        console.log(`[cdr-cache] XML-RPC CDR fetch → ${batch.length} record(s) (circuit=${xmlRpcCircuitGuard() ? 'open' : 'closed'})`);
+      } else {
+        console.log('[cdr-cache] XML-RPC CDR fetch skipped — circuit open');
       }
 
       // Fallback: portal scrape — this Sippy build only grants customer sessions
@@ -4056,6 +4059,78 @@ export async function registerRoutes(
       }
       cdrCacheUpdatedAt = new Date();
       if (added > 0) console.log(`[cdr-cache] +${added} new records, total=${cdrCache.size}`);
+
+      // ── Option B: Mera CDR enrichment ────────────────────────────────────────
+      // Portal-scraped CDRs carry no iConnection / remoteIp / vendor fields.
+      // exportVendorsCDRs_Mera() returns vendor-side CDRs with dstName (vendor name)
+      // and dstIp (connection destination IP).  We match by caller:callee:minute-bucket
+      // and copy those fields onto unresolved portal CDRs in the cache.
+      if (settings) {
+        const unresolved = [...cdrCache.values()].filter(c => !c.vendor && !c.iConnection).length;
+        if (unresolved > 0) {
+          console.log(`[cdr-cache] ${unresolved} CDR(s) lack vendor/connection — attempting Mera enrichment`);
+          const meraCredPairs = sippyXmlCredsPairs(settings);
+          for (const { username, password } of meraCredPairs) {
+            try {
+              const mera = await sippy.exportVendorsCDRsMera(username, password, {
+                portalUrl: sippyPortalUrl(settings),
+                trustedMode: true,
+              });
+              if (!mera.success || mera.cdrs.length === 0) {
+                console.log(`[cdr-cache] Mera enrichment (${username}): ${mera.message}`);
+                continue;
+              }
+              // Build TWO lookup indexes:
+              //   1. confId  → payload  (primary — CONFID == calls.call_id == getAccountCDRs.call_id)
+              //   2. dstIp   → payload  (secondary — for any remaining unmatched CDRs that share an IP)
+              // Vendor name resolution order: dstName → connectionIpCache[cleanIp] → connectionVendorCache
+              type MeraPayload = { vendorName: string; dstIp: string; dstIpClean: string };
+              const meraByConfId = new Map<string, MeraPayload>();
+              const meraByIp     = new Map<string, MeraPayload>();
+              let meraDebugPrinted = false;
+              for (const mc of mera.cdrs) {
+                const cleanIp = (mc.dstIp || '').split(':')[0].trim();
+                const vendorName = mc.dstName
+                  || (cleanIp ? connectionIpCache.get(cleanIp) : undefined)
+                  || '';
+                const payload: MeraPayload = { vendorName, dstIp: mc.dstIp || '', dstIpClean: cleanIp };
+                // Log first CDR's vendor resolution once per cycle for monitoring
+                if (!meraDebugPrinted && vendorName) {
+                  meraDebugPrinted = true;
+                  console.log(`[cdr-cache] Mera CDR[0] → confId=${mc.confId?.slice(0,24)} dstIp=${mc.dstIp} vendorResolved=${vendorName}`);
+                }
+                if (mc.confId) meraByConfId.set(mc.confId.trim(), payload);
+                if (cleanIp && !meraByIp.has(cleanIp)) meraByIp.set(cleanIp, payload);
+              }
+              console.log(`[cdr-cache] Mera indexes built: byConfId=${meraByConfId.size} byIp=${meraByIp.size}`);
+
+              // Enrich portal CDRs in the cache
+              let enriched = 0;
+              for (const c of cdrCache.values()) {
+                if (c.vendor || c.iConnection) continue;
+                // Primary: match by confId (Mera CONFID == getAccountCDRs call_id)
+                const hit = (c.callId && c.callId !== '-' ? meraByConfId.get(c.callId) : undefined)
+                         // Secondary: match by remote IP if already known
+                         ?? (c.remoteIp ? meraByIp.get(c.remoteIp.split(':')[0].trim()) : undefined);
+                if (hit) {
+                  if (hit.vendorName) c.vendor = hit.vendorName;
+                  if (hit.dstIpClean) {
+                    c.remoteIp = hit.dstIpClean;
+                    const connId = connectionIpToConnectionIdCache.get(hit.dstIpClean);
+                    if (connId) (c as any).iConnection = String(connId);
+                  }
+                  enriched++;
+                }
+              }
+              console.log(`[cdr-cache] Mera enrichment: ${enriched}/${unresolved} CDR(s) resolved from ${mera.cdrs.length} Mera record(s)`);
+              break;
+            } catch (meraErr: any) {
+              console.warn(`[cdr-cache] Mera enrichment failed (${username}): ${meraErr.message}`);
+            }
+          }
+        }
+      }
+
       // Recompute and broadcast live traffic snapshots after each CDR batch
       computeAndBroadcastLiveTraffic();
     } catch (e: any) {

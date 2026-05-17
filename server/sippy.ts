@@ -3274,7 +3274,9 @@ export async function getSippyCDRs(
   const cdrCacheKey = `${username}@${apiUrl}`;
   const cdrBlocked = _cdrAuthFailCache.get(cdrCacheKey);
   if (cdrBlocked && cdrBlocked > Date.now()) {
-    return []; // silently return empty — no log spam
+    const secsLeft = Math.ceil((cdrBlocked - Date.now()) / 1000);
+    console.log(`[getSippyCDRs] ${username} — CDR auth failure cached, skipping for ${secsLeft}s`);
+    return [];
   }
 
   // Convert ISO dates to Sippy format if needed (Sippy requires '%H:%M:%S.000 GMT %a %b %d %Y')
@@ -3336,10 +3338,18 @@ export async function getSippyCDRs(
       }
 
       const structs = extractAllTags(text, 'struct');
+      if (structs.length > 0) {
+        const sampleKeys = Object.keys(extractStructMembers(structs[0])).slice(0, 10).join(', ');
+        console.log(`[getSippyCDRs] ${method} → ${structs.length} struct(s), sample keys: [${sampleKeys}]`);
+      } else {
+        console.log(`[getSippyCDRs] ${method} → 0 structs in response (bodyLen=${text.length})`);
+      }
       const cdrs: SippyCDR[] = [];
       for (const s of structs) {
         const m = extractStructMembers(s);
-        if (!m['call_id'] && !m['i_call'] && !m['cli']) continue;
+        // Accept CDRs identified by call_id, i_call, cli, or at minimum connect_time/setup_time.
+        // Some Sippy builds omit call_id but always include timing fields.
+        if (!m['call_id'] && !m['i_call'] && !m['cli'] && !m['connect_time'] && !m['setup_time']) continue;
         const nf = (k: string) => m[k] ? parseFloat(m[k]) : undefined;
         const ni = (k: string) => m[k] ? parseInt(m[k], 10) : undefined;
         const ns = (k: string) => m[k] || undefined;
@@ -3514,7 +3524,8 @@ export async function exportVendorsCDRsMera(
 
     if (resp.statusCode === 200 && !text.includes('<fault>') && !text.includes('faultCode')) {
       // Extract last_i_cdrs_connection (plain string or int value)
-      const lastConn = extractValue(text, 'last_i_cdrs_connection');
+      const lastConnMatch = text.match(/<name>last_i_cdrs_connection<\/name>\s*<value>[^<]*(?:<[a-z]+>)?([^<]*)</i);
+      const lastConn = lastConnMatch?.[1]?.trim() || undefined;
 
       // Extract cdrs array of strings
       // Shape: <name>cdrs</name><value><array><data><value><string>...</string></value>...</data></array></value>
