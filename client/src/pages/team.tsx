@@ -1753,8 +1753,11 @@ export default function TeamPage() {
                   onChange={e => setAssignRole(e.target.value as Role)}
                   className="appearance-none bg-background border border-border rounded-lg pl-3 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition-all cursor-pointer"
                 >
+                  <option value="super_admin">Super Admin</option>
                   <option value="admin">Admin</option>
                   <option value="management">Management</option>
+                  <option value="noc_operator">NOC Operator</option>
+                  <option value="team_lead">Team Lead</option>
                   <option value="viewer">Viewer</option>
                 </select>
                 <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
