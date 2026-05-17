@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, BellOff, Sparkles, GitBranch, Volume2, VolumeX, MessageCircle, ShieldCheck, X, Loader2 } from "lucide-react";
+import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, BellOff, Sparkles, GitBranch, Volume2, VolumeX, MessageCircle, ShieldCheck, X, Loader2, Scale } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -87,7 +87,7 @@ interface TimelineEntry {
   type: 'signal' | 'score_drop' | 'escalation' | 'resolution';
 }
 
-type FeedTab = 'all' | 'anomalies' | 'signals' | 'incidents' | 'accounts' | 'actions' | 'overlay';
+type FeedTab = 'all' | 'anomalies' | 'signals' | 'incidents' | 'accounts' | 'actions' | 'overlay' | 'verdict';
 
 const SIGNAL_TYPE_CONFIG: Record<string, { label: string; icon: any; bg: string; badge: string; color: string }> = {
   ROUTING_FAILURE:          { label: 'Routing Failure',       icon: AlertTriangle, bg: 'bg-rose-500/5 border-rose-500/30',     badge: 'bg-rose-500/15 text-rose-400 border-rose-500/30',   color: 'text-rose-400'   },
@@ -347,6 +347,17 @@ export default function AiOpsPage() {
   const { data: overlayData, isLoading: overlayLoading, refetch: refetchOverlay } = useQuery<{ rows: OverlayRow[]; computedAt: string; totalConnections: number }>({
     queryKey: ['/api/ai-ops/decision-overlay'],
     enabled: feedTab === 'overlay',
+    staleTime: 120_000,
+  });
+  interface VerdictSignals {
+    ciHealth: { score: number; state: string; tier: string; confidence: string; asr: number; totalCalls: number } | null;
+    stability: { score: number | null; delta: number | null; sampleCount: number; tier: string } | null;
+    aiOps: { count: number; maxSeverity: string | null; classification: string | null; tier: string } | null;
+  }
+  interface VerdictEntity { entity: string; verdict: string; confidence: string; reason: string; rulesApplied: string[]; signals: VerdictSignals; computedAt: string; }
+  const { data: verdictData, isLoading: verdictLoading, refetch: refetchVerdict } = useQuery<{ verdicts: VerdictEntity[]; computedAt: string; entityCount: number }>({
+    queryKey: ['/api/ai-ops/entity-verdict'],
+    enabled: feedTab === 'verdict',
     staleTime: 120_000,
   });
   // Index actions by accountId — most recent pending/approved per account
@@ -766,6 +777,7 @@ export default function AiOpsPage() {
                   { key: 'accounts', label: 'Accounts',  count: accountAnomalyData?.anomalies.length ?? 0 },
                   { key: 'actions',  label: 'Actions',   count: recommendations.length, active: immediateRecs.length },
                   { key: 'overlay',  label: 'Decision Overlay', count: overlayData?.totalConnections ?? 0 },
+                  { key: 'verdict',  label: 'Entity Verdict', count: verdictData?.entityCount ?? 0 },
                 ] as Array<{ key: FeedTab; label: string; count: number; active?: number }>).map(tab => (
                   <button
                     key={tab.key}
@@ -1744,6 +1756,158 @@ export default function AiOpsPage() {
                 )}
               </div>
             )}
+
+            {/* ── Entity Verdict Tab ───────────────────────────────────────── */}
+            {feedTab === 'verdict' && (() => {
+              const VERDICT_CFG: Record<string, { bg: string; text: string; border: string; cardBorder: string }> = {
+                CRITICAL:  { bg: 'bg-rose-500/15',    text: 'text-rose-400',         border: 'border-rose-500/30',    cardBorder: 'border-rose-500/20' },
+                DEGRADED:  { bg: 'bg-orange-500/15',  text: 'text-orange-400',       border: 'border-orange-500/30',  cardBorder: 'border-orange-500/20' },
+                WATCH:     { bg: 'bg-amber-500/15',   text: 'text-amber-400',        border: 'border-amber-500/30',   cardBorder: 'border-amber-500/20' },
+                UNCERTAIN: { bg: 'bg-slate-500/10',   text: 'text-slate-400',        border: 'border-slate-500/30',   cardBorder: 'border-border' },
+                STABLE:    { bg: 'bg-sky-500/15',     text: 'text-sky-400',          border: 'border-sky-500/30',     cardBorder: 'border-sky-500/20' },
+                HEALTHY:   { bg: 'bg-emerald-500/15', text: 'text-emerald-400',      border: 'border-emerald-500/30', cardBorder: 'border-emerald-500/20' },
+                UNSCORED:  { bg: 'bg-muted/30',       text: 'text-muted-foreground', border: 'border-border',         cardBorder: 'border-border' },
+              };
+              const TIER_COLOR: Record<string, string> = { GREEN: 'text-emerald-400', AMBER: 'text-amber-400', RED: 'text-rose-400', UNSCORED: 'text-muted-foreground/50' };
+              const criticalCount = verdictData?.verdicts.filter(v => v.verdict === 'CRITICAL').length ?? 0;
+              const degradedCount = verdictData?.verdicts.filter(v => v.verdict === 'DEGRADED').length ?? 0;
+              const watchCount    = verdictData?.verdicts.filter(v => v.verdict === 'WATCH').length ?? 0;
+              const healthyCount  = verdictData?.verdicts.filter(v => v.verdict === 'HEALTHY' || v.verdict === 'STABLE').length ?? 0;
+              return (
+                <div className="space-y-3">
+                  {/* Header */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1 rounded bg-indigo-500/10 border border-indigo-500/20">
+                        <Scale className="h-3.5 w-3.5 text-indigo-400" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-semibold">Entity Verdict Layer</span>
+                        {verdictData?.computedAt && (
+                          <span className="text-[10px] text-muted-foreground/50 ml-2">computed {new Date(verdictData.computedAt).toLocaleTimeString()}</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      data-testid="button-refresh-verdict"
+                      onClick={() => refetchVerdict()}
+                      className="text-[10px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                    >
+                      <RefreshCw className="h-2.5 w-2.5" /> Refresh
+                    </button>
+                  </div>
+
+                  {/* Architecture note */}
+                  <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 flex items-start gap-2">
+                    <Info className="h-3.5 w-3.5 text-indigo-400 mt-0.5 shrink-0" />
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Deterministic multi-signal fusion. CI provides real-time truth, Carrier Scoring provides statistical stability, AI Ops provides anomaly confirmation. Option C majority + confidence gating — no weighted averaging, no single-source dominance.
+                    </p>
+                  </div>
+
+                  {/* Summary stats */}
+                  {verdictData && verdictData.entityCount > 0 && (
+                    <div className="grid grid-cols-4 gap-2">
+                      {[
+                        { label: 'Critical', count: criticalCount, color: 'text-rose-400', bg: 'bg-rose-500/5 border-rose-500/20' },
+                        { label: 'Degraded', count: degradedCount, color: 'text-orange-400', bg: 'bg-orange-500/5 border-orange-500/20' },
+                        { label: 'Watch',    count: watchCount,    color: 'text-amber-400', bg: 'bg-amber-500/5 border-amber-500/20' },
+                        { label: 'Healthy',  count: healthyCount,  color: 'text-emerald-400', bg: 'bg-emerald-500/5 border-emerald-500/20' },
+                      ].map(s => (
+                        <div key={s.label} className={cn("rounded-lg border p-2 text-center", s.bg)}>
+                          <p className={cn("text-lg font-bold", s.color)}>{s.count}</p>
+                          <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Entity cards */}
+                  {verdictLoading ? (
+                    <div className="space-y-2">
+                      {[1,2,3,4].map(i => (
+                        <div key={i} className="bg-card border border-border rounded-xl p-4 animate-pulse">
+                          <div className="h-4 bg-muted/40 rounded w-1/3 mb-2" />
+                          <div className="h-3 bg-muted/30 rounded w-full" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : !verdictData || verdictData.verdicts.length === 0 ? (
+                    <div className="bg-card border border-border rounded-xl p-12 text-center">
+                      <Scale className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />
+                      <p className="text-sm text-muted-foreground">No entity data available</p>
+                      <p className="text-xs text-muted-foreground/60 mt-1">Connect a live Sippy instance and ensure carrier scoring data is present</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {verdictData.verdicts.map(v => {
+                        const cfg = VERDICT_CFG[v.verdict] ?? VERDICT_CFG.UNSCORED;
+                        return (
+                          <div key={v.entity} data-testid={`card-entity-verdict-${v.entity}`} className={cn("bg-card border rounded-xl p-4 space-y-3", cfg.cardBorder)}>
+                            {/* Top row */}
+                            <div className="flex items-start gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-semibold truncate">{v.entity}</span>
+                                  <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full border", cfg.bg, cfg.text, cfg.border)}>{v.verdict}</span>
+                                  <span className="text-[10px] text-muted-foreground/60 border border-border rounded px-1.5 py-0.5">{v.confidence} conf</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{v.reason}</p>
+                              </div>
+                            </div>
+
+                            {/* Signal breakdown */}
+                            <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/50">
+                              {/* CI */}
+                              <div className="space-y-0.5">
+                                <p className="text-[9px] text-muted-foreground/50 uppercase tracking-widest">CI Health</p>
+                                {v.signals.ciHealth ? (
+                                  <>
+                                    <p className={cn("text-[10px] font-semibold", TIER_COLOR[v.signals.ciHealth.tier])}>{v.signals.ciHealth.state}</p>
+                                    <p className="text-[9px] text-muted-foreground/60">score {v.signals.ciHealth.score} · {v.signals.ciHealth.totalCalls} calls</p>
+                                  </>
+                                ) : <p className="text-[10px] text-muted-foreground/40">No data</p>}
+                              </div>
+                              {/* Stability */}
+                              <div className="space-y-0.5">
+                                <p className="text-[9px] text-muted-foreground/50 uppercase tracking-widest">Stability</p>
+                                {v.signals.stability ? (
+                                  <>
+                                    <p className={cn("text-[10px] font-semibold", TIER_COLOR[v.signals.stability.tier])}>{v.signals.stability.tier}</p>
+                                    <p className="text-[9px] text-muted-foreground/60">
+                                      {v.signals.stability.score != null ? `score ${v.signals.stability.score}` : 'n/a'}
+                                      {v.signals.stability.delta != null ? ` · Δ${Math.round(v.signals.stability.delta)}` : ''}
+                                    </p>
+                                  </>
+                                ) : <p className="text-[10px] text-muted-foreground/40">No data</p>}
+                              </div>
+                              {/* AI Ops */}
+                              <div className="space-y-0.5">
+                                <p className="text-[9px] text-muted-foreground/50 uppercase tracking-widest">AI Ops (48h)</p>
+                                {v.signals.aiOps ? (
+                                  <>
+                                    <p className={cn("text-[10px] font-semibold", TIER_COLOR[v.signals.aiOps.tier])}>{v.signals.aiOps.maxSeverity?.toUpperCase()}</p>
+                                    <p className="text-[9px] text-muted-foreground/60">{v.signals.aiOps.count} event{v.signals.aiOps.count !== 1 ? 's' : ''}{v.signals.aiOps.classification ? ` · ${v.signals.aiOps.classification}` : ''}</p>
+                                  </>
+                                ) : <p className="text-[10px] text-muted-foreground/40">UNSCORED</p>}
+                              </div>
+                            </div>
+
+                            {/* Rules applied */}
+                            <div className="flex items-center gap-1.5 pt-0.5">
+                              <span className="text-[9px] text-muted-foreground/40 uppercase tracking-widest">via</span>
+                              {v.rulesApplied.map(rule => (
+                                <span key={rule} className="text-[9px] text-muted-foreground/50 border border-border rounded px-1.5 py-0.5">{rule.replace(/_/g, ' ')}</span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Predictive Alerts — derived from live anomalies */}
             {predictions.length > 0 && (

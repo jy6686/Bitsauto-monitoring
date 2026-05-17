@@ -18122,6 +18122,168 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // GET /api/ai-ops/entity-verdict — Entity Verdict Layer (Option C: Majority + confidence gating)
+  // First unified decision authority across CI + Carrier Scoring + AI Ops events.
+  // No DB writes, no Sippy writes, fully stateless. All future decision systems should consume this.
+  app.get('/api/ai-ops/entity-verdict', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const settings = await storage.getSettings();
+
+      // ── 1. CI pipeline (same as decision-overlay) ─────────────────────────────
+      const period = 90;
+      let baseRows: Array<{ name: string; totalCalls: number; acdSec: number; asr: number; avgPdd: number }> = [];
+      try {
+        const portal = await sippy.getSippyPerAccountStats(
+          settings?.portalUsername ?? '', settings?.portalPassword ?? '', period,
+          settings?.apiAdminUsername ?? '', settings?.apiAdminPassword ?? '',
+        );
+        if (portal.ok && portal.vendors.some((v: any) => v.totalCalls > 0))
+          baseRows = portal.vendors.map((v: any) => ({ name: v.name, totalCalls: v.totalCalls, acdSec: v.acdSec, asr: v.asr, avgPdd: v.avgPdd }));
+      } catch { /* fall through */ }
+
+      function computeHS(r: { asr: number; acdSec: number; avgPdd: number; totalCalls: number }) {
+        if (r.totalCalls === 0) return 0;
+        const conf = Math.min(1, Math.log10(r.totalCalls + 1) / 2);
+        return Math.max(0, Math.min(100, Math.round((Math.min(100, (r.asr / 50) * 100) * 0.35) + (Math.min(100, (Math.min(r.acdSec, 120) / 120) * 100) * 0.30) + (Math.max(0, 100 - (r.avgPdd / 10) * 100) * 0.15) + (conf * 10 * 0.20))));
+      }
+      function computeFas(asr: number, acd: number) {
+        if (asr > 55 && acd > 0 && acd < 30) return 'CRITICAL';
+        if (asr > 45 && acd > 0 && acd < 45) return 'MEDIUM';
+        return null;
+      }
+      function computeCiState(r: { asr: number; totalCalls: number }, hs: number, fas: string | null) {
+        if (r.totalCalls === 0) return 'UNSCORED';
+        if (fas) return 'FAS_RISK';
+        if (r.totalCalls >= 10 && r.asr === 0) return 'CRITICAL';
+        return hs >= 75 ? 'HEALTHY' : hs >= 55 ? 'STABLE' : hs >= 35 ? 'DEGRADED' : 'CRITICAL';
+      }
+
+      const ciMap = new Map(baseRows.map(r => {
+        const hs = computeHS(r); const fas = computeFas(r.asr, r.acdSec); const state = computeCiState(r, hs, fas);
+        const conf: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' = r.totalCalls >= 100 ? 'HIGH' : r.totalCalls >= 20 ? 'MEDIUM' : r.totalCalls > 0 ? 'LOW' : 'NONE';
+        return [r.name, { hs, state, conf, fas, asr: r.asr, totalCalls: r.totalCalls }];
+      }));
+
+      // ── 2. Carrier stability scores ────────────────────────────────────────────
+      const stabilityScores = await storage.getCarrierQualityScores(24);
+      const stabilityMap = new Map(stabilityScores.map((s: any) => [s.carrierName, s]));
+
+      // ── 3. AI Ops events (48h) ─────────────────────────────────────────────────
+      const { db }          = await import('./db');
+      const { aiOpsEvents } = await import('../shared/schema');
+      const { gte: gteOp, desc: descOp } = await import('drizzle-orm');
+      const events = await db.select().from(aiOpsEvents).where(gteOp(aiOpsEvents.createdAt, new Date(Date.now() - 48 * 60 * 60 * 1000))).orderBy(descOp(aiOpsEvents.createdAt));
+
+      function normKey(s: string) { return s.toLowerCase().replace(/^carrier:/, '').replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, ''); }
+      function matchEvents(entityName: string) {
+        const ck = normKey(entityName); if (ck.length < 3) return [];
+        return events.filter(e => { if (!e.entity) return false; const ek = normKey(e.entity); return ek.length >= 3 && (ek.includes(ck) || ck.includes(ek) || (ck.length >= 6 && ek.includes(ck.slice(0, 6)))); });
+      }
+      function matchStability(entityName: string) {
+        const ck = normKey(entityName);
+        for (const [k, v] of stabilityMap.entries()) { if (normKey(k) === ck || normKey(k).includes(ck) || ck.includes(normKey(k))) return v as any; }
+        return null;
+      }
+
+      // ── 4. Signal normalizers ──────────────────────────────────────────────────
+      type Tier = 'GREEN' | 'AMBER' | 'RED' | 'UNSCORED';
+      type Conf = 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+
+      function normCiTier(state: string): Tier {
+        if (state === 'UNSCORED') return 'UNSCORED';
+        if (state === 'FAS_RISK' || state === 'CRITICAL') return 'RED';
+        if (state === 'DEGRADED') return 'AMBER';
+        return 'GREEN';
+      }
+      function normStabilityTier(score: number | null, delta: number | null, sampleCount: number): Tier {
+        if (score == null || sampleCount < 10) return 'UNSCORED';
+        if (delta != null && delta < -10) return 'RED'; // rapid decline escalation
+        if (score >= 75) return 'GREEN'; if (score >= 45) return 'AMBER'; return 'RED';
+      }
+      function normAiOpsTier(matched: typeof events): { tier: Tier; conf: Conf; maxSev: string | null; count: number; cls: string | null } {
+        if (matched.length === 0) return { tier: 'UNSCORED', conf: 'NONE', maxSev: null, count: 0, cls: null };
+        const hasHigh = matched.some(e => e.severity === 'high' || e.severity === 'critical');
+        const hasMed  = matched.some(e => e.severity === 'medium');
+        const hasCf   = matched.some(e => e.classification === 'carrier_failure');
+        const tier: Tier = (hasHigh || hasCf) ? 'RED' : 'AMBER';
+        const conf: Conf = matched.length >= 3 ? 'HIGH' : 'MEDIUM';
+        return { tier, conf, maxSev: hasHigh ? 'high' : hasMed ? 'medium' : 'low', count: matched.length, cls: hasCf ? 'carrier_failure' : (matched[0]?.classification ?? null) };
+      }
+
+      // ── 5. Fusion engine (Option C: Majority + confidence gating) ─────────────
+      function fuse(ciT: Tier, ciC: Conf, ciState: string, fas: string | null, stT: Tier, stC: Conf, stDelta: number | null, aoT: Tier, aoC: Conf, aoCount: number): { verdict: string; confidence: string; reason: string; rules: string[] } {
+        const r: string[] = [];
+        // Rule 0: FAS override (fraud cannot be averaged away)
+        if (fas === 'CRITICAL' || fas === 'MEDIUM') {
+          r.push('rule_0_fas_override');
+          return { verdict: 'CRITICAL', confidence: 'HIGH', reason: `FAS pattern detected (${fas}) — fraud risk overrides all other signals`, rules: r };
+        }
+        const tiers = [ciT, stT, aoT];
+        const redCount = tiers.filter(t => t === 'RED').length;
+        const greenCount = tiers.filter(t => t === 'GREEN').length;
+        const amberCount = tiers.filter(t => t === 'AMBER').length;
+        const unscoredCount = tiers.filter(t => t === 'UNSCORED').length;
+        // Rule 5: Insufficient data
+        if (unscoredCount >= 3) { r.push('rule_5_all_unscored'); return { verdict: 'UNSCORED', confidence: 'NONE', reason: 'Insufficient data across all signal sources — no verdict possible', rules: r }; }
+        if (unscoredCount >= 2) { r.push('rule_5b_mostly_unscored'); return { verdict: 'UNCERTAIN', confidence: 'LOW', reason: `Only one signal source available — insufficient for a confident verdict`, rules: r }; }
+        // Rule 1: Majority RED + confidence gate
+        if (redCount >= 2) {
+          const medConf = (ciT === 'RED' && (ciC === 'HIGH' || ciC === 'MEDIUM')) || (stT === 'RED' && (stC === 'HIGH' || stC === 'MEDIUM')) || (aoT === 'RED' && (aoC === 'HIGH' || aoC === 'MEDIUM'));
+          if (medConf) {
+            r.push('rule_1_majority_red');
+            const verdict = redCount === 3 ? 'CRITICAL' : 'DEGRADED';
+            const parts = [];
+            if (ciT === 'RED') parts.push(`CI: ${ciState} (score impact)`);
+            if (stT === 'RED') parts.push(stDelta != null && stDelta < -10 ? `Stability: rapid decline (Δ${Math.round(stDelta)})` : 'Stability: below threshold');
+            if (aoT === 'RED') parts.push(`AI Ops: ${aoCount} high-severity event${aoCount > 1 ? 's' : ''} in 48h`);
+            return { verdict, confidence: (ciC === 'HIGH' || stC === 'HIGH') ? 'HIGH' : 'MEDIUM', reason: parts.join(' + '), rules: r };
+          }
+        }
+        // Rule 2: Majority GREEN + confidence gate
+        if (greenCount >= 2) {
+          const medConf = (ciT === 'GREEN' && (ciC === 'MEDIUM' || ciC === 'HIGH')) || (stT === 'GREEN' && (stC === 'MEDIUM' || stC === 'HIGH'));
+          if (medConf) {
+            r.push('rule_2_majority_green');
+            return { verdict: greenCount === 3 ? 'HEALTHY' : 'STABLE', confidence: (ciC === 'HIGH' && stC === 'HIGH') ? 'HIGH' : 'MEDIUM', reason: `CI ${ciState} + stable scoring — no critical signals detected`, rules: r };
+          }
+        }
+        // Rule 2b: Majority AMBER → WATCH
+        if (amberCount >= 2) { r.push('rule_2b_majority_amber'); return { verdict: 'WATCH', confidence: 'MEDIUM', reason: 'Multiple signals show moderate concern — monitoring recommended', rules: r }; }
+        // Rule 3: Rapid stability decline
+        if (stDelta != null && stDelta < -10) { r.push('rule_3_rapid_decline'); return { verdict: 'WATCH', confidence: 'MEDIUM', reason: `Stability declining rapidly (Δ${Math.round(stDelta)} in 48h) — pattern may worsen`, rules: r }; }
+        // Rule 4: Signal conflict → UNCERTAIN
+        r.push('rule_4_conflict');
+        return { verdict: 'UNCERTAIN', confidence: 'LOW', reason: `Signals disagree (CI: ${ciT}, Stability: ${stT}, AI Ops: ${aoT}) — insufficient agreement for a verdict`, rules: r };
+      }
+
+      // ── 6. Assemble entity universe and compute verdicts ───────────────────────
+      const entityNames = new Set<string>([...ciMap.keys(), ...stabilityMap.keys()]);
+      const verdicts = Array.from(entityNames).map(name => {
+        const ci  = ciMap.get(name) ?? null;
+        const st  = matchStability(name);
+        const matched = matchEvents(name);
+        const ao  = normAiOpsTier(matched);
+        const ciT = ci ? normCiTier(ci.state) : 'UNSCORED';
+        const stT = st ? normStabilityTier(st.stabilityScore ?? null, st.stabilityDelta ?? null, st.sampleCount ?? 0) : 'UNSCORED';
+        const result = fuse(ciT, ci?.conf ?? 'NONE', ci?.state ?? 'UNSCORED', ci?.fas ?? null, stT, (st?.sampleCount ?? 0) >= 500 ? 'HIGH' : (st?.sampleCount ?? 0) >= 100 ? 'MEDIUM' : (st?.sampleCount ?? 0) >= 10 ? 'LOW' : 'NONE', st?.stabilityDelta ?? null, ao.tier, ao.conf, ao.count);
+        return {
+          entity: name,
+          verdict: result.verdict, confidence: result.confidence, reason: result.reason, rulesApplied: result.rules,
+          signals: {
+            ciHealth:  ci  ? { score: ci.hs, state: ci.state, tier: ciT, confidence: ci.conf, asr: ci.asr, totalCalls: ci.totalCalls } : null,
+            stability: st  ? { score: st.stabilityScore ?? null, delta: st.stabilityDelta ?? null, sampleCount: st.sampleCount ?? 0, tier: stT } : null,
+            aiOps:     ao.count > 0 ? { count: ao.count, maxSeverity: ao.maxSev, classification: ao.cls, tier: ao.tier } : null,
+          },
+          computedAt: new Date().toISOString(),
+        };
+      });
+
+      const ORDER = ['CRITICAL','DEGRADED','WATCH','UNCERTAIN','STABLE','HEALTHY','UNSCORED'];
+      verdicts.sort((a, b) => (ORDER.indexOf(a.verdict) - ORDER.indexOf(b.verdict)) || a.entity.localeCompare(b.entity));
+      res.json({ verdicts, computedAt: new Date().toISOString(), entityCount: verdicts.length });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // GET /api/aiops/incidents — grouped incident feed (all time, newest first)
   app.get('/api/aiops/incidents', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
     try {
