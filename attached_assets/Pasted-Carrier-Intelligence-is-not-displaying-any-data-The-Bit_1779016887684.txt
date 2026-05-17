@@ -1,0 +1,196 @@
+Carrier Intelligence is not displaying any data. The BitsEye graphs and tables appear unchanged and are not fetching live call data.
+
+BitsEye should be pulling real-time live calls on a client-wise basis and generating graphs accordingly. However, it is currently using CDR data, which is incorrect and not suitable for decision-making purposes.
+
+What we actually need is an ASR/ACD report similar to the Sippy interface I shared earlier. Please review that reference and replicate the same logic and presentation in our Sippy-style soft dashboard.
+
+You’ve actually just identified a real product regression vs intent mismatch, not a UI bug.
+
+Let’s separate this cleanly so we fix the right thing.
+
+🚨 What is currently broken (based on your description)
+1. Carrier Intelligence (CI)
+Problem:
+Not showing live updates
+BitsEye graphs not changing
+Feels “static”
+Likely cause (based on your architecture history):
+
+CI is currently:
+
+CDR-batch / aggregated pipeline → NOT real-time stream
+
+So it behaves like:
+
+reporting system, not monitoring system
+
+2. BitsEye (critical issue)
+Problem:
+Using CDR aggregation
+Not live call stream
+Not client-wise real-time view
+Why this matters:
+
+CDR = post-call billing data
+BitsEye = should be live traffic monitoring
+
+So right now you have:
+
+Component	Wrong data source
+BitsEye	CDR pipeline ❌
+CI graphs	aggregated CDR ❌
+Decision system	partially delayed signals ⚠️
+🧠 Core architectural mismatch
+
+You currently have:
+
+❌ Wrong mental model
+
+“Everything comes from CDRs”
+
+✅ Required telecom model
+
+You actually need 2 layers:
+
+1. LIVE LAYER (BitsEye)
+SIP/RTP live call stream
+active calls
+concurrent sessions
+real-time ASR/ACD rolling window
+2. POST-CALL LAYER (CI / Reports)
+CDR-based ASR/ACD
+billing accuracy
+historical trends
+⚠️ Key issue you just uncovered
+
+BitsEye is supposed to be:
+
+“Sippy-style live traffic monitor”
+
+But it is currently:
+
+“CDR reporting dashboard”
+
+That is a category-level mismatch, not a bug.
+
+📊 What Sippy-style system actually does (your reference)
+
+From Sippy-like architecture:
+
+Live ASR/ACD is computed from:
+active call attempts
+answered calls in real time window
+rolling counters (1 min / 5 min / 15 min windows)
+
+NOT:
+
+completed CDR batches
+🔥 What you are missing (precise gap)
+You do NOT currently have:
+1. Live call ingestion layer
+SIP INVITE tracking
+200 OK / failure tracking
+real-time session state
+2. Rolling window calculator
+ASR (last 5–15 min)
+ACD (live rolling average)
+CPS (calls per second)
+3. Client-wise streaming aggregation
+per account
+per carrier
+per routing group
+🧭 Correct target architecture
+BitsEye should be:
+Live Call Stream → Aggregator → Real-time Metrics → UI Graphs
+
+Not:
+
+CDR batch → CI → UI
+📈 What BitsEye should show (correct model)
+Per client:
+Live metrics:
+Active Calls
+Call Attempts/min
+ASR (5 min rolling)
+ACD (answered calls rolling)
+Fail rate (live)
+Graphs:
+Call volume (per second/minute)
+Success vs failure trend
+Carrier load distribution
+🧠 Why your current CI feels “wrong”
+
+Because CI is now mixing:
+
+Type	Problem
+CDR-based ASR	delayed (not live)
+decision scoring	correct but lagging
+BitsEye graphs	stale representation
+
+So operators see:
+
+“system is not reacting in real time”
+
+🚨 Critical insight
+
+You currently built:
+
+A decision intelligence system
+
+But BitsEye is supposed to be:
+
+A live NOC monitoring system
+
+These are different layers.
+
+🛠️ What needs to be fixed (clear scope)
+Phase 1 — Fix BitsEye data source (URGENT)
+
+Replace:
+
+CDR-based aggregation
+
+With:
+
+live call session store (SIP events)
+Phase 2 — Introduce Live Metrics Engine
+
+Create:
+
+/api/live-traffic/client/:id
+
+Returns:
+
+{
+  "activeCalls": 42,
+  "asr5min": 61.2,
+  "acd5min": 84,
+  "cps": 3.2
+}
+Phase 3 — CI becomes secondary (correct role)
+
+CI should:
+
+NOT drive live graphs
+ONLY show health snapshot
+feed Decision Overlay
+🧭 Final diagnosis (important)
+
+You are NOT facing a bug.
+
+You are facing:
+
+❗ “Wrong telemetry layer feeding the wrong UI system”
+
+🟢 What I recommend (clear)
+Step 1 (must fix first)
+
+👉 Decouple BitsEye from CDR pipeline
+
+Step 2
+
+👉 Introduce live call state aggregation
+
+Step 3
+
+👉 Keep CI strictly as decision layer (not monitoring source)
