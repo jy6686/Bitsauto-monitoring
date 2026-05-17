@@ -6,7 +6,7 @@ import {
   Maximize2, Minimize, Activity, AlertTriangle, CheckCircle2,
   XCircle, Phone, Wifi, Clock, Zap, Radio, Shield, BarChart3,
   Eye, ShieldCheck, TrendingUp, DollarSign, GitBranch, Cpu,
-  ArrowRight, BrainCircuit, Layers, Siren, RefreshCw,
+  ArrowRight, BrainCircuit, Layers, Siren, RefreshCw, Moon, Sun,
 } from "lucide-react";
 import { PanelHeader, FreshnessIndicator } from "@/components/freshness-indicator";
 import { cn } from "@/lib/utils";
@@ -95,9 +95,9 @@ function CarrierCard({ score, index }: { score: CarrierScore; index: number }) {
   const s = score.stabilityScore ?? 0;
   const barColor = { green: "bg-green-500", amber: "bg-amber-500", red: "bg-red-500" }[color];
   const cardStyle = {
-    green: "bg-green-50 border-green-200",
-    amber: "bg-amber-50 border-amber-200",
-    red:   "bg-red-50 border-red-200",
+    green: "bg-green-50 dark:bg-green-500/5 border-green-200 dark:border-green-500/20",
+    amber: "bg-amber-50 dark:bg-amber-500/5 border-amber-200 dark:border-amber-500/20",
+    red:   "bg-red-50 dark:bg-red-500/5 border-red-200 dark:border-red-500/20",
   }[color];
   const glowStyle = {
     green: "bg-green-300",
@@ -160,14 +160,14 @@ function BigMetric({ label, value, icon: Icon, color, sub }: {
 }) {
   return (
     <motion.div
-      className="flex flex-col items-center justify-center gap-1 p-4 rounded-xl bg-white border border-slate-200 shadow-sm"
+      className="flex flex-col items-center justify-center gap-1 p-4 rounded-xl bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/[0.06] shadow-sm dark:shadow-none"
       animate={{ scale: [1, 1.01, 1] }}
       transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
     >
       <Icon className={cn("h-5 w-5 opacity-70", color)} />
       <p className={cn("text-3xl font-black tabular-nums", color)}>{value}</p>
-      <p className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">{label}</p>
-      {sub && <p className="text-[9px] text-slate-400 font-mono">{sub}</p>}
+      <p className="text-[10px] text-slate-400 dark:text-muted-foreground/40 uppercase tracking-widest font-mono">{label}</p>
+      {sub && <p className="text-[9px] text-slate-400 dark:text-muted-foreground/40 font-mono">{sub}</p>}
     </motion.div>
   );
 }
@@ -183,14 +183,14 @@ function NocAlertRow({ alert, onAck, onResolve, pending }: {
       initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }}
       className={cn(
         "flex items-start gap-2 p-2.5 rounded-lg border text-xs",
-        alert.severity === "critical" ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"
+        alert.severity === "critical" ? "bg-red-50 dark:bg-red-500/5 border-red-200 dark:border-red-500/20" : "bg-amber-50 dark:bg-amber-500/5 border-amber-200 dark:border-amber-500/20"
       )}
     >
       <AlertTriangle className={cn("h-3.5 w-3.5 flex-shrink-0 mt-0.5",
         alert.severity === "critical" ? "text-red-500" : "text-amber-500")} />
       <div className="flex-1 min-w-0">
-        <p className="font-medium truncate text-slate-800">{alert.type.split("_").join(" ").toUpperCase()}</p>
-        <p className="text-slate-500 text-[10px] truncate">{alert.message}</p>
+        <p className="font-medium truncate text-slate-800 dark:text-slate-200">{alert.type.split("_").join(" ").toUpperCase()}</p>
+        <p className="text-slate-500 dark:text-muted-foreground/60 text-[10px] truncate">{alert.message}</p>
         {(alert as any).vendor && (
           <p className="text-[9px] text-slate-400 font-mono mt-0.5">via {(alert as any).vendor}</p>
         )}
@@ -253,7 +253,14 @@ const QUICK_LINKS = [
 
 export default function NocCommandPage() {
   const [fullscreen, setFullscreen] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
   const [pendingAlertId, setPendingAlertId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (darkMode) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+    return () => { document.documentElement.classList.remove('dark'); };
+  }, [darkMode]);
 
   const { data: scores = [], dataUpdatedAt: scoresUpdatedAt, isFetching: scoresFetching } = useQuery<CarrierScore[]>({
     queryKey: ["/api/carrier-scores", 24],
@@ -312,9 +319,9 @@ export default function NocCommandPage() {
   };
 
   return (
-    <div className={cn("bg-slate-50 text-slate-900 min-h-screen flex flex-col", fullscreen && "fixed inset-0 z-[9999]")}>
+    <div className={cn("bg-slate-50 text-slate-900 dark:bg-[#06080f] dark:text-slate-100 min-h-screen flex flex-col", fullscreen && "fixed inset-0 z-[9999]")}>
       {/* Top bar */}
-      <div className="border-b border-slate-200 px-6 py-3 flex items-center gap-4 flex-shrink-0 bg-white shadow-sm">
+      <div className="border-b border-slate-200 dark:border-white/[0.06] px-6 py-3 flex items-center gap-4 flex-shrink-0 bg-white dark:bg-[#0d1117] shadow-sm dark:shadow-none">
         <div className="flex items-center gap-2">
           <div className="bg-violet-100 p-1.5 rounded-lg">
             <Radio className="h-4 w-4 text-violet-600" />
@@ -325,16 +332,24 @@ export default function NocCommandPage() {
           </div>
         </div>
 
-        <div className="flex-1 border border-slate-200 rounded-lg px-4 py-2 bg-slate-50">
+        <div className="flex-1 border border-slate-200 dark:border-white/[0.06] rounded-lg px-4 py-2 bg-slate-50 dark:bg-white/[0.03]">
           <IncidentTicker incidents={incidents} />
         </div>
 
         <div className="flex items-center gap-3">
           <LiveClock />
           <button
+            data-testid="btn-dark-mode"
+            onClick={() => setDarkMode(v => !v)}
+            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 transition-colors text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+            title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
+          <button
             data-testid="btn-fullscreen"
             onClick={toggleFullscreen}
-            className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-700"
+            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 transition-colors text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
           >
             {fullscreen ? <Minimize className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
@@ -369,7 +384,7 @@ export default function NocCommandPage() {
               <Pulse color="green" size={1} />
             </PanelHeader>
             {scores.length === 0 ? (
-              <div className="text-center text-slate-400 text-xs py-8 border border-slate-200 rounded-xl bg-white">
+              <div className="text-center text-slate-400 dark:text-slate-500 text-xs py-8 border border-slate-200 dark:border-white/[0.06] rounded-xl bg-white dark:bg-white/[0.02]">
                 No carrier scores yet — run a synthetic test campaign to populate
               </div>
             ) : (
@@ -380,16 +395,16 @@ export default function NocCommandPage() {
           </div>
 
           {/* Quick Access */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-[10px] uppercase tracking-widest text-slate-400 font-mono mb-3">Quick Access</p>
+          <div className="rounded-xl border border-slate-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4 shadow-sm dark:shadow-none">
+            <p className="text-[10px] uppercase tracking-widest text-slate-400 dark:text-muted-foreground/40 font-mono mb-3">Quick Access</p>
             <div className="grid grid-cols-4 gap-2">
               {QUICK_LINKS.map(({ href, label, icon: Icon, color }) => (
                 <Link key={href} href={href}>
                   <a data-testid={`noc-link-${label.toLowerCase().replace(/\s/g,'-')}`}
-                    className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300 transition-all group cursor-pointer">
+                    className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-white/[0.06] bg-slate-50 dark:bg-white/[0.02] hover:bg-slate-100 dark:hover:bg-white/[0.05] hover:border-slate-300 dark:hover:border-white/10 transition-all group cursor-pointer">
                     <Icon className={cn("h-4 w-4 flex-shrink-0", color)} />
-                    <span className="text-xs text-slate-500 group-hover:text-slate-800 transition-colors truncate">{label}</span>
-                    <ArrowRight className="h-3 w-3 text-slate-300 ml-auto group-hover:text-slate-500 transition-colors flex-shrink-0" />
+                    <span className="text-xs text-slate-500 dark:text-muted-foreground/60 group-hover:text-slate-800 dark:group-hover:text-slate-200 transition-colors truncate">{label}</span>
+                    <ArrowRight className="h-3 w-3 text-slate-300 dark:text-muted-foreground/30 ml-auto group-hover:text-slate-500 dark:group-hover:text-muted-foreground transition-colors flex-shrink-0" />
                   </a>
                 </Link>
               ))}
@@ -401,7 +416,7 @@ export default function NocCommandPage() {
         <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
 
           {/* System Status — live */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-xl border border-slate-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4 shadow-sm dark:shadow-none">
             <PanelHeader label="System Status" updatedAt={liveUpdatedAt} intervalMs={15_000} isFetching={liveFetching} />
             <div className="space-y-2">
               {[
@@ -413,7 +428,7 @@ export default function NocCommandPage() {
               ].map(({ label, ok }) => (
                 <div key={label} className="flex items-center gap-2 text-xs">
                   <Pulse color={ok ? "green" : "red"} size={1} />
-                  <span className="flex-1 text-slate-500">{label}</span>
+                  <span className="flex-1 text-slate-500 dark:text-muted-foreground/60">{label}</span>
                   <span className={ok ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{ok ? "Online" : "Offline"}</span>
                 </div>
               ))}
@@ -421,17 +436,17 @@ export default function NocCommandPage() {
           </div>
 
           {/* Vendor Balances */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-xl border border-slate-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4 shadow-sm dark:shadow-none">
             <PanelHeader label="Vendor Balances" updatedAt={balancesUpdatedAt} intervalMs={60_000} isFetching={balancesFetching}>
               <DollarSign className="h-3 w-3 text-slate-400" />
             </PanelHeader>
             {!balancesData?.vendors?.length ? (
-              <p className="text-xs text-slate-400 text-center py-2">No balance data yet</p>
+              <p className="text-xs text-slate-400 dark:text-muted-foreground/40 text-center py-2">No balance data yet</p>
             ) : (
               <div className="space-y-1.5">
                 {balancesData.vendors.map(v => (
                   <div key={v.name} className="flex items-center gap-2 text-xs">
-                    <span className="flex-1 text-slate-500 truncate font-mono">{v.name}</span>
+                    <span className="flex-1 text-slate-500 dark:text-muted-foreground/60 truncate font-mono">{v.name}</span>
                     <span className={cn("font-bold tabular-nums", v.balance < 10 ? "text-red-600" : v.balance < 50 ? "text-amber-600" : "text-green-600")}>
                       ${v.balance.toFixed(2)}
                     </span>
@@ -442,7 +457,7 @@ export default function NocCommandPage() {
           </div>
 
           {/* Active System Alerts — with inline Acknowledge/Resolve */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 flex-1 shadow-sm">
+          <div className="rounded-xl border border-slate-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4 flex-1 shadow-sm dark:shadow-none">
             <PanelHeader label="System Alerts" updatedAt={alertsUpdatedAt} intervalMs={20_000} isFetching={alertsFetching}>
               <Pulse color={openAlerts.length > 0 ? "red" : "green"} size={1} />
               {openAlerts.length > 0 && (
@@ -455,7 +470,7 @@ export default function NocCommandPage() {
               )}
             </PanelHeader>
             {activeAlerts.length === 0 ? (
-              <div className="text-center text-slate-400 text-xs py-4 flex flex-col items-center gap-2">
+              <div className="text-center text-slate-400 dark:text-muted-foreground/40 text-xs py-4 flex flex-col items-center gap-2">
                 <CheckCircle2 className="h-6 w-6 text-green-500/60" />
                 All alerts resolved
               </div>
@@ -475,14 +490,14 @@ export default function NocCommandPage() {
               </div>
             )}
             <Link href="/alerts">
-              <a className="mt-3 flex items-center gap-1.5 text-[10px] text-slate-400 hover:text-slate-600 transition-colors font-mono">
+              <a className="mt-3 flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-muted-foreground/40 hover:text-slate-600 dark:hover:text-muted-foreground transition-colors font-mono">
                 <ArrowRight className="h-3 w-3" /> View all alerts
               </a>
             </Link>
           </div>
 
           {/* AIOps incident feed */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-xl border border-slate-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4 shadow-sm dark:shadow-none">
             <PanelHeader label="AI Ops Feed" updatedAt={incidentsUpdatedAt} intervalMs={30_000} isFetching={incidentsFetching}>
               <Pulse color={activeIncidents.length > 0 ? "red" : "green"} size={1} />
               {activeIncidents.length > 0 && (
@@ -522,7 +537,7 @@ export default function NocCommandPage() {
       </div>
 
       {/* Footer */}
-      <div className="border-t border-slate-200 px-6 py-2 flex items-center gap-4 text-[10px] text-slate-400 font-mono flex-shrink-0 bg-white">
+      <div className="border-t border-slate-200 dark:border-white/[0.06] px-6 py-2 flex items-center gap-4 text-[10px] text-slate-400 dark:text-muted-foreground/40 font-mono flex-shrink-0 bg-white dark:bg-[#0d1117]">
         <span>BITSAUTO MONITORING PLATFORM v2.6.0-stable</span>
         <span className="flex-1" />
         {balancesData?.snapshotCount != null && (

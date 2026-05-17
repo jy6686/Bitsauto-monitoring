@@ -15699,7 +15699,8 @@ export async function registerRoutes(
     try {
       const entity    = (req.query.entity as string | undefined) ?? '';
       const limit     = Math.min(Number(req.query.limit) || 60, 200);
-      const cutoff    = new Date(Date.now() - 48 * 60 * 60_000);
+      const windowH   = Math.min(Math.max(Number(req.query.window) || 48, 1), 168);
+      const cutoff    = new Date(Date.now() - windowH * 60 * 60_000);
       const { db }    = await import('./db');
       const { alerts: alertsTable, anomalyEvents, aiOpsIncidents } = await import('../shared/schema');
       const { desc, gte, or, ilike, sql } = await import('drizzle-orm');
@@ -15783,7 +15784,7 @@ export async function registerRoutes(
 
       // Sort by ts descending and return
       events.sort((a, b) => b.ts.getTime() - a.ts.getTime());
-      res.json({ entity, events: events.slice(0, limit), total: events.length });
+      res.json({ entity, events: events.slice(0, limit), total: events.length, windowH });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -17410,6 +17411,21 @@ export async function registerRoutes(
           await db.update(incidentsTable).set(incidentData).where(eq(incidentsTable.id, existing.id));
         } else {
           await db.insert(incidentsTable).values({ ...incidentData, openedAt: new Date() });
+        }
+        // Mirror to the alerts table with vendor field for timeline/ops-console visibility
+        const { alerts: alertsT } = await import('../shared/schema');
+        const { eq: eqA, and: andA } = await import('drizzle-orm');
+        const [existingAlert] = await db.select({ id: alertsT.id }).from(alertsT)
+          .where(andA(eqA(alertsT.type, 'carrier_asr_drop'), eqA((alertsT as any).vendor, entry.carrierId), eqA(alertsT.resolved, false)))
+          .limit(1);
+        if (!existingAlert) {
+          await storage.createAlert({
+            type:     'carrier_asr_drop',
+            severity,
+            message:  `${entry.carrierName}: ASR ${entry.asr}% — alert rule fired (${entry.sampleCount} calls sampled)`,
+            resolved: false,
+            vendor:   entry.carrierId,
+          } as any);
         }
       } catch { /* non-critical */ }
     }

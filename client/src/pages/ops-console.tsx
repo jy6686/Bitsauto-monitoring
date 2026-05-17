@@ -200,6 +200,8 @@ function ScoreBar({ value, max = 100 }: { value: number; max?: number }) {
 
 export default function OpsConsolePage() {
   const [selectedEntity, setSelectedEntity] = useState<string>("__all__");
+  const [timelineWindow, setTimelineWindow] = useState<'4' | '12' | '48'>('48');
+  const isAll = selectedEntity === "__all__";
 
   const { data: balances, dataUpdatedAt: balUpdatedAt, isFetching: balFetching } = useQuery<VendorBalanceSnapshot>({
     queryKey: ["/api/vendors/current-balances"],
@@ -247,8 +249,8 @@ export default function OpsConsolePage() {
   });
 
   const { data: timeline, dataUpdatedAt: timelineUpdatedAt, isFetching: timelineFetching } = useQuery<EntityTimeline>({
-    queryKey: ["/api/entity-timeline", selectedEntity],
-    queryFn: () => fetch(`/api/entity-timeline?entity=${encodeURIComponent(selectedEntity)}&limit=40`).then(r => r.json()),
+    queryKey: ["/api/entity-timeline", selectedEntity, timelineWindow],
+    queryFn: () => fetch(`/api/entity-timeline?entity=${encodeURIComponent(selectedEntity)}&limit=40&window=${timelineWindow}`).then(r => r.json()),
     enabled: !isAll,
     refetchInterval: 30_000,
   });
@@ -276,8 +278,6 @@ export default function OpsConsolePage() {
     return field.toLowerCase().includes(entity.toLowerCase()) ||
            entity.toLowerCase().includes(field.toLowerCase());
   };
-
-  const isAll = selectedEntity === "__all__";
 
   // Filtered signal sets
   const liveCalls = useMemo(() => {
@@ -748,7 +748,22 @@ export default function OpsConsolePage() {
           {(() => {
             const events = timeline?.events ?? [];
             if (!timeline) return <EmptyState label="Loading timeline…" />;
-            if (events.length === 0) return <EmptyState label="No events in the last 48h for this entity" />;
+            if (events.length === 0) return (
+              <div>
+                <div className="flex justify-end mb-3">
+                  <div className="flex rounded-lg border border-white/[0.06] overflow-hidden text-[9px] font-mono">
+                    {(['4', '12', '48'] as const).map(w => (
+                      <button key={w} onClick={() => setTimelineWindow(w)}
+                        className={cn("px-2 py-0.5 transition-colors",
+                          timelineWindow === w ? "bg-white/10 text-white" : "text-muted-foreground/50 hover:text-muted-foreground")}>
+                        {w}h
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <EmptyState label={`No events in the last ${timelineWindow}h for this entity`} />
+              </div>
+            );
 
             const kindMeta = {
               alert:    { icon: AlertTriangle, color: "text-rose-500",   bg: "bg-rose-500/8 border-rose-500/20",   label: "ALERT"    },
@@ -760,6 +775,18 @@ export default function OpsConsolePage() {
               sev === "critical" ? "text-red-400" : sev === "high" ? "text-orange-400" : sev === "warning" ? "text-amber-400" : "text-sky-400";
 
             return (
+              <div>
+                <div className="flex justify-end mb-3">
+                  <div className="flex rounded-lg border border-white/[0.06] overflow-hidden text-[9px] font-mono">
+                    {(['4', '12', '48'] as const).map(w => (
+                      <button key={w} onClick={() => setTimelineWindow(w)}
+                        className={cn("px-2 py-0.5 transition-colors",
+                          timelineWindow === w ? "bg-white/10 text-white" : "text-muted-foreground/50 hover:text-muted-foreground")}>
+                        {w}h
+                      </button>
+                    ))}
+                  </div>
+                </div>
               <div className="space-y-1 max-h-80 overflow-y-auto pr-0.5">
                 {events.map((ev, idx) => {
                   const meta  = kindMeta[ev.kind];
@@ -810,6 +837,7 @@ export default function OpsConsolePage() {
                     showing {events.length} of {timeline.total} events
                   </p>
                 )}
+              </div>
               </div>
             );
           })()}

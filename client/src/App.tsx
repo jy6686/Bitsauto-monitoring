@@ -103,6 +103,7 @@ import ReplayEnginePage from "@/pages/replay";
 import NetworkTopologyPage from "@/pages/network-topology";
 import NocCommandPage from "@/pages/noc-command";
 import OpsConsolePage from "@/pages/ops-console";
+import VendorProfilePage from "@/pages/vendor-profile";
 import StirShakenPage from "@/pages/stir-shaken";
 import CallRecordingsPage from "@/pages/call-recordings";
 import PortalViewPage from "@/pages/portal-view";
@@ -226,6 +227,9 @@ function ProtectedRoute({
       );
     }
   }
+
+  const isCompact = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('compact') === '1';
+  if (isCompact) return <Component />;
 
   return (
     <LayoutShell>
@@ -389,6 +393,9 @@ function Router() {
       </Route>
       <Route path="/vendors">
         {() => <ProtectedRoute component={VendorsPage} requiredRoles={['admin', 'management']} mgmtFeature="vendor_connections" />}
+      </Route>
+      <Route path="/vendors/:name">
+        {() => <ProtectedRoute component={VendorProfilePage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/approval-settings">
         {() => <ProtectedRoute component={ApprovalSettingsPage} requiredRoles={['admin', 'super_admin']} />}
