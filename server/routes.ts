@@ -3564,65 +3564,6 @@ export async function registerRoutes(
       return { name: 'Total', totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd: 0, amount };
     }
 
-    // ── Country→ISO code lookup for 2-3 char connection name tokens ─────────
-    // Connection names use abbreviations like UK, BD, PAK, UAE, etc.
-    // This maps each abbreviation to what Sippy writes in the CDR country field.
-    const ISO_TO_COUNTRY: Record<string, string> = {
-      'uk':  'united kingdom', 'gb':  'united kingdom',
-      'us':  'united states',  'usa': 'united states',
-      'bd':  'bangladesh',
-      'pak': 'pakistan',       'pk':  'pakistan',
-      'ae':  'united arab emirates', 'uae': 'united arab emirates',
-      'sa':  'saudi arabia',
-      'in':  'india',
-      'af':  'afghanistan',
-      'ir':  'iran',           'irn': 'iran',
-      'iq':  'iraq',
-      'np':  'nepal',
-      'lk':  'sri lanka',
-      'de':  'germany',        'deu': 'germany',
-      'fr':  'france',         'fra': 'france',
-      'nl':  'netherlands',    'nld': 'netherlands',
-      'au':  'australia',      'aus': 'australia',
-      'ca':  'canada',         'can': 'canada',
-      'cn':  'china',
-      'ru':  'russia',         'rus': 'russia',
-      'tr':  'turkey',         'tur': 'turkey',
-      'eg':  'egypt',
-      'ng':  'nigeria',
-      'ke':  'kenya',
-      'za':  'south africa',
-    };
-
-    // Build a country-token→connection lookup from the connection name cache.
-    // Connection names often embed the destination country/region code.
-    // Map: normalised token → { vendorName, connName }
-    const countryConnMap = new Map<string, { vendorName: string; connName: string }>();
-    // Deduplicated list of all unique (vendorName, connName) pairs.
-    const allConns: { vendorName: string; connName: string }[] = [];
-
-    for (const [key, connName] of connectionNameCache.entries()) {
-      const vendorName = connectionVendorCache.get(key) || connectionVendorCache.get(connName) || '';
-      if (!vendorName || !connName) continue;
-      // Deduplicate by connection name
-      if (!allConns.some(c => c.connName === connName)) {
-        allConns.push({ vendorName, connName });
-      }
-      // Tokenise connection name — include tokens >= 2 chars to capture ISO-2 codes (UK, BD…)
-      const tokens = connName.replace(/[-_./()]/g, ' ').split(/\s+/).filter(t => t.length >= 2);
-      for (const tok of tokens) {
-        const lower = tok.toLowerCase();
-        if (!countryConnMap.has(lower)) {
-          countryConnMap.set(lower, { vendorName, connName });
-        }
-        // Also map the expanded ISO name → this connection
-        const expanded = ISO_TO_COUNTRY[lower];
-        if (expanded && !countryConnMap.has(expanded)) {
-          countryConnMap.set(expanded, { vendorName, connName });
-        }
-      }
-    }
-
     // Helper: resolve origination key from a CDR based on groupOrig
     function origKey(cdr: any): string {
       const accountName = cdr.clientName
@@ -3634,48 +3575,43 @@ export async function registerRoutes(
       return accountName || cdr.caller || 'Unknown'; // caller (default)
     }
 
-    // Helper: resolve termination key from a CDR based on groupTerm
+    // Helper: resolve termination key from a CDR based on groupTerm.
+    //
+    // Architecture rule (enforced):
+    //   Primary key = iConnection (Sippy routing identity)
+    //   Vendor      = connectionVendorCache lookup on that key
+    //   Country     = reporting dimension only — NOT a grouping identity
+    //
+    // If iConnection is absent (portal-scraped CDRs), the CDR is grouped
+    // under "Unknown Connection" rather than guessing via country matching.
+    // Country-based heuristics introduce non-deterministic grouping and
+    // vendor misattribution — unacceptable in ASR/ACD billing reports.
     function termKey(cdr: any): string {
       if (groupTerm === 'none') return 'All Termination';
 
-      // ── Primary: use iConnection if present in CDR (XML-RPC path) ──────────
+      // ── iConnection present (XML-RPC CDR path) ───────────────────────────
       const connId = String(cdr.iConnection ?? '');
-      const vendorNameDirect = (connId ? connectionVendorCache.get(connId) : undefined) || cdr.vendor || '';
-      const connNameDirect   = (connId ? connectionNameCache.get(connId)   : undefined) || '';
-      if (vendorNameDirect) {
-        if (groupTerm === 'vendor') return vendorNameDirect;
-        return connNameDirect ? `${vendorNameDirect} / ${connNameDirect}` : vendorNameDirect;
+      if (connId) {
+        const vendorName = connectionVendorCache.get(connId) || '';
+        const connName   = connectionNameCache.get(connId)   || '';
+        if (groupTerm === 'vendor') return vendorName || `Vendor#${connId}`;
+        if (vendorName && connName)  return `${vendorName} / ${connName}`;
+        if (vendorName)              return vendorName;
+        if (connName)                return connName;
+        return `Connection#${connId}`;
       }
 
-      // ── Secondary: match by CDR country against connection name tokens ──────
-      // Portal-scraped CDRs have no iConnection; use the country field to find
-      // the best-matching connection (e.g. country "Pakistan" → "XYC-Pakistan").
-      const country = (cdr.country || '').trim();
-      if (country) {
-        const lc = country.toLowerCase();
-        // 1. Direct token match
-        const tokenMatch = countryConnMap.get(lc);
-        if (tokenMatch) {
-          if (groupTerm === 'vendor') return tokenMatch.vendorName;
-          return `${tokenMatch.vendorName} / ${tokenMatch.connName}`;
-        }
-        // 2. Substring match — country appears anywhere in the connection name
-        const subMatch = allConns.find(c => c.connName.toLowerCase().includes(lc));
-        if (subMatch) {
-          if (groupTerm === 'vendor') return subMatch.vendorName;
-          return `${subMatch.vendorName} / ${subMatch.connName}`;
-        }
-        // 3. Partial token match — a connection name token appears in the country string
-        for (const [tok, entry] of countryConnMap) {
-          if (lc.includes(tok)) {
-            if (groupTerm === 'vendor') return entry.vendorName;
-            return `${entry.vendorName} / ${entry.connName}`;
-          }
-        }
+      // ── cdr.vendor set directly (some XML-RPC builds return vendor_name) ──
+      if (cdr.vendor) {
+        const vendorName = connectionVendorCache.get(cdr.vendor) || cdr.vendor;
+        const connName   = connectionNameCache.get(cdr.vendor)   || cdr.vendor;
+        if (groupTerm === 'vendor') return vendorName;
+        return `${vendorName} / ${connName}`;
       }
 
-      // ── Fallback: show country or "Unresolved" ────────────────────────────
-      return country || 'Unresolved';
+      // ── No connection identity in CDR (portal-scraped) ───────────────────
+      // Honest fallback — do not guess from country.
+      return 'Unknown Connection';
     }
 
     // Filter CDR cache by time window + CLI/CLD text + account/vendor selectors
