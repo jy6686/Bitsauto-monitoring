@@ -555,6 +555,13 @@ export default function AlertsPage() {
                           <span className={cn("text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full border", meta.pill)}>
                             {meta.label}
                           </span>
+                          {alert.type === "approval_pending" && (
+                            <Link href="/approvals">
+                              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20 cursor-pointer transition-colors">
+                                View Queue →
+                              </span>
+                            </Link>
+                          )}
                           {(alert as any).vendor && (
                             <Link href={`/vendors/${encodeURIComponent((alert as any).vendor)}`}>
                               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border bg-sky-500/10 text-sky-500 border-sky-500/30 hover:bg-sky-500/20 cursor-pointer transition-colors">
