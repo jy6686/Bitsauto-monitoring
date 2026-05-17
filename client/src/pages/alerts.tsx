@@ -43,6 +43,7 @@ const CATEGORY_META: Record<SignalCategory, {
 };
 
 function classifyType(type: string): SignalCategory {
+  if (/approval_pending/i.test(type))                    return "system";
   if (/jitter|latency|packet|mos|rtd/i.test(type))      return "network_quality";
   if (/asr|acd|pdd|cdr|traffic|call/i.test(type))       return "service_quality";
   if (/fraud|blacklist|irsf|fas|spam/i.test(type))      return "security";

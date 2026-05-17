@@ -4117,8 +4117,9 @@ export async function registerRoutes(
               // Vendor name resolution order: dstName → connectionIpCache[cleanIp] → connectionVendorCache
               // cost is the actual per-call vendor charge (cdrs_connections.cost) — used for margin analytics.
               type MeraPayload = { vendorName: string; dstIp: string; dstIpClean: string; cost?: number };
-              const meraByConfId = new Map<string, MeraPayload>();
-              const meraByIp     = new Map<string, MeraPayload>();
+              const meraByConfId  = new Map<string, MeraPayload>();
+              const meraByIp      = new Map<string, MeraPayload>();
+              const meraByCliCld  = new Map<string, MeraPayload>();
               let meraDebugPrinted = false;
               for (const mc of mera.cdrs) {
                 const cleanIp = (mc.dstIp || '').split(':')[0].trim();
@@ -4142,12 +4143,13 @@ export async function registerRoutes(
                 // The composite key disambiguates shared IPs (e.g. TALK + Callntalk on same IP).
                 if (cleanIp && !meraByIp.has(cleanIp)) meraByIp.set(cleanIp, payload);
                 if (cleanIp && vendorName) meraByIp.set(`${vendorName}:${cleanIp}`, payload);
+                // CLI+CLD index: tertiary fallback for portal-scraped CDRs that have no callId
+                // or remoteIp.  Uses billing numbers (most stable) falling back to in/out numbers.
+                const cli = (mc.srcNumberBill || mc.srcNumberIn || mc.srcNumberOut || '').trim();
+                const cld = (mc.dstNumberBill || mc.dstNumberIn || mc.dstNumberOut || '').trim();
+                if (cli && cld && !meraByCliCld.has(`${cli}:${cld}`)) meraByCliCld.set(`${cli}:${cld}`, payload);
               }
-              console.log(`[cdr-cache] Mera indexes built: byConfId=${meraByConfId.size} byIp=${meraByIp.size}`);
-              // Debug: compare sample confIds to diagnose mismatches
-              const sampleMeraIds = [...meraByConfId.keys()].filter(k => k.length > 15).slice(0, 3);
-              const sampleCdrIds  = [...cdrCache.values()].filter(c => c.callId && c.callId !== '-').slice(0, 3).map(c => c.callId);
-              console.log(`[cdr-cache] confId-sample — Mera: ${JSON.stringify(sampleMeraIds)} | CDR callIds: ${JSON.stringify(sampleCdrIds)}`);
+              console.log(`[cdr-cache] Mera indexes built: byConfId=${meraByConfId.size} byIp=${meraByIp.size} byCliCld=${meraByCliCld.size}`);
 
               // Enrich CDRs in the cache:
               //   - Vendor name + iConnection: only set for CDRs that are currently unresolved
@@ -4157,12 +4159,17 @@ export async function registerRoutes(
               for (const c of cdrCache.values()) {
                 const alreadyResolved = !!(c.vendor || c.iConnection);
                 // Primary: match by confId — try raw, then normalised (no dashes, lowercase)
-                const rawCallId  = c.callId && c.callId !== '-' ? c.callId : undefined;
+                const rawCallId  = c.callId && c.callId !== '-' && !c.callId.startsWith('portal-cdr-') && !c.callId.startsWith('admin-cdr-') ? c.callId : undefined;
                 const normCallId = rawCallId ? rawCallId.toLowerCase().replace(/-/g, '') : undefined;
+                // Tertiary key: CLI+CLD from portal CDR cache key (startTime:caller:callee)
+                const callerStr  = ((c as any).caller || '').trim();
+                const calleeStr  = ((c as any).callee || '').trim();
                 const hit = (rawCallId  ? meraByConfId.get(rawCallId)  : undefined)
                          ?? (normCallId ? meraByConfId.get(normCallId) : undefined)
                          // Secondary: match by remote IP if already known
-                         ?? (c.remoteIp ? meraByIp.get(c.remoteIp.split(':')[0].trim()) : undefined);
+                         ?? (c.remoteIp ? meraByIp.get(c.remoteIp.split(':')[0].trim()) : undefined)
+                         // Tertiary: match by CLI+CLD for portal-scraped CDRs
+                         ?? (callerStr && calleeStr ? meraByCliCld.get(`${callerStr}:${calleeStr}`) : undefined);
                 if (!hit) continue;
 
                 // Always write vendorCost regardless of resolution state
