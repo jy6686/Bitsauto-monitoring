@@ -377,6 +377,18 @@ export async function approveRequest(
       : `Approved + executed against Sippy (${execResult.durationMs}ms)`,
   });
 
+  // Auto-resolve the approval_pending alert that was created when this request was submitted
+  try {
+    const { alerts: alertsT } = await import('../shared/schema');
+    const { and: andD, eq: eqD, ilike } = await import('drizzle-orm');
+    const [openAlert] = await _db.select({ id: alertsT.id }).from(alertsT)
+      .where(andD(eqD(alertsT.type, 'approval_pending'), eqD(alertsT.resolved, false), ilike(alertsT.message, `%request #${requestId}%`)))
+      .limit(1);
+    if (openAlert) {
+      await _db.update(alertsT).set({ resolved: true, resolvedAt: new Date() }).where(eqD(alertsT.id, openAlert.id));
+    }
+  } catch { /* non-critical */ }
+
   return { success: true, result: execResult };
 }
 
@@ -431,6 +443,18 @@ export async function rejectRequest(
     actorName:         actor.name ?? null,
     note:              reason || 'No reason provided',
   });
+
+  // Auto-resolve the approval_pending alert created when this request was submitted
+  try {
+    const { alerts: alertsT } = await import('../shared/schema');
+    const { and: andD, eq: eqD, ilike } = await import('drizzle-orm');
+    const [openAlert] = await _db.select({ id: alertsT.id }).from(alertsT)
+      .where(andD(eqD(alertsT.type, 'approval_pending'), eqD(alertsT.resolved, false), ilike(alertsT.message, `%request #${requestId}%`)))
+      .limit(1);
+    if (openAlert) {
+      await _db.update(alertsT).set({ resolved: true, resolvedAt: new Date() }).where(eqD(alertsT.id, openAlert.id));
+    }
+  } catch { /* non-critical */ }
 
   return { success: true };
 }

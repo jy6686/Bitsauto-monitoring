@@ -462,16 +462,18 @@ export default function AlertsPage() {
               Acknowledge all active ({counts.active})
             </Button>
           )}
-          <Button
-            size="sm" variant="outline"
-            data-testid="button-bulk-resolve"
-            disabled={bulkResolveMutation.isPending}
-            onClick={() => bulkResolveMutation.mutate()}
-            className="text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10 h-7 text-xs gap-1.5"
-          >
-            <XCircle className="w-3.5 h-3.5" />
-            Resolve all open ({activeUnresolved})
-          </Button>
+          {canResolve && (
+            <Button
+              size="sm" variant="outline"
+              data-testid="button-bulk-resolve"
+              disabled={bulkResolveMutation.isPending}
+              onClick={() => bulkResolveMutation.mutate()}
+              className="text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10 h-7 text-xs gap-1.5"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              Resolve all open ({activeUnresolved})
+            </Button>
+          )}
         </div>
       )}
 
