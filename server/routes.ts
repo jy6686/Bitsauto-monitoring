@@ -9881,6 +9881,102 @@ export async function registerRoutes(
     }
   );
 
+  // ── Routing Impact Simulator ─────────────────────────────────────────────
+  // GET /api/routing-simulator/preview — read-only, on-demand, no Sippy writes.
+  // For each routing group: baseline weighted CI health + per-entry removal simulations.
+  app.get('/api/routing-simulator/preview', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const settings        = await storage.getSettings();
+      const sippySettings   = await storage.getSippySettings();
+      if (!sippySettings) return res.status(503).json({ message: 'Sippy not configured' });
+      const { username: sippyUser, password: sippyPass } = sippyXmlCreds(sippySettings);
+      const portalUrl       = sippyPortalUrl(sippySettings);
+
+      // ── 1. CI data (same pipeline as /api/carrier-intelligence) ───────────
+      const period = 90;
+      let baseRows: Array<{ name: string; totalCalls: number; acdSec: number; asr: number; avgPdd: number; billableCalls: number; durationSec: number; amount: number }> = [];
+      try {
+        const portal = await sippy.getSippyPerAccountStats(
+          settings?.portalUsername ?? '', settings?.portalPassword ?? '', period,
+          settings?.apiAdminUsername ?? '', settings?.apiAdminPassword ?? '',
+        );
+        if (portal.ok && portal.vendors.some((v: any) => v.totalCalls > 0))
+          baseRows = portal.vendors.map((v: any) => ({ name: v.name, totalCalls: v.totalCalls, billableCalls: v.billableCalls, durationSec: v.durationSec, acdSec: v.acdSec, asr: v.asr, avgPdd: v.avgPdd, amount: v.amount }));
+      } catch { /* fall through */ }
+
+      function computeCI(r: { asr: number; acdSec: number; avgPdd: number; totalCalls: number }) {
+        if (r.totalCalls === 0) return { healthScore: 0, state: 'UNSCORED', confidence: 'NONE', asr: 0 };
+        const conf = Math.min(1, Math.log10(r.totalCalls + 1) / 2);
+        const hs   = Math.max(0, Math.min(100, Math.round((Math.min(100, (r.asr / 50) * 100) * 0.35) + (Math.min(100, (Math.min(r.acdSec, 120) / 120) * 100) * 0.30) + (Math.max(0, 100 - (r.avgPdd / 10) * 100) * 0.15) + (conf * 10 * 0.20))));
+        const fas  = (r.asr > 55 && r.acdSec > 0 && r.acdSec < 30) ? 'CRITICAL' : (r.asr > 45 && r.acdSec > 0 && r.acdSec < 45) ? 'MEDIUM' : null;
+        const state = fas ? 'FAS_RISK' : (r.totalCalls >= 10 && r.asr === 0) ? 'CRITICAL' : hs >= 75 ? 'HEALTHY' : hs >= 55 ? 'STABLE' : hs >= 35 ? 'DEGRADED' : 'CRITICAL';
+        return { healthScore: hs, state, confidence: r.totalCalls >= 100 ? 'HIGH' : r.totalCalls >= 20 ? 'MEDIUM' : 'LOW', asr: r.asr };
+      }
+      const ciMap = new Map<string, ReturnType<typeof computeCI>>();
+      for (const r of baseRows) ciMap.set(r.name.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, ''), { ...computeCI(r) });
+
+      function lookupCI(connName: string) {
+        const ck = connName.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
+        for (const [k, v] of ciMap.entries()) { if (k === ck || k.includes(ck) || (ck.length >= 5 && ck.includes(k))) return v; }
+        return null;
+      }
+
+      // ── 2. AI Ops events (48h) ─────────────────────────────────────────────
+      const { db }          = await import('./db');
+      const { aiOpsEvents } = await import('../shared/schema');
+      const { gte: gteOp, desc: descOp } = await import('drizzle-orm');
+      const events = await db.select().from(aiOpsEvents).where(gteOp(aiOpsEvents.createdAt, new Date(Date.now() - 48 * 60 * 60 * 1000))).orderBy(descOp(aiOpsEvents.createdAt));
+
+      function getAiOpsSignal(connName: string): 'YES' | 'PARTIAL' | 'NONE' {
+        const ck = connName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (ck.length < 3) return 'NONE';
+        const matched = events.filter(e => { if (!e.entity) return false; const ek = e.entity.toLowerCase().replace(/^carrier:/, '').replace(/[^a-z0-9]/g, ''); return ek.length >= 3 && (ek.includes(ck) || ck.includes(ek) || (ck.length >= 6 && ek.includes(ck.slice(0, 6)))); });
+        if (matched.length === 0) return 'NONE';
+        return matched.some(e => e.severity === 'high' || e.severity === 'critical') ? 'YES' : 'PARTIAL';
+      }
+
+      // ── 3. Routing groups + per-group member enrichment + simulation ───────
+      const cachedConns  = await getCachedConnections();
+      const connMap      = new Map((cachedConns as any[]).map((c: any) => [c.i_connection, c]));
+      const cachedGroups = await getCachedRoutingGroups() as any[];
+      const result       = [];
+
+      for (const grp of cachedGroups) {
+        let rawMembers: any[] = [];
+        try {
+          const mResult = await sippy.listRoutingGroupMembers(sippyUser, sippyPass, grp.i_routing_group, { portalUrl });
+          rawMembers = mResult.members ?? [];
+        } catch { rawMembers = []; }
+
+        const allCount    = rawMembers.length;
+        const activeRaw   = rawMembers.filter((m: any) => !connMap.get(m.iConnection)?.blocked);
+
+        const entries = activeRaw.map((m: any) => {
+          const conn     = m.iConnection ? (connMap.get(m.iConnection) as any) : null;
+          const connName = conn?.name ?? (m.iConnection ? `Connection #${m.iConnection}` : 'Unknown');
+          const weight   = Math.max(1, m.weight ?? 1);
+          return { connectionName: connName, vendorName: conn?.vendor_name ?? null, weight, preference: m.preference ?? 1, ciHealth: lookupCI(connName), aiOpsSignal: getAiOpsSignal(connName) };
+        });
+
+        const totalWeight  = entries.reduce((s: number, e: any) => s + e.weight, 0) || 1;
+        const baselineHS   = Math.round(entries.reduce((s: number, e: any) => s + (e.weight / totalWeight) * (e.ciHealth?.healthScore ?? 50), 0));
+        const baselineRisk = baselineHS >= 75 ? 'LOW' : baselineHS >= 55 ? 'MEDIUM' : baselineHS >= 35 ? 'HIGH' : 'CRITICAL';
+
+        const simulations = entries.map((removed: any) => {
+          const rest = entries.filter((e: any) => e.connectionName !== removed.connectionName);
+          const rw   = rest.reduce((s: number, e: any) => s + e.weight, 0) || 1;
+          const proj = Math.round(rest.reduce((s: number, e: any) => s + (e.weight / rw) * (e.ciHealth?.healthScore ?? 50), 0));
+          const delta = proj - baselineHS;
+          return { removedEntry: removed.connectionName, projectedHealthScore: proj, delta, riskDelta: delta > 5 ? 'IMPROVES' : delta < -5 ? 'WORSENS' : 'NEUTRAL', trafficRedistribution: rest.map((e: any) => ({ connectionName: e.connectionName, newContributionPct: Math.round((e.weight / rw) * 100), oldContributionPct: Math.round((e.weight / totalWeight) * 100) })) };
+        }).sort((a: any, b: any) => Math.abs(b.delta) - Math.abs(a.delta));
+
+        result.push({ groupId: grp.i_routing_group, groupName: grp.name, policy: grp.policy ?? null, baseline: { healthScore: baselineHS, riskLevel: baselineRisk, entriesCount: allCount, activeEntriesCount: entries.length }, entries: entries.map((e: any) => ({ connectionName: e.connectionName, vendorName: e.vendorName, weight: e.weight, preference: e.preference, contributionPct: Math.round((e.weight / totalWeight) * 100), ciHealth: e.ciHealth ? { healthScore: e.ciHealth.healthScore, state: e.ciHealth.state, confidence: e.ciHealth.confidence, asr: e.ciHealth.asr } : null, aiOpsSignal: e.aiOpsSignal })), simulations });
+      }
+
+      res.json({ groups: result, computedAt: new Date().toISOString(), ciConnections: ciMap.size });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── Connection Coverage Map ───────────────────────────────────────────────
   // GET /api/coverage/matrix — Connection × Destination-Set coverage matrix
   // Fetches live RG members from Sippy (parallel), cross-references cached

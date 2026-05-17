@@ -2734,9 +2734,9 @@ function ConnectionsTab() {
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
-type TabId = "routing-groups" | "destination-sets" | "connections" | "qbr" | "on-net" | "policy-sim";
+type TabId = "routing-groups" | "destination-sets" | "connections" | "qbr" | "on-net" | "policy-sim" | "impact-sim";
 
-const VALID_TABS = new Set<TabId>(["routing-groups","destination-sets","connections","qbr","on-net","policy-sim"]);
+const VALID_TABS = new Set<TabId>(["routing-groups","destination-sets","connections","qbr","on-net","policy-sim","impact-sim"]);
 
 const TABS: { id: TabId; label: string; icon: typeof Route; countKey?: keyof CacheMeta }[] = [
   { id: "routing-groups",  label: "Routing Groups",   icon: GitBranch,  countKey: "rg_count"   },
@@ -2745,6 +2745,7 @@ const TABS: { id: TabId; label: string; icon: typeof Route; countKey?: keyof Cac
   { id: "qbr",             label: "QBR Dashboard",    icon: BarChart3                          },
   { id: "on-net",          label: "On-Net Viewer",    icon: Eye                                },
   { id: "policy-sim",      label: "Policy Simulator", icon: Settings2                          },
+  { id: "impact-sim",      label: "Impact Simulator", icon: Activity                           },
 ];
 
 // ── QbrTab ─────────────────────────────────────────────────────────────────────
@@ -3368,6 +3369,235 @@ function OnNetTab() {
   );
 }
 
+// ── Routing Impact Simulator ────────────────────────────────────────────────────
+
+interface SimEntry {
+  connectionName: string; vendorName: string | null; weight: number; preference: number;
+  contributionPct: number;
+  ciHealth: { healthScore: number; state: string; confidence: string; asr: number } | null;
+  aiOpsSignal: 'YES' | 'PARTIAL' | 'NONE';
+}
+interface SimScenario {
+  removedEntry: string; projectedHealthScore: number; delta: number;
+  riskDelta: 'IMPROVES' | 'WORSENS' | 'NEUTRAL';
+  trafficRedistribution: Array<{ connectionName: string; newContributionPct: number; oldContributionPct: number }>;
+}
+interface SimGroup {
+  groupId: number; groupName: string; policy: string | null;
+  baseline: { healthScore: number; riskLevel: string; entriesCount: number; activeEntriesCount: number };
+  entries: SimEntry[]; simulations: SimScenario[];
+}
+interface SimPreview { groups: SimGroup[]; computedAt: string; ciConnections: number; }
+
+function hsColor(hs: number) {
+  if (hs >= 75) return 'text-emerald-400';
+  if (hs >= 55) return 'text-blue-400';
+  if (hs >= 35) return 'text-amber-400';
+  return 'text-red-400';
+}
+function hsBg(hs: number) {
+  if (hs >= 75) return 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
+  if (hs >= 55) return 'bg-blue-500/10 border-blue-500/30 text-blue-400';
+  if (hs >= 35) return 'bg-amber-500/10 border-amber-500/30 text-amber-400';
+  return 'bg-red-500/10 border-red-500/30 text-red-400';
+}
+function stateLabel(s: string) {
+  return { HEALTHY: 'Healthy', STABLE: 'Stable', DEGRADED: 'Degraded', CRITICAL: 'Critical', FAS_RISK: 'FAS Risk', UNSCORED: 'Unscored' }[s] ?? s;
+}
+function riskBadge(r: string) {
+  return { LOW: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30', MEDIUM: 'bg-amber-500/10 text-amber-400 border-amber-500/30', HIGH: 'bg-red-500/10 text-red-400 border-red-500/30', CRITICAL: 'bg-red-600/20 text-red-300 border-red-600/40' }[r] ?? 'bg-muted/30 text-muted-foreground border-border/50';
+}
+
+function ImpactSimTab() {
+  const { data, isFetching, refetch, isError } = useQuery<SimPreview>({
+    queryKey: ['/api/routing-simulator/preview'],
+    enabled: false,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [scenExpanded, setScenExpanded] = useState<Record<string, boolean>>({});
+  const toggleGroup = (id: number) => setExpanded(p => ({ ...p, [id]: !p[id] }));
+  const toggleScen  = (key: string) => setScenExpanded(p => ({ ...p, [key]: !p[key] }));
+
+  return (
+    <div className="space-y-5">
+      {/* Header banner */}
+      <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+        <Activity className="h-4 w-4 mt-0.5 shrink-0 text-amber-400" />
+        <span>
+          Projects the health impact of removing or deprioritising each routing entry — overlaying CI quality signals and AI Ops corroboration onto your group configurations.
+          <strong className="ml-1 text-amber-200">Read-only. No Sippy changes are made.</strong>
+        </span>
+      </div>
+
+      {/* Run button */}
+      <div className="flex items-center gap-4">
+        <Button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="button-run-impact-sim"
+          className="gap-2"
+        >
+          {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+          {data ? 'Re-run Analysis' : 'Run Impact Analysis'}
+        </Button>
+        {data && (
+          <span className="text-xs text-muted-foreground">
+            {data.groups.length} groups · {data.ciConnections} CI connections matched · computed {new Date(data.computedAt).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+
+      {isError && (
+        <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-400">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Failed to compute impact analysis. Check Sippy connectivity and try again.
+        </div>
+      )}
+
+      {/* Results */}
+      {data && (
+        <div className="space-y-4">
+          {data.groups.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-8">No routing groups found in cache.</p>
+          )}
+          {data.groups.map(grp => (
+            <div key={grp.groupId} className="rounded-xl border border-border/50 bg-card/60 overflow-hidden" data-testid={`impact-group-${grp.groupId}`}>
+              {/* Group header */}
+              <button
+                className="w-full flex items-center gap-3 px-5 py-4 hover:bg-muted/20 transition-colors text-left"
+                onClick={() => toggleGroup(grp.groupId)}
+                data-testid={`impact-group-toggle-${grp.groupId}`}
+              >
+                <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm">{grp.groupName}</span>
+                    {grp.policy && <span className="text-xs text-muted-foreground">{policyLabel(grp.policy)}</span>}
+                    <span className="text-xs text-muted-foreground">·</span>
+                    <span className="text-xs text-muted-foreground">{grp.baseline.activeEntriesCount} active of {grp.baseline.entriesCount} entries</span>
+                  </div>
+                </div>
+                {/* Baseline score */}
+                <div className={cn("flex items-center gap-1.5 rounded-lg border px-3 py-1 text-sm font-mono font-bold shrink-0", hsBg(grp.baseline.healthScore))}>
+                  <span>{grp.baseline.healthScore}</span>
+                  <span className="text-xs font-normal opacity-70">/ 100</span>
+                </div>
+                <span className={cn("text-xs rounded-md border px-2 py-0.5 font-medium shrink-0", riskBadge(grp.baseline.riskLevel))}>
+                  {grp.baseline.riskLevel} RISK
+                </span>
+                <ChevronRight className={cn("h-4 w-4 text-muted-foreground shrink-0 transition-transform", expanded[grp.groupId] && "rotate-90")} />
+              </button>
+
+              {/* Expanded content */}
+              {expanded[grp.groupId] && (
+                <div className="border-t border-border/50 divide-y divide-border/30">
+                  {/* Entry table */}
+                  <div className="px-5 py-4 space-y-3">
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Current Entries</h4>
+                    {grp.entries.length === 0 && <p className="text-xs text-muted-foreground">No active entries.</p>}
+                    <div className="rounded-lg border border-border/40 overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted/30">
+                          <tr>
+                            <th className="text-left px-3 py-2 text-muted-foreground font-medium">Connection</th>
+                            <th className="text-right px-3 py-2 text-muted-foreground font-medium">Wt</th>
+                            <th className="text-right px-3 py-2 text-muted-foreground font-medium">Share</th>
+                            <th className="text-right px-3 py-2 text-muted-foreground font-medium">CI Health</th>
+                            <th className="text-center px-3 py-2 text-muted-foreground font-medium">AI Ops</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grp.entries.map((entry, idx) => (
+                            <tr key={idx} className="border-t border-border/20 hover:bg-muted/10 transition-colors" data-testid={`entry-row-${grp.groupId}-${idx}`}>
+                              <td className="px-3 py-2.5">
+                                <div className="font-medium text-foreground truncate max-w-[200px]">{entry.connectionName}</div>
+                                {entry.vendorName && <div className="text-muted-foreground text-[10px]">{entry.vendorName}</div>}
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{entry.weight}</td>
+                              <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{entry.contributionPct}%</td>
+                              <td className="px-3 py-2.5 text-right">
+                                {entry.ciHealth ? (
+                                  <span className={cn("font-mono font-bold", hsColor(entry.ciHealth.healthScore))}>
+                                    {entry.ciHealth.healthScore} <span className="text-[10px] font-normal opacity-70">{stateLabel(entry.ciHealth.state)}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2.5 text-center">
+                                {entry.aiOpsSignal === 'YES' ? (
+                                  <span className="inline-flex items-center gap-1 text-red-400"><AlertTriangle className="h-3 w-3" />Flagged</span>
+                                ) : entry.aiOpsSignal === 'PARTIAL' ? (
+                                  <span className="text-amber-400">Partial</span>
+                                ) : (
+                                  <span className="text-muted-foreground">None</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Simulation scenarios */}
+                  <div className="px-5 py-4 space-y-3">
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Removal Simulations <span className="ml-1 normal-case font-normal">(sorted by impact)</span></h4>
+                    {grp.simulations.length === 0 && <p className="text-xs text-muted-foreground">Not enough entries to simulate removal.</p>}
+                    <div className="space-y-2">
+                      {grp.simulations.map((sim, sidx) => {
+                        const scenKey = `${grp.groupId}-${sidx}`;
+                        const isImprove = sim.riskDelta === 'IMPROVES';
+                        const isWorsen  = sim.riskDelta === 'WORSENS';
+                        return (
+                          <div key={sidx} className={cn("rounded-lg border", isImprove ? 'border-emerald-500/25 bg-emerald-500/5' : isWorsen ? 'border-red-500/25 bg-red-500/5' : 'border-border/40 bg-muted/10')} data-testid={`sim-scenario-${grp.groupId}-${sidx}`}>
+                            <button
+                              className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/3 transition-colors rounded-lg"
+                              onClick={() => toggleScen(scenKey)}
+                              data-testid={`sim-scenario-toggle-${grp.groupId}-${sidx}`}
+                            >
+                              {isImprove ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" /> : isWorsen ? <AlertCircle className="h-3.5 w-3.5 text-red-400 shrink-0" /> : <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                              <span className="text-xs flex-1 min-w-0 truncate">
+                                Remove <span className="font-semibold text-foreground">{sim.removedEntry}</span>
+                              </span>
+                              <span className="text-xs font-mono text-muted-foreground shrink-0">{grp.baseline.healthScore} <ArrowRight className="inline h-2.5 w-2.5" /> <span className={cn(isImprove ? 'text-emerald-400' : isWorsen ? 'text-red-400' : 'text-foreground')}>{sim.projectedHealthScore}</span></span>
+                              <span className={cn("text-xs font-mono font-bold px-2 py-0.5 rounded shrink-0", isImprove ? 'text-emerald-400' : isWorsen ? 'text-red-400' : 'text-muted-foreground')}>
+                                {sim.delta > 0 ? '+' : ''}{sim.delta}
+                              </span>
+                              <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform", scenExpanded[scenKey] && 'rotate-90')} />
+                            </button>
+                            {scenExpanded[scenKey] && sim.trafficRedistribution.length > 0 && (
+                              <div className="px-4 pb-3">
+                                <p className="text-[10px] text-muted-foreground mb-1.5">Traffic redistribution if removed:</p>
+                                <div className="space-y-1">
+                                  {sim.trafficRedistribution.map((r, ri) => (
+                                    <div key={ri} className="flex items-center gap-2 text-xs" data-testid={`redistribution-${grp.groupId}-${sidx}-${ri}`}>
+                                      <span className="flex-1 min-w-0 truncate text-muted-foreground">{r.connectionName}</span>
+                                      <span className="font-mono text-muted-foreground">{r.oldContributionPct}%</span>
+                                      <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                                      <span className={cn("font-mono font-semibold", r.newContributionPct > r.oldContributionPct ? 'text-amber-400' : 'text-foreground')}>{r.newContributionPct}%</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Routing Policy Simulator ───────────────────────────────────────────────────
 
 function PolicySimTab() {
@@ -3696,7 +3926,8 @@ export default function RoutingManagerPage() {
       {activeTab === "connections"      && <ConnectionsTab />}
       {activeTab === "qbr"       && <QbrTab />}
       {activeTab === "on-net"    && <OnNetTab />}
-      {activeTab === "policy-sim"&& <PolicySimTab />}
+      {activeTab === "policy-sim" && <PolicySimTab />}
+      {activeTab === "impact-sim" && <ImpactSimTab />}
     </div>
   );
 }
