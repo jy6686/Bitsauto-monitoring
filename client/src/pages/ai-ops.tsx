@@ -87,7 +87,7 @@ interface TimelineEntry {
   type: 'signal' | 'score_drop' | 'escalation' | 'resolution';
 }
 
-type FeedTab = 'all' | 'anomalies' | 'signals' | 'incidents' | 'accounts' | 'actions';
+type FeedTab = 'all' | 'anomalies' | 'signals' | 'incidents' | 'accounts' | 'actions' | 'overlay';
 
 const SIGNAL_TYPE_CONFIG: Record<string, { label: string; icon: any; bg: string; badge: string; color: string }> = {
   ROUTING_FAILURE:          { label: 'Routing Failure',       icon: AlertTriangle, bg: 'bg-rose-500/5 border-rose-500/30',     badge: 'bg-rose-500/15 text-rose-400 border-rose-500/30',   color: 'text-rose-400'   },
@@ -333,6 +333,21 @@ export default function AiOpsPage() {
     queryKey: ['/api/actions'],
     refetchInterval: 30_000,
     enabled: feedTab === 'actions',
+  });
+
+  // ── Decision Overlay ───────────────────────────────────────────────────────
+  interface OverlayEvent { severity: string; type: string; message: string; ts: string; }
+  interface OverlayRow {
+    connection: string;
+    ci: { state: string; healthScore: number; confidence: string; asr: number; totalCalls: number };
+    aiOps: { recentEvents: OverlayEvent[]; corroborationLevel: 'YES' | 'PARTIAL' | 'NONE' };
+    scoringContext: { note: string };
+    overlayVerdict: { state: string; reasoning: string[] };
+  }
+  const { data: overlayData, isLoading: overlayLoading, refetch: refetchOverlay } = useQuery<{ rows: OverlayRow[]; computedAt: string; totalConnections: number }>({
+    queryKey: ['/api/ai-ops/decision-overlay'],
+    enabled: feedTab === 'overlay',
+    staleTime: 120_000,
   });
   // Index actions by accountId — most recent pending/approved per account
   const actionByAccountId = existingActions.reduce<Record<string, AccountAction>>((acc, a) => {
@@ -750,6 +765,7 @@ export default function AiOpsPage() {
                   { key: 'incidents', label: 'Incidents', count: incidents.length + normalizedIncidents.length, active: activeIncidents.length + activeNormIncidents.length },
                   { key: 'accounts', label: 'Accounts',  count: accountAnomalyData?.anomalies.length ?? 0 },
                   { key: 'actions',  label: 'Actions',   count: recommendations.length, active: immediateRecs.length },
+                  { key: 'overlay',  label: 'Decision Overlay', count: overlayData?.totalConnections ?? 0 },
                 ] as Array<{ key: FeedTab; label: string; count: number; active?: number }>).map(tab => (
                   <button
                     key={tab.key}
@@ -1572,6 +1588,160 @@ export default function AiOpsPage() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* ── Decision Overlay Tab ─────────────────────────────────────── */}
+            {feedTab === 'overlay' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1 rounded bg-violet-500/10 border border-violet-500/20">
+                      <Layers className="h-3.5 w-3.5 text-violet-400" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-semibold">Decision Overlay</span>
+                      {overlayData?.computedAt && (
+                        <span className="text-[10px] text-muted-foreground/50 ml-2">computed {new Date(overlayData.computedAt).toLocaleTimeString()}</span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    data-testid="button-refresh-overlay"
+                    onClick={() => refetchOverlay()}
+                    className="text-[10px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    <RefreshCw className="h-2.5 w-2.5" /> Refresh
+                  </button>
+                </div>
+
+                <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-3 flex items-start gap-2">
+                  <Info className="h-3.5 w-3.5 text-violet-400 mt-0.5 shrink-0" />
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Read-only diagnostic lens. CI is the anchor (connection-level truth). AI Ops provides temporal corroboration. Carrier scoring is destination-level context only — no forced unification across measurement planes.
+                  </p>
+                </div>
+
+                {overlayLoading ? (
+                  <div className="space-y-2">
+                    {[1,2,3].map(i => (
+                      <div key={i} className="bg-card border border-border rounded-xl p-4 animate-pulse">
+                        <div className="h-4 bg-muted/40 rounded w-1/3 mb-2" />
+                        <div className="h-3 bg-muted/30 rounded w-full" />
+                      </div>
+                    ))}
+                  </div>
+                ) : !overlayData || overlayData.rows.length === 0 ? (
+                  <div className="bg-card border border-border rounded-xl p-12 text-center">
+                    <Layers className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground">No connection data available</p>
+                    <p className="text-xs text-muted-foreground/60 mt-1">
+                      The overlay requires live CI data from Sippy. Check the connection and refresh.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {overlayData.rows.map((row, idx) => {
+                      const verdictState = row.overlayVerdict.state;
+                      const verdictColor =
+                        verdictState === 'CRITICAL'  ? 'text-rose-400 bg-rose-500/10 border-rose-500/30' :
+                        verdictState === 'AT_RISK'   ? 'text-amber-400 bg-amber-500/10 border-amber-500/30' :
+                        verdictState === 'HEALTHY'   ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' :
+                        verdictState === 'STABLE'    ? 'text-blue-400 bg-blue-500/10 border-blue-500/30' :
+                                                       'text-muted-foreground bg-muted/20 border-border';
+                      const ciStateColor =
+                        row.ci.state === 'CRITICAL'  ? 'text-rose-400 bg-rose-500/10 border-rose-500/30' :
+                        row.ci.state === 'FAS_RISK'  ? 'text-orange-400 bg-orange-500/10 border-orange-500/30' :
+                        row.ci.state === 'DEGRADED'  ? 'text-amber-400 bg-amber-500/10 border-amber-500/30' :
+                        row.ci.state === 'HEALTHY'   ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' :
+                        row.ci.state === 'STABLE'    ? 'text-blue-400 bg-blue-500/10 border-blue-500/30' :
+                                                       'text-muted-foreground bg-muted/20 border-border';
+                      const corrobColor =
+                        row.aiOps.corroborationLevel === 'YES'     ? 'text-rose-400 bg-rose-500/10 border-rose-500/30' :
+                        row.aiOps.corroborationLevel === 'PARTIAL' ? 'text-amber-400 bg-amber-500/10 border-amber-500/30' :
+                                                                     'text-muted-foreground bg-muted/20 border-border';
+                      const scoreBar = Math.round((row.ci.healthScore / 100) * 100);
+                      const scoreColor =
+                        row.ci.healthScore >= 75 ? 'bg-emerald-500' :
+                        row.ci.healthScore >= 55 ? 'bg-blue-500' :
+                        row.ci.healthScore >= 35 ? 'bg-amber-500' : 'bg-rose-500';
+
+                      return (
+                        <div
+                          key={idx}
+                          data-testid={`overlay-row-${idx}`}
+                          className="bg-card border border-border rounded-xl p-4 space-y-3"
+                        >
+                          {/* Header row */}
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-semibold text-sm font-mono truncate" data-testid={`overlay-connection-${idx}`}>{row.connection}</span>
+                              <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0", ciStateColor)}>{row.ci.state}</span>
+                            </div>
+                            <span className={cn("text-[9px] font-bold px-2 py-1 rounded-full border shrink-0", verdictColor)} data-testid={`overlay-verdict-${idx}`}>
+                              {verdictState}
+                            </span>
+                          </div>
+
+                          {/* Metrics row */}
+                          <div className="grid grid-cols-3 gap-3 text-center">
+                            <div>
+                              <p className="text-[9px] text-muted-foreground/50 uppercase tracking-widest mb-1">Health Score</p>
+                              <div className="flex items-center gap-1.5">
+                                <div className="flex-1 h-1.5 rounded-full bg-muted/30 overflow-hidden">
+                                  <div className={cn("h-full rounded-full transition-all", scoreColor)} style={{ width: `${scoreBar}%` }} />
+                                </div>
+                                <span className="text-xs font-bold tabular-nums">{row.ci.healthScore}</span>
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-muted-foreground/50 uppercase tracking-widest mb-1">AI Ops</p>
+                              <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-full border", corrobColor)} data-testid={`overlay-corroboration-${idx}`}>
+                                {row.aiOps.corroborationLevel}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-muted-foreground/50 uppercase tracking-widest mb-1">CI Confidence</p>
+                              <span className="text-xs font-semibold">{row.ci.confidence}</span>
+                            </div>
+                          </div>
+
+                          {/* Reasoning */}
+                          <div className="rounded-lg bg-muted/10 border border-border/40 p-2.5 space-y-1">
+                            {row.overlayVerdict.reasoning.map((r, i) => (
+                              <p key={i} className={cn(
+                                "text-[11px] leading-relaxed",
+                                i === row.overlayVerdict.reasoning.length - 1
+                                  ? "text-muted-foreground/40 italic"
+                                  : "text-muted-foreground"
+                              )}>{r}</p>
+                            ))}
+                          </div>
+
+                          {/* Recent AI Ops events */}
+                          {row.aiOps.recentEvents.length > 0 && (
+                            <div className="space-y-1">
+                              <p className="text-[9px] text-muted-foreground/50 uppercase tracking-widest">AI Ops Events (48h)</p>
+                              {row.aiOps.recentEvents.map((e, ei) => {
+                                const evColor = e.severity === 'high' || e.severity === 'critical' ? 'text-rose-400' : e.severity === 'medium' ? 'text-amber-400' : 'text-blue-400';
+                                return (
+                                  <div key={ei} className="flex items-start gap-2 text-[10px]">
+                                    <span className={cn("font-bold shrink-0 uppercase", evColor)}>{e.severity}</span>
+                                    <span className="text-muted-foreground/70 truncate">{e.message}</span>
+                                    <span className="text-muted-foreground/40 shrink-0">{new Date(e.ts).toLocaleTimeString()}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* Scoring context note */}
+                          <p className="text-[10px] text-muted-foreground/40 italic">{row.scoringContext.note}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

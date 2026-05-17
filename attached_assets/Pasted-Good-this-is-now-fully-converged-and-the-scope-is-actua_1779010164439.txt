@@ -1,0 +1,96 @@
+Good — this is now fully converged and the scope is actually stable.
+
+Let me make the key clarification so nothing drifts again:
+
+What is actually “approved direction” vs “optional ideas”
+✅ Approved architectural decisions (locked)
+Sippy = single source of truth
+No routing DB
+No sync engine
+No new routing-groups page
+Routing Manager already owns execution layer
+Carrier Intelligence = observability only
+AI Ops = recommendation / analysis layer only
+
+These are done. No more discussion needed.
+
+🟡 Optional UX evolution (not required)
+Routing Manager tabs (Groups / Entries / Policy)
+purely UI organization
+no backend change
+can be ignored safely for now
+🚨 The only real “next build” item
+
+Yes — you correctly identified it:
+
+👉 AI Ops Decision Overlay
+
+This is the only missing product layer in the whole system chain.
+
+Not routing.
+Not CI.
+Not scoring.
+
+It is:
+
+A correlation surface for human operators
+
+What this adds (in one line)
+
+It answers:
+
+“When CI, AI Ops, and Scoring disagree — what is happening on this connection right now?”
+
+without trying to force agreement.
+
+Scope confirmation (final form)
+Backend
+
+GET /api/ai-ops/decision-overlay
+
+Returns per CI connection:
+
+CI state + health score (source truth anchor)
+AI Ops event correlation (YES / PARTIAL / NONE)
+Carrier Scoring context (labelled as destination-level, not joined truth)
+Overlay reasoning (plain text explanation only)
+
+⚠️ No DB writes
+⚠️ No state engine
+⚠️ No persistence
+
+Frontend
+
+Inside existing /ai-ops:
+
+New tab:
+
+Decision Overlay
+
+Table only
+Read-only
+No action buttons
+No routing triggers
+Why this is the correct next step (important)
+
+This is the first time in your system where:
+
+CI (realtime telemetry)
+AI Ops (event intelligence)
+Scoring (economic performance)
+
+are shown together without pretending they are the same system.
+
+That’s the missing operator layer.
+
+Final answer
+
+Yes — this is the correct next build.
+
+Nothing else from the routing-groups / routing-manager / ExtJS chain is pending.
+
+Everything else is either:
+
+already done
+explicitly rejected
+or optional UX polish

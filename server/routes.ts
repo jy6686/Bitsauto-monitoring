@@ -17845,6 +17845,187 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // GET /api/ai-ops/decision-overlay — read-only diagnostic fusion layer
+  // CI-centered interpretation, AI Ops corroboration, destination-level scoring context.
+  // No DB writes, no state mutation, no execution capability.
+  app.get('/api/ai-ops/decision-overlay', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const settings = await storage.getSettings();
+      const credPairs = sippyXmlCredsPairs(settings);
+      const period = 90;
+
+      // ── 1. Fetch CI base rows (same pipeline as /api/carrier-intelligence) ─────
+      let baseRows: Array<{ name: string; totalCalls: number; billableCalls: number; durationSec: number; acdSec: number; asr: number; avgPdd: number; amount: number }> = [];
+
+      try {
+        const portalUser = settings?.portalUsername ?? '';
+        const portalPass = settings?.portalPassword ?? '';
+        const adminUser  = settings?.apiAdminUsername ?? '';
+        const adminPass  = settings?.apiAdminPassword ?? '';
+        const portal = await sippy.getSippyPerAccountStats(portalUser, portalPass, period, adminUser, adminPass);
+        if (portal.ok && portal.vendors.length > 0 && portal.vendors.some((v: any) => v.totalCalls > 0)) {
+          baseRows = portal.vendors.map((v: any) => ({
+            name: v.name, totalCalls: v.totalCalls, billableCalls: v.billableCalls,
+            durationSec: v.durationSec, acdSec: v.acdSec, asr: v.asr, avgPdd: v.avgPdd, amount: v.amount,
+          }));
+        }
+      } catch { /* fall through */ }
+
+      if (baseRows.length === 0 && !xmlRpcCircuitGuard()) {
+        let cdrs: any[] = [];
+        const now   = new Date();
+        const start = new Date(now.getTime() - period * 60_000);
+        const perAcctPortalUrl = sippyPortalUrl(settings!);
+        for (const { username, password } of credPairs) {
+          try {
+            const fetched = await sippy.getSippyCDRs(username, password, 2000, { startDate: sippy.toSippyDate(start), endDate: sippy.toSippyDate(now) }, perAcctPortalUrl);
+            if (fetched && fetched.length > 0) { cdrs = fetched; xmlRpcRecordSuccess(); break; }
+          } catch { continue; }
+        }
+        if (cdrs.length > 0) {
+          const groups: Record<string, any[]> = {};
+          for (const c of cdrs) {
+            const key = c.carrier || c.connName || c.vendorName || 'Unknown';
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(c);
+          }
+          baseRows = Object.entries(groups).map(([name, slice]) => {
+            const totalCalls    = slice.length;
+            const completed     = slice.filter((c: any) => String(c.result) === '0');
+            const billable      = completed.filter((c: any) => (Number(c.duration) || 0) > 0);
+            const billableCalls = billable.length;
+            const durationSec   = completed.reduce((s: number, c: any) => s + (Number(c.duration) || 0), 0);
+            const acdSec        = billableCalls > 0 ? parseFloat((durationSec / billableCalls).toFixed(1)) : 0;
+            const asr           = totalCalls > 0 ? parseFloat((billableCalls / totalCalls * 100).toFixed(2)) : 0;
+            const pddArr        = completed.map((c: any) => Number(c.pdd1xx ?? c.pdd) || 0).filter((v: number) => v > 0);
+            const avgPdd        = pddArr.length > 0 ? parseFloat((pddArr.reduce((a: number, b: number) => a + b, 0) / pddArr.length).toFixed(2)) : 0;
+            const amount        = parseFloat(completed.reduce((s: number, c: any) => s + (parseFloat(c.cost) || 0), 0).toFixed(4));
+            return { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount };
+          });
+        }
+      }
+
+      // ── 2. CI health computations ──────────────────────────────────────────────
+      function computeHS(r: { asr: number; acdSec: number; avgPdd: number; totalCalls: number }): number {
+        if (r.totalCalls === 0) return 0;
+        const conf   = Math.min(1, Math.log10(r.totalCalls + 1) / 2);
+        const asrS   = Math.min(100, (r.asr / 50) * 100);
+        const acdS   = Math.min(100, (Math.min(r.acdSec, 120) / 120) * 100);
+        const pddS   = Math.max(0, 100 - (r.avgPdd / 10) * 100);
+        return Math.max(0, Math.min(100, Math.round((asrS * 0.35) + (acdS * 0.30) + (pddS * 0.15) + (conf * 10 * 0.20))));
+      }
+      function computeFas(asr: number, acd: number): string | null {
+        if (asr > 55 && acd > 0 && acd < 30) return 'CRITICAL';
+        if (asr > 45 && acd > 0 && acd < 45) return 'MEDIUM';
+        if (asr > 35 && acd > 0 && acd < 60) return 'LOW';
+        return null;
+      }
+      function computeState(r: { asr: number; totalCalls: number }, score: number, fas: string | null): string {
+        if (r.totalCalls === 0) return 'UNSCORED';
+        if (fas === 'CRITICAL' || fas === 'MEDIUM') return 'FAS_RISK';
+        if (r.totalCalls >= 10 && r.asr === 0) return 'CRITICAL';
+        if (score >= 75) return 'HEALTHY';
+        if (score >= 55) return 'STABLE';
+        if (score >= 35) return 'DEGRADED';
+        return 'CRITICAL';
+      }
+      function computeConf(calls: number): string {
+        if (calls >= 100) return 'HIGH';
+        if (calls >= 20)  return 'MEDIUM';
+        if (calls > 0)    return 'LOW';
+        return 'NONE';
+      }
+
+      const ciRows = baseRows.map(r => {
+        const healthScore  = computeHS(r);
+        const fasSeverity  = computeFas(r.asr, r.acdSec);
+        const state        = computeState(r, healthScore, fasSeverity);
+        const confidence   = computeConf(r.totalCalls);
+        return { name: r.name, healthScore, state, confidence, asr: r.asr, totalCalls: r.totalCalls, fasSeverity };
+      });
+
+      // ── 3. Fetch AI Ops events (48h window) ────────────────────────────────────
+      const { db }          = await import('./db');
+      const { aiOpsEvents } = await import('../shared/schema');
+      const { desc: d, gte: g } = await import('drizzle-orm');
+      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      const events = await db.select().from(aiOpsEvents).where(g(aiOpsEvents.createdAt, cutoff)).orderBy(d(aiOpsEvents.createdAt));
+
+      // ── 4. Fuzzy match: CI connection name ↔ AI Ops entity string ─────────────
+      function normalizeKey(s: string): string {
+        return s.toLowerCase().replace(/^carrier:/, '').replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
+      }
+      function findMatches(connName: string, allEvents: typeof events) {
+        const ck = normalizeKey(connName);
+        if (ck.length < 3) return [];
+        return allEvents.filter(e => {
+          if (!e.entity) return false;
+          const ek = normalizeKey(e.entity);
+          return ek.length >= 3 && (ek.includes(ck) || ck.includes(ek) || (ck.length >= 6 && ek.includes(ck.slice(0, 6))));
+        });
+      }
+      function corrobLevel(matched: typeof events): 'YES' | 'PARTIAL' | 'NONE' {
+        if (matched.length === 0) return 'NONE';
+        if (matched.some(e => e.severity === 'high' || e.severity === 'critical')) return 'YES';
+        return 'PARTIAL';
+      }
+
+      // ── 5. Overlay verdict (text synthesis, no authoritative claim) ────────────
+      function overlayVerdict(
+        state: string, corroboration: 'YES' | 'PARTIAL' | 'NONE',
+        ci: { healthScore: number; fasSeverity: string | null; asr: number; confidence: string }
+      ): { state: string; reasoning: string[] } {
+        const reasoning: string[] = [];
+        let vs: string;
+        if (state === 'CRITICAL') {
+          vs = 'CRITICAL';
+          reasoning.push('CI reports complete failure — zero successful calls detected');
+        } else if (state === 'FAS_RISK') {
+          vs = 'AT_RISK';
+          reasoning.push(`CI detects FAS pattern: high ASR (${ci.asr.toFixed(1)}%) with very short call durations`);
+        } else if (state === 'DEGRADED') {
+          vs = 'AT_RISK';
+          reasoning.push(`CI health score is ${ci.healthScore}/100 — connection is degraded`);
+        } else if (state === 'STABLE' && corroboration === 'YES') {
+          vs = 'AT_RISK';
+          reasoning.push('CI shows stable metrics but AI Ops confirms anomaly activity on this connection');
+        } else if (state === 'HEALTHY') {
+          vs = 'HEALTHY';
+          reasoning.push(`CI health score is ${ci.healthScore}/100 — connection performing normally`);
+        } else {
+          vs = 'STABLE';
+          reasoning.push(`CI health score is ${ci.healthScore}/100 — no critical issues detected`);
+        }
+        if (corroboration === 'YES')         reasoning.push('AI Ops confirms anomaly activity (high/critical severity events in last 48h)');
+        else if (corroboration === 'PARTIAL') reasoning.push('AI Ops has weak indirect signals — medium/low severity events may be related');
+        else                                  reasoning.push('AI Ops has no corroborating events in the last 48h');
+        if (ci.confidence === 'LOW' || ci.confidence === 'NONE')
+          reasoning.push(`CI confidence is ${ci.confidence} — low call volume, interpret cautiously`);
+        reasoning.push('Carrier scoring data is destination-level only — not directly comparable to connection metrics');
+        return { state: vs, reasoning };
+      }
+
+      // ── 6. Assemble and return ─────────────────────────────────────────────────
+      const rows = ciRows.map(ci => {
+        const matched       = findMatches(ci.name, events);
+        const corroboration = corrobLevel(matched);
+        const verdict       = overlayVerdict(ci.state, corroboration, { healthScore: ci.healthScore, fasSeverity: ci.fasSeverity, asr: ci.asr, confidence: ci.confidence });
+        return {
+          connection: ci.name,
+          ci: { state: ci.state, healthScore: ci.healthScore, confidence: ci.confidence, asr: ci.asr, totalCalls: ci.totalCalls },
+          aiOps: {
+            recentEvents: matched.slice(0, 5).map(e => ({ severity: e.severity, type: e.type, message: e.message, ts: e.createdAt.toISOString() })),
+            corroborationLevel: corroboration,
+          },
+          scoringContext: { note: 'Destination-level signal only — not directly comparable to connection-level CI metrics' },
+          overlayVerdict: verdict,
+        };
+      });
+
+      res.json({ rows, computedAt: new Date().toISOString(), totalConnections: rows.length });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // GET /api/aiops/incidents — grouped incident feed (all time, newest first)
   app.get('/api/aiops/incidents', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
     try {
