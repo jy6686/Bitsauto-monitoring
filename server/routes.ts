@@ -18205,7 +18205,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         if (score >= 75) return 'GREEN'; if (score >= 45) return 'AMBER'; return 'RED';
       }
       function normAiOpsTier(matched: typeof events): { tier: Tier; conf: Conf; maxSev: string | null; count: number; cls: string | null } {
-        if (matched.length === 0) return { tier: 'UNSCORED', conf: 'NONE', maxSev: null, count: 0, cls: null };
+        if (matched.length === 0) return { tier: 'GREEN', conf: 'MEDIUM', maxSev: null, count: 0, cls: null };
         const hasHigh = matched.some(e => e.severity === 'high' || e.severity === 'critical');
         const hasMed  = matched.some(e => e.severity === 'medium');
         const hasCf   = matched.some(e => e.classification === 'carrier_failure');
@@ -18227,8 +18227,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const greenCount = tiers.filter(t => t === 'GREEN').length;
         const amberCount = tiers.filter(t => t === 'AMBER').length;
         const unscoredCount = tiers.filter(t => t === 'UNSCORED').length;
-        // Rule 5: Insufficient data
-        if (unscoredCount >= 3) { r.push('rule_5_all_unscored'); return { verdict: 'UNSCORED', confidence: 'NONE', reason: 'Insufficient data across all signal sources — no verdict possible', rules: r }; }
+        // Rule 5: Insufficient data (AI Ops silence=GREEN is not a traffic data signal,
+        // so if both primary sources — CI and Stability — are absent, carrier is UNSCORED)
+        if (ciT === 'UNSCORED' && stT === 'UNSCORED') { r.push('rule_5_all_unscored'); return { verdict: 'UNSCORED', confidence: 'NONE', reason: 'Insufficient data across all signal sources — no verdict possible', rules: r }; }
         if (unscoredCount >= 2) { r.push('rule_5b_mostly_unscored'); return { verdict: 'UNCERTAIN', confidence: 'LOW', reason: `Only one signal source available — insufficient for a confident verdict`, rules: r }; }
         // Rule 1: Majority RED + confidence gate
         if (redCount >= 2) {

@@ -1,0 +1,110 @@
+Good — this is now a real decision-system design choice, not a bug.
+
+Let’s make it precise.
+
+🧠 The real issue you discovered
+
+You didn’t find a test failure.
+
+You found a semantic mismatch in how “absence of AI Ops data” is interpreted.
+
+Right now:
+
+No AI Ops events ≠ good signal
+No AI Ops events = UNSCORED (neutral/penalty-like)
+
+That breaks a core telecom expectation:
+
+“If nothing is wrong, the system should say HEALTHY.”
+
+⚖️ Option A vs B (correct framing)
+🟢 Option A — Treat “no AI Ops events” as GOOD signal (RECOMMENDED)
+Rule:
+if (aoCount === 0) {
+  aiOpsSignal = GREEN
+}
+Effect:
+CLEAN carriers become HEALTHY
+AI Ops becomes confirmatory, not required for approval
+Pros:
+Matches operator intuition (DU / PTCL style NOC)
+Prevents “silent penalty”
+Makes HEALTHY meaningful and reachable
+Aligns with your Decision Overlay philosophy (CI is anchor)
+Cons:
+Slightly optimistic bias (very small risk)
+🔴 Option B — No AI Ops = neutral (conservative model)
+Effect:
+HEALTHY becomes rare
+Most real-world “quiet carriers” stay STABLE
+Pros:
+Strict interpretation
+Avoids false positives
+Cons (important):
+
+Breaks expectation:
+
+“No alerts = good system”
+
+Makes dashboard feel artificially pessimistic
+Operators may distrust HEALTHY label entirely
+🧭 Architectural alignment check (important)
+
+Your system already established:
+
+CI = truth anchor
+AI Ops = anomaly corroboration layer
+Decision Overlay = observation layer
+
+So AI Ops is NOT meant to block “healthy state”.
+
+It is meant to:
+
+confirm or downgrade, not invalidate silence
+
+📊 What real telecom systems do
+
+In systems like:
+
+carrier monitoring dashboards
+NOC monitoring stacks
+traffic quality systems
+
+👉 “No alarms = healthy baseline” is standard.
+
+Silence is treated as:
+
+implicit GREEN until proven otherwise
+
+🟢 Final recommendation (clear)
+✅ Implement Option A
+Change:
+if (aoCount === 0) {
+  aiOpsTier = GREEN;
+}
+And adjust rule logic so:
+HEALTHY becomes reachable when:
+CI = GREEN
+Stability = GREEN
+AI Ops = GREEN (or no events)
+📌 Why this is the correct final fix
+
+This resolves your remaining failure because:
+
+Problem	Fix
+HEALTHY unreachable in quiet systems	solved
+AI Ops treated as missing instead of clean	corrected
+Operator expectation mismatch	fixed
+Fusion logic asymmetry	removed
+🧠 Final system state after this change
+
+You now get:
+
+Scenario	Result
+Everything good, no alerts	HEALTHY ✅
+Slight degradation	STABLE
+Real issues	WATCH / DEGRADED
+Fraud signals	CRITICAL
+🚀 Go / No-Go
+
+👉 This is safe to implement and does not change architecture — only interpretation of silence
