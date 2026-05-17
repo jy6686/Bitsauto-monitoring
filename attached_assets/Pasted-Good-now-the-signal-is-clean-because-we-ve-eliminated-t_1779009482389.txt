@@ -1,0 +1,132 @@
+Good — now the signal is clean because we’ve eliminated the “build work that already exists” noise.
+
+Here’s the actual state after reconciliation of all 5 docs + code inventory:
+
+🧭 What is truly left to build (no duplicates)
+
+Everything earlier (Routing Manager Phase 1/2, ExtJS cleanup, connections migration) is already done or never existed in current codebase.
+
+So the roadmap collapses to one real missing system:
+
+🚨 AI Ops Decision Arbitrator (NOT BUILT YET)
+
+This is the only missing layer in the entire architecture.
+
+🧠 Current system reality (as it exists now)
+
+You already have 3 independent signal generators:
+
+1. Carrier Intelligence (you just built it)
+ASR / ACD / PDD scoring
+FAS detection
+Health state per connection/vendor
+❗ Output: recommendations only
+2. Carrier Scoring (existing system)
+Has its own scoring model
+Likely weighted historical performance
+❗ Output: score, not decision
+3. Routing Manager (existing + clean React already)
+Executes routing rules directly in Sippy
+Has no awareness of CI or Scoring
+❗ Output: execution only
+⚠️ The real architectural gap (the ONLY problem left)
+
+Right now you have:
+
+Carrier Intelligence → recommends
+Carrier Scoring     → scores
+Routing Manager      → executes
+
+But NO system does this:
+
+📌 "Given all signals → what should we actually believe?"
+
+That is missing.
+
+🎯 What you actually need to build next
+👉 AI Ops Decision Layer (NEW — real work)
+
+This becomes the single authority layer.
+
+It consumes:
+Carrier Intelligence signals (real-time health + FAS risk)
+Carrier Scoring signals (historical performance score)
+Optional: traffic volume / anomaly signals later
+🧠 It produces ONE unified verdict per entity:
+For each:
+Vendor
+Connection
+Destination set (optional later)
+
+It outputs:
+
+{
+  entityType: "connection",
+  entityId: 25812,
+
+  finalState: "HEALTHY | DEGRADED | CRITICAL | BLOCKED",
+
+  confidence: "HIGH | MEDIUM | LOW",
+
+  decision: "ROUTE | DEPRIORITIZE | AVOID | BLOCK",
+
+  reasons: [
+    "CI: FAS risk high (ASR spike)",
+    "Scoring: 7-day performance dropped 32%",
+    "ACD degradation detected"
+  ]
+}
+🧩 This is the missing “arbiter”
+
+Right now:
+
+CI thinks
+Scoring calculates
+Routing executes
+
+AI Ops will:
+
+decide what is actually true
+
+🏗️ Minimal build scope (important)
+
+This is NOT a big system rewrite.
+
+You only need:
+1. /api/ai-ops/decisions
+Aggregates CI + Scoring data
+Returns unified verdicts
+2. AI Ops UI (simple first version)
+Table of:
+Vendor / Connection
+CI state
+Score state
+Final AI Ops decision
+Filter: BLOCKED / DEGRADED / HEALTHY
+3. No execution buttons (important)
+Still observe/recommend layer only (for now)
+🚦 Why this is the correct next step
+
+Because it fixes the ONLY unresolved architectural problem:
+
+“Who is the single source of truth for decision-making?”
+
+Answer:
+👉 AI Ops (not Routing, not CI, not Scoring)
+
+❌ What you should NOT build (confirmed by your own inventory)
+❌ Routing DB (never)
+❌ ExtJS migration (already gone)
+❌ Sippy sync layer (never)
+❌ connection CRUD system (already exists in Sippy)
+❌ carrier intelligence rewrites (done)
+✅ Final answer (what to implement now)
+👉 Build ONLY this:
+AI Ops Decision Engine (Phase 1)
+
+Minimal scope:
+
+Read CI signals
+Read Carrier Scoring
+Merge logic
+Produce unified verdict per connection/vendor

@@ -1,0 +1,164 @@
+Yes — this is a good idea, and it fits your current architecture cleanly.
+
+But we need to scope it correctly so it doesn’t drift into another “half-decision system”.
+
+What you’re asking to build (clean version)
+
+A Routing Groups Page inside BitsAuto that behaves like Sippy, but stays aligned with your rule:
+
+Sippy = source of truth
+BitsAuto = control layer (writes back via XML-RPC, no local DB)
+
+So this is not a new routing engine. It’s a remote UI for Sippy Routing Groups.
+
+What we should implement now (MVP scope)
+Page name
+
+Routing Groups (Sippy Control Center)
+
+Route:
+
+/routing-groups
+
+Sidebar:
+Live Operations → Routing Groups
+
+What this page does (v1)
+1. List all routing groups (READ from Sippy)
+
+Table:
+
+Group Name	Policy	Scope	Connections	Status	Actions
+
+Each row is fetched from:
+
+GET /api/sippy/routing-groups
+2. View group details (drawer or page)
+
+Click a group → opens:
+
+On-net scope (All / Customer / Sub-Customer)
+Reply timeout (5 sec etc)
+1xx timeout
+2xx timeout
+voicemail connection
+routing entries list (same table you already have)
+
+Fetched from:
+
+GET /api/sippy/routing-groups/:id
+3. Create Routing Group (WRITE to Sippy)
+
+Form:
+
+Group Name
+Scope
+Timeouts
+Default policy
+
+Submit:
+
+POST /api/sippy/routing-groups
+→ XML-RPC to Sippy
+4. Edit Routing Group (WRITE to Sippy)
+PUT /api/sippy/routing-groups/:id
+
+Same structure as Sippy admin panel.
+
+5. Routing Entries inside group (critical part)
+
+You already have this UI pattern in routing-manager.
+
+We reuse it:
+
+Vendor
+Connection
+Destination Set
+Activation / Expiry
+Priority
+Weight
+
+All operations:
+
+POST   /api/sippy/routing-groups/:id/entries
+PUT    /api/sippy/routing-groups/:id/entries/:entryId
+DELETE /api/sippy/routing-groups/:id/entries/:entryId
+
+All mapped → XML-RPC calls to Sippy.
+
+Backend requirement (minimal, NOT DB)
+
+We add only one thin service layer:
+
+/api/sippy/routing-groups
+
+Wrapper around existing XML-RPC calls:
+
+sippy.getRoutingGroups()
+sippy.getRoutingGroupDetails(id)
+sippy.createRoutingGroup(payload)
+sippy.updateRoutingGroup(id, payload)
+sippy.deleteRoutingGroup(id)
+
+No database.
+
+No caching required initially (optional later).
+
+UI structure (React)
+RoutingGroupsPage
+ ├── RoutingGroupsTable
+ ├── RoutingGroupDrawer (view/edit)
+ ├── RoutingGroupForm (create/edit)
+ └── RoutingEntriesTable (reuse existing component)
+
+Use:
+
+React Query (you already have it)
+shadcn/ui tables & drawers
+no ExtJS (already confirmed clean)
+Critical design rule (VERY important)
+
+This page must be:
+
+❌ NOT
+Not a routing engine
+Not a local configuration store
+Not a decision layer
+✅ ONLY
+UI mirror of Sippy Routing Groups
+CRUD proxy
+Visual control panel
+How it fits your architecture
+
+This becomes:
+
+Carrier Intelligence → Observe
+AI Ops             → Recommend
+Routing Groups     → Execute (Sippy-backed)
+
+This is actually the missing “execution UI layer” that connects everything.
+
+What I recommend you do next
+
+Start with Phase 1 only:
+
+Phase 1 (build now)
+Routing Groups list page
+Read-only fetch from Sippy
+Table + drawer view only
+
+No create/edit yet.
+
+Why:
+Because we validate XML-RPC coverage before allowing writes.
+
+If you say “go ahead”, I will next:
+Inspect your existing /api/sippy/* service layer
+Confirm exact XML-RPC methods available
+Generate:
+/routing-groups page
+backend wrapper endpoints
+React Query hooks
+UI table + drawer
+
+If you want, I can also align this with your Carrier Intelligence / AI Ops signals later so routing groups eventually become “AI-aware” (but still Sippy-controlled).
