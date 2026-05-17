@@ -565,7 +565,21 @@ export function LayoutShell({ children }: LayoutShellProps) {
       if (s) {
         const p: string[] = JSON.parse(s);
         const known = new Set(p);
-        return [...p.filter(k => DEFAULT_GROUP_ORDER.includes(k)), ...DEFAULT_GROUP_ORDER.filter(k => !known.has(k))];
+        const validP = p.filter(k => DEFAULT_GROUP_ORDER.includes(k));
+        const newKeys = DEFAULT_GROUP_ORDER.filter(k => !known.has(k));
+        if (newKeys.length === 0) return validP;
+        // Insert each new key at its correct DEFAULT position rather than appending
+        const result = [...validP];
+        for (const newKey of newKeys) {
+          const defaultIdx = DEFAULT_GROUP_ORDER.indexOf(newKey);
+          let insertAt = result.length;
+          for (let i = defaultIdx + 1; i < DEFAULT_GROUP_ORDER.length; i++) {
+            const pos = result.indexOf(DEFAULT_GROUP_ORDER[i]);
+            if (pos !== -1) { insertAt = pos; break; }
+          }
+          result.splice(insertAt, 0, newKey);
+        }
+        return result;
       }
     } catch { /* */ }
     return DEFAULT_GROUP_ORDER;

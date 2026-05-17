@@ -3580,11 +3580,19 @@ export async function registerRoutes(
       sortOrig,
     );
 
-    // Termination: group by vendor name (from CDR vendor field)
+    // Termination: group by vendor / connection name using the connection cache
     const termGroups: Record<string, any[]> = {};
     for (const cdr of allCdrs) {
-      const name = (cdr as any).vendor
-        || ((cdr as any).iConnection ? `Connection#${(cdr as any).iConnection}` : 'Unknown');
+      let name = '';
+      const connId = String((cdr as any).iConnection ?? '');
+      if (connId) {
+        const vendorName = connectionVendorCache.get(connId) || '';
+        const connName   = connectionNameCache.get(connId) || '';
+        if (vendorName && connName) name = `${vendorName} / ${connName}`;
+        else if (vendorName)        name = vendorName;
+        else if (connName)          name = connName;
+      }
+      if (!name) name = (cdr as any).vendor || (connId ? `Connection#${connId}` : 'Unknown');
       if (!termGroups[name]) termGroups[name] = [];
       termGroups[name].push(cdr);
     }
