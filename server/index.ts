@@ -6,6 +6,7 @@ import { serveStatic } from "./static";
 import { runSafeMigrations } from "./db";
 import { startRoutingCacheSync } from "./routing-cache";
 import { setupNocWebSocket } from "./noc-ws";
+import { setupLiveTrafficWebSocket } from "./live-traffic-ws";
 import { createServer } from "http";
 
 // ── Global crash guards ───────────────────────────────────────────────────────
@@ -193,6 +194,8 @@ app.use((req, res, next) => {
 
   // NOC WebSocket — real-time live-call count push to all dashboard tabs
   setupNocWebSocket(httpServer);
+  // Live Traffic Intelligence WebSocket — rolling ASR/ACD window snapshots
+  setupLiveTrafficWebSocket(httpServer);
 
   // SBC background poller — real TCP/HTTP/SNMP probing every 5 min
   const { startSbcPoller } = await import('./sbc-poller');

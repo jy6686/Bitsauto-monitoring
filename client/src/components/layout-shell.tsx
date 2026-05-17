@@ -244,7 +244,8 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Reports',
     roles: ['admin','management'],
     items: [
-      { href: "/asr-acd", label: "ASR / ACD Report", icon: FileSpreadsheet, roles: ['admin','management'], isNew: true },
+      { href: "/live-traffic", label: "Live Traffic",     icon: Activity,        roles: ['admin','management','noc_operator','viewer','team_lead','super_admin'], isNew: true },
+      { href: "/asr-acd",      label: "ASR / ACD Report", icon: FileSpreadsheet, roles: ['admin','management'], isNew: true },
     ],
   },
   // ─── 9. Troubleshooting (keep cohesive — do not fragment) ────────────────────

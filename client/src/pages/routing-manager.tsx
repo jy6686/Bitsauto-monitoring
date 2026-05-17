@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -3408,6 +3408,225 @@ function riskBadge(r: string) {
   return { LOW: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30', MEDIUM: 'bg-amber-500/10 text-amber-400 border-amber-500/30', HIGH: 'bg-red-500/10 text-red-400 border-red-500/30', CRITICAL: 'bg-red-600/20 text-red-300 border-red-600/40' }[r] ?? 'bg-muted/30 text-muted-foreground border-border/50';
 }
 
+type SimMode = 'remove' | 'swap' | 'reorder';
+
+function computeGroupHS(entries: SimEntry[]): number {
+  const total = entries.reduce((s, e) => s + e.weight, 0) || 1;
+  return Math.round(entries.reduce((s, e) => s + (e.weight / total) * (e.ciHealth?.healthScore ?? 50), 0));
+}
+
+function SwapModePanel({ groups }: { groups: SimGroup[] }) {
+  const [groupA, setGroupA] = useState<string>('');
+  const [groupB, setGroupB] = useState<string>('');
+
+  const grpA = groups.find(g => String(g.groupId) === groupA);
+  const grpB = groups.find(g => String(g.groupId) === groupB);
+
+  const projection = useMemo(() => {
+    if (!grpA || !grpB) return null;
+    const aOrigHS  = grpA.baseline.healthScore;
+    const bOrigHS  = grpB.baseline.healthScore;
+    const aSwapped = computeGroupHS(grpB.entries);
+    const bSwapped = computeGroupHS(grpA.entries);
+    return { aOrigHS, bOrigHS, aSwapped, bSwapped, aDelta: aSwapped - aOrigHS, bDelta: bSwapped - bOrigHS };
+  }, [grpA, grpB]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-sm text-blue-300">
+        <Activity className="h-4 w-4 mt-0.5 shrink-0 text-blue-400" />
+        <span>
+          Projects the health impact of swapping two routing groups' connection sets.
+          <strong className="ml-1 text-blue-200">Read-only. No Sippy changes are made.</strong>
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        {[{ label: 'Group A', val: groupA, set: setGroupA }, { label: 'Group B', val: groupB, set: setGroupB }].map(s => (
+          <div key={s.label} className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">{s.label}</label>
+            <Select value={s.val} onValueChange={s.set}>
+              <SelectTrigger data-testid={`select-swap-${s.label.toLowerCase().replace(' ','-')}`} className="text-xs">
+                <SelectValue placeholder="Select routing group…" />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map(g => (
+                  <SelectItem key={g.groupId} value={String(g.groupId)}>{g.groupName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ))}
+      </div>
+
+      {projection && grpA && grpB && (
+        <div className="rounded-xl border border-border/50 overflow-hidden">
+          <div className="px-4 py-3 bg-muted/30 border-b text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Projected Impact of Swap
+          </div>
+          <div className="divide-y divide-border/30">
+            {[
+              { name: grpA.groupName, orig: projection.aOrigHS, proj: projection.aSwapped, delta: projection.aDelta, from: grpB.groupName },
+              { name: grpB.groupName, orig: projection.bOrigHS, proj: projection.bSwapped, delta: projection.bDelta, from: grpA.groupName },
+            ].map((row, i) => (
+              <div key={i} className="flex items-center gap-4 px-4 py-3" data-testid={`swap-result-${i}`}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{row.name}</p>
+                  <p className="text-xs text-muted-foreground">receives connections from {row.from}</p>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-mono">
+                  <span className={cn("font-bold", row.orig >= 70 ? 'text-emerald-400' : row.orig >= 50 ? 'text-blue-400' : row.orig >= 35 ? 'text-amber-400' : 'text-red-400')}>{row.orig}</span>
+                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className={cn("font-bold", row.proj >= 70 ? 'text-emerald-400' : row.proj >= 50 ? 'text-blue-400' : row.proj >= 35 ? 'text-amber-400' : 'text-red-400')}>{row.proj}</span>
+                  <span className={cn("text-xs px-1.5 py-0.5 rounded font-bold", row.delta > 5 ? 'text-emerald-400 bg-emerald-500/10' : row.delta < -5 ? 'text-red-400 bg-red-500/10' : 'text-muted-foreground bg-muted/30')}>
+                    {row.delta > 0 ? '+' : ''}{row.delta}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="px-4 py-2 bg-muted/20 border-t">
+            <p className="text-xs text-muted-foreground">
+              HS computed from CI health scores weighted by connection share. Confidence depends on CI data availability.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!projection && groupA && groupB && (
+        <p className="text-xs text-muted-foreground">Select two different routing groups to see the projected swap impact.</p>
+      )}
+    </div>
+  );
+}
+
+function ReorderModePanel({ groups }: { groups: SimGroup[] }) {
+  const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [order, setOrder] = useState<string[]>([]);
+
+  const grp = groups.find(g => String(g.groupId) === selectedGroup);
+
+  const handleSelectGroup = (id: string) => {
+    setSelectedGroup(id);
+    const g = groups.find(g => String(g.groupId) === id);
+    if (g) setOrder(g.entries.map(e => e.connectionName));
+  };
+
+  const moveEntry = (from: number, to: number) => {
+    setOrder(prev => {
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
+
+  const reorderedEntries = useMemo(() => {
+    if (!grp) return [];
+    return order.map(name => grp.entries.find(e => e.connectionName === name)).filter(Boolean) as SimEntry[];
+  }, [grp, order]);
+
+  const currentHS = grp?.baseline.healthScore ?? 0;
+  const projectedHS = useMemo(() => computeGroupHS(reorderedEntries), [reorderedEntries]);
+  const delta = projectedHS - currentHS;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3 rounded-xl border border-purple-500/20 bg-purple-500/5 px-4 py-3 text-sm text-purple-300">
+        <Activity className="h-4 w-4 mt-0.5 shrink-0 text-purple-400" />
+        <span>
+          Reorder connections within a routing group to project the weighted health score impact.
+          <strong className="ml-1 text-purple-200">Read-only. No Sippy changes are made.</strong>
+        </span>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">Routing Group</label>
+        <Select value={selectedGroup} onValueChange={handleSelectGroup}>
+          <SelectTrigger data-testid="select-reorder-group" className="text-xs">
+            <SelectValue placeholder="Select routing group…" />
+          </SelectTrigger>
+          <SelectContent>
+            {groups.map(g => (
+              <SelectItem key={g.groupId} value={String(g.groupId)}>{g.groupName}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {grp && reorderedEntries.length > 0 && (
+        <>
+          {/* Score strip */}
+          <div className="flex items-center gap-4 rounded-xl border border-border/50 px-4 py-3 bg-muted/20">
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground mb-0.5">Current HS</p>
+              <p className={cn("text-xl font-bold font-mono tabular-nums", currentHS >= 70 ? 'text-emerald-400' : currentHS >= 50 ? 'text-blue-400' : currentHS >= 35 ? 'text-amber-400' : 'text-red-400')}>{currentHS}</p>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground mb-0.5">Projected HS</p>
+              <p className={cn("text-xl font-bold font-mono tabular-nums", projectedHS >= 70 ? 'text-emerald-400' : projectedHS >= 50 ? 'text-blue-400' : projectedHS >= 35 ? 'text-amber-400' : 'text-red-400')}>{projectedHS}</p>
+            </div>
+            <div className={cn("text-sm font-bold px-2.5 py-1 rounded-lg ml-auto", delta > 5 ? 'bg-emerald-500/10 text-emerald-400' : delta < -5 ? 'bg-red-500/10 text-red-400' : 'bg-muted/40 text-muted-foreground')}>
+              {delta > 0 ? '+' : ''}{delta}
+            </div>
+          </div>
+
+          {/* Draggable entry list */}
+          <div className="rounded-xl border border-border/50 overflow-hidden" data-testid="reorder-list">
+            <div className="px-4 py-2.5 bg-muted/30 border-b">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Connection Order — use arrows to reorder, projected HS updates instantly
+              </p>
+            </div>
+            <div className="divide-y divide-border/20">
+              {reorderedEntries.map((entry, idx) => (
+                <div key={entry.connectionName} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors" data-testid={`reorder-entry-${idx}`}>
+                  <span className="text-xs font-mono text-muted-foreground w-4 text-right shrink-0">{idx + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{entry.connectionName}</p>
+                    {entry.vendorName && <p className="text-xs text-muted-foreground">{entry.vendorName}</p>}
+                  </div>
+                  <div className="flex items-center gap-1 text-xs font-mono shrink-0">
+                    <span className={cn("font-bold", (entry.ciHealth?.healthScore ?? 0) >= 70 ? 'text-emerald-400' : (entry.ciHealth?.healthScore ?? 0) >= 50 ? 'text-blue-400' : (entry.ciHealth?.healthScore ?? 0) >= 35 ? 'text-amber-400' : 'text-red-400')}>
+                      {entry.ciHealth?.healthScore ?? '—'}
+                    </span>
+                    <span className="text-muted-foreground">HS</span>
+                  </div>
+                  <div className="flex flex-col gap-0.5 shrink-0">
+                    <button
+                      onClick={() => moveEntry(idx, idx - 1)}
+                      disabled={idx === 0}
+                      data-testid={`btn-reorder-up-${idx}`}
+                      className="p-0.5 rounded hover:bg-muted/50 disabled:opacity-30 disabled:cursor-not-allowed text-muted-foreground transition-colors"
+                    >
+                      <ChevronRight className="h-3 w-3 -rotate-90" />
+                    </button>
+                    <button
+                      onClick={() => moveEntry(idx, idx + 1)}
+                      disabled={idx === reorderedEntries.length - 1}
+                      data-testid={`btn-reorder-down-${idx}`}
+                      className="p-0.5 rounded hover:bg-muted/50 disabled:opacity-30 disabled:cursor-not-allowed text-muted-foreground transition-colors"
+                    >
+                      <ChevronRight className="h-3 w-3 rotate-90" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={() => setOrder(grp.entries.map(e => e.connectionName))}
+            data-testid="btn-reorder-reset"
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Reset to original order
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ImpactSimTab() {
   const { data, isFetching, refetch, isError } = useQuery<SimPreview>({
     queryKey: ['/api/routing-simulator/preview'],
@@ -3415,6 +3634,7 @@ function ImpactSimTab() {
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
+  const [mode, setMode] = useState<SimMode>('remove');
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [scenExpanded, setScenExpanded] = useState<Record<string, boolean>>({});
   const toggleGroup = (id: number) => setExpanded(p => ({ ...p, [id]: !p[id] }));
@@ -3431,18 +3651,41 @@ function ImpactSimTab() {
         </span>
       </div>
 
-      {/* Run button */}
-      <div className="flex items-center gap-4">
-        <Button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="button-run-impact-sim"
-          className="gap-2"
-        >
-          {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-          {data ? 'Re-run Analysis' : 'Run Impact Analysis'}
-        </Button>
-        {data && (
+      {/* Mode selector + Run button */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-1 border" role="group">
+          {([['remove', 'Remove Analysis'], ['swap', 'Swap Groups'], ['reorder', 'Reorder LCR']] as [SimMode, string][]).map(([m, label]) => (
+            <button
+              key={m}
+              data-testid={`btn-sim-mode-${m}`}
+              onClick={() => setMode(m)}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                mode === m ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {mode === 'remove' && (
+          <Button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-run-impact-sim"
+            className="gap-2"
+            size="sm"
+          >
+            {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+            {data ? 'Re-run Analysis' : 'Run Impact Analysis'}
+          </Button>
+        )}
+        {mode !== 'remove' && !data && (
+          <Button onClick={() => { setMode('remove'); refetch(); }} size="sm" variant="outline" className="gap-2 text-xs" data-testid="button-load-for-sim">
+            <Zap className="h-3.5 w-3.5" /> Load routing data first
+          </Button>
+        )}
+        {data && mode === 'remove' && (
           <span className="text-xs text-muted-foreground">
             {data.groups.length} groups · {data.ciConnections} CI connections matched · computed {new Date(data.computedAt).toLocaleTimeString()}
           </span>
@@ -3456,8 +3699,20 @@ function ImpactSimTab() {
         </div>
       )}
 
-      {/* Results */}
-      {data && (
+      {/* Swap Groups mode */}
+      {mode === 'swap' && data && <SwapModePanel groups={data.groups} />}
+      {mode === 'swap' && !data && !isFetching && (
+        <p className="text-sm text-muted-foreground py-4">Load routing data first using the button above.</p>
+      )}
+
+      {/* Reorder LCR mode */}
+      {mode === 'reorder' && data && <ReorderModePanel groups={data.groups} />}
+      {mode === 'reorder' && !data && !isFetching && (
+        <p className="text-sm text-muted-foreground py-4">Load routing data first using the button above.</p>
+      )}
+
+      {/* Remove Analysis mode — Results */}
+      {mode === 'remove' && data && (
         <div className="space-y-4">
           {data.groups.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-8">No routing groups found in cache.</p>

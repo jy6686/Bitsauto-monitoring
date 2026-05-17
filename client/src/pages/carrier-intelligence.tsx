@@ -1,8 +1,9 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Activity, AlertTriangle, CheckCircle2, ShieldAlert, TrendingDown, Eye, Ban, RefreshCw, ChevronDown, Filter, Info, ExternalLink, RouteIcon } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, ShieldAlert, TrendingDown, Eye, Ban, RefreshCw, ChevronDown, Filter, Info, ExternalLink, RouteIcon, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { VerdictCard, type VerdictCardData } from "@/components/verdict-card";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Connection {
@@ -252,10 +253,110 @@ function RecommendationCard({ conn }: { conn: Connection }) {
   );
 }
 
+// ── Unified Verdict Tab ───────────────────────────────────────────────────────
+interface EntityVerdictResponse {
+  rows: VerdictCardData[];
+  computedAt: string;
+  totalConnections: number;
+}
+
+function VerdictTab() {
+  const [filter, setFilter] = useState<string>('ALL');
+  const { data, isFetching, refetch } = useQuery<EntityVerdictResponse>({
+    queryKey: ['/api/ai-ops/entity-verdict'],
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+
+  const rows = useMemo(() => {
+    const all = data?.rows ?? [];
+    if (filter === 'ALL') return all;
+    return all.filter(r => r.overlayVerdict.state === filter);
+  }, [data, filter]);
+
+  const counts = useMemo(() => {
+    const all = data?.rows ?? [];
+    return {
+      HEALTHY:  all.filter(r => r.overlayVerdict.state === 'HEALTHY').length,
+      STABLE:   all.filter(r => r.overlayVerdict.state === 'STABLE').length,
+      AT_RISK:  all.filter(r => r.overlayVerdict.state === 'AT_RISK').length,
+      CRITICAL: all.filter(r => r.overlayVerdict.state === 'CRITICAL').length,
+      UNSCORED: all.filter(r => r.overlayVerdict.state === 'UNSCORED').length,
+    };
+  }, [data]);
+
+  return (
+    <div className="space-y-4">
+      {/* Description */}
+      <div className="flex items-start gap-3 rounded-xl border border-violet-500/20 bg-violet-500/5 px-4 py-3 text-sm text-violet-300">
+        <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-violet-400" />
+        <span>
+          Unified entity verdict — CI health + AI Ops corroboration → single authoritative signal per connection.
+          <strong className="ml-1 text-violet-200">No inference, no heuristics. Only objective signal fusion.</strong>
+        </span>
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {(['ALL', 'HEALTHY', 'STABLE', 'AT_RISK', 'CRITICAL', 'UNSCORED'] as const).map(f => (
+          <button
+            key={f}
+            data-testid={`btn-verdict-filter-${f.toLowerCase()}`}
+            onClick={() => setFilter(f)}
+            className={cn(
+              "px-3 py-1 rounded-lg text-xs font-semibold border transition-all",
+              filter === f
+                ? "bg-violet-500/15 text-violet-400 border-violet-500/40"
+                : "bg-muted/40 text-muted-foreground border-muted hover:text-foreground",
+            )}
+          >
+            {f}{f !== 'ALL' && ` (${counts[f as keyof typeof counts]})`}
+          </button>
+        ))}
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="btn-verdict-refresh"
+          className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs border bg-muted/40 text-muted-foreground hover:text-foreground transition-all"
+        >
+          <RefreshCw className={cn("w-3 h-3", isFetching && "animate-spin")} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Cards grid */}
+      {isFetching && !data ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-24 rounded-xl border bg-muted/20 animate-pulse" />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+          <ShieldCheck className="w-10 h-10 opacity-30" />
+          <p className="text-sm">{data ? `No connections with verdict "${filter}"` : 'No verdict data yet'}</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {rows.map(r => (
+            <VerdictCard key={r.connection} data={r} />
+          ))}
+        </div>
+      )}
+
+      {data && (
+        <p className="text-xs text-muted-foreground text-right">
+          {data.totalConnections} connections · computed {new Date(data.computedAt).toLocaleTimeString()}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function CarrierIntelligencePage() {
   const [period, setPeriod]     = useState(90);
-  const [tab, setTab]           = useState<'matrix' | 'recommendations'>('matrix');
+  const [tab, setTab]           = useState<'matrix' | 'recommendations' | 'verdict'>('matrix');
   const [stateFilter, setStateFilter] = useState<string>('ALL');
   const [searchQ, setSearchQ]   = useState('');
 
@@ -345,6 +446,7 @@ export default function CarrierIntelligencePage() {
         {[
           { id: 'matrix',          label: 'Route Health Matrix', count: connections.length },
           { id: 'recommendations', label: 'Recommendations',     count: recommendations.length },
+          { id: 'verdict',         label: 'Unified Verdict',     count: null },
         ].map(t => (
           <button
             key={t.id}
@@ -358,11 +460,13 @@ export default function CarrierIntelligencePage() {
             }}
           >
             {t.label}
-            <span style={{
-              fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99,
-              background: tab === t.id ? '#7C3AED20' : '#F3F4F6',
-              color: tab === t.id ? '#7C3AED' : '#9CA3AF',
-            }}>{t.count}</span>
+            {t.count !== null && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99,
+                background: tab === t.id ? '#7C3AED20' : '#F3F4F6',
+                color: tab === t.id ? '#7C3AED' : '#9CA3AF',
+              }}>{t.count}</span>
+            )}
           </button>
         ))}
       </div>
@@ -549,6 +653,9 @@ export default function CarrierIntelligencePage() {
           )}
         </>
       )}
+
+      {/* ── TAB 3: Unified Verdict ────────────────────────────────────────── */}
+      {tab === 'verdict' && <VerdictTab />}
 
       {/* Legend */}
       <div style={{ marginTop: 28, padding: '12px 16px', background: '#F9FAFB', border: '1px solid #F3F4F6', borderRadius: 10, display: 'flex', flexWrap: 'wrap', gap: 16 }}>

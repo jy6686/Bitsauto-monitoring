@@ -15,6 +15,8 @@ import * as waSvc from "./whatsapp";
 import { enrichCdr, detectCountry, detectTrunkClass, sipCodeToFailReason, detectFas, calcVendorFraudStats, detectIrsf } from "./cdr-enrichment";
 import { initSippyWatcher, notifyNewClientTraffic, getWatcherStatus, sendTestWatcherAlert } from "./sippy-watcher";
 import { setupChatWebSocket } from "./chat-ws";
+import { broadcastLiveTrafficSnapshot, getLastLiveTrafficSnapshot } from "./live-traffic-ws";
+import type { LiveTrafficRow, LiveTrafficWindow, LiveTrafficSnapshot } from "./live-traffic-ws";
 import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, canSubmit, type OperationType } from "./approvals";
 import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
@@ -3987,15 +3989,148 @@ export async function registerRoutes(
       }
       cdrCacheUpdatedAt = new Date();
       if (added > 0) console.log(`[cdr-cache] +${added} new records, total=${cdrCache.size}`);
+      // Recompute and broadcast live traffic snapshots after each CDR batch
+      computeAndBroadcastLiveTraffic();
     } catch (e: any) {
       console.warn('[cdr-cache] refresh error:', e.message);
     } finally { _cdrCacheRunning = false; }
+  }
+
+  // ── Live Traffic Snapshot Engine ─────────────────────────────────────────────
+  // Computes rolling ASR/ACD per account (origination) and per connection
+  // (termination) from the in-memory CDR cache for 1m/5m/15m/1h windows.
+  // Runs incrementally — never re-fetches from Sippy, only re-processes the
+  // already-resident CDR cache.  Delta = ASR change vs previous computation.
+  const LIVE_WINDOWS: Record<string, number> = {
+    '1m':  1  * 60 * 1000,
+    '5m':  5  * 60 * 1000,
+    '15m': 15 * 60 * 1000,
+    '1h':  60 * 60 * 1000,
+  };
+
+  // Previous snapshot used for delta computation
+  let _prevLiveSnapshot: LiveTrafficSnapshot | null = null;
+  let _liveSnapshotRunning = false;
+
+  function computeLiveWindow(windowMs: number): LiveTrafficWindow {
+    const cutoff = Date.now() - windowMs;
+    const origAgg = new Map<string, { calls: number; billable: number; duration: number }>();
+    const termAgg = new Map<string, { calls: number; billable: number; duration: number }>();
+    let totalCalls = 0;
+    let totalBillable = 0;
+
+    for (const c of cdrCache.values()) {
+      const ts = sippy.parseSippyDate((c as any).startTime)?.getTime()
+              ?? sippy.parseSippyDate((c as any).connectTime ?? null)?.getTime() ?? 0;
+      if (!ts || ts < cutoff) continue;
+
+      const durationSec = Number((c as any).duration ?? (c as any).billDuration ?? 0);
+      const isBillable  = durationSec > 0;
+      totalCalls++;
+      if (isBillable) totalBillable++;
+
+      // Origination key — account name
+      const acctId   = String((c as any).iAccount ?? '');
+      const origName = (c as any).clientName
+                    || accountNameCache.get(acctId)
+                    || (acctId ? `Acct.${acctId}` : (c as any).caller || 'Unknown');
+      const oRow = origAgg.get(origName) ?? { calls: 0, billable: 0, duration: 0 };
+      oRow.calls++;
+      if (isBillable) { oRow.billable++; oRow.duration += durationSec; }
+      origAgg.set(origName, oRow);
+
+      // Termination key — connection identity (no country inference)
+      const connId    = String((c as any).iConnection ?? '');
+      const termName  = connId
+        ? (connectionNameCache.get(connId)   || connectionVendorCache.get(connId) || `Conn#${connId}`)
+        : ((c as any).vendor || 'Unknown Connection');
+      const tRow = termAgg.get(termName) ?? { calls: 0, billable: 0, duration: 0 };
+      tRow.calls++;
+      if (isBillable) { tRow.billable++; tRow.duration += durationSec; }
+      termAgg.set(termName, tRow);
+    }
+
+    function toRows(agg: Map<string, { calls: number; billable: number; duration: number }>,
+                    side: 'orig' | 'term',
+                    prevWindow: LiveTrafficWindow | undefined): LiveTrafficRow[] {
+      return [...agg.entries()]
+        .map(([name, v]) => {
+          const asr = v.calls > 0 ? parseFloat(((v.billable / v.calls) * 100).toFixed(1)) : 0;
+          const acd = v.billable > 0 ? parseFloat((v.duration / v.billable).toFixed(1)) : 0;
+          const prevRows = side === 'orig' ? prevWindow?.origination : prevWindow?.termination;
+          const prev = prevRows?.find(r => r.name === name);
+          const delta = prev != null ? parseFloat((asr - prev.asr).toFixed(1)) : null;
+          return { name, calls: v.calls, billable: v.billable, asr, acd, duration: v.duration, delta };
+        })
+        .sort((a, b) => b.calls - a.calls);
+    }
+
+    const overallAsr = totalCalls > 0
+      ? parseFloat(((totalBillable / totalCalls) * 100).toFixed(1)) : 0;
+
+    return {
+      origination: toRows(origAgg, 'orig', undefined),
+      termination: toRows(termAgg, 'term', undefined),
+      totalCalls,
+      totalBillable,
+      overallAsr,
+    };
+  }
+
+  function computeAndBroadcastLiveTraffic(): void {
+    if (_liveSnapshotRunning) return;
+    _liveSnapshotRunning = true;
+    try {
+      const prev = _prevLiveSnapshot;
+      const windows: Record<string, LiveTrafficWindow> = {};
+
+      for (const [label, ms] of Object.entries(LIVE_WINDOWS)) {
+        const win = computeLiveWindow(ms);
+        // Apply deltas from previous snapshot for same window label
+        const prevWin = prev?.windows[label];
+        win.origination = win.origination.map(row => {
+          const p = prevWin?.origination.find(r => r.name === row.name);
+          return { ...row, delta: p != null ? parseFloat((row.asr - p.asr).toFixed(1)) : null };
+        });
+        win.termination = win.termination.map(row => {
+          const p = prevWin?.termination.find(r => r.name === row.name);
+          return { ...row, delta: p != null ? parseFloat((row.asr - p.asr).toFixed(1)) : null };
+        });
+        windows[label] = win;
+      }
+
+      const snapshot: LiveTrafficSnapshot = { windows, computedAt: new Date().toISOString() };
+      _prevLiveSnapshot = snapshot;
+      broadcastLiveTrafficSnapshot(snapshot);
+    } catch (e: any) {
+      console.warn('[live-traffic] snapshot error:', e.message);
+    } finally { _liveSnapshotRunning = false; }
   }
 
   // Delay first CDR cache refresh by 60s so the portal auto-connect session can be
   // established first. Early XML-RPC bursts (at 5s) were triggering ECONNRESET.
   setTimeout(() => refreshCdrCache(), 60 * 1000);
   setInterval(() => refreshCdrCache(), 5 * 60 * 1000);
+
+  // Lightweight snapshot recompute every 30s from the already-resident CDR cache.
+  // Does NOT call Sippy — only re-aggregates existing in-memory data.
+  setInterval(() => computeAndBroadcastLiveTraffic(), 30 * 1000);
+
+  // GET /api/live-traffic/snapshot — initial load for the Live Traffic page
+  app.get('/api/live-traffic/snapshot', (req: any, res: any, next: any) =>
+    requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const cached = getLastLiveTrafficSnapshot();
+        if (cached) return res.json(cached);
+        // First call — compute synchronously and return
+        computeAndBroadcastLiveTraffic();
+        return res.json(getLastLiveTrafficSnapshot() ?? { windows: {}, computedAt: new Date().toISOString() });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    }
+  );
 
   // GET /api/sippy/cdr/graphs — pre-aggregated CDR data for charts
   // Returns: hourly call counts (last Nh), top destinations, top clients
