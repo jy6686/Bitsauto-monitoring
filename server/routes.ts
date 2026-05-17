@@ -3564,32 +3564,62 @@ export async function registerRoutes(
       return { name: 'Total', totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd: 0, amount };
     }
 
-    // Build a country→connection lookup from the connection name cache.
-    // Connection names often embed the destination country (e.g. "XYC-Pakistan").
-    // When a portal-scraped CDR has no iConnection, we use the CDR's country field
-    // to find the best-matching connection by substring search.
-    // Map: normalised-country → { vendorName, connName }
+    // ── Country→ISO code lookup for 2-3 char connection name tokens ─────────
+    // Connection names use abbreviations like UK, BD, PAK, UAE, etc.
+    // This maps each abbreviation to what Sippy writes in the CDR country field.
+    const ISO_TO_COUNTRY: Record<string, string> = {
+      'uk':  'united kingdom', 'gb':  'united kingdom',
+      'us':  'united states',  'usa': 'united states',
+      'bd':  'bangladesh',
+      'pak': 'pakistan',       'pk':  'pakistan',
+      'ae':  'united arab emirates', 'uae': 'united arab emirates',
+      'sa':  'saudi arabia',
+      'in':  'india',
+      'af':  'afghanistan',
+      'ir':  'iran',           'irn': 'iran',
+      'iq':  'iraq',
+      'np':  'nepal',
+      'lk':  'sri lanka',
+      'de':  'germany',        'deu': 'germany',
+      'fr':  'france',         'fra': 'france',
+      'nl':  'netherlands',    'nld': 'netherlands',
+      'au':  'australia',      'aus': 'australia',
+      'ca':  'canada',         'can': 'canada',
+      'cn':  'china',
+      'ru':  'russia',         'rus': 'russia',
+      'tr':  'turkey',         'tur': 'turkey',
+      'eg':  'egypt',
+      'ng':  'nigeria',
+      'ke':  'kenya',
+      'za':  'south africa',
+    };
+
+    // Build a country-token→connection lookup from the connection name cache.
+    // Connection names often embed the destination country/region code.
+    // Map: normalised token → { vendorName, connName }
     const countryConnMap = new Map<string, { vendorName: string; connName: string }>();
+    // Deduplicated list of all unique (vendorName, connName) pairs.
+    const allConns: { vendorName: string; connName: string }[] = [];
+
     for (const [key, connName] of connectionNameCache.entries()) {
       const vendorName = connectionVendorCache.get(key) || connectionVendorCache.get(connName) || '';
       if (!vendorName || !connName) continue;
-      // Extract potential country keywords from the connection name.
-      // Split on common separators and collect tokens >= 3 chars.
-      const tokens = connName.replace(/[-_./()]/g, ' ').split(/\s+/).filter(t => t.length >= 3);
+      // Deduplicate by connection name
+      if (!allConns.some(c => c.connName === connName)) {
+        allConns.push({ vendorName, connName });
+      }
+      // Tokenise connection name — include tokens >= 2 chars to capture ISO-2 codes (UK, BD…)
+      const tokens = connName.replace(/[-_./()]/g, ' ').split(/\s+/).filter(t => t.length >= 2);
       for (const tok of tokens) {
         const lower = tok.toLowerCase();
         if (!countryConnMap.has(lower)) {
           countryConnMap.set(lower, { vendorName, connName });
         }
-      }
-    }
-
-    // Also build a flat list of all (vendorName, connName) pairs for full-name matching.
-    const allConns: { vendorName: string; connName: string }[] = [];
-    for (const [key, connName] of connectionNameCache.entries()) {
-      const vendorName = connectionVendorCache.get(key) || connectionVendorCache.get(connName) || '';
-      if (vendorName && connName && !allConns.some(c => c.connName === connName)) {
-        allConns.push({ vendorName, connName });
+        // Also map the expanded ISO name → this connection
+        const expanded = ISO_TO_COUNTRY[lower];
+        if (expanded && !countryConnMap.has(expanded)) {
+          countryConnMap.set(expanded, { vendorName, connName });
+        }
       }
     }
 
