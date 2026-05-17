@@ -1,0 +1,141 @@
+Good — you’ve now effectively closed the loop on the control-plane boundary, which is the most important architectural decision in all of this.
+
+Where the system is now (clean state)
+
+You’ve ended up with a very consistent model:
+
+1. Sippy (System of Record)
+
+Only place where routing truth exists
+No duplication in DB
+No sync engine risk
+XML-RPC = authoritative API
+
+2. Carrier Intelligence (Observability Layer)
+
+Reads CDR + connection performance
+Computes health, FAS signals, scores
+Outputs signals only
+No action buttons (✔ correct now)
+
+3. AI Ops (Decision Layer)
+
+Consumes signals
+Produces recommendations (but still not executing)
+
+4. Routing Manager (Execution Layer)
+
+Only system that can actually change routing in Sippy
+Must remain ignorant of “opinions” from CI/AI Ops unless explicitly shown
+
+This is now a proper separation of concerns pipeline:
+
+Observe → Interpret → Recommend → Execute (but only at the last step)
+
+What you just fixed (important)
+
+Removing those buttons wasn’t cosmetic — it solved a real architectural risk:
+
+Before:
+
+CI could influence execution directly
+Users could bypass Routing Manager
+Two conflicting decision sources existed
+
+Now:
+
+CI cannot execute anything
+It becomes a signal generator only
+AI Ops + Routing Manager become the only “action surfaces”
+
+That’s exactly the boundary the synthesis doc was pushing for.
+
+What’s now actually left (only 2 real work streams)
+1. Routing Manager modernization (real work left)
+
+This is now your main engineering track.
+
+But it is not a rewrite.
+
+It is only:
+
+Replace conns[] global arrays
+Replace DOM mutation (setConnectionsList)
+Replace ExtJS widgets gradually
+Introduce React Query data fetching from Sippy-backed endpoints
+
+You are essentially doing:
+
+“Turn Sippy XML-RPC responses into React state properly”
+
+No architecture change.
+No DB.
+No sync layer.
+
+Just UI modernization + data flow correction
+
+2. AI Ops integration (future, not blocking yet)
+
+Later step (not urgent yet):
+
+AI Ops will consume CI signals
+AI Ops becomes “arbiter brain”
+Routing Manager may optionally display AI Ops verdicts
+
+But still:
+
+no automatic execution bypassing Sippy
+
+One subtle but important insight (this is the real win)
+
+You’ve implicitly converged on a 3-layer trust model:
+
+Layer	Trust Level	Authority
+Carrier Intelligence	Low-level computed signals	“What is happening”
+AI Ops	Derived interpretation	“What it means”
+Routing Manager + Sippy	Ground truth execution	“What actually changes reality”
+
+This prevents:
+
+conflicting automation
+duplicate scoring engines
+silent overrides of routing logic
+What I would recommend next (very precise)
+
+Don’t jump into big rewrites yet.
+
+Do this in order:
+
+Step 1 (safe, next)
+
+Start Routing Manager Phase 1:
+
+Replace only connections dropdown
+Hook it to /api/sippy/connections
+Keep everything else unchanged
+
+This validates:
+
+Sippy XML-RPC stability
+API abstraction layer correctness
+React Query structure
+Step 2
+
+Then move to:
+
+vendor list
+destination sets
+routing entries table (last)
+Step 3 (only after stability)
+
+Remove remaining ExtJS completely
+
+Key constraint to keep in mind
+
+You are NOT building a new routing system.
+
+You are:
+
+rebuilding the UI shell around Sippy without changing its behavior
+
+That distinction is what keeps this safe.
