@@ -542,6 +542,15 @@ function KamRow({ kam, sippyAccounts, liveMap, onEdit, onDelete }: {
               {!kam.active && (
                 <span className="text-xs px-1.5 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">inactive</span>
               )}
+              {kam.userId ? (
+                <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/25 text-violet-400 flex items-center gap-1">
+                  <UserCheck className="w-2.5 h-2.5" /> linked
+                </span>
+              ) : (
+                <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-400 flex items-center gap-1">
+                  <Unlink className="w-2.5 h-2.5" /> unlinked
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
               <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{kam.email}</span>
@@ -1544,18 +1553,32 @@ export default function TeamPage() {
   });
 
   const openAlerts = trafficAlerts.filter(a => !a.resolvedAt && a.alertType !== 'traffic_restored');
+  const assignedAccountIds = useMemo(
+    () => new Set(kams.flatMap(k => k.accounts.map(a => a.accountId))),
+    [kams]
+  );
+  const uncoveredAccounts = useMemo(
+    () => sippyAccounts.filter(a => !assignedAccountIds.has(String(a.iAccount))),
+    [sippyAccounts, assignedAccountIds]
+  );
+
   const kamStats = useMemo(() => ({
     total:       kams.length,
     active:      kams.filter(k => k.active).length,
     assignments: kams.reduce((s, k) => s + k.accounts.length, 0),
     alerts:      openAlerts.length,
-  }), [kams, openAlerts]);
+    covered:     assignedAccountIds.size,
+    uncovered:   uncoveredAccounts.length,
+  }), [kams, openAlerts, assignedAccountIds, uncoveredAccounts]);
 
   const stats = useMemo(() => ({
-    total:      members.length,
-    admin:      members.filter(m => m.role === 'admin').length,
-    management: members.filter(m => m.role === 'management').length,
-    viewer:     members.filter(m => m.role === 'viewer').length,
+    total:       members.length,
+    superAdmin:  members.filter(m => m.role === 'super_admin').length,
+    admin:       members.filter(m => m.role === 'admin').length,
+    nocOperator: members.filter(m => m.role === 'noc_operator').length,
+    teamLead:    members.filter(m => m.role === 'team_lead').length,
+    management:  members.filter(m => m.role === 'management').length,
+    viewer:      members.filter(m => m.role === 'viewer').length,
   }), [members]);
 
   const filtered = useMemo(() => {
@@ -1665,20 +1688,23 @@ export default function TeamPage() {
       <div className="space-y-6">
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 sm:grid-cols-7 gap-3">
         {[
-          { label: "Total Members", value: stats.total,      icon: Users,    color: "text-violet-400", bg: "from-violet-500/10 to-violet-500/5", border: "border-violet-500/20" },
-          { label: "Admins",        value: stats.admin,      icon: Crown,    color: "text-rose-400",   bg: "from-rose-500/10 to-rose-500/5",     border: "border-rose-500/20"   },
-          { label: "Management",    value: stats.management, icon: Briefcase,color: "text-amber-400",  bg: "from-amber-500/10 to-amber-500/5",   border: "border-amber-500/20"  },
-          { label: "Viewers",       value: stats.viewer,     icon: Eye,      color: "text-blue-400",   bg: "from-blue-500/10 to-blue-500/5",     border: "border-blue-500/20"   },
+          { label: "Total",       value: stats.total,       icon: Users,    color: "text-violet-400", bg: "from-violet-500/10 to-violet-500/5", border: "border-violet-500/20" },
+          { label: "Super Admin", value: stats.superAdmin,  icon: Crown,    color: "text-purple-400", bg: "from-purple-500/10 to-purple-500/5", border: "border-purple-500/20" },
+          { label: "Admin",       value: stats.admin,       icon: Shield,   color: "text-rose-400",   bg: "from-rose-500/10 to-rose-500/5",     border: "border-rose-500/20"   },
+          { label: "NOC",         value: stats.nocOperator, icon: MonitorDot,color:"text-cyan-400",   bg: "from-cyan-500/10 to-cyan-500/5",     border: "border-cyan-500/20"   },
+          { label: "Team Lead",   value: stats.teamLead,    icon: Award,    color: "text-emerald-400",bg: "from-emerald-500/10 to-emerald-500/5",border: "border-emerald-500/20"},
+          { label: "Management",  value: stats.management,  icon: Briefcase,color: "text-amber-400",  bg: "from-amber-500/10 to-amber-500/5",   border: "border-amber-500/20"  },
+          { label: "Viewer",      value: stats.viewer,      icon: Eye,      color: "text-blue-400",   bg: "from-blue-500/10 to-blue-500/5",     border: "border-blue-500/20"   },
         ].map(({ label, value, icon: Icon, color, bg, border }) => (
-          <div key={label} className={`rounded-xl border ${border} bg-gradient-to-br ${bg} p-4`}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-muted-foreground font-medium">{label}</span>
-              <Icon className={`w-4 h-4 ${color}`} />
+          <div key={label} className={`rounded-xl border ${border} bg-gradient-to-br ${bg} p-3`}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] text-muted-foreground font-medium leading-tight">{label}</span>
+              <Icon className={`w-3.5 h-3.5 ${color}`} />
             </div>
-            <div className={`text-2xl font-bold ${color}`}>
-              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : value}
+            <div className={`text-xl font-bold ${color}`}>
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : value}
             </div>
           </div>
         ))}
@@ -1795,7 +1821,10 @@ export default function TeamPage() {
                 className="appearance-none bg-background border border-border rounded-lg pl-3 pr-7 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition-all cursor-pointer"
               >
                 <option value="all">All Roles</option>
+                <option value="super_admin">Super Admin</option>
                 <option value="admin">Admin</option>
+                <option value="noc_operator">NOC Operator</option>
+                <option value="team_lead">Team Lead</option>
                 <option value="management">Management</option>
                 <option value="viewer">Viewer</option>
               </select>
@@ -1882,20 +1911,23 @@ export default function TeamPage() {
       <div className="space-y-6">
 
         {/* Stat strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-3 sm:grid-cols-7 gap-3">
           {[
-            { label: "Total Members", value: stats.total,      icon: Users,    color: "text-violet-400", bg: "from-violet-500/10 to-violet-500/5", border: "border-violet-500/20" },
-            { label: "Admins",        value: stats.admin,      icon: Crown,    color: "text-rose-400",   bg: "from-rose-500/10 to-rose-500/5",     border: "border-rose-500/20"   },
-            { label: "Management",    value: stats.management, icon: Briefcase,color: "text-amber-400",  bg: "from-amber-500/10 to-amber-500/5",   border: "border-amber-500/20"  },
-            { label: "Viewers",       value: stats.viewer,     icon: Eye,      color: "text-blue-400",   bg: "from-blue-500/10 to-blue-500/5",     border: "border-blue-500/20"   },
+            { label: "Total",       value: stats.total,       icon: Users,     color: "text-violet-400", bg: "from-violet-500/10 to-violet-500/5", border: "border-violet-500/20" },
+            { label: "Super Admin", value: stats.superAdmin,  icon: Crown,     color: "text-purple-400", bg: "from-purple-500/10 to-purple-500/5", border: "border-purple-500/20" },
+            { label: "Admin",       value: stats.admin,       icon: Shield,    color: "text-rose-400",   bg: "from-rose-500/10 to-rose-500/5",     border: "border-rose-500/20"   },
+            { label: "NOC",         value: stats.nocOperator, icon: MonitorDot,color: "text-cyan-400",   bg: "from-cyan-500/10 to-cyan-500/5",     border: "border-cyan-500/20"   },
+            { label: "Team Lead",   value: stats.teamLead,    icon: Award,     color: "text-emerald-400",bg: "from-emerald-500/10 to-emerald-500/5",border: "border-emerald-500/20"},
+            { label: "Management",  value: stats.management,  icon: Briefcase, color: "text-amber-400",  bg: "from-amber-500/10 to-amber-500/5",   border: "border-amber-500/20"  },
+            { label: "Viewer",      value: stats.viewer,      icon: Eye,       color: "text-blue-400",   bg: "from-blue-500/10 to-blue-500/5",     border: "border-blue-500/20"   },
           ].map(({ label, value, icon: Icon, color, bg, border }) => (
-            <div key={label} className={`rounded-xl border ${border} bg-gradient-to-br ${bg} p-4`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-muted-foreground font-medium">{label}</span>
-                <Icon className={`w-4 h-4 ${color}`} />
+            <div key={label} className={`rounded-xl border ${border} bg-gradient-to-br ${bg} p-3`}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] text-muted-foreground font-medium leading-tight">{label}</span>
+                <Icon className={`w-3.5 h-3.5 ${color}`} />
               </div>
-              <div className={`text-2xl font-bold ${color}`}>
-                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : value}
+              <div className={`text-xl font-bold ${color}`}>
+                {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : value}
               </div>
             </div>
           ))}
@@ -2200,12 +2232,14 @@ export default function TeamPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-4">
           {[
-            { label: 'Total KAMs',     value: kamStats.total,       icon: UserCheck,     color: 'text-violet-400', bg: 'from-violet-500/10 to-violet-500/5', border: 'border-violet-500/20' },
-            { label: 'Active',         value: kamStats.active,      icon: Activity,      color: 'text-emerald-400', bg: 'from-emerald-500/10 to-emerald-500/5', border: 'border-emerald-500/20' },
-            { label: 'Client Links',   value: kamStats.assignments,  icon: LinkIcon,      color: 'text-blue-400', bg: 'from-blue-500/10 to-blue-500/5', border: 'border-blue-500/20' },
-            { label: 'Open Alerts',    value: kamStats.alerts,      icon: AlertTriangle, color: kamStats.alerts > 0 ? 'text-amber-400' : 'text-muted-foreground', bg: 'from-amber-500/10 to-amber-500/5', border: kamStats.alerts > 0 ? 'border-amber-500/30' : 'border-border/30' },
+            { label: 'Total KAMs',    value: kamStats.total,       icon: UserCheck,     color: 'text-violet-400',  bg: 'from-violet-500/10 to-violet-500/5',  border: 'border-violet-500/20'  },
+            { label: 'Active',        value: kamStats.active,      icon: Activity,      color: 'text-emerald-400', bg: 'from-emerald-500/10 to-emerald-500/5', border: 'border-emerald-500/20' },
+            { label: 'Client Links',  value: kamStats.assignments, icon: LinkIcon,      color: 'text-blue-400',    bg: 'from-blue-500/10 to-blue-500/5',       border: 'border-blue-500/20'    },
+            { label: 'Open Alerts',   value: kamStats.alerts,      icon: AlertTriangle, color: kamStats.alerts > 0 ? 'text-amber-400' : 'text-muted-foreground', bg: 'from-amber-500/10 to-amber-500/5', border: kamStats.alerts > 0 ? 'border-amber-500/30' : 'border-border/30' },
+            { label: 'Covered Accts', value: kamStats.covered,     icon: CheckCircle2,  color: 'text-teal-400',    bg: 'from-teal-500/10 to-teal-500/5',       border: 'border-teal-500/20'    },
+            { label: 'Uncovered',     value: kamStats.uncovered,   icon: Unlink,        color: kamStats.uncovered > 0 ? 'text-rose-400' : 'text-muted-foreground', bg: 'from-rose-500/10 to-rose-500/5', border: kamStats.uncovered > 0 ? 'border-rose-500/30' : 'border-border/30' },
           ].map(({ label, value, icon: Icon, color, bg, border }) => (
             <div key={label} className={`rounded-xl border ${border} bg-gradient-to-br ${bg} p-4`}>
               <div className="flex items-center justify-between mb-2">
@@ -2270,6 +2304,70 @@ export default function TeamPage() {
           </div>
         )}
       </div>
+
+      {/* ── Unassigned Accounts Panel ─────────────────────────────────────────────── */}
+      {uncoveredAccounts.length > 0 && (
+        <div className="bg-card border border-rose-500/20 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-rose-500/15 bg-rose-500/5">
+            <Unlink className="w-4 h-4 text-rose-400" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-sm">Unassigned Accounts</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {uncoveredAccounts.length} Sippy account{uncoveredAccounts.length !== 1 ? 's' : ''} not linked to any KAM — no traffic alerts will fire for these
+              </p>
+            </div>
+            <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400">
+              {uncoveredAccounts.length} uncovered
+            </span>
+          </div>
+          <div className="divide-y divide-border/30">
+            {uncoveredAccounts.map(acc => (
+              <div
+                key={acc.iAccount}
+                data-testid={`row-uncovered-${acc.iAccount}`}
+                className="flex items-center justify-between px-5 py-3 hover:bg-muted/10 transition-colors gap-3"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${acc.blocked ? 'bg-rose-400' : 'bg-muted-foreground/30'}`} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{acc.username}</p>
+                    <p className="text-xs text-muted-foreground">
+                      iAccount: {acc.iAccount}
+                      {acc.blocked && <span className="ml-2 text-rose-400">blocked</span>}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className={`text-xs font-semibold tabular-nums ${acc.balance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    ${acc.balance.toFixed(2)}
+                  </span>
+                  {kams.length > 0 && (
+                    <select
+                      data-testid={`select-assign-kam-${acc.iAccount}`}
+                      defaultValue=""
+                      className="appearance-none bg-background border border-border rounded-lg pl-2.5 pr-6 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500/30 cursor-pointer"
+                      onChange={e => {
+                        const kamId = parseInt(e.target.value);
+                        if (!kamId) return;
+                        apiRequest('POST', `/api/kam/${kamId}/accounts`, {
+                          accountId: String(acc.iAccount),
+                          clientName: acc.username,
+                        }).then(() => queryClient.invalidateQueries({ queryKey: ['/api/kam'] }));
+                        e.target.value = '';
+                      }}
+                    >
+                      <option value="">Assign to KAM…</option>
+                      {kams.filter(k => k.active).map(k => (
+                        <option key={k.id} value={k.id}>{k.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       </div>)}{/* ══ end KAM Tab ═══════════════════════════════════════════════════════════ */}
 
