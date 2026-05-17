@@ -246,7 +246,7 @@ export default function NocCommandPage() {
     refetchInterval: 60_000,
   });
 
-  const { data: incidents = [] } = useQuery<AiOpsIncident[]>({
+  const { data: incidents = [], isError: incidentsError } = useQuery<AiOpsIncident[]>({
     queryKey: ["/api/aiops/incidents"],
     refetchInterval: 30_000,
   });
@@ -266,7 +266,7 @@ export default function NocCommandPage() {
     refetchInterval: 60_000,
   });
 
-  const { data: anomalies = [] } = useQuery<Anomaly[]>({
+  const { data: anomalies = [], isError: anomaliesError } = useQuery<Anomaly[]>({
     queryKey: ["/api/anomalies"],
     refetchInterval: 30_000,
   });
@@ -332,8 +332,8 @@ export default function NocCommandPage() {
         {/* ── Left: Carrier health + KPIs — 8 cols ── */}
         <div className="col-span-12 lg:col-span-8 space-y-4">
 
-          {/* KPI row — 5 metrics */}
-          <div className="grid grid-cols-5 gap-3">
+          {/* KPI row — 6 metrics */}
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
             <BigMetric label="Live Calls" value={String(liveSummary?.totalActiveCalls ?? 0)} icon={Phone} color="text-cyan-400" />
             <BigMetric label="Open Alerts" value={String(openAlerts.length)}
               icon={AlertTriangle} color={openAlerts.length > 0 ? "text-red-400" : "text-green-400"} />
@@ -343,6 +343,9 @@ export default function NocCommandPage() {
               icon={Zap} color={activeAnomalies.length > 0 ? "text-orange-400" : "text-muted-foreground"} />
             <BigMetric label="Healthy Carriers" value={`${healthyCarriers}/${scores.length}`}
               icon={Shield} color="text-green-400" />
+            <BigMetric label="Active Incidents" value={String(activeIncidents.length)}
+              icon={TrendingUp} color={activeIncidents.length > 0 ? (criticalCount > 0 ? "text-red-400" : "text-amber-400") : "text-muted-foreground"}
+              sub={criticalCount > 0 ? `${criticalCount} critical` : undefined} />
           </div>
 
           {/* Carrier cards */}
@@ -388,10 +391,10 @@ export default function NocCommandPage() {
             <div className="space-y-2">
               {[
                 { label: "Sippy Switch",     ok: switchConnected },
-                { label: "AI Ops Engine",    ok: true  },
+                { label: "AI Ops Engine",    ok: !incidentsError },
                 { label: "Scoring Engine",   ok: scores.length > 0 },
-                { label: "Anomaly Engine",   ok: true  },
-                { label: "Correlation Pass", ok: true  },
+                { label: "Anomaly Engine",   ok: !anomaliesError },
+                { label: "Correlation Pass", ok: !incidentsError && !anomaliesError },
               ].map(({ label, ok }) => (
                 <div key={label} className="flex items-center gap-2 text-xs">
                   <Pulse color={ok ? "green" : "red"} size={1} />

@@ -493,10 +493,11 @@ function AssignSippyAccountDialog({ kam, sippyAccounts, existingAccountIds, onCl
 }
 
 // ─── KAM Row ──────────────────────────────────────────────────────────────────
-function KamRow({ kam, sippyAccounts, liveMap, onEdit, onDelete }: {
+function KamRow({ kam, sippyAccounts, liveMap, openAlertCount, onEdit, onDelete }: {
   kam: Kam;
   sippyAccounts: SippyAccount[];
   liveMap: Map<string, number>;
+  openAlertCount: number;
   onEdit: (k: Kam) => void;
   onDelete: (id: number) => void;
 }) {
@@ -541,6 +542,11 @@ function KamRow({ kam, sippyAccounts, liveMap, onEdit, onDelete }: {
               )}
               {!kam.active && (
                 <span className="text-xs px-1.5 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">inactive</span>
+              )}
+              {openAlertCount > 0 && (
+                <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center gap-1 font-semibold animate-pulse">
+                  <AlertTriangle className="w-2.5 h-2.5" /> {openAlertCount} alert{openAlertCount !== 1 ? 's' : ''}
+                </span>
               )}
               {kam.userId ? (
                 <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/25 text-violet-400 flex items-center gap-1">
@@ -1562,6 +1568,14 @@ export default function TeamPage() {
     [sippyAccounts, assignedAccountIds]
   );
 
+  const kamAlertMap = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const a of openAlerts) {
+      if (a.kamId != null) m.set(a.kamId, (m.get(a.kamId) ?? 0) + 1);
+    }
+    return m;
+  }, [openAlerts]);
+
   const kamStats = useMemo(() => ({
     total:       kams.length,
     active:      kams.filter(k => k.active).length,
@@ -2085,6 +2099,103 @@ export default function TeamPage() {
       {activeTab === 'monitoring' && (
       <div className="space-y-6">
 
+      {/* ── Coverage Summary ─────────────────────────────────────────────────────── */}
+      {(() => {
+        const coveredItems   = MONITORING_ITEMS.filter(it => (assignmentOverview[it.id] ?? []).length > 0);
+        const uncoveredItems = MONITORING_ITEMS.filter(it => (assignmentOverview[it.id] ?? []).length === 0);
+        const activeWatchers = members.filter(m => (allAssignments[m.id] ?? []).length > 0);
+        const pct = MONITORING_ITEMS.length > 0 ? Math.round((coveredItems.length / MONITORING_ITEMS.length) * 100) : 0;
+        return (
+          <>
+            {/* Stat strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Total Areas',    value: MONITORING_ITEMS.length, icon: MonitorDot,   color: 'text-violet-400',  bg: 'from-violet-500/10 to-violet-500/5',  border: 'border-violet-500/20'  },
+                { label: 'Covered',        value: coveredItems.length,     icon: CheckCircle2,  color: 'text-emerald-400', bg: 'from-emerald-500/10 to-emerald-500/5', border: 'border-emerald-500/20' },
+                { label: 'Blind Spots',    value: uncoveredItems.length,   icon: AlertTriangle, color: uncoveredItems.length > 0 ? 'text-rose-400' : 'text-muted-foreground', bg: 'from-rose-500/10 to-rose-500/5', border: uncoveredItems.length > 0 ? 'border-rose-500/30' : 'border-border/30' },
+                { label: 'Active Watchers',value: activeWatchers.length,   icon: Users,         color: 'text-cyan-400',    bg: 'from-cyan-500/10 to-cyan-500/5',       border: 'border-cyan-500/20'    },
+              ].map(({ label, value, icon: Icon, color, bg, border }) => (
+                <div key={label} className={`rounded-xl border ${border} bg-gradient-to-br ${bg} p-4`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-muted-foreground font-medium">{label}</span>
+                    <Icon className={`w-4 h-4 ${color}`} />
+                  </div>
+                  <div className={`text-2xl font-bold ${color}`}>
+                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Coverage bar */}
+            <div className="bg-card border border-border rounded-xl px-5 py-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-muted-foreground">Overall Coverage</span>
+                <span className={`text-xs font-bold ${pct === 100 ? 'text-emerald-400' : pct >= 70 ? 'text-amber-400' : 'text-rose-400'}`}>{pct}%</span>
+              </div>
+              <div className="h-2 bg-muted/40 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${pct === 100 ? 'bg-emerald-500' : pct >= 70 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                {coveredItems.length} of {MONITORING_ITEMS.length} monitoring areas have at least one assigned watcher
+              </p>
+            </div>
+
+            {/* Blind spots panel — only when there are gaps */}
+            {uncoveredItems.length > 0 && (
+              <div className="bg-card border border-rose-500/20 rounded-xl overflow-hidden" data-testid="panel-blind-spots">
+                <div className="flex items-center gap-3 px-5 py-4 border-b border-rose-500/15 bg-rose-500/5">
+                  <AlertTriangle className="w-4 h-4 text-rose-400" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-sm">Coverage Gaps</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      These {uncoveredItems.length} area{uncoveredItems.length !== 1 ? 's' : ''} have no assigned watcher — incidents may go unnoticed
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400">
+                    {uncoveredItems.length} unwatch{uncoveredItems.length !== 1 ? 'ed' : 'ed'}
+                  </span>
+                </div>
+                <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {uncoveredItems.map(it => {
+                    const Icon = ITEM_ICON[it.id as MonitoringItemId];
+                    const ic   = ITEM_COLOR[it.id as MonitoringItemId];
+                    const gc   = GROUP_COLOR[it.group] || 'text-muted-foreground border-border bg-muted/20';
+                    return (
+                      <div
+                        key={it.id}
+                        data-testid={`gap-item-${it.id}`}
+                        className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-rose-500/10 bg-rose-500/5 hover:bg-rose-500/10 transition-colors"
+                      >
+                        <Icon className={`w-4 h-4 flex-shrink-0 ${ic}`} />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium truncate">{it.label}</p>
+                          <span className={`text-[11px] px-1.5 py-0.5 rounded border font-medium ${gc}`}>{it.group}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* All-clear banner when fully covered */}
+            {uncoveredItems.length === 0 && members.length > 0 && (
+              <div className="flex items-center gap-3 px-5 py-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-emerald-400">Full Coverage</p>
+                  <p className="text-xs text-muted-foreground">Every monitoring area has at least one assigned team member.</p>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
+
       {/* ── Monitoring Assignments ─────────────────────────────────────────────── */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 bg-muted/20">
@@ -2297,6 +2408,7 @@ export default function TeamPage() {
                 kam={k}
                 sippyAccounts={sippyAccounts}
                 liveMap={liveMap}
+                openAlertCount={kamAlertMap.get(k.id) ?? 0}
                 onEdit={setEditKam}
                 onDelete={id => deleteKamMutation.mutate(id)}
               />

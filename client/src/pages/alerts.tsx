@@ -366,6 +366,24 @@ export default function AlertsPage() {
 
   const activeUnresolved = counts.active + counts.acknowledged;
 
+  const bulkAckMutation = useMutation({
+    mutationFn: () => Promise.all(
+      (alerts ?? []).filter(a => alertStatus(a) === "active").map(a =>
+        apiRequest("POST", `/api/alerts/${a.id}/acknowledge`)
+      )
+    ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/alerts"] }),
+  });
+
+  const bulkResolveMutation = useMutation({
+    mutationFn: () => Promise.all(
+      (alerts ?? []).filter(a => alertStatus(a) !== "resolved").map(a =>
+        apiRequest("POST", `/api/alerts/${a.id}/resolve`)
+      )
+    ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/alerts"] }),
+  });
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -399,6 +417,55 @@ export default function AlertsPage() {
           </button>
         </div>
       </div>
+
+      {/* Summary stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Total",        value: counts.all,          icon: Layers,      color: "text-violet-400",  bg: "from-violet-500/10 to-violet-500/5",  border: "border-violet-500/20"  },
+          { label: "Active",       value: counts.active,       icon: AlertTriangle,color: counts.active > 0 ? "text-rose-400" : "text-muted-foreground",   bg: "from-rose-500/10 to-rose-500/5",     border: counts.active > 0 ? "border-rose-500/30" : "border-border/30"   },
+          { label: "Acknowledged", value: counts.acknowledged, icon: Eye,         color: counts.acknowledged > 0 ? "text-amber-400" : "text-muted-foreground", bg: "from-amber-500/10 to-amber-500/5", border: counts.acknowledged > 0 ? "border-amber-500/30" : "border-border/30" },
+          { label: "Resolved",     value: counts.resolved,     icon: ShieldCheck,  color: counts.resolved > 0 ? "text-emerald-400" : "text-muted-foreground", bg: "from-emerald-500/10 to-emerald-500/5", border: counts.resolved > 0 ? "border-emerald-500/30" : "border-border/30" },
+        ].map(({ label, value, icon: Icon, color, bg, border }) => (
+          <div key={label} className={`rounded-xl border ${border} bg-gradient-to-br ${bg} p-4`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground font-medium">{label}</span>
+              <Icon className={`w-4 h-4 ${color}`} />
+            </div>
+            <div className={`text-2xl font-bold ${color}`}>
+              {isLoading ? <Clock className="w-5 h-5 animate-spin opacity-40" /> : value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Bulk actions — only when there's something to act on */}
+      {activeUnresolved > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground">Bulk actions:</span>
+          {counts.active > 0 && (
+            <Button
+              size="sm" variant="outline"
+              data-testid="button-bulk-acknowledge"
+              disabled={bulkAckMutation.isPending}
+              onClick={() => bulkAckMutation.mutate()}
+              className="text-amber-500 border-amber-500/30 hover:bg-amber-500/10 h-7 text-xs gap-1.5"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              Acknowledge all active ({counts.active})
+            </Button>
+          )}
+          <Button
+            size="sm" variant="outline"
+            data-testid="button-bulk-resolve"
+            disabled={bulkResolveMutation.isPending}
+            onClick={() => bulkResolveMutation.mutate()}
+            className="text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10 h-7 text-xs gap-1.5"
+          >
+            <XCircle className="w-3.5 h-3.5" />
+            Resolve all open ({activeUnresolved})
+          </Button>
+        </div>
+      )}
 
       {view === "list" && (
         <>
