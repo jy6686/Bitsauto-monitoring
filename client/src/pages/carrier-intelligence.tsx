@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, AlertTriangle, CheckCircle2, ShieldAlert, TrendingDown, Eye, Ban, RefreshCw, ChevronDown, Filter, Info } from "lucide-react";
+import { Link } from "wouter";
+import { Activity, AlertTriangle, CheckCircle2, ShieldAlert, TrendingDown, Eye, Ban, RefreshCw, ChevronDown, Filter, Info, ExternalLink, RouteIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -191,21 +192,32 @@ function RecommendationCard({ conn }: { conn: Connection }) {
         </div>
       </div>
 
-      {/* Recommendation + Actions */}
+      {/* Signal + Navigation links (read-only — no execution here) */}
       <div style={{ padding: '0 16px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
         <RecChip rec={conn.recommendation} />
         <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
-          {(['Investigate', 'Penalise', 'Suppress 15m', 'Monitor'] as const).slice(0, conn.state === 'HEALTHY' ? 1 : 3).map(action => (
-            <button
-              key={action}
-              style={{
-                padding: '4px 10px', borderRadius: 6, fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
-                background: '#F9FAFB', border: '1px solid #E5E7EB', color: '#374151',
-              }}
-            >
-              {action}
-            </button>
-          ))}
+          <Link href="/ai-ops">
+            <a style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '4px 10px', borderRadius: 6, fontSize: 10.5, fontWeight: 600,
+              background: '#F5F3FF', border: '1px solid #DDD6FE', color: '#6D28D9',
+              textDecoration: 'none', cursor: 'pointer',
+            }}>
+              <ExternalLink style={{ width: 11, height: 11 }} />
+              Open in AI Ops
+            </a>
+          </Link>
+          <Link href="/routing">
+            <a style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '4px 10px', borderRadius: 6, fontSize: 10.5, fontWeight: 600,
+              background: '#F9FAFB', border: '1px solid #E5E7EB', color: '#374151',
+              textDecoration: 'none', cursor: 'pointer',
+            }}>
+              <RouteIcon style={{ width: 11, height: 11 }} />
+              View Routing
+            </a>
+          </Link>
         </div>
       </div>
 
