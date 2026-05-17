@@ -209,6 +209,10 @@ const connectionNameCache: Map<string, string> = new Map();
 // Maps termination IP (host without port) → vendor name.
 // Used to enrich client CDRs with vendor name from CDR.remoteIp.
 const connectionIpCache: Map<string, string> = new Map();
+// IP (vendor SIP peer host) → connection name — companion to connectionIpCache.
+// Populated alongside connectionIpCache at vendor-cache refresh time.
+// Enables deterministic portal-CDR remoteIp → connection name resolution.
+const connectionIpToNameCache: Map<string, string> = new Map();
 
 let _connVendorCacheRunning = false;
 async function refreshConnectionVendorCache(): Promise<void> {
@@ -231,6 +235,7 @@ async function refreshConnectionVendorCache(): Promise<void> {
     connectionVendorCache.clear();
     connectionNameCache.clear();
     connectionIpCache.clear();
+    connectionIpToNameCache.clear();
     await Promise.all(vendors.map(async (v: any) => {
       if (!v.iVendor) return;
       const vendorName = v.name ?? `Vendor#${v.iVendor}`;
@@ -252,9 +257,14 @@ async function refreshConnectionVendorCache(): Promise<void> {
             connectionNameCache.set(conn.name, conn.name);
           }
           // Extract host IP from destination (format: "host:port" or "host")
+          // Populate both vendor-name and connection-name keyed by IP so that
+          // portal-scraped CDRs can resolve via cdr.remoteIp deterministically.
           if (conn.destination) {
             const destHost = conn.destination.split(':')[0].trim();
-            if (destHost) connectionIpCache.set(destHost, vendorName);
+            if (destHost) {
+              connectionIpCache.set(destHost, vendorName);
+              if (conn.name) connectionIpToNameCache.set(destHost, conn.name);
+            }
           }
         }
       } catch { /* skip per-vendor connection fetch failures */ }
@@ -3611,9 +3621,24 @@ export async function registerRoutes(
         return `${vendorName} / ${connName}`;
       }
 
-      // ── No connection identity in CDR (portal-scraped) ───────────────────
-      // Honest fallback — do not guess from country.
-      return 'Unknown Connection';
+      // ── Step 2: remoteIp → SIP peer host match (portal-scraped CDRs) ────
+      // conn.destination host === vendor SIP peer IP === portal CDR remoteIp.
+      // Deterministic — same IP-cache populated from Sippy vendor connections.
+      if (cdr.remoteIp) {
+        const remoteHost = String(cdr.remoteIp).split(':')[0].trim();
+        if (remoteHost) {
+          const vendorName = connectionIpCache.get(remoteHost) || '';
+          const connName   = connectionIpToNameCache.get(remoteHost) || '';
+          if (vendorName) {
+            if (groupTerm === 'vendor') return vendorName;
+            if (connName)              return `${vendorName} / ${connName}`;
+            return vendorName; // Step 3: vendor-only — connection name not cached for this IP
+          }
+        }
+      }
+
+      // ── Step 4: all deterministic paths exhausted ─────────────────────
+      return 'Unknown Vendor / Unknown Connection';
     }
 
     // Filter CDR cache by time window + CLI/CLD text + account/vendor selectors
