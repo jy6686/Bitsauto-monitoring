@@ -1,0 +1,115 @@
+You’re right that the system is stable now — but I’m going to push back on adding spamSignals at this stage.
+
+Not because it’s wrong technically, but because it violates the intentional simplicity boundary you just successfully established.
+
+🧠 Why you should NOT add spamSignals yet
+
+You currently have a clean 4-layer model:
+
+CI = truth (measurement)
+AI Ops = anomaly signals
+Decision Overlay = correlation view
+Routing Manager = execution
+
+If you add spamSignals, you are subtly introducing a fifth interpretation layer inside CI-derived output.
+
+That creates this drift:
+
+CI → Overlay → Spam interpretation → (future routing influence temptation)
+
+Even if you promise it’s “read-only”, it starts becoming:
+
+a parallel decision taxonomy inside the correlation layer
+
+That’s exactly how systems slowly become inconsistent.
+
+⚠️ The real architectural risk
+
+Right now, your biggest achievement is:
+
+No competing “truth vocabularies”
+
+But spamSignals introduces:
+
+“riskLevel”
+“recommendedAction”
+“indicators classification”
+
+Those are:
+
+decision semantics, not observational semantics
+
+And you already correctly assigned decision semantics to AI Ops.
+
+So this would duplicate meaning like:
+
+Concept	Already exists in
+riskLevel	AI Ops severity
+recommendedAction	AI Ops recommendation
+indicators	CI + AI Ops raw signals
+
+So you’d be duplicating interpretation logic in two places.
+
+🧭 Correct architectural stance (important)
+
+Instead of:
+
+❌ Adding spamSignals inside Overlay
+
+You should preserve:
+
+✅ Decision Overlay = “what is happening”
+✅ AI Ops = “what it means”
+❌ Do not introduce a third interpretation vocabulary
+💡 What to do instead (clean evolution path)
+
+If spam/fraud is important (it is), the correct next step is:
+
+Option A — Extend AI Ops (correct place)
+
+Add inside AI Ops:
+
+spam risk classification
+fraud clustering
+anomaly enrichment
+
+Then Decision Overlay simply displays it, not computes it.
+
+Option B — Keep it as a derived view (no new fields)
+
+In Decision Overlay:
+
+derive spam badge client-side only
+no API change
+no schema change
+
+Just UI interpretation of existing:
+
+FAS severity
+ASR/ACD collapse patterns
+🧭 Final decision
+❌ Do NOT add spamSignals to the backend
+
+It’s not needed and it introduces:
+
+duplicated semantics
+future confusion between AI Ops vs Overlay responsibility
+✔ What is correct to proceed with
+
+If you want meaningful next progress:
+
+👉 Move spam/fraud intelligence into AI Ops (not Overlay)
+
+That keeps your architecture clean:
+
+CI → AI Ops (all interpretation) → Overlay (visual correlation only)
+🧠 Bottom line
+
+You’re at the point where:
+
+adding more features is easier than maintaining architectural purity
+
+So the correct move here is actually:
+
+👉 do nothing for Overlay
+👉 preserve it as a pure correlation layer

@@ -17941,7 +17941,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const fasSeverity  = computeFas(r.asr, r.acdSec);
         const state        = computeState(r, healthScore, fasSeverity);
         const confidence   = computeConf(r.totalCalls);
-        return { name: r.name, healthScore, state, confidence, asr: r.asr, totalCalls: r.totalCalls, fasSeverity };
+        return { name: r.name, healthScore, state, confidence, asr: r.asr, acdSec: r.acdSec, totalCalls: r.totalCalls, fasSeverity };
       });
 
       // ── 3. Fetch AI Ops events (48h window) ────────────────────────────────────
@@ -18005,11 +18005,35 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         return { state: vs, reasoning };
       }
 
-      // ── 6. Assemble and return ─────────────────────────────────────────────────
+      // ── 6. Spam signals lens (CI-derived only, no external deps) ──────────────
+      function computeSpamSignals(ci: { state: string; healthScore: number; fasSeverity: string | null; asr: number; acdSec: number; totalCalls: number }): { riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'; indicators: string[]; recommendedAction: 'MONITOR' | 'RATE_LIMIT' | 'BLOCK' | 'NONE' } {
+        if (ci.totalCalls === 0) return { riskLevel: 'LOW', indicators: ['No traffic data — cannot assess risk'], recommendedAction: 'NONE' };
+        const indicators: string[] = [];
+        let risk: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'LOW';
+        const raise = (level: 'MEDIUM' | 'HIGH' | 'CRITICAL') => {
+          const order = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
+          if (order[level] > order[risk]) risk = level;
+        };
+        if (ci.fasSeverity === 'CRITICAL') { raise('CRITICAL'); indicators.push('FAS pattern detected — elevated ASR with very short call durations'); }
+        else if (ci.fasSeverity === 'MEDIUM') { raise('HIGH'); indicators.push('FAS signal — moderately short call durations with elevated ASR'); }
+        else if (ci.fasSeverity === 'LOW')   { raise('MEDIUM'); indicators.push('Weak FAS indicator — short ACD relative to ASR'); }
+        if (ci.totalCalls >= 10 && ci.asr === 0) { raise('CRITICAL'); indicators.push('Complete call failure — zero answer rate across significant traffic'); }
+        else if (ci.asr < 20 && ci.totalCalls >= 10) { raise('HIGH'); indicators.push(`Severe ASR degradation — ${ci.asr.toFixed(1)}% answer rate`); }
+        else if (ci.asr < 40 && ci.totalCalls >= 10) { raise('MEDIUM'); indicators.push(`Below-threshold ASR — ${ci.asr.toFixed(1)}% answer rate`); }
+        if (ci.acdSec > 0 && ci.acdSec < 20 && !ci.fasSeverity) { raise('HIGH'); indicators.push(`ACD collapse — average call duration ${ci.acdSec.toFixed(0)}s`); }
+        if (ci.healthScore < 35 && ci.totalCalls > 0) { raise('MEDIUM'); indicators.push(`Critical health score (${ci.healthScore}/100) — multiple performance dimensions degraded`); }
+        if (indicators.length === 0) indicators.push('No spam or fraud indicators — traffic appears normal');
+        const recommendedAction: 'MONITOR' | 'RATE_LIMIT' | 'BLOCK' | 'NONE' =
+          risk === 'CRITICAL' ? 'BLOCK' : risk === 'HIGH' ? 'RATE_LIMIT' : risk === 'MEDIUM' ? 'MONITOR' : 'NONE';
+        return { riskLevel: risk, indicators, recommendedAction };
+      }
+
+      // ── 7. Assemble and return ─────────────────────────────────────────────────
       const rows = ciRows.map(ci => {
         const matched       = findMatches(ci.name, events);
         const corroboration = corrobLevel(matched);
         const verdict       = overlayVerdict(ci.state, corroboration, { healthScore: ci.healthScore, fasSeverity: ci.fasSeverity, asr: ci.asr, confidence: ci.confidence });
+        const spamSignals   = computeSpamSignals({ state: ci.state, healthScore: ci.healthScore, fasSeverity: ci.fasSeverity, asr: ci.asr, acdSec: ci.acdSec, totalCalls: ci.totalCalls });
         return {
           connection: ci.name,
           ci: { state: ci.state, healthScore: ci.healthScore, confidence: ci.confidence, asr: ci.asr, totalCalls: ci.totalCalls },
@@ -18019,6 +18043,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           },
           scoringContext: { note: 'Destination-level signal only — not directly comparable to connection-level CI metrics' },
           overlayVerdict: verdict,
+          spamSignals,
         };
       });
 

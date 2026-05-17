@@ -343,12 +343,15 @@ export default function AiOpsPage() {
     aiOps: { recentEvents: OverlayEvent[]; corroborationLevel: 'YES' | 'PARTIAL' | 'NONE' };
     scoringContext: { note: string };
     overlayVerdict: { state: string; reasoning: string[] };
+    spamSignals: { riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'; indicators: string[]; recommendedAction: 'MONITOR' | 'RATE_LIMIT' | 'BLOCK' | 'NONE' };
   }
   const { data: overlayData, isLoading: overlayLoading, refetch: refetchOverlay } = useQuery<{ rows: OverlayRow[]; computedAt: string; totalConnections: number }>({
     queryKey: ['/api/ai-ops/decision-overlay'],
     enabled: feedTab === 'overlay',
     staleTime: 120_000,
   });
+  const [expandedSpam, setExpandedSpam] = useState<Record<number, boolean>>({});
+  const toggleSpam = (idx: number) => setExpandedSpam(prev => ({ ...prev, [idx]: !prev[idx] }));
   // Index actions by accountId — most recent pending/approved per account
   const actionByAccountId = existingActions.reduce<Record<string, AccountAction>>((acc, a) => {
     if (!acc[a.account_id] || new Date(a.created_at) > new Date(acc[a.account_id].created_at)) {
@@ -1734,6 +1737,59 @@ export default function AiOpsPage() {
                               })}
                             </div>
                           )}
+
+                          {/* Spam Risk lens */}
+                          {row.spamSignals && (() => {
+                            const sl = row.spamSignals;
+                            const spamBg =
+                              sl.riskLevel === 'CRITICAL' ? 'bg-rose-500/10 border-rose-500/30'   :
+                              sl.riskLevel === 'HIGH'     ? 'bg-orange-500/10 border-orange-500/30' :
+                              sl.riskLevel === 'MEDIUM'   ? 'bg-amber-500/10 border-amber-500/30'  :
+                                                            'bg-muted/10 border-border/40';
+                            const spamText =
+                              sl.riskLevel === 'CRITICAL' ? 'text-rose-400'   :
+                              sl.riskLevel === 'HIGH'     ? 'text-orange-400' :
+                              sl.riskLevel === 'MEDIUM'   ? 'text-amber-400'  :
+                                                            'text-muted-foreground';
+                            const actionText =
+                              sl.recommendedAction === 'BLOCK'       ? 'text-rose-400'   :
+                              sl.recommendedAction === 'RATE_LIMIT'  ? 'text-orange-400' :
+                              sl.recommendedAction === 'MONITOR'     ? 'text-amber-400'  :
+                                                                       'text-muted-foreground/50';
+                            return (
+                              <div className={cn("rounded-lg border p-2.5 space-y-1.5", spamBg)}>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <ShieldCheck className={cn("h-3 w-3 shrink-0", spamText)} />
+                                    <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50">Spam / Fraud Risk</span>
+                                    <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-full border", spamBg, spamText)} data-testid={`overlay-spam-risk-${idx}`}>
+                                      {sl.riskLevel}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className={cn("text-[9px] font-mono font-semibold", actionText)}>
+                                      {sl.recommendedAction}
+                                    </span>
+                                    <button
+                                      data-testid={`button-toggle-spam-${idx}`}
+                                      onClick={() => toggleSpam(idx)}
+                                      className="text-[9px] text-muted-foreground/50 hover:text-muted-foreground transition-colors flex items-center gap-0.5"
+                                    >
+                                      {expandedSpam[idx] ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                                    </button>
+                                  </div>
+                                </div>
+                                {expandedSpam[idx] && (
+                                  <div className="space-y-1 pt-1 border-t border-border/30">
+                                    {sl.indicators.map((ind, ii) => (
+                                      <p key={ii} className={cn("text-[10px] leading-relaxed", spamText + '/80')}>{ind}</p>
+                                    ))}
+                                    <p className="text-[9px] text-muted-foreground/40 italic pt-0.5">Advisory only — no automated action</p>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           {/* Scoring context note */}
                           <p className="text-[10px] text-muted-foreground/40 italic">{row.scoringContext.note}</p>
