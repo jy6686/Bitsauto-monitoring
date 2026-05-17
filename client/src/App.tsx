@@ -253,7 +253,7 @@ function Router() {
         {() => <ProtectedRoute component={CallDetailPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
       <Route path="/alerts">
-        {() => <ProtectedRoute component={AlertsPage} requiredRoles={['admin','management']} viewerAssignment="alerts" mgmtFeature="alerts" />}
+        {() => <ProtectedRoute component={AlertsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} viewerAssignment="alerts" mgmtFeature="alerts" />}
       </Route>
       <Route path="/reports">
         {() => <ProtectedRoute component={ReportsPage} requiredRoles={['admin','management']} viewerAssignment="reports" mgmtFeature="reports" />}
@@ -337,7 +337,7 @@ function Router() {
         {() => <ProtectedRoute component={VendorSlaScorecardPage} requiredRoles={['admin','management']} mgmtFeature="vendor_sla" />}
       </Route>
       <Route path="/carrier-scoring">
-        {() => <ProtectedRoute component={CarrierScoringPage} requiredRoles={['admin','management']} mgmtFeature="carrier_scoring" />}
+        {() => <ProtectedRoute component={CarrierScoringPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="carrier_scoring" />}
       </Route>
       <Route path="/cost-optimisation">
         {() => <ProtectedRoute component={CostOptimisationPage} requiredRoles={['admin','management']} mgmtFeature="cost_optimisation" />}
@@ -413,7 +413,7 @@ function Router() {
         {() => <ProtectedRoute component={NumberIntelligencePage} requiredRoles={['admin','management']} mgmtFeature="number_intelligence" />}
       </Route>
       <Route path="/sbc-monitor">
-        {() => <ProtectedRoute component={SbcMonitorPage} requiredRoles={['admin','management']} mgmtFeature="sbc_monitor" />}
+        {() => <ProtectedRoute component={SbcMonitorPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="sbc_monitor" />}
       </Route>
       <Route path="/client-portal">
         {() => <ProtectedRoute component={ClientPortalPage} requiredRoles={['admin','management']} mgmtFeature="client_portal" />}
@@ -428,10 +428,10 @@ function Router() {
         {() => <ProtectedRoute component={SmsMonitorPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/ai-ops">
-        {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management']} mgmtFeature="ai_ops" />}
+        {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="ai_ops" />}
       </Route>
       <Route path="/carrier-intelligence">
-        {() => <ProtectedRoute component={CarrierIntelligencePage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={CarrierIntelligencePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
       </Route>
       <Route path="/intelligence">
         {() => <ProtectedRoute component={IntelligencePage} requiredRoles={['admin','management']} />}
@@ -446,10 +446,10 @@ function Router() {
         {() => <ProtectedRoute component={NetworkTopologyPage} requiredRoles={['admin','management']} mgmtFeature="network_topology" />}
       </Route>
       <Route path="/noc-command">
-        {() => <ProtectedRoute component={NocCommandPage} requiredRoles={['admin','management']} mgmtFeature="noc_command" />}
+        {() => <ProtectedRoute component={NocCommandPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="noc_command" />}
       </Route>
       <Route path="/ops-console">
-        {() => <ProtectedRoute component={OpsConsolePage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={OpsConsolePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
       </Route>
       <Route path="/stir-shaken">
         {() => <ProtectedRoute component={StirShakenPage} requiredRoles={['admin','management']} />}

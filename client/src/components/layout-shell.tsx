@@ -164,7 +164,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     roles: ['admin','management'],
     items: [
       { href: "/routing-manager",                      label: "Routing Manager",   icon: Database,    roles: ['admin','management'], hasSubmenu: 'routingmgr'                              },
-      { href: "/vendors",                              label: "Vendors",            icon: Building2,   roles: ['admin','management']                                                         },
+      { href: "/vendors",                              label: "Vendors",            icon: Building2,   roles: ['admin','management','super_admin','noc_operator','team_lead']                },
       { href: "/routing-manager?tab=connections",      label: "Connections",        icon: Network,     roles: ['admin','management']                                                         },
       { href: "/routing-manager?tab=destination-sets", label: "Destination Sets",   icon: Layers,      roles: ['admin','management']                                                         },
       { href: "/lcr-analyser",                         label: "LCR Analyser",       icon: GitBranch,   roles: ['admin','management']                                                         },
@@ -181,33 +181,33 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     roles: ['admin','management','viewer'],
     items: [
       { href: "/calls",        label: "Live Calls",        icon: Phone,    roles: ['admin','management','viewer'], hasSubmenu: 'calls', status: 'live' },
-      { href: "/alerts",       label: "Alerts",            icon: Bell,     roles: ['admin','management']                                              },
-      { href: "/sbc-monitor",  label: "SBC Monitor",       icon: Network,  roles: ['admin','management']                                              },
+      { href: "/alerts",       label: "Alerts",            icon: Bell,     roles: ['admin','management','super_admin','noc_operator','team_lead']    },
+      { href: "/sbc-monitor",  label: "SBC Monitor",       icon: Network,  roles: ['admin','management','super_admin','noc_operator','team_lead']    },
       { href: "/traffic-map",  label: "Traffic Map",       icon: Globe,    roles: ['admin','management']                                              },
       { href: "/multi-switch", label: "Multi-Switch View", icon: Layers,   roles: ['admin','management']                                              },
-      { href: "/noc-command",  label: "NOC View",          icon: Monitor,  roles: ['admin','management'], isNew: true                                 },
-      { href: "/ops-console",  label: "Ops Console",       icon: Layers,   roles: ['admin','management'], isNew: true                                 },
+      { href: "/noc-command",  label: "NOC View",          icon: Monitor,  roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
+      { href: "/ops-console",  label: "Ops Console",       icon: Layers,   roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
     ],
   },
   // ─── 4. Intelligence (observation + health signals) ──────────────────────────
   {
     key: 'intelligence',
     label: 'Intelligence',
-    roles: ['admin','management'],
+    roles: ['admin','management','super_admin','noc_operator','team_lead'],
     items: [
-      { href: "/carrier-intelligence",      label: "Carrier Intelligence", icon: Activity,  roles: ['admin','management'], isNew: true },
-      { href: "/carrier-scoring",           label: "Carrier Scoring",      icon: BarChart3, roles: ['admin','management'], isNew: true },
+      { href: "/carrier-intelligence",      label: "Carrier Intelligence", icon: Activity,  roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
+      { href: "/carrier-scoring",           label: "Carrier Scoring",      icon: BarChart3, roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
       { href: "/intelligence",              label: "Intelligence Hub",     icon: Brain,     roles: ['admin','management'], isNew: true },
-      { href: "/ai-ops?tab=decision-overlay", label: "Decision Overlay",  icon: Eye,       roles: ['admin','management'], isNew: true },
+      { href: "/ai-ops?tab=decision-overlay", label: "Decision Overlay",  icon: Eye,       roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
     ],
   },
   // ─── 5. AI Ops (anomaly + interpretation) ────────────────────────────────────
   {
     key: 'ai_ops',
     label: 'AI Ops',
-    roles: ['admin','management'],
+    roles: ['admin','management','super_admin','noc_operator','team_lead'],
     items: [
-      { href: "/ai-ops",  label: "AI Ops Center", icon: Bot,        roles: ['admin','management'], isNew: true },
+      { href: "/ai-ops",  label: "AI Ops Center", icon: Bot,        roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
       { href: "/fraud",   label: "Fraud / FAS",   icon: ShieldAlert,roles: ['admin','management']              },
     ],
   },

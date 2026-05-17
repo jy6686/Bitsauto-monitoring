@@ -4130,7 +4130,12 @@ export async function registerRoutes(
                   meraDebugPrinted = true;
                   console.log(`[cdr-cache] Mera CDR[0] → confId=${mc.confId?.slice(0,24)} dstIp=${mc.dstIp} vendorResolved=${vendorName} vendorCost=${payload.cost ?? 'n/a'}`);
                 }
-                if (mc.confId) meraByConfId.set(mc.confId.trim(), payload);
+                if (mc.confId) {
+                  const raw  = mc.confId.trim();
+                  const norm = raw.toLowerCase().replace(/-/g, '');
+                  meraByConfId.set(raw,  payload);
+                  meraByConfId.set(norm, payload);
+                }
                 // IP index: keyed both as plain IP and as "vendorName:IP" composite.
                 // The composite key disambiguates shared IPs (e.g. TALK + Callntalk on same IP).
                 if (cleanIp && !meraByIp.has(cleanIp)) meraByIp.set(cleanIp, payload);
@@ -4145,8 +4150,11 @@ export async function registerRoutes(
               let enriched = 0;
               for (const c of cdrCache.values()) {
                 const alreadyResolved = !!(c.vendor || c.iConnection);
-                // Primary: match by confId (Mera CONFID == getAccountCDRs call_id)
-                const hit = (c.callId && c.callId !== '-' ? meraByConfId.get(c.callId) : undefined)
+                // Primary: match by confId — try raw, then normalised (no dashes, lowercase)
+                const rawCallId  = c.callId && c.callId !== '-' ? c.callId : undefined;
+                const normCallId = rawCallId ? rawCallId.toLowerCase().replace(/-/g, '') : undefined;
+                const hit = (rawCallId  ? meraByConfId.get(rawCallId)  : undefined)
+                         ?? (normCallId ? meraByConfId.get(normCallId) : undefined)
                          // Secondary: match by remote IP if already known
                          ?? (c.remoteIp ? meraByIp.get(c.remoteIp.split(':')[0].trim()) : undefined);
                 if (!hit) continue;
@@ -17426,6 +17434,23 @@ export async function registerRoutes(
             resolved: false,
             vendor:   entry.carrierId,
           } as any);
+        }
+      } catch { /* non-critical */ }
+    }
+
+    // Auto-resolve: close open carrier_asr_drop alerts for carriers that have recovered
+    for (const entry of entries.filter(e => !e.alertFired)) {
+      try {
+        const { alerts: alertsT } = await import('../shared/schema');
+        const { eq: eqA, and: andA } = await import('drizzle-orm');
+        const [openAlert] = await db.select({ id: alertsT.id }).from(alertsT)
+          .where(andA(eqA(alertsT.type, 'carrier_asr_drop'), eqA((alertsT as any).vendor, entry.carrierId), eqA(alertsT.resolved, false)))
+          .limit(1);
+        if (openAlert) {
+          await db.update(alertsT)
+            .set({ resolved: true, resolvedAt: new Date() })
+            .where(eqA(alertsT.id, openAlert.id));
+          console.log(`[carrier-health] auto-resolved alert for ${entry.carrierId} (ASR recovered to ${entry.asr}%)`);
         }
       } catch { /* non-critical */ }
     }

@@ -12,6 +12,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@shared/schema";
+import { Link } from "wouter";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -549,9 +550,11 @@ export default function AlertsPage() {
                             {meta.label}
                           </span>
                           {(alert as any).vendor && (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border bg-sky-500/10 text-sky-500 border-sky-500/30">
-                              {(alert as any).vendor}
-                            </span>
+                            <Link href={`/vendors/${encodeURIComponent((alert as any).vendor)}`}>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border bg-sky-500/10 text-sky-500 border-sky-500/30 hover:bg-sky-500/20 cursor-pointer transition-colors">
+                                {(alert as any).vendor} →
+                              </span>
+                            </Link>
                           )}
                           {(alert as any).connection && !(alert as any).vendor && (
                             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border bg-slate-500/10 text-slate-500 border-slate-500/30">
