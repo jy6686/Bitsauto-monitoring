@@ -1,0 +1,1028 @@
+This data looks like a Sippy vendor/connections quality table showing:
+
+Total Calls
+Connected Calls
+Total Duration
+Average Call Duration (ACD)
+ASR %
+PDD
+Revenue/Cost column
+
+From this sample, several routes immediately stand out as problematic and several look stable.
+
+Critical Problem Routes
+
+These routes have either:
+
+very low ASR,
+extremely low ACD,
+or traffic with zero successful calls.
+Very Bad Quality (Immediate Attention)
+Route	Calls	Connected	ASR	ACD	Observation
+QUICKCOM-IND-ST-ST	30	0	0%	00:00	Completely dead route
+SAIF-GLOBAL-PR-PR-IND-ORTP	46	0	0%	00:00	No successful calls
+TELECARD-PAK-PR-PR(Zong-CRTP)	43	0	0%	00:00	Route failure
+QG-CHARLIE-PR-ORTP(UFONE)	43	0	0%	00:00	No completion
+PTCL-PR-PR-TELENOR(113)	15	0	0%	00:00	Dead
+PTCL-PR-PR-TELENOR(97)	15	0	0%	00:00	Dead
+PTCL-PAK-LL-PR-PR(.97)	135	0	0%	00:00	High traffic failure
+CENTREDTEL-IND-ST-ST	35	0	0%	00:00	No answer route
+
+These should probably trigger:
+
+auto-disable recommendation,
+routing penalty,
+or AI Ops alert.
+Suspicious / Fraud-like or Fake Answer Patterns
+
+These routes have:
+
+high ASR,
+but extremely low ACD.
+
+That often indicates:
+
+fake answer supervision,
+short duration drops,
+RTP/media issue,
+CLI filtering,
+or customer dissatisfaction.
+Route	ASR	ACD	Observation
+SUPER-SMART-CHARLIE(OTP)	92.68%	00:09	Extremely suspicious
+CALLNTALK-PAK-PR-CHARLIE(RETAIL)(PAK)(OTP)	22.60%	00:08	Poor media/quality
+CALLNTALK-CHARLIE-PR(UFONE)	17.26%	00:11	Likely unstable
+callntalk-internal	26.63%	00:18	Short-call behavior
+LETS-DIAL-BD-PR-Charlie	13.04%	00:07	Unusable quality
+
+These are ideal candidates for:
+
+Fake Answer Supervision (FAS) detection,
+RTP quality monitoring,
+short-duration anomaly alerts.
+Good / Stable Routes
+
+These look operationally healthy:
+
+Route	ASR	ACD	Traffic	Notes
+QG-PR-PR-ORTP(ZONG)	26.12%	04:34	High	Stable
+SKY-TELECOM-UK-PAK-PR-PR(ORTP)	9.52%	06:01	Medium	Good duration
+TELECARD-PAK-PR-PR(TELENOR)(open RTP)	20.65%	03:50	High	Decent
+TELECARD-CHARLIE-PR(JAZZ-UFONE)	15.46%	05:20	Good	Healthy
+CENTREDTEL-PAK-ST-ST(90)	26.14%	02:15	Good	Stable
+Important Operational Observation
+
+Your table colors already seem to indicate route health:
+
+#FFDDDD → likely degraded/problematic
+#EECCCC → warning state
+#FFFFFF / #EEEEEE → neutral/normal
+
+This means your current system already has primitive route grading.
+
+The BitsAuto platform can significantly improve this using:
+
+Recommended AI Ops Enhancements
+1. Intelligent Route Health Score
+
+Instead of static colors:
+
+Create weighted score:
+
+Health Score =
+(ASR Weight × 40%)
++ (ACD Weight × 30%)
++ (PDD Weight × 20%)
++ (Call Volume Confidence × 10%)
+
+Then classify:
+
+90–100 → Excellent
+70–89 → Stable
+50–69 → Warning
+<50 → Critical
+2. Fake Answer Supervision Engine
+
+Trigger alerts when:
+
+ASR > 50%
+AND
+ACD < 15 sec
+
+Example:
+
+SUPER-SMART-CHARLIE(OTP)
+
+This is almost textbook FAS behavior.
+
+3. Auto Route Suppression
+
+If:
+
+Calls > 30
+AND
+ASR = 0%
+
+Then:
+
+auto penalize in LCR,
+reduce priority,
+or temporarily disable.
+
+Your PTCL(.97) route clearly qualifies.
+
+4. Dynamic Vendor Ranking
+
+Instead of manual routing:
+
+Calculate:
+
+rolling 15 min ASR,
+rolling ACD,
+recent failures,
+RTP timeout frequency,
+SIP 4xx/5xx ratio.
+
+Then auto-rank vendors.
+
+This fits perfectly into your planned:
+
+AI Ops Center,
+Carrier Scoring,
+LCR Analyzer,
+Closed Loop Automation phases.
+Strong UI Recommendation for BitsAuto
+
+Convert this raw Sippy table into:
+
+Vendor Quality Matrix
+
+Columns:
+
+Vendor
+ASR
+ACD
+PDD
+Margin
+RTP Stability
+FAS Risk
+Health Score
+AI Recommendation
+
+Example:
+
+Vendor	Health	AI Recommendation
+PTCL(.97)	🔴 Critical	Disable route
+SUPER-SMART	🟠 Suspicious	Check FAS
+TELECARD(TELENOR)	🟢 Stable	Increase priority
+Best Immediate Actions From This Snapshot
+Disable / Investigate
+QUICKCOM-IND-ST-ST
+PTCL(.97)
+SAIF-GLOBAL-PR-PR-IND-ORTP
+TELECARD-Zong-CRTP
+QG-UFONE-ORTP
+Monitor for FAS
+SUPER-SMART-CHARLIE
+CALLNTALK retail routes
+LETS-DIAL-BD
+Preferred Operational Routes
+TELECARD(TELENOR)
+QGC(ZONG)
+SKY-TELECOM ORTP
+CENTREDTEL(90)
+                              
+                                <td nowrap align="left" class="borderallbuttop" id="conn_62">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=252&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.110)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">6</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2142142</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_63">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=258&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.111)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">6</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2649366</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_64">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=256&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.141)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">6</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:01</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">16.6666667</td>
+                                <td nowrap align="right" class="borderbottomright">0.8127042</td>
+                                <td nowrap align="right" class="borderbottomright">0.0001583</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_65">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=254&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.143)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">6</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2164562</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_66">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=257&action=edit&id_vendor=86" >TATA-PR-PR(66.198.81.14)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">6</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2273517</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_67">
+                                        <a href="vendors.php?action=edit&i_vendor=97">Lets-Dial</a>/<a href="connections.php?account=25696&action=edit&id_vendor=97" >LETS-DIAL-GERMANY-PR-PR</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">5</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">5.4813074</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_68">
+                                        <a href="vendors.php?action=edit&i_vendor=21">QUICKCOM-PR-PR</a>/<a href="connections.php?account=26591&action=edit&id_vendor=21" >QUICKCOM-PR-PR(THAI)(51)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">5</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">7.0831374</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_69">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=253&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.109)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">5</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2442536</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_70">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=255&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.142)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">5</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2613275</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_71">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=25724&action=edit&id_vendor=105" >CALLNTALK-PR-PR(AUSTRALIA)(QUICKCOM)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">5</td>
+                                <td nowrap align="right" class="borderbottomright">2</td>
+                                <td nowrap align="right" class="borderbottomright">00:02</td>
+                                <td nowrap align="right" class="borderbottomright">00:01</td>
+                                <td nowrap align="right" class="borderbottomright">40.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">3.0330610</td>
+                                <td nowrap align="right" class="borderbottomright">0.0003333</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_72">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=8701&action=edit&id_vendor=105" >CALLNTALK-PR-PR(YEM)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">5</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">4.2898318</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_73">
+                                        <a href="vendors.php?action=edit&i_vendor=6">SKY-TELECOM-UK-PAK-PR-PR</a>/<a href="connections.php?account=103&action=edit&id_vendor=6" >SKY-TELECOM-UK-PAK-PR-PR(FIX)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">4</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.1180755</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_74">
+                                        <a href="vendors.php?action=edit&i_vendor=97">Lets-Dial</a>/<a href="connections.php?account=25692&action=edit&id_vendor=97" >LETS-DIAL-AUS-PR-PR</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.8960972</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_75">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=24&action=edit&id_vendor=19" >PTCL-(97)-CHARLIE-MOBILINK(Quickcom)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.1481445</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_76">
+                                        <a href="vendors.php?action=edit&i_vendor=21">QUICKCOM-PR-PR</a>/<a href="connections.php?account=26593&action=edit&id_vendor=21" >QUICKCOM-PR-PR(THAI)(72)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">6.8699293</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_77">
+                                        <a href="vendors.php?action=edit&i_vendor=23">SUPERSMART</a>/<a href="connections.php?account=250&action=edit&id_vendor=23" >SUPERSMART-CHARLIE(UAE-PREFIX-7)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">00:03</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">100.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.0194586</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000500</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_78">
+                                        <a href="vendors.php?action=edit&i_vendor=51">QUICKCOM</a>/<a href="connections.php?account=1939&action=edit&id_vendor=51" >QUICKCOM-YEM-PR-PR</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">2</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2344738</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_79">
+                                        <a href="vendors.php?action=edit&i_vendor=21">QUICKCOM-PR-PR</a>/<a href="connections.php?account=26595&action=edit&id_vendor=21" >QUICKCOM-PR-PR(THAI)(79)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">2</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">01:27</td>
+                                <td nowrap align="right" class="borderbottomright">01:26</td>
+                                <td nowrap align="right" class="borderbottomright">50.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">6.6172863</td>
+                                <td nowrap align="right" class="borderbottomright">0.0265350</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_80">
+                                        <a href="vendors.php?action=edit&i_vendor=28">ZONG-PR-PR</a>/<a href="connections.php?account=222&action=edit&id_vendor=28" >ZONG-A2Z-PR-PR(.73)(6-prefix)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">2</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.4343220</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_81">
+                                        <a href="vendors.php?action=edit&i_vendor=56">BTS</a>/<a href="connections.php?account=194&action=edit&id_vendor=56" >BTS-UAE-CHARLIE</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.4916029</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_82">
+                                        <a href="vendors.php?action=edit&i_vendor=32">CITIC</a>/<a href="connections.php?account=158&action=edit&id_vendor=32" >CITIC-JAPAN-PREFIX-7</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:01</td>
+                                <td nowrap align="right" class="borderbottomright">00:01</td>
+                                <td nowrap align="right" class="borderbottomright">100.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.6965795</td>
+                                <td nowrap align="right" class="borderbottomright">0.0005833</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_83">
+                                        <a href="vendors.php?action=edit&i_vendor=22">GLOBACOM</a>/<a href="connections.php?account=7788&action=edit&id_vendor=22" >GLOBACOM-KEN-PR-PR</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.1579491</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_84">
+                                        <a href="vendors.php?action=edit&i_vendor=5">PTCL-PAK-LL-PR-PR</a>/<a href="connections.php?account=21230&action=edit&id_vendor=5" >PTCL-PAKISTAN-PR-PREFIX-7-PAK-FIXED(.113)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.4699784</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_85">
+                                        <a href="vendors.php?action=edit&i_vendor=5">PTCL-PAK-LL-PR-PR</a>/<a href="connections.php?account=21231&action=edit&id_vendor=5" >PTCL-PAKISTAN-PR-PREFIX-7-PAK-FIXED(.97)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.4556125</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_86">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=23&action=edit&id_vendor=19" >PTCL-(.113) -CHARLIE-MOBILINK(Quickcom)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.0691204</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_87">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=79&action=edit&id_vendor=19" >PTCL-(113) (ORTP)(PREFIX-6)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.2180591</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_88">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=80&action=edit&id_vendor=19" >PTCL-(97) (ORTP)(PREFIX-6)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.0824901</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_89">
+                                        <a href="vendors.php?action=edit&i_vendor=23">SUPERSMART</a>/<a href="connections.php?account=70&action=edit&id_vendor=23" >SUPERSMART-CHARLIE(MOBILINK)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:06</td>
+                                <td nowrap align="right" class="borderbottomright">00:05</td>
+                                <td nowrap align="right" class="borderbottomright">100.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.0183189</td>
+                                <td nowrap align="right" class="borderbottomright">0.0001000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_90">
+                                        <a href="vendors.php?action=edit&i_vendor=28">ZONG-PR-PR</a>/<a href="connections.php?account=221&action=edit&id_vendor=28" >ZONG-A2Z-PR-PR(.156)(6-prefix)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.4451640</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_91">
+                                        <a href="vendors.php?action=edit&i_vendor=101">qgc</a>/<a href="connections.php?account=25388&action=edit&id_vendor=101" >QGC-JAPAN-PR-CHARLIE</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2543718</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                
+                </table>
+</td></tr>
+
+<tr> <td>
+
+<div class="separator"></div>
+
+</td></tr></table>
+        </div>
+
+
+<script>
+    var e = document.getElementsByClassName("Headline");
+    if (e.length > 0) {
+        // add datetime
+        var tr = e[0].parentElement;
+        var td = document.createElement("td");
+        td.className = "Headline style1";
+        td.style.textAlign = "right";
+        var t = document.createTextNode("17 May 2026 07:59:06 (Etc/UTC)");
+        td.appendChild(t);
+        tr.appendChild(td);
+
+        // move navigation bar before main div
+        e = tr;
+        while (e = e.parentElement) {
+            if (e.tagName != "TABLE") {
+                continue;
+            }
+            break;
+        }
+        if (e) {
+            e = e.parentElement.removeChild(e);
+            var main_div = document.getElementById('main');
+            main_div.parentElement.insertBefore(e, main_div);
+            main_div.className = "main_div";
+        }
+    }
+</script>
+
+
+</body>
+</html>
+
+This looks like raw HTML output from a legacy VoIP carrier monitoring page (likely Sippy/NOC routing stats table).
+
+Based on the values, the columns appear to be:
+
+Vendor / Connection	Attempts	Connected	Total Duration	Avg Duration	ASR %	PDD / Cost / Metric	Revenue/Usage
+
+From the data, these are the important operational observations:
+
+Critical Low ASR Routes
+
+Many routes have:
+
+5–6 attempts
+0 connected calls
+ASR = 0%
+
+Examples:
+
+TATA-PR-PR(209.58.46.110)
+TATA-PR-PR(209.58.46.111)
+QUICKCOM-PR-PR(THAI)(51)
+LETS-DIAL-GERMANY-PR-PR
+
+This usually indicates:
+
+Carrier rejection
+SIP 4xx/5xx failures
+Dialing mismatch
+Capacity issue
+CLI issue
+Codec mismatch
+Fraud/security block
+Good Performing Routes
+
+Some routes are healthy:
+
+Route	ASR
+SUPERSMART-CHARLIE(UAE-PREFIX-7)	100%
+SUPERSMART-CHARLIE(MOBILINK)	100%
+CALLNTALK-PR-PR(AUSTRALIA)(QUICKCOM)	40%
+QUICKCOM-PR-PR(THAI)(79)	50%
+
+These should receive:
+
+Higher routing priority
+More traffic allocation
+Better carrier scoring
+What Your Platform Should Detect Automatically
+
+This is exactly where your BitsAuto AI Ops layer becomes powerful.
+
+Recommended AI/NOC detections:
+
+1. Consecutive Failure Detector
+
+Trigger alert when:
+
+Attempts > 5
+Connected = 0
+ASR = 0%
+
+Severity:
+
+Medium after 5 calls
+High after 20 calls
+2. Carrier Health Scoring
+
+Per vendor:
+
+Rolling ASR
+ACD
+PDD
+Failure trend
+SIP response distribution
+
+Example:
+
+TATA score drops from 92 → 41
+Auto warning in Vendor Operations
+3. Auto Route Suppression
+
+Future closed-loop automation:
+
+If:
+
+ASR < 5%
+AND attempts > threshold
+AND alternate route healthier
+
+Then:
+
+Auto deprioritize route
+Move traffic to backup vendor
+
+This aligns directly with your:
+
+Phase C Decision Layer
+Phase D Closed Loop automation roadmap
+Suggested Modern UI for BitsAuto
+
+Instead of this legacy table:
+
+Vendor | Calls | Connected | ASR
+
+Use intelligent cards:
+
+Example
+TATA — DEGRADED
+ASR: 0%
+Failed Calls: 23
+Affected Routes: 4
+Probable Cause:
+SIP 503 surge
+No answer from gateway
+Recommended Action:
+Shift traffic to SUPERSMART
+Check IP auth
+Verify codec negotiation
+
+[View SIP Errors]
+[Move Traffic]
+[Suppress Route]
+
+Strong Product Opportunity
+
+Your platform can become much stronger than standard Sippy monitoring if you add:
+
+Real-time route intelligence
+AI-based vendor scoring
+Automatic anomaly detection
+Dynamic routing recommendations
+Fraud + quality correlation
+Heatmap-based carrier degradation
+
+Most legacy systems only show tables like this.
+Very few explain:
+
+what is wrong,
+why it happened,
+what action to take.
+
+That is the biggest opportunity for BitsAuto AI Ops Center.
+
+now share your thoughts and how do we build same Client/Vendor ASR ACD Report 
+
+For the BitsAuto platform, I would strongly recommend that you do not clone the old Sippy-style ASR/ACD table directly.
+
+That old design is:
+
+static,
+hard to understand,
+reactive only,
+and operationally slow.
+
+Instead, build a modern Client/Vendor Quality Intelligence System using layered architecture.
+
+Recommended Architecture
+
+Build it in 3 layers:
+
+Layer 1 — Raw Statistics Engine
+
+This computes:
+
+ASR
+ACD
+PDD
+Revenue
+Margin
+Failed Calls
+SIP Response Distribution
+Answer Delay
+CPS
+Concurrent Calls
+
+This layer only aggregates CDRs.
+
+Layer 2 — Quality Intelligence Engine
+
+This converts metrics into operational meaning.
+
+Example:
+
+Condition	Meaning
+ASR < 10%	Severe route failure
+ACD < 20 sec	Fake answer / poor quality
+PDD > 8 sec	Slow carrier
+503 spike	Capacity issue
+487 increase	Customer disconnect trend
+Short duration spike	Fraud / scam traffic
+
+This is your AI Ops brain.
+
+Layer 3 — Action Layer
+
+This generates:
+
+alerts,
+recommendations,
+auto-routing decisions,
+vendor scoring,
+suppression actions.
+
+Example:
+
+“TATA quality degraded 73% in last 15 min.”
+“Shift UAE traffic to SUPERSMART.”
+“Block route due to false answer behavior.”
+Recommended Pages
+
+You should split the system into:
+
+1. Vendor Quality Dashboard
+
+Purpose:
+Monitor carriers.
+
+Metrics:
+
+ASR
+ACD
+PDD
+Revenue
+Margin
+Active Channels
+SIP errors
+Quality score
+Trend graph
+
+Grouping:
+
+By Vendor
+By Connection
+By Country
+By Prefix
+2. Client Quality Dashboard
+
+Purpose:
+Monitor customers.
+
+Metrics:
+
+Client ASR
+Average Call Duration
+Failed Calls
+Concurrent Calls
+Top Destinations
+Fraud score
+Traffic spikes
+Margin impact
+Recommended Database Design
+Aggregation Table
+
+Example:
+
+quality_stats_5m
+
+Columns:
+
+Column	Type
+timestamp_bucket	timestamptz
+entity_type	vendor/client
+entity_id	integer
+destination	varchar
+attempts	integer
+connected	integer
+failed	integer
+duration_seconds	integer
+revenue	decimal
+cost	decimal
+asr	decimal
+acd	decimal
+pdd	decimal
+sip_503	integer
+sip_486	integer
+sip_487	integer
+Calculation Logic
+ASR Formula
+
+ASR=
+Total Attempts
+Answered Calls
+	​
+
+×100
+
+Example:
+
+100 attempts
+45 answered
+
+ASR = 45%
+
+ACD Formula
+
+ACD=
+Answered Calls
+Total Call Duration
+	​
+
+
+Example:
+
+900 sec total duration
+45 connected calls
+
+ACD = 20 sec
+
+Recommended Backend Flow
+Step 1 — CDR ingestion
+
+From:
+
+Sippy
+Switches
+SBC
+RTP stats
+
+Store raw CDRs.
+
+Step 2 — Aggregation Jobs
+
+Run:
+
+every 1 minute
+every 5 minutes
+hourly
+daily
+
+Create:
+
+rolling summaries
+vendor summaries
+client summaries
+Step 3 — Real-Time Streaming
+
+Use:
+
+WebSockets
+SSE
+
+Update:
+
+ASR live
+active calls live
+vendor degradation live
+Recommended Frontend Design
+
+Do NOT use giant HTML tables.
+
+Use:
+
+Top KPI Cards
+Vendor Health
+Healthy Vendors
+Degraded Vendors
+Critical Vendors
+Quality KPIs
+Global ASR
+Global ACD
+Avg PDD
+Smart Route Table
+Vendor	ASR	ACD	Trend	Status	Recommendation
+TATA	0%	0s	↓↓↓	Critical	Suppress
+SUPERSMART	100%	3m	↑	Healthy	Increase traffic
+Very Important Feature
+Time Comparison
+
+Allow:
+
+Last 5 min
+Last 15 min
+Last hour
+Today vs yesterday
+Current ASR vs 7-day baseline
+
+This becomes extremely powerful for NOC operations.
+
+AI Features You Should Add
+
+Since your roadmap already includes AI Ops Center:
+
+AI Route Anomaly Detection
+
+Detect:
+
+sudden ASR drops,
+unusual ACD,
+destination-specific failure,
+carrier instability.
+AI Root Cause Engine
+
+Example:
+
+TATA degradation detected.
+
+Probable causes:
+- SIP 503 increase
+- PDD spike
+- Packet loss increase
+
+Confidence: 87%
+AI Routing Recommendation
+
+Example:
+
+Recommended failover:
+1. SUPERSMART
+2. QUICKCOM
+3. CALLNTALK
+Most Important Strategic Advice
+
+Do not think of:
+“ASR/ACD report”
+
+Think of:
+“Real-Time Telecom Quality Intelligence Platform”
+
+That changes the architecture completely.
+
+Legacy systems:
+
+show numbers.
+
+Modern systems:
+
+explain problems,
+predict failures,
+recommend actions,
+automate routing decisions.
+
+That is exactly where BitsAuto can become significantly stronger than traditional VoIP monitoring systems.
