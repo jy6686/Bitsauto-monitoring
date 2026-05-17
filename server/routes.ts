@@ -213,6 +213,10 @@ const connectionIpCache: Map<string, string> = new Map();
 // Populated alongside connectionIpCache at vendor-cache refresh time.
 // Enables deterministic portal-CDR remoteIp → connection name resolution.
 const connectionIpToNameCache: Map<string, string> = new Map();
+// iConnection (string) → iVendor — enables /vendors?id= links from report rows.
+const connectionToVendorIdCache: Map<string, number> = new Map();
+// vendor SIP peer host (IP) → iConnection — bridges IP-resolved portal CDRs to their connection ID.
+const connectionIpToConnectionIdCache: Map<string, number> = new Map();
 
 let _connVendorCacheRunning = false;
 async function refreshConnectionVendorCache(): Promise<void> {
@@ -236,6 +240,8 @@ async function refreshConnectionVendorCache(): Promise<void> {
     connectionNameCache.clear();
     connectionIpCache.clear();
     connectionIpToNameCache.clear();
+    connectionToVendorIdCache.clear();
+    connectionIpToConnectionIdCache.clear();
     await Promise.all(vendors.map(async (v: any) => {
       if (!v.iVendor) return;
       const vendorName = v.name ?? `Vendor#${v.iVendor}`;
@@ -250,6 +256,8 @@ async function refreshConnectionVendorCache(): Promise<void> {
             connectionVendorCache.set(String(conn.iConnection), vendorName);
             // Store connection name for display (human-readable)
             if (conn.name) connectionNameCache.set(String(conn.iConnection), conn.name);
+            // iConnection → iVendor for report row entity linking (/vendors?id=)
+            connectionToVendorIdCache.set(String(conn.iConnection), v.iVendor);
           }
           if (conn.name) {
             connectionVendorCache.set(conn.name, vendorName);
@@ -257,13 +265,14 @@ async function refreshConnectionVendorCache(): Promise<void> {
             connectionNameCache.set(conn.name, conn.name);
           }
           // Extract host IP from destination (format: "host:port" or "host")
-          // Populate both vendor-name and connection-name keyed by IP so that
+          // Populate vendor-name, connection-name, and connection-ID keyed by IP so that
           // portal-scraped CDRs can resolve via cdr.remoteIp deterministically.
           if (conn.destination) {
             const destHost = conn.destination.split(':')[0].trim();
             if (destHost) {
               connectionIpCache.set(destHost, vendorName);
-              if (conn.name) connectionIpToNameCache.set(destHost, conn.name);
+              if (conn.name)       connectionIpToNameCache.set(destHost, conn.name);
+              if (conn.iConnection) connectionIpToConnectionIdCache.set(destHost, conn.iConnection);
             }
           }
         }
@@ -3551,7 +3560,35 @@ export async function registerRoutes(
       const pddArr        = completed.map((c: any) => Number(c.pdd1xx ?? c.pdd) || 0).filter((v: number) => v > 0);
       const avgPdd        = pddArr.length > 0 ? parseFloat((pddArr.reduce((a: number, b: number) => a + b, 0) / pddArr.length).toFixed(4)) : 0;
       const amount        = parseFloat(billable.reduce((s: number, c: any) => s + (parseFloat(c.cost) || 0), 0).toFixed(7));
-      return { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount };
+
+      // ── Entity identity — deterministic resolution for navigation links ──────
+      // Walk the CDR slice using the same priority chain as termKey():
+      //   1. iConnection direct (XML-RPC CDRs)
+      //   2. remoteIp → connectionIpToConnectionIdCache (portal CDRs)
+      let iConnection: number | undefined;
+      let iVendor: number | undefined;
+      for (const c of slice) {
+        if (c.iConnection) {
+          iConnection = Number(c.iConnection);
+          iVendor = connectionToVendorIdCache.get(String(c.iConnection));
+          break;
+        }
+      }
+      if (!iConnection) {
+        for (const c of slice) {
+          if (c.remoteIp) {
+            const host = String(c.remoteIp).split(':')[0].trim();
+            const cid  = connectionIpToConnectionIdCache.get(host);
+            if (cid) {
+              iConnection = cid;
+              iVendor = connectionToVendorIdCache.get(String(cid));
+              break;
+            }
+          }
+        }
+      }
+
+      return { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount, iVendor, iConnection };
     }
 
     function sortRows<T extends { name: string; totalCalls: number; billableCalls: number; asr: number; acdSec: number; durationSec: number; amount: number }>(rows: T[], by: string): T[] {

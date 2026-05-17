@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +33,8 @@ interface ReportRow {
   asr: number;
   avgPdd: number;
   amount: number;
+  iVendor?: number;
+  iConnection?: number;
 }
 
 interface ReportData {
@@ -575,6 +578,57 @@ export default function AsrAcdReportPage() {
   );
 }
 
+// ── Entity name cell — renders vendor/connection parts as navigation links ────
+//
+// Name format from server:  "VendorName / ConnectionName"  |  "VendorName"  |  plain string
+// Vendor part  → /vendors?id={iVendor}          (existing VendorIdLoader handles direct URL)
+// Connection part → /routing-manager?tab=connections  (Phase 2 will add ?iConnection=)
+//
+// Falls back to plain text when entity IDs are absent (origination rows, unresolved rows).
+
+function EntityNameCell({ name, iVendor, iConnection }: { name: string; iVendor?: number; iConnection?: number }) {
+  const slashIdx = name.indexOf(' / ');
+  const hasSlash = slashIdx !== -1;
+  const vendorPart = hasSlash ? name.slice(0, slashIdx) : name;
+  const connPart   = hasSlash ? name.slice(slashIdx + 3) : null;
+
+  const vendorEl = iVendor ? (
+    <Link
+      to={`/vendors?id=${iVendor}`}
+      data-testid={`link-vendor-${iVendor}`}
+      className="text-primary hover:underline underline-offset-2 transition-colors"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {vendorPart}
+    </Link>
+  ) : (
+    <span>{vendorPart}</span>
+  );
+
+  const connEl = connPart ? (
+    iConnection ? (
+      <Link
+        to={`/routing-manager?tab=connections`}
+        data-testid={`link-connection-${iConnection}`}
+        className="text-muted-foreground hover:text-primary hover:underline underline-offset-2 transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {connPart}
+      </Link>
+    ) : (
+      <span className="text-muted-foreground">{connPart}</span>
+    )
+  ) : null;
+
+  return (
+    <span className="truncate block max-w-[260px]">
+      {vendorEl}
+      {connEl && <span className="text-muted-foreground/60 mx-1">/</span>}
+      {connEl}
+    </span>
+  );
+}
+
 // ── Report table component ────────────────────────────────────────────────────
 
 interface ReportTableProps {
@@ -636,8 +690,8 @@ function ReportTable({ title, subtitle, rows, total, amountLabel, nameLabel, thr
                         : "hover:bg-muted/30"
                     )}
                   >
-                    <td className="px-4 py-2 font-medium text-foreground max-w-[280px] truncate" title={row.name}>
-                      {row.name}
+                    <td className="px-4 py-2 font-medium text-foreground max-w-[280px]" title={row.name}>
+                      <EntityNameCell name={row.name} iVendor={row.iVendor} iConnection={row.iConnection} />
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{row.totalCalls.toLocaleString()}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{row.billableCalls.toLocaleString()}</td>
