@@ -15247,6 +15247,26 @@ export async function registerRoutes(
         console.log(`[analytics/margin] Using CDR cache fallback: ${cdrs.length} records`);
       }
 
+      // Attempt 3.5: cross-reference CDR cache for vendorCost on direct-Sippy CDRs.
+      // CDRs fetched live from Sippy bypass the cache enrichment pipeline, so they
+      // won't have vendorCost set. Look each up by callId in the enriched cache.
+      if (dataSource !== 'cdr-cache' && cdrCache.size > 0 && cdrs.length > 0) {
+        let vcEnriched = 0;
+        for (const c of cdrs) {
+          if ((c as any).vendorCost !== undefined) continue;
+          const key = (c as any).callId || (c as any).iCdr;
+          if (!key) continue;
+          const cached = cdrCache.get(String(key));
+          if (cached && (cached as any).vendorCost !== undefined) {
+            (c as any).vendorCost = (cached as any).vendorCost;
+            vcEnriched++;
+          }
+        }
+        if (vcEnriched > 0) {
+          console.log(`[analytics/margin] cache cross-ref: vendorCost enriched for ${vcEnriched}/${cdrs.length} CDR(s)`);
+        }
+      }
+
       // Attempt 4: portal scrape fallback
       if (!cdrs.length) {
         const pUser = settings.portalUsername || '';

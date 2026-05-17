@@ -1,4 +1,4 @@
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -111,8 +111,8 @@ function PageSkeleton() {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BillingPage() {
-  const [location] = useLocation();
-  const params = new URLSearchParams(location.split("?")[1] ?? "");
+  const search = useSearch();
+  const params = new URLSearchParams(search);
   const connectionId = parseInt(params.get("connection") ?? "", 10);
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery<BillingData>({
