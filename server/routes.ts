@@ -1082,6 +1082,27 @@ export async function registerRoutes(
     res.json(alerts);
   });
 
+  // POST /api/alerts/:id/acknowledge — operator marks "I'm aware, investigating"
+  app.post('/api/alerts/:id/acknowledge', async (req: any, res: any) => {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: 'Invalid alert id' });
+    const userId = req.user.claims?.sub ?? 'unknown';
+    const updated = await storage.acknowledgeAlert(id, userId);
+    if (!updated) return res.status(404).json({ message: 'Alert not found' });
+    res.json(updated);
+  });
+
+  // POST /api/alerts/:id/resolve — operator marks as resolved
+  app.post('/api/alerts/:id/resolve', async (req: any, res: any) => {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: 'Invalid alert id' });
+    const updated = await storage.resolveAlert(id);
+    if (!updated) return res.status(404).json({ message: 'Alert not found' });
+    res.json(updated);
+  });
+
   // Sensitive fields that are stripped from settings responses for non-admin users
   const SETTINGS_SENSITIVE_FIELDS = [
     'portalPassword',

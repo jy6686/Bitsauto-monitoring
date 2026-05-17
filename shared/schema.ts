@@ -51,6 +51,9 @@ export const alerts = pgTable("alerts", {
   severity: varchar("severity", { length: 20 }).notNull(), // warning, critical
   message: text("message").notNull(),
   resolved: boolean("resolved").default(false),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  acknowledgedBy: varchar("acknowledged_by", { length: 128 }),
+  resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

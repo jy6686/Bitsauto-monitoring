@@ -83,6 +83,8 @@ export interface IStorage {
   // Alerts
   getAlerts(): Promise<Alert[]>;
   createAlert(alert: InsertAlert): Promise<Alert>;
+  acknowledgeAlert(id: number, userId: string): Promise<Alert | null>;
+  resolveAlert(id: number): Promise<Alert | null>;
   
   // Settings
   getSettings(): Promise<Settings>;
@@ -397,6 +399,22 @@ export class DatabaseStorage implements IStorage {
   async createAlert(alert: InsertAlert): Promise<Alert> {
     const [newAlert] = await db.insert(alerts).values(alert).returning();
     return newAlert;
+  }
+
+  async acknowledgeAlert(id: number, userId: string): Promise<Alert | null> {
+    const [row] = await db.update(alerts)
+      .set({ acknowledgedAt: new Date(), acknowledgedBy: userId })
+      .where(eq(alerts.id, id))
+      .returning();
+    return row ?? null;
+  }
+
+  async resolveAlert(id: number): Promise<Alert | null> {
+    const [row] = await db.update(alerts)
+      .set({ resolved: true, resolvedAt: new Date() })
+      .where(eq(alerts.id, id))
+      .returning();
+    return row ?? null;
   }
 
   async getSettings(): Promise<Settings> {
