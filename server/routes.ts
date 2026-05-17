@@ -5047,6 +5047,66 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, loginMessage: e.message }); }
   });
 
+  // ── GET /api/billing/connection/:id ──────────────────────────────────────────
+  // Vendor connection billing summary — reads from in-memory CDR cache.
+  // Returns: summary stats + daily cost breakdown + last 50 CDRs for the connection.
+  app.get('/api/billing/connection/:id', (req: any, res, next) => requireRole(['admin','management'], req, res, next), (req: any, res) => {
+    try {
+      const connId = parseInt(req.params.id, 10);
+      if (isNaN(connId)) return res.status(400).json({ error: 'Invalid connection ID' });
+
+      const connName   = connectionNameCache.get(String(connId))   || `Connection #${connId}`;
+      const vendorName = connectionVendorCache.get(String(connId))  || 'Unknown Vendor';
+
+      const slice = [...cdrCache.values()].filter((c: any) => Number(c.iConnection) === connId);
+
+      // ── Summary stats ──────────────────────────────────────────────────────
+      const totalCalls    = slice.length;
+      const billable      = slice.filter((c: any) => Number(c.duration ?? 0) > 0 && String(c.result) === '0');
+      const billableCalls = billable.length;
+      const totalMinutes  = parseFloat((billable.reduce((s: number, c: any) => s + (Number(c.duration) || 0), 0) / 60).toFixed(2));
+      const totalCost     = parseFloat(billable.reduce((s: number, c: any) => s + (parseFloat(c.cost) || 0), 0).toFixed(4));
+      const avgCostPerMin = totalMinutes > 0 ? parseFloat((totalCost / totalMinutes).toFixed(6)) : 0;
+      const asr           = totalCalls > 0 ? parseFloat((billableCalls / totalCalls * 100).toFixed(2)) : 0;
+
+      // ── Daily cost breakdown ───────────────────────────────────────────────
+      const dailyMap = new Map<string, { calls: number; cost: number; minutes: number }>();
+      for (const c of slice) {
+        const ts = c.setupTime ? new Date(c.setupTime) : null;
+        if (!ts || isNaN(ts.getTime())) continue;
+        const day = ts.toISOString().slice(0, 10);
+        const prev = dailyMap.get(day) ?? { calls: 0, cost: 0, minutes: 0 };
+        prev.calls++;
+        prev.cost     += parseFloat((c as any).cost || '0');
+        prev.minutes  += (Number(c.duration) || 0) / 60;
+        dailyMap.set(day, prev);
+      }
+      const daily = [...dailyMap.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, v]) => ({ date, calls: v.calls, cost: parseFloat(v.cost.toFixed(4)), minutes: parseFloat(v.minutes.toFixed(2)) }));
+
+      // ── Recent CDRs (last 50, newest first) ───────────────────────────────
+      const recent = [...slice]
+        .sort((a, b) => {
+          const ta = a.setupTime ? new Date(a.setupTime).getTime() : 0;
+          const tb = b.setupTime ? new Date(b.setupTime).getTime() : 0;
+          return tb - ta;
+        })
+        .slice(0, 50)
+        .map((c: any) => ({
+          callId:    c.call_id ?? c.iCdr ?? '',
+          cli:       c.caller  ?? c.cli  ?? '',
+          cld:       c.callee  ?? c.cld  ?? '',
+          setupTime: c.setupTime ?? '',
+          duration:  Number(c.duration  ?? 0),
+          cost:      parseFloat(c.cost  ?? '0'),
+          result:    c.result  ?? '',
+        }));
+
+      res.json({ connId, connName, vendorName, totalCalls, billableCalls, totalMinutes, totalCost, avgCostPerMin, asr, daily, recent, updatedAt: cdrCacheUpdatedAt });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/sippy/cdr/sdp — retrieve SDP messages for a call (docs 3000039695)
   // Query params: iCall (required, integer), iCustomer (optional, trusted mode)
   // Returns: { records: SippyCDRSDPRecord[], iCustomer? }
