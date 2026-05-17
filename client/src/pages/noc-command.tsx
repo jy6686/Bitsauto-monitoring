@@ -8,6 +8,7 @@ import {
   Eye, ShieldCheck, TrendingUp, DollarSign, GitBranch, Cpu,
   ArrowRight, BrainCircuit, Layers, Siren, RefreshCw,
 } from "lucide-react";
+import { PanelHeader, FreshnessIndicator } from "@/components/freshness-indicator";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Alert } from "@shared/schema";
@@ -240,33 +241,33 @@ export default function NocCommandPage() {
   const [fullscreen, setFullscreen] = useState(false);
   const [pendingAlertId, setPendingAlertId] = useState<number | null>(null);
 
-  const { data: scores = [] } = useQuery<CarrierScore[]>({
+  const { data: scores = [], dataUpdatedAt: scoresUpdatedAt, isFetching: scoresFetching } = useQuery<CarrierScore[]>({
     queryKey: ["/api/carrier-scores", 24],
     queryFn: () => fetch("/api/carrier-scores?window=24").then(r => r.json()),
     refetchInterval: 60_000,
   });
 
-  const { data: incidents = [], isError: incidentsError } = useQuery<AiOpsIncident[]>({
+  const { data: incidents = [], isError: incidentsError, dataUpdatedAt: incidentsUpdatedAt, isFetching: incidentsFetching } = useQuery<AiOpsIncident[]>({
     queryKey: ["/api/aiops/incidents"],
     refetchInterval: 30_000,
   });
 
-  const { data: liveSummary } = useQuery<LiveSummary>({
+  const { data: liveSummary, dataUpdatedAt: liveUpdatedAt, isFetching: liveFetching } = useQuery<LiveSummary>({
     queryKey: ["/api/sippy/live-calls"],
     refetchInterval: 15_000,
   });
 
-  const { data: alertsData = [] } = useQuery<Alert[]>({
+  const { data: alertsData = [], dataUpdatedAt: alertsUpdatedAt, isFetching: alertsFetching } = useQuery<Alert[]>({
     queryKey: ["/api/alerts"],
     refetchInterval: 20_000,
   });
 
-  const { data: balancesData } = useQuery<VendorBalanceSnapshot>({
+  const { data: balancesData, dataUpdatedAt: balancesUpdatedAt, isFetching: balancesFetching } = useQuery<VendorBalanceSnapshot>({
     queryKey: ["/api/vendors/current-balances"],
     refetchInterval: 60_000,
   });
 
-  const { data: anomalies = [], isError: anomaliesError } = useQuery<Anomaly[]>({
+  const { data: anomalies = [], isError: anomaliesError, dataUpdatedAt: anomaliesUpdatedAt, isFetching: anomaliesFetching } = useQuery<Anomaly[]>({
     queryKey: ["/api/anomalies"],
     refetchInterval: 30_000,
   });
@@ -350,9 +351,9 @@ export default function NocCommandPage() {
 
           {/* Carrier cards */}
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50 font-mono mb-3 flex items-center gap-2">
-              <Pulse color="green" size={1} /> Carrier Health Matrix
-            </p>
+            <PanelHeader label="Carrier Health Matrix" updatedAt={scoresUpdatedAt} intervalMs={60_000} isFetching={scoresFetching}>
+              <Pulse color="green" size={1} />
+            </PanelHeader>
             {scores.length === 0 ? (
               <div className="text-center text-muted-foreground text-xs py-8 border border-white/[0.06] rounded-xl">
                 No carrier scores yet — run a synthetic test campaign to populate
@@ -387,7 +388,7 @@ export default function NocCommandPage() {
 
           {/* System Status — live */}
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50 font-mono mb-3">System Status</p>
+            <PanelHeader label="System Status" updatedAt={liveUpdatedAt} intervalMs={15_000} isFetching={liveFetching} />
             <div className="space-y-2">
               {[
                 { label: "Sippy Switch",     ok: switchConnected },
@@ -407,14 +408,9 @@ export default function NocCommandPage() {
 
           {/* Vendor Balances */}
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50 font-mono mb-3 flex items-center gap-2">
-              <DollarSign className="h-3 w-3" /> Vendor Balances
-              {balancesData?.ts && (
-                <span className="ml-auto text-[9px] text-muted-foreground/40">
-                  {new Date(balancesData.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                </span>
-              )}
-            </p>
+            <PanelHeader label="Vendor Balances" updatedAt={balancesUpdatedAt} intervalMs={60_000} isFetching={balancesFetching}>
+              <DollarSign className="h-3 w-3 text-muted-foreground/50" />
+            </PanelHeader>
             {!balancesData?.vendors?.length ? (
               <p className="text-xs text-muted-foreground/40 text-center py-2">No balance data yet</p>
             ) : (
@@ -433,18 +429,17 @@ export default function NocCommandPage() {
 
           {/* Active System Alerts — with inline Acknowledge/Resolve */}
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 flex-1">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50 font-mono mb-3 flex items-center gap-2">
+            <PanelHeader label="System Alerts" updatedAt={alertsUpdatedAt} intervalMs={20_000} isFetching={alertsFetching}>
               <Pulse color={openAlerts.length > 0 ? "red" : "green"} size={1} />
-              System Alerts
               {openAlerts.length > 0 && (
-                <span className="ml-auto text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-bold">
+                <span className="text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-bold">
                   {openAlerts.length} OPEN
                 </span>
               )}
               {openAlerts.length === 0 && activeAlerts.length === 0 && (
-                <span className="ml-auto text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full font-bold">CLEAR</span>
+                <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full font-bold">CLEAR</span>
               )}
-            </p>
+            </PanelHeader>
             {activeAlerts.length === 0 ? (
               <div className="text-center text-muted-foreground text-xs py-4 flex flex-col items-center gap-2">
                 <CheckCircle2 className="h-6 w-6 text-green-400/40" />
@@ -474,15 +469,14 @@ export default function NocCommandPage() {
 
           {/* AIOps incident feed */}
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50 font-mono mb-3 flex items-center gap-2">
+            <PanelHeader label="AI Ops Feed" updatedAt={incidentsUpdatedAt} intervalMs={30_000} isFetching={incidentsFetching}>
               <Pulse color={activeIncidents.length > 0 ? "red" : "green"} size={1} />
-              AI Ops Feed
               {activeIncidents.length > 0 && (
-                <span className="ml-auto text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-bold">
+                <span className="text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-bold">
                   {activeIncidents.length} ACTIVE
                 </span>
               )}
-            </p>
+            </PanelHeader>
             {incidents.length === 0 ? (
               <div className="text-center text-muted-foreground text-xs py-3">No incidents detected</div>
             ) : (

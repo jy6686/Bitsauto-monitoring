@@ -4,6 +4,7 @@ import {
   BrainCircuit, ArrowRight, Layers, TrendingDown, BarChart3, Wifi,
   Zap, Activity, Shield, ChevronRight,
 } from "lucide-react";
+import { FreshnessIndicator } from "@/components/freshness-indicator";
 import { formatUTC } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import { useState, useMemo } from "react";
@@ -321,7 +322,7 @@ function IntelligenceView({ clusters }: { clusters: AlertCluster[] }) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AlertsPage() {
-  const { data: alerts, isLoading } = useAlerts();
+  const { data: alerts, isLoading, dataUpdatedAt: alertsUpdatedAt, isFetching: alertsFetching } = useAlerts();
   const [filter, setFilter]     = useState<LifecycleFilter>("all");
   const [view, setView]         = useState<PageView>("list");
 
@@ -389,7 +390,10 @@ export default function AlertsPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">System Alerts</h2>
-          <p className="text-muted-foreground mt-1">Threshold breaches — acknowledge to indicate awareness, resolve when addressed.</p>
+          <p className="text-muted-foreground mt-1 flex items-center gap-3">
+            Threshold breaches — acknowledge to indicate awareness, resolve when addressed.
+            <FreshnessIndicator updatedAt={alertsUpdatedAt} intervalMs={10_000} isFetching={alertsFetching} />
+          </p>
         </div>
 
         {/* View toggle */}

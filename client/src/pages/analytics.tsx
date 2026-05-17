@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { FreshnessIndicator } from "@/components/freshness-indicator";
 import {
   TrendingUp, TrendingDown, DollarSign, BarChart2, RefreshCw, Building2,
   Zap, Target, Globe, Phone, Clock, AlertTriangle, Upload, FileSpreadsheet,
@@ -135,7 +136,7 @@ export default function AnalyticsPage() {
 
   const queryKey = ["/api/analytics/margin", days, vendorCardId, threshold];
 
-  const { data, isLoading, isFetching, refetch, error } = useQuery<MarginData>({
+  const { data, isLoading, isFetching, refetch, error, dataUpdatedAt: marginUpdatedAt } = useQuery<MarginData>({
     queryKey,
     queryFn: async () => {
       const params = new URLSearchParams({ days: String(days), threshold: String(threshold) });
@@ -250,8 +251,9 @@ export default function AnalyticsPage() {
             <TrendingUp className="h-6 w-6 text-emerald-400" />
             Revenue &amp; Margin Analytics
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground mt-1 flex items-center gap-3">
             Financial overlay on CDR traffic — cost vs. sell rates by client, route, and destination
+            {data && <FreshnessIndicator updatedAt={marginUpdatedAt} intervalMs={300_000} isFetching={isFetching} />}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
