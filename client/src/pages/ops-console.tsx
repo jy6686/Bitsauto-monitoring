@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import {
   Activity, AlertTriangle, CheckCircle2, XCircle, Shield, Zap,
   Phone, BrainCircuit, TrendingUp, TrendingDown, Minus, ArrowRight,
-  RefreshCw, ChevronDown, Eye, ShieldCheck,
+  RefreshCw, ChevronDown, Eye, ShieldCheck, DollarSign, BarChart2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -34,6 +34,13 @@ interface LiveCallsResponse {
   calls: Array<{ vendor?: string; connection?: string; callStatus?: string; }>;
   connected?: boolean; stale?: boolean;
 }
+interface BalancePoint { ts: number; balance: number; }
+interface BalanceHistory { vendor: string; points: BalancePoint[]; count: number; }
+interface CdrDestRow {
+  prefix: string; calls: number; answered: number;
+  asr: number; acd: number; minutes: number; avgPddMs: number; cost: number;
+}
+interface CdrVendorSummary { vendor: string; rows: CdrDestRow[]; totalCdrs: number; cacheSize: number; }
 
 // ── Verdict logic ──────────────────────────────────────────────────────────────
 
@@ -216,6 +223,20 @@ export default function OpsConsolePage() {
   const { data: liveData, dataUpdatedAt: liveUpdatedAt, isFetching: liveFetching } = useQuery<LiveCallsResponse>({
     queryKey: ["/api/sippy/live-calls"],
     refetchInterval: 15_000,
+  });
+
+  const { data: balanceHistory, dataUpdatedAt: balHistUpdatedAt, isFetching: balHistFetching } = useQuery<BalanceHistory>({
+    queryKey: ["/api/vendors/balance-history", selectedEntity],
+    queryFn: () => fetch(`/api/vendors/balance-history?vendor=${encodeURIComponent(selectedEntity)}`).then(r => r.json()),
+    enabled: !isAll,
+    refetchInterval: 60_000,
+  });
+
+  const { data: cdrSummary, dataUpdatedAt: cdrUpdatedAt, isFetching: cdrFetching } = useQuery<CdrVendorSummary>({
+    queryKey: ["/api/cdr-cache/vendor-summary", selectedEntity],
+    queryFn: () => fetch(`/api/cdr-cache/vendor-summary?vendor=${encodeURIComponent(selectedEntity)}`).then(r => r.json()),
+    enabled: !isAll,
+    refetchInterval: 120_000,
   });
 
   const acknowledgeMutation = useMutation({
@@ -584,6 +605,116 @@ export default function OpsConsolePage() {
           )}
         </SignalPanel>
       </div>
+
+      {/* ── Deep-dive row — only shown when a specific entity is selected ── */}
+      {!isAll && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+
+          {/* Balance History sparkline */}
+          <SignalPanel
+            title="Balance History (2h)"
+            updatedAt={balHistUpdatedAt}
+            intervalMs={60_000}
+            isFetching={balHistFetching}
+          >
+            {(() => {
+              const pts = balanceHistory?.points ?? [];
+              if (pts.length < 2) return <EmptyState label="Not enough snapshots yet — populates every 60s" />;
+              const vals = pts.map(p => p.balance);
+              const min = Math.min(...vals);
+              const max = Math.max(...vals);
+              const range = max - min || 0.01;
+              const W = 320; const H = 60; const PAD = 4;
+              const uw = (W - PAD * 2) / (pts.length - 1);
+              const uh = (H - PAD * 2) / range;
+              const toX = (i: number) => PAD + i * uw;
+              const toY = (v: number) => H - PAD - (v - min) * uh;
+              const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(p.balance).toFixed(1)}`).join(' ');
+              const fill = `${d} L${toX(pts.length - 1).toFixed(1)},${H} L${toX(0).toFixed(1)},${H} Z`;
+              const latest = pts[pts.length - 1];
+              const earliest = pts[0];
+              const delta = latest.balance - earliest.balance;
+              const deltaColor = delta >= 0 ? "text-emerald-400" : "text-red-400";
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Current</span>
+                    <span className={cn("font-bold tabular-nums font-mono",
+                      latest.balance < 10 ? "text-red-400" : latest.balance < 50 ? "text-amber-400" : "text-emerald-400")}>
+                      ${latest.balance.toFixed(4)}
+                    </span>
+                  </div>
+                  <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={delta >= 0 ? "#34d399" : "#f87171"} stopOpacity="0.3" />
+                        <stop offset="100%" stopColor={delta >= 0 ? "#34d399" : "#f87171"} stopOpacity="0.02" />
+                      </linearGradient>
+                    </defs>
+                    <path d={fill} fill="url(#balGrad)" />
+                    <path d={d} fill="none" stroke={delta >= 0 ? "#34d399" : "#f87171"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <circle cx={toX(pts.length - 1)} cy={toY(latest.balance)} r="3" fill={delta >= 0 ? "#34d399" : "#f87171"} />
+                  </svg>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground/50 font-mono text-[10px]">{pts.length} snapshots</span>
+                    <span className={cn("font-mono tabular-nums text-[11px] font-semibold", deltaColor)}>
+                      {delta >= 0 ? "+" : ""}{delta.toFixed(4)} over window
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-muted-foreground/40 font-mono">
+                    <span>{new Date(earliest.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    <span>{new Date(latest.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                  </div>
+                </div>
+              );
+            })()}
+          </SignalPanel>
+
+          {/* CDR Breakdown by destination prefix */}
+          <SignalPanel
+            title="CDR Breakdown by Destination"
+            count={cdrSummary?.totalCdrs}
+            updatedAt={cdrUpdatedAt}
+            intervalMs={120_000}
+            isFetching={cdrFetching}
+          >
+            {(() => {
+              const rows = cdrSummary?.rows ?? [];
+              if (rows.length === 0) {
+                return <EmptyState label={cdrSummary ? "No CDRs found for this vendor" : "Loading CDR cache…"} />;
+              }
+              return (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-5 gap-1 text-[9px] uppercase tracking-wider text-muted-foreground/40 font-mono px-1">
+                    <span>Prefix</span><span className="text-right">Calls</span>
+                    <span className="text-right">ASR%</span><span className="text-right">ACD(s)</span>
+                    <span className="text-right">Mins</span>
+                  </div>
+                  <div className="space-y-1 max-h-52 overflow-y-auto">
+                    {rows.map(row => (
+                      <div key={row.prefix} className="grid grid-cols-5 gap-1 text-xs px-1 py-1 rounded-md hover:bg-white/[0.03] transition-colors">
+                        <span className="font-mono text-muted-foreground">+{row.prefix}</span>
+                        <span className="text-right tabular-nums">{row.calls}</span>
+                        <span className={cn("text-right tabular-nums font-semibold",
+                          row.asr >= 50 ? "text-emerald-400" : row.asr >= 30 ? "text-amber-400" : "text-red-400")}>
+                          {row.asr}%
+                        </span>
+                        <span className="text-right tabular-nums text-muted-foreground">{row.acd}s</span>
+                        <span className="text-right tabular-nums text-muted-foreground">{row.minutes}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {cdrSummary && (
+                    <p className="text-[10px] text-muted-foreground/40 font-mono pt-1">
+                      {cdrSummary.totalCdrs} CDR{cdrSummary.totalCdrs !== 1 ? "s" : ""} matched · cache size {cdrSummary.cacheSize}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+          </SignalPanel>
+        </div>
+      )}
 
       {/* Footer — cross-links */}
       <div className="flex flex-wrap gap-2 pt-1 border-t border-white/[0.04]">

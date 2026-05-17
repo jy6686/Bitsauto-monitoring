@@ -15693,6 +15693,60 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/vendors/balance-history?vendor=X — in-memory time-series for sparkline
+  app.get('/api/vendors/balance-history', async (req: any, res: any) => {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    const vendorName = (req.query.vendor as string | undefined)?.toLowerCase() ?? '';
+    const points = vendorBalanceHistory.map(snap => {
+      const v = snap.vendors.find(v => v.name.toLowerCase() === vendorName);
+      return v ? { ts: snap.timestamp, balance: v.balance } : null;
+    }).filter(Boolean) as { ts: number; balance: number }[];
+    res.json({ vendor: req.query.vendor ?? '', points, count: vendorBalanceHistory.length });
+  });
+
+  // GET /api/cdr-cache/vendor-summary?vendor=X — CDR stats by destination prefix
+  app.get('/api/cdr-cache/vendor-summary', (req: any, res: any, next: any) =>
+    requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const vendorFilter = (req.query.vendor as string | undefined)?.toLowerCase() ?? '';
+      const allCdrs = [...cdrCache.values()];
+      const filtered = vendorFilter
+        ? allCdrs.filter(c => (c.vendor ?? '').toLowerCase().includes(vendorFilter) || vendorFilter.includes((c.vendor ?? '').toLowerCase()))
+        : allCdrs;
+
+      // Group by destination prefix (first 3 digits of callee, or country if available)
+      const byDest = new Map<string, { total: number; answered: number; durationSum: number; pddSum: number; pddCount: number; cost: number }>();
+      for (const c of filtered) {
+        const raw = (c.callee ?? c.cld ?? '').replace(/^\+/, '');
+        const prefix = raw.slice(0, 3) || 'UNK';
+        const ex = byDest.get(prefix) ?? { total: 0, answered: 0, durationSum: 0, pddSum: 0, pddCount: 0, cost: 0 };
+        ex.total++;
+        const dur = Number(c.duration ?? c.billDuration ?? 0);
+        if (dur > 0) { ex.answered++; ex.durationSum += dur; }
+        const pddRaw = Number(c.pdd ?? c.pddMs ?? 0);
+        if (pddRaw > 0) { ex.pddSum += pddRaw; ex.pddCount++; }
+        ex.cost += Number(c.cost ?? c.vendorCost ?? 0);
+        byDest.set(prefix, ex);
+      }
+
+      const rows = [...byDest.entries()]
+        .map(([prefix, v]) => ({
+          prefix,
+          calls: v.total,
+          answered: v.answered,
+          asr: v.total > 0 ? Math.round(v.answered / v.total * 100) : 0,
+          acd: v.answered > 0 ? Math.round(v.durationSum / v.answered) : 0,
+          minutes: Math.round(v.durationSum / 60),
+          avgPddMs: v.pddCount > 0 ? Math.round(v.pddSum / v.pddCount) : 0,
+          cost: Math.round(v.cost * 10000) / 10000,
+        }))
+        .sort((a, b) => b.calls - a.calls)
+        .slice(0, 20);
+
+      res.json({ vendor: req.query.vendor ?? '', rows, totalCdrs: filtered.length, cacheSize: cdrCache.size });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── External API (Tier 5 — #24) — authenticated via Bearer token ──────────
   async function validateBearerKey(req: any, res: any): Promise<boolean> {
     const authHeader = req.headers['authorization'] ?? '';
