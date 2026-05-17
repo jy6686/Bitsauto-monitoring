@@ -4092,7 +4092,8 @@ export async function registerRoutes(
               //   1. confId  → payload  (primary — CONFID == calls.call_id == getAccountCDRs.call_id)
               //   2. dstIp   → payload  (secondary — for any remaining unmatched CDRs that share an IP)
               // Vendor name resolution order: dstName → connectionIpCache[cleanIp] → connectionVendorCache
-              type MeraPayload = { vendorName: string; dstIp: string; dstIpClean: string };
+              // cost is the actual per-call vendor charge (cdrs_connections.cost) — used for margin analytics.
+              type MeraPayload = { vendorName: string; dstIp: string; dstIpClean: string; cost?: number };
               const meraByConfId = new Map<string, MeraPayload>();
               const meraByIp     = new Map<string, MeraPayload>();
               let meraDebugPrinted = false;
@@ -4101,11 +4102,12 @@ export async function registerRoutes(
                 const vendorName = mc.dstName
                   || (cleanIp ? connectionIpCache.get(cleanIp) : undefined)
                   || '';
-                const payload: MeraPayload = { vendorName, dstIp: mc.dstIp || '', dstIpClean: cleanIp };
+                const meraCost = mc.cost !== undefined ? parseFloat(mc.cost) : undefined;
+                const payload: MeraPayload = { vendorName, dstIp: mc.dstIp || '', dstIpClean: cleanIp, cost: (meraCost !== undefined && !isNaN(meraCost)) ? meraCost : undefined };
                 // Log first CDR's vendor resolution once per cycle for monitoring
                 if (!meraDebugPrinted && vendorName) {
                   meraDebugPrinted = true;
-                  console.log(`[cdr-cache] Mera CDR[0] → confId=${mc.confId?.slice(0,24)} dstIp=${mc.dstIp} vendorResolved=${vendorName}`);
+                  console.log(`[cdr-cache] Mera CDR[0] → confId=${mc.confId?.slice(0,24)} dstIp=${mc.dstIp} vendorResolved=${vendorName} vendorCost=${payload.cost ?? 'n/a'}`);
                 }
                 if (mc.confId) meraByConfId.set(mc.confId.trim(), payload);
                 // IP index: keyed both as plain IP and as "vendorName:IP" composite.
@@ -4115,15 +4117,23 @@ export async function registerRoutes(
               }
               console.log(`[cdr-cache] Mera indexes built: byConfId=${meraByConfId.size} byIp=${meraByIp.size}`);
 
-              // Enrich portal CDRs in the cache
+              // Enrich CDRs in the cache:
+              //   - Vendor name + iConnection: only set for CDRs that are currently unresolved
+              //   - vendorCost: set for ALL matched CDRs (XML-RPC and portal) so margin analytics
+              //     can use actual per-call vendor charges rather than balance-based estimation.
               let enriched = 0;
               for (const c of cdrCache.values()) {
-                if (c.vendor || c.iConnection) continue;
+                const alreadyResolved = !!(c.vendor || c.iConnection);
                 // Primary: match by confId (Mera CONFID == getAccountCDRs call_id)
                 const hit = (c.callId && c.callId !== '-' ? meraByConfId.get(c.callId) : undefined)
                          // Secondary: match by remote IP if already known
                          ?? (c.remoteIp ? meraByIp.get(c.remoteIp.split(':')[0].trim()) : undefined);
-                if (hit) {
+                if (!hit) continue;
+
+                // Always write vendorCost regardless of resolution state
+                if (hit.cost !== undefined) (c as any).vendorCost = hit.cost;
+
+                if (!alreadyResolved) {
                   if (hit.vendorName) c.vendor = hit.vendorName;
                   if (hit.dstIpClean) {
                     c.remoteIp = hit.dstIpClean;
@@ -15268,16 +15278,37 @@ export async function registerRoutes(
       }));
 
       const totalRevenue = enriched.reduce((s, c) => s + (c.cost || 0), 0);
+      const useRateCard = !!vendorCardId && vendorEntries.length > 0;
+
+      // How many CDRs carry a real Mera vendorCost — used for logging and fallback decision
+      const meraCostCount = enriched.filter(c => (c as any).vendorCost !== undefined).length;
+
+      // Ratio fallback: only used when neither Mera cost nor rate card is available.
+      // NOTE: totalVendorBalance is the vendor account's remaining balance (a running total),
+      // NOT the spend for this period — so costRatio is an approximation at best.
+      // It is kept only as a last-resort fallback when Mera data is absent.
       const latestSnap = vendorBalanceHistory.length > 0 ? vendorBalanceHistory[vendorBalanceHistory.length - 1] : null;
       const totalVendorBalance = latestSnap ? latestSnap.vendors.reduce((s, v) => s + (v.balance || 0), 0) : 0;
-      const useRateCard = !!vendorCardId && vendorEntries.length > 0;
       const costRatio = (!useRateCard && totalRevenue > 0) ? totalVendorBalance / totalRevenue : 0;
 
+      if (meraCostCount > 0) {
+        console.log(`[analytics/margin] vendorCost source: Mera per-CDR cost (${meraCostCount}/${enriched.length} CDRs enriched)`);
+      } else if (useRateCard) {
+        console.log(`[analytics/margin] vendorCost source: rate card ${vendorCardId}`);
+      } else {
+        console.log(`[analytics/margin] vendorCost source: balance ratio fallback (ratio=${costRatio.toFixed(4)}) — Mera data unavailable`);
+      }
+
       const cdrCost = (c: typeof enriched[0]): number => {
+        // Priority 1: per-CDR Mera vendor cost — actual charge from cdrs_connections.cost
+        const vendorCost = (c as any).vendorCost;
+        if (vendorCost !== undefined && vendorCost >= 0) return vendorCost;
+        // Priority 2: vendor rate card lookup (per-min rate × duration)
         if (useRateCard) {
           const rate = matchVendorRate(c.callee || '');
           if (rate !== null) return rate * ((c.duration || 0) / 60);
         }
+        // Priority 3: revenue × balance ratio (last resort — inaccurate for cross-period analysis)
         return (c.cost || 0) * costRatio;
       };
 
