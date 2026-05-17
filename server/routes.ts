@@ -3505,22 +3505,25 @@ export async function registerRoutes(
   // ── GET /api/reports/asr-acd ──────────────────────────────────────────────────
   // Sippy-style ASR/ACD report — CDR ground truth layer only.
   // No CI scoring, no AI Ops signals. Raw CDR aggregation.
-  // Origination: grouped by account (clientName / iAccount).
-  // Termination: grouped by vendor name.
+  // Origination groupBy: none | caller | ip | ip_caller
+  // Termination groupBy: none | vendor | connection
   app.get('/api/reports/asr-acd', async (req: any, res) => {
-    const period         = (req.query.period as string) || '1h';
     const cli            = ((req.query.cli  as string) || '').trim();
     const cld            = ((req.query.cld  as string) || '').trim();
     const highlightBelow = parseFloat((req.query.highlightBelow as string) || '10');
-    const hideEmpty      = (req.query.hideEmpty as string) !== 'false';
+    const groupOrig      = (req.query.groupOrig  as string) || 'caller';
+    const groupTerm      = (req.query.groupTerm  as string) || 'connection';
+    const accountFilter  = ((req.query.accountFilter as string) || '').trim();
+    const vendorFilter   = ((req.query.vendorFilter  as string) || '').trim();
     const sortOrig       = (req.query.sortOrig as string) || 'calls';
     const sortTerm       = (req.query.sortTerm as string) || 'calls';
+    const hideOrigEmpty  = (req.query.hideOrigEmpty as string) !== 'false';
+    const hideTermEmpty  = (req.query.hideTermEmpty as string) !== 'false';
 
     const now = Date.now();
-    const PERIODS: Record<string, number> = { '30m': 30, '1h': 60, '4h': 240, '24h': 1440 };
     const startMs = req.query.startTime
       ? new Date(req.query.startTime as string).getTime()
-      : now - (PERIODS[period] ?? 60) * 60_000;
+      : now - 60 * 60_000;
     const endMs = req.query.endTime
       ? new Date(req.query.endTime as string).getTime()
       : now;
@@ -3539,11 +3542,14 @@ export async function registerRoutes(
       return { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount };
     }
 
-    function sortRows<T extends { totalCalls: number; asr: number; acdSec: number; amount: number }>(rows: T[], by: string): T[] {
+    function sortRows<T extends { name: string; totalCalls: number; billableCalls: number; asr: number; acdSec: number; durationSec: number; amount: number }>(rows: T[], by: string): T[] {
       return [...rows].sort((a, b) => {
-        if (by === 'asr')                    return b.asr - a.asr;
-        if (by === 'acd')                    return b.acdSec - a.acdSec;
-        if (by === 'revenue' || by === 'cost') return b.amount - a.amount;
+        if (by === 'caller_number' || by === 'vendor_connection') return a.name.localeCompare(b.name);
+        if (by === 'ip')       return a.name.localeCompare(b.name);
+        if (by === 'billable') return b.billableCalls - a.billableCalls;
+        if (by === 'duration') return b.durationSec - a.durationSec;
+        if (by === 'asr')      return b.asr - a.asr;
+        if (by === 'acd')      return b.acdSec - a.acdSec;
         return b.totalCalls - a.totalCalls;
       });
     }
@@ -3558,52 +3564,76 @@ export async function registerRoutes(
       return { name: 'Total', totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd: 0, amount };
     }
 
+    // Helper: resolve origination key from a CDR based on groupOrig
+    function origKey(cdr: any): string {
+      const accountName = cdr.clientName
+        || accountNameCache.get(String(cdr.iAccount ?? ''))
+        || (cdr.iAccount ? `Acct.${cdr.iAccount}` : '');
+      if (groupOrig === 'none')      return 'All Origination';
+      if (groupOrig === 'ip')        return cdr.remoteIp || 'Unknown IP';
+      if (groupOrig === 'ip_caller') return `${cdr.remoteIp || 'Unknown IP'} / ${cdr.caller || '-'}`;
+      return accountName || cdr.caller || 'Unknown'; // caller (default)
+    }
+
+    // Helper: resolve termination key from a CDR based on groupTerm
+    function termKey(cdr: any): string {
+      if (groupTerm === 'none') return 'All Termination';
+      const connId = String(cdr.iConnection ?? '');
+      const vendorName = connectionVendorCache.get(connId) || cdr.vendor || '';
+      const connName   = connectionNameCache.get(connId) || '';
+      if (groupTerm === 'vendor')     return vendorName || (connId ? `Vendor#${connId}` : 'Unknown');
+      // connection (default)
+      if (vendorName && connName) return `${vendorName} / ${connName}`;
+      if (vendorName)             return vendorName;
+      if (connName)               return connName;
+      if (connId)                 return `Connection#${connId}`;
+      return cdr.vendor || 'Unknown';
+    }
+
+    // Filter CDR cache by time window + CLI/CLD text + account/vendor selectors
     const allCdrs = [...cdrCache.values()].filter((c: any) => {
       const ts = c.startTime ? new Date(c.startTime).getTime() : NaN;
       if (isNaN(ts) || ts < startMs || ts > endMs) return false;
       if (cli && !String(c.caller ?? '').toLowerCase().includes(cli.toLowerCase())) return false;
       if (cld && !String(c.callee ?? '').toLowerCase().includes(cld.toLowerCase())) return false;
+      if (accountFilter) {
+        const acct = c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || '';
+        if (!acct.toLowerCase().includes(accountFilter.toLowerCase())) return false;
+      }
+      if (vendorFilter) {
+        const connId = String(c.iConnection ?? '');
+        const vName  = connectionVendorCache.get(connId) || c.vendor || '';
+        if (!vName.toLowerCase().includes(vendorFilter.toLowerCase())) return false;
+      }
       return true;
     });
 
-    // Origination: group by clientName / iAccount
+    // Origination grouping
     const origGroups: Record<string, any[]> = {};
     for (const cdr of allCdrs) {
-      const name = (cdr as any).clientName
-        || accountNameCache.get(String((cdr as any).iAccount ?? ''))
-        || ((cdr as any).iAccount ? `Acct.${(cdr as any).iAccount}` : 'Unknown');
-      if (!origGroups[name]) origGroups[name] = [];
-      origGroups[name].push(cdr);
+      const k = origKey(cdr);
+      if (!origGroups[k]) origGroups[k] = [];
+      origGroups[k].push(cdr);
     }
     const origRows = sortRows(
-      Object.entries(origGroups).map(([n, s]) => buildRow(n, s)).filter(r => !hideEmpty || r.totalCalls > 0),
+      Object.entries(origGroups).map(([n, s]) => buildRow(n, s)).filter(r => !hideOrigEmpty || r.totalCalls > 0),
       sortOrig,
     );
 
-    // Termination: group by vendor / connection name using the connection cache
+    // Termination grouping
     const termGroups: Record<string, any[]> = {};
     for (const cdr of allCdrs) {
-      let name = '';
-      const connId = String((cdr as any).iConnection ?? '');
-      if (connId) {
-        const vendorName = connectionVendorCache.get(connId) || '';
-        const connName   = connectionNameCache.get(connId) || '';
-        if (vendorName && connName) name = `${vendorName} / ${connName}`;
-        else if (vendorName)        name = vendorName;
-        else if (connName)          name = connName;
-      }
-      if (!name) name = (cdr as any).vendor || (connId ? `Connection#${connId}` : 'Unknown');
-      if (!termGroups[name]) termGroups[name] = [];
-      termGroups[name].push(cdr);
+      const k = termKey(cdr);
+      if (!termGroups[k]) termGroups[k] = [];
+      termGroups[k].push(cdr);
     }
     const termRows = sortRows(
-      Object.entries(termGroups).map(([n, s]) => buildRow(n, s)).filter(r => !hideEmpty || r.totalCalls > 0),
+      Object.entries(termGroups).map(([n, s]) => buildRow(n, s)).filter(r => !hideTermEmpty || r.totalCalls > 0),
       sortTerm,
     );
 
     res.json({
       ok:          true,
-      period,
       highlightBelow,
       generatedAt: new Date().toISOString(),
       cdrCount:    allCdrs.length,
