@@ -117,6 +117,7 @@ import TrafficForecastPage from "@/pages/traffic-forecast";
 import AuditLogPage from "@/pages/audit-log";
 import AsrAcdReportPage from "@/pages/asr-acd-report";
 import LiveTrafficPage from "@/pages/live-traffic";
+import NotificationCentrePage from "@/pages/notification-centre";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -371,6 +372,9 @@ function Router() {
       </Route>
       <Route path="/email-centre">
         {() => <ProtectedRoute component={EmailCentrePage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/notification-centre">
+        {() => <ProtectedRoute component={NotificationCentrePage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/routing-manager">
         {() => <ProtectedRoute component={RoutingManagerPage} requiredRoles={['admin', 'management']} mgmtFeature="routing_manager" />}

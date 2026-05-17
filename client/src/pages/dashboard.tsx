@@ -1717,6 +1717,67 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* ── Dashboard Customize Sheet ──────────────────────────────────────── */}
+      <Sheet open={customizeOpen} onOpenChange={setCustomizeOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader className="pb-4 border-b border-border/40">
+            <div className="flex items-center gap-2">
+              <LayoutDashboard className="w-4 h-4 text-indigo-400" />
+              <SheetTitle>Customize Dashboard</SheetTitle>
+            </div>
+            <SheetDescription>
+              Toggle sections on or off. Drag the grip handles on the KPI cards to reorder them.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="py-4 space-y-1">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-1 mb-3">
+              Dashboard Sections
+            </p>
+            {DASHBOARD_WIDGETS.map((w) => {
+              const isVisible = !hiddenWidgets.has(w.id);
+              return (
+                <div
+                  key={w.id}
+                  className="flex items-start gap-3 px-3 py-3 rounded-lg hover:bg-muted/30 transition-colors"
+                  data-testid={`customize-widget-${w.id}`}
+                >
+                  <Switch
+                    checked={isVisible}
+                    onCheckedChange={() => toggleWidget(w.id)}
+                    data-testid={`toggle-widget-${w.id}`}
+                    className="mt-0.5 flex-shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium leading-snug">{w.label}</p>
+                    <p className="text-xs text-muted-foreground/70 mt-0.5 leading-snug">{w.description}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="border-t border-border/40 pt-4 px-1">
+            <div className="rounded-lg bg-muted/20 border border-border/40 p-3 flex items-start gap-2">
+              <Info className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground/80 leading-relaxed">
+                Drag KPI metric cards on the dashboard using the <span className="font-medium text-foreground/60">⠿</span> handle to change their order. Changes are saved automatically.
+              </p>
+            </div>
+            <button
+              className="mt-3 w-full text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors py-1"
+              onClick={() => {
+                savePrefsMutation.mutate({ hidden: [], order: DEFAULT_KPI_ORDER });
+                setCustomizeOpen(false);
+              }}
+              data-testid="button-reset-dashboard"
+            >
+              Reset to defaults
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
     </div>
   );
 }

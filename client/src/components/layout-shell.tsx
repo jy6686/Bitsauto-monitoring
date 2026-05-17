@@ -81,8 +81,9 @@ const TEST_SUBITEMS = [
 ] as const;
 
 const NOTIF_SUBITEMS = [
-  { href: '/email-centre',    label: 'Email',     icon: Mail,          iconColor: 'text-blue-400'  },
-  { href: '/whatsapp-alerts', label: 'WhatsApp',  icon: MessageSquare, iconColor: 'text-green-400' },
+  { href: '/notification-centre', label: 'Notification Centre', icon: Bell,          iconColor: 'text-indigo-400' },
+  { href: '/email-centre',        label: 'Email',               icon: Mail,          iconColor: 'text-blue-400'   },
+  { href: '/whatsapp-alerts',     label: 'WhatsApp',            icon: MessageSquare, iconColor: 'text-green-400'  },
 ] as const;
 
 const COMPANY_SUBITEMS = [
@@ -649,7 +650,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const isToolsActive       = location.startsWith('/tools');
   const isRoutingMgrActive  = location.startsWith('/routing-manager');
   const isTestActive        = location.startsWith('/test-call') || location.startsWith('/test-campaigns');
-  const isNotifActive       = location.startsWith('/email-centre') || location.startsWith('/whatsapp-alerts');
+  const isNotifActive       = location.startsWith('/notification-centre') || location.startsWith('/email-centre') || location.startsWith('/whatsapp-alerts');
   const isCompanyActive     = location.startsWith('/company');
   const isClientActive      = location.startsWith('/client');
 
