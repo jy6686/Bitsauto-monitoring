@@ -114,3 +114,15 @@ id = "D6spytAEEyZg4u3KTIUyj"
 uri = "file://client/public/downloads/BitsAuto_Platform_Report_May2026.docx"
 type = "word_document"
 title = "BitsAuto Platform — Complete Status & Roadmap Report (May 2026)"
+
+[[outputs]]
+id = "ym6ztyTR_-Nf2K3WNDw81"
+uri = "file://generated-docs/Bitsauto_VoIP_Platform_Deck.pptx"
+type = "slides"
+title = "Bitsauto VoIP Platform — PowerPoint Deck (14 Slides)"
+
+[[outputs]]
+id = "MGsA6xLiod_JECFys2Box"
+uri = "file://generated-docs/Bitsauto_VoIP_Platform_Brief.docx"
+type = "word_document"
+title = "Bitsauto VoIP Platform — CEO/Operator Brief (Word Document)"
