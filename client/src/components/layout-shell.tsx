@@ -186,6 +186,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/traffic-map",  label: "Traffic Map",       icon: Globe,    roles: ['admin','management']                                              },
       { href: "/multi-switch", label: "Multi-Switch View", icon: Layers,   roles: ['admin','management']                                              },
       { href: "/noc-command",  label: "NOC View",          icon: Monitor,  roles: ['admin','management'], isNew: true                                 },
+      { href: "/ops-console",  label: "Ops Console",       icon: Layers,   roles: ['admin','management'], isNew: true                                 },
     ],
   },
   // ─── 4. Intelligence (observation + health signals) ──────────────────────────

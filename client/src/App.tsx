@@ -102,6 +102,7 @@ import RtpAnalyticsPage from "@/pages/rtp-analytics";
 import ReplayEnginePage from "@/pages/replay";
 import NetworkTopologyPage from "@/pages/network-topology";
 import NocCommandPage from "@/pages/noc-command";
+import OpsConsolePage from "@/pages/ops-console";
 import StirShakenPage from "@/pages/stir-shaken";
 import CallRecordingsPage from "@/pages/call-recordings";
 import PortalViewPage from "@/pages/portal-view";
@@ -439,6 +440,9 @@ function Router() {
       </Route>
       <Route path="/noc-command">
         {() => <ProtectedRoute component={NocCommandPage} requiredRoles={['admin','management']} mgmtFeature="noc_command" />}
+      </Route>
+      <Route path="/ops-console">
+        {() => <ProtectedRoute component={OpsConsolePage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/stir-shaken">
         {() => <ProtectedRoute component={StirShakenPage} requiredRoles={['admin','management']} />}
