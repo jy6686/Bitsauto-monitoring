@@ -21458,6 +21458,73 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   );
 
+  // GET /api/console/replay — re-run grouping engine on stored alerts (no Sippy calls, pure local)
+  app.get("/api/console/replay",
+    (req: any, res: any, next: any) => requireRole(["admin","management","noc_operator","team_lead","super_admin"], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { groupAlertsToIncidents } = await import("./console/groupAlertsToIncidents");
+        const fromMs = Number(req.query.from);
+        const toMs   = Number(req.query.to);
+        const entity = typeof req.query.entity === "string" ? req.query.entity.trim() : undefined;
+
+        if (!fromMs || !toMs || isNaN(fromMs) || isNaN(toMs))
+          return res.status(400).json({ error: "from and to timestamps required (Unix ms)" });
+        if (toMs <= fromMs)
+          return res.status(400).json({ error: "to must be after from" });
+        if (toMs - fromMs > 7 * 24 * 3_600_000)
+          return res.status(400).json({ error: "Range cannot exceed 7 days" });
+
+        const from = new Date(fromMs);
+        const to   = new Date(toMs);
+        const rawAlerts = await storage.getAlertsInRange(from, to);
+
+        // Entity filter applied in JS (avoids LIKE complexity, 2000-row cap is safe)
+        const filtered = entity
+          ? rawAlerts.filter(a =>
+              (a.vendor ?? "").toLowerCase().includes(entity.toLowerCase()) ||
+              (a.connection ?? "").toLowerCase().includes(entity.toLowerCase())
+            )
+          : rawAlerts;
+
+        const replayIncidents = groupAlertsToIncidents(filtered, []);
+
+        // Summary stats
+        const entityCounts = new Map<string, number>();
+        for (const inc of replayIncidents) {
+          entityCounts.set(inc.entity, (entityCounts.get(inc.entity) ?? 0) + 1);
+        }
+        const dominantEntities = Array.from(entityCounts.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([name, count]) => ({ name, count }));
+
+        const totalAlerts   = filtered.length;
+        const incidentCount = replayIncidents.length;
+        const mergeRatio    = incidentCount > 0
+          ? parseFloat((totalAlerts / incidentCount).toFixed(1))
+          : 0;
+
+        res.json({
+          replayIncidents: replayIncidents.map(i => ({
+            ...i,
+            startedAt:  i.startedAt.toISOString(),
+            lastSeenAt: i.lastSeenAt.toISOString(),
+          })),
+          rawAlerts: filtered,
+          summary: {
+            totalAlerts,
+            incidentCount,
+            mergeRatio,
+            dominantEntities,
+            from: from.toISOString(),
+            to:   to.toISOString(),
+          },
+        });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
   // ── Executive SLA Reporting (V1) ─────────────────────────────────────────────
   // GET /api/portal/sla-summary?token=...&period=30d
   app.get("/api/portal/sla-summary", async (req: any, res: any) => {

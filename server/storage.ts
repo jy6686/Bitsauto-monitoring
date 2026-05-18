@@ -87,6 +87,7 @@ export interface IStorage {
   
   // Alerts
   getAlerts(): Promise<Alert[]>;
+  getAlertsInRange(from: Date, to: Date): Promise<Alert[]>;
   createAlert(alert: InsertAlert): Promise<Alert>;
   acknowledgeAlert(id: number, userId: string): Promise<Alert | null>;
   resolveAlert(id: number): Promise<Alert | null>;
@@ -421,6 +422,13 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(alerts)
       .orderBy(desc(alerts.createdAt))
       .limit(20);
+  }
+
+  async getAlertsInRange(from: Date, to: Date): Promise<Alert[]> {
+    return await db.select().from(alerts)
+      .where(and(gte(alerts.createdAt, from), lt(alerts.createdAt, to)))
+      .orderBy(alerts.createdAt)
+      .limit(2000);
   }
 
   async createAlert(alert: InsertAlert): Promise<Alert> {
