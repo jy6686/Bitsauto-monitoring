@@ -6,6 +6,11 @@ import * as https from "https";
 import { createHash, randomBytes } from "crypto";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
+import {
+  ANALYTICS_WINDOWS, analyticsWindowMs, windowToGranularity,
+  analyticsDashboardRequestSchema,
+  type AnalyticsDashboardRequest,
+} from "@shared/analytics";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import * as sippy from "./sippy";
@@ -15079,37 +15084,28 @@ export async function registerRoutes(
     (req: any, res: any, next: any) => requireRole(['admin','management','viewer'], req, res, next),
     async (req: any, res: any) => {
       try {
-        const body = req.body ?? {};
+        // ── Parse + validate request against shared contract ──────────────────
+        const parsed = analyticsDashboardRequestSchema.safeParse(req.body ?? {});
+        const body: AnalyticsDashboardRequest = parsed.success
+          ? parsed.data
+          : { version: 'v1', filters: { c_company_name: '', v_company_name: '', country: '' }, time: { window: '24h' } };
 
         // ── Time window → server-side granularity (UI never decides this) ──────
-        const WINDOW_MS: Record<string, number> = {
-          '1h':  1  * 3600_000,
-          '6h':  6  * 3600_000,
-          '24h': 24 * 3600_000,
-          '7d':  7  * 86_400_000,
-          '30d': 30 * 86_400_000,
-          '90d': 90 * 86_400_000,
-        };
-        const windowStr = String(body?.time?.window ?? '24h');
-        const windowMs  = WINDOW_MS[windowStr] ?? WINDOW_MS['24h'];
-        const cutoff    = Date.now() - windowMs;
-
-        // Aggregation granularity derived from window size
-        // ≤24h → hourly | ≤7d → 6-hour | >7d → daily
-        const granularity =
-          windowMs <= 86_400_000     ? 'hourly'
-          : windowMs <= 7 * 86_400_000 ? '6h'
-          : 'daily';
-        const bucketMs =
+        // All window values and granularity logic owned by shared/analytics.ts
+        const windowStr   = body.time.window;
+        const windowMs    = analyticsWindowMs[windowStr];
+        const cutoff      = Date.now() - windowMs;
+        const granularity = windowToGranularity(windowMs);
+        const bucketMs    =
           granularity === 'hourly' ? 3_600_000
           : granularity === '6h'   ? 6 * 3_600_000
           : 86_400_000;
 
         // ── Filter contract v1 ─────────────────────────────────────────────────
-        const f         = body?.filters ?? {};
-        const fClient   = f.c_company_name ? String(f.c_company_name).toLowerCase() : null;
-        const fVendor   = f.v_company_name ? String(f.v_company_name).toLowerCase() : null;
-        const fCountry  = f.country        ? String(f.country).toLowerCase()        : null;
+        const f         = body.filters;
+        const fClient   = f.c_company_name ? f.c_company_name.toLowerCase() : null;
+        const fVendor   = f.v_company_name ? f.v_company_name.toLowerCase() : null;
+        const fCountry  = f.country        ? f.country.toLowerCase()        : null;
         // switch_name: single-switch system — no-op filter
         // gb_external_description: not in CDR cache — reserved for Phase 2
 

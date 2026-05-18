@@ -14,6 +14,17 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  ANALYTICS_WINDOWS,
+  type AnalyticsWindow,
+  type AnalyticsDashboardRequest,
+  type AnalyticsDashboardResponse,
+  type AnalyticsKpis,
+  type AnalyticsTimeBucket,
+  type AnalyticsVendorRow,
+  type AnalyticsClientRow,
+  type AnalyticsDestRow,
+} from "@shared/analytics";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface EntityStats { cur: number; min: number; max: number; avg: number; }
@@ -1676,48 +1687,25 @@ function BitsEyeGraphView({ kamId, accountId, accountName, destFilter }: {
 }
 
 // ── Analytics Dashboard (filter-driven, CDR cache only) ───────────────────────
-
-interface AnalyticsKpis {
-  totalCalls: number; answeredCalls: number;
-  asr: number; acd: number; pdd: number;
-  mos: number | null; mosGrade: string | null;
-  ner: number | null; totalMinutes: number; totalCost: number;
-}
-interface AnalyticsTimeBucket { bucket: string; calls: number; answered: number; asr: number; minutes: number; cost: number; }
-interface AnalyticsVendorRow  { vendor: string;  calls: number; answered: number; asr: number; minutes: number; cost: number; }
-interface AnalyticsClientRow  { client: string;  calls: number; answered: number; asr: number; minutes: number; cost: number; }
-interface AnalyticsDestRow    { country: string; calls: number; answered: number; asr: number; minutes: number; pct: number; }
-interface AnalyticsDashboardResponse {
-  kpis:            AnalyticsKpis;
-  timeSeries:      AnalyticsTimeBucket[];
-  topVendors:      AnalyticsVendorRow[];
-  topClients:      AnalyticsClientRow[];
-  topDestinations: AnalyticsDestRow[];
-  breakout: { answered: number; failed: number; rna: number; networkFail: number; otherFailed: number };
-  meta: { version: string; window: string; granularity: string; cdrCount: number; cacheSize: number; updatedAt: string | null; filtersApplied: Record<string, string | null> };
-}
-
-const WINDOW_OPTIONS = ['1h', '6h', '24h', '7d', '30d', '90d'] as const;
-type WindowOption = typeof WINDOW_OPTIONS[number];
-
-// Dimension Map — canonical mapping from filter contract → CDR fields (documented here, applied server-side)
-// c_company_name → clientName / accountNameCache
-// v_company_name → vendor / connectionVendorCache
-// country        → country
-// switch_name    → no-op (single-switch system)
+// All types imported from @shared/analytics — no local interface definitions.
+// Dimension Map (server-side):
+//   c_company_name → clientName / accountNameCache
+//   v_company_name → vendor / connectionVendorCache
+//   country        → country
+//   switch_name    → no-op (single-switch system)
 
 function AnalyticsDashboardView() {
-  const [win,      setWin]      = useState<WindowOption>('24h');
+  const [win,      setWin]      = useState<AnalyticsWindow>('24h');
   const [fClient,  setFClient]  = useState('');
   const [fVendor,  setFVendor]  = useState('');
   const [fCountry, setFCountry] = useState('');
 
   // Applied state — only updates on explicit "Apply" (or Enter key)
   // UI never decides granularity — that lives in the API contract
-  const [applied, setApplied] = useState({
-    version: 'v1' as const,
+  const [applied, setApplied] = useState<AnalyticsDashboardRequest>({
+    version: 'v1',
     filters: { c_company_name: '', v_company_name: '', country: '' },
-    time: { window: '24h' as WindowOption },
+    time: { window: '24h' },
   });
 
   function handleApply() {
@@ -1772,7 +1760,7 @@ function AnalyticsDashboardView() {
         <div>
           <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/40 mb-3">Time Window</p>
           <div className="grid grid-cols-3 gap-1">
-            {WINDOW_OPTIONS.map(w => (
+            {ANALYTICS_WINDOWS.map(w => (
               <button
                 key={w}
                 data-testid={`window-${w}`}
