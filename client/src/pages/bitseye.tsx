@@ -10,7 +10,7 @@ import {
   RefreshCw, ChevronRight, BarChart3,
   TrendingUp, TrendingDown, Minus, AlertCircle, Globe, Users, Layers,
   ArrowRight, ArrowLeft, LayoutGrid, Maximize2, WifiOff, Plus, Check,
-  Activity, TableProperties, PieChart,
+  Activity, TableProperties,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,6 +56,21 @@ interface ConcurrentTrendResponse {
     windowHours: number;
     hasHistory: boolean;
   };
+}
+
+// Live call breakdown — sourced from active calls (updated ~60s)
+interface LiveSummary {
+  total: number;
+  connected: number;
+  routing: number;
+  liveConnectRatio: number;   // % connected of total active
+  avgCallAgeSecs: number;     // mean age of connected calls (live ACD proxy)
+  cps: number;
+  topVendors:      { name: string; active: number }[];
+  topClients:      { name: string; active: number }[];
+  topDestinations: { name: string; active: number }[];
+  stale: boolean;
+  lastUpdated: number;
 }
 
 interface EntityData {
@@ -1009,6 +1024,18 @@ function BitsEyeGraphView({ kamId, accountId, accountName, destFilter }: {
     refetchInterval: 60_000,
   });
 
+  // Live call breakdown — vendor / client / destination from active call stream
+  const { data: liveSummary, isFetching: liveFetching } = useQuery<LiveSummary>({
+    queryKey: ['/api/bitseye/live-summary'],
+    queryFn: async () => {
+      const r = await fetch('/api/bitseye/live-summary');
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime:       25_000,
+    refetchInterval: 30_000,
+  });
+
   const s = data?.summary;
   const buckets = data?.buckets ?? [];
   const concPoints = concurrentData?.points ?? [];
@@ -1181,19 +1208,31 @@ function BitsEyeGraphView({ kamId, accountId, accountName, destFilter }: {
   const hasEvents  = visibleEvents.length > 0;
   const eventCount = visibleEvents.length;
 
-  // Stripe-style KPI card data
+  // ── Live KPI cards — sourced from active call stream (concurrent-trend + live-summary) ──
+  const liveTotal    = liveSummary?.total      ?? concSummary?.currentActive    ?? null;
+  const liveConn     = liveSummary?.connected  ?? concSummary?.currentConnected ?? null;
+  const liveRouting  = liveSummary?.routing    ?? concSummary?.currentRouting   ?? null;
+  const liveRatio    = liveSummary?.liveConnectRatio
+    ?? (latestConnectRatio !== null ? Math.round(latestConnectRatio * 100) : null);
+  const liveAvgAge   = liveSummary?.avgCallAgeSecs ?? null;
+
   const kpiCards = [
-    { label: 'Total Calls',  value: s ? s.total.toLocaleString()     : '—',
-      numColor: '#1F2937', trend: trendPct, testid: 'graph-kpi-total' },
-    { label: 'Connected',    value: s ? s.connected.toLocaleString() : '—',
-      numColor: '#16A34A', trend: trendPct, testid: 'graph-kpi-connected' },
-    { label: 'Failed',       value: s ? s.failed.toLocaleString()    : '—',
-      numColor: s && s.failed > 0 ? '#EF4444' : '#1F2937', trend: null, testid: 'graph-kpi-failed' },
-    { label: 'ASR',          value: s ? `${s.asr}%`                  : '—',
-      numColor: s ? (s.asr >= 60 ? '#16A34A' : s.asr >= 40 ? '#F59E0B' : '#EF4444') : '#9CA3AF',
-      trend: null, testid: 'graph-kpi-asr' },
-    { label: 'ACD',          value: s?.acd ? fmtAcd(s.acd)           : '—',
-      numColor: '#2563EB', trend: null, testid: 'graph-kpi-acd' },
+    { label: 'Active Channels',
+      value: liveTotal !== null ? liveTotal.toLocaleString() : '—',
+      numColor: surgeDetected ? '#B45309' : '#1F2937', trend: null, testid: 'graph-kpi-active' },
+    { label: 'Connected',
+      value: liveConn !== null ? liveConn.toLocaleString() : '—',
+      numColor: '#16A34A', trend: null, testid: 'graph-kpi-connected' },
+    { label: 'Routing',
+      value: liveRouting !== null ? liveRouting.toLocaleString() : '—',
+      numColor: '#F59E0B', trend: null, testid: 'graph-kpi-routing' },
+    { label: 'Connect Rate',
+      value: liveRatio !== null ? `${liveRatio}%` : '—',
+      numColor: liveRatio !== null ? (liveRatio >= 70 ? '#16A34A' : liveRatio >= 45 ? '#F59E0B' : '#EF4444') : '#9CA3AF',
+      trend: null, testid: 'graph-kpi-connectrate' },
+    { label: 'Avg Duration',
+      value: liveAvgAge ? fmtAcd(liveAvgAge) : '—',
+      numColor: '#2563EB', trend: null, testid: 'graph-kpi-avgdur' },
   ];
 
   // Shared chart props for light theme
@@ -1225,7 +1264,7 @@ function BitsEyeGraphView({ kamId, accountId, accountName, destFilter }: {
               <span>All traffic</span>
             )}
             {' · '}Concurrent live · {hoursBack}h · 60s sampling
-            {(isFetching || concFetching || evFetching) && <span style={{ marginLeft: 8, color: '#2563EB' }}>↻</span>}
+            {(isFetching || concFetching || evFetching || liveFetching) && <span style={{ marginLeft: 8, color: '#2563EB' }}>↻</span>}
             {concSummary && (
               <span style={{ marginLeft: 8, color: '#2563EB', fontWeight: 600 }}>
                 · {concSummary.currentActive} active now
@@ -1321,6 +1360,41 @@ function BitsEyeGraphView({ kamId, accountId, accountName, destFilter }: {
           </div>
         ))}
       </div>
+
+      {/* ── Live Breakdown — active calls by vendor / client / destination ── */}
+      {liveSummary && liveSummary.total > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          {([
+            { title: 'Active Vendors',     rows: liveSummary.topVendors,      color: '#2563EB' },
+            { title: 'Active Clients',     rows: liveSummary.topClients,      color: '#7C3AED' },
+            { title: 'Top Destinations',   rows: liveSummary.topDestinations, color: '#059669' },
+          ] as const).map(({ title, rows, color }) => (
+            <div key={title} style={{ background: '#FFFFFF', border: '1px solid #E6EAF0', borderRadius: 14, padding: '14px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{title}</span>
+                <span style={{ fontSize: 9, fontWeight: 600, color: '#D1D5DB', background: '#F9FAFB', border: '1px solid #F3F4F6', borderRadius: 4, padding: '1px 5px' }}>LIVE</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {(rows as { name: string; active: number }[]).length === 0 ? (
+                  <span style={{ fontSize: 11, color: '#D1D5DB' }}>No active calls</span>
+                ) : (rows as { name: string; active: number }[]).map((r, i) => {
+                  const maxVal = (rows as { name: string; active: number }[])[0]?.active ?? 1;
+                  const pct = maxVal > 0 ? Math.round(r.active / maxVal * 100) : 0;
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#374151', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+                      <div style={{ width: 52, height: 4, background: '#F3F4F6', borderRadius: 99, flexShrink: 0 }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 99, transition: 'width 0.4s ease' }} />
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color, minWidth: 20, textAlign: 'right', flexShrink: 0 }}>{r.active}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Concurrent Call Stream chart (white card) ────────────────────── */}
       <div className="noc-fade-in" style={{ background: '#FFFFFF', borderRadius: 16,
@@ -2045,7 +2119,7 @@ export default function BitsEyePage() {
   // ── Nav + view mode state ──────────────────────────────────────────────────
   const [nav, setNav] = useState<NavState>(initNav);
   const [lastRefresh,  setLastRefresh]  = useState(Date.now());
-  const [viewMode, setViewMode] = useState<'table' | 'graph' | 'dashboard'>('table');
+  const [viewMode, setViewMode] = useState<'table' | 'graph'>('table');
 
   // ── Hierarchy panel selection — cascades to all graph queries ─────────────
   const [hierarchyKamId,     setHierarchyKamId]     = useState<number | null>(null);
@@ -2486,19 +2560,6 @@ export default function BitsEyePage() {
               <Activity className="w-3.5 h-3.5" />
               Graph
             </button>
-            <button
-              data-testid="btn-view-dashboard"
-              onClick={() => setViewMode('dashboard')}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all",
-                viewMode === 'dashboard'
-                  ? "bg-card text-amber-400 shadow-sm border border-amber-500/30"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <PieChart className="w-3.5 h-3.5" />
-              Dashboard
-            </button>
           </div>
 
           <button
@@ -2582,11 +2643,8 @@ export default function BitsEyePage() {
         )}
 
         {/* Content area */}
-        <div className={cn("flex-1 overflow-hidden", viewMode === 'dashboard' ? "overflow-hidden" : "overflow-y-auto p-5")}>
-          {viewMode === 'dashboard' ? (
-            /* Analytics Dashboard — filter v1 → CDR cache → KPI + charts + tables */
-            <AnalyticsDashboardView />
-          ) : viewMode === 'graph' && hierarchyAccountId ? (
+        <div className="flex-1 overflow-y-auto p-5">
+          {viewMode === 'graph' && hierarchyAccountId ? (
             /* Specific client selected → full NOC intelligence chart */
             <BitsEyeGraphView
               kamId={null}

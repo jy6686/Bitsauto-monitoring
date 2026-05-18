@@ -12922,6 +12922,60 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/bitseye/live-summary — live call breakdown from liveCallsCache (active calls).
+  // Source: snapshotActiveCalls() → liveCallsCache (refreshed every 60s by background job).
+  // Returns: vendor/client/destination breakdowns + CPS estimate. No Sippy calls.
+  app.get('/api/bitseye/live-summary', async (_req: any, res: any) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const calls = (liveCallsCache as any).calls ?? [];
+    const ts    = (liveCallsCache as any).ts ?? 0;
+
+    const vendorMap  = new Map<string, number>();
+    const clientMap  = new Map<string, number>();
+    const destMap    = new Map<string, number>();
+    let connectedCount = 0, routingCount = 0;
+    let totalCallAgeSecs = 0, connectedWithAge = 0;
+
+    for (const c of calls) {
+      if (c.callStatus === 'connected') connectedCount++;
+      else routingCount++;
+
+      const vendor = c.vendor || c.connection || 'Unknown';
+      vendorMap.set(vendor, (vendorMap.get(vendor) ?? 0) + 1);
+
+      const client = c.clientName || (c.accountId ? `Acct.${c.accountId}` : 'Unknown');
+      clientMap.set(client, (clientMap.get(client) ?? 0) + 1);
+
+      const dest = c.destCountry || c.destFull || (c.callee ?? '').replace(/^\+/, '').slice(0, 3) || 'UNK';
+      destMap.set(dest, (destMap.get(dest) ?? 0) + 1);
+
+      if (c.callStatus === 'connected' && c.setupTime) {
+        const age = Math.round((Date.now() - new Date(c.setupTime).getTime()) / 1000);
+        if (age > 0 && age < 7200) { totalCallAgeSecs += age; connectedWithAge++; }
+      }
+    }
+
+    const topVendors      = [...vendorMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, active]) => ({ name, active }));
+    const topClients      = [...clientMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, active]) => ({ name, active }));
+    const topDestinations = [...destMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, active]) => ({ name, active }));
+
+    // CPS: delta of concurrent snapshots over the last ~60s
+    const recentPts = concurrentHistory.slice(-3);
+    let cps = 0;
+    if (recentPts.length >= 2) {
+      const delta = recentPts[recentPts.length - 1].count - recentPts[0].count;
+      const intervalSecs = (recentPts[recentPts.length - 1].ts - recentPts[0].ts) / 1000;
+      if (intervalSecs > 0 && delta > 0) cps = parseFloat((delta / intervalSecs).toFixed(2));
+    }
+
+    const total = calls.length;
+    const liveConnectRatio = total > 0 ? Math.round(connectedCount / total * 100) : 0;
+    const avgCallAgeSecs   = connectedWithAge > 0 ? Math.round(totalCallAgeSecs / connectedWithAge) : 0;
+    const cacheAgeMs       = ts > 0 ? Date.now() - ts : null;
+
+    res.json({ total, connected: connectedCount, routing: routingCount, liveConnectRatio, avgCallAgeSecs, cps, topVendors, topClients, topDestinations, stale: cacheAgeMs !== null && cacheAgeMs > 90_000, lastUpdated: ts });
+  });
+
   // GET /api/bitseye/call-trend — time-bucketed call totals from CDR cache for graph view
   // Sippy-safe: reads only from in-memory cdrCache, no Sippy calls.
   app.get('/api/bitseye/call-trend', async (req: any, res) => {
