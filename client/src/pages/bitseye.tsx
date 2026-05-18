@@ -10,7 +10,7 @@ import {
   RefreshCw, ChevronRight, BarChart3,
   TrendingUp, TrendingDown, Minus, AlertCircle, Globe, Users, Layers,
   ArrowRight, ArrowLeft, LayoutGrid, Maximize2, WifiOff, Plus, Check,
-  Activity, TableProperties,
+  Activity, TableProperties, PieChart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -1675,6 +1675,374 @@ function BitsEyeGraphView({ kamId, accountId, accountName, destFilter }: {
   );
 }
 
+// ── Analytics Dashboard (filter-driven, CDR cache only) ───────────────────────
+
+interface AnalyticsKpis {
+  totalCalls: number; answeredCalls: number;
+  asr: number; acd: number; pdd: number;
+  mos: number | null; mosGrade: string | null;
+  ner: number | null; totalMinutes: number; totalCost: number;
+}
+interface AnalyticsTimeBucket { bucket: string; calls: number; answered: number; asr: number; minutes: number; cost: number; }
+interface AnalyticsVendorRow  { vendor: string;  calls: number; answered: number; asr: number; minutes: number; cost: number; }
+interface AnalyticsClientRow  { client: string;  calls: number; answered: number; asr: number; minutes: number; cost: number; }
+interface AnalyticsDestRow    { country: string; calls: number; answered: number; asr: number; minutes: number; pct: number; }
+interface AnalyticsDashboardResponse {
+  kpis:            AnalyticsKpis;
+  timeSeries:      AnalyticsTimeBucket[];
+  topVendors:      AnalyticsVendorRow[];
+  topClients:      AnalyticsClientRow[];
+  topDestinations: AnalyticsDestRow[];
+  breakout: { answered: number; failed: number; rna: number; networkFail: number };
+  meta: { version: string; window: string; granularity: string; cdrCount: number; cacheSize: number; updatedAt: string | null; filtersApplied: Record<string, string | null> };
+}
+
+const WINDOW_OPTIONS = ['1h', '6h', '24h', '7d', '30d', '90d'] as const;
+type WindowOption = typeof WINDOW_OPTIONS[number];
+
+// Dimension Map — canonical mapping from filter contract → CDR fields (documented here, applied server-side)
+// c_company_name → clientName / accountNameCache
+// v_company_name → vendor / connectionVendorCache
+// country        → country
+// switch_name    → no-op (single-switch system)
+
+function AnalyticsDashboardView() {
+  const [win,      setWin]      = useState<WindowOption>('24h');
+  const [fClient,  setFClient]  = useState('');
+  const [fVendor,  setFVendor]  = useState('');
+  const [fCountry, setFCountry] = useState('');
+
+  // Applied state — only updates on explicit "Apply" (or Enter key)
+  // UI never decides granularity — that lives in the API contract
+  const [applied, setApplied] = useState({
+    version: 'v1' as const,
+    filters: { c_company_name: '', v_company_name: '', country: '' },
+    time: { window: '24h' as WindowOption },
+  });
+
+  function handleApply() {
+    setApplied({ version: 'v1', filters: { c_company_name: fClient.trim(), v_company_name: fVendor.trim(), country: fCountry.trim() }, time: { window: win } });
+  }
+  function handleReset() {
+    setWin('24h'); setFClient(''); setFVendor(''); setFCountry('');
+    setApplied({ version: 'v1', filters: { c_company_name: '', v_company_name: '', country: '' }, time: { window: '24h' } });
+  }
+
+  const { data, isLoading, isError, refetch } = useQuery<AnalyticsDashboardResponse>({
+    queryKey: ['/api/analytics/dashboard', applied],
+    queryFn: async () => {
+      const r = await fetch('/api/analytics/dashboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(applied),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const kpis    = data?.kpis;
+  const meta    = data?.meta;
+  const breakout = data?.breakout;
+  const topVendors = data?.topVendors ?? [];
+  const topClients = data?.topClients ?? [];
+  const topDests   = data?.topDestinations ?? [];
+
+  // Format bucket timestamps server-side granularity is authoritative
+  const chartData = (data?.timeSeries ?? []).map(b => {
+    const d = new Date(b.bucket);
+    const label = meta?.granularity === 'hourly'
+      ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+      : meta?.granularity === '6h'
+      ? `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${d.getHours().toString().padStart(2, '0')}h`
+      : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return { label, calls: b.calls, answered: b.answered };
+  });
+
+  const asrClr = (v: number) => v >= 65 ? '#16A34A' : v >= 50 ? '#D97706' : '#EF4444';
+  const mosClr = (v: number) => v >= 4.0 ? '#16A34A' : v >= 3.5 ? '#D97706' : '#EF4444';
+  const fmtAcd = (s: number) => s ? `${Math.floor(s / 60)}m ${s % 60}s` : '—';
+
+  return (
+    <div className="flex h-full overflow-hidden" data-testid="analytics-dashboard">
+
+      {/* ── Filter sidebar — emits filter v1, no business logic ───────────── */}
+      <div className="w-52 flex-shrink-0 border-r border-border/30 bg-muted/5 overflow-y-auto p-4 flex flex-col gap-5">
+        <div>
+          <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/40 mb-3">Time Window</p>
+          <div className="grid grid-cols-3 gap-1">
+            {WINDOW_OPTIONS.map(w => (
+              <button
+                key={w}
+                data-testid={`window-${w}`}
+                onClick={() => setWin(w)}
+                className={cn(
+                  "px-1.5 py-1 rounded-md text-[10px] font-semibold border transition-all",
+                  win === w
+                    ? "bg-amber-500/15 border-amber-500/40 text-amber-400"
+                    : "border-border/25 text-muted-foreground/50 hover:border-amber-500/25 hover:text-amber-400/70"
+                )}
+              >{w}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/40">Filters</p>
+          {([
+            { label: 'Client',  state: fClient,  set: setFClient,  placeholder: 'e.g. Tata', testid: 'filter-client' },
+            { label: 'Vendor',  state: fVendor,  set: setFVendor,  placeholder: 'e.g. BICS', testid: 'filter-vendor' },
+            { label: 'Country', state: fCountry, set: setFCountry, placeholder: 'e.g. PK',   testid: 'filter-country' },
+          ] as const).map(f => (
+            <div key={f.label}>
+              <p className="text-[9px] text-muted-foreground/40 mb-1 font-semibold">{f.label}</p>
+              <input
+                data-testid={f.testid}
+                value={f.state}
+                onChange={e => f.set(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleApply()}
+                placeholder={f.placeholder}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-border/30 bg-card text-xs text-foreground placeholder:text-muted-foreground/25 focus:outline-none focus:border-amber-500/40 transition-colors"
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <button
+            data-testid="btn-apply-filters"
+            onClick={handleApply}
+            className="w-full px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/25 transition-colors"
+          >Apply</button>
+          <button
+            data-testid="btn-reset-filters"
+            onClick={handleReset}
+            className="w-full px-3 py-1.5 rounded-lg border border-border/25 text-muted-foreground/50 text-xs hover:text-foreground hover:border-border/50 transition-colors"
+          >Reset</button>
+        </div>
+
+        <div className="flex flex-col gap-1.5 pt-1">
+          <button
+            onClick={() => refetch()}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border/25 text-muted-foreground/40 text-xs hover:text-foreground hover:border-border/50 transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" /> Refresh
+          </button>
+        </div>
+
+        {meta && (
+          <div className="mt-auto text-[9px] text-muted-foreground/25 leading-relaxed border-t border-border/15 pt-3">
+            <p className="font-mono">{meta.cdrCount.toLocaleString()} CDRs matched</p>
+            <p className="font-mono">Cache: {meta.cacheSize.toLocaleString()}</p>
+            <p className="font-mono">Gran: {meta.granularity}</p>
+            {meta.updatedAt && <p className="font-mono">Updated {new Date(meta.updatedAt).toLocaleTimeString()}</p>}
+          </div>
+        )}
+      </div>
+
+      {/* ── Dashboard renderer — consumes API response, zero business logic ── */}
+      <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+
+        {/* Loading */}
+        {isLoading && (
+          <div className="grid grid-cols-5 gap-3">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="h-20 rounded-xl bg-muted/15 animate-pulse border border-border/20" />
+            ))}
+          </div>
+        )}
+
+        {/* Error */}
+        {isError && !isLoading && (
+          <div className="flex items-center gap-2 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            Failed to load analytics — check connection or retry
+          </div>
+        )}
+
+        {kpis && !isLoading && (
+          <>
+            {/* ── KPI strip ───────────────────────────────────────────────── */}
+            <div className="grid grid-cols-5 gap-3">
+              {([
+                { label: 'Total Calls',   value: kpis.totalCalls.toLocaleString(),                           color: '#1F2937', sub: `${kpis.answeredCalls.toLocaleString()} answered` },
+                { label: 'ASR',           value: `${kpis.asr}%`,                                             color: asrClr(kpis.asr), sub: kpis.ner != null ? `NER ${kpis.ner}%` : undefined },
+                { label: 'ACD',           value: fmtAcd(kpis.acd),                                           color: '#2563EB', sub: undefined },
+                { label: 'MOS',           value: kpis.mos != null ? kpis.mos.toFixed(2) : 'N/A',            color: kpis.mos != null ? mosClr(kpis.mos) : '#9CA3AF', sub: kpis.mosGrade ? `Grade ${kpis.mosGrade}` : undefined },
+                { label: 'Total Cost',    value: `$${kpis.totalCost.toFixed(2)}`,                            color: '#1F2937', sub: `${kpis.totalMinutes.toFixed(0)} min` },
+              ] as const).map((card, i) => (
+                <div
+                  key={i}
+                  data-testid={`kpi-card-${i}`}
+                  className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl shadow-sm p-4 flex flex-col gap-1"
+                >
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">{card.label}</span>
+                  <span className="text-xl font-extrabold tabular-nums leading-none" style={{ color: card.color }}>{card.value}</span>
+                  {card.sub && <span className="text-[10px] text-gray-400">{card.sub}</span>}
+                </div>
+              ))}
+            </div>
+
+            {/* ── Call disposition row ─────────────────────────────────────── */}
+            {breakout && (
+              <div className="flex items-center gap-4 px-4 py-2.5 bg-muted/5 border border-border/20 rounded-xl text-xs flex-wrap">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/40">Disposition</span>
+                {([
+                  { label: 'Answered',     value: breakout.answered,    cls: 'text-emerald-400' },
+                  { label: 'RNA',          value: breakout.rna,         cls: 'text-amber-400' },
+                  { label: 'Network Fail', value: breakout.networkFail, cls: 'text-rose-400' },
+                  { label: 'Other Failed', value: breakout.failed - breakout.rna - breakout.networkFail, cls: 'text-rose-300' },
+                ] as const).map((d, i) => (
+                  <span key={i} className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground/25">·</span>
+                    <span className={cn("font-bold tabular-nums", d.cls)}>{d.value.toLocaleString()}</span>
+                    <span className="text-muted-foreground/40">{d.label}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* ── Time series chart ────────────────────────────────────────── */}
+            {chartData.length > 0 && (
+              <div className="bg-card border border-border/25 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">
+                    Call Volume · {applied.time.window} · {meta?.granularity ?? '—'}
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <span className="flex items-center gap-1.5 text-[9px] text-muted-foreground/50">
+                      <span className="w-4 h-0.5 rounded-full bg-amber-400 inline-block" />Total
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[9px] text-muted-foreground/50">
+                      <span className="w-4 h-0.5 rounded-full bg-emerald-400 inline-block" />Answered
+                    </span>
+                  </div>
+                </div>
+                <div style={{ width: '100%', height: 160 }}>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="ae-grad-calls" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%"   stopColor="#f59e0b" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.0} />
+                        </linearGradient>
+                        <linearGradient id="ae-grad-ans" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%"   stopColor="#10b981" stopOpacity={0.30} />
+                          <stop offset="100%" stopColor="#10b981" stopOpacity={0.0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid horizontal vertical={false} stroke="rgba(255,255,255,0.04)" />
+                      <XAxis dataKey="label" tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.5)', fontFamily: 'monospace' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 8, fill: 'rgba(148,163,184,0.5)', fontFamily: 'monospace' }} tickLine={false} axisLine={false} allowDecimals={false} />
+                      <Tooltip
+                        cursor={{ stroke: 'rgba(148,163,184,0.15)', strokeWidth: 1.5, strokeDasharray: '4 2' }}
+                        content={({ active, payload, label }: any) => {
+                          if (!active || !payload?.length) return null;
+                          return (
+                            <div className="rounded-xl border border-border/50 bg-card/95 backdrop-blur-md px-3 py-2 text-xs shadow-xl">
+                              <p className="text-muted-foreground/50 font-mono mb-1.5">{label}</p>
+                              {payload.map((p: any) => (
+                                <div key={p.dataKey} className="flex items-center justify-between gap-4">
+                                  <span className="text-muted-foreground/60">{p.dataKey === 'calls' ? 'Total' : 'Answered'}</span>
+                                  <span className="font-bold tabular-nums" style={{ color: p.color }}>{p.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }}
+                      />
+                      <Area type="monotone" dataKey="calls"    stroke="#f59e0b" strokeWidth={2}   fill="url(#ae-grad-calls)" dot={false} activeDot={{ r: 3.5, fill: '#f59e0b', stroke: 'hsl(var(--card))', strokeWidth: 2 }} />
+                      <Area type="monotone" dataKey="answered" stroke="#10b981" strokeWidth={1.5} fill="url(#ae-grad-ans)"   dot={false} activeDot={{ r: 3,   fill: '#10b981', stroke: 'hsl(var(--card))', strokeWidth: 2 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* ── Top tables ───────────────────────────────────────────────── */}
+            <div className="grid grid-cols-3 gap-4">
+              {([
+                {
+                  title: 'Top Vendors',
+                  rows: topVendors.slice(0, 8),
+                  nameKey: 'vendor' as const,
+                  testPrefix: 'vendor',
+                },
+                {
+                  title: 'Top Clients',
+                  rows: topClients.slice(0, 8),
+                  nameKey: 'client' as const,
+                  testPrefix: 'client',
+                },
+              ] as const).map(({ title, rows, nameKey, testPrefix }) => (
+                <div key={title} className="bg-card border border-border/25 rounded-xl overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-border/15">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">{title}</p>
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border/10 bg-muted/5">
+                        <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-muted-foreground/30 uppercase tracking-wider">Name</th>
+                        <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-muted-foreground/30">Calls</th>
+                        <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-muted-foreground/30">ASR</th>
+                        <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-muted-foreground/30">Min</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r, i) => (
+                        <tr key={i} data-testid={`row-${testPrefix}-${i}`} className="border-b border-border/8 hover:bg-muted/10 transition-colors">
+                          <td className="px-3 py-1.5 font-medium truncate max-w-[100px]" title={r[nameKey]}>{r[nameKey]}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums font-mono text-foreground/70">{r.calls.toLocaleString()}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums font-mono font-semibold" style={{ color: asrClr(r.asr) }}>{r.asr}%</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums font-mono text-muted-foreground/40">{r.minutes.toFixed(0)}</td>
+                        </tr>
+                      ))}
+                      {rows.length === 0 && (
+                        <tr><td colSpan={4} className="px-3 py-4 text-center text-muted-foreground/25 text-[11px]">No data</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+
+              {/* Destinations */}
+              <div className="bg-card border border-border/25 rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-border/15">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">Top Destinations</p>
+                </div>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border/10 bg-muted/5">
+                      <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-muted-foreground/30 uppercase tracking-wider">Country</th>
+                      <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-muted-foreground/30">Calls</th>
+                      <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-muted-foreground/30">ASR</th>
+                      <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-muted-foreground/30">%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topDests.slice(0, 8).map((r, i) => (
+                      <tr key={i} data-testid={`row-dest-${i}`} className="border-b border-border/8 hover:bg-muted/10 transition-colors">
+                        <td className="px-3 py-1.5 font-medium truncate max-w-[100px]" title={r.country}>{r.country}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-mono text-foreground/70">{r.calls.toLocaleString()}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-mono font-semibold" style={{ color: asrClr(r.asr) }}>{r.asr}%</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-mono text-muted-foreground/40">{r.pct}%</td>
+                      </tr>
+                    ))}
+                    {topDests.length === 0 && (
+                      <tr><td colSpan={4} className="px-3 py-4 text-center text-muted-foreground/25 text-[11px]">No data</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function BitsEyePage() {
   useAuth();
@@ -1689,7 +2057,7 @@ export default function BitsEyePage() {
   // ── Nav + view mode state ──────────────────────────────────────────────────
   const [nav, setNav] = useState<NavState>(initNav);
   const [lastRefresh,  setLastRefresh]  = useState(Date.now());
-  const [viewMode, setViewMode] = useState<'table' | 'graph'>('table');
+  const [viewMode, setViewMode] = useState<'table' | 'graph' | 'dashboard'>('table');
 
   // ── Hierarchy panel selection — cascades to all graph queries ─────────────
   const [hierarchyKamId,     setHierarchyKamId]     = useState<number | null>(null);
@@ -2130,6 +2498,19 @@ export default function BitsEyePage() {
               <Activity className="w-3.5 h-3.5" />
               Graph
             </button>
+            <button
+              data-testid="btn-view-dashboard"
+              onClick={() => setViewMode('dashboard')}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all",
+                viewMode === 'dashboard'
+                  ? "bg-card text-amber-400 shadow-sm border border-amber-500/30"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <PieChart className="w-3.5 h-3.5" />
+              Dashboard
+            </button>
           </div>
 
           <button
@@ -2213,8 +2594,11 @@ export default function BitsEyePage() {
         )}
 
         {/* Content area */}
-        <div className="flex-1 overflow-y-auto p-5">
-          {viewMode === 'graph' && hierarchyAccountId ? (
+        <div className={cn("flex-1 overflow-hidden", viewMode === 'dashboard' ? "overflow-hidden" : "overflow-y-auto p-5")}>
+          {viewMode === 'dashboard' ? (
+            /* Analytics Dashboard — filter v1 → CDR cache → KPI + charts + tables */
+            <AnalyticsDashboardView />
+          ) : viewMode === 'graph' && hierarchyAccountId ? (
             /* Specific client selected → full NOC intelligence chart */
             <BitsEyeGraphView
               kamId={null}
