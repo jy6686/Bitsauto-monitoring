@@ -146,10 +146,10 @@ function Combobox({ value, onChange, options, placeholder, emptyLabel, "data-tes
 
 export default function AsrAcdReportPage() {
   const now = new Date();
-  const oneHourAgo = new Date(now.getTime() - 60 * 60_000);
+  const midnightToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
 
   const [filters, setFilters] = useState<FilterState>({
-    startTime:     toDatetimeLocal(oneHourAgo),
+    startTime:     toDatetimeLocal(midnightToday),
     endTime:       toDatetimeLocal(now),
     cli:           "",
     cld:           "",

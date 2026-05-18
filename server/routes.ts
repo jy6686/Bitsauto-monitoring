@@ -3801,7 +3801,68 @@ export async function registerRoutes(
       return 'Unknown Vendor / Unknown Connection';
     }
 
-    // Filter CDR cache by time window + CLI/CLD text + account/vendor selectors
+    // ── Primary: Sippy portal direct query (same source as Sippy UI) ─────────
+    // getSippyPerAccountStats scrapes /asr_acd.php with the exact startDate/endDate.
+    // This returns the full call volume — not limited to the 500-CDR rolling cache.
+    // No date-range cap: admin / management / super_admin may query any period.
+    try {
+      const settings   = await storage.getSettings();
+      const portalUser = settings.portalUsername   || settings.apiAdminUsername || '';
+      const portalPass = settings.portalPassword   || settings.apiAdminPassword || '';
+      const adminUser  = settings.apiAdminUsername || '';
+      const adminPass  = settings.apiAdminPassword || '';
+
+      const portalResult = await sippy.getSippyPerAccountStats(
+        portalUser, portalPass,
+        Math.max(1, Math.round((endMs - startMs) / 60_000)),
+        adminUser, adminPass,
+        new Date(startMs), new Date(endMs),
+        cli   || undefined,
+        cld   || undefined,
+      );
+
+      if (portalResult.ok) {
+        const mapRow = (r: sippy.SippyAccountStatRow) => ({
+          name:          r.name,
+          totalCalls:    r.totalCalls,
+          billableCalls: r.billableCalls,
+          durationSec:   r.durationSec,
+          acdSec:        r.acdSec,
+          asr:           r.asr,
+          avgPdd:        r.avgPdd,
+          amount:        r.amount,
+        });
+
+        let origRows: ReturnType<typeof mapRow>[] = portalResult.clients.map(mapRow);
+        if (accountFilter) origRows = origRows.filter(r => r.name.toLowerCase().includes(accountFilter.toLowerCase()));
+        if (hideOrigEmpty) origRows = origRows.filter(r => r.totalCalls > 0);
+        origRows = sortRows(origRows as any, sortOrig) as any;
+
+        let termRows: ReturnType<typeof mapRow>[] = portalResult.vendors.map(mapRow);
+        if (vendorFilter) termRows = termRows.filter(r => r.name.toLowerCase().includes(vendorFilter.toLowerCase()));
+        if (hideTermEmpty) termRows = termRows.filter(r => r.totalCalls > 0);
+        termRows = sortRows(termRows as any, sortTerm) as any;
+
+        return res.json({
+          ok:                true,
+          source:            'portal',
+          vendorDataLimited: portalResult.vendorDataLimited ?? false,
+          highlightBelow,
+          generatedAt:       new Date().toISOString(),
+          cdrCount:          portalResult.origTotal.totalCalls,
+          origination:       origRows,
+          termination:       termRows,
+          origTotal:         calcTotal(origRows as any),
+          termTotal:         calcTotal(termRows as any),
+        });
+      }
+
+      console.warn('[api/reports/asr-acd] Portal scrape returned !ok:', portalResult.error, '— falling back to CDR cache');
+    } catch (portalErr: any) {
+      console.warn('[api/reports/asr-acd] Portal error:', portalErr.message, '— falling back to CDR cache');
+    }
+
+    // ── Fallback: CDR cache (when portal is unreachable) ─────────────────────
     const allCdrs = [...cdrCache.values()].filter((c: any) => {
       const ts = c.startTime ? new Date(c.startTime).getTime() : NaN;
       if (isNaN(ts) || ts < startMs || ts > endMs) return false;
@@ -3819,39 +3880,38 @@ export async function registerRoutes(
       return true;
     });
 
-    // Origination grouping
-    const origGroups: Record<string, any[]> = {};
+    const origGroupsFb: Record<string, any[]> = {};
     for (const cdr of allCdrs) {
       const k = origKey(cdr);
-      if (!origGroups[k]) origGroups[k] = [];
-      origGroups[k].push(cdr);
+      if (!origGroupsFb[k]) origGroupsFb[k] = [];
+      origGroupsFb[k].push(cdr);
     }
-    const origRows = sortRows(
-      Object.entries(origGroups).map(([n, s]) => buildRow(n, s)).filter(r => !hideOrigEmpty || r.totalCalls > 0),
+    const origRowsFb = sortRows(
+      Object.entries(origGroupsFb).map(([n, s]) => buildRow(n, s)).filter(r => !hideOrigEmpty || r.totalCalls > 0),
       sortOrig,
     );
 
-    // Termination grouping
-    const termGroups: Record<string, any[]> = {};
+    const termGroupsFb: Record<string, any[]> = {};
     for (const cdr of allCdrs) {
       const k = termKey(cdr);
-      if (!termGroups[k]) termGroups[k] = [];
-      termGroups[k].push(cdr);
+      if (!termGroupsFb[k]) termGroupsFb[k] = [];
+      termGroupsFb[k].push(cdr);
     }
-    const termRows = sortRows(
-      Object.entries(termGroups).map(([n, s]) => buildRow(n, s)).filter(r => !hideTermEmpty || r.totalCalls > 0),
+    const termRowsFb = sortRows(
+      Object.entries(termGroupsFb).map(([n, s]) => buildRow(n, s)).filter(r => !hideTermEmpty || r.totalCalls > 0),
       sortTerm,
     );
 
     res.json({
       ok:          true,
+      source:      'cdr-cache',
       highlightBelow,
       generatedAt: new Date().toISOString(),
       cdrCount:    allCdrs.length,
-      origination: origRows,
-      termination: termRows,
-      origTotal:   calcTotal(origRows),
-      termTotal:   calcTotal(termRows),
+      origination: origRowsFb,
+      termination: termRowsFb,
+      origTotal:   calcTotal(origRowsFb),
+      termTotal:   calcTotal(termRowsFb),
     });
   });
 
