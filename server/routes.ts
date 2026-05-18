@@ -10871,15 +10871,81 @@ export async function registerRoutes(
         const hours = Math.min(Math.max(parseInt(String(req.query.hours ?? '24')) || 24, 1), 168);
         const cutoff = Date.now() - hours * 3600 * 1000;
 
+        // Enrich from connection cache (vendor name / host / protocol)
+        const cachedConns = await getCachedConnections();
+
+        // ── Primary: Sippy portal (authoritative — full traffic volume) ──────────
+        try {
+          const settings   = await storage.getSettings();
+          const portalUser = settings.portalUsername   || settings.apiAdminUsername || '';
+          const portalPass = settings.portalPassword   || settings.apiAdminPassword || '';
+          const adminUser  = settings.apiAdminUsername || '';
+          const adminPass  = settings.apiAdminPassword || '';
+          const toDate     = new Date();
+          const fromDate   = new Date(toDate.getTime() - hours * 3600 * 1000);
+
+          const portalResult = await sippy.getSippyPerAccountStats(
+            portalUser, portalPass, hours * 60,
+            adminUser, adminPass,
+            fromDate, toDate,
+          );
+
+          if (portalResult.ok && portalResult.vendors.length > 0) {
+            const vendors = portalResult.vendors.map(r => {
+              const conn = (cachedConns as any[]).find(
+                (c: any) => (c.vendorName ?? c.name ?? '').toLowerCase() === r.name.toLowerCase()
+              );
+              const asr   = r.asr;
+              const acd   = r.acdSec;
+              const pddMs = r.avgPdd * 1000;   // portal returns seconds; formula uses ms
+              const asrS  = Math.min(asr, 100);
+              const acdS  = Math.min(acd / 120 * 100, 100);
+              const pddS  = Math.max(0, 100 - (pddMs / 4000 * 100));
+              const qbr   = Math.round((asrS * 0.40 + acdS * 0.30 + pddS * 0.30) * 10) / 10;
+              const status: 'excellent' | 'good' | 'degraded' | 'critical' =
+                qbr >= 80 ? 'excellent' : qbr >= 60 ? 'good' : qbr >= 40 ? 'degraded' : 'critical';
+              return {
+                vendor: r.name, connectionName: conn?.name, host: conn?.host,
+                protocol: conn?.protocol, blocked: conn?.blocked ?? false,
+                totalCalls: r.totalCalls, answeredCalls: r.billableCalls,
+                asr, acd, pdd: pddMs, qbrScore: qbr, status,
+                totalMinutes: Math.round(r.durationSec / 60 * 10) / 10,
+                totalCost: Math.round(r.amount * 100) / 100,
+              };
+            }).sort((a: any, b: any) => b.qbrScore - a.qbrScore);
+
+            const totCalls    = vendors.reduce((s, v) => s + v.totalCalls, 0);
+            const totAnswered = vendors.reduce((s, v) => s + v.answeredCalls, 0);
+            const netAsr      = totCalls > 0 ? Math.round(totAnswered / totCalls * 1000) / 10 : 0;
+            const wAcd        = totAnswered > 0
+              ? Math.round(vendors.reduce((s, v) => s + v.acd * v.answeredCalls, 0) / totAnswered * 10) / 10 : 0;
+            const pddSets     = vendors.filter(v => v.pdd > 0);
+            const netPdd      = pddSets.length > 0
+              ? Math.round(pddSets.reduce((s, v) => s + v.pdd, 0) / pddSets.length * 10) / 10 : 0;
+
+            return res.json({
+              vendors,
+              summary: {
+                totalCalls: totCalls, answeredCalls: totAnswered,
+                asr: netAsr, acd: wAcd, pdd: netPdd,
+                activeRoutes: vendors.length,
+                degradedRoutes: vendors.filter(v => v.status === 'degraded' || v.status === 'critical').length,
+              },
+              meta: { hours, source: 'portal', cdrsAnalyzed: portalResult.origTotal.totalCalls, updatedAt: new Date().toISOString() },
+            });
+          }
+          console.warn('[qbr/metrics] Portal returned no vendor data — falling back to CDR cache');
+        } catch (portalErr: any) {
+          console.warn('[qbr/metrics] Portal error:', (portalErr as any).message, '— falling back to CDR cache');
+        }
+
+        // ── Fallback: CDR cache ─────────────────────────────────────────────────
         // Filter CDR cache to the requested time window
         const windowCdrs = [...cdrCache.values()].filter(c => {
           const ts = c.startTime  ? new Date(c.startTime).getTime()
                    : c.connectTime ? new Date(c.connectTime).getTime() : 0;
           return ts >= cutoff;
         });
-
-        // Enrich from connection cache (vendor name / host / protocol)
-        const cachedConns = await getCachedConnections();
 
         type VGroup = {
           vendor: string; connName?: string; host?: string; protocol?: string; blocked: boolean;
@@ -14718,6 +14784,53 @@ export async function registerRoutes(
       const pg = (p: number) => p >= 3.5 ? 'A' : p >= 2.5 ? 'B' : p >= 1.5 ? 'C' : p >= 0.5 ? 'D' : 'F';
       const estimateMOS = (pddSec: number) => estimateMOSFromPDD(pddSec * 1000);
 
+      // ── Primary: Sippy portal (authoritative — full volume for SLA grading) ───
+      try {
+        const settings   = await storage.getSettings();
+        const portalUser = settings.portalUsername   || settings.apiAdminUsername || '';
+        const portalPass = settings.portalPassword   || settings.apiAdminPassword || '';
+        const adminUser  = settings.apiAdminUsername || '';
+        const adminPass  = settings.apiAdminPassword || '';
+        const toDate     = new Date();
+        const fromDate   = new Date(toDate.getTime() - hours * 3600 * 1000);
+
+        const portalResult = await sippy.getSippyPerAccountStats(
+          portalUser, portalPass, hours * 60,
+          adminUser, adminPass,
+          fromDate, toDate,
+        );
+
+        if (portalResult.ok && portalResult.vendors.length > 0) {
+          const portalRows = portalResult.vendors.map(r => {
+            const asr       = r.asr;
+            const acdSec    = r.acdSec;
+            const avgPddSec = r.avgPdd;    // portal returns seconds
+            const mos       = avgPddSec > 0 ? parseFloat(estimateMOS(avgPddSec).toFixed(2)) : null;
+            const totalMinutes = parseFloat((r.durationSec / 60).toFixed(2));
+            const totalCost    = parseFloat(r.amount.toFixed(4));
+            const costPerMin   = totalMinutes > 0 ? parseFloat((totalCost / totalMinutes).toFixed(6)) : 0;
+
+            const asrGrade = gradeASR(asr);
+            const acdGrade = acdSec > 0 ? gradeACD(acdSec) : 'N/A';
+            const pddGrade = avgPddSec > 0 ? gradePDD(avgPddSec) : 'N/A';
+            const mosGrade = mos !== null ? gradeMOS(mos) : 'N/A';
+
+            const gradedMetrics = [asrGrade, acdGrade, pddGrade, mosGrade].filter(g => g !== 'N/A');
+            const points = gradedMetrics.length > 0
+              ? (gp(asrGrade) * 2 + (acdGrade !== 'N/A' ? gp(acdGrade) : 2) + (pddGrade !== 'N/A' ? gp(pddGrade) : 2) + (mosGrade !== 'N/A' ? gp(mosGrade) : 2)) / 5
+              : 0;
+            const overallGrade = pg(points);
+
+            return { vendor: r.name, totalCalls: r.totalCalls, answeredCalls: r.billableCalls, asr, acdSec, avgPddSec, mos, totalMinutes, totalCost, costPerMin, asrGrade, acdGrade, pddGrade, mosGrade, overallGrade, topCountries: [] };
+          }).sort((a: any, b: any) => b.totalCalls - a.totalCalls);
+
+          return res.json({ rows: portalRows, total: portalRows.length, hours, source: 'portal', vendorDataLimited: portalResult.vendorDataLimited ?? false, cdrCacheSize: cdrCache.size, updatedAt: cdrCacheUpdatedAt });
+        }
+        console.warn('[vendor-sla/scorecard] Portal returned no vendor data — falling back to CDR cache');
+      } catch (portalErr: any) {
+        console.warn('[vendor-sla/scorecard] Portal error:', (portalErr as any).message, '— falling back to CDR cache');
+      }
+
       const rows = [];
       for (const [vendor, calls] of groups) {
         const totalCalls   = calls.length;
@@ -16293,50 +16406,98 @@ export async function registerRoutes(
       const cutoff = Date.now() - hours * 3600 * 1000;
       const analysisDays = hours / 24;
 
-      // ── 1. Filter CDR cache to window ──────────────────────────────────────
-      const cdrs = [...cdrCache.values()].filter(c => {
-        const ts = c.startTime ? new Date(c.startTime).getTime()
-          : c.connectTime ? new Date(c.connectTime).getTime() : 0;
-        return ts >= cutoff;
-      });
-
-      if (cdrs.length === 0) {
-        return res.json({ recommendations: [], summary: { totalSpend: 0, estimatedMonthlySpend: 0, totalPotentialMonthlySavings: 0, cdrCount: 0, vendorCount: 0, analysisDays, portfolioCPM: 0, lowestCPM: null }, hours, generatedAt: new Date().toISOString() });
-      }
-
-      // ── 2. Group CDRs by vendor ─────────────────────────────────────────────
+      // ── Data prep: portal-primary, CDR cache fallback ─────────────────────
       type VStats = { vendor: string; totalCalls: number; answeredCalls: number; billedSec: number; totalCost: number; pddSum: number; pddN: number; };
-      const vendorMap = new Map<string, VStats>();
+      type VM = VStats & { asr: number; acdSec: number; avgPddSec: number; billedMin: number; costPerMin: number; };
+      let vendors: VM[] = [];
       let offPeakCalls = 0; let offPeakCost = 0;
 
-      for (const c of cdrs) {
-        let vendor = c.vendor || '';
-        if (!vendor && c.iConnection) vendor = connectionVendorCache.get(c.iConnection) || '';
-        if (!vendor) continue;
-        if (!vendorMap.has(vendor)) vendorMap.set(vendor, { vendor, totalCalls: 0, answeredCalls: 0, billedSec: 0, totalCost: 0, pddSum: 0, pddN: 0 });
-        const v = vendorMap.get(vendor)!;
-        v.totalCalls++;
-        const isAns = String(c.result) === '0' && (Number(c.duration) || 0) > 0;
-        if (isAns) { v.answeredCalls++; v.billedSec += Number(c.duration) || 0; }
-        v.totalCost += Number(c.cost) || 0;
-        const pdd = Number(c.pdd1xx ?? c.pdd) || 0;
-        if (pdd > 0) { v.pddSum += pdd; v.pddN++; }
-        const hr = c.startTime ? new Date(c.startTime).getUTCHours() : -1;
-        if (hr >= 0 && hr < 6) { offPeakCalls++; offPeakCost += Number(c.cost) || 0; }
+      // ── Primary: Sippy portal (authoritative — full volume for cost analysis) ──
+      let _costPortalLoaded = false;
+      try {
+        const settings   = await storage.getSettings();
+        const portalUser = settings.portalUsername   || settings.apiAdminUsername || '';
+        const portalPass = settings.portalPassword   || settings.apiAdminPassword || '';
+        const adminUser  = settings.apiAdminUsername || '';
+        const adminPass  = settings.apiAdminPassword || '';
+        const toDate     = new Date();
+        const fromDate   = new Date(toDate.getTime() - hours * 3600 * 1000);
+
+        const portalResult = await sippy.getSippyPerAccountStats(
+          portalUser, portalPass, hours * 60,
+          adminUser, adminPass,
+          fromDate, toDate,
+        );
+
+        if (portalResult.ok && portalResult.vendors.length > 0) {
+          vendors = portalResult.vendors
+            .filter(r => r.name)
+            .map(r => {
+              const billedSec  = r.durationSec;
+              const billedMin  = billedSec / 60;
+              const totalCost  = r.amount;
+              const costPerMin = billedMin > 0 ? totalCost / billedMin : 0;
+              const avgPddSec  = r.avgPdd;   // portal returns seconds
+              return {
+                vendor: r.name, totalCalls: r.totalCalls, answeredCalls: r.billableCalls,
+                billedSec, totalCost,
+                pddSum: avgPddSec > 0 ? avgPddSec * r.billableCalls : 0,
+                pddN:   avgPddSec > 0 ? r.billableCalls : 0,
+                asr: r.asr, acdSec: r.acdSec, avgPddSec, billedMin, costPerMin,
+              };
+            });
+          vendors.sort((a, b) => b.totalCost - a.totalCost);
+          _costPortalLoaded = true;
+        } else {
+          console.warn('[cost-opt] Portal returned no data — falling back to CDR cache');
+        }
+      } catch (portalErr: any) {
+        console.warn('[cost-opt] Portal error:', (portalErr as any).message, '— falling back to CDR cache');
       }
 
-      // ── 3. Derived metrics per vendor ──────────────────────────────────────
-      type VM = VStats & { asr: number; acdSec: number; avgPddSec: number; billedMin: number; costPerMin: number; };
-      const vendors: VM[] = [];
-      for (const [, v] of vendorMap) {
-        const asr       = v.totalCalls > 0 ? (v.answeredCalls / v.totalCalls) * 100 : 0;
-        const acdSec    = v.answeredCalls > 0 ? v.billedSec / v.answeredCalls : 0;
-        const avgPddSec = v.pddN > 0 ? v.pddSum / v.pddN : 0;
-        const billedMin = v.billedSec / 60;
-        const costPerMin = billedMin > 0 ? v.totalCost / billedMin : 0;
-        vendors.push({ ...v, asr, acdSec, avgPddSec, billedMin, costPerMin });
+      // ── Fallback: CDR cache ─────────────────────────────────────────────────
+      if (!_costPortalLoaded) {
+        const cdrs = [...cdrCache.values()].filter(c => {
+          const ts = c.startTime ? new Date(c.startTime).getTime()
+            : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+          return ts >= cutoff;
+        });
+
+        if (cdrs.length === 0) {
+          return res.json({ recommendations: [], summary: { totalSpend: 0, estimatedMonthlySpend: 0, totalPotentialMonthlySavings: 0, cdrCount: 0, vendorCount: 0, analysisDays, portfolioCPM: 0, lowestCPM: null }, hours, generatedAt: new Date().toISOString() });
+        }
+
+        const vendorMap = new Map<string, VStats>();
+        for (const c of cdrs) {
+          let vendor = c.vendor || '';
+          if (!vendor && c.iConnection) vendor = connectionVendorCache.get(c.iConnection) || '';
+          if (!vendor) continue;
+          if (!vendorMap.has(vendor)) vendorMap.set(vendor, { vendor, totalCalls: 0, answeredCalls: 0, billedSec: 0, totalCost: 0, pddSum: 0, pddN: 0 });
+          const v = vendorMap.get(vendor)!;
+          v.totalCalls++;
+          const isAns = String(c.result) === '0' && (Number(c.duration) || 0) > 0;
+          if (isAns) { v.answeredCalls++; v.billedSec += Number(c.duration) || 0; }
+          v.totalCost += Number(c.cost) || 0;
+          const pdd = Number(c.pdd1xx ?? c.pdd) || 0;
+          if (pdd > 0) { v.pddSum += pdd; v.pddN++; }
+          const hr = c.startTime ? new Date(c.startTime).getUTCHours() : -1;
+          if (hr >= 0 && hr < 6) { offPeakCalls++; offPeakCost += Number(c.cost) || 0; }
+        }
+
+        for (const [, v] of vendorMap) {
+          const asr        = v.totalCalls > 0 ? (v.answeredCalls / v.totalCalls) * 100 : 0;
+          const acdSec     = v.answeredCalls > 0 ? v.billedSec / v.answeredCalls : 0;
+          const avgPddSec  = v.pddN > 0 ? v.pddSum / v.pddN : 0;
+          const billedMin  = v.billedSec / 60;
+          const costPerMin = billedMin > 0 ? v.totalCost / billedMin : 0;
+          vendors.push({ ...v, asr, acdSec, avgPddSec, billedMin, costPerMin });
+        }
+        vendors.sort((a, b) => b.totalCost - a.totalCost);
       }
-      vendors.sort((a, b) => b.totalCost - a.totalCost);
+
+      if (vendors.length === 0) {
+        return res.json({ recommendations: [], summary: { totalSpend: 0, estimatedMonthlySpend: 0, totalPotentialMonthlySavings: 0, cdrCount: 0, vendorCount: 0, analysisDays, portfolioCPM: 0, lowestCPM: null }, hours, generatedAt: new Date().toISOString() });
+      }
 
       // ── 4. Portfolio aggregates ─────────────────────────────────────────────
       const totalSpend   = vendors.reduce((s, v) => s + v.totalCost, 0);
