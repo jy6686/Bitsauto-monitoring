@@ -12,6 +12,9 @@ import {
   productDocs,
   approvalRequests, approvalAuditLog,
   portalAccessTokens,
+  portalTickets, portalTicketMessages,
+  type PortalTicket, type InsertPortalTicket,
+  type PortalTicketMessage, type InsertPortalTicketMessage,
   dataRetentionPolicy, deletionRequests,
   type DataRetentionPolicy, type DeletionRequest, type InsertDeletionRequest,
   type PortalToken, type InsertPortalToken,
@@ -67,7 +70,7 @@ import {
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
-import { eq, desc, and, sql, gte, lt, inArray } from "drizzle-orm";
+import { eq, desc, asc, and, sql, gte, lt, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // Calls
@@ -342,6 +345,14 @@ export interface IStorage {
   saveAccountConfig(iAccount: number, section: string, data: Record<string, any>): Promise<void>;
   createClientIpRequest(data: InsertClientIpRequest): Promise<ClientIpRequest>;
   updateClientIpRequest(id: number, updates: Partial<ClientIpRequest>): Promise<ClientIpRequest>;
+
+  // ── Portal Ticket System (V1.1) ───────────────────────────────────────────
+  listPortalTickets(filter?: { accountId?: number; status?: string }): Promise<PortalTicket[]>;
+  getPortalTicket(id: number): Promise<PortalTicket | null>;
+  createPortalTicket(data: InsertPortalTicket): Promise<PortalTicket>;
+  updatePortalTicketStatus(id: number, status: string): Promise<PortalTicket>;
+  listTicketMessages(ticketId: number): Promise<PortalTicketMessage[]>;
+  addTicketMessage(data: InsertPortalTicketMessage): Promise<PortalTicketMessage>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1816,6 +1827,47 @@ export class DatabaseStorage implements IStorage {
 
   async updateClientIpRequest(id: number, updates: Partial<ClientIpRequest>): Promise<ClientIpRequest> {
     const [row] = await db.update(clientIpRequests).set(updates).where(eq(clientIpRequests.id, id)).returning();
+    return row;
+  }
+
+  // ── Portal Ticket System (V1.1) ───────────────────────────────────────────
+  async listPortalTickets(filter?: { accountId?: number; status?: string }): Promise<PortalTicket[]> {
+    const conditions: any[] = [];
+    if (filter?.accountId) conditions.push(eq(portalTickets.accountId, filter.accountId));
+    if (filter?.status)    conditions.push(eq(portalTickets.status,    filter.status));
+    const q = db.select().from(portalTickets).orderBy(desc(portalTickets.updatedAt));
+    return conditions.length ? q.where(and(...conditions)) : q;
+  }
+
+  async getPortalTicket(id: number): Promise<PortalTicket | null> {
+    const [row] = await db.select().from(portalTickets).where(eq(portalTickets.id, id));
+    return row ?? null;
+  }
+
+  async createPortalTicket(data: InsertPortalTicket): Promise<PortalTicket> {
+    const [row] = await db.insert(portalTickets).values(data).returning();
+    return row;
+  }
+
+  async updatePortalTicketStatus(id: number, status: string): Promise<PortalTicket> {
+    const [row] = await db.update(portalTickets)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(portalTickets.id, id))
+      .returning();
+    return row;
+  }
+
+  async listTicketMessages(ticketId: number): Promise<PortalTicketMessage[]> {
+    return db.select().from(portalTicketMessages)
+      .where(eq(portalTicketMessages.ticketId, ticketId))
+      .orderBy(asc(portalTicketMessages.createdAt));
+  }
+
+  async addTicketMessage(data: InsertPortalTicketMessage): Promise<PortalTicketMessage> {
+    const [row] = await db.insert(portalTicketMessages).values(data).returning();
+    if (data.ticketId) {
+      await db.update(portalTickets).set({ updatedAt: new Date() }).where(eq(portalTickets.id, data.ticketId));
+    }
     return row;
   }
 }

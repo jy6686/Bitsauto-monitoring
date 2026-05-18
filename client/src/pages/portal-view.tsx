@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useParams } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import {
   Globe, Phone, TrendingUp, DollarSign, Clock,
   CheckCircle2, AlertTriangle, Download, BarChart3,
   RefreshCw, XCircle, CreditCard, FileText, Zap,
-  Activity, Signal, Wifi,
+  Activity, Signal, Wifi, MessageSquare, Send, ChevronRight, Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -136,13 +136,22 @@ function MiniBarChart({ data, valueKey, color }: {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Tab = "overview" | "calls" | "billing";
+type Tab = "overview" | "calls" | "billing" | "support";
 
 export default function PortalViewPage() {
   const params = useParams<{ token: string }>();
   const token  = params?.token ?? "";
   const [timeRange, setTimeRange] = useState("30d");
   const [tab, setTab] = useState<Tab>("overview");
+
+  // Support ticket state
+  const qc = useQueryClient();
+  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null);
+  const [ticketCategory, setTicketCategory]     = useState("quality");
+  const [ticketSubject, setTicketSubject]       = useState("");
+  const [ticketBody, setTicketBody]             = useState("");
+  const [showNewTicket, setShowNewTicket]       = useState(false);
+  const [clientReply, setClientReply]           = useState("");
 
   const { startDate, endDate } = dateRangeStr(timeRange);
 
@@ -253,6 +262,51 @@ export default function PortalViewPage() {
     XLSX.writeFile(wb, `cdrs-${timeRange}-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
+  // ── Ticket queries and mutations ──────────────────────────────────────────────
+  const { data: ticketsResp, refetch: refetchTickets } = useQuery<{ tickets: any[] }>({
+    queryKey: ["/api/portal/tickets", token],
+    queryFn: () => fetch(`/api/portal/tickets?token=${encodeURIComponent(token)}`).then(r => r.json()),
+    enabled: !!token,
+    staleTime: 15_000,
+  });
+  const myTickets: any[] = ticketsResp?.tickets ?? [];
+
+  const { data: threadData, refetch: refetchThread } = useQuery<{ ticket: any; messages: any[] }>({
+    queryKey: ["/api/portal/tickets", token, selectedTicketId],
+    queryFn: () =>
+      fetch(`/api/portal/tickets/${selectedTicketId}?token=${encodeURIComponent(token)}`).then(r => r.json()),
+    enabled: selectedTicketId !== null,
+    staleTime: 10_000,
+  });
+
+  const createTicketMut = useMutation({
+    mutationFn: () =>
+      fetch("/api/portal/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, category: ticketCategory, subject: ticketSubject, body: ticketBody }),
+      }).then(r => r.json()),
+    onSuccess: (t: any) => {
+      qc.invalidateQueries({ queryKey: ["/api/portal/tickets", token] });
+      setTicketSubject(""); setTicketBody(""); setShowNewTicket(false);
+      setSelectedTicketId(t.id);
+    },
+  });
+
+  const clientReplyMut = useMutation({
+    mutationFn: (body: string) =>
+      fetch(`/api/portal/tickets/${selectedTicketId}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, body }),
+      }).then(r => r.json()),
+    onSuccess: () => {
+      setClientReply("");
+      qc.invalidateQueries({ queryKey: ["/api/portal/tickets", token, selectedTicketId] });
+      qc.invalidateQueries({ queryKey: ["/api/portal/tickets", token] });
+    },
+  });
+
   const balanceColor = balance == null ? "text-gray-400" : balance > 50 ? "text-emerald-500" : balance > 10 ? "text-amber-500" : "text-rose-500";
   const asrColor     = asr >= 60 ? "text-emerald-500" : asr >= 40 ? "text-amber-500" : "text-rose-500";
 
@@ -260,6 +314,7 @@ export default function PortalViewPage() {
     { id: "overview", label: "Overview",      icon: Zap },
     { id: "calls",    label: "Call History",  icon: Phone,      perm: "cdrs" },
     { id: "billing",  label: "Billing",       icon: CreditCard, perm: "billing" },
+    { id: "support",  label: "Support",       icon: MessageSquare },
   ].filter(t => !t.perm || perms.includes(t.perm));
 
   return (
@@ -640,6 +695,196 @@ export default function PortalViewPage() {
               <p className="font-medium mb-0.5">Billing Note</p>
               <p>Amounts shown are estimates based on your contracted rate of ${ratePerMin.toFixed(4)}/min. Final invoiced amounts may differ based on rounding, adjustments, or minimum charges. Contact your account manager for a formal invoice.</p>
             </div>
+          </div>
+        )}
+
+        {/* ── Support Tab ── */}
+        {tab === "support" && (
+          <div className="space-y-4">
+
+            {/* Ticket list + new ticket header */}
+            {!selectedTicketId && (
+              <>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-foreground flex items-center gap-1.5">
+                    <MessageSquare className="h-4 w-4 text-blue-500" /> My Tickets
+                  </h3>
+                  <Button size="sm" onClick={() => setShowNewTicket(v => !v)} data-testid="btn-new-ticket">
+                    <Plus className="h-3.5 w-3.5 mr-1.5" />{showNewTicket ? "Cancel" : "Open Ticket"}
+                  </Button>
+                </div>
+
+                {/* New ticket form */}
+                {showNewTicket && (
+                  <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-5 space-y-4 shadow-sm">
+                    <p className="text-sm font-semibold">New Support Ticket</p>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-gray-600 dark:text-muted-foreground">Category</label>
+                        <select
+                          value={ticketCategory}
+                          onChange={e => setTicketCategory(e.target.value)}
+                          className="w-full text-xs bg-gray-50 dark:bg-muted border border-gray-200 dark:border-border rounded-lg px-2.5 py-1.5 focus:outline-none"
+                          data-testid="select-ticket-category"
+                        >
+                          <option value="quality">Call Quality</option>
+                          <option value="traffic">Traffic Issue</option>
+                          <option value="billing">Billing</option>
+                          <option value="routing">Routing</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-gray-600 dark:text-muted-foreground">Subject</label>
+                        <input
+                          type="text"
+                          value={ticketSubject}
+                          onChange={e => setTicketSubject(e.target.value)}
+                          placeholder="Brief summary…"
+                          maxLength={200}
+                          className="w-full text-xs bg-gray-50 dark:bg-muted border border-gray-200 dark:border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          data-testid="input-ticket-subject"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-gray-600 dark:text-muted-foreground">Description</label>
+                      <textarea
+                        value={ticketBody}
+                        onChange={e => setTicketBody(e.target.value)}
+                        placeholder="Describe the issue — include affected numbers, time range, and any error codes if known…"
+                        rows={4}
+                        className="w-full text-xs bg-gray-50 dark:bg-muted border border-gray-200 dark:border-border rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        data-testid="textarea-ticket-body"
+                      />
+                    </div>
+
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        onClick={() => createTicketMut.mutate()}
+                        disabled={!ticketSubject.trim() || !ticketBody.trim() || createTicketMut.isPending}
+                        data-testid="btn-submit-ticket"
+                      >
+                        <Send className="h-3.5 w-3.5 mr-1.5" />
+                        {createTicketMut.isPending ? "Submitting…" : "Submit Ticket"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Ticket list */}
+                {myTickets.length === 0 ? (
+                  <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-10 text-center shadow-sm">
+                    <MessageSquare className="h-8 w-8 text-gray-300 dark:text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-gray-500">No tickets yet. Open one if you have a question or issue.</p>
+                  </div>
+                ) : (
+                  <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl overflow-hidden shadow-sm divide-y divide-gray-100 dark:divide-border/20">
+                    {myTickets.map((t: any) => {
+                      const statusCfg: Record<string, { label: string; cls: string }> = {
+                        open:           { label: "Open",           cls: "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400" },
+                        in_progress:    { label: "In Progress",    cls: "bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400" },
+                        waiting_client: { label: "Reply Needed",   cls: "bg-purple-50 text-purple-600 dark:bg-purple-500/15 dark:text-purple-400" },
+                        resolved:       { label: "Resolved",       cls: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400" },
+                      };
+                      const s = statusCfg[t.status] ?? statusCfg.open;
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => setSelectedTicketId(t.id)}
+                          className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-muted/10 text-left"
+                          data-testid={`ticket-row-${t.id}`}
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium truncate">{t.subject}</span>
+                              <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-medium", s.cls)}>{s.label}</span>
+                              {t.status === "waiting_client" && (
+                                <span className="text-[10px] text-purple-500 animate-pulse font-semibold">● Action needed</span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-gray-400 mt-0.5 capitalize">{t.category.replace(/_/g, " ")} · #{t.id} · {new Date(t.updatedAt).toLocaleDateString()}</p>
+                          </div>
+                          <ChevronRight className="h-4 w-4 text-gray-400 shrink-0 ml-2" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Thread view */}
+            {selectedTicketId && threadData && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedTicketId(null)} data-testid="btn-back-tickets">
+                    ← Back
+                  </Button>
+                  <span className="text-sm font-semibold">{threadData.ticket?.subject}</span>
+                  <span className={cn(
+                    "text-[10px] px-1.5 py-0.5 rounded font-medium",
+                    threadData.ticket?.status === "resolved"
+                      ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400"
+                      : threadData.ticket?.status === "waiting_client"
+                      ? "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-400"
+                      : "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400",
+                  )}>
+                    {threadData.ticket?.status?.replace(/_/g, " ")}
+                  </span>
+                </div>
+
+                {/* Messages */}
+                <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl overflow-hidden shadow-sm divide-y divide-gray-100 dark:divide-border/20">
+                  {(threadData.messages ?? []).map((m: any) => (
+                    <div key={m.id} className={cn(
+                      "px-4 py-3",
+                      m.author === "operator"
+                        ? "bg-blue-50 dark:bg-blue-500/5"
+                        : "bg-white dark:bg-transparent",
+                    )}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-semibold text-gray-600 dark:text-muted-foreground">
+                          {m.author === "operator" ? "Support Team" : "You"}
+                        </span>
+                        <span className="text-[10px] text-gray-400">
+                          {new Date(m.createdAt).toISOString().replace("T", " ").slice(0, 16)} UTC
+                        </span>
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap">{m.body}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Reply box (disabled if resolved) */}
+                {threadData.ticket?.status !== "resolved" && (
+                  <div className="flex gap-2">
+                    <textarea
+                      value={clientReply}
+                      onChange={e => setClientReply(e.target.value)}
+                      placeholder="Write a reply…"
+                      rows={2}
+                      className="flex-1 text-xs bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      data-testid="textarea-client-reply"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => clientReplyMut.mutate(clientReply)}
+                      disabled={!clientReply.trim() || clientReplyMut.isPending}
+                      data-testid="btn-send-reply"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+                {threadData.ticket?.status === "resolved" && (
+                  <p className="text-center text-xs text-gray-400 py-2">This ticket has been resolved. Open a new ticket if you have further questions.</p>
+                )}
+              </div>
+            )}
           </div>
         )}
 

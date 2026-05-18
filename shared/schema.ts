@@ -1680,3 +1680,31 @@ export const accountActions = pgTable("account_actions", {
 });
 export type AccountAction       = typeof accountActions.$inferSelect;
 export type InsertAccountAction = typeof accountActions.$inferInsert;
+
+// ── Portal Ticket System (V1.1) ───────────────────────────────────────────────
+export const portalTickets = pgTable("portal_tickets", {
+  id:          serial("id").primaryKey(),
+  tokenId:     integer("token_id").notNull(),
+  accountId:   integer("account_id").notNull(),
+  accountName: varchar("account_name", { length: 255 }),
+  category:    varchar("category",     { length: 50  }).notNull(), // traffic|quality|billing|routing|other
+  subject:     varchar("subject",      { length: 255 }).notNull(),
+  status:      varchar("status",       { length: 30  }).notNull().default("open"), // open|in_progress|waiting_client|resolved
+  severity:    varchar("severity",     { length: 20  }).notNull().default("medium"), // low|medium|high
+  createdAt:   timestamp("created_at").defaultNow(),
+  updatedAt:   timestamp("updated_at").defaultNow(),
+});
+export const insertPortalTicketSchema = createInsertSchema(portalTickets).omit({ id: true, createdAt: true, updatedAt: true });
+export type PortalTicket       = typeof portalTickets.$inferSelect;
+export type InsertPortalTicket = z.infer<typeof insertPortalTicketSchema>;
+
+export const portalTicketMessages = pgTable("portal_ticket_messages", {
+  id:        serial("id").primaryKey(),
+  ticketId:  integer("ticket_id").notNull(),
+  author:    varchar("author", { length: 20 }).notNull(), // "client" | "operator"
+  body:      text("body").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export const insertPortalTicketMessageSchema = createInsertSchema(portalTicketMessages).omit({ id: true, createdAt: true });
+export type PortalTicketMessage       = typeof portalTicketMessages.$inferSelect;
+export type InsertPortalTicketMessage = z.infer<typeof insertPortalTicketMessageSchema>;

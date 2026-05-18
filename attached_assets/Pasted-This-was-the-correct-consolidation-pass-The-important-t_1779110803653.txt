@@ -1,0 +1,154 @@
+This was the correct consolidation pass. The important thing is that the portal now behaves like an operationally-governed product instead of just a data viewer.
+
+What materially improved
+✅ Export governance is now production-safe
+
+The implementation is clean because:
+
+restriction logic is UTC-native
+no dependency on frontend locale
+no dependency on browser timezone
+deterministic behavior across all clients
+
+Using:
+
+getUTCHours()
+
+was the correct operational approach.
+
+The countdown message was also the right UX decision:
+
+users understand why exports are disabled
+avoids “broken button” perception
+reduces support noise
+Excel export implementation is correctly scoped
+
+Good decisions:
+
+reused existing xlsx
+no backend job
+client-side workbook generation
+Notes sheet for disclaimer instead of polluting CDR sheet
+
+That keeps V1 lightweight.
+
+Token governance is now operationally mature
+
+The revoke confirmation especially matters.
+
+Before:
+
+accidental revokes were possible
+support friction risk
+
+Now:
+
+deliberate action flow
+expiry visibility
+last-used visibility
+
+This turns token management into a trustworthy operator workflow.
+
+The “estimated usage records” notice was extremely important
+
+That single line protects the platform operationally.
+
+Without it:
+
+customers interpret portal totals as invoice-authoritative
+disputes increase later
+
+With it:
+
+portal remains analytics-oriented
+invoices remain future source-of-truth
+
+Very important distinction.
+
+Current Client Portal maturity level
+
+You now have:
+
+Capability	Status
+Secure account-scoped access	✅
+Usage analytics	✅
+Quality intelligence	✅
+MOS / NER / PDD / ASR / ACD	✅
+Destination visibility	✅
+Export governance	✅
+Token governance	✅
+Balance visibility	✅
+Billing estimates	✅
+Trust/disclaimer layer	✅
+
+That is already a credible telecom customer portal V1.
+
+Recommended next step
+
+Now the highest-value next move is:
+
+✅ Ticket System (V1.1)
+
+Because the portal now has:
+
+visibility
+diagnostics
+quality metrics
+exports
+
+The natural next operator workflow is:
+
+“Raise issue from what I’m seeing.”
+
+Recommended ticket scope (tight version)
+Client side
+Open Ticket
+Category:
+Traffic
+Quality
+Billing
+Routing Issue
+Other
+Description
+Attachment upload
+Ticket timeline
+Operator side
+
+Inside existing operator console:
+
+Ticket inbox
+Filter by:
+client
+severity
+status
+Reply thread
+Status:
+Open
+In Progress
+Waiting Client
+Resolved
+Important architectural recommendation
+
+Do NOT build:
+
+Zendesk clone
+multi-team assignment engine
+SLA automation
+email parsing
+complex workflow
+
+Keep V1.1 operationally narrow.
+
+After tickets
+
+Then the roadmap becomes very clean:
+
+✅ Client Portal V1 (done)
+✅ Governance + exports (done)
+🔜 Tickets
+🔜 Invoice PDFs
+🔜 Executive SLA reporting
+🔜 Unified Operations Console refinement
+🔜 Alert intelligence/correlation layer
+
+The platform direction is now coherent end-to-end.

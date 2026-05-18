@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Globe, Phone, TrendingUp, DollarSign, Clock, CheckCircle2,
   AlertTriangle, Download, BarChart3, Shield, Link2, Plus,
-  Trash2, Copy, RefreshCw, Key, Settings,
+  Trash2, Copy, RefreshCw, Key, Settings, MessageSquare, Send, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -170,7 +170,11 @@ export default function ClientPortalPage() {
   const { toast } = useToast();
   const [selectedAccount, setSelectedAccount] = useState("1");
   const [timeRange, setTimeRange] = useState("today");
-  const [activeTab, setActiveTab] = useState<"usage" | "access">("usage");
+  const [activeTab, setActiveTab] = useState<"usage" | "access" | "tickets">("usage");
+  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null);
+  const [ticketFilter, setTicketFilter] = useState<string>("all");
+  const [operatorReply, setOperatorReply] = useState("");
+  const queryClientAdmin = useQueryClient();
   const [newTokenPerms, setNewTokenPerms] = useState<string[]>(["cdrs", "usage", "billing"]);
   const [showPermPanel, setShowPermPanel] = useState(false);
   const [confirmRevokeId, setConfirmRevokeId] = useState<number | null>(null);
@@ -200,6 +204,43 @@ export default function ClientPortalPage() {
   const totalMin   = cdrs.reduce((s, c) => s + (c.duration ?? 0), 0) / 60;
   const quality    = computeQuality(cdrs);
   const destGroups = computeDestGroups(cdrs);
+
+  // ── Operator ticket queries ──
+  const { data: adminTicketsResp, refetch: refetchAdminTickets } = useQuery<{ tickets: any[] }>({
+    queryKey: ["/api/admin/portal/tickets", ticketFilter],
+    queryFn: () => fetch(`/api/admin/portal/tickets${ticketFilter !== "all" ? `?status=${ticketFilter}` : ""}`).then(r => r.json()),
+    staleTime: 15_000,
+  });
+  const adminTickets: any[] = adminTicketsResp?.tickets ?? [];
+
+  const { data: selectedTicketData, refetch: refetchTicketThread } = useQuery<{ ticket: any; messages: any[] }>({
+    queryKey: ["/api/admin/portal/tickets", selectedTicketId, "thread"],
+    queryFn: () => fetch(`/api/admin/portal/tickets/${selectedTicketId}`).then(r => r.json()),
+    enabled: selectedTicketId !== null,
+    staleTime: 10_000,
+  });
+
+  const updateStatusMut = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      apiRequest("PATCH", `/api/admin/portal/tickets/${id}/status`, { status }).then(r => r.json()),
+    onSuccess: () => {
+      queryClientAdmin.invalidateQueries({ queryKey: ["/api/admin/portal/tickets"] });
+      toast({ title: "Status updated" });
+    },
+    onError: () => toast({ title: "Failed to update status", variant: "destructive" }),
+  });
+
+  const operatorReplyMut = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: string }) =>
+      apiRequest("POST", `/api/admin/portal/tickets/${id}/reply`, { body }).then(r => r.json()),
+    onSuccess: () => {
+      setOperatorReply("");
+      queryClientAdmin.invalidateQueries({ queryKey: ["/api/admin/portal/tickets", selectedTicketId, "thread"] });
+      queryClientAdmin.invalidateQueries({ queryKey: ["/api/admin/portal/tickets"] });
+      toast({ title: "Reply sent" });
+    },
+    onError: () => toast({ title: "Failed to send reply", variant: "destructive" }),
+  });
 
   // ── Portal tokens ──
   const { data: tokensResp, refetch: refetchTokens } = useQuery<PortalToken[]>({
@@ -257,8 +298,9 @@ export default function ClientPortalPage() {
   }
 
   const TABS = [
-    { id: "usage",  label: "Usage & CDRs"   },
-    { id: "access", label: "Client Access Links" },
+    { id: "usage",   label: "Usage & CDRs"        },
+    { id: "access",  label: "Client Access Links"  },
+    { id: "tickets", label: "Support Tickets"      },
   ] as const;
 
   return (
@@ -674,6 +716,158 @@ export default function ClientPortalPage() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── Support Tickets tab ── */}
+        {activeTab === "tickets" && (
+          <div className="space-y-4">
+
+            {/* Header + filter */}
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="text-sm font-semibold flex items-center gap-1.5">
+                <MessageSquare className="h-4 w-4 text-blue-400" /> Client Tickets
+              </h3>
+              <div className="flex items-center gap-2">
+                <select
+                  value={ticketFilter}
+                  onChange={e => { setTicketFilter(e.target.value); setSelectedTicketId(null); }}
+                  className="text-xs bg-muted border border-border rounded-lg px-2 py-1.5 focus:outline-none"
+                  data-testid="select-ticket-filter"
+                >
+                  <option value="all">All</option>
+                  <option value="open">Open</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="waiting_client">Waiting Client</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+                <Button size="sm" variant="ghost" onClick={() => refetchAdminTickets()} data-testid="btn-refresh-tickets">
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+              {/* Ticket list */}
+              <div className="md:col-span-1 rounded-xl border border-border bg-card overflow-hidden">
+                {adminTickets.length === 0 ? (
+                  <div className="p-8 text-center">
+                    <MessageSquare className="h-7 w-7 text-muted-foreground/40 mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground">No tickets in this filter.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border/20">
+                    {adminTickets.map((t: any) => {
+                      const dotCls: Record<string, string> = {
+                        open: "bg-blue-400", in_progress: "bg-amber-400",
+                        waiting_client: "bg-purple-400", resolved: "bg-emerald-400",
+                      };
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => setSelectedTicketId(t.id)}
+                          className={cn(
+                            "w-full text-left px-3 py-3 hover:bg-muted/10 transition-colors",
+                            selectedTicketId === t.id && "bg-muted/20",
+                          )}
+                          data-testid={`admin-ticket-row-${t.id}`}
+                        >
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", dotCls[t.status] ?? "bg-blue-400")} />
+                            <span className="text-xs font-medium truncate">{t.subject}</span>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground pl-3">{t.accountName} · #{t.id} · {new Date(t.updatedAt).toLocaleDateString()}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Thread panel */}
+              <div className="md:col-span-2 rounded-xl border border-border bg-card overflow-hidden">
+                {!selectedTicketId ? (
+                  <div className="p-10 text-center flex flex-col items-center justify-center">
+                    <ChevronRight className="h-7 w-7 text-muted-foreground/30 mb-2" />
+                    <p className="text-xs text-muted-foreground">Select a ticket to view the thread.</p>
+                  </div>
+                ) : !selectedTicketData ? (
+                  <div className="p-8 text-center">
+                    <p className="text-xs text-muted-foreground">Loading…</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col">
+
+                    {/* Ticket header + status buttons */}
+                    <div className="px-4 py-3 border-b border-border/50 flex items-start justify-between gap-3 flex-wrap">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate">{selectedTicketData.ticket?.subject}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {selectedTicketData.ticket?.accountName} · {selectedTicketData.ticket?.category?.replace(/_/g, " ")} · #{selectedTicketData.ticket?.id}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 flex-wrap shrink-0">
+                        {(["open", "in_progress", "waiting_client", "resolved"] as const).map(st => (
+                          <button
+                            key={st}
+                            onClick={() => updateStatusMut.mutate({ id: selectedTicketData.ticket.id, status: st })}
+                            className={cn(
+                              "text-[10px] px-2 py-0.5 rounded font-medium border transition-colors",
+                              selectedTicketData.ticket?.status === st
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground",
+                            )}
+                            data-testid={`btn-status-${st}`}
+                          >
+                            {st === "in_progress" ? "In Progress" : st === "waiting_client" ? "Waiting" : st.charAt(0).toUpperCase() + st.slice(1)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Messages */}
+                    <div className="divide-y divide-border/20 max-h-80 overflow-y-auto">
+                      {(selectedTicketData.messages ?? []).map((m: any) => (
+                        <div key={m.id} className={cn("px-4 py-3", m.author === "operator" ? "bg-primary/5" : "")}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] font-semibold text-muted-foreground">
+                              {m.author === "operator" ? "You (Operator)" : selectedTicketData.ticket?.accountName ?? "Client"}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground/60">
+                              {new Date(m.createdAt).toISOString().replace("T", " ").slice(0, 16)} UTC
+                            </span>
+                          </div>
+                          <p className="text-sm whitespace-pre-wrap">{m.body}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Operator reply box */}
+                    <div className="border-t border-border/50 p-3 flex gap-2">
+                      <textarea
+                        value={operatorReply}
+                        onChange={e => setOperatorReply(e.target.value)}
+                        placeholder="Reply to client…"
+                        rows={2}
+                        className="flex-1 text-xs bg-muted/50 border border-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                        data-testid="textarea-operator-reply"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => operatorReplyMut.mutate({ id: selectedTicketData.ticket.id, body: operatorReply })}
+                        disabled={!operatorReply.trim() || operatorReplyMut.isPending}
+                        data-testid="btn-operator-send-reply"
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+
+                  </div>
+                )}
+              </div>
+
+            </div>
           </div>
         )}
 

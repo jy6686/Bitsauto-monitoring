@@ -21189,5 +21189,100 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── Portal Ticket System (V1.1) ──────────────────────────────────────────────
+  // Client-facing: authenticated via portal token in body/query
+
+  app.post("/api/portal/tickets", async (req: any, res: any) => {
+    try {
+      const tok = await storage.getPortalToken(String(req.body.token ?? ""));
+      if (!tok) return res.status(401).json({ error: "Invalid token" });
+      const { category, subject, body } = req.body;
+      if (!category || !subject || !body) return res.status(400).json({ error: "category, subject, body required" });
+      const ticket = await storage.createPortalTicket({
+        tokenId: tok.id, accountId: Number(tok.accountId), accountName: tok.accountName ?? undefined,
+        category, subject, status: "open", severity: "medium",
+      });
+      await storage.addTicketMessage({ ticketId: ticket.id, author: "client", body });
+      res.json(ticket);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/portal/tickets", async (req: any, res: any) => {
+    try {
+      const tok = await storage.getPortalToken(String(req.query.token ?? ""));
+      if (!tok) return res.status(401).json({ error: "Invalid token" });
+      const tickets = await storage.listPortalTickets({ accountId: Number(tok.accountId) });
+      res.json({ tickets });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/portal/tickets/:id", async (req: any, res: any) => {
+    try {
+      const tok = await storage.getPortalToken(String(req.query.token ?? ""));
+      if (!tok) return res.status(401).json({ error: "Invalid token" });
+      const ticket = await storage.getPortalTicket(Number(req.params.id));
+      if (!ticket || ticket.accountId !== Number(tok.accountId)) return res.status(404).json({ error: "Not found" });
+      const messages = await storage.listTicketMessages(ticket.id);
+      res.json({ ticket, messages });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/portal/tickets/:id/reply", async (req: any, res: any) => {
+    try {
+      const tok = await storage.getPortalToken(String(req.body.token ?? ""));
+      if (!tok) return res.status(401).json({ error: "Invalid token" });
+      const ticket = await storage.getPortalTicket(Number(req.params.id));
+      if (!ticket || ticket.accountId !== Number(tok.accountId)) return res.status(404).json({ error: "Not found" });
+      if (!req.body.body?.trim()) return res.status(400).json({ error: "body required" });
+      const msg = await storage.addTicketMessage({ ticketId: ticket.id, author: "client", body: req.body.body.trim() });
+      if (ticket.status === "waiting_client") await storage.updatePortalTicketStatus(ticket.id, "open");
+      res.json(msg);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Operator-facing: requires authenticated session
+  app.get("/api/admin/portal/tickets", async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const filter: { status?: string } = {};
+      if (req.query.status && req.query.status !== "all") filter.status = String(req.query.status);
+      const tickets = await storage.listPortalTickets(filter);
+      res.json({ tickets });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/admin/portal/tickets/:id", async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const ticket = await storage.getPortalTicket(Number(req.params.id));
+      if (!ticket) return res.status(404).json({ error: "Not found" });
+      const messages = await storage.listTicketMessages(ticket.id);
+      res.json({ ticket, messages });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/admin/portal/tickets/:id/status", async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const { status } = req.body;
+      if (!["open", "in_progress", "waiting_client", "resolved"].includes(status))
+        return res.status(400).json({ error: "Invalid status" });
+      const ticket = await storage.updatePortalTicketStatus(Number(req.params.id), status);
+      res.json(ticket);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/admin/portal/tickets/:id/reply", async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const ticket = await storage.getPortalTicket(Number(req.params.id));
+      if (!ticket) return res.status(404).json({ error: "Not found" });
+      if (!req.body.body?.trim()) return res.status(400).json({ error: "body required" });
+      const msg = await storage.addTicketMessage({ ticketId: ticket.id, author: "operator", body: req.body.body.trim() });
+      await storage.updatePortalTicketStatus(ticket.id, "waiting_client");
+      res.json(msg);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   return httpServer;
 }
