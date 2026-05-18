@@ -168,6 +168,17 @@ export default function PortalViewPage() {
     retry: false,
   });
 
+  // ── SLA Report query — must be declared before any early returns ─────────────
+  const [slaPeriod, setSlaPeriod] = useState("30d");
+  const { data: slaData, isLoading: slaLoading, refetch: refetchSla } = useQuery<any>({
+    queryKey: ["/api/portal/sla-summary", token, slaPeriod],
+    queryFn: () =>
+      fetch(`/api/portal/sla-summary?token=${encodeURIComponent(token)}&period=${slaPeriod}`)
+        .then(r => r.json()),
+    enabled: !!token,
+    staleTime: 60_000,
+  });
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-background flex items-center justify-center">
@@ -261,17 +272,6 @@ export default function PortalViewPage() {
     XLSX.utils.book_append_sheet(wb, note, "Notes");
     XLSX.writeFile(wb, `cdrs-${timeRange}-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
-
-  // ── SLA Report query ─────────────────────────────────────────────────────────
-  const [slaPeriod, setSlaPeriod] = useState("30d");
-  const { data: slaData, isLoading: slaLoading, refetch: refetchSla } = useQuery<any>({
-    queryKey: ["/api/portal/sla-summary", token, slaPeriod],
-    queryFn: () =>
-      fetch(`/api/portal/sla-summary?token=${encodeURIComponent(token)}&period=${slaPeriod}`)
-        .then(r => r.json()),
-    enabled: !!token,
-    staleTime: 60_000,
-  });
 
   function exportSlaCsv() {
     if (!slaData) return;
