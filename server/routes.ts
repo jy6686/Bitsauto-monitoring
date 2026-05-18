@@ -15071,6 +15071,216 @@ export async function registerRoutes(
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
+  // ── BitsEye Analytics Dashboard ────────────────────────────────────────────────
+  // POST /api/analytics/dashboard
+  // Filter contract v1: { version, filters: { c_company_name, v_company_name, country }, time: { window } }
+  // CDR cache + routing cache only — no Sippy calls, no UI assumptions.
+  app.post('/api/analytics/dashboard',
+    (req: any, res: any, next: any) => requireRole(['admin','management','viewer'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const body = req.body ?? {};
+
+        // ── Time window → server-side granularity (UI never decides this) ──────
+        const WINDOW_MS: Record<string, number> = {
+          '1h':  1  * 3600_000,
+          '6h':  6  * 3600_000,
+          '24h': 24 * 3600_000,
+          '7d':  7  * 86_400_000,
+          '30d': 30 * 86_400_000,
+          '90d': 90 * 86_400_000,
+        };
+        const windowStr = String(body?.time?.window ?? '24h');
+        const windowMs  = WINDOW_MS[windowStr] ?? WINDOW_MS['24h'];
+        const cutoff    = Date.now() - windowMs;
+
+        // Aggregation granularity derived from window size
+        // ≤24h → hourly | ≤7d → 6-hour | >7d → daily
+        const granularity =
+          windowMs <= 86_400_000     ? 'hourly'
+          : windowMs <= 7 * 86_400_000 ? '6h'
+          : 'daily';
+        const bucketMs =
+          granularity === 'hourly' ? 3_600_000
+          : granularity === '6h'   ? 6 * 3_600_000
+          : 86_400_000;
+
+        // ── Filter contract v1 ─────────────────────────────────────────────────
+        const f         = body?.filters ?? {};
+        const fClient   = f.c_company_name ? String(f.c_company_name).toLowerCase() : null;
+        const fVendor   = f.v_company_name ? String(f.v_company_name).toLowerCase() : null;
+        const fCountry  = f.country        ? String(f.country).toLowerCase()        : null;
+        // switch_name: single-switch system — no-op filter
+        // gb_external_description: not in CDR cache — reserved for Phase 2
+
+        // ── CDR filtering ──────────────────────────────────────────────────────
+        const cdrs = [...cdrCache.values()].filter((c: any) => {
+          const ts = c.startTime
+            ? new Date(c.startTime).getTime()
+            : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+          if (!ts || ts < cutoff) return false;
+
+          if (fClient) {
+            const acctId = String(c.iAccount ?? '');
+            const name   = (c.clientName || accountNameCache.get(acctId) || '').toLowerCase();
+            if (!name.includes(fClient)) return false;
+          }
+          if (fVendor) {
+            const name = (c.vendor || connectionVendorCache.get(String(c.iConnection ?? '')) || '').toLowerCase();
+            if (!name.includes(fVendor)) return false;
+          }
+          if (fCountry) {
+            if (!(c.country || '').toLowerCase().includes(fCountry)) return false;
+          }
+          return true;
+        });
+
+        // ── Helpers ────────────────────────────────────────────────────────────
+        const isAnswered = (c: any) => String(c.result) === '0' && (Number(c.duration) || 0) > 0;
+        const isRna      = (c: any) => String(c.result) === '0' && (Number(c.duration) || 0) === 0;
+        const isNetFail  = (c: any) => ['100','101','102','103','104','105'].includes(String(c.result));
+        const cdrTs      = (c: any) =>
+          c.startTime  ? new Date(c.startTime).getTime()
+          : c.connectTime ? new Date(c.connectTime).getTime() : 0;
+
+        const answered    = cdrs.filter(isAnswered);
+        const rna         = cdrs.filter(isRna);
+        const networkFail = cdrs.filter(isNetFail);
+        const totalCalls  = cdrs.length;
+        const ansCount    = answered.length;
+
+        // ── KPIs ───────────────────────────────────────────────────────────────
+        const asr        = totalCalls > 0 ? parseFloat((ansCount / totalCalls * 100).toFixed(2)) : 0;
+        const totalDurSec = answered.reduce((s: number, c: any) => s + (Number(c.duration) || 0), 0);
+        const acd        = ansCount > 0 ? Math.round(totalDurSec / ansCount) : 0;
+        const pddArr     = answered.map((c: any) => Number(c.pdd1xx ?? c.pdd) || 0).filter((v: number) => v > 0);
+        const avgPddSec  = pddArr.length > 0
+          ? parseFloat((pddArr.reduce((a: number, b: number) => a + b, 0) / pddArr.length).toFixed(3)) : 0;
+        const mos        = ansCount > 0 && avgPddSec > 0
+          ? parseFloat(estimateMOSFromPDD(avgPddSec * 1000).toFixed(2)) : null;
+        const mosGrade   = mos !== null ? mosToGrade(mos) : null;
+        const totalMinutes = parseFloat((totalDurSec / 60).toFixed(2));
+        const totalCost  = parseFloat(cdrs.reduce((s: number, c: any) => s + (Number(c.cost) || 0), 0).toFixed(4));
+        const nerNum     = ansCount + rna.length;
+        const ner        = totalCalls > 0 ? parseFloat((nerNum / totalCalls * 100).toFixed(2)) : null;
+
+        // ── Time series ────────────────────────────────────────────────────────
+        const bucketMap = new Map<number, { calls: number; answered: number; durationSec: number; cost: number }>();
+        for (const c of cdrs) {
+          const ts  = cdrTs(c); if (!ts) continue;
+          const bkt = Math.floor(ts / bucketMs) * bucketMs;
+          const row = bucketMap.get(bkt) ?? { calls: 0, answered: 0, durationSec: 0, cost: 0 };
+          row.calls++;
+          if (isAnswered(c)) { row.answered++; row.durationSec += Number(c.duration) || 0; }
+          row.cost += Number(c.cost) || 0;
+          bucketMap.set(bkt, row);
+        }
+        const timeSeries = [...bucketMap.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([bkt, d]) => ({
+            bucket:   new Date(bkt).toISOString(),
+            calls:    d.calls,
+            answered: d.answered,
+            asr:      d.calls > 0 ? parseFloat((d.answered / d.calls * 100).toFixed(1)) : 0,
+            minutes:  parseFloat((d.durationSec / 60).toFixed(2)),
+            cost:     parseFloat(d.cost.toFixed(4)),
+          }));
+
+        // ── Top vendors ────────────────────────────────────────────────────────
+        const vendorMap = new Map<string, { calls: number; answered: number; durationSec: number; cost: number }>();
+        for (const c of cdrs) {
+          const name = (c as any).vendor
+            || connectionVendorCache.get(String((c as any).iConnection ?? ''))
+            || 'Unknown';
+          const row = vendorMap.get(name) ?? { calls: 0, answered: 0, durationSec: 0, cost: 0 };
+          row.calls++;
+          if (isAnswered(c)) { row.answered++; row.durationSec += Number(c.duration) || 0; }
+          row.cost += Number(c.cost) || 0;
+          vendorMap.set(name, row);
+        }
+        const topVendors = [...vendorMap.entries()]
+          .sort(([, a], [, b]) => b.calls - a.calls).slice(0, 10)
+          .map(([vendor, d]) => ({
+            vendor,
+            calls:    d.calls,
+            answered: d.answered,
+            asr:      d.calls > 0 ? parseFloat((d.answered / d.calls * 100).toFixed(1)) : 0,
+            minutes:  parseFloat((d.durationSec / 60).toFixed(2)),
+            cost:     parseFloat(d.cost.toFixed(4)),
+          }));
+
+        // ── Top clients ────────────────────────────────────────────────────────
+        const clientMap = new Map<string, { calls: number; answered: number; durationSec: number; cost: number }>();
+        for (const c of cdrs) {
+          const acctId = String((c as any).iAccount ?? '');
+          const name   = (c as any).clientName
+            || accountNameCache.get(acctId)
+            || (acctId ? `Acct.${acctId}` : 'Unknown');
+          const row = clientMap.get(name) ?? { calls: 0, answered: 0, durationSec: 0, cost: 0 };
+          row.calls++;
+          if (isAnswered(c)) { row.answered++; row.durationSec += Number(c.duration) || 0; }
+          row.cost += Number(c.cost) || 0;
+          clientMap.set(name, row);
+        }
+        const topClients = [...clientMap.entries()]
+          .sort(([, a], [, b]) => b.calls - a.calls).slice(0, 10)
+          .map(([client, d]) => ({
+            client,
+            calls:    d.calls,
+            answered: d.answered,
+            asr:      d.calls > 0 ? parseFloat((d.answered / d.calls * 100).toFixed(1)) : 0,
+            minutes:  parseFloat((d.durationSec / 60).toFixed(2)),
+            cost:     parseFloat(d.cost.toFixed(4)),
+          }));
+
+        // ── Top destinations (countries) ───────────────────────────────────────
+        const destMap = new Map<string, { calls: number; answered: number; durationSec: number }>();
+        for (const c of cdrs) {
+          const country = (c as any).country || 'Unknown';
+          const row = destMap.get(country) ?? { calls: 0, answered: 0, durationSec: 0 };
+          row.calls++;
+          if (isAnswered(c)) { row.answered++; row.durationSec += Number(c.duration) || 0; }
+          destMap.set(country, row);
+        }
+        const topDestinations = [...destMap.entries()]
+          .sort(([, a], [, b]) => b.calls - a.calls).slice(0, 15)
+          .map(([country, d]) => ({
+            country,
+            calls:    d.calls,
+            answered: d.answered,
+            asr:      d.calls > 0 ? parseFloat((d.answered / d.calls * 100).toFixed(1)) : 0,
+            minutes:  parseFloat((d.durationSec / 60).toFixed(2)),
+            pct:      totalCalls > 0 ? parseFloat((d.calls / totalCalls * 100).toFixed(1)) : 0,
+          }));
+
+        res.json({
+          kpis: { totalCalls, answeredCalls: ansCount, asr, acd, pdd: avgPddSec, mos, mosGrade, ner, totalMinutes, totalCost },
+          timeSeries,
+          topVendors,
+          topClients,
+          topDestinations,
+          breakout: {
+            answered:    ansCount,
+            failed:      totalCalls - ansCount,
+            rna:         rna.length,
+            networkFail: networkFail.length,
+          },
+          meta: {
+            version:        'v1',
+            window:         windowStr,
+            granularity,
+            cdrCount:       totalCalls,
+            cacheSize:      cdrCache.size,
+            updatedAt:      cdrCacheUpdatedAt?.toISOString() ?? null,
+            filtersApplied: { c_company_name: fClient, v_company_name: fVendor, country: fCountry },
+          },
+        });
+      } catch (e: any) {
+        res.status(500).json({ message: e.message });
+      }
+    }
+  );
+
   // ── Revenue & Margin Analytics ─────────────────────────────────────────────────
   app.get('/api/analytics/revenue', (req, res, next) => requireRole(['admin','management'], req, res, next), async (req, res) => {
     try {
