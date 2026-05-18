@@ -1,0 +1,406 @@
+This is now a very clean and enterprise-correct client portal scope.
+You’ve successfully separated:
+
+operator intelligence
+from
+customer visibility
+
+That is exactly how mature telecom platforms are structured.
+
+✅ Final Approved Client Portal Scope
+Portal Philosophy
+
+Clients should experience:
+
+enterprise telecom analytics portal
+
+NOT:
+
+carrier engineering console
+
+That boundary is now correctly defined.
+
+✅ What Clients WILL See
+1. Quality (Simplified)
+KPIs only:
+ASR
+ACD
+PDD
+Total Calls
+Successful Calls
+Failed Calls
+❌ NOT shown
+
+You correctly removed:
+
+graphs
+trends
+SLA panels
+
+That keeps the portal:
+
+simpler
+faster
+cleaner
+less confusing for non-technical customers
+
+Excellent decision.
+
+2. Usage
+Approved visibility:
+daily traffic
+peak usage
+destination usage
+concurrent calls
+usage summary
+Correct boundary:
+
+Everything remains:
+
+account-scoped only
+
+No cross-customer exposure risk.
+
+3. Invoices (Coming Soon)
+
+Correct minimal financial scope:
+
+Clients can:
+download PDF invoices
+view payment status
+view statements
+❌ NOT exposed
+margin
+vendor costs
+routing costs
+telecom billing internals
+
+Very important separation.
+
+4. Tickets
+
+This is one of the highest-value client features operationally.
+
+Approved:
+open ticket
+attach screenshots/files
+billing issue category
+traffic issue category
+ticket timeline/history
+
+This will significantly reduce:
+
+WhatsApp support
+manual follow-ups
+repeated troubleshooting
+5. Balance (Read-only)
+
+Correct.
+
+Show:
+current balance
+credit limit
+last payment
+overdue warning
+❌ NOT allowed
+recharge
+balance adjustment
+payment manipulation
+financial actions
+
+That keeps finance control internal.
+
+🚫 Permanently Internal (Operator Only)
+
+These should NEVER appear in client scope:
+
+Internal Telecom Layer	Status
+Vendors	Hidden
+Routing groups	Hidden
+LCR	Hidden
+CPS	Hidden
+Capacities	Hidden
+Fraud controls	Hidden
+AI Ops	Hidden
+Routing simulator	Hidden
+Vendor ranking	Hidden
+Carrier engineering data	Hidden
+
+This is the correct long-term governance model.
+
+🧭 What the client portal should feel like
+
+The experience should feel similar to:
+
+enterprise telecom dashboard
+cloud communications portal
+business analytics console
+
+NOT:
+
+Sippy
+switch UI
+carrier routing tool
+✅ Recommended V1 Client Portal Navigation
+
+Very clean structure:
+
+Dashboard
+Usage
+Quality
+Tickets
+Invoices
+Balance
+Profile
+
+Nothing more.
+
+That simplicity is a strength.
+
+🚨 One very important recommendation
+
+Do NOT reuse operator pages directly.
+
+Instead:
+
+create dedicated client-safe APIs
+create dedicated client-safe pages
+sanitize all response objects
+
+Because many operator endpoints already contain:
+
+vendor IDs
+connection names
+routing references
+AI Ops metadata
+
+Client APIs should be:
+
+purpose-built
+
+not filtered versions of operator endpoints.
+
+🔒 Security architecture recommendation
+
+Client session should always be scoped by:
+
+accountId
+clientId
+permitted destinations
+
+Never trust frontend filtering alone.
+
+All filtering must happen server-side.
+
+✅ Final Platform Structure (now very mature)
+Layer	Audience
+Operations Console	Internal NOC
+AI Ops / Verdicts	Internal engineering
+Routing & Vendor Governance	Internal telecom ops
+Billing & Finance	Finance/admin
+Client Portal	Customer visibility only
+
+This is now a properly segmented telecom platform architecture.
+
+lets start Final Approved Client Portal Scope
+
+Start with a very small, controlled V1.
+That is the safest and fastest path.
+
+Do NOT begin with:
+
+invoices
+payments
+real-time analytics
+advanced ticket workflows
+
+First establish:
+
+secure client identity + account-scoped visibility
+
+Everything else builds on top of that.
+
+✅ Recommended Build Order — Client Portal V1
+Phase 1 — Foundation (START HERE)
+Goal
+
+Create a completely isolated client-safe environment.
+
+1. Client Portal Authentication
+
+Separate from admin/operator login.
+
+Recommended:
+portal.bitsauto.com
+
+OR:
+
+/client-portal
+Client roles:
+Role	Access
+Client Admin	All client accounts
+Client User	Limited/read-only
+Finance User	Invoices/balance only
+Required backend model
+
+New entities:
+
+client_portal_users
+client_portal_sessions
+client_account_permissions
+2. Account Scope Engine (MOST IMPORTANT)
+
+Every API must enforce:
+
+WHERE account_id IN permitted_accounts
+
+This is the single most important security rule.
+
+3. Client Dashboard (Simple)
+
+NOT graphs-heavy.
+
+Minimal cards only:
+
+Widget	Purpose
+Current Balance	Financial visibility
+Active Calls	Operational visibility
+ASR	Quality
+ACD	Quality
+Total Calls Today	Usage
+Open Tickets	Support
+4. Usage Page
+
+Simple table:
+
+| Destination | Calls | Minutes | ASR | ACD |
+
+Filters:
+
+today
+7d
+30d
+
+Nothing more initially.
+
+5. Quality Page
+
+Very lightweight.
+
+Per account:
+
+ASR
+ACD
+PDD
+Failed calls
+Successful calls
+
+No routing explanation.
+
+No carrier explanation.
+
+No vendor explanation.
+
+6. Ticket System
+
+This should be part of V1.
+
+Because operationally it creates immediate value.
+
+Ticket types:
+Quality Issue
+Billing Issue
+CLI Issue
+Routing Issue
+General Inquiry
+Ticket flow:
+OPEN → IN PROGRESS → RESOLVED
+7. Balance Page
+
+Read-only.
+
+Field	Example
+Current Balance	$1,250
+Credit Limit	$5,000
+Last Payment	May 10
+Due Status	Healthy
+❌ Explicitly NOT in V1
+
+Avoid these initially:
+
+Feature	Reason
+Payments	Compliance complexity
+Invoice generation	Billing closure not finished
+Live graphs	Not needed
+WebRTC softphone	Scope explosion
+Routing visibility	Internal only
+Vendor exposure	Internal only
+Fraud analytics	Internal only
+AI Ops	Internal only
+✅ Recommended UI Structure
+
+Very clean sidebar:
+
+Dashboard
+Usage
+Quality
+Tickets
+Balance
+Profile
+Logout
+
+That’s enough for a strong V1.
+
+✅ Recommended Backend Strategy
+
+Do NOT reuse operator APIs directly.
+
+Create:
+
+/api/client/*
+
+Examples:
+
+/api/client/dashboard
+/api/client/usage
+/api/client/quality
+/api/client/tickets
+/api/client/balance
+
+Each endpoint:
+
+account-scoped
+sanitized
+client-safe
+✅ Most Important Architectural Rule
+
+Client portal should NEVER know:
+
+vendor
+connection
+route
+carrier
+routing group
+AI Ops verdict
+routing simulator
+
+Internally you may use those systems.
+
+But clients only see:
+
+service quality outcome
+
+not:
+
+telecom operational mechanics
+✅ What I Recommend Building FIRST
+Exact first milestone:
+Authentication + Dashboard + Account Scope
+
+Because once that exists:
+
+every future module becomes safe
+permissions become stable
+portal architecture becomes permanent
+
+That is the correct starting point.
