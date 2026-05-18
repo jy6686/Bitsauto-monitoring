@@ -431,6 +431,9 @@ function Router() {
       <Route path="/ai-ops">
         {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="ai_ops" />}
       </Route>
+      <Route path="/aiops">
+        {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="ai_ops" />}
+      </Route>
       <Route path="/carrier-intelligence">
         {() => <ProtectedRoute component={CarrierIntelligencePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
       </Route>
