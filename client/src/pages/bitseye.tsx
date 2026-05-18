@@ -1693,7 +1693,7 @@ interface AnalyticsDashboardResponse {
   topVendors:      AnalyticsVendorRow[];
   topClients:      AnalyticsClientRow[];
   topDestinations: AnalyticsDestRow[];
-  breakout: { answered: number; failed: number; rna: number; networkFail: number };
+  breakout: { answered: number; failed: number; rna: number; networkFail: number; otherFailed: number };
   meta: { version: string; window: string; granularity: string; cdrCount: number; cacheSize: number; updatedAt: string | null; filtersApplied: Record<string, string | null> };
 }
 
@@ -1892,7 +1892,7 @@ function AnalyticsDashboardView() {
                   { label: 'Answered',     value: breakout.answered,    cls: 'text-emerald-400' },
                   { label: 'RNA',          value: breakout.rna,         cls: 'text-amber-400' },
                   { label: 'Network Fail', value: breakout.networkFail, cls: 'text-rose-400' },
-                  { label: 'Other Failed', value: breakout.failed - breakout.rna - breakout.networkFail, cls: 'text-rose-300' },
+                  { label: 'Other Failed', value: breakout.otherFailed, cls: 'text-rose-300' },
                 ] as const).map((d, i) => (
                   <span key={i} className="flex items-center gap-1.5">
                     <span className="text-muted-foreground/25">·</span>

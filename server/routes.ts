@@ -15264,6 +15264,7 @@ export async function registerRoutes(
             failed:      totalCalls - ansCount,
             rna:         rna.length,
             networkFail: networkFail.length,
+            otherFailed: (totalCalls - ansCount) - rna.length - networkFail.length,
           },
           meta: {
             version:        'v1',
