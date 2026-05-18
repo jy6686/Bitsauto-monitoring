@@ -173,6 +173,7 @@ export default function ClientPortalPage() {
   const [activeTab, setActiveTab] = useState<"usage" | "access">("usage");
   const [newTokenPerms, setNewTokenPerms] = useState<string[]>(["cdrs", "usage", "billing"]);
   const [showPermPanel, setShowPermPanel] = useState(false);
+  const [confirmRevokeId, setConfirmRevokeId] = useState<number | null>(null);
 
   // ── Accounts list ──
   const { data: accountsResp } = useQuery<{ accounts: any[] }>({
@@ -578,10 +579,33 @@ export default function ClientPortalPage() {
                       let tokPerms: string[] = ["cdrs", "usage", "billing"];
                       try { tokPerms = JSON.parse(tok.permissions ?? '["cdrs","usage","billing"]'); } catch {}
                       const PERM_LABELS: Record<string, string> = { cdrs: "CDRs", usage: "Usage", billing: "Billing" };
+
+                      // Expiry badge
+                      let expiryBadge: { label: string; cls: string } | null = null;
+                      if (tok.expiresAt) {
+                        const daysLeft = Math.ceil((new Date(tok.expiresAt).getTime() - Date.now()) / 86_400_000);
+                        if (daysLeft < 0) {
+                          expiryBadge = { label: "Expired", cls: "bg-rose-500/15 text-rose-400 border-rose-500/20" };
+                        } else if (daysLeft <= 7) {
+                          expiryBadge = { label: `Expires in ${daysLeft}d`, cls: "bg-amber-500/15 text-amber-400 border-amber-500/20" };
+                        } else {
+                          expiryBadge = { label: `${daysLeft}d left`, cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" };
+                        }
+                      }
+
+                      const isConfirming = confirmRevokeId === tok.id;
+
                       return (
                         <tr key={tok.id} className="border-b border-border/50 last:border-0 hover:bg-muted/5" data-testid={`row-token-${tok.id}`}>
                           <td className="px-4 py-3">
-                            <p className="font-medium text-sm">{tok.accountName}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-medium text-sm">{tok.accountName}</p>
+                              {expiryBadge && (
+                                <Badge className={cn("text-[9px] h-4 px-1 border", expiryBadge.cls)}>
+                                  {expiryBadge.label}
+                                </Badge>
+                              )}
+                            </div>
                             <p className="text-[10px] text-muted-foreground mt-0.5">ID {tok.accountId}</p>
                           </td>
                           <td className="px-4 py-3">
@@ -597,27 +621,51 @@ export default function ClientPortalPage() {
                             {new Date(tok.createdAt).toLocaleDateString()}
                           </td>
                           <td className="px-4 py-3 text-xs text-muted-foreground">
-                            {tok.lastUsedAt ? new Date(tok.lastUsedAt).toLocaleString() : "Never"}
+                            {tok.lastUsedAt
+                              ? <span title={new Date(tok.lastUsedAt).toISOString()}>{new Date(tok.lastUsedAt).toLocaleDateString()}</span>
+                              : <span className="text-muted-foreground/40">Never</span>}
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex items-center gap-1.5">
-                              <Button
-                                size="sm" variant="outline"
-                                onClick={() => copyLink(tok.token)}
-                                data-testid={`button-copy-token-${tok.id}`}
-                              >
-                                <Copy className="h-3 w-3 mr-1" /> Copy Link
-                              </Button>
-                              <Button
-                                size="sm" variant="ghost"
-                                className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
-                                onClick={() => revokeTokenMut.mutate(tok.id)}
-                                disabled={revokeTokenMut.isPending}
-                                data-testid={`button-revoke-token-${tok.id}`}
-                              >
-                                <Trash2 className="h-3 w-3 mr-1" /> Revoke
-                              </Button>
-                            </div>
+                            {isConfirming ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-rose-400 font-medium">Revoke this link?</span>
+                                <Button
+                                  size="sm" variant="ghost"
+                                  className="text-rose-400 hover:bg-rose-500/10 h-7 px-2 text-xs"
+                                  onClick={() => { revokeTokenMut.mutate(tok.id); setConfirmRevokeId(null); }}
+                                  disabled={revokeTokenMut.isPending}
+                                  data-testid={`button-confirm-revoke-${tok.id}`}
+                                >
+                                  Yes, revoke
+                                </Button>
+                                <Button
+                                  size="sm" variant="ghost"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => setConfirmRevokeId(null)}
+                                  data-testid={`button-cancel-revoke-${tok.id}`}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  size="sm" variant="outline"
+                                  onClick={() => copyLink(tok.token)}
+                                  data-testid={`button-copy-token-${tok.id}`}
+                                >
+                                  <Copy className="h-3 w-3 mr-1" /> Copy Link
+                                </Button>
+                                <Button
+                                  size="sm" variant="ghost"
+                                  className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                                  onClick={() => setConfirmRevokeId(tok.id)}
+                                  data-testid={`button-revoke-token-${tok.id}`}
+                                >
+                                  <Trash2 className="h-3 w-3 mr-1" /> Revoke
+                                </Button>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       );

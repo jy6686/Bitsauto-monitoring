@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import * as XLSX from "xlsx";
 import {
   Globe, Phone, TrendingUp, DollarSign, Clock,
   CheckCircle2, AlertTriangle, Download, BarChart3,
@@ -145,7 +146,7 @@ export default function PortalViewPage() {
 
   const { startDate, endDate } = dateRangeStr(timeRange);
 
-  const { data, isLoading, isError, refetch } = useQuery<PortalData>({
+  const { data, isLoading, isError, refetch, dataUpdatedAt } = useQuery<PortalData>({
     queryKey: ["/api/portal/view", token, timeRange],
     queryFn: () =>
       fetch(`/api/portal/view?token=${encodeURIComponent(token)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`)
@@ -195,16 +196,61 @@ export default function PortalViewPage() {
   const daily        = data?.daily        ?? [];
   const balance      = data?.balance;
 
+  function isExportAllowed(): boolean {
+    const h = new Date().getUTCHours();
+    return h >= 22 || h < 6;
+  }
+
+  function exportWindowInfo(): { allowed: boolean; hint: string } {
+    const now = new Date();
+    const h   = now.getUTCHours();
+    if (h >= 22 || h < 6) return { allowed: true, hint: "Export window open (22:00–06:00 UTC)" };
+    const minsToOpen = ((22 - h - 1) * 60) + (60 - now.getUTCMinutes());
+    const hrs  = Math.floor(minsToOpen / 60);
+    const mins = minsToOpen % 60;
+    return {
+      allowed: false,
+      hint: `Exports open at 22:00 UTC · opens in ${hrs > 0 ? `${hrs}h ` : ""}${mins}m`,
+    };
+  }
+
+  function fmtUtc(iso?: string): string {
+    if (!iso) return "—";
+    return new Date(iso).toISOString().replace("T", " ").slice(0, 19) + " UTC";
+  }
+
   function handleExport() {
     downloadCsv(`cdrs-${timeRange}-${new Date().toISOString().slice(0, 10)}.csv`, [
-      ["Time", "CLI", "CLD", "Duration", "Outcome", "Cost"],
+      ["Time (UTC)", "CLI", "CLD", "Duration", "Outcome", "Cost (USD)"],
       ...cdrs.map(r => [
-        r.startTime ? new Date(r.startTime).toLocaleString() : "—",
+        fmtUtc(r.startTime),
         r.caller ?? "—", r.callee ?? "—",
         fmtDur(r.duration), (r.duration ?? 0) > 0 ? "connected" : "failed",
         (r.cost ?? 0).toFixed(4),
       ]),
+      [],
+      ["Billing note: amounts are estimates based on contracted rate. Final invoiced amounts may differ."],
     ]);
+  }
+
+  function handleExcelExport() {
+    const rows = [
+      ["Time (UTC)", "CLI", "CLD", "Duration (s)", "Outcome", "Cost (USD)"],
+      ...cdrs.map(r => [
+        fmtUtc(r.startTime),
+        r.caller ?? "", r.callee ?? "",
+        r.duration ?? 0,
+        (r.duration ?? 0) > 0 ? "connected" : "failed",
+        parseFloat((r.cost ?? 0).toFixed(4)),
+      ]),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "CDRs");
+    const note = XLSX.utils.aoa_to_sheet([["Billing note: amounts are estimates based on contracted rate. Final invoiced amounts may differ."]]);
+    XLSX.utils.book_append_sheet(wb, note, "Notes");
+    XLSX.writeFile(wb, `cdrs-${timeRange}-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
   const balanceColor = balance == null ? "text-gray-400" : balance > 50 ? "text-emerald-500" : balance > 10 ? "text-amber-500" : "text-rose-500";
@@ -231,20 +277,27 @@ export default function PortalViewPage() {
               <p className="text-xs text-gray-400">Account #{data?.accountId} · Self-service portal</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <select
-              className="text-xs bg-gray-100 dark:bg-muted border border-gray-200 dark:border-border rounded-lg px-2 py-1.5 focus:outline-none"
-              value={timeRange}
-              onChange={e => setTimeRange(e.target.value)}
-              data-testid="select-time-range"
-            >
-              <option value="today">Today</option>
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
-            </select>
-            <Button variant="ghost" size="sm" onClick={() => refetch()} data-testid="btn-refresh">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
+              <select
+                className="text-xs bg-gray-100 dark:bg-muted border border-gray-200 dark:border-border rounded-lg px-2 py-1.5 focus:outline-none"
+                value={timeRange}
+                onChange={e => setTimeRange(e.target.value)}
+                data-testid="select-time-range"
+              >
+                <option value="today">Today</option>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+              </select>
+              <Button variant="ghost" size="sm" onClick={() => refetch()} data-testid="btn-refresh">
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </div>
+            {dataUpdatedAt > 0 && (
+              <p className="text-[10px] text-gray-400 dark:text-muted-foreground/60">
+                Updated {new Date(dataUpdatedAt).toISOString().replace("T", " ").slice(0, 19)} UTC
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -449,11 +502,38 @@ export default function PortalViewPage() {
         {/* ── Call History Tab ── */}
         {tab === "calls" && perms.includes("cdrs") && (
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm text-gray-500">{cdrs.length} record{cdrs.length === 1 ? "" : "s"} in this period</p>
-              <Button variant="outline" size="sm" onClick={handleExport} disabled={cdrs.length === 0} data-testid="btn-export-csv">
-                <Download className="h-4 w-4 mr-1.5" />Export CSV
-              </Button>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+              <div>
+                <p className="text-sm text-gray-500">{cdrs.length} record{cdrs.length === 1 ? "" : "s"} in this period</p>
+                {(() => {
+                  const win = exportWindowInfo();
+                  return (
+                    <p className={cn("text-[10px] mt-0.5", win.allowed ? "text-emerald-500" : "text-amber-500")}>
+                      {win.hint}
+                    </p>
+                  );
+                })()}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline" size="sm"
+                  onClick={handleExport}
+                  disabled={cdrs.length === 0 || !isExportAllowed()}
+                  title={!isExportAllowed() ? exportWindowInfo().hint : undefined}
+                  data-testid="btn-export-csv"
+                >
+                  <Download className="h-4 w-4 mr-1.5" />CSV
+                </Button>
+                <Button
+                  variant="outline" size="sm"
+                  onClick={handleExcelExport}
+                  disabled={cdrs.length === 0 || !isExportAllowed()}
+                  title={!isExportAllowed() ? exportWindowInfo().hint : undefined}
+                  data-testid="btn-export-excel"
+                >
+                  <FileText className="h-4 w-4 mr-1.5" />Excel
+                </Button>
+              </div>
             </div>
             {cdrs.length === 0 ? (
               <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-8 text-center shadow-sm">
@@ -562,6 +642,12 @@ export default function PortalViewPage() {
             </div>
           </div>
         )}
+
+        {/* ── Data Notice ── */}
+        <div className="bg-blue-50 dark:bg-blue-500/5 border border-blue-200 dark:border-blue-500/20 rounded-xl px-4 py-3 text-[11px] text-blue-700 dark:text-blue-300 flex items-start gap-2">
+          <Wifi className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>Data is estimated from live usage records sourced directly from the switch. Figures refresh automatically — use the refresh button for the latest snapshot. Timestamps are in UTC.</span>
+        </div>
 
         {/* ── Footer ── */}
         <p className="text-center text-xs text-gray-400 pb-4">
