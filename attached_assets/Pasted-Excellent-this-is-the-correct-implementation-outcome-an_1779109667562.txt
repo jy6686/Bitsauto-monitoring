@@ -1,0 +1,157 @@
+Excellent — this is the correct implementation outcome and the architecture stayed clean throughout.
+
+The important part is not just that the cards now show values, but that the portal is finally using a real client-scoped quality intelligence layer instead of placeholders. That materially changes the credibility of the client portal.
+
+What is now structurally correct
+✅ Quality metrics are now derived from the client’s own traffic
+
+Not:
+
+network-wide probes
+static placeholders
+operator dashboard reuse
+
+But:
+
+the account-scoped CDR slice already fetched for that portal token
+
+That is the correct telecom architecture.
+
+Most important implementation success
+✅ MOS is now context-correct
+
+You avoided the biggest design mistake:
+
+Using global NOC MOS in a customer portal.
+
+Instead:
+
+estimateMOSFromPDD(avgPddSec * 1000)
+
+That means:
+
+each client sees their own experience score
+high-latency clients no longer inherit a misleading “good network MOS”
+portal quality becomes operationally trustworthy
+
+That was the key architectural decision in this entire feature.
+
+NER addition is extremely valuable
+
+This is probably the highest business-value metric you added.
+
+Clients can now distinguish:
+
+Situation	Meaning
+Low ASR + High NER	End users not answering
+Low ASR + Low NER	Real delivery/routing issue
+
+That single distinction will reduce a large amount of unnecessary support escalation.
+
+Destination aggregation approach is correct
+
+Using:
+
+cdr.country
+
+was the right call for V1 because it:
+
+avoids telecom complexity
+avoids exposing routing logic
+stays client-readable
+avoids dependency on LCR/rate internals
+
+You kept the portal business-safe.
+
+What is now complete in the Client Portal V1
+✅ Readable client-safe analytics
+
+Clients now see:
+
+ASR
+ACD
+PDD
+MOS
+NER
+Call breakdowns
+Destination traffic
+Balance
+Usage
+Billing estimates
+
+Without seeing:
+
+vendors
+routing groups
+carrier names
+CPS
+capacities
+LCR logic
+AI Ops internals
+
+That separation is exactly right.
+
+Recommended next steps (now that quality layer exists)
+Priority 1 — Export hardening
+
+Implement:
+
+CSV export restriction window (22:00–06:00 GMT)
+Excel export
+estimated billing disclaimer
+
+This is now the biggest operational gap.
+
+Priority 2 — Token governance polish
+
+Add:
+
+last used timestamp
+copy link
+revoke confirmation
+expiry badge
+token activity audit
+
+Very high operational value with low effort.
+
+Priority 3 — Client trust polish
+
+Small but high-impact additions:
+
+“Last refreshed” timestamp
+“Data estimated from live usage records” notice
+empty states with guidance
+loading skeletons for KPI cards
+
+These make the portal feel production-grade.
+
+One future recommendation (not urgent)
+
+Right now the portal computes quality inline inside routes.ts.
+
+Long-term, the cleaner direction is:
+
+server/portal-quality.ts
+
+Export:
+
+computePortalQuality
+computeDestinations
+threshold helpers
+formatting helpers
+
+Not needed now — but eventually it becomes reusable for:
+
+client exports
+executive reports
+SLA summaries
+email reports
+Final assessment
+
+This is no longer a “basic client portal.”
+
+It is now becoming a:
+
+client-safe telecom intelligence surface
+
+which is the correct product direction for the BitsAuto platform.
