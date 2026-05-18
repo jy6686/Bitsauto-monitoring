@@ -1,0 +1,88 @@
+Good — this is the right point to pause and stabilize instead of continuing to stack features.
+
+Here’s the clean execution order based on what you already confirmed + what actually carries risk.
+
+✅ Step 1 — Deploy the portal crash fix (DO THIS FIRST)
+
+No design decision here. This is pure operational hygiene.
+
+React error #310 fix is already in code
+It is not in production yet
+This is a live-facing issue risk
+
+👉 Action: Deploy immediately from Replit Deployments
+
+Nothing else should block this.
+
+⚠️ Step 2 — Fix MOS at API level (small but important)
+
+You already correctly identified the bug pattern:
+
+UI fix alone is not enough — API still returns fake MOS when connectedCalls = 0
+
+Why this matters
+
+Right now the system has a split state:
+
+Backend → still produces MOS (incorrect in edge case)
+Frontend → hides it (correct)
+Export / SLA / future PDF → will still inherit wrong value
+
+That creates data inconsistency across future layers.
+
+👉 Fix requirement (conceptually):
+
+If connectedCalls === 0
+mos = null
+mosGrade = null
+UI shows "N/A" (already done)
+
+This keeps:
+
+SLA reports clean
+exports consistent
+no “phantom quality score” in analytics
+⚡ Step 3 — ONLY THEN consider custom domain (optional now, not urgent)
+
+You said:
+
+“hold custom domain for now”
+
+That’s actually correct sequencing.
+
+Because:
+
+Domain ≠ functionality
+It does not fix trust issues if data correctness is unstable
+It becomes meaningful only after system is stable under real traffic
+
+So this is branding layer, not engineering priority.
+
+🧠 What NOT to do yet (important)
+
+Do NOT move into:
+
+Token → session auth
+2FA
+login redesign
+
+Reason:
+Those depend on:
+
+stable portal APIs
+stable SLA + quality outputs
+stable incident model
+
+If you change auth too early, you’ll end up debugging identity + data + UI at the same time (bad coupling).
+
+🧩 Recommended immediate flow
+Deploy current fix (React error #310)
+Patch MOS null logic at API layer
+Run system for 24–48h (real traffic observation)
+Then decide next:
+auth system OR SLA PDF OR console tuning
+🧾 One-line truth of current state
+
+Your platform is now in a “stability window phase”:
+
+Core intelligence is built → now only correctness + consistency matters

@@ -168,7 +168,7 @@ export default function PortalViewPage() {
     retry: false,
   });
 
-  // ── SLA Report query — must be declared before any early returns ─────────────
+  // ── All hooks must be declared before any early returns (Rules of Hooks) ──────
   const [slaPeriod, setSlaPeriod] = useState("30d");
   const { data: slaData, isLoading: slaLoading, refetch: refetchSla } = useQuery<any>({
     queryKey: ["/api/portal/sla-summary", token, slaPeriod],
@@ -177,6 +177,49 @@ export default function PortalViewPage() {
         .then(r => r.json()),
     enabled: !!token,
     staleTime: 60_000,
+  });
+
+  const { data: ticketsResp, refetch: refetchTickets } = useQuery<{ tickets: any[] }>({
+    queryKey: ["/api/portal/tickets", token],
+    queryFn: () => fetch(`/api/portal/tickets?token=${encodeURIComponent(token)}`).then(r => r.json()),
+    enabled: !!token,
+    staleTime: 15_000,
+  });
+
+  const { data: threadData, refetch: refetchThread } = useQuery<{ ticket: any; messages: any[] }>({
+    queryKey: ["/api/portal/tickets", token, selectedTicketId],
+    queryFn: () =>
+      fetch(`/api/portal/tickets/${selectedTicketId}?token=${encodeURIComponent(token)}`).then(r => r.json()),
+    enabled: selectedTicketId !== null,
+    staleTime: 10_000,
+  });
+
+  const createTicketMut = useMutation({
+    mutationFn: () =>
+      fetch("/api/portal/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, category: ticketCategory, subject: ticketSubject, body: ticketBody }),
+      }).then(r => r.json()),
+    onSuccess: (t: any) => {
+      qc.invalidateQueries({ queryKey: ["/api/portal/tickets", token] });
+      setTicketSubject(""); setTicketBody(""); setShowNewTicket(false);
+      setSelectedTicketId(t.id);
+    },
+  });
+
+  const clientReplyMut = useMutation({
+    mutationFn: (body: string) =>
+      fetch(`/api/portal/tickets/${selectedTicketId}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, body }),
+      }).then(r => r.json()),
+    onSuccess: () => {
+      setClientReply("");
+      qc.invalidateQueries({ queryKey: ["/api/portal/tickets", token, selectedTicketId] });
+      qc.invalidateQueries({ queryKey: ["/api/portal/tickets", token] });
+    },
   });
 
   if (isLoading) {
@@ -315,50 +358,7 @@ export default function PortalViewPage() {
     a.click(); URL.revokeObjectURL(url);
   }
 
-  // ── Ticket queries and mutations ──────────────────────────────────────────────
-  const { data: ticketsResp, refetch: refetchTickets } = useQuery<{ tickets: any[] }>({
-    queryKey: ["/api/portal/tickets", token],
-    queryFn: () => fetch(`/api/portal/tickets?token=${encodeURIComponent(token)}`).then(r => r.json()),
-    enabled: !!token,
-    staleTime: 15_000,
-  });
   const myTickets: any[] = ticketsResp?.tickets ?? [];
-
-  const { data: threadData, refetch: refetchThread } = useQuery<{ ticket: any; messages: any[] }>({
-    queryKey: ["/api/portal/tickets", token, selectedTicketId],
-    queryFn: () =>
-      fetch(`/api/portal/tickets/${selectedTicketId}?token=${encodeURIComponent(token)}`).then(r => r.json()),
-    enabled: selectedTicketId !== null,
-    staleTime: 10_000,
-  });
-
-  const createTicketMut = useMutation({
-    mutationFn: () =>
-      fetch("/api/portal/tickets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, category: ticketCategory, subject: ticketSubject, body: ticketBody }),
-      }).then(r => r.json()),
-    onSuccess: (t: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/portal/tickets", token] });
-      setTicketSubject(""); setTicketBody(""); setShowNewTicket(false);
-      setSelectedTicketId(t.id);
-    },
-  });
-
-  const clientReplyMut = useMutation({
-    mutationFn: (body: string) =>
-      fetch(`/api/portal/tickets/${selectedTicketId}/reply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, body }),
-      }).then(r => r.json()),
-    onSuccess: () => {
-      setClientReply("");
-      qc.invalidateQueries({ queryKey: ["/api/portal/tickets", token, selectedTicketId] });
-      qc.invalidateQueries({ queryKey: ["/api/portal/tickets", token] });
-    },
-  });
 
   const balanceColor = balance == null ? "text-gray-400" : balance > 50 ? "text-emerald-500" : balance > 10 ? "text-amber-500" : "text-rose-500";
   const asrColor     = asr >= 60 ? "text-emerald-500" : asr >= 40 ? "text-amber-500" : "text-rose-500";
