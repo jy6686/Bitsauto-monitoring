@@ -2016,8 +2016,9 @@ export async function registerRoutes(
       ? parseFloat((pddArr.reduce((a: number, b: number) => a + b, 0) / pddArr.length).toFixed(2))
       : 0;
 
-    const mos           = estimateMOSFromPDD(avgPddSec * 1000);
-    const grade         = mosToGrade(mos);
+    // MOS is only meaningful when calls actually connected — null when no answered calls
+    const mos           = answered.length > 0 ? estimateMOSFromPDD(avgPddSec * 1000) : null;
+    const grade         = mos !== null ? mosToGrade(mos) : null;
     const nerNum        = answered.length + rna.length + subscriberSide.length;
     const ner           = total > 0 ? parseFloat((nerNum / total * 100).toFixed(1)) : null;
 

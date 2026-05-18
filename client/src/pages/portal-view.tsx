@@ -20,8 +20,8 @@ interface PortalQuality {
   asr:      number;
   acd:      number;
   pdd:      number;
-  mos:      number;
-  mosGrade: string;
+  mos:      number | null;
+  mosGrade: string | null;
   ner:      number | null;
   breakdown: {
     answered: number; failed: number; rna: number;
@@ -511,17 +511,23 @@ export default function PortalViewPage() {
 
                 <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-4 shadow-sm text-center">
                   <p className="text-[10px] text-gray-500 dark:text-muted-foreground uppercase tracking-wide mb-1">MOS</p>
-                  <div className="flex items-baseline justify-center gap-1.5">
-                    <p className={cn("text-xl font-bold",
-                      data.quality.mos >= 4.0 ? "text-emerald-500" : data.quality.mos >= 3.5 ? "text-amber-500" : "text-rose-500"
-                    )}>{data.quality.mos.toFixed(2)}</p>
-                    <Badge className={cn("text-[10px] px-1 py-0 h-4",
-                      data.quality.mosGrade === 'A' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
-                      : data.quality.mosGrade === 'B' ? "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400"
-                      : data.quality.mosGrade === 'C' ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
-                      : "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400"
-                    )}>Grade {data.quality.mosGrade}</Badge>
-                  </div>
+                  {data.quality.mos != null ? (
+                    <div className="flex items-baseline justify-center gap-1.5">
+                      <p className={cn("text-xl font-bold",
+                        data.quality.mos >= 4.0 ? "text-emerald-500" : data.quality.mos >= 3.5 ? "text-amber-500" : "text-rose-500"
+                      )}>{data.quality.mos.toFixed(2)}</p>
+                      {data.quality.mosGrade && (
+                        <Badge className={cn("text-[10px] px-1 py-0 h-4",
+                          data.quality.mosGrade === 'A' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
+                          : data.quality.mosGrade === 'B' ? "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400"
+                          : data.quality.mosGrade === 'C' ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+                          : "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400"
+                        )}>Grade {data.quality.mosGrade}</Badge>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xl font-bold text-gray-400">N/A</p>
+                  )}
                   <p className="text-[10px] text-gray-400 mt-0.5">Voice Quality (est.)</p>
                 </div>
 
