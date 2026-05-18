@@ -136,7 +136,7 @@ function MiniBarChart({ data, valueKey, color }: {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Tab = "overview" | "calls" | "billing" | "support";
+type Tab = "overview" | "calls" | "billing" | "support" | "reports";
 
 export default function PortalViewPage() {
   const params = useParams<{ token: string }>();
@@ -262,6 +262,59 @@ export default function PortalViewPage() {
     XLSX.writeFile(wb, `cdrs-${timeRange}-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
+  // ── SLA Report query ─────────────────────────────────────────────────────────
+  const [slaPeriod, setSlaPeriod] = useState("30d");
+  const { data: slaData, isLoading: slaLoading, refetch: refetchSla } = useQuery<any>({
+    queryKey: ["/api/portal/sla-summary", token, slaPeriod],
+    queryFn: () =>
+      fetch(`/api/portal/sla-summary?token=${encodeURIComponent(token)}&period=${slaPeriod}`)
+        .then(r => r.json()),
+    enabled: !!token,
+    staleTime: 60_000,
+  });
+
+  function exportSlaCsv() {
+    if (!slaData) return;
+    const k = slaData.kpis;
+    const s = slaData.support;
+    const rows: string[][] = [
+      ["SLA Report", slaData.period, `Generated ${new Date(slaData.generatedAt).toISOString().slice(0, 10)}`],
+      [],
+      ["KPI", "Value", "Grade"],
+      ["Answer Success Rate", `${k.asr}%`, k.asrGrade],
+      ["Network Efficiency", `${k.ner}%`, k.nerGrade],
+      ["Voice Quality (MOS)", String(k.mos), k.mosGrade],
+      ["Avg Call Duration", `${Math.floor(k.acd / 60)}m ${k.acd % 60}s`, ""],
+      ["Avg Setup Delay", `${k.pdd}s`, k.pddGrade],
+      ["Total Calls", String(k.totalCalls), ""],
+      [],
+      ["Incident History"],
+      ["Date", "Description", "Severity", "Resolved", "Resolution Time"],
+      ...(slaData.incidents ?? []).map((i: any) => [
+        i.date, i.summary, i.severity, i.resolved ? "Yes" : "Open",
+        i.resolutionMinutes != null ? `${i.resolutionMinutes}m` : "—",
+      ]),
+      [],
+      ["Destination Performance"],
+      ["Destination", "Calls", "Success Rate", "Grade"],
+      ...(slaData.destinations ?? []).map((d: any) => [d.name, String(d.calls), `${d.asr}%`, d.grade]),
+      [],
+      ["Support Performance"],
+      ["Metric", "Value"],
+      ["Total Tickets", String(s.total)],
+      ["Resolved", String(s.resolved)],
+      ["Resolution Rate", `${s.resolutionPct}%`],
+      ["Avg First Response", s.avgFirstResponseMinutes != null ? `${s.avgFirstResponseMinutes}m` : "—"],
+      ["Avg Resolution Time", s.avgResolutionMinutes != null ? `${s.avgResolutionMinutes}m` : "—"],
+    ];
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = `sla-report-${slaPeriod}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  }
+
   // ── Ticket queries and mutations ──────────────────────────────────────────────
   const { data: ticketsResp, refetch: refetchTickets } = useQuery<{ tickets: any[] }>({
     queryKey: ["/api/portal/tickets", token],
@@ -313,7 +366,8 @@ export default function PortalViewPage() {
   const tabs: { id: Tab; label: string; icon: any; perm?: string }[] = [
     { id: "overview", label: "Overview",      icon: Zap },
     { id: "calls",    label: "Call History",  icon: Phone,      perm: "cdrs" },
-    { id: "billing",  label: "Billing",       icon: CreditCard, perm: "billing" },
+    { id: "billing",  label: "Billing",       icon: CreditCard,   perm: "billing" },
+    { id: "reports",  label: "SLA Report",    icon: BarChart3 },
     { id: "support",  label: "Support",       icon: MessageSquare },
   ].filter(t => !t.perm || perms.includes(t.perm));
 
@@ -695,6 +749,208 @@ export default function PortalViewPage() {
               <p className="font-medium mb-0.5">Billing Note</p>
               <p>Amounts shown are estimates based on your contracted rate of ${ratePerMin.toFixed(4)}/min. Final invoiced amounts may differ based on rounding, adjustments, or minimum charges. Contact your account manager for a formal invoice.</p>
             </div>
+          </div>
+        )}
+
+        {/* ── SLA Report Tab ── */}
+        {tab === "reports" && (
+          <div className="space-y-5">
+
+            {/* Report header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-800 dark:text-foreground flex items-center gap-1.5">
+                  <BarChart3 className="h-4 w-4 text-blue-500" /> Executive SLA Report
+                </h2>
+                <p className="text-[11px] text-gray-400 dark:text-muted-foreground mt-0.5">
+                  Business-level service quality summary · {slaData?.period === "7d" ? "Last 7 days" : slaData?.period === "today" ? "Today" : "Last 30 days"}
+                  {slaData?.generatedAt && ` · Generated ${new Date(slaData.generatedAt).toISOString().replace("T", " ").slice(0, 16)} UTC`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={slaPeriod}
+                  onChange={e => setSlaPeriod(e.target.value)}
+                  className="text-xs bg-gray-100 dark:bg-muted border border-gray-200 dark:border-border rounded-lg px-2 py-1.5 focus:outline-none"
+                  data-testid="select-sla-period"
+                >
+                  <option value="today">Today</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                </select>
+                <Button variant="ghost" size="sm" onClick={() => refetchSla()} data-testid="btn-refresh-sla">
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="outline" size="sm"
+                  onClick={exportSlaCsv}
+                  disabled={!slaData || slaLoading}
+                  data-testid="btn-export-sla-csv"
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" />CSV
+                </Button>
+              </div>
+            </div>
+
+            {slaLoading ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 animate-pulse">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="bg-gray-100 dark:bg-muted rounded-xl h-24" />
+                ))}
+              </div>
+            ) : !slaData?.kpis ? (
+              <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-10 text-center shadow-sm">
+                <BarChart3 className="h-8 w-8 text-gray-300 dark:text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-gray-500">No data available for this period.</p>
+              </div>
+            ) : (() => {
+              const k = slaData.kpis;
+              const s = slaData.support;
+              const gradeColor = (g: string) =>
+                g === "Excellent" ? "text-emerald-600 dark:text-emerald-400"
+                : g === "Good"    ? "text-blue-600 dark:text-blue-400"
+                : g === "Fair"    ? "text-amber-600 dark:text-amber-400"
+                : "text-rose-600 dark:text-rose-400";
+              const gradeBg = (g: string) =>
+                g === "Excellent" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20"
+                : g === "Good"    ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400 border-blue-200 dark:border-blue-500/20"
+                : g === "Fair"    ? "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
+                : "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400 border-rose-200 dark:border-rose-500/20";
+
+              return (
+                <>
+                  {/* ── Executive KPI grid ── */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {[
+                      { label: "Answer Success Rate", value: `${k.asr}%`,   grade: k.asrGrade, sub: `${k.connectedCalls} of ${k.totalCalls} calls connected` },
+                      { label: "Network Efficiency",  value: `${k.ner}%`,   grade: k.nerGrade, sub: "Network-delivered call ratio" },
+                      { label: "Voice Quality",       value: String(k.mos), grade: k.mosGrade, sub: "Mean Opinion Score (MOS)" },
+                      { label: "Avg Call Duration",   value: `${Math.floor(k.acd / 60)}m ${k.acd % 60}s`, grade: null, sub: "Per connected call" },
+                      { label: "Avg Setup Delay",     value: `${k.pdd}s`,   grade: k.pddGrade, sub: "Time to first ring" },
+                      { label: "Total Calls",         value: String(k.totalCalls), grade: null, sub: `${slaPeriod === "today" ? "Today" : slaPeriod === "7d" ? "Last 7 days" : "Last 30 days"}` },
+                    ].map(({ label, value, grade, sub }) => (
+                      <div
+                        key={label}
+                        className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-4 shadow-sm"
+                        data-testid={`sla-kpi-${label.toLowerCase().replace(/\s+/g, '-')}`}
+                      >
+                        <p className="text-[10px] font-medium text-gray-500 dark:text-muted-foreground uppercase tracking-wide">{label}</p>
+                        <p className={cn("text-2xl font-bold mt-1", grade ? gradeColor(grade) : "text-gray-800 dark:text-foreground")}>{value}</p>
+                        {grade && (
+                          <span className={cn("inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border mt-1.5", gradeBg(grade))}>
+                            {grade}
+                          </span>
+                        )}
+                        <p className="text-[10px] text-gray-400 dark:text-muted-foreground/60 mt-1">{sub}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* ── Destination Performance ── */}
+                  {slaData.destinations?.length > 0 && (
+                    <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl overflow-hidden shadow-sm">
+                      <div className="px-4 py-3 border-b border-gray-100 dark:border-border/40">
+                        <h3 className="text-xs font-semibold text-gray-700 dark:text-foreground">Destination Performance</h3>
+                        <p className="text-[10px] text-gray-400 mt-0.5">Top routes by call volume</p>
+                      </div>
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 dark:bg-muted/30">
+                          <tr>
+                            {["Destination", "Calls", "Success Rate", "Quality"].map(h => (
+                              <th key={h} className="px-4 py-2 text-left font-medium text-gray-500 dark:text-muted-foreground">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {slaData.destinations.map((d: any) => (
+                            <tr key={d.name} className="border-t border-gray-100 dark:border-border/20">
+                              <td className="px-4 py-2.5 font-medium">{d.name}</td>
+                              <td className="px-4 py-2.5 text-gray-600 dark:text-muted-foreground">{d.calls.toLocaleString()}</td>
+                              <td className="px-4 py-2.5 font-mono">{d.asr}%</td>
+                              <td className="px-4 py-2.5">
+                                <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded border", gradeBg(d.grade))}>{d.grade}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* ── Incident History ── */}
+                  <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl overflow-hidden shadow-sm">
+                    <div className="px-4 py-3 border-b border-gray-100 dark:border-border/40">
+                      <h3 className="text-xs font-semibold text-gray-700 dark:text-foreground">Service Events</h3>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Recorded conditions during this period</p>
+                    </div>
+                    {slaData.incidents?.length === 0 ? (
+                      <div className="px-4 py-6 text-center">
+                        <CheckCircle2 className="h-6 w-6 text-emerald-400 mx-auto mb-1.5" />
+                        <p className="text-xs text-gray-500">No service events recorded in this period.</p>
+                      </div>
+                    ) : (
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 dark:bg-muted/30">
+                          <tr>
+                            {["Date", "Description", "Severity", "Status", "Resolution"].map(h => (
+                              <th key={h} className="px-4 py-2 text-left font-medium text-gray-500 dark:text-muted-foreground">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {slaData.incidents.map((inc: any, i: number) => (
+                            <tr key={i} className="border-t border-gray-100 dark:border-border/20">
+                              <td className="px-4 py-2.5 text-gray-400 whitespace-nowrap">{inc.date}</td>
+                              <td className="px-4 py-2.5">{inc.summary}</td>
+                              <td className="px-4 py-2.5">
+                                <span className={cn(
+                                  "text-[10px] font-semibold px-1.5 py-0.5 rounded",
+                                  inc.severity === "High"
+                                    ? "bg-rose-50 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400"
+                                    : "bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400",
+                                )}>{inc.severity}</span>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className={cn(
+                                  "text-[10px] font-semibold",
+                                  inc.resolved ? "text-emerald-500" : "text-amber-500",
+                                )}>{inc.resolved ? "Resolved" : "Open"}</span>
+                              </td>
+                              <td className="px-4 py-2.5 text-gray-500">
+                                {inc.resolutionMinutes != null ? `${inc.resolutionMinutes}m` : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  {/* ── Support Responsiveness ── */}
+                  <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-5 shadow-sm">
+                    <h3 className="text-xs font-semibold text-gray-700 dark:text-foreground mb-3">Support Responsiveness</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                      {[
+                        { label: "Tickets",           value: String(s.total) },
+                        { label: "Resolved",          value: `${s.resolved} (${s.resolutionPct}%)` },
+                        { label: "Avg First Response", value: s.avgFirstResponseMinutes != null ? `${s.avgFirstResponseMinutes}m` : "—" },
+                        { label: "Avg Resolution",    value: s.avgResolutionMinutes != null ? `${s.avgResolutionMinutes}m` : "—" },
+                      ].map(({ label, value }) => (
+                        <div key={label} data-testid={`sla-support-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+                          <p className="text-[10px] text-gray-500 dark:text-muted-foreground">{label}</p>
+                          <p className="text-xl font-bold text-gray-800 dark:text-foreground mt-1">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Disclaimer */}
+                  <p className="text-[10px] text-gray-400 text-center pb-2">
+                    This report is generated from live usage data. Figures are operational estimates and do not constitute a formal invoice or contractual SLA measurement.
+                  </p>
+                </>
+              );
+            })()}
           </div>
         )}
 

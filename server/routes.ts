@@ -21284,5 +21284,62 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Executive SLA Reporting (V1) ─────────────────────────────────────────────
+  // GET /api/portal/sla-summary?token=...&period=30d
+  app.get("/api/portal/sla-summary", async (req: any, res: any) => {
+    try {
+      const { computeSlaSummary } = await import("./sla");
+      const tokenStr = String(req.query.token ?? "");
+      if (!tokenStr) return res.status(400).json({ error: "token required" });
+
+      const tok = await storage.getPortalToken(tokenStr);
+      if (!tok) return res.status(403).json({ error: "Invalid or revoked token" });
+      if (tok.expiresAt && new Date(tok.expiresAt) < new Date())
+        return res.status(403).json({ error: "Token expired" });
+
+      storage.touchPortalToken(tok.id).catch(() => {});
+
+      const period    = String(req.query.period ?? "30d");
+      const now       = new Date();
+      const startDate = new Date(now);
+      if (period === "7d")   startDate.setDate(now.getDate() - 7);
+      else if (period === "today") startDate.setHours(0, 0, 0, 0);
+      else                   startDate.setDate(now.getDate() - 30);
+      const startStr = startDate.toISOString().slice(0, 19).replace("T", " ");
+      const endStr   = now.toISOString().slice(0, 19).replace("T", " ");
+
+      // CDRs for this account
+      let cdrs: any[] = [];
+      try {
+        const settings = await storage.getSettings();
+        const portalUrl = settings.portalUrl || "";
+        const creds = sippyXmlCredsPairs(settings as any);
+        for (const { username, password } of creds) {
+          const rows = await sippy.getSippyCDRs(username, password, 500, { startDate: startStr, endDate: endStr }, portalUrl);
+          if (rows.length > 0) { cdrs = rows; break; }
+        }
+        const accountIdStr = String(tok.accountId);
+        cdrs = cdrs.filter(c =>
+          String(c.iAccount ?? c.accountId ?? "") === accountIdStr ||
+          String(c.accountId ?? "") === accountIdStr
+        );
+      } catch { /* fallback empty */ }
+
+      // Tickets + messages for this account
+      const tickets = await storage.listPortalTickets({ accountId: Number(tok.accountId) });
+      const ticketMessages: any[] = [];
+      for (const t of tickets) {
+        const msgs = await storage.listTicketMessages(t.id);
+        ticketMessages.push(...msgs);
+      }
+
+      // Alerts (recent — editorial layer will sanitize)
+      const alerts = await storage.getAlerts();
+
+      const summary = computeSlaSummary({ cdrs, tickets, ticketMessages, alerts, period });
+      res.json(summary);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   return httpServer;
 }
