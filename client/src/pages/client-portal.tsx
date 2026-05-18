@@ -51,6 +51,56 @@ function downloadCsv(filename: string, rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
+// ── Inline MOS helpers (mirrors server/mos.ts — ITU-T G.107 E-Model) ─────────
+function mosFromPddSec(pddSec: number): number {
+  const ms = pddSec * 1000;
+  if (ms <= 0) return 4.3;
+  const Id = ms < 150 ? 0 : ms < 400 ? 0.024 * ms + 0.11 * (ms > 177.3 ? ms - 177.3 : 0) : 25;
+  const R  = Math.max(0, Math.min(100, 93.2 - Id));
+  const m  = 1 + 0.035 * R + R * (R - 60) * (100 - R) * 7e-6;
+  return parseFloat(Math.max(1.0, Math.min(4.5, m)).toFixed(2));
+}
+function mosGradeLabel(m: number) { return m >= 4.0 ? 'A' : m >= 3.5 ? 'B' : m >= 3.0 ? 'C' : m >= 2.5 ? 'D' : 'F'; }
+
+function computeQuality(rows: CdrRow[]) {
+  const total    = rows.length;
+  const answered = rows.filter(c => (c.duration ?? 0) > 0);
+  const rna      = rows.filter(c => String(c.result ?? '') === '0' && (c.duration ?? 0) === 0);
+  const subSide  = rows.filter(c => ['-17', '-18', '-19'].includes(String(c.result ?? '')));
+  const netFail  = rows.filter(c => ['-21', '-22', '-23', '-24'].includes(String(c.result ?? '')));
+  const pddArr   = answered.map(c => Number((c as any).pdd1xx ?? (c as any).pdd) || 0).filter(v => v > 0);
+  const avgPdd   = pddArr.length > 0 ? pddArr.reduce((a, b) => a + b, 0) / pddArr.length : 0;
+  const mos      = mosFromPddSec(avgPdd);
+  const nerNum   = answered.length + rna.length + subSide.length;
+  return {
+    mos,
+    mosGrade:   mosGradeLabel(mos),
+    pdd:        parseFloat(avgPdd.toFixed(2)),
+    ner:        total > 0 ? parseFloat((nerNum / total * 100).toFixed(1)) : null,
+    netFailPct: total > 0 ? parseFloat((netFail.length / total * 100).toFixed(2)) : 0,
+  };
+}
+
+function computeDestGroups(rows: CdrRow[]) {
+  const map = new Map<string, { calls: number; answered: number }>();
+  for (const c of rows) {
+    const country = (String((c as any).country || '')).trim() || 'Unknown';
+    const e = map.get(country) ?? { calls: 0, answered: 0 };
+    e.calls++;
+    if ((c.duration ?? 0) > 0) e.answered++;
+    map.set(country, e);
+  }
+  const total  = rows.length;
+  const sorted = Array.from(map.entries())
+    .map(([label, d]) => ({ label, pct: total > 0 ? Math.round(d.calls / total * 100) : 0 }))
+    .sort((a, b) => b.pct - a.pct);
+  if (sorted.length <= 3) return sorted;
+  const top3   = sorted.slice(0, 3);
+  const rest   = sorted.slice(3).reduce((s, d) => s + d.pct, 0);
+  if (rest > 0) top3.push({ label: 'Other', pct: rest });
+  return top3;
+}
+
 function StatCard({ icon: Icon, label, value, sub, color }: {
   icon: any; label: string; value: string; sub?: string; color: string;
 }) {
@@ -147,6 +197,8 @@ export default function ClientPortalPage() {
   const connected  = cdrs.filter(c => (c.duration ?? 0) > 0).length;
   const asr        = cdrs.length > 0 ? Math.round((connected / cdrs.length) * 100) : 0;
   const totalMin   = cdrs.reduce((s, c) => s + (c.duration ?? 0), 0) / 60;
+  const quality    = computeQuality(cdrs);
+  const destGroups = computeDestGroups(cdrs);
 
   // ── Portal tokens ──
   const { data: tokensResp, refetch: refetchTokens } = useQuery<PortalToken[]>({
@@ -291,9 +343,21 @@ export default function ClientPortalPage() {
                 <p className="text-sm font-semibold flex items-center gap-2"><BarChart3 className="h-4 w-4 text-violet-400" /> Call Quality</p>
                 <div className="space-y-2 text-sm">
                   {[
-                    { label: "Avg MOS",    value: "4.2",   target: "≥4.0", ok: true  },
-                    { label: "Avg PDD",    value: "1.1s",  target: "<3s",  ok: true  },
-                    { label: "Pkt Loss",   value: "0.16%", target: "<1%",  ok: true  },
+                    {
+                      label: "Avg MOS",
+                      value: cdrs.length > 0 ? `${quality.mos.toFixed(2)} (${quality.mosGrade})` : "—",
+                      ok:    cdrs.length === 0 || quality.mos >= 3.5,
+                    },
+                    {
+                      label: "Avg PDD",
+                      value: cdrs.length > 0 ? `${quality.pdd.toFixed(2)}s` : "—",
+                      ok:    cdrs.length === 0 || quality.pdd < 3,
+                    },
+                    {
+                      label: "Net Fail",
+                      value: cdrs.length > 0 ? `${quality.netFailPct.toFixed(2)}%` : "—",
+                      ok:    cdrs.length === 0 || quality.netFailPct < 1,
+                    },
                   ].map(q => (
                     <div key={q.label} className="flex items-center justify-between">
                       <span className="text-muted-foreground">{q.label}</span>
@@ -309,11 +373,7 @@ export default function ClientPortalPage() {
               <div className="bg-card border border-border rounded-xl p-5 space-y-3">
                 <p className="text-sm font-semibold flex items-center gap-2"><TrendingUp className="h-4 w-4 text-amber-400" /> Traffic Breakdown</p>
                 <div className="space-y-2 text-sm">
-                  {[
-                    { label: "Pakistan Mobile", pct: 78 },
-                    { label: "Pakistan Fixed",  pct: 14 },
-                    { label: "International",   pct: 8  },
-                  ].map(t => (
+                  {destGroups.length > 0 ? destGroups.map(t => (
                     <div key={t.label}>
                       <div className="flex justify-between text-xs mb-1">
                         <span className="text-muted-foreground">{t.label}</span>
@@ -323,7 +383,9 @@ export default function ClientPortalPage() {
                         <div className="h-full bg-primary/70 rounded-full" style={{ width: `${t.pct}%` }} />
                       </div>
                     </div>
-                  ))}
+                  )) : (
+                    <p className="text-xs text-muted-foreground py-2 text-center">No call data for this period.</p>
+                  )}
                 </div>
               </div>
 

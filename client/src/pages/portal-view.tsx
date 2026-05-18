@@ -5,6 +5,7 @@ import {
   Globe, Phone, TrendingUp, DollarSign, Clock,
   CheckCircle2, AlertTriangle, Download, BarChart3,
   RefreshCw, XCircle, CreditCard, FileText, Zap,
+  Activity, Signal, Wifi,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +14,23 @@ import { cn } from "@/lib/utils";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface DailyEntry { date: string; calls: number; minutes: number; cost: number; }
+
+interface PortalQuality {
+  asr:      number;
+  acd:      number;
+  pdd:      number;
+  mos:      number;
+  mosGrade: string;
+  ner:      number | null;
+  breakdown: {
+    answered: number; failed: number; rna: number;
+    subscriberSide: number; networkFail: number; total: number;
+  };
+}
+
+interface PortalDestination {
+  country: string; calls: number; minutes: number; asr: number; pct: number;
+}
 
 interface PortalData {
   accountName:    string;
@@ -32,6 +50,8 @@ interface PortalData {
   totalBilling?:  number;
   ratePerMin?:    number;
   daily?:         DailyEntry[];
+  quality?:       PortalQuality;
+  destinations?:  PortalDestination[];
   error?:         string;
 }
 
@@ -283,6 +303,116 @@ export default function PortalViewPage() {
               <StatCard icon={TrendingUp} label="ASR"            value={`${asr.toFixed(1)}%`}          color={asrColor} sub="Answer Seizure Ratio" />
               <StatCard icon={Clock}      label="Total Duration" value={fmtMin(totalMin)}             color="text-violet-500" />
             </div>
+
+          {/* ── Quality Section ── */}
+          {data?.quality && data.quality.breakdown.total > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-foreground flex items-center gap-2">
+                <Activity className="h-4 w-4 text-violet-500" /> Call Quality Metrics
+              </h3>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-4 shadow-sm text-center">
+                  <p className="text-[10px] text-gray-500 dark:text-muted-foreground uppercase tracking-wide mb-1">ASR</p>
+                  <p className={cn("text-xl font-bold",
+                    data.quality.asr >= 70 ? "text-emerald-500" : data.quality.asr >= 50 ? "text-amber-500" : "text-rose-500"
+                  )}>{data.quality.asr.toFixed(1)}%</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Answer Rate</p>
+                </div>
+
+                <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-4 shadow-sm text-center">
+                  <p className="text-[10px] text-gray-500 dark:text-muted-foreground uppercase tracking-wide mb-1">ACD</p>
+                  <p className={cn("text-xl font-bold",
+                    data.quality.acd >= 90 ? "text-emerald-500" : data.quality.acd >= 45 ? "text-amber-500" : "text-rose-500"
+                  )}>
+                    {data.quality.acd > 0
+                      ? `${Math.floor(data.quality.acd / 60)}:${String(data.quality.acd % 60).padStart(2, "0")}`
+                      : "—"}
+                  </p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Avg Call Duration</p>
+                </div>
+
+                <div
+                  className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-4 shadow-sm text-center"
+                  title="Network Effectiveness Ratio — measures whether calls reached their destination. High NER with low ASR means the called party is not answering, not a network problem."
+                >
+                  <p className="text-[10px] text-gray-500 dark:text-muted-foreground uppercase tracking-wide mb-1">NER ⓘ</p>
+                  <p className={cn("text-xl font-bold",
+                    data.quality.ner == null ? "text-gray-400"
+                    : data.quality.ner >= 90 ? "text-emerald-500"
+                    : data.quality.ner >= 80 ? "text-amber-500" : "text-rose-500"
+                  )}>
+                    {data.quality.ner != null ? `${data.quality.ner.toFixed(1)}%` : "—"}
+                  </p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Network Delivery</p>
+                </div>
+
+                <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-4 shadow-sm text-center">
+                  <p className="text-[10px] text-gray-500 dark:text-muted-foreground uppercase tracking-wide mb-1">MOS</p>
+                  <div className="flex items-baseline justify-center gap-1.5">
+                    <p className={cn("text-xl font-bold",
+                      data.quality.mos >= 4.0 ? "text-emerald-500" : data.quality.mos >= 3.5 ? "text-amber-500" : "text-rose-500"
+                    )}>{data.quality.mos.toFixed(2)}</p>
+                    <Badge className={cn("text-[10px] px-1 py-0 h-4",
+                      data.quality.mosGrade === 'A' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
+                      : data.quality.mosGrade === 'B' ? "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400"
+                      : data.quality.mosGrade === 'C' ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+                      : "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400"
+                    )}>Grade {data.quality.mosGrade}</Badge>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Voice Quality (est.)</p>
+                </div>
+
+                <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-4 shadow-sm text-center">
+                  <p className="text-[10px] text-gray-500 dark:text-muted-foreground uppercase tracking-wide mb-1">PDD</p>
+                  <p className={cn("text-xl font-bold",
+                    data.quality.pdd < 2 ? "text-emerald-500" : data.quality.pdd < 4 ? "text-amber-500" : "text-rose-500"
+                  )}>
+                    {data.quality.pdd > 0 ? `${data.quality.pdd.toFixed(2)}s` : "—"}
+                  </p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Post-Dial Delay</p>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-4 shadow-sm">
+                <p className="text-xs font-medium text-gray-500 dark:text-muted-foreground mb-3">Call Breakdown</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-xs">
+                  {[
+                    { label: "Connected",     value: data.quality.breakdown.answered,       color: "text-emerald-600 dark:text-emerald-400" },
+                    { label: "Not Answered",  value: data.quality.breakdown.rna,            color: "text-amber-600 dark:text-amber-400" },
+                    { label: "Subscriber",    value: data.quality.breakdown.subscriberSide, color: "text-blue-600 dark:text-blue-400" },
+                    { label: "Net Failure",   value: data.quality.breakdown.networkFail,    color: "text-rose-600 dark:text-rose-400" },
+                  ].map(b => (
+                    <div key={b.label}>
+                      <p className={cn("text-lg font-bold", b.color)}>{b.value}</p>
+                      <p className="text-gray-400 text-[10px]">{b.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {data.destinations && data.destinations.length > 0 && (
+                <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-4 shadow-sm">
+                  <p className="text-xs font-medium text-gray-500 dark:text-muted-foreground mb-3 flex items-center gap-1.5">
+                    <Signal className="h-3.5 w-3.5" /> Traffic by Destination
+                  </p>
+                  <div className="space-y-2">
+                    {data.destinations.map(d => (
+                      <div key={d.country}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-gray-600 dark:text-foreground font-medium">{d.country}</span>
+                          <span className="text-gray-400">{d.calls} calls · {d.pct}%</span>
+                        </div>
+                        <div className="h-1.5 bg-gray-100 dark:bg-muted/30 rounded-full overflow-hidden">
+                          <div className="h-full bg-blue-400 dark:bg-blue-500 rounded-full" style={{ width: `${d.pct}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
             {perms.includes("usage") && daily.length > 0 && (
               <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-5 shadow-sm">

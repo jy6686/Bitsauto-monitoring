@@ -1999,6 +1999,77 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Portal quality helpers ────────────────────────────────────────────────
+  function computePortalQuality(cdrs: any[]) {
+    const total         = cdrs.length;
+    const answered      = cdrs.filter(c => String(c.result) === '0' && (Number(c.duration) || 0) > 0);
+    const rna           = cdrs.filter(c => String(c.result) === '0' && (Number(c.duration) || 0) === 0);
+    const subscriberSide = cdrs.filter(c => ['-17', '-18', '-19'].includes(String(c.result)));
+    const networkFail   = cdrs.filter(c => ['-21', '-22', '-23', '-24'].includes(String(c.result)));
+
+    const asr           = total > 0 ? parseFloat((answered.length / total * 100).toFixed(1)) : 0;
+    const totalDurSec   = answered.reduce((s: number, c: any) => s + (Number(c.duration) || 0), 0);
+    const acd           = answered.length > 0 ? Math.round(totalDurSec / answered.length) : 0;
+
+    const pddArr        = answered.map((c: any) => Number(c.pdd1xx ?? c.pdd) || 0).filter((v: number) => v > 0);
+    const avgPddSec     = pddArr.length > 0
+      ? parseFloat((pddArr.reduce((a: number, b: number) => a + b, 0) / pddArr.length).toFixed(2))
+      : 0;
+
+    const mos           = estimateMOSFromPDD(avgPddSec * 1000);
+    const grade         = mosToGrade(mos);
+    const nerNum        = answered.length + rna.length + subscriberSide.length;
+    const ner           = total > 0 ? parseFloat((nerNum / total * 100).toFixed(1)) : null;
+
+    return {
+      asr, acd, pdd: avgPddSec, mos, mosGrade: grade, ner,
+      breakdown: {
+        answered:      answered.length,
+        failed:        total - answered.length,
+        rna:           rna.length,
+        subscriberSide: subscriberSide.length,
+        networkFail:   networkFail.length,
+        total,
+      },
+    };
+  }
+
+  function computeDestinations(cdrs: any[]) {
+    const map = new Map<string, { calls: number; minutes: number; answered: number }>();
+    for (const c of cdrs) {
+      const country = (String(c.country || c.destination_country || '')).trim() || 'Unknown';
+      const entry   = map.get(country) ?? { calls: 0, minutes: 0, answered: 0 };
+      entry.calls++;
+      entry.minutes += (Number(c.duration) || 0) / 60;
+      if (String(c.result) === '0' && (Number(c.duration) || 0) > 0) entry.answered++;
+      map.set(country, entry);
+    }
+    const total  = cdrs.length;
+    const sorted = Array.from(map.entries())
+      .map(([country, d]) => ({
+        country,
+        calls:   d.calls,
+        minutes: parseFloat(d.minutes.toFixed(1)),
+        asr:     d.calls > 0 ? parseFloat((d.answered / d.calls * 100).toFixed(1)) : 0,
+        pct:     total > 0   ? parseFloat((d.calls / total * 100).toFixed(1))       : 0,
+      }))
+      .sort((a, b) => b.calls - a.calls);
+    if (sorted.length <= 5) return sorted;
+    const top5 = sorted.slice(0, 5);
+    const rest  = sorted.slice(5);
+    const oC    = rest.reduce((s, d) => s + d.calls,   0);
+    const oM    = rest.reduce((s, d) => s + d.minutes, 0);
+    const oA    = rest.reduce((s, d) => s + Math.round(d.calls * d.asr / 100), 0);
+    top5.push({
+      country: 'Other',
+      calls:   oC,
+      minutes: parseFloat(oM.toFixed(1)),
+      asr:     oC > 0 ? parseFloat((oA / oC * 100).toFixed(1)) : 0,
+      pct:     total  > 0 ? parseFloat((oC / total * 100).toFixed(1)) : 0,
+    });
+    return top5;
+  }
+
   // GET /api/portal/view?token=xxx&startDate=...&endDate=... — public, no auth
   app.get('/api/portal/view', async (req: any, res) => {
     try {
@@ -2098,6 +2169,9 @@ export async function registerRoutes(
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, data]) => ({ date, ...data }));
 
+      const quality      = computePortalQuality(cdrs);
+      const destinations = computeDestinations(cdrs);
+
       res.json({
         accountName: tok.accountName,
         accountId: tok.accountId,
@@ -2114,6 +2188,8 @@ export async function registerRoutes(
         totalBilling,
         ratePerMin,
         daily,
+        quality,
+        destinations,
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
