@@ -180,6 +180,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Live Network',
     roles: ['admin','management','viewer'],
     items: [
+      { href: "/console",      label: "Unified Console",   icon: Zap,      roles: ['admin','management','noc_operator','team_lead','super_admin'], isNew: true },
       { href: "/calls",        label: "Live Calls",        icon: Phone,    roles: ['admin','management','viewer'], hasSubmenu: 'calls', status: 'live' },
       { href: "/alerts",       label: "Alerts",            icon: Bell,     roles: ['admin','management','super_admin','noc_operator','team_lead']    },
       { href: "/sbc-monitor",  label: "SBC Monitor",       icon: Network,  roles: ['admin','management','super_admin','noc_operator','team_lead']    },

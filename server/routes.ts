@@ -21284,6 +21284,62 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Unified Operations Console — Incident Feed ───────────────────────────────
+  // GET /api/console/incidents — groups raw alerts into triaged incidents
+  app.get("/api/console/incidents", (req: any, res: any, next: any) =>
+    requireRole(["admin","management","noc_operator","team_lead","super_admin"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const { groupAlertsToIncidents, estimateIncidentImpact } = await import("./console/groupAlertsToIncidents");
+
+        // Fetch raw signals
+        const rawAlerts  = await storage.getAlerts();
+        const rawTickets = await storage.listPortalTickets({});
+
+        // Map CDRs from in-memory cache
+        const cdrRows = [...cdrCache.values()].map((c: any) => ({
+          vendor:    c.vendor ?? c.vendorName ?? null,
+          cost:      c.cost ?? 0,
+          duration:  c.duration ?? c.billSecs ?? 0,
+          startTime: c.startTime ?? c.setupTime ?? null,
+        }));
+
+        const tickets = rawTickets.map(t => ({
+          id: t.id,
+          subject: (t as any).subject ?? "",
+          status: t.status,
+          accountId: (t as any).accountId ?? null,
+          createdAt: t.createdAt,
+        }));
+
+        const incidents = groupAlertsToIncidents(rawAlerts as any, tickets, cdrRows);
+
+        const active    = incidents.filter(i => !i.resolved);
+        const critical  = incidents.filter(i => i.severity === "critical" && !i.resolved);
+        const entities  = new Set(active.map(i => i.entityKey)).size;
+
+        // Total hourly impact across active incidents
+        let totalImpact: number | null = null;
+        for (const inc of active) {
+          if (inc.estimatedImpactPerHr != null) {
+            totalImpact = (totalImpact ?? 0) + inc.estimatedImpactPerHr;
+          }
+        }
+
+        res.json({
+          incidents,
+          summary: {
+            active:              active.length,
+            critical:            critical.length,
+            affectedEntities:    entities,
+            estimatedImpactPerHr: totalImpact != null ? parseFloat(totalImpact.toFixed(2)) : null,
+            lastUpdated:         new Date().toISOString(),
+          },
+        });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
   // ── Executive SLA Reporting (V1) ─────────────────────────────────────────────
   // GET /api/portal/sla-summary?token=...&period=30d
   app.get("/api/portal/sla-summary", async (req: any, res: any) => {
