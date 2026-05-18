@@ -283,7 +283,7 @@ export default function PortalViewPage() {
       ["KPI", "Value", "Grade"],
       ["Answer Success Rate", `${k.asr}%`, k.asrGrade],
       ["Network Efficiency", `${k.ner}%`, k.nerGrade],
-      ["Voice Quality (MOS)", String(k.mos), k.mosGrade],
+      ["Voice Quality (MOS)", k.connectedCalls > 0 ? String(k.mos) : "N/A", k.connectedCalls > 0 ? k.mosGrade : ""],
       ["Avg Call Duration", `${Math.floor(k.acd / 60)}m ${k.acd % 60}s`, ""],
       ["Avg Setup Delay", `${k.pdd}s`, k.pddGrade],
       ["Total Calls", String(k.totalCalls), ""],
@@ -824,7 +824,7 @@ export default function PortalViewPage() {
                     {[
                       { label: "Answer Success Rate", value: `${k.asr}%`,   grade: k.asrGrade, sub: `${k.connectedCalls} of ${k.totalCalls} calls connected` },
                       { label: "Network Efficiency",  value: `${k.ner}%`,   grade: k.nerGrade, sub: "Network-delivered call ratio" },
-                      { label: "Voice Quality",       value: String(k.mos), grade: k.mosGrade, sub: "Mean Opinion Score (MOS)" },
+                      { label: "Voice Quality",       value: k.connectedCalls > 0 ? String(k.mos) : "N/A", grade: k.connectedCalls > 0 ? k.mosGrade : null, sub: "Mean Opinion Score (MOS)" },
                       { label: "Avg Call Duration",   value: `${Math.floor(k.acd / 60)}m ${k.acd % 60}s`, grade: null, sub: "Per connected call" },
                       { label: "Avg Setup Delay",     value: `${k.pdd}s`,   grade: k.pddGrade, sub: "Time to first ring" },
                       { label: "Total Calls",         value: String(k.totalCalls), grade: null, sub: `${slaPeriod === "today" ? "Today" : slaPeriod === "7d" ? "Last 7 days" : "Last 30 days"}` },
