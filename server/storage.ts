@@ -15,6 +15,7 @@ import {
   portalTickets, portalTicketMessages,
   type PortalTicket, type InsertPortalTicket,
   type PortalTicketMessage, type InsertPortalTicketMessage,
+  type ConsoleIncident, type IncidentLifecycleEvent,
   dataRetentionPolicy, deletionRequests,
   type DataRetentionPolicy, type DeletionRequest, type InsertDeletionRequest,
   type PortalToken, type InsertPortalToken,
@@ -67,6 +68,7 @@ import {
   type ClientIpRequest, type InsertClientIpRequest,
   type AccountConfig,
   companies, companyContacts, companyBankAccounts, clientIpRequests, accountConfigs,
+  consoleIncidents, incidentLifecycleEvents,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db } from "./db";
@@ -353,6 +355,20 @@ export interface IStorage {
   updatePortalTicketStatus(id: number, status: string): Promise<PortalTicket>;
   listTicketMessages(ticketId: number): Promise<PortalTicketMessage[]>;
   addTicketMessage(data: InsertPortalTicketMessage): Promise<PortalTicketMessage>;
+
+  // ── Console Incidents (Phase 2) ────────────────────────────────────────────
+  upsertConsoleIncident(data: {
+    entityKey: string; entityLabel: string; windowHash: string;
+    severity: string; title: string; alertsJson: string;
+    estimatedImpactPerHr: number | null; linkedTicketId: number | null;
+    startedAt: Date; lastSeenAt: Date;
+  }): Promise<ConsoleIncident>;
+  listConsoleIncidents(): Promise<ConsoleIncident[]>;
+  getConsoleIncident(id: number): Promise<ConsoleIncident | null>;
+  updateConsoleIncidentState(id: number, state: string, resolvedAt?: Date | null): Promise<ConsoleIncident>;
+  updateConsoleIncidentFields(id: number, fields: Partial<ConsoleIncident>): Promise<ConsoleIncident>;
+  addLifecycleEvent(data: { incidentId: number; fromState: string | null; toState: string; actor?: string; note?: string }): Promise<IncidentLifecycleEvent>;
+  listLifecycleEvents(incidentId: number): Promise<IncidentLifecycleEvent[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1869,6 +1885,73 @@ export class DatabaseStorage implements IStorage {
       await db.update(portalTickets).set({ updatedAt: new Date() }).where(eq(portalTickets.id, data.ticketId));
     }
     return row;
+  }
+
+  // ── Console Incidents (Phase 2) ────────────────────────────────────────────
+  async upsertConsoleIncident(data: {
+    entityKey: string; entityLabel: string; windowHash: string;
+    severity: string; title: string; alertsJson: string;
+    estimatedImpactPerHr: number | null; linkedTicketId: number | null;
+    startedAt: Date; lastSeenAt: Date;
+  }): Promise<ConsoleIncident> {
+    // Try update first (preserve state/actions/timeline/rootCause on existing incidents)
+    const existing = await db.select().from(consoleIncidents)
+      .where(eq(consoleIncidents.windowHash, data.windowHash)).limit(1);
+    if (existing.length > 0) {
+      const [row] = await db.update(consoleIncidents)
+        .set({
+          severity:             data.severity,
+          title:                data.title,
+          alertsJson:           data.alertsJson,
+          estimatedImpactPerHr: data.estimatedImpactPerHr,
+          linkedTicketId:       data.linkedTicketId,
+          lastSeenAt:           data.lastSeenAt,
+          updatedAt:            new Date(),
+        })
+        .where(eq(consoleIncidents.windowHash, data.windowHash))
+        .returning();
+      return row;
+    }
+    const [row] = await db.insert(consoleIncidents).values({
+      ...data, state: "active",
+      alertsJson: data.alertsJson, timelineJson: "[]", actionsJson: "[]",
+    }).returning();
+    return row;
+  }
+
+  async listConsoleIncidents(): Promise<ConsoleIncident[]> {
+    return db.select().from(consoleIncidents).orderBy(desc(consoleIncidents.lastSeenAt)).limit(100);
+  }
+
+  async getConsoleIncident(id: number): Promise<ConsoleIncident | null> {
+    const rows = await db.select().from(consoleIncidents).where(eq(consoleIncidents.id, id)).limit(1);
+    return rows[0] ?? null;
+  }
+
+  async updateConsoleIncidentState(id: number, state: string, resolvedAt?: Date | null): Promise<ConsoleIncident> {
+    const fields: any = { state, updatedAt: new Date() };
+    if (resolvedAt !== undefined) fields.resolvedAt = resolvedAt;
+    const [row] = await db.update(consoleIncidents).set(fields).where(eq(consoleIncidents.id, id)).returning();
+    return row;
+  }
+
+  async updateConsoleIncidentFields(id: number, fields: Partial<ConsoleIncident>): Promise<ConsoleIncident> {
+    const [row] = await db.update(consoleIncidents)
+      .set({ ...fields, updatedAt: new Date() } as any)
+      .where(eq(consoleIncidents.id, id))
+      .returning();
+    return row;
+  }
+
+  async addLifecycleEvent(data: { incidentId: number; fromState: string | null; toState: string; actor?: string; note?: string }): Promise<IncidentLifecycleEvent> {
+    const [row] = await db.insert(incidentLifecycleEvents).values(data).returning();
+    return row;
+  }
+
+  async listLifecycleEvents(incidentId: number): Promise<IncidentLifecycleEvent[]> {
+    return db.select().from(incidentLifecycleEvents)
+      .where(eq(incidentLifecycleEvents.incidentId, incidentId))
+      .orderBy(asc(incidentLifecycleEvents.createdAt));
   }
 }
 

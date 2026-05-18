@@ -21284,58 +21284,176 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // ── Unified Operations Console — Incident Feed ───────────────────────────────
-  // GET /api/console/incidents — groups raw alerts into triaged incidents
+  // ── Unified Operations Console — Phase 2 Incident Intelligence ───────────────
+
+  function consoleWindowHash(entityKey: string, startedAt: Date): string {
+    const bucket = Math.floor(startedAt.getTime() / 600_000); // 10-min buckets
+    return `${entityKey}::${bucket}`;
+  }
+
+  // GET /api/console/incidents — persist + enrich incidents, return full Phase 2 payload
   app.get("/api/console/incidents", (req: any, res: any, next: any) =>
     requireRole(["admin","management","noc_operator","team_lead","super_admin"], req, res, next),
     async (_req: any, res: any) => {
       try {
-        const { groupAlertsToIncidents, estimateIncidentImpact } = await import("./console/groupAlertsToIncidents");
+        const { groupAlertsToIncidents } = await import("./console/groupAlertsToIncidents");
+        const { inferRootCause }          = await import("./incidents/rootCause");
+        const { buildTimeline }           = await import("./incidents/timeline");
 
-        // Fetch raw signals
         const rawAlerts  = await storage.getAlerts();
         const rawTickets = await storage.listPortalTickets({});
-
-        // Map CDRs from in-memory cache
         const cdrRows = [...cdrCache.values()].map((c: any) => ({
-          vendor:    c.vendor ?? c.vendorName ?? null,
-          cost:      c.cost ?? 0,
-          duration:  c.duration ?? c.billSecs ?? 0,
-          startTime: c.startTime ?? c.setupTime ?? null,
+          vendor: c.vendor ?? c.vendorName ?? null, cost: c.cost ?? 0,
+          duration: c.duration ?? c.billSecs ?? 0, startTime: c.startTime ?? c.setupTime ?? null,
         }));
 
         const tickets = rawTickets.map(t => ({
-          id: t.id,
-          subject: (t as any).subject ?? "",
-          status: t.status,
-          accountId: (t as any).accountId ?? null,
-          createdAt: t.createdAt,
+          id: t.id, subject: t.subject ?? "", status: t.status,
+          accountId: t.accountId ?? null, createdAt: t.createdAt,
         }));
 
-        const incidents = groupAlertsToIncidents(rawAlerts as any, tickets, cdrRows);
+        const grouped = groupAlertsToIncidents(rawAlerts as any, tickets, cdrRows);
 
-        const active    = incidents.filter(i => !i.resolved);
-        const critical  = incidents.filter(i => i.severity === "critical" && !i.resolved);
-        const entities  = new Set(active.map(i => i.entityKey)).size;
+        // Upsert each grouped incident into DB (preserve state/actions/root cause on existing)
+        const enriched: any[] = [];
+        for (const inc of grouped) {
+          const hash = consoleWindowHash(inc.entityKey, inc.startedAt);
+          const row  = await storage.upsertConsoleIncident({
+            entityKey: inc.entityKey, entityLabel: inc.entity, windowHash: hash,
+            severity: inc.severity, title: inc.title,
+            alertsJson: JSON.stringify(inc.alerts),
+            estimatedImpactPerHr: inc.estimatedImpactPerHr,
+            linkedTicketId: inc.linkedTicketId ?? null,
+            startedAt: inc.startedAt, lastSeenAt: inc.lastSeenAt,
+          });
 
-        // Total hourly impact across active incidents
+          // Infer root cause if not already stored
+          let rootCause = row.rootCauseJson ? JSON.parse(row.rootCauseJson) : null;
+          if (!rootCause) {
+            rootCause = inferRootCause(inc.alerts as any);
+            if (rootCause) {
+              await storage.updateConsoleIncidentFields(row.id, { rootCauseJson: JSON.stringify(rootCause) });
+            }
+          }
+
+          // Build timeline from lifecycle events + actions + alerts
+          const lcEvents = await storage.listLifecycleEvents(row.id);
+          const actions  = row.actionsJson ? JSON.parse(row.actionsJson) : [];
+          const timeline = buildTimeline({
+            startedAt: row.startedAt,
+            alerts:    inc.alerts as any,
+            lifecycleEvents: lcEvents.map(e => ({
+              id: e.id, fromState: e.fromState, toState: e.toState,
+              actor: e.actor, note: e.note, createdAt: e.createdAt,
+            })),
+            actions,
+          });
+
+          enriched.push({
+            ...inc, id: row.id, state: row.state,
+            rootCause, timeline, actions,
+            windowHash: hash, resolved: row.state === "resolved",
+          });
+        }
+
+        // Also include resolved incidents from DB (last 24h) for context
+        const allDb = await storage.listConsoleIncidents();
+        const resolvedRecent = allDb.filter(r =>
+          r.state === "resolved" &&
+          r.resolvedAt && (Date.now() - new Date(r.resolvedAt).getTime()) < 86_400_000 &&
+          !enriched.some(e => e.windowHash === r.windowHash)
+        );
+        for (const r of resolvedRecent.slice(0, 5)) {
+          const lcEvents = await storage.listLifecycleEvents(r.id);
+          const alerts   = r.alertsJson ? JSON.parse(r.alertsJson) : [];
+          const actions  = r.actionsJson ? JSON.parse(r.actionsJson) : [];
+          const timeline = buildTimeline({
+            startedAt: r.startedAt, alerts,
+            lifecycleEvents: lcEvents.map(e => ({ id: e.id, fromState: e.fromState, toState: e.toState, actor: e.actor, note: e.note, createdAt: e.createdAt })),
+            actions,
+          });
+          enriched.push({
+            id: r.id, entityKey: r.entityKey, entity: r.entityLabel,
+            severity: r.severity, state: r.state, title: r.title,
+            alerts, rootCause: r.rootCauseJson ? JSON.parse(r.rootCauseJson) : null,
+            timeline, actions, linkedTicketId: r.linkedTicketId,
+            estimatedImpactPerHr: r.estimatedImpactPerHr,
+            startedAt: r.startedAt, lastSeenAt: r.lastSeenAt, resolved: true,
+            windowHash: r.windowHash,
+          });
+        }
+
+        const active   = enriched.filter(i => i.state !== "resolved");
+        const critical = enriched.filter(i => i.severity === "critical" && i.state !== "resolved");
+        const entities = new Set(active.map((i: any) => i.entityKey)).size;
         let totalImpact: number | null = null;
         for (const inc of active) {
-          if (inc.estimatedImpactPerHr != null) {
-            totalImpact = (totalImpact ?? 0) + inc.estimatedImpactPerHr;
-          }
+          if (inc.estimatedImpactPerHr != null) totalImpact = (totalImpact ?? 0) + inc.estimatedImpactPerHr;
         }
 
         res.json({
-          incidents,
+          incidents: enriched,
           summary: {
-            active:              active.length,
-            critical:            critical.length,
-            affectedEntities:    entities,
+            active: active.length, critical: critical.length,
+            affectedEntities: entities,
             estimatedImpactPerHr: totalImpact != null ? parseFloat(totalImpact.toFixed(2)) : null,
-            lastUpdated:         new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
           },
         });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
+  // POST /api/console/incidents/:id/transition — lifecycle state machine
+  app.post("/api/console/incidents/:id/transition",
+    (req: any, res: any, next: any) => requireRole(["admin","management","noc_operator","team_lead","super_admin"], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { validateTransition, applyTransition } = await import("./incidents/stateMachine");
+        const id = Number(req.params.id);
+        const { toState, actor = "operator", note } = req.body;
+        if (!toState) return res.status(400).json({ error: "toState required" });
+
+        const inc = await storage.getConsoleIncident(id);
+        if (!inc) return res.status(404).json({ error: "Incident not found" });
+
+        const fromState = inc.state as any;
+        if (!validateTransition(fromState, toState)) {
+          return res.status(400).json({ error: `Transition ${fromState} → ${toState} not allowed` });
+        }
+
+        applyTransition({ incidentId: id, fromState, toState, actor, note });
+
+        const resolvedAt = toState === "resolved" ? new Date() : (toState === "active" ? null : undefined);
+        const updated = await storage.updateConsoleIncidentState(id, toState, resolvedAt);
+        await storage.addLifecycleEvent({ incidentId: id, fromState, toState, actor, note });
+
+        res.json({ success: true, incident: updated });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
+  // POST /api/console/incidents/:id/action — append operator action with metric snapshot
+  app.post("/api/console/incidents/:id/action",
+    (req: any, res: any, next: any) => requireRole(["admin","management","noc_operator","team_lead","super_admin"], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const id = Number(req.params.id);
+        const { type, actor = "operator", note, metricSnapshot } = req.body;
+        if (!type) return res.status(400).json({ error: "type required" });
+
+        const inc = await storage.getConsoleIncident(id);
+        if (!inc) return res.status(404).json({ error: "Incident not found" });
+
+        const actions: any[] = inc.actionsJson ? JSON.parse(inc.actionsJson) : [];
+        const action = {
+          id: `${type}-${Date.now()}`, type, actor, note: note ?? null,
+          metricSnapshot: metricSnapshot ?? null, timestamp: new Date().toISOString(),
+        };
+        actions.push(action);
+        await storage.updateConsoleIncidentFields(id, { actionsJson: JSON.stringify(actions) });
+
+        res.json({ success: true, action });
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     }
   );

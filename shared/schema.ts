@@ -1708,3 +1708,39 @@ export const portalTicketMessages = pgTable("portal_ticket_messages", {
 export const insertPortalTicketMessageSchema = createInsertSchema(portalTicketMessages).omit({ id: true, createdAt: true });
 export type PortalTicketMessage       = typeof portalTicketMessages.$inferSelect;
 export type InsertPortalTicketMessage = z.infer<typeof insertPortalTicketMessageSchema>;
+
+// ── Unified Console — Persistent Incidents (Phase 2) ─────────────────────────
+
+export const consoleIncidents = pgTable("console_incidents", {
+  id:                   serial("id").primaryKey(),
+  entityKey:            varchar("entity_key",   { length: 255 }).notNull(),
+  entityLabel:          varchar("entity_label", { length: 255 }).notNull(),
+  windowHash:           varchar("window_hash",  { length: 64  }).notNull().unique(), // entity + 10-min bucket
+  severity:             varchar("severity",     { length: 16  }).notNull(),
+  state:                varchar("state",        { length: 24  }).notNull().default("active"),
+  title:                varchar("title",        { length: 500 }).notNull(),
+  alertsJson:           text("alerts_json").notNull().default("[]"),
+  rootCauseJson:        text("root_cause_json"),
+  timelineJson:         text("timeline_json").notNull().default("[]"),
+  actionsJson:          text("actions_json").notNull().default("[]"),
+  metricsJson:          text("metrics_json"),
+  estimatedImpactPerHr: real("estimated_impact_per_hr"),
+  linkedTicketId:       integer("linked_ticket_id"),
+  startedAt:            timestamp("started_at").notNull(),
+  lastSeenAt:           timestamp("last_seen_at").notNull(),
+  resolvedAt:           timestamp("resolved_at"),
+  createdAt:            timestamp("created_at").defaultNow(),
+  updatedAt:            timestamp("updated_at").defaultNow(),
+});
+export type ConsoleIncident = typeof consoleIncidents.$inferSelect;
+
+export const incidentLifecycleEvents = pgTable("incident_lifecycle_events", {
+  id:         serial("id").primaryKey(),
+  incidentId: integer("incident_id").notNull(),
+  fromState:  varchar("from_state", { length: 24 }),
+  toState:    varchar("to_state",   { length: 24 }).notNull(),
+  actor:      varchar("actor",      { length: 128 }),
+  note:       text("note"),
+  createdAt:  timestamp("created_at").defaultNow(),
+});
+export type IncidentLifecycleEvent = typeof incidentLifecycleEvents.$inferSelect;
