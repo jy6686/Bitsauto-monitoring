@@ -11,6 +11,11 @@ import {
   analyticsDashboardRequestSchema,
   type AnalyticsDashboardRequest,
 } from "@shared/analytics";
+import {
+  computeKpis, isAnswered, isRna, isNetFail, cdrTs,
+  KpiSnapshotStore,
+  type CdrEntry, type KpiSnapshot,
+} from "./analytics-engine";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import * as sippy from "./sippy";
@@ -4061,6 +4066,29 @@ export async function registerRoutes(
   const cdrCache = new Map<string, Awaited<ReturnType<typeof sippy.getSippyCDRs>>[0]>();
   let cdrCacheUpdatedAt: Date | null = null;
 
+  // ── B: Time-sorted secondary index — O(log N + window) window queries ────────
+  // Rebuilt from scratch after each cache refresh (~5 k entries, <1 ms sort).
+  // Binary search replaces the O(N_total) scan on every dashboard POST.
+  const cdrTimeIndex: { ts: number; key: string }[] = [];
+
+  function binarySearchGe(cutoff: number): number {
+    let lo = 0, hi = cdrTimeIndex.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      cdrTimeIndex[mid].ts < cutoff ? (lo = mid + 1) : (hi = mid);
+    }
+    return lo;
+  }
+
+  /** Returns all CDR entries with ts >= cutoffMs using the sorted index. */
+  function cdrWindowValues(cutoffMs: number) {
+    const start = binarySearchGe(cutoffMs);
+    return cdrTimeIndex.slice(start).map(e => cdrCache.get(e.key)).filter(Boolean);
+  }
+
+  // ── C: Rolling 24-hour KPI snapshot store (AI Ops feed) ──────────────────────
+  const kpiSnapshotStore = new KpiSnapshotStore(24);
+
   // ── Carrier Health Service cache (5-minute TTL, no Sippy calls) ───────────
   type CarrierHealthEntry = {
     carrierId: string; carrierName: string;
@@ -4170,8 +4198,18 @@ export async function registerRoutes(
         const ts = sippy.parseSippyDate(c.startTime)?.getTime() ?? sippy.parseSippyDate(c.connectTime ?? null)?.getTime() ?? 0;
         if (ts && ts < cutoff) cdrCache.delete(k);
       }
+
+      // ── B: Rebuild time-sorted index after eviction ───────────────────────
+      cdrTimeIndex.length = 0;
+      for (const [key, c] of cdrCache) {
+        const ts = sippy.parseSippyDate(c.startTime)?.getTime()
+          ?? sippy.parseSippyDate((c as any).connectTime ?? null)?.getTime() ?? 0;
+        if (ts > 0) cdrTimeIndex.push({ ts, key });
+      }
+      cdrTimeIndex.sort((a, b) => a.ts - b.ts);
+
       cdrCacheUpdatedAt = new Date();
-      if (added > 0) console.log(`[cdr-cache] +${added} new records, total=${cdrCache.size}`);
+      if (added > 0) console.log(`[cdr-cache] +${added} new records, total=${cdrCache.size} idx=${cdrTimeIndex.length}`);
 
       // ── Option B: Mera CDR enrichment ────────────────────────────────────────
       // Portal-scraped CDRs carry no iConnection / remoteIp / vendor fields.
@@ -15109,56 +15147,35 @@ export async function registerRoutes(
         // switch_name: single-switch system — no-op filter
         // gb_external_description: not in CDR cache — reserved for Phase 2
 
-        // ── CDR filtering ──────────────────────────────────────────────────────
-        const cdrs = [...cdrCache.values()].filter((c: any) => {
-          const ts = c.startTime
-            ? new Date(c.startTime).getTime()
-            : c.connectTime ? new Date(c.connectTime).getTime() : 0;
-          if (!ts || ts < cutoff) return false;
+        // ── B: CDR window filter — O(log N + window) via time-sorted index ───────
+        // cdrWindowValues already limits to [cutoff, now] — no ts check needed inside filter.
+        const windowCdrs = cdrWindowValues(cutoff);
+        const cdrs = (fClient || fVendor || fCountry)
+          ? windowCdrs.filter((c: any) => {
+              if (fClient) {
+                const acctId = String(c.iAccount ?? '');
+                const name   = (c.clientName || accountNameCache.get(acctId) || '').toLowerCase();
+                if (!name.includes(fClient)) return false;
+              }
+              if (fVendor) {
+                const name = (c.vendor || connectionVendorCache.get(String(c.iConnection ?? '')) || '').toLowerCase();
+                if (!name.includes(fVendor)) return false;
+              }
+              if (fCountry) {
+                if (!(c.country || '').toLowerCase().includes(fCountry)) return false;
+              }
+              return true;
+            })
+          : windowCdrs;
 
-          if (fClient) {
-            const acctId = String(c.iAccount ?? '');
-            const name   = (c.clientName || accountNameCache.get(acctId) || '').toLowerCase();
-            if (!name.includes(fClient)) return false;
-          }
-          if (fVendor) {
-            const name = (c.vendor || connectionVendorCache.get(String(c.iConnection ?? '')) || '').toLowerCase();
-            if (!name.includes(fVendor)) return false;
-          }
-          if (fCountry) {
-            if (!(c.country || '').toLowerCase().includes(fCountry)) return false;
-          }
-          return true;
-        });
+        // ── C: KPIs via analytics-engine (single source of truth) ──────────────
+        const kpis       = computeKpis(cdrs as CdrEntry[]);
+        const { totalCalls, answeredCalls: ansCount, asr, acd,
+                pdd: avgPddSec, mos, mosGrade, ner, totalMinutes, totalCost } = kpis;
 
-        // ── Helpers ────────────────────────────────────────────────────────────
-        const isAnswered = (c: any) => String(c.result) === '0' && (Number(c.duration) || 0) > 0;
-        const isRna      = (c: any) => String(c.result) === '0' && (Number(c.duration) || 0) === 0;
-        const isNetFail  = (c: any) => ['100','101','102','103','104','105'].includes(String(c.result));
-        const cdrTs      = (c: any) =>
-          c.startTime  ? new Date(c.startTime).getTime()
-          : c.connectTime ? new Date(c.connectTime).getTime() : 0;
-
-        const answered    = cdrs.filter(isAnswered);
+        // Breakout / time-series still need per-CDR predicates (imported from analytics-engine)
         const rna         = cdrs.filter(isRna);
         const networkFail = cdrs.filter(isNetFail);
-        const totalCalls  = cdrs.length;
-        const ansCount    = answered.length;
-
-        // ── KPIs ───────────────────────────────────────────────────────────────
-        const asr        = totalCalls > 0 ? parseFloat((ansCount / totalCalls * 100).toFixed(2)) : 0;
-        const totalDurSec = answered.reduce((s: number, c: any) => s + (Number(c.duration) || 0), 0);
-        const acd        = ansCount > 0 ? Math.round(totalDurSec / ansCount) : 0;
-        const pddArr     = answered.map((c: any) => Number(c.pdd1xx ?? c.pdd) || 0).filter((v: number) => v > 0);
-        const avgPddSec  = pddArr.length > 0
-          ? parseFloat((pddArr.reduce((a: number, b: number) => a + b, 0) / pddArr.length).toFixed(3)) : 0;
-        const mos        = ansCount > 0 && avgPddSec > 0
-          ? parseFloat(estimateMOSFromPDD(avgPddSec * 1000).toFixed(2)) : null;
-        const mosGrade   = mos !== null ? mosToGrade(mos) : null;
-        const totalMinutes = parseFloat((totalDurSec / 60).toFixed(2));
-        const totalCost  = parseFloat(cdrs.reduce((s: number, c: any) => s + (Number(c.cost) || 0), 0).toFixed(4));
-        const nerNum     = ansCount + rna.length;
-        const ner        = totalCalls > 0 ? parseFloat((nerNum / totalCalls * 100).toFixed(2)) : null;
 
         // ── Time series ────────────────────────────────────────────────────────
         const bucketMap = new Map<number, { calls: number; answered: number; durationSec: number; cost: number }>();
@@ -15276,6 +15293,25 @@ export async function registerRoutes(
         res.status(500).json({ message: e.message });
       }
     }
+  );
+
+  // ── C: KPI Snapshot history endpoint ─────────────────────────────────────────
+  app.get(
+    '/api/analytics/kpi-snapshots',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'viewer'], req, res, next),
+    (_req: any, res: any) => {
+      const snapshots = kpiSnapshotStore.getAll();
+      res.json({
+        snapshots,
+        size: kpiSnapshotStore.size(),
+        baselines: {
+          asr: kpiSnapshotStore.baseline('asr'),
+          acd: kpiSnapshotStore.baseline('acd'),
+          mos: kpiSnapshotStore.baseline('mos'),
+        },
+        updatedAt: kpiSnapshotStore.getLatest()?.timestamp ?? null,
+      });
+    },
   );
 
   // ── Revenue & Margin Analytics ─────────────────────────────────────────────────
@@ -18564,7 +18600,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   setTimeout(() => {
     const _runAnomalyEngine = async () => {
       try {
-        const result = await runAnomalyEngine(cdrCache);
+        const result = await runAnomalyEngine(cdrCache, kpiSnapshotStore.getAll());
         if (result.detected > 0 || result.resolved > 0) {
           console.log(`[anomaly-engine] detected=${result.detected} resolved=${result.resolved} baselines=${result.baselines}`);
         }
@@ -18577,6 +18613,40 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     _runAnomalyEngine();
     setInterval(_runAnomalyEngine, 15 * 60 * 1000);
   }, 300_000); // T+5 min stagger
+
+  // ── C: KPI Snapshot Scheduler — hourly platform baseline (AI Ops feed, T+6 min stagger) ──
+  setTimeout(() => {
+    const _runKpiSnapshot = async () => {
+      try {
+        const hourStart  = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+        const cutoff1h   = hourStart - 3_600_000;           // 1h window ending at hour boundary
+        const windowCdrs = cdrWindowValues(cutoff1h);
+        if (windowCdrs.length === 0) return;
+
+        const kpis: import('./analytics-engine').CdrEntry[] = windowCdrs as any;
+        const snapshot: KpiSnapshot = {
+          timestamp: hourStart,
+          windowMs:  3_600_000,
+          kpis:      computeKpis(kpis),
+          cdrCount:  windowCdrs.length,
+        };
+        kpiSnapshotStore.push(snapshot);
+
+        const { asr, mos, totalCalls } = snapshot.kpis;
+        console.log(`[kpi-snapshot] ${new Date(hourStart).toISOString()} asr=${asr}% mos=${mos ?? 'N/A'} calls=${totalCalls} store=${kpiSnapshotStore.size()}/24`);
+
+        // Platform anomaly warnings (AI Ops hook-in)
+        const asrSigma = kpiSnapshotStore.sigmaOf('asr', asr);
+        const mosSigma = mos !== null ? kpiSnapshotStore.sigmaOf('mos', mos) : null;
+        if (asrSigma !== null && asrSigma >= 2.5)
+          console.warn(`[kpi-snapshot] ⚠ Platform ASR anomaly: ${asr}% (${asrSigma.toFixed(1)}σ below 24h baseline)`);
+        if (mosSigma !== null && mosSigma >= 2.5)
+          console.warn(`[kpi-snapshot] ⚠ Platform MOS anomaly: ${mos} (${mosSigma.toFixed(1)}σ below 24h baseline)`);
+      } catch (e: any) { console.warn('[kpi-snapshot] run error:', e.message); }
+    };
+    _runKpiSnapshot();
+    setInterval(_runKpiSnapshot, 60 * 60 * 1000);
+  }, 360_000); // T+6 min stagger
 
   // Auth Exposure Scorer — runs every 6 hours (T+2 min stagger, slow interval to minimise Sippy load)
   setTimeout(() => {

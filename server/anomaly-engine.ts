@@ -21,7 +21,8 @@
 import type { SippyCDR } from "./sippy";
 import { db } from "./db";
 import { vendorMetricBaselines, anomalyEvents } from "@shared/schema";
-import { eq, and, gte, desc } from "drizzle-orm";
+import { eq, and, gte } from "drizzle-orm";
+import type { KpiSnapshot } from "./analytics-engine";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -158,6 +159,7 @@ function buildAnomalyText(
 
 export async function runAnomalyEngine(
   cdrCache: Map<string, SippyCDR>,
+  kpiSnapshots: KpiSnapshot[] = [],
 ): Promise<AnomalyEngineResult> {
   const cdrs = Array.from(cdrCache.values());
   if (cdrs.length < 10) {
@@ -351,6 +353,90 @@ export async function runAnomalyEngine(
     }
   } catch (e: any) {
     console.warn('[anomaly-engine] Auto-resolve failed:', e.message);
+  }
+
+  // ── Step 5: Platform-level KPI anomaly detection (AI Ops hook-in, C) ────────
+  // Uses the 24h rolling KPI snapshots produced by the KPI Snapshot Scheduler.
+  // Compares the latest snapshot to the 24h baseline for ASR and ACD.
+  // Only fires if ≥4 hourly snapshots are available (need enough baseline history).
+  if (kpiSnapshots.length >= 4) {
+    const latest = kpiSnapshots[kpiSnapshots.length - 1];
+    if (latest) {
+      const platformMetrics: Array<{ field: 'asr' | 'acd'; label: string; unit: string }> = [
+        { field: 'asr', label: 'Platform ASR', unit: '%' },
+        { field: 'acd', label: 'Platform ACD', unit: 's' },
+      ];
+
+      for (const { field, label, unit } of platformMetrics) {
+        const current = latest.kpis[field];
+        if (typeof current !== 'number') continue;
+
+        // Compute mean + stddev across all snapshots except the latest
+        const history = kpiSnapshots.slice(0, -1);
+        const values  = history.map(s => s.kpis[field]).filter((v): v is number => typeof v === 'number');
+        if (values.length < 3) continue;
+
+        const mean     = values.reduce((a, b) => a + b, 0) / values.length;
+        const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
+        const stddev   = Math.sqrt(variance);
+        if (stddev < 0.01) continue;
+
+        const sigma     = Math.abs(current - mean) / stddev;
+        const severity  = toSeverity(sigma);
+        if (!severity) continue;
+
+        const direction = current < mean ? 'below' : 'above';
+        const pct       = mean > 0 ? Math.abs(((current - mean) / mean) * 100).toFixed(0) : '–';
+
+        console.warn(
+          `[anomaly-engine] Platform anomaly: ${label} ${current.toFixed(1)}${unit} ` +
+          `— ${pct}% ${direction} baseline ${mean.toFixed(1)}${unit} (${sigma.toFixed(1)}σ) [${severity}]`,
+        );
+
+        // Write to DB as vendor="PLATFORM" for visibility in the anomaly feed
+        try {
+          const recentCutoff = new Date(now - 2 * 60 * 60 * 1000);
+          const existingPlatform = await db
+            .select()
+            .from(anomalyEvents)
+            .where(and(
+              eq(anomalyEvents.vendor, 'PLATFORM'),
+              eq(anomalyEvents.metric, field),
+              eq(anomalyEvents.resolved, false),
+              gte(anomalyEvents.detectedAt, recentCutoff),
+            ))
+            .limit(1);
+
+          if (existingPlatform.length > 0) {
+            await db
+              .update(anomalyEvents)
+              .set({ currentValue: current, deviationSigma: sigma, severity })
+              .where(eq(anomalyEvents.id, existingPlatform[0].id));
+          } else {
+            await db.insert(anomalyEvents).values({
+              vendor:           'PLATFORM',
+              metric:           field,
+              severity,
+              title:            `${label} ${direction === 'below' ? 'Drop' : 'Spike'} — Network-Wide`,
+              description:      `${label} is ${current.toFixed(1)}${unit} — ${pct}% ${direction} the 24h rolling baseline of ${mean.toFixed(1)}${unit} (${sigma.toFixed(1)}σ).`,
+              rootCause:        `Statistical deviation detected across all platform traffic. ${sigma.toFixed(1)}σ ${direction} expected baseline.`,
+              recommendation:   direction === 'below'
+                ? `Investigate all active vendors and trunk groups. Check for simultaneous carrier-side degradation or a routing misconfiguration.`
+                : `Monitor for fraud or unexpected traffic surge across all accounts.`,
+              affectedEntities: ['Vendor: ALL', 'Scope: PLATFORM'],
+              currentValue:     current,
+              baselineMean:     mean,
+              baselineStddev:   stddev,
+              deviationSigma:   sigma,
+              resolved:         false,
+            });
+            detected++;
+          }
+        } catch (e: any) {
+          console.warn(`[anomaly-engine] Failed to write platform anomaly (${field}):`, e.message);
+        }
+      }
+    }
   }
 
   console.log(`[anomaly-engine] Run complete — baselines: ${baselinesWritten}, detected: ${detected}, resolved: ${resolved}`);
