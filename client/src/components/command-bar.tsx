@@ -203,6 +203,41 @@ const ALIASES: Record<string, string> = {
 // ── Alias priority weights ──────────────────────────────────────────────────────
 // When a token is a module-alias, route results surface first (operator intends a tool).
 // Country/entity aliases keep the default (entities first).
+// ── Scope chip styles — per entity-dim and route-domain ──────────────────────
+const SCOPE_CHIPS: Record<string, { label: string; bg: string; fg: string }> = {
+  // Entity dimensions
+  'Countries':        { label: 'COUNTRY',   bg: 'rgba(56,189,248,0.12)',  fg: '#38BDF8' },
+  'Clients':          { label: 'CLIENT',    bg: 'rgba(167,139,250,0.12)', fg: '#A78BFA' },
+  'Vendors':          { label: 'VENDOR',    bg: 'rgba(251,191,36,0.12)',  fg: '#FBBF24' },
+  'Destination Sets': { label: 'DEST SET',  bg: 'rgba(45,212,191,0.12)',  fg: '#2DD4BF' },
+  // Route domains
+  'Live Ops':         { label: 'LIVE',      bg: 'rgba(52,211,153,0.12)',  fg: '#34D399' },
+  'Analytics':        { label: 'ANALYTICS', bg: 'rgba(34,211,238,0.12)',  fg: '#22D3EE' },
+  'Reports':          { label: 'REPORTS',   bg: 'rgba(99,102,241,0.12)',  fg: '#818CF8' },
+  'Troubleshooting':  { label: 'TOOLING',   bg: 'rgba(251,113,133,0.12)', fg: '#FB7185' },
+  'Routing':          { label: 'ROUTING',   bg: 'rgba(251,146,60,0.12)',  fg: '#FB923C' },
+  'Fraud & Security': { label: 'FRAUD',     bg: 'rgba(239,68,68,0.12)',   fg: '#F87171' },
+  'Management':       { label: 'MGMT',      bg: 'rgba(148,163,184,0.12)', fg: '#94A3B8' },
+  'Platform':         { label: 'PLATFORM',  bg: 'rgba(192,132,252,0.12)', fg: '#C084FC' },
+};
+
+function ScopeHeading({ label }: { label: string }) {
+  const chip = SCOPE_CHIPS[label];
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+      <span>{label}</span>
+      {chip && (
+        <span style={{
+          fontSize: 9, fontWeight: 800, letterSpacing: '0.08em',
+          padding: '1px 5px', borderRadius: 3,
+          background: chip.bg, color: chip.fg,
+          lineHeight: 1.6, flexShrink: 0,
+        }}>{chip.label}</span>
+      )}
+    </span>
+  );
+}
+
 const ALIAS_PRIORITY: Record<string, 'route'> = {
   noc: 'route', live: 'route', acct: 'route', rev: 'route',
   cdr: 'route', lcr: 'route', sip: 'route',  rtp: 'route',
@@ -384,7 +419,7 @@ export function CommandBar() {
 
         {/* Entity groups rendered inline — position controlled by routePriority */}
         {!routePriority && entityGroups.map(([dimLabel, entities]) => (
-          <CommandGroup key={dimLabel} heading={dimLabel}>
+          <CommandGroup key={dimLabel} heading={<ScopeHeading label={dimLabel} />}>
             {entities.slice(0, 7).map(e => (
               <CommandItem key={`${e.dim}-${e.name}`} value={`entity ${e.name} ${e.dimLabel}`}
                 onSelect={() => navigate('/bitseye2')}
@@ -402,7 +437,7 @@ export function CommandBar() {
         {/* Route groups */}
         {routeGroups.length > 0 && entityGroups.length > 0 && <CommandSeparator />}
         {routeGroups.map(([domain, routes]) => (
-          <CommandGroup key={domain} heading={domain}>
+          <CommandGroup key={domain} heading={<ScopeHeading label={domain} />}>
             {routes.map(r => (
               <CommandItem key={r.href} value={`route ${r.label} ${r.domain}`}
                 onSelect={() => navigate(r.href)}
@@ -417,7 +452,7 @@ export function CommandBar() {
         {/* Entity groups (route-priority mode: placed after routes) */}
         {routePriority && entityGroups.length > 0 && routeGroups.length > 0 && <CommandSeparator />}
         {routePriority && entityGroups.map(([dimLabel, entities]) => (
-          <CommandGroup key={dimLabel} heading={dimLabel}>
+          <CommandGroup key={dimLabel} heading={<ScopeHeading label={dimLabel} />}>
             {entities.slice(0, 7).map(e => (
               <CommandItem key={`${e.dim}-${e.name}`} value={`entity-rp ${e.name} ${e.dimLabel}`}
                 onSelect={() => navigate('/bitseye2')}
