@@ -9,7 +9,7 @@ import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps
 import {
   Radio, Users, Wifi, Globe, Phone, GitBranch, Briefcase,
   BarChart2, FileText, ChevronDown, ChevronRight, RefreshCw,
-  Activity, TrendingUp, Zap, ExternalLink, Map,
+  Activity, TrendingUp, Zap, ExternalLink, Map as MapIcon,
   Search, Star, Maximize2, Minimize2,
   AlertTriangle, Bell, BellOff, X as XIcon, Layers,
 } from "lucide-react";
@@ -224,7 +224,7 @@ function WorldMap({
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px 0', position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Map style={{ width: 13, height: 13, color: '#6B7280' }} />
+          <MapIcon style={{ width: 13, height: 13, color: '#6B7280' }} />
           <span style={{ fontSize: 11, fontWeight: 700, color: '#374151' }}>Live Traffic Map</span>
           <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 700, marginLeft: 4 }}>
             {totalActive} calls · {activeCountries} {activeCountries === 1 ? 'country' : 'countries'}
