@@ -11961,6 +11961,18 @@ export async function registerRoutes(
   const ENT_MAX_SNAP     = 480; // 8h at 45s intervals
   const ENT_MAX_ENTITIES = 30;  // top 30 entities tracked per dimension
 
+  // Persistent entity registry — keeps entities visible even when concurrent calls drop to zero.
+  // Entities persist up to: Clients/Vendors 24h, Countries 12h, Destinations 6h after last call.
+  interface EntityPresence {
+    lastSeen: number; firstSeen: number;
+    currentActive: number; currentConnected: number; currentRouting: number;
+    connectRate: number; peakToday: number; peakTs: number;
+  }
+  const entityPresenceCache = new Map<string, Map<string, EntityPresence>>();
+  const ENTITY_RETENTION: Record<string, number> = {
+    client: 86_400_000, vendor: 86_400_000, country: 43_200_000, destination: 21_600_000,
+  };
+
   let _snapshotRunning = false;
   async function snapshotActiveCalls(): Promise<void> {
     if (_snapshotRunning) return; // mutex — skip if previous cycle still in progress
@@ -12022,7 +12034,7 @@ export async function registerRoutes(
         }
       }
 
-      // ── Update per-entity concurrent history (powers /api/bitseye/live-slice) ──
+      // ── Update per-entity concurrent history + persistent presence registry ──
       {
         const nowEnt = Date.now();
         const dimGetters: [string, (c: any) => string | null][] = [
@@ -12032,6 +12044,7 @@ export async function registerRoutes(
           ['destination', (c: any) => c.destFull || c.destCountry || null],
         ];
         for (const [dim, getKey] of dimGetters) {
+          // Build live counts for this snapshot
           const aggMap = new Map<string, { count: number; connected: number; routing: number }>();
           for (const c of enrichedCalls) {
             const key = getKey(c);
@@ -12041,14 +12054,61 @@ export async function registerRoutes(
             if (c.callStatus === 'connected') ex.connected++; else ex.routing++;
             aggMap.set(key, ex);
           }
-          const sorted = [...aggMap.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, ENT_MAX_ENTITIES);
+
+          // ── entityConcurrentHistory: push snapshots for currently-active entities ──
           const dimMap = entityConcurrentHistory.get(dim) ?? new Map<string, EntSnap[]>();
+          const sorted = [...aggMap.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, ENT_MAX_ENTITIES);
           for (const [name, counts] of sorted) {
             const hist = dimMap.get(name) ?? [];
             hist.push({ ts: nowEnt, ...counts });
             if (hist.length > ENT_MAX_SNAP) hist.splice(0, hist.length - ENT_MAX_SNAP);
             dimMap.set(name, hist);
           }
+
+          // ── entityPresenceCache: persist all known entities, mark idle ones ──
+          const presMap = entityPresenceCache.get(dim) ?? new Map<string, EntityPresence>();
+          const retention = ENTITY_RETENTION[dim] ?? 86_400_000;
+
+          // Update currently-active entities
+          for (const [name, counts] of aggMap.entries()) {
+            const ex: EntityPresence = presMap.get(name) ?? {
+              lastSeen: nowEnt, firstSeen: nowEnt,
+              currentActive: 0, currentConnected: 0, currentRouting: 0,
+              connectRate: 0, peakToday: 0, peakTs: nowEnt,
+            };
+            ex.currentActive    = counts.count;
+            ex.currentConnected = counts.connected;
+            ex.currentRouting   = counts.routing;
+            ex.connectRate      = counts.count > 0 ? Math.round(counts.connected / counts.count * 100) : 0;
+            ex.lastSeen         = nowEnt;
+            // Reset peak daily if > 24h old, or update if new high
+            if (nowEnt - ex.peakTs > 86_400_000) { ex.peakToday = counts.count; ex.peakTs = nowEnt; }
+            else if (counts.count > ex.peakToday)  { ex.peakToday = counts.count; ex.peakTs = nowEnt; }
+            presMap.set(name, ex);
+          }
+
+          // For entities that were active last cycle but have no calls now → mark idle
+          // Push a zero-snapshot so their charts continue rendering flat at 0
+          for (const [name, pres] of presMap.entries()) {
+            if (!aggMap.has(name) && pres.currentActive > 0) {
+              pres.currentActive = 0; pres.currentConnected = 0;
+              pres.currentRouting = 0; pres.connectRate = 0;
+              const hist = dimMap.get(name) ?? [];
+              hist.push({ ts: nowEnt, count: 0, connected: 0, routing: 0 });
+              if (hist.length > ENT_MAX_SNAP) hist.splice(0, hist.length - ENT_MAX_SNAP);
+              dimMap.set(name, hist);
+            }
+          }
+
+          // Prune entities beyond their retention window
+          for (const [name, pres] of presMap.entries()) {
+            if (nowEnt - pres.lastSeen > retention) {
+              presMap.delete(name);
+              dimMap.delete(name);
+            }
+          }
+
+          entityPresenceCache.set(dim, presMap);
           entityConcurrentHistory.set(dim, dimMap);
         }
       }
@@ -13014,41 +13074,43 @@ export async function registerRoutes(
   });
 
   // GET /api/bitseye/live-slice?groupBy=client|vendor|country|destination[&entity=Name]
-  // Real-time concurrent counts sliced from liveCallsCache by dimension.
-  // Optionally returns per-entity concurrent history when ?entity= is provided.
+  // Reads from entityPresenceCache — returns ALL known entities including idle ones (active=0).
+  // Entities persist up to 24h (clients/vendors) or 12h/6h (countries/destinations) after last call.
   // Sippy-safe: zero Sippy calls — reads only from in-memory caches.
   app.get('/api/bitseye/live-slice', async (_req: any, res: any) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const dim    = (['client', 'vendor', 'country', 'destination'].includes(_req.query.groupBy as string)
       ? _req.query.groupBy as string : 'client');
     const entity = _req.query.entity ? String(_req.query.entity) : null;
-    const calls  = (liveCallsCache as any).calls ?? [];
     const ts     = (liveCallsCache as any).ts ?? 0;
 
-    const getKey = (c: any): string | null => {
-      if (dim === 'client')      return c.clientName || (c.accountId ? `Acct.${c.accountId}` : null);
-      if (dim === 'vendor')      return c.vendor || c.connection || null;
-      if (dim === 'country')     return c.destCountry || null;
-      if (dim === 'destination') return c.destFull || c.destCountry || null;
-      return null;
-    };
-
-    const aggMap = new Map<string, { count: number; connected: number; routing: number }>();
-    for (const c of calls) {
-      const key = getKey(c);
-      if (!key) continue;
-      const ex = aggMap.get(key) ?? { count: 0, connected: 0, routing: 0 };
-      ex.count++;
-      if (c.callStatus === 'connected') ex.connected++; else ex.routing++;
-      aggMap.set(key, ex);
+    // Build entity list from persistent registry (includes idle entities with active=0)
+    const presMap = entityPresenceCache.get(dim);
+    const entities: any[] = [];
+    if (presMap) {
+      for (const [name, pres] of presMap.entries()) {
+        entities.push({
+          name,
+          active:      pres.currentActive,
+          connected:   pres.currentConnected,
+          routing:     pres.currentRouting,
+          connectRate: pres.connectRate,
+          lastSeen:    pres.lastSeen,
+          peakToday:   pres.peakToday,
+          idle:        pres.currentActive === 0,
+        });
+      }
     }
 
-    const entities = [...aggMap.entries()]
-      .sort((a, b) => b[1].count - a[1].count)
-      .map(([name, v]) => ({
-        name, active: v.count, connected: v.connected, routing: v.routing,
-        connectRate: v.count > 0 ? Math.round(v.connected / v.count * 100) : 0,
-      }));
+    // Sort: active entities first (descending by count), then idle sorted by lastSeen descending
+    entities.sort((a, b) => {
+      if (a.active > 0 && b.active === 0) return -1;
+      if (a.active === 0 && b.active > 0) return 1;
+      if (a.active > 0) return b.active - a.active;
+      return b.lastSeen - a.lastSeen;
+    });
+
+    const total = entities.filter(e => e.active > 0).reduce((s: number, e: any) => s + e.active, 0);
 
     // Per-entity history (last 48 snapshots ≈ 36 minutes at 45s interval)
     let entityHistory: EntSnap[] = [];
@@ -13058,7 +13120,7 @@ export async function registerRoutes(
     }
 
     const cacheAgeMs = ts > 0 ? Date.now() - ts : null;
-    res.json({ groupBy: dim, entities, total: calls.length, stale: cacheAgeMs !== null && cacheAgeMs > 90_000, lastUpdated: ts, ...(entity ? { entityHistory } : {}) });
+    res.json({ groupBy: dim, entities, total, stale: cacheAgeMs !== null && cacheAgeMs > 90_000, lastUpdated: ts, ...(entity ? { entityHistory } : {}) });
   });
 
   // GET /api/bitseye/entity-detail?dim=client|vendor|country|destination&name=<entity>
@@ -13117,11 +13179,17 @@ export async function registerRoutes(
     const dimMap      = entityConcurrentHistory.get(dim);
     const entityHistory = (dimMap?.get(name) ?? []).slice(-48);
 
+    // Enrich with presence data (lastSeen, peakToday)
+    const pres = entityPresenceCache.get(dim)?.get(name);
+
     const cacheAgeMs = ts > 0 ? Date.now() - ts : null;
     res.json({
       dim, name, active, connected, routing, connectRate,
       topClients, topVendors, topCountries, topDestinations,
       entityHistory,
+      lastSeen:  pres?.lastSeen  ?? ts,
+      peakToday: pres?.peakToday ?? active,
+      idle:      active === 0,
       stale: cacheAgeMs !== null && cacheAgeMs > 90_000,
       lastUpdated: ts,
     });

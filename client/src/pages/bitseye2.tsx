@@ -18,6 +18,7 @@ import { useLocation } from "wouter";
 // ── Types ────────────────────────────────────────────────────────────────────
 interface EntityRow {
   name: string; active: number; connected: number; routing: number; connectRate: number;
+  lastSeen?: number; idle?: boolean; peakToday?: number;
 }
 interface IncidentAlert {
   id: number; entityType: string; entityName: string | null; severity: string;
@@ -56,6 +57,7 @@ interface EntityDetail {
   topClients: CrossRow[]; topVendors: CrossRow[];
   topCountries: CrossRow[]; topDestinations: CrossRow[];
   entityHistory: { ts: number; count: number; connected: number; routing: number }[];
+  lastSeen?: number; peakToday?: number; idle?: boolean;
   stale: boolean; lastUpdated: number;
 }
 interface LiveSummary {
@@ -357,6 +359,14 @@ function fmtDuration(secs: number) {
   if (!secs) return '—';
   const m = Math.floor(secs / 60), s = secs % 60;
   return `${m}m ${s}s`;
+}
+function fmtLastSeen(ts: number): string {
+  const diff = Math.floor((Date.now() - ts) / 60_000);
+  if (diff < 1)  return 'just now';
+  if (diff < 60) return `${diff}m ago`;
+  const h = Math.floor(diff / 60);
+  if (h < 24)    return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 // ── Live Pill ─────────────────────────────────────────────────────────────────
@@ -1064,7 +1074,7 @@ export default function BitsEye2Page() {
                               >
                                 <Star style={{ width: 9, height: 9, color: isPinned ? '#F59E0B' : '#E5E7EB', fill: isPinned ? '#F59E0B' : 'none' }} />
                               </button>
-                              <span style={{ fontSize: 11, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{ent.name}</span>
+                              <span style={{ fontSize: 11, color: ent.idle ? '#9CA3AF' : '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{ent.name}</span>
                               {/* Anomaly / incident indicator dot */}
                               {(() => {
                                 const anomaly  = sec.dim === 'vendor' ? anomalyByVendor.get(ent.name) : undefined;
@@ -1359,9 +1369,17 @@ export default function BitsEye2Page() {
           </div>
 
           {entityDetail.active === 0 && (
-            <div style={{ textAlign: 'center' as const, padding: '40px 0', color: '#9CA3AF', fontSize: 14 }}>
-              No active calls for <strong>{selectedEntity}</strong> at this moment.
-              <br /><span style={{ fontSize: 12 }}>Cross-dimensional data will appear when calls are live.</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, padding: '10px 14px' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#9CA3AF', flexShrink: 0 }} />
+              <div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#6B7280' }}>Idle</span>
+                {entityDetail.lastSeen && (
+                  <span style={{ fontSize: 11, color: '#9CA3AF', marginLeft: 6 }}>· last seen {fmtLastSeen(entityDetail.lastSeen)}</span>
+                )}
+                {(entityDetail.peakToday ?? 0) > 0 && (
+                  <span style={{ fontSize: 11, color: '#9CA3AF', marginLeft: 6 }}>· peak today: {entityDetail.peakToday}</span>
+                )}
+              </div>
             </div>
           )}
         </div>

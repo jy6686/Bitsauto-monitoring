@@ -1,0 +1,191 @@
+As you can see, when a client starts sending traffic, the client appears in BitsEye, and when there are no active calls, the client disappears. This is not the expected behavior.
+
+The client/entity should always remain visible in the panel, even when there are zero active calls. In that case:
+
+the graphs should display 0 calls,
+the statistics should remain visible,
+and all charts/history should continue to be maintained instead of disappearing.
+
+BitsEye should behave like a persistent monitoring system, not a temporary live-call-only view.
+
+Yes — this is a very important architectural correction, and your observation is 100% correct.
+
+Right now BitsEye 2 behaves like:
+
+temporary active-call explorer
+
+But what you actually need is:
+
+persistent telecom monitoring wallboard
+
+That changes the entity model completely.
+
+Current behavior (wrong)
+
+Current logic:
+
+if activeCalls > 0
+   show entity
+else
+   remove entity
+
+So:
+
+client disappears
+graphs disappear
+history disappears
+monitoring continuity breaks
+
+This feels unstable operationally.
+
+Correct telecom behavior
+
+Once an entity is discovered:
+
+keep it persistent
+
+Even when:
+
+concurrent = 0
+
+The entity should remain visible with:
+
+zero-value graphs
+retained historical trend
+last seen timestamp
+previous peak
+status indicator
+Correct operational model
+Example
+PUSHTOTALK
+
+should remain visible:
+
+Metric	Value
+Active	0
+Connected	0
+Routing	0
+Connect Rate	0%
+Last Seen	3m ago
+Peak Today	17
+Countries	Pakistan
+Vendors	Callntalk
+
+Graph:
+
+continues rendering
+
+but flat at:
+
+0
+
+This is exactly how:
+
+carrier NOCs
+SBC monitors
+telecom OSS systems
+wholesale traffic monitors
+
+normally behave.
+
+Correct architecture
+BitsEye should become:
+persistent entity registry
+
+NOT:
+
+temporary live snapshot
+What should change technically
+Current
+
+Derived directly from:
+
+liveCallsCache
+
+Which means:
+
+entity existence depends on live calls
+Correct model
+
+Need:
+
+entityPresenceCache
+
+Example:
+
+{
+  "PUSHTOTALK": {
+     lastSeen: ts,
+     currentCalls: 0,
+     peakToday: 17,
+     history: [...],
+     active: false
+  }
+}
+Correct entity lifecycle
+When traffic appears
+create/update entity
+When traffic stops
+
+DO NOT remove.
+
+Instead:
+
+active = false
+currentCalls = 0
+
+Keep:
+
+charts
+history
+counters
+metadata
+topology
+Recommended UI behavior
+Active entity
+🟢 LIVE
+Idle entity
+⚫ Idle • last seen 4m ago
+
+or:
+
+0 calls
+Recommended expiration policy
+
+Do NOT keep forever.
+
+Use rolling retention.
+
+Example:
+
+Entity Type	Retention
+Clients	24h
+Vendors	24h
+Countries	12h
+Destinations	6h
+
+Then auto-cleanup.
+
+This is the MOST important fix now
+
+Because currently:
+
+the platform feels unstable
+entities flicker
+operators lose continuity
+graphs lose meaning
+trend analysis becomes visually broken
+
+Persistent entities solve ALL of that.
+
+Final recommendation
+
+Change BitsEye 2 from:
+
+liveCallsCache-driven rendering
+
+to:
+
+persistent monitored entity registry
+
+That is the correct telecom monitoring architecture.
