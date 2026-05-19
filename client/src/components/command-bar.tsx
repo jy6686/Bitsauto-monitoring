@@ -343,6 +343,14 @@ export function CommandBar() {
   }
   const hasScopeFilter = entityScopeFilter.size > 0 || routeScopeFilter.size > 0;
 
+  // ── @scope autocomplete — last token is an unrecognised @-prefix ───────────
+  // e.g. "@" → all scopes; "@c" → [@country, @client]; "@country" → complete, normal flow
+  const lastRaw = rawTokens[rawTokens.length - 1] ?? '';
+  const partialScope = lastRaw.startsWith('@') && !SCOPE_FILTER_MAP[lastRaw] ? lastRaw : null;
+  const scopeSuggestions = partialScope !== null
+    ? Object.keys(SCOPE_FILTER_MAP).filter(k => k.startsWith(partialScope))
+    : [];
+
   // ── Filtered routes grouped by domain ──────────────────────────────────────
   // @entity-only scope → suppress all routes; @route scope → restrict to that domain
   const filteredRoutes = useMemo(() => {
@@ -391,7 +399,7 @@ export function CommandBar() {
 
   const entityGroups = Object.entries(filteredEntities);
   const routeGroups  = DOMAIN_ORDER.map(d => [d, filteredRoutes[d]] as [string, RouteEntry[]]).filter(([, v]) => v?.length);
-  const hasResults   = entityGroups.length > 0 || routeGroups.length > 0;
+  const hasResults   = entityGroups.length > 0 || routeGroups.length > 0 || scopeSuggestions.length > 0;
 
   return (
     <CommandDialog open={open} onOpenChange={v => { setOpen(v); if (!v) setQuery(''); }}>
@@ -468,12 +476,48 @@ export function CommandBar() {
           </CommandGroup>
         )}
 
+        {/* ── @scope autocomplete — shown while user is mid-typing a @-token ─────
+             Selecting an entry completes the token and appends a space.        */}
+        {partialScope !== null && scopeSuggestions.length > 0 && (
+          <CommandGroup heading={
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span>Scope filters</span>
+              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em',
+                padding: '1px 5px', borderRadius: 3,
+                background: 'rgba(99,102,241,0.12)', color: '#818CF8' }}>@</span>
+            </span>
+          }>
+            {scopeSuggestions.map(sc => {
+              const m = SCOPE_FILTER_MAP[sc];
+              const chip = SCOPE_CHIPS[m?.key ?? ''];
+              const trimmed = query.trimEnd();
+              const lastSpace = trimmed.lastIndexOf(' ');
+              const prefix = lastSpace >= 0 ? trimmed.slice(0, lastSpace + 1) : '';
+              return (
+                <CommandItem key={sc} value={`scope-ac ${sc}`}
+                  onSelect={() => setQuery(prefix + sc + ' ')}
+                  data-testid={`cmd-scope-${sc.slice(1)}`}>
+                  <span className="font-mono text-[11px] text-indigo-400 mr-2 flex-shrink-0">{sc}</span>
+                  <span className="flex-1 text-sm">{m?.key}</span>
+                  {chip && (
+                    <span style={{
+                      fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', flexShrink: 0,
+                      padding: '1px 5px', borderRadius: 3, background: chip.bg, color: chip.fg,
+                    }}>{chip.label}</span>
+                  )}
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+        )}
+
         {/* ── Results: order swaps based on alias priority ────────────────────
              Default (country aliases, plain text): entities first, then routes
-             Route priority (module aliases: noc, sip, rpt…): routes first, then entities */}
+             Route priority (module aliases: noc, sip, rpt…): routes first, then entities
+             Hidden while @scope autocomplete is open (partialScope !== null)           */}
 
         {/* Entity groups rendered inline — position controlled by routePriority */}
-        {!routePriority && entityGroups.map(([dimLabel, entities]) => (
+        {!partialScope && !routePriority && entityGroups.map(([dimLabel, entities]) => (
           <CommandGroup key={dimLabel} heading={<ScopeHeading label={dimLabel} />}>
             {entities.slice(0, 7).map(e => (
               <CommandItem key={`${e.dim}-${e.name}`} value={`entity ${e.name} ${e.dimLabel}`}
@@ -490,8 +534,8 @@ export function CommandBar() {
         ))}
 
         {/* Route groups */}
-        {routeGroups.length > 0 && entityGroups.length > 0 && <CommandSeparator />}
-        {routeGroups.map(([domain, routes]) => (
+        {!partialScope && routeGroups.length > 0 && entityGroups.length > 0 && <CommandSeparator />}
+        {!partialScope && routeGroups.map(([domain, routes]) => (
           <CommandGroup key={domain} heading={<ScopeHeading label={domain} />}>
             {routes.map(r => (
               <CommandItem key={r.href} value={`route ${r.label} ${r.domain}`}
@@ -505,8 +549,8 @@ export function CommandBar() {
         ))}
 
         {/* Entity groups (route-priority mode: placed after routes) */}
-        {routePriority && entityGroups.length > 0 && routeGroups.length > 0 && <CommandSeparator />}
-        {routePriority && entityGroups.map(([dimLabel, entities]) => (
+        {!partialScope && routePriority && entityGroups.length > 0 && routeGroups.length > 0 && <CommandSeparator />}
+        {!partialScope && routePriority && entityGroups.map(([dimLabel, entities]) => (
           <CommandGroup key={dimLabel} heading={<ScopeHeading label={dimLabel} />}>
             {entities.slice(0, 7).map(e => (
               <CommandItem key={`${e.dim}-${e.name}`} value={`entity-rp ${e.name} ${e.dimLabel}`}
