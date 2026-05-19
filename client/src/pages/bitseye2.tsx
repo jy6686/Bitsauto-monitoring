@@ -19,7 +19,7 @@ import { useLocation } from "wouter";
 // ── Types ────────────────────────────────────────────────────────────────────
 interface EntityRow {
   name: string; active: number; connected: number; routing: number; connectRate: number;
-  lastSeen?: number; idle?: boolean; peakToday?: number;
+  lastSeen?: number; idle?: boolean; peakToday?: number; topVendor?: string;
 }
 interface IncidentAlert {
   id: number; entityType: string; entityName: string | null; severity: string;
@@ -240,7 +240,7 @@ function WorldMap({
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const [arcTooltip, setArcTooltip] = useState<{
     name: string; active: number; peak: number; cr: number; lastSeen?: number;
-    state: 'active' | 'warm' | 'cooling' | 'historical';
+    topVendor?: string; state: 'active' | 'warm' | 'cooling' | 'historical';
   } | null>(null);
   const [mapError, setMapError]     = useState(false);
   const [mapWidth, setMapWidth]     = useState(800);
@@ -311,11 +311,11 @@ function WorldMap({
       const strokeColor = state === 'active'
         ? (cr >= 70 ? '#10B981' : cr >= 40 ? '#F59E0B' : '#EF4444')
         : '#9CA3AF';
-      return { name: e.name, d, strokeColor, strokeWidth, arcLen, count: e.active, cr, state, peak, lastSeen: e.lastSeen };
+      return { name: e.name, d, strokeColor, strokeWidth, arcLen, count: e.active, cr, state, peak, lastSeen: e.lastSeen, topVendor: e.topVendor };
     }).filter(Boolean) as {
       name: string; d: string; strokeColor: string; strokeWidth: number;
       arcLen: number; count: number; cr: number; peak: number; lastSeen?: number;
-      state: 'active' | 'warm' | 'cooling' | 'historical';
+      topVendor?: string; state: 'active' | 'warm' | 'cooling' | 'historical';
     }[];
   }, [entities, mapWidth, height]);
 
@@ -412,7 +412,7 @@ function WorldMap({
 
               // Shared hover handlers — fired on the invisible hit-area path
               const hoverProps = {
-                onMouseEnter: () => setArcTooltip({ name: arc.name, active: arc.count, peak: arc.peak, cr: arc.cr, lastSeen: arc.lastSeen, state }),
+                onMouseEnter: () => setArcTooltip({ name: arc.name, active: arc.count, peak: arc.peak, cr: arc.cr, lastSeen: arc.lastSeen, topVendor: arc.topVendor, state }),
                 onMouseLeave: () => setArcTooltip(null),
               };
 
@@ -567,6 +567,17 @@ function WorldMap({
                   {arcTooltip.active > 0 ? 'now' : arcTooltip.lastSeen ? formatArcAge(arcTooltip.lastSeen) : '—'}
                 </span>
               </div>
+              {arcTooltip.topVendor && (
+                <>
+                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', margin: '4px 0' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#6B7280' }}>Top vendor</span>
+                    <span style={{ fontWeight: 600, color: '#93C5FD', maxWidth: 110, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {arcTooltip.topVendor}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           </motion.div>
         )}
