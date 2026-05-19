@@ -11,6 +11,7 @@ import { MGMT_CONFIGURABLE_FEATURES } from "@shared/schema";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { CommandBar } from "@/components/command-bar";
 import { FixButton } from "@/components/fix-button";
+import { AppNavShell } from "@/components/app-nav-shell";
 import { SippyHealthBadge } from "@/components/sippy-health-badge";
 import { useOrgScope } from "@/context/org-scope-context";
 
@@ -1493,7 +1494,11 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const sidebarCls = "border-r border-white/[0.05] bg-[hsl(var(--background)/0.75)] backdrop-blur-xl";
 
   return (
-    <div className="min-h-screen bg-background flex flex-col md:flex-row">
+    <div className="min-h-screen bg-background flex flex-col">
+      <AppNavShell />
+
+      {/* ── Sidebar + content row ────────────────────────────────────────────── */}
+      <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
 
       {/* ── Desktop Sidebar ─────────────────────────────────────────────────── */}
       <aside className={cn(
@@ -1604,6 +1609,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
           </div>
         </div>
       </main>
+
+      </div>{/* end sidebar + content row */}
 
       {/* ── Globals ──────────────────────────────────────────────────────────── */}
       <CommandBar />
