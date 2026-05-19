@@ -13074,6 +13074,14 @@ export async function registerRoutes(
     }));
 
     const latest = concurrentHistory[concurrentHistory.length - 1];
+    // Override the last bucket with the most recent raw snapshot so the right
+    // edge of the graph always reflects the actual live call count, not a
+    // diluted average of older samples within the same bucket.
+    if (latest && result.length > 0) {
+      result[result.length - 1].active    = latest.count;
+      result[result.length - 1].connected = latest.connected ?? 0;
+      result[result.length - 1].routing   = latest.routing   ?? 0;
+    }
     const allActive = result.map(b => b.active);
     res.json({
       points:  result,
