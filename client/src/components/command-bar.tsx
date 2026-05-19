@@ -200,6 +200,17 @@ const ALIASES: Record<string, string> = {
   pdd: 'asr',
 };
 
+// ── Alias priority weights ──────────────────────────────────────────────────────
+// When a token is a module-alias, route results surface first (operator intends a tool).
+// Country/entity aliases keep the default (entities first).
+const ALIAS_PRIORITY: Record<string, 'route'> = {
+  noc: 'route', live: 'route', acct: 'route', rev: 'route',
+  cdr: 'route', lcr: 'route', sip: 'route',  rtp: 'route',
+  fas: 'route', irsf: 'route', bl: 'route',  fw: 'route',
+  bal: 'route', rpt: 'route', rg: 'route',   tst: 'route',
+  kpi: 'route', asr: 'route', mos: 'route',  pdd: 'route',
+};
+
 // ── CommandBar ─────────────────────────────────────────────────────────────────
 export function CommandBar() {
   const [open, setOpen]   = useState(false);
@@ -249,37 +260,47 @@ export function CommandBar() {
   };
 
   const q = query.trim().toLowerCase();
-  // Expand alias silently: "bd" → "bangladesh", "noc" → "bitseye"
-  const effectiveQ  = ALIASES[q] ?? q;
-  const aliasActive = q.length > 0 && effectiveQ !== q;
 
-  // ── Filtered routes grouped by domain (only when querying)
+  // ── Multi-token alias expansion ────────────────────────────────────────────
+  // "bd rev" → rawTokens: ["bd","rev"] → expTokens: ["bangladesh","revenue"]
+  // Each token is expanded independently; non-alias tokens pass through unchanged.
+  const rawTokens  = q ? q.split(/\s+/).filter(Boolean) : [];
+  const expTokens  = rawTokens.map(t => ALIASES[t] ?? t);
+  // Map of raw→expanded only for tokens that actually changed (shown in alias pill)
+  const aliasMap   = Object.fromEntries(
+    rawTokens.map((raw, i) => [raw, expTokens[i]] as [string, string]).filter(([r, e]) => r !== e)
+  );
+  const aliasActive    = Object.keys(aliasMap).length > 0;
+  // Route priority: any token that is a module-alias → show route groups first
+  const routePriority  = rawTokens.some(t => ALIAS_PRIORITY[t] === 'route');
+
+  // ── Filtered routes grouped by domain — ALL tokens must match
   const filteredRoutes = useMemo(() => {
-    if (!effectiveQ) return {} as Record<string, RouteEntry[]>;
+    if (!expTokens.length) return {} as Record<string, RouteEntry[]>;
     const grouped: Record<string, RouteEntry[]> = {};
     for (const r of ROUTE_REGISTRY) {
       if (r.roles && !r.roles.includes(role)) continue;
       const hay = `${r.label} ${r.keywords ?? ''} ${r.domain}`.toLowerCase();
-      if (!hay.includes(effectiveQ)) continue;
+      if (!expTokens.every(t => hay.includes(t))) continue;
       if (!grouped[r.domain]) grouped[r.domain] = [];
       grouped[r.domain].push(r);
     }
     return grouped;
-  }, [effectiveQ, role]);
+  }, [expTokens.join(' '), role]);
 
-  // ── Filtered entities grouped by dim (only when querying)
+  // ── Filtered entities grouped by dim — ALL tokens must match entity name
   const filteredEntities = useMemo(() => {
-    if (!effectiveQ) return {} as Record<string, EntityResult[]>;
+    if (!expTokens.length) return {} as Record<string, EntityResult[]>;
     const grouped: Record<string, EntityResult[]> = {};
     const matches = allEntities
-      .filter(e => e.name.toLowerCase().includes(effectiveQ))
+      .filter(e => { const n = e.name.toLowerCase(); return expTokens.every(t => n.includes(t)); })
       .sort((a, b) => (b.active > 0 ? 1 : 0) - (a.active > 0 ? 1 : 0) || b.active - a.active);
     for (const e of matches) {
       if (!grouped[e.dimLabel]) grouped[e.dimLabel] = [];
       grouped[e.dimLabel].push(e);
     }
     return grouped;
-  }, [effectiveQ, allEntities]);
+  }, [expTokens.join(' '), allEntities]);
 
   // ── Recent routes (resolved to registry entries)
   const recentRoutes = useMemo(() =>
@@ -287,9 +308,9 @@ export function CommandBar() {
     [recent],
   );
 
-  const entityGroups  = Object.entries(filteredEntities);
-  const routeGroups   = DOMAIN_ORDER.map(d => [d, filteredRoutes[d]] as [string, RouteEntry[]]).filter(([, v]) => v?.length);
-  const hasResults    = entityGroups.length > 0 || routeGroups.length > 0;
+  const entityGroups = Object.entries(filteredEntities);
+  const routeGroups  = DOMAIN_ORDER.map(d => [d, filteredRoutes[d]] as [string, RouteEntry[]]).filter(([, v]) => v?.length);
+  const hasResults   = entityGroups.length > 0 || routeGroups.length > 0;
 
   return (
     <CommandDialog open={open} onOpenChange={v => { setOpen(v); if (!v) setQuery(''); }}>
@@ -301,12 +322,16 @@ export function CommandBar() {
       />
       <CommandList>
 
-        {/* Alias expansion pill — teaches operators what their short code resolved to */}
+        {/* Alias expansion pill — per-token, passive operator education */}
         {aliasActive && (
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/40">
-            <kbd className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{q}</kbd>
-            <span className="text-[10px] text-muted-foreground/50">→</span>
-            <span className="text-[10px] font-medium text-muted-foreground capitalize">{effectiveQ}</span>
+          <div className="flex items-center gap-3 px-3 py-1.5 border-b border-border/40 flex-wrap">
+            {Object.entries(aliasMap).map(([raw, expanded]) => (
+              <span key={raw} className="flex items-center gap-1.5">
+                <kbd className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{raw}</kbd>
+                <span className="text-[10px] text-muted-foreground/40">→</span>
+                <span className="text-[10px] font-medium text-muted-foreground capitalize">{expanded}</span>
+              </span>
+            ))}
           </div>
         )}
 
@@ -353,33 +378,30 @@ export function CommandBar() {
           </CommandGroup>
         )}
 
-        {/* Live entity results — active first, grouped by dim */}
-        {entityGroups.map(([dimLabel, entities], gi) => (
+        {/* ── Results: order swaps based on alias priority ────────────────────
+             Default (country aliases, plain text): entities first, then routes
+             Route priority (module aliases: noc, sip, rpt…): routes first, then entities */}
+
+        {/* Entity groups rendered inline — position controlled by routePriority */}
+        {!routePriority && entityGroups.map(([dimLabel, entities]) => (
           <CommandGroup key={dimLabel} heading={dimLabel}>
             {entities.slice(0, 7).map(e => (
-              <CommandItem
-                key={`${e.dim}-${e.name}`}
-                value={`entity ${e.name} ${e.dimLabel}`}
+              <CommandItem key={`${e.dim}-${e.name}`} value={`entity ${e.name} ${e.dimLabel}`}
                 onSelect={() => navigate('/bitseye2')}
-                data-testid={`cmd-entity-${e.name.replace(/\s+/g, '-').toLowerCase()}`}
-              >
-                <span className={cn(
-                  "w-2 h-2 rounded-full mr-2.5 flex-shrink-0",
-                  e.active > 0 ? 'bg-emerald-400' : 'bg-slate-600'
-                )} />
+                data-testid={`cmd-entity-${e.name.replace(/\s+/g, '-').toLowerCase()}`}>
+                <span className={cn("w-2 h-2 rounded-full mr-2.5 flex-shrink-0", e.active > 0 ? 'bg-emerald-400' : 'bg-slate-600')} />
                 <span className="flex-1 truncate font-medium">{e.name}</span>
                 {e.active > 0
                   ? <span className="ml-3 text-[11px] font-bold tabular-nums text-emerald-400 flex-shrink-0">{e.active}</span>
-                  : <span className="ml-3 text-[10px] text-muted-foreground/40 flex-shrink-0">idle</span>
-                }
+                  : <span className="ml-3 text-[10px] text-muted-foreground/40 flex-shrink-0">idle</span>}
               </CommandItem>
             ))}
           </CommandGroup>
         ))}
 
-        {/* Route results — separated from entity results, grouped by domain */}
+        {/* Route groups */}
         {routeGroups.length > 0 && entityGroups.length > 0 && <CommandSeparator />}
-        {routeGroups.map(([domain, routes], i) => (
+        {routeGroups.map(([domain, routes]) => (
           <CommandGroup key={domain} heading={domain}>
             {routes.map(r => (
               <CommandItem key={r.href} value={`route ${r.label} ${r.domain}`}
@@ -387,6 +409,24 @@ export function CommandBar() {
                 data-testid={`cmd-route-${r.href.replace(/\//g, '-')}`}>
                 <r.icon className={cn("mr-2 h-3.5 w-3.5 flex-shrink-0", r.domainColor)} />
                 <span className="flex-1">{r.label}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        ))}
+
+        {/* Entity groups (route-priority mode: placed after routes) */}
+        {routePriority && entityGroups.length > 0 && routeGroups.length > 0 && <CommandSeparator />}
+        {routePriority && entityGroups.map(([dimLabel, entities]) => (
+          <CommandGroup key={dimLabel} heading={dimLabel}>
+            {entities.slice(0, 7).map(e => (
+              <CommandItem key={`${e.dim}-${e.name}`} value={`entity-rp ${e.name} ${e.dimLabel}`}
+                onSelect={() => navigate('/bitseye2')}
+                data-testid={`cmd-entity-${e.name.replace(/\s+/g, '-').toLowerCase()}-rp`}>
+                <span className={cn("w-2 h-2 rounded-full mr-2.5 flex-shrink-0", e.active > 0 ? 'bg-emerald-400' : 'bg-slate-600')} />
+                <span className="flex-1 truncate font-medium">{e.name}</span>
+                {e.active > 0
+                  ? <span className="ml-3 text-[11px] font-bold tabular-nums text-emerald-400 flex-shrink-0">{e.active}</span>
+                  : <span className="ml-3 text-[10px] text-muted-foreground/40 flex-shrink-0">idle</span>}
               </CommandItem>
             ))}
           </CommandGroup>
