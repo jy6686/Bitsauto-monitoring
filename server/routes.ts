@@ -11955,6 +11955,12 @@ export async function registerRoutes(
     }
   }
 
+  // Per-entity concurrent history — keyed by dimension → entity name → snapshot array
+  type EntSnap = { ts: number; count: number; connected: number; routing: number };
+  const entityConcurrentHistory = new Map<string, Map<string, EntSnap[]>>();
+  const ENT_MAX_SNAP     = 480; // 8h at 45s intervals
+  const ENT_MAX_ENTITIES = 30;  // top 30 entities tracked per dimension
+
   let _snapshotRunning = false;
   async function snapshotActiveCalls(): Promise<void> {
     if (_snapshotRunning) return; // mutex — skip if previous cycle still in progress
@@ -12013,6 +12019,37 @@ export async function registerRoutes(
         consecutiveZeros++;
         if (consecutiveZeros >= ZERO_CONFIRM_COUNT) {
           liveCallsCache = { calls: [], ts: Date.now() };
+        }
+      }
+
+      // ── Update per-entity concurrent history (powers /api/bitseye/live-slice) ──
+      {
+        const nowEnt = Date.now();
+        const dimGetters: [string, (c: any) => string | null][] = [
+          ['client',      (c: any) => c.clientName || (c.accountId ? `Acct.${c.accountId}` : null)],
+          ['vendor',      (c: any) => c.vendor || c.connection || null],
+          ['country',     (c: any) => c.destCountry || null],
+          ['destination', (c: any) => c.destFull || c.destCountry || null],
+        ];
+        for (const [dim, getKey] of dimGetters) {
+          const aggMap = new Map<string, { count: number; connected: number; routing: number }>();
+          for (const c of enrichedCalls) {
+            const key = getKey(c);
+            if (!key) continue;
+            const ex = aggMap.get(key) ?? { count: 0, connected: 0, routing: 0 };
+            ex.count++;
+            if (c.callStatus === 'connected') ex.connected++; else ex.routing++;
+            aggMap.set(key, ex);
+          }
+          const sorted = [...aggMap.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, ENT_MAX_ENTITIES);
+          const dimMap = entityConcurrentHistory.get(dim) ?? new Map<string, EntSnap[]>();
+          for (const [name, counts] of sorted) {
+            const hist = dimMap.get(name) ?? [];
+            hist.push({ ts: nowEnt, ...counts });
+            if (hist.length > ENT_MAX_SNAP) hist.splice(0, hist.length - ENT_MAX_SNAP);
+            dimMap.set(name, hist);
+          }
+          entityConcurrentHistory.set(dim, dimMap);
         }
       }
 
@@ -12974,6 +13011,54 @@ export async function registerRoutes(
     const cacheAgeMs       = ts > 0 ? Date.now() - ts : null;
 
     res.json({ total, connected: connectedCount, routing: routingCount, liveConnectRatio, avgCallAgeSecs, cps, topVendors, topClients, topDestinations, stale: cacheAgeMs !== null && cacheAgeMs > 90_000, lastUpdated: ts });
+  });
+
+  // GET /api/bitseye/live-slice?groupBy=client|vendor|country|destination[&entity=Name]
+  // Real-time concurrent counts sliced from liveCallsCache by dimension.
+  // Optionally returns per-entity concurrent history when ?entity= is provided.
+  // Sippy-safe: zero Sippy calls — reads only from in-memory caches.
+  app.get('/api/bitseye/live-slice', async (_req: any, res: any) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const dim    = (['client', 'vendor', 'country', 'destination'].includes(_req.query.groupBy as string)
+      ? _req.query.groupBy as string : 'client');
+    const entity = _req.query.entity ? String(_req.query.entity) : null;
+    const calls  = (liveCallsCache as any).calls ?? [];
+    const ts     = (liveCallsCache as any).ts ?? 0;
+
+    const getKey = (c: any): string | null => {
+      if (dim === 'client')      return c.clientName || (c.accountId ? `Acct.${c.accountId}` : null);
+      if (dim === 'vendor')      return c.vendor || c.connection || null;
+      if (dim === 'country')     return c.destCountry || null;
+      if (dim === 'destination') return c.destFull || c.destCountry || null;
+      return null;
+    };
+
+    const aggMap = new Map<string, { count: number; connected: number; routing: number }>();
+    for (const c of calls) {
+      const key = getKey(c);
+      if (!key) continue;
+      const ex = aggMap.get(key) ?? { count: 0, connected: 0, routing: 0 };
+      ex.count++;
+      if (c.callStatus === 'connected') ex.connected++; else ex.routing++;
+      aggMap.set(key, ex);
+    }
+
+    const entities = [...aggMap.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .map(([name, v]) => ({
+        name, active: v.count, connected: v.connected, routing: v.routing,
+        connectRate: v.count > 0 ? Math.round(v.connected / v.count * 100) : 0,
+      }));
+
+    // Per-entity history (last 48 snapshots ≈ 36 minutes at 45s interval)
+    let entityHistory: EntSnap[] = [];
+    if (entity) {
+      const dimMap = entityConcurrentHistory.get(dim);
+      entityHistory = (dimMap?.get(entity) ?? []).slice(-48);
+    }
+
+    const cacheAgeMs = ts > 0 ? Date.now() - ts : null;
+    res.json({ groupBy: dim, entities, total: calls.length, stale: cacheAgeMs !== null && cacheAgeMs > 90_000, lastUpdated: ts, ...(entity ? { entityHistory } : {}) });
   });
 
   // GET /api/bitseye/call-trend — time-bucketed call totals from CDR cache for graph view

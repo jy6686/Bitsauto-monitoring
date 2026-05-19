@@ -70,6 +70,7 @@ import DIDsPage from "@/pages/dids";
 import ServerMonitoringPage from "@/pages/server-monitoring";
 import GraphsPage from "@/pages/graphs";
 import BitsEyePage from "@/pages/bitseye";
+import BitsEye2Page from "@/pages/bitseye2";
 import RateCardsPage from "@/pages/rate-cards";
 import AnalyticsPage from "@/pages/analytics";
 import ProductsPage from "@/pages/products";
@@ -306,6 +307,9 @@ function Router() {
       </Route>
       <Route path="/bitseye">
         {() => <ProtectedRoute component={BitsEyePage} requiredRoles={['admin','management']} viewerAssignment="bitseye" mgmtFeature="bitseye" />}
+      </Route>
+      <Route path="/bitseye2">
+        {() => <ProtectedRoute component={BitsEye2Page} requiredRoles={['admin','management']} viewerAssignment="bitseye" mgmtFeature="bitseye" />}
       </Route>
       <Route path="/live-traffic">
         {() => <ProtectedRoute component={LiveTrafficPage} requiredRoles={['admin','management','noc_operator','viewer','team_lead','super_admin']} />}

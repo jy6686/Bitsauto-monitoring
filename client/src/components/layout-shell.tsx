@@ -928,8 +928,13 @@ export function LayoutShell({ children }: LayoutShellProps) {
             <ChevronDown className={cn("h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform duration-200", bitseyeExpanded && "rotate-180")} />
           </button>
           <SubPanel open={bitseyeExpanded}>
+            <Link href="/bitseye2" className={subItemCls(location === '/bitseye2')}>
+              <span className={cn("h-2 w-2 rounded-full flex-shrink-0", location === '/bitseye2' ? "bg-primary" : "bg-blue-400")} />
+              BitsEye 2 <span className="ml-auto text-[9px] font-semibold text-blue-400 bg-blue-50 dark:bg-blue-950 px-1 rounded">LIVE</span>
+            </Link>
+            <div className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/30 px-2.5 pt-1 pb-0.5">BitsEye v1</div>
             {BITSEYE_FIXED.map(sub => {
-              const sa = isBitseyeActive && bsView === sub.view && !bsKamId;
+              const sa = isBitseyeActive && location !== '/bitseye2' && bsView === sub.view && !bsKamId;
               return (
                 <Link key={sub.view} href={`/bitseye?view=${sub.view}`} className={subItemCls(sa)}>
                   <span className={cn("h-2 w-2 rounded-full flex-shrink-0", sa ? "bg-primary" : sub.iconColor.replace('text-','bg-'))} />
