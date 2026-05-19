@@ -13146,6 +13146,7 @@ export async function registerRoutes(
           idle:        pres.currentActive === 0,
           topVendor,
           topVendorShare,
+          topVendorCount: crossVendors?.size,
         });
       }
     }

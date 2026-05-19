@@ -246,6 +246,30 @@ const ALIAS_PRIORITY: Record<string, 'route'> = {
   kpi: 'route', asr: 'route', mos: 'route',  pdd: 'route',
 };
 
+// ── @scope deterministic filter map ──────────────────────────────────────────
+// Tokens starting with '@' pin results to a specific dimension or domain.
+// e.g. "@country bd" → only Countries group; "@tooling sip" → only Troubleshooting
+const SCOPE_FILTER_MAP: Record<string, { type: 'entity' | 'route'; key: string }> = {
+  '@country':    { type: 'entity', key: 'Countries' },
+  '@geo':        { type: 'entity', key: 'Countries' },
+  '@client':     { type: 'entity', key: 'Clients' },
+  '@vendor':     { type: 'entity', key: 'Vendors' },
+  '@dest':       { type: 'entity', key: 'Destination Sets' },
+  '@live':       { type: 'route',  key: 'Live Ops' },
+  '@noc':        { type: 'route',  key: 'Live Ops' },
+  '@analytics':  { type: 'route',  key: 'Analytics' },
+  '@reports':    { type: 'route',  key: 'Reports' },
+  '@rpt':        { type: 'route',  key: 'Reports' },
+  '@tooling':    { type: 'route',  key: 'Troubleshooting' },
+  '@debug':      { type: 'route',  key: 'Troubleshooting' },
+  '@routing':    { type: 'route',  key: 'Routing' },
+  '@lcr':        { type: 'route',  key: 'Routing' },
+  '@fraud':      { type: 'route',  key: 'Fraud & Security' },
+  '@fas':        { type: 'route',  key: 'Fraud & Security' },
+  '@settings':   { type: 'route',  key: 'Settings' },
+  '@mgmt':       { type: 'route',  key: 'Management' },
+};
+
 // ── CommandBar ─────────────────────────────────────────────────────────────────
 export function CommandBar() {
   const [open, setOpen]   = useState(false);
@@ -296,46 +320,68 @@ export function CommandBar() {
 
   const q = query.trim().toLowerCase();
 
-  // ── Multi-token alias expansion ────────────────────────────────────────────
-  // "bd rev" → rawTokens: ["bd","rev"] → expTokens: ["bangladesh","revenue"]
-  // Each token is expanded independently; non-alias tokens pass through unchanged.
-  const rawTokens  = q ? q.split(/\s+/).filter(Boolean) : [];
-  const expTokens  = rawTokens.map(t => ALIASES[t] ?? t);
-  // Map of raw→expanded only for tokens that actually changed (shown in alias pill)
-  const aliasMap   = Object.fromEntries(
-    rawTokens.map((raw, i) => [raw, expTokens[i]] as [string, string]).filter(([r, e]) => r !== e)
+  // ── Token parsing ───────────────────────────────────────────────────────────
+  // @-prefix tokens are scope filters (@country, @vendor, @tooling…) handled separately.
+  // Remaining tokens are alias-expanded: "bd rev" → ["bangladesh", "revenue"]
+  const rawTokens    = q ? q.split(/\s+/).filter(Boolean) : [];
+  const scopeTokens  = rawTokens.filter(t => t.startsWith('@'));
+  const searchTokens = rawTokens.filter(t => !t.startsWith('@'));
+  const expTokens    = searchTokens.map(t => ALIASES[t] ?? t);
+  const aliasMap     = Object.fromEntries(
+    searchTokens.map((raw, i) => [raw, expTokens[i]] as [string, string]).filter(([r, e]) => r !== e)
   );
-  const aliasActive    = Object.keys(aliasMap).length > 0;
-  // Route priority: any token that is a module-alias → show route groups first
-  const routePriority  = rawTokens.some(t => ALIAS_PRIORITY[t] === 'route');
+  const aliasActive   = Object.keys(aliasMap).length > 0;
+  const routePriority = searchTokens.some(t => ALIAS_PRIORITY[t] === 'route');
 
-  // ── Filtered routes grouped by domain — ALL tokens must match
+  // ── @scope filter derivation ────────────────────────────────────────────────
+  const entityScopeFilter = new Set<string>();
+  const routeScopeFilter  = new Set<string>();
+  for (const st of scopeTokens) {
+    const m = SCOPE_FILTER_MAP[st.toLowerCase()];
+    if (m?.type === 'entity') entityScopeFilter.add(m.key);
+    else if (m?.type === 'route') routeScopeFilter.add(m.key);
+  }
+  const hasScopeFilter = entityScopeFilter.size > 0 || routeScopeFilter.size > 0;
+
+  // ── Filtered routes grouped by domain ──────────────────────────────────────
+  // @entity-only scope → suppress all routes; @route scope → restrict to that domain
   const filteredRoutes = useMemo(() => {
-    if (!expTokens.length) return {} as Record<string, RouteEntry[]>;
+    if (entityScopeFilter.size > 0 && routeScopeFilter.size === 0) return {} as Record<string, RouteEntry[]>;
+    if (!expTokens.length && !hasScopeFilter) return {} as Record<string, RouteEntry[]>;
     const grouped: Record<string, RouteEntry[]> = {};
     for (const r of ROUTE_REGISTRY) {
       if (r.roles && !r.roles.includes(role)) continue;
-      const hay = `${r.label} ${r.keywords ?? ''} ${r.domain}`.toLowerCase();
-      if (!expTokens.every(t => hay.includes(t))) continue;
+      if (routeScopeFilter.size > 0 && !routeScopeFilter.has(r.domain)) continue;
+      if (expTokens.length > 0) {
+        const hay = `${r.label} ${r.keywords ?? ''} ${r.domain}`.toLowerCase();
+        if (!expTokens.every(t => hay.includes(t))) continue;
+      }
       if (!grouped[r.domain]) grouped[r.domain] = [];
       grouped[r.domain].push(r);
     }
     return grouped;
-  }, [expTokens.join(' '), role]);
+  }, [q, role]);
 
-  // ── Filtered entities grouped by dim — ALL tokens must match entity name
+  // ── Filtered entities grouped by dim ───────────────────────────────────────
+  // @route-only scope → suppress all entities; @entity scope → restrict to that dim
   const filteredEntities = useMemo(() => {
-    if (!expTokens.length) return {} as Record<string, EntityResult[]>;
+    if (routeScopeFilter.size > 0 && entityScopeFilter.size === 0) return {} as Record<string, EntityResult[]>;
+    if (!expTokens.length && !hasScopeFilter) return {} as Record<string, EntityResult[]>;
     const grouped: Record<string, EntityResult[]> = {};
     const matches = allEntities
-      .filter(e => { const n = e.name.toLowerCase(); return expTokens.every(t => n.includes(t)); })
+      .filter(e => {
+        if (entityScopeFilter.size > 0 && !entityScopeFilter.has(e.dimLabel)) return false;
+        if (!expTokens.length) return true;
+        const n = e.name.toLowerCase();
+        return expTokens.every(t => n.includes(t));
+      })
       .sort((a, b) => (b.active > 0 ? 1 : 0) - (a.active > 0 ? 1 : 0) || b.active - a.active);
     for (const e of matches) {
       if (!grouped[e.dimLabel]) grouped[e.dimLabel] = [];
       grouped[e.dimLabel].push(e);
     }
     return grouped;
-  }, [expTokens.join(' '), allEntities]);
+  }, [q, allEntities]);
 
   // ── Recent routes (resolved to registry entries)
   const recentRoutes = useMemo(() =>
@@ -357,9 +403,18 @@ export function CommandBar() {
       />
       <CommandList>
 
-        {/* Alias expansion pill — per-token, passive operator education */}
-        {aliasActive && (
+        {/* Token interpretation bar — @scope pins (indigo) + alias expansions (muted) */}
+        {(scopeTokens.length > 0 || aliasActive) && (
           <div className="flex items-center gap-3 px-3 py-1.5 border-b border-border/40 flex-wrap">
+            {scopeTokens.map(st => {
+              const m = SCOPE_FILTER_MAP[st.toLowerCase()];
+              return (
+                <span key={st} className="flex items-center gap-1.5">
+                  <kbd className="text-[10px] font-mono bg-indigo-500/15 border border-indigo-500/25 px-1.5 py-0.5 rounded text-indigo-400">{st}</kbd>
+                  {m && <span className="text-[10px] text-muted-foreground/40">→ {m.key}</span>}
+                </span>
+              );
+            })}
             {Object.entries(aliasMap).map(([raw, expanded]) => (
               <span key={raw} className="flex items-center gap-1.5">
                 <kbd className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{raw}</kbd>

@@ -19,7 +19,7 @@ import { useLocation } from "wouter";
 // ── Types ────────────────────────────────────────────────────────────────────
 interface EntityRow {
   name: string; active: number; connected: number; routing: number; connectRate: number;
-  lastSeen?: number; idle?: boolean; peakToday?: number; topVendor?: string; topVendorShare?: number;
+  lastSeen?: number; idle?: boolean; peakToday?: number; topVendor?: string; topVendorShare?: number; topVendorCount?: number;
 }
 interface IncidentAlert {
   id: number; entityType: string; entityName: string | null; severity: string;
@@ -231,6 +231,15 @@ function formatArcAge(lastSeen: number): string {
   return `${Math.floor(secs / 86400)}d ago`;
 }
 
+// Routing concentration badge — derived from top-vendor share + vendor count
+function diversityBadge(share?: number, vendorCount?: number): { label: string; color: string; bg: string } | null {
+  if (share === undefined || !vendorCount) return null;
+  if (vendorCount === 1 || share >= 88)   return { label: 'Single-route', color: '#F87171', bg: 'rgba(239,68,68,0.12)' };
+  if (share >= 65)                         return { label: 'Dominant',     color: '#FBBF24', bg: 'rgba(251,191,36,0.12)' };
+  if (share >= 35)                         return { label: 'Balanced',     color: '#34D399', bg: 'rgba(52,211,153,0.12)' };
+  return                                          { label: 'Fragmented',   color: '#94A3B8', bg: 'rgba(148,163,184,0.12)' };
+}
+
 function WorldMap({
   entities, height = 360, onCountryClick,
 }: {
@@ -240,7 +249,7 @@ function WorldMap({
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const [arcTooltip, setArcTooltip] = useState<{
     name: string; active: number; peak: number; cr: number; lastSeen?: number;
-    topVendor?: string; topVendorShare?: number; state: 'active' | 'warm' | 'cooling' | 'historical';
+    topVendor?: string; topVendorShare?: number; topVendorCount?: number; state: 'active' | 'warm' | 'cooling' | 'historical';
   } | null>(null);
   const [mapError, setMapError]     = useState(false);
   const [mapWidth, setMapWidth]     = useState(800);
@@ -311,11 +320,11 @@ function WorldMap({
       const strokeColor = state === 'active'
         ? (cr >= 70 ? '#10B981' : cr >= 40 ? '#F59E0B' : '#EF4444')
         : '#9CA3AF';
-      return { name: e.name, d, strokeColor, strokeWidth, arcLen, count: e.active, cr, state, peak, lastSeen: e.lastSeen, topVendor: e.topVendor, topVendorShare: e.topVendorShare };
+      return { name: e.name, d, strokeColor, strokeWidth, arcLen, count: e.active, cr, state, peak, lastSeen: e.lastSeen, topVendor: e.topVendor, topVendorShare: e.topVendorShare, topVendorCount: e.topVendorCount };
     }).filter(Boolean) as {
       name: string; d: string; strokeColor: string; strokeWidth: number;
       arcLen: number; count: number; cr: number; peak: number; lastSeen?: number;
-      topVendor?: string; topVendorShare?: number; state: 'active' | 'warm' | 'cooling' | 'historical';
+      topVendor?: string; topVendorShare?: number; topVendorCount?: number; state: 'active' | 'warm' | 'cooling' | 'historical';
     }[];
   }, [entities, mapWidth, height]);
 
@@ -412,7 +421,7 @@ function WorldMap({
 
               // Shared hover handlers — fired on the invisible hit-area path
               const hoverProps = {
-                onMouseEnter: () => setArcTooltip({ name: arc.name, active: arc.count, peak: arc.peak, cr: arc.cr, lastSeen: arc.lastSeen, topVendor: arc.topVendor, topVendorShare: arc.topVendorShare, state }),
+                onMouseEnter: () => setArcTooltip({ name: arc.name, active: arc.count, peak: arc.peak, cr: arc.cr, lastSeen: arc.lastSeen, topVendor: arc.topVendor, topVendorShare: arc.topVendorShare, topVendorCount: arc.topVendorCount, state }),
                 onMouseLeave: () => setArcTooltip(null),
               };
 
@@ -567,26 +576,39 @@ function WorldMap({
                   {arcTooltip.active > 0 ? 'now' : arcTooltip.lastSeen ? formatArcAge(arcTooltip.lastSeen) : '—'}
                 </span>
               </div>
-              {arcTooltip.topVendor && (
-                <>
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', margin: '4px 0' }} />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: '#6B7280' }}>Top vendor</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 5, maxWidth: 130, justifyContent: 'flex-end' }}>
-                      <span style={{ fontWeight: 600, color: '#93C5FD', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {arcTooltip.topVendor}
+              {arcTooltip.topVendor && (() => {
+                const badge = diversityBadge(arcTooltip.topVendorShare, arcTooltip.topVendorCount);
+                return (
+                  <>
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', margin: '4px 0' }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ color: '#6B7280' }}>Top vendor</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 5, maxWidth: 140, justifyContent: 'flex-end' }}>
+                        <span style={{ fontWeight: 600, color: '#93C5FD', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {arcTooltip.topVendor}
+                        </span>
+                        {arcTooltip.topVendorShare !== undefined && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 700, color: '#6366F1', flexShrink: 0,
+                            background: 'rgba(99,102,241,0.15)', padding: '1px 5px', borderRadius: 4,
+                            fontVariantNumeric: 'tabular-nums',
+                          }}>{arcTooltip.topVendorShare}%</span>
+                        )}
                       </span>
-                      {arcTooltip.topVendorShare !== undefined && (
+                    </div>
+                    {badge && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 }}>
+                        <span style={{ color: '#6B7280' }}>Concentration</span>
                         <span style={{
-                          fontSize: 9, fontWeight: 700, color: '#6366F1', flexShrink: 0,
-                          background: 'rgba(99,102,241,0.15)', padding: '1px 5px', borderRadius: 4,
-                          fontVariantNumeric: 'tabular-nums',
-                        }}>{arcTooltip.topVendorShare}%</span>
-                      )}
-                    </span>
-                  </div>
-                </>
-              )}
+                          fontSize: 9, fontWeight: 800, letterSpacing: '0.06em',
+                          color: badge.color, background: badge.bg,
+                          padding: '1px 6px', borderRadius: 4, flexShrink: 0,
+                        }}>{badge.label.toUpperCase()}</span>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </motion.div>
         )}
