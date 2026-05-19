@@ -8,7 +8,7 @@ import {
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import {
   Radio, Users, Wifi, Globe, Phone, GitBranch, Briefcase,
-  BarChart2, ChevronDown, ChevronRight, RefreshCw,
+  BarChart2, FileText, ChevronDown, ChevronRight, RefreshCw,
   Activity, TrendingUp, Zap, ExternalLink, Map,
   Search, Star, Maximize2, Minimize2,
   AlertTriangle, Bell, BellOff, X as XIcon, Layers,
@@ -582,6 +582,107 @@ function CrossTable({ title, rows, color, onRowClick }: {
   );
 }
 
+// ── Investigation Panel ────────────────────────────────────────────────────────
+function InvestigationPanel({ incident, anomaly, onClose, onNavigate }: {
+  incident: IncidentAlert;
+  anomaly?: AnomalyAlert;
+  onClose: () => void;
+  onNavigate: (path: string) => void;
+}) {
+  const entityName = incident.entityName ?? 'Unknown';
+  const isCrit  = incident.severity === 'critical';
+  const color   = isCrit ? '#EF4444' : '#D97706';
+  const bg      = isCrit ? '#FEF2F2' : '#FFFBEB';
+  const border  = isCrit ? '#FECACA' : '#FDE68A';
+
+  const ageMs  = Date.now() - new Date(incident.openedAt).getTime();
+  const ageStr = ageMs < 60_000   ? 'just now'
+    : ageMs < 3_600_000           ? `${Math.round(ageMs / 60_000)}m`
+    : `${Math.round(ageMs / 3_600_000)}h ${Math.round((ageMs % 3_600_000) / 60_000)}m`;
+
+  // Smart recommendation by metric
+  let recommendation = 'Check Sippy routing config and vendor connection health.';
+  if (anomaly) {
+    const pct = Math.abs(((anomaly.currentValue - anomaly.baselineMean) / anomaly.baselineMean) * 100).toFixed(1);
+    const dir = anomaly.currentValue < anomaly.baselineMean ? 'below' : 'above';
+    if      (anomaly.metric === 'asr') recommendation = `ASR is ${pct}% ${dir} baseline — check vendor route quality and SIP error codes in recent CDRs.`;
+    else if (anomaly.metric === 'acd') recommendation = `ACD is ${pct}% ${dir} baseline — short calls suggest early disconnects. Check SIP 200/BYE timing.`;
+    else if (anomaly.metric === 'pdd') recommendation = `PDD is ${pct}% ${dir} baseline — high post-dial delay. Check route latency and SIP OPTIONS response times.`;
+    else if (anomaly.metric === 'cps') recommendation = `CPS is ${pct}% ${dir} baseline — traffic burst detected. Check for fraud or sudden traffic shift.`;
+  }
+
+  const isPercent = anomaly?.metric === 'asr';
+  const fmt = (v: number) => isPercent ? `${v.toFixed(1)}%` : `${v.toFixed(2)}s`;
+  const rawDelta  = anomaly ? ((anomaly.currentValue - anomaly.baselineMean) / anomaly.baselineMean * 100) : 0;
+  const deltaStr  = `${rawDelta > 0 ? '+' : ''}${rawDelta.toFixed(1)}%`;
+  const reportUrl = `/asr-acd-report?vendor=${encodeURIComponent(entityName)}&from=90&to=0`;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0,  scale: 1    }}
+      exit={   { opacity: 0, y: -8, scale: 0.98 }}
+      transition={{ duration: 0.2 }}
+      style={{ background: bg, border: `1.5px solid ${border}`, borderRadius: 10, padding: '12px 14px', boxShadow: `0 3px 14px ${color}1A` }}
+    >
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 9, fontWeight: 800, color, background: `${color}18`, border: `1px solid ${color}55`, borderRadius: 3, padding: '1px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', flexShrink: 0 }}>
+          {incident.severity}
+        </span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#111827', flex: 1 }}>{entityName}</span>
+        <span style={{ fontSize: 10, color: '#9CA3AF', fontStyle: 'italic' as const }}>open {ageStr}</span>
+        <button onClick={onClose} data-testid="button-close-investigation"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 2, display: 'flex' }}>
+          <XIcon style={{ width: 11, height: 11 }} />
+        </button>
+      </div>
+
+      {/* Incident title */}
+      <div style={{ fontSize: 12, color: '#374151', marginBottom: 10, lineHeight: '1.45' }}>{incident.title}</div>
+
+      {/* Anomaly metric cards */}
+      {anomaly && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          {([
+            { label: `Current ${anomaly.metric.toUpperCase()}`, value: fmt(anomaly.currentValue),   c: color     },
+            { label: `Baseline ${anomaly.metric.toUpperCase()}`, value: fmt(anomaly.baselineMean),  c: '#374151' },
+            { label: 'Deviation',                                value: `${anomaly.deviationSigma.toFixed(1)}σ`, c: color },
+            { label: 'vs Baseline',                              value: deltaStr,                   c: rawDelta < 0 ? '#EF4444' : '#10B981' },
+          ] as const).map(card => (
+            <div key={card.label} style={{ flex: 1, background: '#fff', border: `1px solid ${card.c === '#374151' ? '#E5E7EB' : border}`, borderRadius: 7, padding: '6px 8px', textAlign: 'center' as const }}>
+              <div style={{ fontSize: 8, color: '#9CA3AF', fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 3 }}>{card.label}</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: card.c, lineHeight: 1 }}>{card.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Recommended action */}
+      <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 7, padding: '7px 10px', marginBottom: 10, fontSize: 11, color: '#374151', lineHeight: '1.5' }}>
+        <span style={{ fontWeight: 700, color: '#64748B', fontSize: 9, textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginRight: 5 }}>Recommended action</span>
+        {recommendation}
+      </div>
+
+      {/* Quick action buttons */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
+        <button onClick={() => onNavigate(reportUrl)} data-testid="button-investigate-asr-report"
+          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
+          <BarChart2 style={{ width: 11, height: 11 }} /> Run ASR/ACD Report
+        </button>
+        <button onClick={() => onNavigate(`/cdrs?vendor=${encodeURIComponent(entityName)}`)} data-testid="button-investigate-cdrs"
+          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#7C3AED', background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
+          <FileText style={{ width: 11, height: 11 }} /> View CDRs
+        </button>
+        <button onClick={() => onNavigate('/alerts')} data-testid="button-investigate-alerts"
+          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#6B7280', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
+          <AlertTriangle style={{ width: 11, height: 11 }} /> Alert History
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BitsEye2Page() {
   const [, navigate] = useLocation();
@@ -597,7 +698,11 @@ export default function BitsEye2Page() {
   const [attentionMode, setAttentionMode]     = useState(false);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<number>>(() => new Set());
   const [alertBarOpen, setAlertBarOpen]       = useState(true);
+  const [investigating, setInvestigating]     = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Clear investigation panel when the user navigates away from an entity
+  useEffect(() => { setInvestigating(null); }, [selectedEntity]);
 
   // Pinned entities per dimension — persisted in localStorage
   const [pins, setPins] = useState<Record<string, Set<string>>>(() => {
@@ -1051,6 +1156,22 @@ export default function BitsEye2Page() {
             <ChevronRight style={{ width: 12, height: 12, color: '#9CA3AF' }} />
             <span style={{ color: '#1F2937', fontWeight: 700, fontSize: 13 }}>{selectedEntity}</span>
             <button onClick={() => setSelectedEntity(null)} style={{ marginLeft: 6, fontSize: 10, color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer' }}>✕ back</button>
+            {/* Investigate button — shown when entity has an active alert and panel is closed */}
+            {!investigating && (() => {
+              const entityInc = incidentByEntity.get(selectedEntity.toLowerCase());
+              if (!entityInc) return null;
+              const btnColor = entityInc.severity === 'critical' ? '#EF4444' : '#D97706';
+              return (
+                <button
+                  onClick={() => setInvestigating(entityInc.id)}
+                  data-testid="button-investigate-entity"
+                  style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: btnColor, background: `${btnColor}10`, border: `1px solid ${btnColor}44`, borderRadius: 5, padding: '2px 8px', cursor: 'pointer', marginLeft: 4 }}
+                >
+                  <AlertTriangle style={{ width: 10, height: 10 }} />
+                  Investigate
+                </button>
+              );
+            })()}
           </>
         )}
         {fetchDetail && <span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 4 }}>↻ refreshing…</span>}
@@ -1058,6 +1179,25 @@ export default function BitsEye2Page() {
 
       {selectedEntity && entityDetail ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* ── Investigation Panel (shown when drilling into an alert) ── */}
+          <AnimatePresence>
+            {(() => {
+              if (!investigating) return null;
+              const inc = (incidentRows ?? []).find(r => r.id === investigating);
+              if (!inc) return null;
+              const anm = anomalyByVendor.get(selectedEntity ?? '') ?? undefined;
+              return (
+                <InvestigationPanel
+                  key={investigating}
+                  incident={inc}
+                  anomaly={anm}
+                  onClose={() => setInvestigating(null)}
+                  onNavigate={navigate}
+                />
+              );
+            })()}
+          </AnimatePresence>
+
           <div style={{ display: 'flex', gap: 10 }}>
             <KpiCard label="Active"       value={String(entityDetail.active)}    numericValue={entityDetail.active}    color={activeSec.color} icon={Activity}   delay={0} />
             <KpiCard label="Connected"    value={String(entityDetail.connected)} numericValue={entityDetail.connected} color="#16A34A"         icon={TrendingUp} delay={0.05} />
@@ -1294,8 +1434,21 @@ export default function BitsEye2Page() {
                   const color  = isCrit ? '#EF4444' : '#F59E0B';
                   const ageMs  = Date.now() - new Date(alert.openedAt).getTime();
                   const ageStr = ageMs < 60_000 ? 'just now' : ageMs < 3_600_000 ? `${Math.round(ageMs / 60_000)}m ago` : `${Math.round(ageMs / 3_600_000)}h ago`;
+                  const dimMap: Record<string, typeof activeSection> = { client: 'clients', vendor: 'vendors', country: 'countries', destination: 'destinations' };
+                  const canInvestigate = !!alert.entityName;
+                  function investigateAlert() {
+                    if (!canInvestigate) return;
+                    const secId = dimMap[alert.entityType] ?? 'vendors';
+                    setActiveSection(secId as any);
+                    setSelectedEntity(alert.entityName!);
+                    setInvestigating(alert.id);
+                    setAlertBarOpen(false);
+                  }
                   return (
-                    <div key={alert.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div key={alert.id} style={{ display: 'flex', alignItems: 'center', gap: 8, borderRadius: 5, padding: '1px 0', cursor: canInvestigate ? 'pointer' : 'default', transition: 'background 0.12s' }}
+                      onClick={investigateAlert}
+                      title={canInvestigate ? `Click to investigate ${alert.entityName}` : undefined}
+                    >
                       <span style={{
                         fontSize: 9, fontWeight: 700, color, background: `${color}18`,
                         border: `1px solid ${color}44`, borderRadius: 3, padding: '1px 5px',
@@ -1307,9 +1460,10 @@ export default function BitsEye2Page() {
                         <span style={{ fontSize: 11, fontWeight: 600, color: '#374151', flexShrink: 0 }}>{alert.entityName}</span>
                       )}
                       <span style={{ fontSize: 11, color: '#6B7280', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{alert.title}</span>
+                      {canInvestigate && <span style={{ fontSize: 9, color, fontWeight: 600, flexShrink: 0, opacity: 0.7 }}>Investigate →</span>}
                       <span style={{ fontSize: 10, color: '#9CA3AF', flexShrink: 0 }}>{ageStr}</span>
                       <button
-                        onClick={() => setDismissedAlerts(prev => new Set([...prev, alert.id]))}
+                        onClick={e => { e.stopPropagation(); setDismissedAlerts(prev => new Set([...prev, alert.id])); }}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, display: 'flex', color: '#D1D5DB', flexShrink: 0 }}
                       >
                         <XIcon style={{ width: 10, height: 10 }} />

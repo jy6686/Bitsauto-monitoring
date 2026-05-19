@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -168,6 +168,25 @@ export default function AsrAcdReportPage() {
 
   const [submitted, setSubmitted] = useState<FilterState | null>(null);
   const [enabled, setEnabled]     = useState(false);
+
+  // Pre-fill from deep-link query params (?vendor=X&from=90&to=0)
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const vendor = p.get('vendor');
+    const from   = parseInt(p.get('from') ?? '', 10);
+    const to     = parseInt(p.get('to')   ?? '', 10);
+    if (vendor) setFilters(prev => ({ ...prev, vendorFilter: vendor }));
+    if (!isNaN(from) && !isNaN(to) && from > to) {
+      const nowMs = Date.now();
+      setFilters(prev => ({
+        ...prev,
+        startTime: new Date(nowMs - from * 60_000).toISOString().slice(0, 16),
+        endTime:   new Date(nowMs - to   * 60_000).toISOString().slice(0, 16),
+      }));
+      setActivePreset(`${from}→${to}`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Quick window helpers ───────────────────────────────────────────────────
   const [relFrom, setRelFrom]       = useState("90");
