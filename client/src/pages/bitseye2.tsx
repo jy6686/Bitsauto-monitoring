@@ -264,29 +264,48 @@ function WorldMap({
     [entities],
   );
 
-  // Compute traffic flow arcs: hub → each active destination country
+  // Compute traffic flow arcs: hub → all country entities across full lifecycle
   const arcData = useMemo(() => {
     const proj = geoMercator().scale(120).center([20, 12]).translate([mapWidth / 2, height / 2]);
     const hub  = proj(MAP_HUB);
     if (!hub) return [];
-    return pulseMarkers.map(({ name, coords, count, cr }) => {
-      const dest = proj(coords);
+    const now = Date.now();
+    return entities.map(e => {
+      const coords = COUNTRY_COORDS[e.name.toUpperCase()];
+      if (!coords) return null;
+      const dest = proj(coords as [number, number]);
       if (!dest) return null;
       const [sx, sy] = hub;
       const [dx, dy] = dest;
-      // Quadratic bezier control point: midpoint pulled upward (higher arc for distant routes)
       const mx   = (sx + dx) / 2;
       const dist = Math.sqrt((dx - sx) ** 2 + (dy - sy) ** 2);
       const my   = (sy + dy) / 2 - dist * 0.28;
       const d    = `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${dx.toFixed(1)} ${dy.toFixed(1)}`;
-      // Approximate arc perimeter for dash animation
       const arcLen = Math.round(dist * 1.3 + 40);
-      // Color by connect-rate; width by concurrency
-      const strokeColor = cr >= 70 ? '#10B981' : cr >= 40 ? '#F59E0B' : '#EF4444';
-      const strokeWidth = count <= 5 ? 0.9 : count <= 20 ? 1.5 : 2.4;
-      return { name, d, strokeColor, strokeWidth, arcLen, count, cr };
-    }).filter(Boolean) as { name: string; d: string; strokeColor: string; strokeWidth: number; arcLen: number; count: number; cr: number }[];
-  }, [pulseMarkers, mapWidth, height]);
+      // Thickness memory: blend current concurrency with historical peak
+      // Prevents instant visual collapse when route goes idle
+      const peak         = e.peakToday ?? e.active;
+      const effectiveW   = e.active * 0.7 + peak * 0.3;
+      const strokeWidth  = effectiveW <= 3 ? 0.8 : effectiveW <= 10 ? 1.3 : effectiveW <= 25 ? 1.9 : 2.8;
+      // Lifecycle state classification
+      const idleSecs = e.idle && e.lastSeen ? (now - e.lastSeen) / 1000 : 0;
+      const state: 'active' | 'warm' | 'cooling' | 'historical' =
+        e.active > 0   ? 'active'   :
+        idleSecs < 1800  ? 'warm'     :   // < 30 min
+        idleSecs < 7200  ? 'cooling'  :   // 30 min – 2 h
+                           'historical';
+      // Active arcs: colored by connect-rate; idle arcs: grey lifecycle
+      const cr = e.connectRate;
+      const strokeColor = state === 'active'
+        ? (cr >= 70 ? '#10B981' : cr >= 40 ? '#F59E0B' : '#EF4444')
+        : '#9CA3AF';
+      return { name: e.name, d, strokeColor, strokeWidth, arcLen, count: e.active, cr, state };
+    }).filter(Boolean) as {
+      name: string; d: string; strokeColor: string; strokeWidth: number;
+      arcLen: number; count: number; cr: number;
+      state: 'active' | 'warm' | 'cooling' | 'historical';
+    }[];
+  }, [entities, mapWidth, height]);
 
   const totalActive     = entities.reduce((s, e) => s + e.active, 0);
   const activeCountries = entities.filter(e => e.active > 0).length;
@@ -374,41 +393,61 @@ function WorldMap({
             }
           </Geographies>
 
-          {/* ── Traffic flow arcs: hub → active destination countries ── */}
+          {/* ── Traffic flow arcs: hub → destination countries (full lifecycle) ── */}
           <g style={{ pointerEvents: 'none' }}>
-            {arcData.map((arc, i) => (
-              <g key={arc.name}>
-                {/* Soft base glow path */}
-                <path
-                  d={arc.d}
-                  fill="none"
-                  stroke={arc.strokeColor}
-                  strokeWidth={arc.strokeWidth + 1.5}
-                  opacity={0.08}
-                  strokeLinecap="round"
-                />
-                {/* Main arc line */}
-                <path
-                  d={arc.d}
-                  fill="none"
-                  stroke={arc.strokeColor}
-                  strokeWidth={arc.strokeWidth}
-                  opacity={0.38}
-                  strokeLinecap="round"
-                />
-                {/* Animated particle riding the arc */}
-                <path
-                  d={arc.d}
-                  fill="none"
-                  stroke={arc.strokeColor}
-                  strokeWidth={arc.strokeWidth + 0.6}
-                  opacity={0.9}
-                  strokeLinecap="round"
-                  strokeDasharray={`${Math.max(10, Math.round(arc.arcLen * 0.12))} ${arc.arcLen}`}
-                  style={{ animation: `be2-arc-flow ${2.8 + (i % 5) * 0.35}s linear infinite` }}
-                />
-              </g>
-            ))}
+            {arcData.map((arc, i) => {
+              const { state, d, strokeColor, strokeWidth, arcLen } = arc;
+
+              if (state === 'historical') {
+                // Very faint residual trace — no animation, no glow
+                return (
+                  <g key={arc.name}>
+                    <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={0.6}
+                      opacity={0.1} strokeLinecap="round" strokeDasharray="2 9" />
+                  </g>
+                );
+              }
+
+              if (state === 'cooling') {
+                // Thin grey dashed — no particle, low prominence
+                return (
+                  <g key={arc.name}>
+                    <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 0.55}
+                      opacity={0.22} strokeLinecap="round" strokeDasharray="4 6" />
+                  </g>
+                );
+              }
+
+              if (state === 'warm') {
+                // Dashed grey with slow particle — route recently active
+                return (
+                  <g key={arc.name}>
+                    <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 0.75}
+                      opacity={0.35} strokeLinecap="round" strokeDasharray="6 5" />
+                    <path d={d} fill="none" stroke="#9CA3AF"
+                      strokeWidth={strokeWidth * 0.85} opacity={0.6} strokeLinecap="round"
+                      strokeDasharray={`${Math.max(8, Math.round(arcLen * 0.08))} ${arcLen}`}
+                      style={{ animation: `be2-arc-flow ${4.8 + (i % 5) * 0.5}s linear infinite` }}
+                    />
+                  </g>
+                );
+              }
+
+              // Active — full 3-layer: glow halo + base line + animated particle
+              return (
+                <g key={arc.name}>
+                  <path d={d} fill="none" stroke={strokeColor}
+                    strokeWidth={strokeWidth + 1.5} opacity={0.08} strokeLinecap="round" />
+                  <path d={d} fill="none" stroke={strokeColor}
+                    strokeWidth={strokeWidth} opacity={0.38} strokeLinecap="round" />
+                  <path d={d} fill="none" stroke={strokeColor}
+                    strokeWidth={strokeWidth + 0.6} opacity={0.9} strokeLinecap="round"
+                    strokeDasharray={`${Math.max(10, Math.round(arcLen * 0.12))} ${arcLen}`}
+                    style={{ animation: `be2-arc-flow ${2.8 + (i % 5) * 0.35}s linear infinite` }}
+                  />
+                </g>
+              );
+            })}
           </g>
 
           {pulseMarkers.map(({ name, coords, count, cr }) => {
