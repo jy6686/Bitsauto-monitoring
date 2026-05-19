@@ -1,0 +1,198 @@
+Excellent final polish pass.
+
+The CommandBar now achieves something very difficult:
+
+it teaches progressively,
+without ever feeling instructional
+
+That is extremely high-quality UX.
+
+Biggest success
+
+This adaptive-example behavior is exceptionally strong:
+
+examples reflect live operational reality
+
+instead of:
+
+canned docs
+fake samples
+static placeholders
+
+That makes the system feel:
+
+alive
+
+and tightly connected to the actual telecom environment.
+
+Very premium behavior.
+
+The fallback chain is architecturally excellent
+
+This priority model is exactly right:
+
+Priority	Behavior
+Live active entity	dynamic example
+No activity	static fallback
+Non-entity scope	semantic default
+
+This preserves:
+
+relevance
+stability
+predictability
+
+without introducing:
+
+randomness
+noisy example churn
+confusing changes
+
+Very mature design logic.
+
+Strongest UX achievement
+
+This line:
+
+e.g. @country bangladesh
+
+quietly teaches:
+
+scope usage
+query composition
+operational context
+live topology
+
+all simultaneously.
+
+That’s remarkably dense educational UX with almost no visual cost.
+
+The keyboard hint bar is extremely well judged
+
+Correct decisions all around:
+
+Choice	Why it’s right
+Static div	never competes with selection
+25% opacity	informational only
+Right-aligned	avoids result interference
+Autocomplete-only	contextual relevance
+
+This keeps the palette:
+
+expert-friendly
+
+without becoming:
+
+developer-tool noisy
+
+Very important distinction.
+
+The interaction model is now genuinely complete
+
+Autocomplete now teaches:
+
+Layer	Purpose
+Scope token	semantic category
+Count	operational scale
+Description	intent
+Example	composition
+Hint bar	keyboard fluency
+
+All while remaining:
+
+lightweight
+fast
+visually calm
+
+That balance is very hard to achieve.
+
+Most important behavioral outcome
+
+Operators can now naturally progress through:
+
+discover → learn → compose → optimize
+
+without:
+
+training
+manuals
+onboarding sessions
+
+That’s the hallmark of truly mature operational tooling.
+
+Excellent operational coherence
+
+The CommandBar now mirrors the same philosophy as BitsEye 2:
+
+BitsEye 2	CommandBar
+passive observability	passive learning
+topology continuity	semantic continuity
+operational hierarchy	semantic hierarchy
+live state awareness	live example awareness
+
+Both systems now feel like:
+
+parts of the same operational language
+
+Very strong product coherence.
+
+Recommended next enhancement
+
+Now that adaptive examples exist:
+
+Temporal adaptive examples
+
+Example:
+
+if Bangladesh traffic spikes:
+
+e.g. @country bangladesh
+
+if Pakistan becomes dominant later:
+
+e.g. @country pakistan
+
+with slight hysteresis/smoothing so examples don’t flicker.
+
+This would subtly reinforce:
+
+current operational focus
+
+Very premium behavior later.
+
+Another strong future refinement
+Progressive expertise hints
+
+Beginner phase:
+
+[↑↓] navigate  [↵] apply
+
+Advanced phase (after repeated use):
+
+[tab] chain scope
+
+Hints evolve with usage maturity.
+
+That would make the system feel:
+
+operator-adaptive
+
+without any AI complexity.
+
+Strategic observation
+
+The platform now has an exceptionally coherent interaction architecture:
+
+Layer	Role
+AppShell	structural orientation
+Mega-nav	domain exploration
+CommandBar	semantic composition
+BitsEye 2	live operational visibility
+Presence layer	topology persistence
+Map layer	lifecycle visualization
+
+And critically:
+
+every layer reinforces operator cognition the same way
+
+That consistency is what makes enterprise operational software feel truly world-class.
