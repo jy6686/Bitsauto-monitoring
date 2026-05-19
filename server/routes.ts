@@ -13061,6 +13061,72 @@ export async function registerRoutes(
     res.json({ groupBy: dim, entities, total: calls.length, stale: cacheAgeMs !== null && cacheAgeMs > 90_000, lastUpdated: ts, ...(entity ? { entityHistory } : {}) });
   });
 
+  // GET /api/bitseye/entity-detail?dim=client|vendor|country|destination&name=<entity>
+  // Returns live KPIs + cross-dimensional breakdowns for a single entity.
+  // Sippy-safe: zero Sippy calls — reads only from liveCallsCache + entityConcurrentHistory.
+  app.get('/api/bitseye/entity-detail', async (_req: any, res: any) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const dim  = (['client', 'vendor', 'country', 'destination'].includes(_req.query.dim as string)
+      ? _req.query.dim as string : 'client');
+    const name = _req.query.name ? String(_req.query.name) : '';
+    if (!name) { res.status(400).json({ error: 'name is required' }); return; }
+
+    const calls = (liveCallsCache as any).calls ?? [];
+    const ts    = (liveCallsCache as any).ts ?? 0;
+
+    const getDimKey = (c: any, d: string): string | null => {
+      if (d === 'client')      return c.clientName || (c.accountId ? `Acct.${c.accountId}` : null);
+      if (d === 'vendor')      return c.vendor || c.connection || null;
+      if (d === 'country')     return c.destCountry || null;
+      if (d === 'destination') return c.destFull || c.destCountry || null;
+      return null;
+    };
+
+    // Filter calls to only those belonging to this entity
+    const matching = calls.filter((c: any) => getDimKey(c, dim) === name);
+
+    const active      = matching.length;
+    const connected   = matching.filter((c: any) => c.callStatus === 'connected').length;
+    const routing     = active - connected;
+    const connectRate = active > 0 ? Math.round(connected / active * 100) : 0;
+
+    // Helper: group filtered calls by a second dimension
+    function crossGroup(d: string): { name: string; active: number; connected: number; connectRate: number }[] {
+      const m = new Map<string, { active: number; connected: number }>();
+      for (const c of matching) {
+        const k = getDimKey(c, d);
+        if (!k) continue;
+        const ex = m.get(k) ?? { active: 0, connected: 0 };
+        ex.active++;
+        if (c.callStatus === 'connected') ex.connected++;
+        m.set(k, ex);
+      }
+      return [...m.entries()]
+        .sort((a, b) => b[1].active - a[1].active)
+        .slice(0, 10)
+        .map(([n, v]) => ({ name: n, active: v.active, connected: v.connected, connectRate: v.active > 0 ? Math.round(v.connected / v.active * 100) : 0 }));
+    }
+
+    // Build cross-dimensional tables (skip the dimension we're already in)
+    const topClients      = dim !== 'client'      ? crossGroup('client')      : [];
+    const topVendors      = dim !== 'vendor'      ? crossGroup('vendor')      : [];
+    const topCountries    = dim !== 'country'     ? crossGroup('country')     : [];
+    const topDestinations = dim !== 'destination' ? crossGroup('destination') : [];
+
+    // Per-entity concurrent history (last 48 snapshots ≈ 36 min at 45s)
+    const dimMap      = entityConcurrentHistory.get(dim);
+    const entityHistory = (dimMap?.get(name) ?? []).slice(-48);
+
+    const cacheAgeMs = ts > 0 ? Date.now() - ts : null;
+    res.json({
+      dim, name, active, connected, routing, connectRate,
+      topClients, topVendors, topCountries, topDestinations,
+      entityHistory,
+      stale: cacheAgeMs !== null && cacheAgeMs > 90_000,
+      lastUpdated: ts,
+    });
+  });
+
   // GET /api/bitseye/call-trend — time-bucketed call totals from CDR cache for graph view
   // Sippy-safe: reads only from in-memory cdrCache, no Sippy calls.
   app.get('/api/bitseye/call-trend', async (req: any, res) => {
