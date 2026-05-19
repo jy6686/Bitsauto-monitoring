@@ -77,7 +77,7 @@ interface ConcurrentTrend {
 }
 
 // ── World Map constants ───────────────────────────────────────────────────────
-const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+const GEO_URL = "/maps/world-110m.json";
 
 const COUNTRY_COORDS: Record<string, [number, number]> = {
   'BANGLADESH':             [90.4,  23.8],
@@ -226,6 +226,14 @@ function WorldMap({
 }) {
   const [tooltip, setTooltip]       = useState<{ name: string; data?: EntityRow } | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const [mapError, setMapError]     = useState(false);
+
+  // Pre-check that the local map file is reachable; show fallback if not
+  useEffect(() => {
+    fetch(GEO_URL, { method: 'HEAD' })
+      .then(r => { if (!r.ok) setMapError(true); })
+      .catch(() => setMapError(true));
+  }, []);
 
   const countryMap = useMemo(() => {
     const m = new Map<string, EntityRow>();
@@ -269,56 +277,80 @@ function WorldMap({
         </div>
       </div>
 
-      <ComposableMap
-        projection="geoMercator"
-        projectionConfig={{ scale: 120, center: [20, 12] }}
-        style={{ width: '100%', height }}
-      >
-        <Geographies geography={GEO_URL}>
-          {({ geographies }) =>
-            geographies.map(geo => {
-              const geoName  = (geo.properties.name as string) ?? '';
-              const apiName  = GEO_TO_API[geoName] ?? geoName.toUpperCase();
-              const data     = countryMap.get(apiName);
-              const count    = data?.active ?? 0;
-              const isActive = count > 0;
-              return (
-                <Geography
-                  key={geo.rsmKey}
-                  geography={geo}
-                  fill={getCountryColor(count)}
-                  stroke={isActive ? '#fff' : '#D1D9E6'}
-                  strokeWidth={isActive ? 1.2 : 0.35}
-                  style={{
-                    default: { outline: 'none' },
-                    hover:   { outline: 'none', fill: isActive ? '#7C3AED' : '#CDD5E0', cursor: isActive ? 'pointer' : 'default' },
-                    pressed: { outline: 'none', fill: '#6D28D9' },
-                  }}
-                  onMouseEnter={() => setTooltip({ name: geoName, data })}
-                  onMouseLeave={() => setTooltip(null)}
-                  onClick={() => { if (data && onCountryClick) onCountryClick(data.name); }}
-                />
-              );
-            })
-          }
-        </Geographies>
+      {mapError ? (
+        /* Fallback: map file unavailable — show country counters only */
+        <div style={{ height, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+          <div style={{ fontSize: 12, color: '#9CA3AF', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 16 }}>⚠</span> Map layer unavailable
+          </div>
+          {entities.filter(e => e.active > 0).length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, justifyContent: 'center', maxWidth: 400 }}>
+              {entities.filter(e => e.active > 0).map(e => (
+                <div
+                  key={e.name}
+                  onClick={() => onCountryClick?.(e.name)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: '4px 10px', cursor: onCountryClick ? 'pointer' : 'default', fontSize: 11 }}
+                >
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: getCountryColor(e.active), display: 'inline-block' }} />
+                  <span style={{ color: '#374151', fontWeight: 600 }}>{e.name}</span>
+                  <span style={{ color: '#6B7280' }}>{e.active}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <ComposableMap
+          projection="geoMercator"
+          projectionConfig={{ scale: 120, center: [20, 12] }}
+          style={{ width: '100%', height }}
+        >
+          <Geographies geography={GEO_URL}>
+            {({ geographies }) =>
+              geographies.map(geo => {
+                const geoName  = (geo.properties.name as string) ?? '';
+                const apiName  = GEO_TO_API[geoName] ?? geoName.toUpperCase();
+                const data     = countryMap.get(apiName);
+                const count    = data?.active ?? 0;
+                const isActive = count > 0;
+                return (
+                  <Geography
+                    key={geo.rsmKey}
+                    geography={geo}
+                    fill={getCountryColor(count)}
+                    stroke={isActive ? '#fff' : '#D1D9E6'}
+                    strokeWidth={isActive ? 1.2 : 0.35}
+                    style={{
+                      default: { outline: 'none' },
+                      hover:   { outline: 'none', fill: isActive ? '#7C3AED' : '#CDD5E0', cursor: isActive ? 'pointer' : 'default' },
+                      pressed: { outline: 'none', fill: '#6D28D9' },
+                    }}
+                    onMouseEnter={() => setTooltip({ name: geoName, data })}
+                    onMouseLeave={() => setTooltip(null)}
+                    onClick={() => { if (data && onCountryClick) onCountryClick(data.name); }}
+                  />
+                );
+              })
+            }
+          </Geographies>
 
-        {pulseMarkers.map(({ name, coords, count, cr }) => {
-          const r1       = count <= 2 ? 3 : count <= 10 ? 5 : count <= 30 ? 7 : 10;
-          const dotColor = cr >= 70 ? '#16A34A' : cr >= 40 ? '#F59E0B' : '#EF4444';
-          return (
-            <Marker key={name} coordinates={coords}>
-              <circle r={r1 * 2} fill={dotColor} opacity={0.18} style={{ animation: `be2-pulse ${1.8 + (count % 5) * 0.2}s infinite` }} />
-              <circle r={r1}     fill={dotColor} opacity={0.85} style={{ animation: `be2-pulse ${1.8 + (count % 5) * 0.2}s infinite` }} />
-              {count > 3 && (
-                <text textAnchor="middle" y={-(r1 + 5)} style={{ fontSize: 9, fontWeight: 700, fill: '#1F2937', paintOrder: 'stroke', stroke: '#fff', strokeWidth: 2 }}>
-                  {count}
-                </text>
-              )}
-            </Marker>
-          );
-        })}
-      </ComposableMap>
+          {pulseMarkers.map(({ name, coords, count, cr }) => {
+            const r1       = count <= 2 ? 3 : count <= 10 ? 5 : count <= 30 ? 7 : 10;
+            const dotColor = cr >= 70 ? '#16A34A' : cr >= 40 ? '#F59E0B' : '#EF4444';
+            return (
+              <Marker key={name} coordinates={coords}>
+                <circle r={r1 * 2} fill={dotColor} opacity={0.18} style={{ animation: `be2-pulse ${1.8 + (count % 5) * 0.2}s infinite` }} />
+                <circle r={r1}     fill={dotColor} opacity={0.85} style={{ animation: `be2-pulse ${1.8 + (count % 5) * 0.2}s infinite` }} />
+                {count > 3 && (
+                  <text textAnchor="middle" y={-(r1 + 5)} style={{ fontSize: 9, fontWeight: 700, fill: '#1F2937', paintOrder: 'stroke', stroke: '#fff', strokeWidth: 2 }}>
+                    {count}
+                  </text>
+                )}
+              </Marker>
+            );
+          })}
+        </ComposableMap>
+      )}
 
       <AnimatePresence>
         {tooltip && (
