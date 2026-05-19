@@ -292,6 +292,28 @@ const SCOPE_DESCRIPTIONS: Record<string, string> = {
   '@mgmt':      'Team management and access control',
 };
 
+// ── Scope usage examples — shown as quiet third line in @autocomplete ─────────
+const SCOPE_EXAMPLES: Record<string, string> = {
+  '@country':   '@country bd',
+  '@geo':       '@geo pk',
+  '@client':    '@client acme',
+  '@vendor':    '@vendor callntalk',
+  '@dest':      '@dest main',
+  '@live':      '@live',
+  '@noc':       '@noc',
+  '@analytics': '@analytics rev',
+  '@reports':   '@rpt cdr',
+  '@rpt':       '@rpt cdr',
+  '@tooling':   '@tooling sip',
+  '@debug':     '@debug rtp',
+  '@routing':   '@routing lcr',
+  '@lcr':       '@lcr ae',
+  '@fraud':     '@fraud fas',
+  '@fas':       '@fas bd',
+  '@settings':  '@settings',
+  '@mgmt':      '@mgmt',
+};
+
 // ── CommandBar ─────────────────────────────────────────────────────────────────
 export function CommandBar() {
   const [open, setOpen]   = useState(false);
@@ -522,9 +544,27 @@ export function CommandBar() {
                   className="items-start py-2">
                   <span className="font-mono text-[11px] text-indigo-400 mr-3 flex-shrink-0 mt-0.5">{sc}</span>
                   <span className="flex-1 flex flex-col gap-0.5 min-w-0">
-                    <span className="text-sm font-medium leading-none">{m?.key}</span>
+                    {/* Row 1: key name + live count */}
+                    <span className="flex items-center gap-2">
+                      <span className="text-sm font-medium leading-none">{m?.key}</span>
+                      {(() => {
+                        if (!m) return null;
+                        const cnt = m.type === 'entity'
+                          ? allEntities.filter(e => e.dimLabel === m.key).length
+                          : ROUTE_REGISTRY.filter(r => r.domain === m.key).length;
+                        const unit = m.type === 'entity' ? 'entities' : 'modules';
+                        return cnt > 0
+                          ? <span className="text-[10px] tabular-nums text-muted-foreground/40 leading-none">{cnt} {unit}</span>
+                          : null;
+                      })()}
+                    </span>
+                    {/* Row 2: operational description */}
                     {SCOPE_DESCRIPTIONS[sc] && (
                       <span className="text-[10px] text-muted-foreground/50 leading-none">{SCOPE_DESCRIPTIONS[sc]}</span>
+                    )}
+                    {/* Row 3: usage example */}
+                    {SCOPE_EXAMPLES[sc] && (
+                      <span className="text-[9px] font-mono text-muted-foreground/30 leading-none">e.g. {SCOPE_EXAMPLES[sc]}</span>
                     )}
                   </span>
                   {chip && (
