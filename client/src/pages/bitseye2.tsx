@@ -11,12 +11,22 @@ import {
   BarChart2, ChevronDown, ChevronRight, RefreshCw,
   Activity, TrendingUp, Zap, ExternalLink, Map,
   Search, Star, Maximize2, Minimize2,
+  AlertTriangle, Bell, BellOff, X as XIcon, Layers,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface EntityRow {
   name: string; active: number; connected: number; routing: number; connectRate: number;
+}
+interface IncidentAlert {
+  id: number; entityType: string; entityName: string | null; severity: string;
+  title: string; status: string; openedAt: string;
+}
+interface AnomalyAlert {
+  id: number; vendor: string | null; metric: string; severity: string;
+  currentValue: number; baselineMean: number; deviationSigma: number;
+  resolved: boolean; detectedAt: string;
 }
 interface LiveSliceResponse {
   groupBy: string; entities: EntityRow[]; total: number; stale: boolean; lastUpdated: number;
@@ -373,10 +383,12 @@ function KpiCard({ label, value, sub, color, icon: Icon, delay = 0, numericValue
 }
 
 // ── Entity Card (grid view) ───────────────────────────────────────────────────
-function EntityCard({ entity, color, onClick, selected = false, pinned = false, onPin }: {
+function EntityCard({ entity, color, onClick, selected = false, pinned = false, onPin, alertSeverity, alertLabel }: {
   entity: EntityRow; color: string; onClick: () => void; selected?: boolean; pinned?: boolean; onPin?: () => void;
+  alertSeverity?: string; alertLabel?: string;
 }) {
   const [hov, setHov] = useState(false);
+  const alertColor = alertSeverity === 'critical' ? '#EF4444' : alertSeverity === 'high' ? '#F59E0B' : undefined;
   return (
     <motion.div
       whileHover={{ y: -2, boxShadow: '0 8px 20px rgba(0,0,0,0.09)' }}
@@ -385,12 +397,29 @@ function EntityCard({ entity, color, onClick, selected = false, pinned = false, 
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
-        background: selected ? `${color}07` : '#fff',
-        border: `1.5px solid ${selected ? color : '#E6EAF0'}`,
+        background: selected ? `${color}07` : alertColor ? `${alertColor}08` : '#fff',
+        border: `1.5px solid ${selected ? color : alertColor ? alertColor : '#E6EAF0'}`,
         borderRadius: 14, padding: '14px 16px', cursor: 'pointer',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.04)', position: 'relative',
+        boxShadow: alertColor ? `0 0 0 1px ${alertColor}33, 0 2px 8px rgba(0,0,0,0.04)` : '0 2px 8px rgba(0,0,0,0.04)',
+        position: 'relative',
       }}
     >
+      {/* Alert badge */}
+      {alertSeverity && alertColor && (
+        <span
+          title={alertLabel}
+          style={{
+            position: 'absolute', top: 8, left: 8,
+            display: 'flex', alignItems: 'center', gap: 3,
+            fontSize: 9, fontWeight: 700, color: alertColor,
+            background: `${alertColor}18`, border: `1px solid ${alertColor}44`,
+            borderRadius: 4, padding: '1px 5px', textTransform: 'uppercase' as const, letterSpacing: '0.04em',
+          }}
+        >
+          <AlertTriangle style={{ width: 7, height: 7 }} />
+          {alertSeverity}
+        </span>
+      )}
       {onPin && (hov || pinned) && (
         <button
           onClick={e => { e.stopPropagation(); onPin(); }}
@@ -400,7 +429,7 @@ function EntityCard({ entity, color, onClick, selected = false, pinned = false, 
           <Star style={{ width: 12, height: 12, color: pinned ? '#F59E0B' : '#D1D5DB', fill: pinned ? '#F59E0B' : 'none' }} />
         </button>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, marginTop: alertSeverity ? 14 : 0 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, maxWidth: 155 }}>
           {pinned && <span style={{ color: '#F59E0B', marginRight: 3, fontSize: 10 }}>★</span>}
           {entity.name}
@@ -564,7 +593,10 @@ export default function BitsEye2Page() {
 
   // ── Feature state ─────────────────────────────────────────────────────────
   const [sidebarSearch, setSidebarSearch] = useState('');
-  const [isFullscreen, setIsFullscreen]   = useState(false);
+  const [isFullscreen, setIsFullscreen]       = useState(false);
+  const [attentionMode, setAttentionMode]     = useState(false);
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<number>>(() => new Set());
+  const [alertBarOpen, setAlertBarOpen]       = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Pinned entities per dimension — persisted in localStorage
@@ -647,6 +679,17 @@ export default function BitsEye2Page() {
     staleTime: 25_000, refetchInterval: 30_000,
   });
 
+  const { data: incidentRows } = useQuery<IncidentAlert[]>({
+    queryKey: ['/api/incidents'],
+    queryFn: () => fetch('/api/incidents').then(r => r.json()),
+    staleTime: 30_000, refetchInterval: 60_000,
+  });
+  const { data: anomalyRows } = useQuery<AnomalyAlert[]>({
+    queryKey: ['/api/anomalies'],
+    queryFn: () => fetch('/api/anomalies').then(r => r.json()),
+    staleTime: 55_000, refetchInterval: 60_000,
+  });
+
   const activeSec = SECTIONS.find(s => s.id === activeSection)!;
 
   const { data: entityDetail, isFetching: fetchDetail } = useQuery<EntityDetail>({
@@ -697,6 +740,62 @@ export default function BitsEye2Page() {
       active: p.count, connected: p.connected, routing: p.routing,
     })), [entityDetail],
   );
+
+  // ── Alert / Anomaly derived state ─────────────────────────────────────────
+  const RANK = (s: string) => s === 'critical' ? 3 : s === 'high' ? 2 : s === 'medium' ? 1 : 0;
+
+  // Active (non-dismissed) incidents of severity critical or high
+  const activeAlerts = useMemo(() =>
+    (incidentRows ?? []).filter(r =>
+      r.status === 'active' &&
+      (r.severity === 'critical' || r.severity === 'high') &&
+      !dismissedAlerts.has(r.id)
+    ),
+    [incidentRows, dismissedAlerts],
+  );
+
+  // Vendor name → worst unresolved anomaly in the last 4 h
+  const anomalyByVendor = useMemo(() => {
+    const cutoff = Date.now() - 4 * 60 * 60_000;
+    const m = new Map<string, AnomalyAlert>();
+    for (const a of anomalyRows ?? []) {
+      if (a.resolved || !a.vendor) continue;
+      if (new Date(a.detectedAt).getTime() < cutoff) continue;
+      const ex = m.get(a.vendor);
+      if (!ex || RANK(a.severity) > RANK(ex.severity)) m.set(a.vendor, a);
+    }
+    return m;
+  }, [anomalyRows]);
+
+  // Entity name (lowercased) → worst active incident
+  const incidentByEntity = useMemo(() => {
+    const m = new Map<string, IncidentAlert>();
+    for (const inc of incidentRows ?? []) {
+      if (inc.status !== 'active' || !inc.entityName) continue;
+      const key = inc.entityName.toLowerCase();
+      const ex  = m.get(key);
+      if (!ex || RANK(inc.severity) > RANK(ex.severity)) m.set(key, inc);
+    }
+    return m;
+  }, [incidentRows]);
+
+  // Attention score: higher = float to top in Attention Mode
+  function attentionScore(dim: string, name: string, active: number): number {
+    const anomaly  = dim === 'vendor' ? anomalyByVendor.get(name) : undefined;
+    const incident = incidentByEntity.get(name.toLowerCase());
+    return (RANK(anomaly?.severity ?? '') + RANK(incident?.severity ?? '')) * 1000 + active;
+  }
+
+  // Sorted entity list for the grid panel when Attention Mode is on
+  const sortedActiveDimEntities = useMemo(() => {
+    const ents = activeDim?.entities ?? [];
+    if (!attentionMode) return ents;
+    return [...ents].sort((a, b) =>
+      attentionScore(activeSec.dim ?? '', b.name, b.active) -
+      attentionScore(activeSec.dim ?? '', a.name, a.active)
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDim, attentionMode, anomalyByVendor, incidentByEntity, activeSec]);
 
   // Cross-dim navigation
   function drillCross(dim: string, name: string) {
@@ -798,9 +897,13 @@ export default function BitsEye2Page() {
             const Icon       = sec.icon;
             const dimPins    = sec.dim ? (pins[sec.dim] ?? new Set<string>()) : new Set<string>();
             const allEnts    = slice?.entities ?? [];
-            const pinnedEnts   = allEnts.filter(e => dimPins.has(e.name));
-            const unpinnedEnts = allEnts.filter(e => !dimPins.has(e.name));
-            const orderedEnts  = [...pinnedEnts, ...unpinnedEnts].slice(0, 10);
+            const pinnedEnts     = allEnts.filter(e => dimPins.has(e.name));
+            const unpinnedEnts   = allEnts.filter(e => !dimPins.has(e.name));
+            const sortedUnpinned = attentionMode
+              ? [...unpinnedEnts].sort((a, b) =>
+                  attentionScore(sec.dim!, b.name, b.active) - attentionScore(sec.dim!, a.name, a.active))
+              : unpinnedEnts;
+            const orderedEnts    = [...pinnedEnts, ...sortedUnpinned].slice(0, 10);
 
             return (
               <div key={sec.id}>
@@ -855,6 +958,21 @@ export default function BitsEye2Page() {
                               <Star style={{ width: 9, height: 9, color: isPinned ? '#F59E0B' : '#E5E7EB', fill: isPinned ? '#F59E0B' : 'none' }} />
                             </button>
                             <span style={{ fontSize: 11, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{ent.name}</span>
+                            {/* Anomaly / incident indicator dot */}
+                            {(() => {
+                              const anomaly  = sec.dim === 'vendor' ? anomalyByVendor.get(ent.name) : undefined;
+                              const incident = incidentByEntity.get(ent.name.toLowerCase());
+                              const sev      = anomaly?.severity ?? incident?.severity;
+                              if (!sev) return null;
+                              const c = sev === 'critical' ? '#EF4444' : sev === 'high' ? '#F59E0B' : '#6B7280';
+                              const label = anomaly ? `${anomaly.metric.toUpperCase()} anomaly` : incident?.title ?? 'Incident';
+                              return (
+                                <span
+                                  title={label}
+                                  style={{ width: 6, height: 6, borderRadius: '50%', background: c, flexShrink: 0, boxShadow: `0 0 0 2px ${c}44`, animation: sev === 'critical' ? 'be2-pulse 1.5s ease-in-out infinite' : undefined }}
+                                />
+                              );
+                            })()}
                             <MiniSparkline data={sparkData} color={sec.color} />
                             <LivePill count={ent.active} color={sec.color} />
                           </motion.div>
@@ -1000,25 +1118,39 @@ export default function BitsEye2Page() {
             initial="hidden" animate="show"
           >
             {/* Pinned first */}
-            {activeDim?.entities?.filter(e => activeDimPins.has(e.name)).map(ent => (
-              <motion.div key={`pin-${ent.name}`} variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}>
-                <EntityCard
-                  entity={ent} color={activeSec.color}
-                  onClick={() => setSelectedEntity(ent.name)}
-                  pinned onPin={() => togglePin(activeSec.dim!, ent.name)}
-                />
-              </motion.div>
-            ))}
+            {sortedActiveDimEntities.filter(e => activeDimPins.has(e.name)).map(ent => {
+              const anomaly  = activeSec.dim === 'vendor' ? anomalyByVendor.get(ent.name) : undefined;
+              const incident = incidentByEntity.get(ent.name.toLowerCase());
+              const sev      = anomaly?.severity ?? incident?.severity;
+              const lbl      = anomaly ? `${anomaly.metric.toUpperCase()} anomaly — ${ent.name}` : incident?.title;
+              return (
+                <motion.div key={`pin-${ent.name}`} variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}>
+                  <EntityCard
+                    entity={ent} color={activeSec.color}
+                    onClick={() => setSelectedEntity(ent.name)}
+                    pinned onPin={() => togglePin(activeSec.dim!, ent.name)}
+                    alertSeverity={sev} alertLabel={lbl}
+                  />
+                </motion.div>
+              );
+            })}
             {/* Unpinned */}
-            {activeDim?.entities?.filter(e => !activeDimPins.has(e.name)).map(ent => (
-              <motion.div key={ent.name} variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}>
-                <EntityCard
-                  entity={ent} color={activeSec.color}
-                  onClick={() => setSelectedEntity(ent.name)}
-                  pinned={false} onPin={activeSec.dim ? () => togglePin(activeSec.dim!, ent.name) : undefined}
-                />
-              </motion.div>
-            ))}
+            {sortedActiveDimEntities.filter(e => !activeDimPins.has(e.name)).map(ent => {
+              const anomaly  = activeSec.dim === 'vendor' ? anomalyByVendor.get(ent.name) : undefined;
+              const incident = incidentByEntity.get(ent.name.toLowerCase());
+              const sev      = anomaly?.severity ?? incident?.severity;
+              const lbl      = anomaly ? `${anomaly.metric.toUpperCase()} anomaly — ${ent.name}` : incident?.title;
+              return (
+                <motion.div key={ent.name} variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}>
+                  <EntityCard
+                    entity={ent} color={activeSec.color}
+                    onClick={() => setSelectedEntity(ent.name)}
+                    pinned={false} onPin={activeSec.dim ? () => togglePin(activeSec.dim!, ent.name) : undefined}
+                    alertSeverity={sev} alertLabel={lbl}
+                  />
+                </motion.div>
+              );
+            })}
             {(!activeDim || activeDim.entities.length === 0) && (
               <div style={{ gridColumn: '1/-1', textAlign: 'center' as const, padding: '60px 0', color: '#9CA3AF', fontSize: 14 }}>
                 No active calls in this dimension right now
@@ -1053,6 +1185,51 @@ export default function BitsEye2Page() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {isFetching && <RefreshCw style={{ width: 14, height: 14, color: '#2563EB', animation: 'be2-spin 1s linear infinite' }} />}
           {!isFullscreen && <span style={{ fontSize: 11, color: '#D1D5DB' }}>30s refresh</span>}
+
+          {/* Alert Bell — re-opens the alert bar */}
+          {!isFullscreen && (incidentRows ?? []).some(r => r.status === 'active' && (r.severity === 'critical' || r.severity === 'high')) && (
+            <button
+              onClick={() => { setAlertBarOpen(true); setDismissedAlerts(new Set()); }}
+              title="Show active alerts"
+              data-testid="button-alert-bell"
+              style={{
+                position: 'relative', display: 'flex', alignItems: 'center', gap: 5,
+                fontSize: 11, fontWeight: 600,
+                color: (incidentRows ?? []).some(r => r.status === 'active' && r.severity === 'critical') ? '#EF4444' : '#D97706',
+                background: (incidentRows ?? []).some(r => r.status === 'active' && r.severity === 'critical') ? '#FEF2F2' : '#FFFBEB',
+                border: `1px solid ${(incidentRows ?? []).some(r => r.status === 'active' && r.severity === 'critical') ? '#FECACA' : '#FDE68A'}`,
+                borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
+              }}
+            >
+              <Bell style={{ width: 12, height: 12 }} />
+              {activeAlerts.length > 0 ? activeAlerts.length : ''}
+            </button>
+          )}
+
+          {/* Attention Mode toggle */}
+          {!isFullscreen && (
+            <button
+              onClick={() => setAttentionMode(p => !p)}
+              title={attentionMode ? 'Attention Mode ON — most urgent entities first' : 'Attention Mode — sort by alert severity'}
+              data-testid="button-attention-mode"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600,
+                color: attentionMode ? '#7C3AED' : '#6B7280',
+                background: attentionMode ? '#F5F3FF' : '#F9FAFB',
+                border: `1px solid ${attentionMode ? '#DDD6FE' : '#E6EAF0'}`,
+                borderRadius: 6, padding: '5px 10px', cursor: 'pointer', transition: 'all 0.15s',
+              }}
+            >
+              <Layers style={{ width: 12, height: 12 }} />
+              Attention
+              {attentionMode && (anomalyByVendor.size + incidentByEntity.size) > 0 && (
+                <span style={{ background: '#7C3AED', color: '#fff', borderRadius: 99, fontSize: 9, fontWeight: 700, padding: '0 4px', minWidth: 14, textAlign: 'center' as const }}>
+                  {anomalyByVendor.size + incidentByEntity.size}
+                </span>
+              )}
+            </button>
+          )}
+
           {/* Wallboard / fullscreen toggle */}
           <button
             onClick={toggleFullscreen}
@@ -1076,6 +1253,78 @@ export default function BitsEye2Page() {
           )}
         </div>
       </div>
+
+      {/* ── Sticky Alert Bar ── */}
+      <AnimatePresence>
+        {!isFullscreen && activeAlerts.length > 0 && alertBarOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            style={{ overflow: 'hidden', flexShrink: 0 }}
+          >
+            <div style={{
+              background: activeAlerts.some(a => a.severity === 'critical') ? '#FEF2F2' : '#FFFBEB',
+              borderBottom: `1px solid ${activeAlerts.some(a => a.severity === 'critical') ? '#FECACA' : '#FDE68A'}`,
+              padding: '0 20px',
+            }}>
+              {/* Header row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0 4px' }}>
+                <AlertTriangle style={{ width: 13, height: 13, color: activeAlerts.some(a => a.severity === 'critical') ? '#EF4444' : '#D97706', flexShrink: 0 }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: activeAlerts.some(a => a.severity === 'critical') ? '#B91C1C' : '#92400E', flex: 1 }}>
+                  {activeAlerts.length} active alert{activeAlerts.length !== 1 ? 's' : ''}
+                  {activeAlerts.some(a => a.severity === 'critical') ? ' — CRITICAL' : ' — HIGH'}
+                </span>
+                <button
+                  onClick={() => setDismissedAlerts(new Set(activeAlerts.map(a => a.id)))}
+                  style={{ fontSize: 10, color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' as const }}
+                >
+                  Dismiss all
+                </button>
+                <button
+                  onClick={() => setAlertBarOpen(false)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', color: '#9CA3AF' }}
+                >
+                  <XIcon style={{ width: 12, height: 12 }} />
+                </button>
+              </div>
+              {/* Alert rows — up to 5 */}
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 2, paddingBottom: 6 }}>
+                {activeAlerts.slice(0, 5).map(alert => {
+                  const isCrit = alert.severity === 'critical';
+                  const color  = isCrit ? '#EF4444' : '#F59E0B';
+                  const ageMs  = Date.now() - new Date(alert.openedAt).getTime();
+                  const ageStr = ageMs < 60_000 ? 'just now' : ageMs < 3_600_000 ? `${Math.round(ageMs / 60_000)}m ago` : `${Math.round(ageMs / 3_600_000)}h ago`;
+                  return (
+                    <div key={alert.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, color, background: `${color}18`,
+                        border: `1px solid ${color}44`, borderRadius: 3, padding: '1px 5px',
+                        textTransform: 'uppercase' as const, letterSpacing: '0.04em', flexShrink: 0,
+                      }}>
+                        {alert.severity}
+                      </span>
+                      {alert.entityName && (
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#374151', flexShrink: 0 }}>{alert.entityName}</span>
+                      )}
+                      <span style={{ fontSize: 11, color: '#6B7280', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{alert.title}</span>
+                      <span style={{ fontSize: 10, color: '#9CA3AF', flexShrink: 0 }}>{ageStr}</span>
+                      <button
+                        onClick={() => setDismissedAlerts(prev => new Set([...prev, alert.id]))}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, display: 'flex', color: '#D1D5DB', flexShrink: 0 }}
+                      >
+                        <XIcon style={{ width: 10, height: 10 }} />
+                      </button>
+                    </div>
+                  );
+                })}
+                {activeAlerts.length > 5 && (
+                  <div style={{ fontSize: 10, color: '#9CA3AF', paddingLeft: 2 }}>+{activeAlerts.length - 5} more — see Alerts page</div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Body */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
