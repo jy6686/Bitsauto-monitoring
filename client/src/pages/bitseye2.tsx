@@ -335,6 +335,14 @@ function WorldMap({
 // ── Sidebar sections ──────────────────────────────────────────────────────────
 type SectionId = 'noc' | 'clients' | 'vendors' | 'countries' | 'destinations' | 'routing' | 'kam';
 
+// Which cross-dimension to show when a sidebar entity is expanded (live-only, from entity-detail)
+const CROSS_DIM: Record<string, { rows: (d: EntityDetail) => CrossRow[]; targetSec: SectionId; label: string }> = {
+  client:      { rows: d => d.topCountries,    targetSec: 'countries',    label: 'Countries' },
+  vendor:      { rows: d => d.topClients,      targetSec: 'clients',      label: 'Clients'   },
+  country:     { rows: d => d.topVendors,      targetSec: 'vendors',      label: 'Vendors'   },
+  destination: { rows: d => d.topClients,      targetSec: 'clients',      label: 'Clients'   },
+};
+
 const SECTIONS: { id: SectionId; label: string; icon: any; dim: string | null; href?: string; color: string }[] = [
   { id: 'noc',          label: 'NOC Overview', icon: Radio,     dim: null,           color: '#2563EB' },
   { id: 'clients',      label: 'Clients',       icon: Users,     dim: 'client',       color: '#7C3AED' },
@@ -615,6 +623,7 @@ export default function BitsEye2Page() {
   const [alertBarOpen, setAlertBarOpen]       = useState(true);
   const [destLookupQ, setDestLookupQ]         = useState('');
   const [wallboardSlide, setWallboardSlide]   = useState(0);
+  const [sidebarExpanded, setSidebarExpanded] = useState<{ dim: string; name: string; sectionId: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Pinned entities per dimension — persisted in localStorage
@@ -718,6 +727,12 @@ export default function BitsEye2Page() {
     queryKey: ['/api/bitseye/traffic-events'],
     queryFn: () => fetch('/api/bitseye/traffic-events').then(r => r.json()),
     staleTime: 40_000, refetchInterval: 45_000,
+  });
+  const { data: sidebarEntityDetail, isFetching: sidebarDetailFetching } = useQuery<EntityDetail>({
+    queryKey: ['/api/bitseye/entity-detail', sidebarExpanded?.dim, sidebarExpanded?.name],
+    queryFn: () => fetch(`/api/bitseye/entity-detail?dim=${sidebarExpanded!.dim}&name=${encodeURIComponent(sidebarExpanded!.name)}`).then(r => r.json()),
+    staleTime: 25_000, refetchInterval: 30_000,
+    enabled: !!sidebarExpanded,
   });
 
   const { data: incidentRows } = useQuery<IncidentAlert[]>({
@@ -1025,45 +1040,117 @@ export default function BitsEye2Page() {
                   {sec.dim && isExpanded && slice && (
                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }} style={{ overflow: 'hidden' }}>
                       {orderedEnts.map(ent => {
-                        const isPinned   = dimPins.has(ent.name);
-                        const sparkData  = entityHistLocal.get(`${sec.dim}:${ent.name}`) ?? [];
-                        const isSelected = selectedEntity === ent.name && activeSection === sec.id;
+                        const isPinned      = dimPins.has(ent.name);
+                        const sparkData     = entityHistLocal.get(`${sec.dim}:${ent.name}`) ?? [];
+                        const isSelected    = selectedEntity === ent.name && activeSection === sec.id;
+                        const cdCfg         = sec.dim ? CROSS_DIM[sec.dim] : null;
+                        const isTreeOpen    = sidebarExpanded?.name === ent.name && sidebarExpanded?.sectionId === sec.id;
+                        const subRows       = isTreeOpen && sidebarEntityDetail ? cdCfg!.rows(sidebarEntityDetail).slice(0, 6) : [];
                         return (
-                          <motion.div
-                            key={ent.name} whileHover={{ background: '#F0F1F3' }}
-                            onClick={() => { setActiveSection(sec.id); setSelectedEntity(ent.name); }}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px 4px 26px', cursor: 'pointer',
-                              background: isSelected ? `${sec.color}0C` : 'transparent',
-                            }}
-                          >
-                            {/* Pin star */}
-                            <button
-                              onClick={e => { e.stopPropagation(); togglePin(sec.dim!, ent.name); }}
-                              title={isPinned ? 'Unpin' : 'Pin to top'}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
+                          <div key={ent.name}>
+                            <motion.div
+                              whileHover={{ background: '#F0F1F3' }}
+                              onClick={() => { setActiveSection(sec.id); setSelectedEntity(ent.name); }}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px 4px 26px', cursor: 'pointer',
+                                background: isSelected ? `${sec.color}0C` : 'transparent',
+                              }}
                             >
-                              <Star style={{ width: 9, height: 9, color: isPinned ? '#F59E0B' : '#E5E7EB', fill: isPinned ? '#F59E0B' : 'none' }} />
-                            </button>
-                            <span style={{ fontSize: 11, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{ent.name}</span>
-                            {/* Anomaly / incident indicator dot */}
-                            {(() => {
-                              const anomaly  = sec.dim === 'vendor' ? anomalyByVendor.get(ent.name) : undefined;
-                              const incident = incidentByEntity.get(ent.name.toLowerCase());
-                              const sev      = anomaly?.severity ?? incident?.severity;
-                              if (!sev) return null;
-                              const c = sev === 'critical' ? '#EF4444' : sev === 'high' ? '#F59E0B' : '#6B7280';
-                              const label = anomaly ? `${anomaly.metric.toUpperCase()} anomaly` : incident?.title ?? 'Incident';
-                              return (
-                                <span
-                                  title={label}
-                                  style={{ width: 6, height: 6, borderRadius: '50%', background: c, flexShrink: 0, boxShadow: `0 0 0 2px ${c}44`, animation: sev === 'critical' ? 'be2-pulse 1.5s ease-in-out infinite' : undefined }}
-                                />
-                              );
-                            })()}
-                            <MiniSparkline data={sparkData} color={sec.color} />
-                            <LivePill count={ent.active} color={sec.color} />
-                          </motion.div>
+                              {/* Pin star */}
+                              <button
+                                onClick={e => { e.stopPropagation(); togglePin(sec.dim!, ent.name); }}
+                                title={isPinned ? 'Unpin' : 'Pin to top'}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
+                              >
+                                <Star style={{ width: 9, height: 9, color: isPinned ? '#F59E0B' : '#E5E7EB', fill: isPinned ? '#F59E0B' : 'none' }} />
+                              </button>
+                              <span style={{ fontSize: 11, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{ent.name}</span>
+                              {/* Anomaly / incident indicator dot */}
+                              {(() => {
+                                const anomaly  = sec.dim === 'vendor' ? anomalyByVendor.get(ent.name) : undefined;
+                                const incident = incidentByEntity.get(ent.name.toLowerCase());
+                                const sev      = anomaly?.severity ?? incident?.severity;
+                                if (!sev) return null;
+                                const c = sev === 'critical' ? '#EF4444' : sev === 'high' ? '#F59E0B' : '#6B7280';
+                                const label = anomaly ? `${anomaly.metric.toUpperCase()} anomaly` : incident?.title ?? 'Incident';
+                                return (
+                                  <span
+                                    title={label}
+                                    style={{ width: 6, height: 6, borderRadius: '50%', background: c, flexShrink: 0, boxShadow: `0 0 0 2px ${c}44`, animation: sev === 'critical' ? 'be2-pulse 1.5s ease-in-out infinite' : undefined }}
+                                  />
+                                );
+                              })()}
+                              <MiniSparkline data={sparkData} color={sec.color} />
+                              <LivePill count={ent.active} color={sec.color} />
+                              {/* Expand sub-tree toggle */}
+                              {cdCfg && (
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setSidebarExpanded(prev =>
+                                      prev?.name === ent.name && prev?.sectionId === sec.id
+                                        ? null
+                                        : { dim: sec.dim!, name: ent.name, sectionId: sec.id }
+                                    );
+                                  }}
+                                  title={isTreeOpen ? `Collapse ${cdCfg.label}` : `Show ${cdCfg.label}`}
+                                  data-testid={`btn-tree-expand-${ent.name}`}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
+                                >
+                                  <ChevronRight style={{
+                                    width: 9, height: 9,
+                                    color: isTreeOpen ? sec.color : '#D1D5DB',
+                                    transform: isTreeOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                                    transition: 'transform 0.2s, color 0.2s',
+                                  }} />
+                                </button>
+                              )}
+                            </motion.div>
+
+                            {/* Animated sub-tree: cross-dimensional live entities */}
+                            <AnimatePresence initial={false}>
+                              {isTreeOpen && cdCfg && (
+                                <motion.div
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: 'auto', opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  transition={{ duration: 0.22 }}
+                                  style={{ overflow: 'hidden' }}
+                                >
+                                  {/* Connecting line + label */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 10px 3px 36px' }}>
+                                    <div style={{ width: 1, height: 10, background: `${sec.color}44`, flexShrink: 0 }} />
+                                    <span style={{ fontSize: 9, fontWeight: 700, color: sec.color, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
+                                      {cdCfg.label}
+                                      {sidebarDetailFetching && <span style={{ color: '#D1D5DB', marginLeft: 4 }}>↻</span>}
+                                    </span>
+                                  </div>
+                                  {subRows.length === 0 && !sidebarDetailFetching && (
+                                    <div style={{ fontSize: 10, color: '#D1D5DB', padding: '2px 10px 4px 44px' }}>
+                                      No active {cdCfg.label.toLowerCase()}
+                                    </div>
+                                  )}
+                                  {subRows.map((sub, idx) => (
+                                    <motion.div
+                                      key={sub.name}
+                                      initial={{ opacity: 0, x: -6 }}
+                                      animate={{ opacity: 1, x: 0 }}
+                                      transition={{ delay: idx * 0.03 }}
+                                      whileHover={{ background: '#F0F1F3' }}
+                                      onClick={() => { setActiveSection(cdCfg.targetSec); setSelectedEntity(sub.name); }}
+                                      data-testid={`tree-sub-${sub.name}`}
+                                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px 3px 44px', cursor: 'pointer' }}
+                                    >
+                                      {/* Tree branch line */}
+                                      <div style={{ width: 8, height: 1, background: `${sec.color}33`, flexShrink: 0 }} />
+                                      <span style={{ fontSize: 10, color: '#6B7280', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{sub.name}</span>
+                                      <LivePill count={sub.active} color={sec.color} />
+                                    </motion.div>
+                                  ))}
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
                         );
                       })}
                       {allEnts.length > 10 && (
