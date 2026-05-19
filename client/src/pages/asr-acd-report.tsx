@@ -11,9 +11,9 @@ import { cn } from "@/lib/utils";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Returns YYYY-MM-DDTHH:MM always in UTC — so datetime-local inputs display UTC.
 function toDatetimeLocal(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return d.toISOString().slice(0, 16);
 }
 
 function fmtDuration(sec: number): string {
@@ -146,7 +146,8 @@ function Combobox({ value, onChange, options, placeholder, emptyLabel, "data-tes
 
 export default function AsrAcdReportPage() {
   const now = new Date();
-  const midnightToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  // Use UTC midnight so the default window always reflects GMT+00, not local time.
+  const midnightToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
   const [filters, setFilters] = useState<FilterState>({
     startTime:     toDatetimeLocal(midnightToday),
@@ -220,9 +221,11 @@ export default function AsrAcdReportPage() {
     queryKey: ["/api/reports/asr-acd", submitted],
     queryFn: () => {
       if (!submitted) return Promise.resolve(null as any);
+      // datetime-local values are now displayed as UTC (YYYY-MM-DDTHH:MM).
+      // Append 'Z' so JS parses them as UTC, not the browser's local timezone.
       const p = new URLSearchParams({
-        startTime:     new Date(submitted.startTime).toISOString(),
-        endTime:       new Date(submitted.endTime).toISOString(),
+        startTime:     new Date(submitted.startTime + ':00Z').toISOString(),
+        endTime:       new Date(submitted.endTime   + ':00Z').toISOString(),
         cli:           submitted.cli,
         cld:           submitted.cld,
         groupOrig:     submitted.groupOrig,
@@ -305,7 +308,7 @@ export default function AsrAcdReportPage() {
           </div>
           {data && (
             <Badge variant="outline" className="text-xs text-muted-foreground mt-1 shrink-0">
-              {data.cdrCount.toLocaleString()} CDRs · {new Date(data.generatedAt).toLocaleTimeString()}
+              {data.cdrCount.toLocaleString()} CDRs · {new Date(data.generatedAt).toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit' })} UTC
             </Badge>
           )}
         </div>
@@ -314,6 +317,7 @@ export default function AsrAcdReportPage() {
         <div className="rounded-lg border border-border bg-card px-4 py-3 flex flex-wrap items-center gap-3">
           {/* Label */}
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Time window</span>
+          <span className="text-[10px] font-bold text-blue-600 bg-blue-50 dark:bg-blue-950 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded px-1.5 py-0.5 tracking-wide">UTC</span>
 
           {/* Quick preset chips */}
           <div className="flex flex-wrap gap-1.5">
@@ -343,7 +347,8 @@ export default function AsrAcdReportPage() {
               data-testid="button-preset-today"
               onClick={() => {
                 const n = new Date();
-                const midnight = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+                // UTC midnight — not local midnight — so "Today" = 00:00 UTC onwards.
+                const midnight = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
                 const fromMin = Math.round((n.getTime() - midnight.getTime()) / 60_000);
                 setQuickWindow(fromMin, 0, 'today');
               }}
@@ -361,8 +366,9 @@ export default function AsrAcdReportPage() {
               data-testid="button-preset-yesterday"
               onClick={() => {
                 const n = new Date();
-                const yStart = new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1, 0, 0, 0);
-                const yEnd   = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 0, 0, 0);
+                // UTC day boundaries — Yesterday = 00:00 UTC yesterday → 00:00 UTC today.
+                const yStart = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() - 1));
+                const yEnd   = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
                 setFilters(prev => ({ ...prev, startTime: toDatetimeLocal(yStart), endTime: toDatetimeLocal(yEnd) }));
                 setActivePreset('yesterday');
               }}
@@ -411,14 +417,14 @@ export default function AsrAcdReportPage() {
             </button>
           </div>
 
-          {/* Active window summary */}
+          {/* Active window summary — always display in UTC */}
           {filters.startTime && filters.endTime && (
             <span className="ml-auto text-xs text-muted-foreground hidden lg:block">
-              {new Date(filters.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {new Date(filters.startTime + ':00Z').toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' })}
               {' → '}
-              {new Date(filters.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {new Date(filters.endTime + ':00Z').toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' })}
               {' · '}
-              {Math.round((new Date(filters.endTime).getTime() - new Date(filters.startTime).getTime()) / 60_000)} min
+              {Math.round((new Date(filters.endTime + ':00Z').getTime() - new Date(filters.startTime + ':00Z').getTime()) / 60_000)} min
             </span>
           )}
         </div>
