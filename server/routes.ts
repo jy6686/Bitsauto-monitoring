@@ -13120,13 +13120,19 @@ export async function registerRoutes(
     const entities: any[] = [];
     if (presMap) {
       for (const [name, pres] of presMap.entries()) {
-        // Derive top vendor from crossDimCache (vendor sub-dimension of this entity)
+        // Derive top vendor + route share from crossDimCache (vendor sub-dimension)
         const crossVendors = crossDimCache.get(dim)?.get(name)?.get('vendor');
         let topVendor: string | undefined;
+        let topVendorShare: number | undefined;
         if (crossVendors && crossVendors.size > 0) {
           let maxCount = 0;
+          let totalCount = 0;
           for (const [vName, vCount] of crossVendors.entries()) {
+            totalCount += vCount;
             if (vCount > maxCount) { maxCount = vCount; topVendor = vName; }
+          }
+          if (topVendor && totalCount > 0) {
+            topVendorShare = Math.round(maxCount / totalCount * 100);
           }
         }
         entities.push({
@@ -13139,6 +13145,7 @@ export async function registerRoutes(
           peakToday:   pres.peakToday,
           idle:        pres.currentActive === 0,
           topVendor,
+          topVendorShare,
         });
       }
     }
