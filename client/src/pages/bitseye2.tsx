@@ -223,6 +223,14 @@ function MiniSparkline({ data, color, idle = false }: { data: number[]; color: s
 // Hub coordinate: Gulf/UAE — common carrier hub for South Asia VoIP traffic
 const MAP_HUB: [number, number] = [55, 25];
 
+function formatArcAge(lastSeen: number): string {
+  const secs = Math.floor((Date.now() - lastSeen) / 1000);
+  if (secs < 60)    return `${secs}s ago`;
+  if (secs < 3600)  return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
+}
+
 function WorldMap({
   entities, height = 360, onCountryClick,
 }: {
@@ -230,6 +238,10 @@ function WorldMap({
 }) {
   const [tooltip, setTooltip]       = useState<{ name: string; data?: EntityRow } | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const [arcTooltip, setArcTooltip] = useState<{
+    name: string; active: number; peak: number; cr: number; lastSeen?: number;
+    state: 'active' | 'warm' | 'cooling' | 'historical';
+  } | null>(null);
   const [mapError, setMapError]     = useState(false);
   const [mapWidth, setMapWidth]     = useState(800);
   const mapContainerRef             = useRef<HTMLDivElement>(null);
@@ -299,10 +311,10 @@ function WorldMap({
       const strokeColor = state === 'active'
         ? (cr >= 70 ? '#10B981' : cr >= 40 ? '#F59E0B' : '#EF4444')
         : '#9CA3AF';
-      return { name: e.name, d, strokeColor, strokeWidth, arcLen, count: e.active, cr, state };
+      return { name: e.name, d, strokeColor, strokeWidth, arcLen, count: e.active, cr, state, peak, lastSeen: e.lastSeen };
     }).filter(Boolean) as {
       name: string; d: string; strokeColor: string; strokeWidth: number;
-      arcLen: number; count: number; cr: number;
+      arcLen: number; count: number; cr: number; peak: number; lastSeen?: number;
       state: 'active' | 'warm' | 'cooling' | 'historical';
     }[];
   }, [entities, mapWidth, height]);
@@ -394,14 +406,20 @@ function WorldMap({
           </Geographies>
 
           {/* ── Traffic flow arcs: hub → destination countries (full lifecycle) ── */}
-          <g style={{ pointerEvents: 'none' }}>
+          <g>
             {arcData.map((arc, i) => {
               const { state, d, strokeColor, strokeWidth, arcLen } = arc;
 
+              // Shared hover handlers — fired on the invisible hit-area path
+              const hoverProps = {
+                onMouseEnter: () => setArcTooltip({ name: arc.name, active: arc.count, peak: arc.peak, cr: arc.cr, lastSeen: arc.lastSeen, state }),
+                onMouseLeave: () => setArcTooltip(null),
+              };
+
               if (state === 'historical') {
-                // Very faint residual trace — no animation, no glow
+                // Very faint residual trace — non-interactive
                 return (
-                  <g key={arc.name}>
+                  <g key={arc.name} style={{ pointerEvents: 'none' }}>
                     <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={0.6}
                       opacity={0.1} strokeLinecap="round" strokeDasharray="2 9" />
                   </g>
@@ -409,19 +427,19 @@ function WorldMap({
               }
 
               if (state === 'cooling') {
-                // Thin grey dashed — no particle, low prominence
                 return (
-                  <g key={arc.name}>
+                  <g key={arc.name} style={{ cursor: 'crosshair' }} {...hoverProps}>
                     <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 0.55}
                       opacity={0.22} strokeLinecap="round" strokeDasharray="4 6" />
+                    {/* Transparent wide hit-area for easy hover */}
+                    <path d={d} fill="none" stroke="transparent" strokeWidth={12} />
                   </g>
                 );
               }
 
               if (state === 'warm') {
-                // Dashed grey with slow particle — route recently active
                 return (
-                  <g key={arc.name}>
+                  <g key={arc.name} style={{ cursor: 'crosshair' }} {...hoverProps}>
                     <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 0.75}
                       opacity={0.35} strokeLinecap="round" strokeDasharray="6 5" />
                     <path d={d} fill="none" stroke="#9CA3AF"
@@ -429,13 +447,14 @@ function WorldMap({
                       strokeDasharray={`${Math.max(8, Math.round(arcLen * 0.08))} ${arcLen}`}
                       style={{ animation: `be2-arc-flow ${4.8 + (i % 5) * 0.5}s linear infinite` }}
                     />
+                    <path d={d} fill="none" stroke="transparent" strokeWidth={12} />
                   </g>
                 );
               }
 
               // Active — full 3-layer: glow halo + base line + animated particle
               return (
-                <g key={arc.name}>
+                <g key={arc.name} style={{ cursor: 'crosshair' }} {...hoverProps}>
                   <path d={d} fill="none" stroke={strokeColor}
                     strokeWidth={strokeWidth + 1.5} opacity={0.08} strokeLinecap="round" />
                   <path d={d} fill="none" stroke={strokeColor}
@@ -445,6 +464,7 @@ function WorldMap({
                     strokeDasharray={`${Math.max(10, Math.round(arcLen * 0.12))} ${arcLen}`}
                     style={{ animation: `be2-arc-flow ${2.8 + (i % 5) * 0.35}s linear infinite` }}
                   />
+                  <path d={d} fill="none" stroke="transparent" strokeWidth={14} />
                 </g>
               );
             })}
@@ -468,6 +488,7 @@ function WorldMap({
         </ComposableMap>
       )}
 
+      {/* Country / geography hover tooltip */}
       <AnimatePresence>
         {tooltip && (
           <motion.div
@@ -487,6 +508,66 @@ function WorldMap({
                 </>
               : <div style={{ color: '#6B7280' }}>No active traffic</div>
             }
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Arc hover card — route detail for active / warm / cooling arcs */}
+      <AnimatePresence>
+        {arcTooltip && !tooltip && (
+          <motion.div
+            key={arcTooltip.name}
+            initial={{ opacity: 0, scale: 0.92, y: -4 }}
+            animate={{ opacity: 1,  scale: 1,    y: 0 }}
+            exit={{ opacity: 0, scale: 0.92 }}
+            transition={{ duration: 0.12 }}
+            style={{
+              position: 'absolute', left: tooltipPos.x, top: tooltipPos.y,
+              background: '#111827', color: '#fff', borderRadius: 12,
+              padding: '11px 14px', fontSize: 12, pointerEvents: 'none',
+              zIndex: 25, minWidth: 195, boxShadow: '0 6px 28px rgba(0,0,0,0.40)',
+              border: '1px solid rgba(255,255,255,0.07)',
+            }}
+          >
+            {/* Header: name + state badge */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{arcTooltip.name}</span>
+              <span style={{
+                fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6,
+                padding: '2px 7px', borderRadius: 5,
+                color:      arcTooltip.state === 'active'  ? '#10B981' : arcTooltip.state === 'warm' ? '#F59E0B' : '#9CA3AF',
+                background: arcTooltip.state === 'active'  ? 'rgba(16,185,129,0.13)' : arcTooltip.state === 'warm' ? 'rgba(245,158,11,0.13)' : 'rgba(156,163,175,0.13)',
+              }}>{arcTooltip.state}</span>
+            </div>
+
+            {/* Metrics grid */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#6B7280' }}>Concurrent</span>
+                <span style={{ fontWeight: 700, color: arcTooltip.active > 0 ? '#60A5FA' : '#4B5563', fontVariantNumeric: 'tabular-nums' }}>
+                  {arcTooltip.active > 0 ? arcTooltip.active : '—'}
+                </span>
+              </div>
+              {arcTooltip.peak > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#6B7280' }}>Peak today</span>
+                  <span style={{ fontWeight: 600, color: '#A78BFA', fontVariantNumeric: 'tabular-nums' }}>{arcTooltip.peak}</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#6B7280' }}>Connect rate</span>
+                <span style={{
+                  fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+                  color: arcTooltip.cr >= 70 ? '#10B981' : arcTooltip.cr >= 40 ? '#F59E0B' : '#EF4444',
+                }}>{arcTooltip.cr}%</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#6B7280' }}>Last active</span>
+                <span style={{ fontWeight: 600, color: arcTooltip.active > 0 ? '#10B981' : '#E5E7EB' }}>
+                  {arcTooltip.active > 0 ? 'now' : arcTooltip.lastSeen ? formatArcAge(arcTooltip.lastSeen) : '—'}
+                </span>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
