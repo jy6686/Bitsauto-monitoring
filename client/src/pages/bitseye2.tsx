@@ -34,6 +34,15 @@ interface LiveSliceResponse {
 interface CrossRow {
   name: string; active: number; connected: number; connectRate: number;
 }
+interface KamLiveEntry {
+  id: number; name: string; orgRole: string | null;
+  active: number; connected: number; routing: number; connectRate: number;
+  clientCount: number;
+  topClients: CrossRow[]; topVendors: CrossRow[]; topCountries: CrossRow[];
+}
+interface KamLiveResponse {
+  kams: KamLiveEntry[]; stale: boolean; lastUpdated: number;
+}
 interface EntityDetail {
   dim: string; name: string;
   active: number; connected: number; routing: number; connectRate: number;
@@ -326,7 +335,7 @@ const SECTIONS: { id: SectionId; label: string; icon: any; dim: string | null; h
   { id: 'countries',    label: 'Countries',     icon: Globe,     dim: 'country',      color: '#059669' },
   { id: 'destinations', label: 'Destinations',  icon: Phone,     dim: 'destination',  color: '#D97706' },
   { id: 'routing',      label: 'Routing',       icon: GitBranch, dim: null, href: '/routing-manager', color: '#6B7280' },
-  { id: 'kam',          label: 'KAM View',      icon: Briefcase, dim: null, href: '/bitseye',         color: '#6B7280' },
+  { id: 'kam',          label: 'KAM View',      icon: Briefcase, dim: null,                           color: '#8B5CF6' },
 ];
 
 function fmtDuration(secs: number) {
@@ -678,6 +687,11 @@ export default function BitsEye2Page() {
     queryFn: () => fetch('/api/bitseye/live-slice?groupBy=destination').then(r => r.json()),
     staleTime: 25_000, refetchInterval: 30_000,
   });
+  const { data: kamLive } = useQuery<KamLiveResponse>({
+    queryKey: ['/api/bitseye/kam-live'],
+    queryFn: () => fetch('/api/bitseye/kam-live').then(r => r.json()),
+    staleTime: 25_000, refetchInterval: 30_000,
+  });
 
   const { data: incidentRows } = useQuery<IncidentAlert[]>({
     queryKey: ['/api/incidents'],
@@ -897,6 +911,53 @@ export default function BitsEye2Page() {
             const Icon       = sec.icon;
             const dimPins    = sec.dim ? (pins[sec.dim] ?? new Set<string>()) : new Set<string>();
             const allEnts    = slice?.entities ?? [];
+
+            // ── KAM View special rendering ─────────────────────────────────
+            if (sec.id === 'kam') {
+              const kamTotal = (kamLive?.kams ?? []).reduce((s, k) => s + k.active, 0);
+              return (
+                <div key="kam">
+                  <motion.div
+                    whileHover={{ background: '#F3F4F6' }}
+                    onClick={() => { setActiveSection('kam'); setSelectedEntity(null); toggleExpand('kam'); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 7, padding: '8px 12px', cursor: 'pointer',
+                      background: isActive ? `${sec.color}0C` : 'transparent',
+                      borderLeft: `3px solid ${isActive ? sec.color : 'transparent'}`,
+                    }}
+                  >
+                    <Icon style={{ width: 14, height: 14, color: isActive ? sec.color : '#6B7280', flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: isActive ? 700 : 500, color: isActive ? sec.color : '#374151', flex: 1 }}>KAM View</span>
+                    <LivePill count={kamTotal} color={sec.color} />
+                    <ChevronDown style={{ width: 11, height: 11, color: '#9CA3AF', transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s', flexShrink: 0 }} />
+                  </motion.div>
+                  <AnimatePresence initial={false}>
+                    {isExpanded && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }} style={{ overflow: 'hidden' }}>
+                        {(kamLive?.kams ?? []).map(kam => (
+                          <motion.div
+                            key={kam.id} whileHover={{ background: '#F0F1F3' }}
+                            onClick={() => { setActiveSection('kam'); setSelectedEntity(kam.name); }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px 4px 26px', cursor: 'pointer',
+                              background: selectedEntity === kam.name && isActive ? `${sec.color}0C` : 'transparent',
+                            }}
+                          >
+                            <Briefcase style={{ width: 9, height: 9, color: sec.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: 11, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{kam.name}</span>
+                            <span style={{ fontSize: 9, color: '#9CA3AF', flexShrink: 0 }}>{kam.clientCount}c</span>
+                            <LivePill count={kam.active} color={sec.color} />
+                          </motion.div>
+                        ))}
+                        {(kamLive?.kams ?? []).length === 0 && (
+                          <div style={{ fontSize: 11, color: '#D1D5DB', padding: '6px 14px 6px 26px' }}>No KAMs configured</div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            }
             const pinnedEnts     = allEnts.filter(e => dimPins.has(e.name));
             const unpinnedEnts   = allEnts.filter(e => !dimPins.has(e.name));
             const sortedUnpinned = attentionMode
@@ -1180,7 +1241,140 @@ export default function BitsEye2Page() {
     </div>
   );
 
-  const rightPanel = activeSection === 'noc' || isFullscreen ? nocPanel : activeSec.dim ? entityPanel : nocPanel;
+  // ── KAM panel ──────────────────────────────────────────────────────────────
+  const KAM_COLOR = '#8B5CF6';
+  const selectedKamData = selectedEntity ? (kamLive?.kams ?? []).find(k => k.name === selectedEntity) : null;
+
+  const kamPanel = (
+    <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Breadcrumb */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+        <button onClick={() => setSelectedEntity(null)} style={{ fontWeight: 700, color: KAM_COLOR, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>KAM View</button>
+        {selectedEntity && (
+          <>
+            <ChevronRight style={{ width: 12, height: 12, color: '#9CA3AF' }} />
+            <span style={{ color: '#1F2937', fontWeight: 700, fontSize: 13 }}>{selectedEntity}</span>
+            <button onClick={() => setSelectedEntity(null)} style={{ marginLeft: 6, fontSize: 10, color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer' }}>✕ back</button>
+          </>
+        )}
+      </div>
+
+      {selectedKamData ? (
+        /* ── KAM drilldown ── */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Quick links */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => navigate(`/asr-acd-report`)}
+              data-testid="button-kam-asr-report"
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}
+            >
+              <BarChart2 style={{ width: 11, height: 11 }} /> ASR/ACD Report
+            </button>
+            <button
+              onClick={() => navigate(`/cdrs`)}
+              data-testid="button-kam-cdrs"
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#6B7280', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}
+            >
+              <ExternalLink style={{ width: 11, height: 11 }} /> View CDRs
+            </button>
+          </div>
+
+          {/* KPI row */}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <KpiCard label="Active Calls"   value={String(selectedKamData.active)}   numericValue={selectedKamData.active}   color={KAM_COLOR} icon={Activity}   delay={0}    />
+            <KpiCard label="Connected"       value={String(selectedKamData.connected)} numericValue={selectedKamData.connected} color="#16A34A"  icon={TrendingUp} delay={0.05} />
+            <KpiCard label="Routing"         value={String(selectedKamData.routing)}   numericValue={selectedKamData.routing}   color="#F59E0B"  icon={Zap}        delay={0.10} />
+            <KpiCard
+              label="Connect Rate" value={`${selectedKamData.connectRate}%`}
+              numericValue={selectedKamData.connectRate}
+              color={selectedKamData.connectRate >= 70 ? '#16A34A' : selectedKamData.connectRate >= 45 ? '#F59E0B' : '#EF4444'}
+              icon={BarChart2} delay={0.15}
+            />
+            <KpiCard label="Clients"         value={String(selectedKamData.clientCount)} numericValue={selectedKamData.clientCount} color="#6B7280" icon={Users} delay={0.20} />
+          </div>
+
+          {/* Cross-dim tables */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            <CrossTable
+              title="Active Clients" rows={selectedKamData.topClients} color="#7C3AED"
+              onRowClick={name => drillCross('client', name)}
+            />
+            <CrossTable
+              title="Top Vendors" rows={selectedKamData.topVendors} color="#0891B2"
+              onRowClick={name => drillCross('vendor', name)}
+            />
+            <CrossTable
+              title="Top Countries" rows={selectedKamData.topCountries} color="#059669"
+              onRowClick={name => drillCross('country', name)}
+            />
+          </div>
+
+          {selectedKamData.active === 0 && (
+            <div style={{ textAlign: 'center' as const, padding: '40px 0', color: '#9CA3AF', fontSize: 14 }}>
+              No active calls for <strong>{selectedEntity}</strong> at this moment.
+            </div>
+          )}
+        </div>
+      ) : (
+        /* ── KAM list overview ── */
+        <>
+          {(kamLive?.kams ?? []).length === 0 ? (
+            <div style={{ textAlign: 'center' as const, padding: '60px 0', color: '#9CA3AF', fontSize: 14 }}>
+              No KAMs configured — add KAMs in the Team section to see live traffic per account manager.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+              {(kamLive?.kams ?? []).map(kam => (
+                <motion.div
+                  key={kam.id}
+                  whileHover={{ scale: 1.01, boxShadow: '0 4px 16px rgba(139,92,246,0.12)' }}
+                  onClick={() => setSelectedEntity(kam.name)}
+                  data-testid={`card-kam-${kam.id}`}
+                  style={{ background: '#fff', border: `1.5px solid ${kam.active > 0 ? '#DDD6FE' : '#E5E7EB'}`, borderRadius: 10, padding: '14px 16px', cursor: 'pointer', transition: 'border-color 0.15s' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: `${KAM_COLOR}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Briefcase style={{ width: 15, height: 15, color: KAM_COLOR }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{kam.name}</div>
+                      <div style={{ fontSize: 10, color: '#9CA3AF' }}>{kam.orgRole ?? 'KAM'} · {kam.clientCount} client{kam.clientCount !== 1 ? 's' : ''}</div>
+                    </div>
+                    <LivePill count={kam.active} color={KAM_COLOR} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {[
+                      { label: 'Connected', value: kam.connected, color: '#16A34A' },
+                      { label: 'Routing',   value: kam.routing,   color: '#F59E0B' },
+                      { label: 'Rate',      value: `${kam.connectRate}%`, color: kam.connectRate >= 70 ? '#16A34A' : kam.connectRate >= 45 ? '#F59E0B' : '#EF4444' },
+                    ].map(m => (
+                      <div key={m.label} style={{ flex: 1, background: '#F9FAFB', borderRadius: 6, padding: '5px 6px', textAlign: 'center' as const }}>
+                        <div style={{ fontSize: 9, color: '#9CA3AF', fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 2 }}>{m.label}</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: m.color }}>{m.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {kam.topClients.length > 0 && (
+                    <div style={{ marginTop: 8, fontSize: 10, color: '#6B7280' }}>
+                      <span style={{ color: '#9CA3AF' }}>Active: </span>
+                      {kam.topClients.slice(0, 3).map(c => c.name).join(', ')}
+                      {kam.topClients.length > 3 && ` +${kam.topClients.length - 3}`}
+                    </div>
+                  )}
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  const rightPanel = activeSection === 'noc' || isFullscreen ? nocPanel
+    : activeSection === 'kam' ? kamPanel
+    : activeSec.dim ? entityPanel
+    : nocPanel;
 
   // ── Layout ────────────────────────────────────────────────────────────────
   return (

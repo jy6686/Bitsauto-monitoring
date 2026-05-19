@@ -13127,6 +13127,85 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/bitseye/kam-live
+  // Returns live traffic stats per KAM, aggregated from liveCallsCache.
+  // Optional ?kamId=N for single KAM filter. Sippy-safe: zero Sippy calls.
+  app.get('/api/bitseye/kam-live', async (req: any, res: any) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const filterKamId = req.query.kamId ? Number(req.query.kamId) : null;
+    try {
+      const kamList = await storage.getKams();
+      const allAccs = await storage.getKamAccounts();
+      const calls   = (liveCallsCache as any).calls ?? [];
+      const ts      = (liveCallsCache as any).ts ?? 0;
+
+      // Build reverse lookup: accountId → [kamId, …]  and  clientName.toLowerCase() → [kamId, …]
+      const accIdToKamIds    = new Map<string, number[]>();
+      const clientToKamIds   = new Map<string, number[]>();
+      for (const acc of allAccs) {
+        const key = String(acc.accountId);
+        if (!accIdToKamIds.has(key)) accIdToKamIds.set(key, []);
+        accIdToKamIds.get(key)!.push(acc.kamId);
+        if (acc.clientName) {
+          const cn = acc.clientName.toLowerCase();
+          if (!clientToKamIds.has(cn)) clientToKamIds.set(cn, []);
+          clientToKamIds.get(cn)!.push(acc.kamId);
+        }
+      }
+
+      type Counts = { active: number; connected: number };
+      type KamAgg = Counts & { clients: Map<string,Counts>; vendors: Map<string,Counts>; countries: Map<string,Counts> };
+
+      const agg = new Map<number, KamAgg>();
+      for (const k of kamList) {
+        agg.set(k.id, { active: 0, connected: 0, clients: new Map(), vendors: new Map(), countries: new Map() });
+      }
+
+      for (const c of calls) {
+        const matched = new Set<number>();
+        if (c.accountId) (accIdToKamIds.get(String(c.accountId)) ?? []).forEach(id => matched.add(id));
+        if (c.clientName) (clientToKamIds.get(c.clientName.toLowerCase()) ?? []).forEach(id => matched.add(id));
+        for (const kamId of matched) {
+          const a = agg.get(kamId);
+          if (!a) continue;
+          a.active++;
+          const isConn = c.callStatus === 'connected';
+          if (isConn) a.connected++;
+          const bump = (m: Map<string,Counts>, k: string|null) => {
+            if (!k) return;
+            const ex = m.get(k) ?? { active: 0, connected: 0 };
+            ex.active++; if (isConn) ex.connected++;
+            m.set(k, ex);
+          };
+          bump(a.clients,   c.clientName || (c.accountId ? `Acct.${c.accountId}` : null));
+          bump(a.vendors,   c.vendor || c.connection || null);
+          bump(a.countries, c.destCountry || null);
+        }
+      }
+
+      const rank = (m: Map<string,Counts>) =>
+        [...m.entries()].sort((x,y) => y[1].active - x[1].active).slice(0, 8)
+          .map(([name, v]) => ({ name, active: v.active, connected: v.connected, connectRate: v.active > 0 ? Math.round(v.connected / v.active * 100) : 0 }));
+
+      const kams = kamList
+        .filter(k => !filterKamId || k.id === filterKamId)
+        .map(k => {
+          const a = agg.get(k.id)!;
+          return {
+            id: k.id, name: k.name, orgRole: k.orgRole ?? null,
+            active: a.active, connected: a.connected, routing: a.active - a.connected,
+            connectRate: a.active > 0 ? Math.round(a.connected / a.active * 100) : 0,
+            clientCount: allAccs.filter(x => x.kamId === k.id).length,
+            topClients: rank(a.clients), topVendors: rank(a.vendors), topCountries: rank(a.countries),
+          };
+        })
+        .sort((a, b) => b.active - a.active);
+
+      const cacheAgeMs = ts > 0 ? Date.now() - ts : null;
+      res.json({ kams, stale: cacheAgeMs !== null && cacheAgeMs > 90_000, lastUpdated: ts });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/bitseye/call-trend — time-bucketed call totals from CDR cache for graph view
   // Sippy-safe: reads only from in-memory cdrCache, no Sippy calls.
   app.get('/api/bitseye/call-trend', async (req: any, res) => {

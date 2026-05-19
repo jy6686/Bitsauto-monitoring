@@ -1,0 +1,211 @@
+Yes — your direction is correct.
+
+Current problem:
+
+Old BitsEye hierarchy = limited
+KAM view still tied to old architecture
+Destination/Country hierarchy biased toward Bangladesh-only traffic structure
+Old BitsEye entity model was designed around static destination trees, not live telecom visibility
+
+BitsEye 2 should become:
+
+GLOBAL LIVE TRAFFIC EXPLORER
+
+not:
+
+Bangladesh destination viewer
+What should change now
+1. Remove static BD destination limitation
+
+Current old logic:
+
+Country
+ └── Bangladesh
+      └── Dhaka
+
+New BitsEye 2 logic:
+
+Country
+ ├── Bangladesh
+ ├── Pakistan
+ ├── UK
+ ├── USA
+ ├── India
+ ├── UAE
+ ├── Singapore
+ ├── Australia
+ └── ALL ACTIVE DESTINATIONS
+
+Everything should come dynamically from:
+
+liveCallsCache
+
+NOT:
+
+static routing tables
+static BD prefixes
+old destination mappings
+2. KAM View must become native to BitsEye 2
+
+Right now:
+
+BitsEye2 → redirects to old KAM hierarchy
+
+Wrong architecture.
+
+New structure:
+
+KAM View
+ ├── Iqra Khan
+ │    ├── Callntalk
+ │    ├── Verscom
+ │    ├── Mainberg
+ │    └── ...
+ │
+ ├── Junaid
+ ├── Rimsha
+ ├── Sohaib
+
+Each KAM should show:
+
+live concurrent calls
+active clients
+connected calls
+routing calls
+connect rate
+top countries
+top vendors
+concurrent trend
+
+ALL LIVE.
+
+No old graphs.
+
+No old widgets.
+
+No old table architecture.
+
+3. New KAM drilldown structure
+
+Example:
+
+Iqra Khan
+ ├── Active Calls: 142
+ ├── Clients Active: 11
+ ├── Countries: 23
+ ├── Vendors: 7
+ ├── Concurrent Trend
+ ├── Top Clients
+ ├── Top Countries
+ ├── Top Vendors
+ └── Live Traffic Stream
+
+Then:
+
+Click:
+
+Callntalk
+
+opens:
+
+client live traffic drilldown
+
+inside BitsEye 2.
+
+4. Sidebar should become fully telecom operational hierarchy
+
+Recommended final sidebar:
+
+NOC Overview
+
+Clients
+ ├── All Aggregated
+ ├── Active Clients
+ └── Client Names
+
+Vendors
+ ├── All Aggregated
+ └── Vendor Names
+
+Countries
+ ├── All Active Countries
+ └── Dynamic Countries
+
+Destinations
+ ├── All Active Destinations
+ └── Dynamic Destinations
+
+KAM View
+ ├── KAM Names
+ └── Assigned Clients
+
+Routing
+ ├── Product In
+ ├── Product Out
+ └── Carrier Type
+
+No Bangladesh-first logic anymore.
+
+Global-first architecture.
+
+5. Critical architectural correction
+
+BitsEye 2 hierarchy should ONLY show:
+
+entities with ACTIVE traffic
+
+NOT:
+
+all countries from DB
+all destinations from DB
+all clients from DB
+
+Only active/live entities.
+
+That keeps it:
+
+fast
+clean
+operational
+wallboard-friendly
+6. Recommended backend change
+
+Replace:
+
+lookupDialCode()
+
+style hierarchy dependency with:
+
+live entity aggregation
+
+derived directly from:
+
+CLD
+vendor
+client
+destination
+liveCallsCache
+
+This fixes the Bangladesh limitation permanently.
+
+Final recommendation
+
+You are now very close to the correct product identity:
+
+BitsEye 2
+=
+Live Telecom Traffic Operating Layer
+
+Not:
+
+BI dashboard
+analytics portal
+reporting system
+fraud center
+AI engine
+
+Just:
+
+beautiful live telecom visibility
+
+That is the right benchmark.
