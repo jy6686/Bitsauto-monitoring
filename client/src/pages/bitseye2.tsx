@@ -6,6 +6,7 @@ import {
   ResponsiveContainer, BarChart, Bar,
 } from "recharts";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
+import { geoMercator } from "d3-geo";
 import {
   Radio, Users, Wifi, Globe, Phone, GitBranch, Briefcase,
   BarChart2, ChevronDown, ChevronRight, RefreshCw,
@@ -219,6 +220,9 @@ function MiniSparkline({ data, color, idle = false }: { data: number[]; color: s
 }
 
 // ── World Map ─────────────────────────────────────────────────────────────────
+// Hub coordinate: Gulf/UAE — common carrier hub for South Asia VoIP traffic
+const MAP_HUB: [number, number] = [55, 25];
+
 function WorldMap({
   entities, height = 360, onCountryClick,
 }: {
@@ -227,6 +231,17 @@ function WorldMap({
   const [tooltip, setTooltip]       = useState<{ name: string; data?: EntityRow } | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const [mapError, setMapError]     = useState(false);
+  const [mapWidth, setMapWidth]     = useState(800);
+  const mapContainerRef             = useRef<HTMLDivElement>(null);
+
+  // Track container width for accurate arc projection
+  useEffect(() => {
+    const el = mapContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => setMapWidth(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Pre-check that the local map file is reachable; show fallback if not
   useEffect(() => {
@@ -249,11 +264,36 @@ function WorldMap({
     [entities],
   );
 
+  // Compute traffic flow arcs: hub → each active destination country
+  const arcData = useMemo(() => {
+    const proj = geoMercator().scale(120).center([20, 12]).translate([mapWidth / 2, height / 2]);
+    const hub  = proj(MAP_HUB);
+    if (!hub) return [];
+    return pulseMarkers.map(({ name, coords, count, cr }) => {
+      const dest = proj(coords);
+      if (!dest) return null;
+      const [sx, sy] = hub;
+      const [dx, dy] = dest;
+      // Quadratic bezier control point: midpoint pulled upward (higher arc for distant routes)
+      const mx   = (sx + dx) / 2;
+      const dist = Math.sqrt((dx - sx) ** 2 + (dy - sy) ** 2);
+      const my   = (sy + dy) / 2 - dist * 0.28;
+      const d    = `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${dx.toFixed(1)} ${dy.toFixed(1)}`;
+      // Approximate arc perimeter for dash animation
+      const arcLen = Math.round(dist * 1.3 + 40);
+      // Color by connect-rate; width by concurrency
+      const strokeColor = cr >= 70 ? '#10B981' : cr >= 40 ? '#F59E0B' : '#EF4444';
+      const strokeWidth = count <= 5 ? 0.9 : count <= 20 ? 1.5 : 2.4;
+      return { name, d, strokeColor, strokeWidth, arcLen, count, cr };
+    }).filter(Boolean) as { name: string; d: string; strokeColor: string; strokeWidth: number; arcLen: number; count: number; cr: number }[];
+  }, [pulseMarkers, mapWidth, height]);
+
   const totalActive     = entities.reduce((s, e) => s + e.active, 0);
   const activeCountries = entities.filter(e => e.active > 0).length;
 
   return (
     <div
+      ref={mapContainerRef}
       style={{ position: 'relative', background: '#F0F4FB', borderRadius: 16, border: '1px solid #E6EAF0', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
       onMouseMove={e => {
         const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
@@ -333,6 +373,43 @@ function WorldMap({
               })
             }
           </Geographies>
+
+          {/* ── Traffic flow arcs: hub → active destination countries ── */}
+          <g style={{ pointerEvents: 'none' }}>
+            {arcData.map((arc, i) => (
+              <g key={arc.name}>
+                {/* Soft base glow path */}
+                <path
+                  d={arc.d}
+                  fill="none"
+                  stroke={arc.strokeColor}
+                  strokeWidth={arc.strokeWidth + 1.5}
+                  opacity={0.08}
+                  strokeLinecap="round"
+                />
+                {/* Main arc line */}
+                <path
+                  d={arc.d}
+                  fill="none"
+                  stroke={arc.strokeColor}
+                  strokeWidth={arc.strokeWidth}
+                  opacity={0.38}
+                  strokeLinecap="round"
+                />
+                {/* Animated particle riding the arc */}
+                <path
+                  d={arc.d}
+                  fill="none"
+                  stroke={arc.strokeColor}
+                  strokeWidth={arc.strokeWidth + 0.6}
+                  opacity={0.9}
+                  strokeLinecap="round"
+                  strokeDasharray={`${Math.max(10, Math.round(arc.arcLen * 0.12))} ${arc.arcLen}`}
+                  style={{ animation: `be2-arc-flow ${2.8 + (i % 5) * 0.35}s linear infinite` }}
+                />
+              </g>
+            ))}
+          </g>
 
           {pulseMarkers.map(({ name, coords, count, cr }) => {
             const r1       = count <= 2 ? 3 : count <= 10 ? 5 : count <= 30 ? 7 : 10;
@@ -1892,6 +1969,10 @@ export default function BitsEye2Page() {
       </div>
 
       <style>{`
+        @keyframes be2-arc-flow {
+          from { stroke-dashoffset: 0; }
+          to   { stroke-dashoffset: -400; }
+        }
         @keyframes be2-pulse {
           0%, 100% { opacity: 1; transform: scale(1); }
           50%       { opacity: 0.3; transform: scale(0.88); }
