@@ -562,10 +562,20 @@ export function CommandBar() {
                     {SCOPE_DESCRIPTIONS[sc] && (
                       <span className="text-[10px] text-muted-foreground/50 leading-none">{SCOPE_DESCRIPTIONS[sc]}</span>
                     )}
-                    {/* Row 3: usage example */}
-                    {SCOPE_EXAMPLES[sc] && (
-                      <span className="text-[9px] font-mono text-muted-foreground/30 leading-none">e.g. {SCOPE_EXAMPLES[sc]}</span>
-                    )}
+                    {/* Row 3: adaptive usage example — live entity name when available */}
+                    {(() => {
+                      const example = (() => {
+                        if (!m || m.type !== 'entity') return SCOPE_EXAMPLES[sc];
+                        const topLive = allEntities
+                          .filter(e => e.dimLabel === m.key && e.active > 0)
+                          .sort((a, b) => b.active - a.active)[0];
+                        if (!topLive) return SCOPE_EXAMPLES[sc];
+                        return `${sc} ${topLive.name.toLowerCase().split(/\s+/)[0]}`;
+                      })();
+                      return example
+                        ? <span className="text-[9px] font-mono text-muted-foreground/30 leading-none">e.g. {example}</span>
+                        : null;
+                    })()}
                   </span>
                   {chip && (
                     <span style={{
@@ -578,6 +588,18 @@ export function CommandBar() {
               );
             })}
           </CommandGroup>
+        )}
+
+        {/* Keyboard hint bar — visible only during @scope autocomplete */}
+        {partialScope !== null && scopeSuggestions.length > 0 && (
+          <div className="flex items-center justify-end gap-4 px-3 py-1.5 border-t border-border/20 select-none">
+            {[['↑↓', 'navigate'], ['↵', 'apply'], ['esc', 'close']].map(([key, label]) => (
+              <span key={key} className="flex items-center gap-1 text-[9px] text-muted-foreground/25">
+                <kbd className="font-mono bg-muted/40 px-1 py-0.5 rounded text-[8px]">{key}</kbd>
+                <span>{label}</span>
+              </span>
+            ))}
+          </div>
         )}
 
         {/* ── Results: order swaps based on alias priority ────────────────────
