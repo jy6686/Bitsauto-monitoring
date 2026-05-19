@@ -139,6 +139,67 @@ function pushRecent(href: string) {
 // ── Domain display order ───────────────────────────────────────────────────────
 const DOMAIN_ORDER = ['Live Ops', 'Clients', 'Vendors', 'Routing', 'Reports', 'Troubleshooting', 'Fraud', 'Settings'];
 
+// ── Semantic aliases ────────────────────────────────────────────────────────────
+// Short codes that expand silently to full search terms.
+// Operators under pressure type bd, pk, noc — aliases resolve instantly.
+const ALIASES: Record<string, string> = {
+  // ISO country codes → country names as they appear in Sippy entity lists
+  bd: 'bangladesh',
+  pk: 'pakistan',
+  sa: 'saudi arabia',
+  ae: 'uae',
+  kw: 'kuwait',
+  qa: 'qatar',
+  bh: 'bahrain',
+  om: 'oman',
+  iq: 'iraq',
+  sy: 'syria',
+  jo: 'jordan',
+  lb: 'lebanon',
+  eg: 'egypt',
+  ng: 'nigeria',
+  gh: 'ghana',
+  ke: 'kenya',
+  ug: 'uganda',
+  tz: 'tanzania',
+  et: 'ethiopia',
+  zm: 'zambia',
+  in: 'india',
+  lk: 'sri lanka',
+  np: 'nepal',
+  af: 'afghanistan',
+  // Common alternate names
+  uk: 'united kingdom',
+  gb: 'united kingdom',
+  us: 'united states',
+  usa: 'united states',
+  de: 'germany',
+  fr: 'france',
+  au: 'australia',
+  ca: 'canada',
+  // Platform module shortcuts
+  noc: 'bitseye',
+  live: 'live ops',
+  acct: 'accounts',
+  rev: 'revenue',
+  cdr: 'cdrs',
+  lcr: 'lcr analyser',
+  sip: 'sip trace',
+  rtp: 'rtp analytics',
+  fas: 'fraud',
+  irsf: 'fraud',
+  bl: 'firewall',
+  fw: 'firewall',
+  bal: 'balance',
+  rpt: 'reports',
+  rg: 'routing manager',
+  tst: 'test call',
+  kpi: 'asr',
+  asr: 'asr',
+  mos: 'qos',
+  pdd: 'asr',
+};
+
 // ── CommandBar ─────────────────────────────────────────────────────────────────
 export function CommandBar() {
   const [open, setOpen]   = useState(false);
@@ -188,34 +249,37 @@ export function CommandBar() {
   };
 
   const q = query.trim().toLowerCase();
+  // Expand alias silently: "bd" → "bangladesh", "noc" → "bitseye"
+  const effectiveQ  = ALIASES[q] ?? q;
+  const aliasActive = q.length > 0 && effectiveQ !== q;
 
   // ── Filtered routes grouped by domain (only when querying)
   const filteredRoutes = useMemo(() => {
-    if (!q) return {} as Record<string, RouteEntry[]>;
+    if (!effectiveQ) return {} as Record<string, RouteEntry[]>;
     const grouped: Record<string, RouteEntry[]> = {};
     for (const r of ROUTE_REGISTRY) {
       if (r.roles && !r.roles.includes(role)) continue;
       const hay = `${r.label} ${r.keywords ?? ''} ${r.domain}`.toLowerCase();
-      if (!hay.includes(q)) continue;
+      if (!hay.includes(effectiveQ)) continue;
       if (!grouped[r.domain]) grouped[r.domain] = [];
       grouped[r.domain].push(r);
     }
     return grouped;
-  }, [q, role]);
+  }, [effectiveQ, role]);
 
   // ── Filtered entities grouped by dim (only when querying)
   const filteredEntities = useMemo(() => {
-    if (!q) return {} as Record<string, EntityResult[]>;
+    if (!effectiveQ) return {} as Record<string, EntityResult[]>;
     const grouped: Record<string, EntityResult[]> = {};
     const matches = allEntities
-      .filter(e => e.name.toLowerCase().includes(q))
+      .filter(e => e.name.toLowerCase().includes(effectiveQ))
       .sort((a, b) => (b.active > 0 ? 1 : 0) - (a.active > 0 ? 1 : 0) || b.active - a.active);
     for (const e of matches) {
       if (!grouped[e.dimLabel]) grouped[e.dimLabel] = [];
       grouped[e.dimLabel].push(e);
     }
     return grouped;
-  }, [q, allEntities]);
+  }, [effectiveQ, allEntities]);
 
   // ── Recent routes (resolved to registry entries)
   const recentRoutes = useMemo(() =>
@@ -236,6 +300,15 @@ export function CommandBar() {
         data-testid="command-bar-input"
       />
       <CommandList>
+
+        {/* Alias expansion pill — teaches operators what their short code resolved to */}
+        {aliasActive && (
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/40">
+            <kbd className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{q}</kbd>
+            <span className="text-[10px] text-muted-foreground/50">→</span>
+            <span className="text-[10px] font-medium text-muted-foreground capitalize">{effectiveQ}</span>
+          </div>
+        )}
 
         {/* No results */}
         {q && !hasResults && (
