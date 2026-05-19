@@ -79,6 +79,25 @@ export function lookupMany(numbers: (string | number | null | undefined)[]): (Di
   return numbers.map(n => lookupDialCode(n));
 }
 
+export function searchDialCodes(query: string, limit = 20): DialMatch[] {
+  const q = query.toLowerCase().trim().replace(/^\+/, '');
+  if (!q || q.length < 2) return [];
+  const entries = getEntries();
+  const results: DialMatch[] = [];
+  const seen = new Set<string>();
+  for (const e of entries) {
+    if (results.length >= limit) break;
+    if (e.k.toLowerCase().includes(q) || e.b.toLowerCase().includes(q) || e.c.startsWith(q)) {
+      const key = `${e.k}|||${e.b}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push({ code: e.c, country: e.k, breakout: e.b, destination: `${e.k} - ${e.b}` });
+      }
+    }
+  }
+  return results;
+}
+
 export function getDestinationStats(numbers: (string | number | null | undefined)[]): {
   byCountry: Record<string, number>;
   byBreakout: Record<string, number>;

@@ -47,7 +47,7 @@ import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as 
 import { db } from "./db";
 import { and, eq } from "drizzle-orm";
 import { broadcastNocTick } from "./noc-ws";
-import { lookupDialCode } from "./dial-lookup";
+import { lookupDialCode, searchDialCodes } from "./dial-lookup";
 import { readFileSync } from "fs";
 import { join as _pathJoin } from "path";
 import { generateStatusReport, STATUS_REPORT_PATH } from "./doc-generator";
@@ -13204,6 +13204,55 @@ export async function registerRoutes(
       const cacheAgeMs = ts > 0 ? Date.now() - ts : null;
       res.json({ kams, stale: cacheAgeMs !== null && cacheAgeMs > 90_000, lastUpdated: ts });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/bitseye/destination-lookup?q=<query>
+  // Searches global dial-codes database (19k entries) and enriches with live counts.
+  // Sippy-safe: reads only liveCallsCache and local dial-codes.json.
+  app.get('/api/bitseye/destination-lookup', (req: any, res: any) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    const q = (req.query.q ?? '').toString().trim();
+    if (!q || q.length < 2) { res.json({ results: [] }); return; }
+    const matches = searchDialCodes(q, 20);
+    const calls: any[] = (liveCallsCache as any).calls ?? [];
+    const destCounts = new Map<string, { active: number; connected: number }>();
+    for (const c of calls) {
+      const dest = c.destFull || c.destCountry || null;
+      if (!dest) continue;
+      const ex = destCounts.get(dest) ?? { active: 0, connected: 0 };
+      ex.active++;
+      if (c.callStatus === 'connected') ex.connected++;
+      destCounts.set(dest, ex);
+    }
+    const results = matches.map(m => {
+      const live = destCounts.get(m.destination) ?? { active: 0, connected: 0 };
+      return { ...m, activeCalls: live.active, connected: live.connected };
+    }).sort((a, b) => b.activeCalls - a.activeCalls || a.destination.localeCompare(b.destination));
+    res.json({ results });
+  });
+
+  // GET /api/bitseye/traffic-events
+  // Derives entity-level delta events from entityConcurrentHistory (last 3 min).
+  // Sippy-safe: reads only in-memory history snapshots.
+  app.get('/api/bitseye/traffic-events', (_req: any, res: any) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    const events: Array<{ ts: number; type: string; message: string; entity: string; dim: string; delta: number }> = [];
+    const now = Date.now();
+    const MAX_AGE = 3 * 60_000;
+    for (const [dim, dimMap] of entityConcurrentHistory.entries()) {
+      for (const [entity, snaps] of dimMap.entries()) {
+        if (snaps.length < 2) continue;
+        const latest = snaps[snaps.length - 1];
+        const prev   = snaps[snaps.length - 2];
+        if (now - latest.ts > MAX_AGE) continue;
+        const delta = latest.count - prev.count;
+        if (delta === 0) continue;
+        const sign = delta > 0 ? `+${delta}` : `${delta}`;
+        events.push({ ts: latest.ts, type: delta > 0 ? 'up' : 'down', message: `${entity} · ${sign} calls`, entity, dim, delta });
+      }
+    }
+    events.sort((a, b) => b.ts - a.ts);
+    res.json({ events: events.slice(0, 20), ts: now });
   });
 
   // GET /api/bitseye/call-trend — time-bucketed call totals from CDR cache for graph view

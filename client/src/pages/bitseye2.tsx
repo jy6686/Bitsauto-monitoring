@@ -43,6 +43,13 @@ interface KamLiveEntry {
 interface KamLiveResponse {
   kams: KamLiveEntry[]; stale: boolean; lastUpdated: number;
 }
+interface DestLookupResult {
+  code: string; country: string; breakout: string; destination: string;
+  activeCalls: number; connected: number;
+}
+interface TrafficEvent {
+  ts: number; type: string; message: string; entity: string; dim: string; delta: number;
+}
 interface EntityDetail {
   dim: string; name: string;
   active: number; connected: number; routing: number; connectRate: number;
@@ -606,6 +613,8 @@ export default function BitsEye2Page() {
   const [attentionMode, setAttentionMode]     = useState(false);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<number>>(() => new Set());
   const [alertBarOpen, setAlertBarOpen]       = useState(true);
+  const [destLookupQ, setDestLookupQ]         = useState('');
+  const [wallboardSlide, setWallboardSlide]   = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Pinned entities per dimension — persisted in localStorage
@@ -647,6 +656,13 @@ export default function BitsEye2Page() {
     document.addEventListener('fullscreenchange', handler);
     return () => document.removeEventListener('fullscreenchange', handler);
   }, []);
+
+  // Wallboard auto-rotation — cycles through Countries/Vendors/Clients/KAMs every 15s
+  useEffect(() => {
+    if (!isFullscreen) { setWallboardSlide(0); return; }
+    const t = setInterval(() => setWallboardSlide(s => (s + 1) % 4), 15_000);
+    return () => clearInterval(t);
+  }, [isFullscreen]);
 
   function toggleFullscreen() {
     if (!document.fullscreenElement) {
@@ -691,6 +707,17 @@ export default function BitsEye2Page() {
     queryKey: ['/api/bitseye/kam-live'],
     queryFn: () => fetch('/api/bitseye/kam-live').then(r => r.json()),
     staleTime: 25_000, refetchInterval: 30_000,
+  });
+  const { data: destLookup } = useQuery<{ results: DestLookupResult[] }>({
+    queryKey: ['/api/bitseye/destination-lookup', destLookupQ],
+    queryFn: () => fetch(`/api/bitseye/destination-lookup?q=${encodeURIComponent(destLookupQ)}`).then(r => r.json()),
+    staleTime: 60_000,
+    enabled: destLookupQ.trim().length >= 2,
+  });
+  const { data: trafficEvents } = useQuery<{ events: TrafficEvent[]; ts: number }>({
+    queryKey: ['/api/bitseye/traffic-events'],
+    queryFn: () => fetch('/api/bitseye/traffic-events').then(r => r.json()),
+    staleTime: 40_000, refetchInterval: 45_000,
   });
 
   const { data: incidentRows } = useQuery<IncidentAlert[]>({
@@ -1042,6 +1069,45 @@ export default function BitsEye2Page() {
                       {allEnts.length > 10 && (
                         <div style={{ fontSize: 10, color: '#9CA3AF', padding: '2px 12px 4px 26px' }}>+{allEnts.length - 10} more</div>
                       )}
+                      {/* Global destination search — only in the Destinations section */}
+                      {sec.id === 'destinations' && (
+                        <div style={{ padding: '6px 10px 6px 12px', borderTop: '1px solid #F3F4F6' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#F3F4F6', borderRadius: 6, padding: '4px 8px', marginBottom: 4 }}>
+                            <Search style={{ width: 10, height: 10, color: '#9CA3AF', flexShrink: 0 }} />
+                            <input
+                              value={destLookupQ}
+                              onChange={e => setDestLookupQ(e.target.value)}
+                              onClick={e => e.stopPropagation()}
+                              placeholder="Search all destinations…"
+                              data-testid="input-dest-search"
+                              style={{ border: 'none', background: 'none', outline: 'none', fontSize: 10, color: '#374151', width: '100%' }}
+                            />
+                            {destLookupQ && (
+                              <button onClick={e => { e.stopPropagation(); setDestLookupQ(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#9CA3AF', fontSize: 10, lineHeight: 1 }}>✕</button>
+                            )}
+                          </div>
+                          {destLookupQ.trim().length >= 2 && (
+                            <div>
+                              {(destLookup?.results ?? []).length === 0 ? (
+                                <div style={{ fontSize: 10, color: '#D1D5DB', padding: '2px 4px' }}>No matches found</div>
+                              ) : (
+                                (destLookup?.results ?? []).map(r => (
+                                  <motion.div
+                                    key={r.destination}
+                                    whileHover={{ background: '#F0F1F3' }}
+                                    onClick={() => { setActiveSection('destinations'); setSelectedEntity(r.destination); setDestLookupQ(''); }}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 4px', cursor: 'pointer', borderRadius: 4 }}
+                                  >
+                                    <Globe style={{ width: 9, height: 9, color: '#D97706', flexShrink: 0 }} />
+                                    <span style={{ fontSize: 10, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.destination}</span>
+                                    {r.activeCalls > 0 && <LivePill count={r.activeCalls} color="#D97706" />}
+                                  </motion.div>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -1092,6 +1158,36 @@ export default function BitsEye2Page() {
         <TopTable title="Top Vendors"      rows={vendorSlice?.entities?.slice(0, 5).map(e => ({ name: e.name, active: e.active })) ?? []} color="#0891B2" onSeeAll={() => { setActiveSection('vendors');      setSelectedEntity(null); }} />
         <TopTable title="Top Destinations" rows={destSlice?.entities?.slice(0, 5).map(e => ({ name: e.name, active: e.active })) ?? []}   color="#D97706" onSeeAll={() => { setActiveSection('destinations'); setSelectedEntity(null); }} />
       </div>
+
+      {/* ── Live Traffic Stream ticker ── */}
+      {(trafficEvents?.events ?? []).length > 0 && (
+        <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 10, padding: '10px 14px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 8 }}>Live Traffic Stream</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {(trafficEvents?.events ?? []).slice(0, 6).map((ev, i) => (
+              <motion.div
+                key={`${ev.ts}-${ev.entity}`}
+                initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11 }}
+              >
+                <span style={{
+                  fontSize: 10, fontWeight: 800,
+                  color: ev.delta > 0 ? '#16A34A' : '#EF4444',
+                  background: ev.delta > 0 ? '#F0FDF4' : '#FEF2F2',
+                  border: `1px solid ${ev.delta > 0 ? '#BBF7D0' : '#FECACA'}`,
+                  borderRadius: 4, padding: '1px 5px', flexShrink: 0, minWidth: 28, textAlign: 'center' as const,
+                }}>
+                  {ev.delta > 0 ? '+' : ''}{ev.delta}
+                </span>
+                <span style={{ color: '#374151', flex: 1 }}>{ev.message}</span>
+                <span style={{ fontSize: 10, color: '#D1D5DB', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                  {Math.round((Date.now() - ev.ts) / 1000)}s ago
+                </span>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -1371,7 +1467,86 @@ export default function BitsEye2Page() {
     </div>
   );
 
-  const rightPanel = activeSection === 'noc' || isFullscreen ? nocPanel
+  // ── Wallboard Panel (fullscreen NOC mode) ────────────────────────────────
+  const wbSlides = [
+    { label: 'Countries', color: '#059669', data: (countrySlice?.entities ?? []).slice(0, 8) },
+    { label: 'Vendors',   color: '#0891B2', data: (vendorSlice?.entities ?? []).slice(0, 8)  },
+    { label: 'Clients',   color: '#7C3AED', data: (clientSlice?.entities ?? []).slice(0, 8)  },
+    { label: 'KAMs',      color: '#8B5CF6', data: (kamLive?.kams ?? []).slice(0, 8).map(k => ({ name: k.name, active: k.active, connected: k.connected, routing: k.routing, connectRate: k.connectRate })) },
+  ];
+  const wbCurrent = wbSlides[wallboardSlide];
+
+  const wallboardPanel = (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#FAFBFC', overflow: 'hidden' }}>
+      {/* KPI Strip */}
+      <div style={{ display: 'flex', flexShrink: 0, borderBottom: '1px solid #E6EAF0', background: '#fff' }}>
+        <KpiCard label="Active Calls"  value={String(cs?.currentActive ?? liveSummary?.total ?? 0)}         numericValue={cs?.currentActive ?? liveSummary?.total ?? 0}       color="#2563EB" icon={Activity}   delay={0} />
+        <KpiCard label="Connected"     value={String(liveSummary?.connected ?? cs?.currentConnected ?? 0)}  numericValue={liveSummary?.connected ?? cs?.currentConnected ?? 0}  color="#16A34A" icon={TrendingUp} delay={0} />
+        <KpiCard label="Routing"       value={String(liveSummary?.routing ?? cs?.currentRouting ?? 0)}      numericValue={liveSummary?.routing ?? cs?.currentRouting ?? 0}      color="#F59E0B" icon={Zap}        delay={0} />
+        <KpiCard
+          label="Connect Rate" value={liveSummary ? `${liveSummary.liveConnectRatio}%` : '—'}
+          numericValue={liveSummary?.liveConnectRatio}
+          color={liveSummary ? (liveSummary.liveConnectRatio >= 70 ? '#16A34A' : liveSummary.liveConnectRatio >= 45 ? '#F59E0B' : '#EF4444') : '#9CA3AF'}
+          icon={BarChart2} delay={0}
+        />
+        <KpiCard label="Avg Duration"  value={fmtDuration(liveSummary?.avgCallAgeSecs ?? 0)}                color="#7C3AED" icon={Radio}      delay={0} sub="live ACD proxy" />
+        <KpiCard label="Peak (4h)"     value={String(cs?.peakActive ?? 0)}                                  numericValue={cs?.peakActive ?? 0}                                  color="#6B7280" icon={TrendingUp} delay={0} />
+      </div>
+
+      {/* Middle: Concurrent chart + World map */}
+      <div style={{ display: 'flex', flex: 3, minHeight: 0, borderBottom: '1px solid #E6EAF0' }}>
+        <div style={{ flex: 3, padding: '14px 20px', display: 'flex', flexDirection: 'column', borderRight: '1px solid #E6EAF0', background: '#fff' }}>
+          <ConcurrentChart points={concPoints} title="Concurrent Call Stream" sub="5-min buckets · 4h window" height={200} />
+        </div>
+        <div style={{ flex: 2, padding: '14px 16px', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+          <WorldMap entities={countrySlice?.entities ?? []} height={200} onCountryClick={() => {}} />
+        </div>
+      </div>
+
+      {/* Bottom: Auto-rotating entity grid */}
+      <div style={{ flex: 2, minHeight: 0, display: 'flex', flexDirection: 'column', background: '#fff' }}>
+        {/* Slide header + progress bar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 20px', borderBottom: '1px solid #F3F4F6', flexShrink: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: wbCurrent.color, minWidth: 80 }}>{wbCurrent.label}</span>
+          <div style={{ flex: 1, display: 'flex', gap: 4, alignItems: 'center' }}>
+            {wbSlides.map((s, i) => (
+              <div
+                key={s.label}
+                onClick={() => setWallboardSlide(i)}
+                data-testid={`wallboard-tab-${s.label.toLowerCase()}`}
+                style={{ flex: 1, height: 3, borderRadius: 99, cursor: 'pointer', background: i === wallboardSlide ? wbCurrent.color : '#E5E7EB', transition: 'background 0.4s' }}
+              />
+            ))}
+          </div>
+          <span style={{ fontSize: 10, color: '#D1D5DB' }}>auto · 15s</span>
+        </div>
+        {/* Entity cards */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={wallboardSlide}
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.3 }}
+            style={{ flex: 1, padding: '12px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10, overflow: 'auto', alignContent: 'start' }}
+          >
+            {wbCurrent.data.length === 0 ? (
+              <div style={{ color: '#9CA3AF', fontSize: 13, gridColumn: '1 / -1', paddingTop: 20 }}>No active {wbCurrent.label.toLowerCase()} at this moment</div>
+            ) : (
+              wbCurrent.data.map(e => (
+                <div key={e.name} style={{ background: '#FAFBFC', border: `1.5px solid ${wbCurrent.color}22`, borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{e.name}</div>
+                  <div style={{ fontSize: 30, fontWeight: 900, color: wbCurrent.color, lineHeight: 1 }}>{e.active}</div>
+                  <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 3 }}>{e.connectRate}% rate</div>
+                </div>
+              ))
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+
+  const rightPanel = isFullscreen ? wallboardPanel
+    : activeSection === 'noc' ? nocPanel
     : activeSection === 'kam' ? kamPanel
     : activeSec.dim ? entityPanel
     : nocPanel;
