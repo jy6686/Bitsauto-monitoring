@@ -1051,22 +1051,6 @@ export default function BitsEye2Page() {
             <ChevronRight style={{ width: 12, height: 12, color: '#9CA3AF' }} />
             <span style={{ color: '#1F2937', fontWeight: 700, fontSize: 13 }}>{selectedEntity}</span>
             <button onClick={() => setSelectedEntity(null)} style={{ marginLeft: 6, fontSize: 10, color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer' }}>✕ back</button>
-            {/* Investigate button — shown when entity has an active alert and panel is closed */}
-            {!investigating && (() => {
-              const entityInc = incidentByEntity.get(selectedEntity.toLowerCase());
-              if (!entityInc) return null;
-              const btnColor = entityInc.severity === 'critical' ? '#EF4444' : '#D97706';
-              return (
-                <button
-                  onClick={() => setInvestigating(entityInc.id)}
-                  data-testid="button-investigate-entity"
-                  style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: btnColor, background: `${btnColor}10`, border: `1px solid ${btnColor}44`, borderRadius: 5, padding: '2px 8px', cursor: 'pointer', marginLeft: 4 }}
-                >
-                  <AlertTriangle style={{ width: 10, height: 10 }} />
-                  Investigate
-                </button>
-              );
-            })()}
           </>
         )}
         {fetchDetail && <span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 4 }}>↻ refreshing…</span>}
@@ -1074,24 +1058,23 @@ export default function BitsEye2Page() {
 
       {selectedEntity && entityDetail ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* ── Investigation Panel (shown when drilling into an alert) ── */}
-          <AnimatePresence>
-            {(() => {
-              if (!investigating) return null;
-              const inc = (incidentRows ?? []).find(r => r.id === investigating);
-              if (!inc) return null;
-              const anm = anomalyByVendor.get(selectedEntity ?? '') ?? undefined;
-              return (
-                <InvestigationPanel
-                  key={investigating}
-                  incident={inc}
-                  anomaly={anm}
-                  onClose={() => setInvestigating(null)}
-                  onNavigate={navigate}
-                />
-              );
-            })()}
-          </AnimatePresence>
+          {/* ── Quick links ── */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => navigate(`/asr-acd-report?vendor=${encodeURIComponent(selectedEntity ?? '')}&from=90&to=0`)}
+              data-testid="button-quicklink-asr-report"
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}
+            >
+              <BarChart2 style={{ width: 11, height: 11 }} /> ASR/ACD Report
+            </button>
+            <button
+              onClick={() => navigate(`/cdrs?vendor=${encodeURIComponent(selectedEntity ?? '')}`)}
+              data-testid="button-quicklink-cdrs"
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#6B7280', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}
+            >
+              <ExternalLink style={{ width: 11, height: 11 }} /> View CDRs
+            </button>
+          </div>
 
           <div style={{ display: 'flex', gap: 10 }}>
             <KpiCard label="Active"       value={String(entityDetail.active)}    numericValue={entityDetail.active}    color={activeSec.color} icon={Activity}   delay={0} />
@@ -1329,20 +1312,18 @@ export default function BitsEye2Page() {
                   const color  = isCrit ? '#EF4444' : '#F59E0B';
                   const ageMs  = Date.now() - new Date(alert.openedAt).getTime();
                   const ageStr = ageMs < 60_000 ? 'just now' : ageMs < 3_600_000 ? `${Math.round(ageMs / 60_000)}m ago` : `${Math.round(ageMs / 3_600_000)}h ago`;
-                  const dimMap: Record<string, typeof activeSection> = { client: 'clients', vendor: 'vendors', country: 'countries', destination: 'destinations' };
-                  const canInvestigate = !!alert.entityName;
-                  function investigateAlert() {
-                    if (!canInvestigate) return;
-                    const secId = dimMap[alert.entityType] ?? 'vendors';
-                    setActiveSection(secId as any);
-                    setSelectedEntity(alert.entityName!);
-                    setInvestigating(alert.id);
-                    setAlertBarOpen(false);
-                  }
+                  const canJump = !!alert.entityName;
+                  const dimMap: Record<string, SectionId> = { client: 'clients', vendor: 'vendors', country: 'countries', destination: 'destinations' };
                   return (
-                    <div key={alert.id} style={{ display: 'flex', alignItems: 'center', gap: 8, borderRadius: 5, padding: '1px 0', cursor: canInvestigate ? 'pointer' : 'default', transition: 'background 0.12s' }}
-                      onClick={investigateAlert}
-                      title={canInvestigate ? `Click to investigate ${alert.entityName}` : undefined}
+                    <div key={alert.id}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, borderRadius: 5, padding: '1px 0', cursor: canJump ? 'pointer' : 'default' }}
+                      onClick={() => {
+                        if (!canJump) return;
+                        setActiveSection(dimMap[alert.entityType] ?? 'vendors');
+                        setSelectedEntity(alert.entityName!);
+                        setAlertBarOpen(false);
+                      }}
+                      title={canJump ? `View live traffic for ${alert.entityName}` : undefined}
                     >
                       <span style={{
                         fontSize: 9, fontWeight: 700, color, background: `${color}18`,
@@ -1355,7 +1336,6 @@ export default function BitsEye2Page() {
                         <span style={{ fontSize: 11, fontWeight: 600, color: '#374151', flexShrink: 0 }}>{alert.entityName}</span>
                       )}
                       <span style={{ fontSize: 11, color: '#6B7280', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{alert.title}</span>
-                      {canInvestigate && <span style={{ fontSize: 9, color, fontWeight: 600, flexShrink: 0, opacity: 0.7 }}>Investigate →</span>}
                       <span style={{ fontSize: 10, color: '#9CA3AF', flexShrink: 0 }}>{ageStr}</span>
                       <button
                         onClick={e => { e.stopPropagation(); setDismissedAlerts(prev => new Set([...prev, alert.id])); }}
