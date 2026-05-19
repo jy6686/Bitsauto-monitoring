@@ -125,6 +125,26 @@ export async function runSafeMigrations(): Promise<void> {
       WHERE host ~ '^https?://'
     `);
 
+    // ── Entity presence registry (added 2026-05-19) ───────────────────────────
+    // Persists idle BitsEye-2 entities (clients / vendors / countries /
+    // destinations) across server restarts so they survive with active=0.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS entity_presence_registry (
+        id           SERIAL PRIMARY KEY,
+        dim          VARCHAR(32)  NOT NULL,
+        entity_name  VARCHAR(256) NOT NULL,
+        last_seen    BIGINT       NOT NULL DEFAULT 0,
+        first_seen   BIGINT       NOT NULL DEFAULT 0,
+        peak_today   INTEGER      NOT NULL DEFAULT 0,
+        peak_ts      BIGINT       NOT NULL DEFAULT 0,
+        updated_at   TIMESTAMP    DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS epr_dim_name_uidx
+        ON entity_presence_registry (dim, entity_name)
+    `);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

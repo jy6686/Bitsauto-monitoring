@@ -12176,6 +12176,11 @@ export async function registerRoutes(
       }
       await storage.cleanupOldSnapshots();
 
+      // ── Persist entity presence to DB every 5 minutes ────────────────────────
+      if (Date.now() - _lastPresencePersist > PRESENCE_PERSIST_INTERVAL) {
+        persistPresenceToDb().catch(() => {});
+      }
+
       // ── Push NOC tick to all connected WebSocket clients ────────────────────
       broadcastNocTick({
         callCount:  liveCallsCache.calls.length,
@@ -12191,26 +12196,66 @@ export async function registerRoutes(
   setTimeout(() => snapshotActiveCalls(), 8000);            // first run at startup
   setInterval(() => snapshotActiveCalls(), 45 * 1000);      // every 45 s — slightly under UI's 60s poll
 
-  // ── Presence cache bootstrap — runs 2 s after startup ───────────────────────
-  // Seeds entityPresenceCache['client'] with every registered KAM client so all
-  // known clients are visible in the sidebar immediately, even before their first
-  // call in this server session.  lastSeen=0 signals "bootstrapped, never yet seen
-  // live" — the pruning guard above skips those entries so they never get pruned.
-  // Once snapshotActiveCalls() sees a real call for the client, it overwrites the
-  // bootstrapped entry with live data (lastSeen, peakToday, etc.) and normal
-  // lifecycle takes over.
+  // ── Presence persistence: load from DB then supplement with KAM accounts ──────
+  // Phase 1 (T+2s): reload persisted idle entities for ALL 4 dimensions from the
+  //   entity_presence_registry table — covers vendor/country/destination too.
+  // Phase 2 (T+2s): top-up the client dimension from kamAccounts for any client
+  //   not already in the DB registry (e.g. never-called-yet new accounts).
+  // Phase 3 (every 300s): persist current entityPresenceCache back to DB so
+  //   idle entities survive the next server restart.
+  let _lastPresencePersist = 0;
+  async function persistPresenceToDb(): Promise<void> {
+    try {
+      const rows: { dim: string; entityName: string; lastSeen: number; firstSeen: number; peakToday: number; peakTs: number }[] = [];
+      for (const [dim, presMap] of entityPresenceCache.entries()) {
+        for (const [entityName, pres] of presMap.entries()) {
+          // Only persist entities that have been seen live (lastSeen>0) to avoid
+          // writing stub "Acct.X" bootstrap entries that will never match live calls.
+          if (pres.lastSeen > 0) {
+            rows.push({ dim, entityName, lastSeen: pres.lastSeen, firstSeen: pres.firstSeen, peakToday: pres.peakToday, peakTs: pres.peakTs });
+          }
+        }
+      }
+      if (rows.length) await storage.upsertEntityPresence(rows);
+      _lastPresencePersist = Date.now();
+    } catch (e: any) {
+      console.warn('[presence-persist] error:', e.message);
+    }
+  }
+
   setTimeout(async () => {
     try {
-      const nowMs   = Date.now();
+      const nowMs = Date.now();
+
+      // ── Phase 1: Load from DB (all 4 dimensions) ──────────────────────────────
+      let dbLoaded = 0;
+      try {
+        const dbRows = await storage.loadEntityPresence();
+        for (const row of dbRows) {
+          const presMap = entityPresenceCache.get(row.dim) ?? new Map<string, EntityPresence>();
+          if (!presMap.has(row.entityName)) {
+            presMap.set(row.entityName, {
+              lastSeen: row.lastSeen, firstSeen: row.firstSeen,
+              currentActive: 0, currentConnected: 0, currentRouting: 0,
+              connectRate: 0, peakToday: row.peakToday, peakTs: row.peakTs,
+            });
+            dbLoaded++;
+          }
+          entityPresenceCache.set(row.dim, presMap);
+        }
+        if (dbLoaded) console.log(`[presence-bootstrap] restored ${dbLoaded} entities from DB registry`);
+      } catch (e: any) {
+        console.warn('[presence-bootstrap] DB load failed:', e.message);
+      }
+
+      // ── Phase 2: Top-up client dim from KAM accounts (for never-called clients) ─
       const allAccs = await storage.getKamAccounts();
       const clientPresMap = entityPresenceCache.get('client') ?? new Map<string, EntityPresence>();
       let seeded = 0;
       for (const acc of allAccs) {
-        // Prefer explicit clientName; fall back to accountNameCache (Sippy display name);
-        // fall back to Acct.<id> so every registered account always has an entry.
         const resolvedName = acc.clientName
           || (acc.accountId ? accountNameCache.get(String(acc.accountId)) : undefined)
-          || (acc.accountId ? `Acct.${acc.accountId}` : null);
+          || null;  // no Acct.{id} fallback — stub names don't match live call names
         if (resolvedName && !clientPresMap.has(resolvedName)) {
           clientPresMap.set(resolvedName, {
             lastSeen: 0, firstSeen: nowMs,
@@ -12228,6 +12273,10 @@ export async function registerRoutes(
       console.warn('[presence-bootstrap] error:', e.message);
     }
   }, 2000);
+
+  // Periodic DB persist — runs inside snapshotActiveCalls every 300s
+  // (hoisted here so snapshotActiveCalls can call it)
+  const PRESENCE_PERSIST_INTERVAL = 300_000; // 5 minutes
 
   // GET /api/sippy/live-graphs — live concurrent call history + breakdowns
   app.get('/api/sippy/live-graphs', (req: any, res) => {

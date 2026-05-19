@@ -11,6 +11,7 @@ import {
   chatRooms, chatMessages,
   productDocs,
   approvalRequests, approvalAuditLog,
+  entityPresenceRegistry,
   portalAccessTokens,
   portalTickets, portalTicketMessages,
   type PortalTicket, type InsertPortalTicket,
@@ -370,6 +371,10 @@ export interface IStorage {
   updateConsoleIncidentFields(id: number, fields: Partial<ConsoleIncident>): Promise<ConsoleIncident>;
   addLifecycleEvent(data: { incidentId: number; fromState: string | null; toState: string; actor?: string; note?: string }): Promise<IncidentLifecycleEvent>;
   listLifecycleEvents(incidentId: number): Promise<IncidentLifecycleEvent[]>;
+
+  // ── Entity Presence Registry ──────────────────────────────────────────────────
+  loadEntityPresence(): Promise<{ dim: string; entityName: string; lastSeen: number; firstSeen: number; peakToday: number; peakTs: number }[]>;
+  upsertEntityPresence(rows: { dim: string; entityName: string; lastSeen: number; firstSeen: number; peakToday: number; peakTs: number }[]): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1961,6 +1966,36 @@ export class DatabaseStorage implements IStorage {
       .where(eq(incidentLifecycleEvents.incidentId, incidentId))
       .orderBy(asc(incidentLifecycleEvents.createdAt));
   }
+
+  // ── Entity Presence Registry ──────────────────────────────────────────────────
+  async loadEntityPresence(): Promise<{ dim: string; entityName: string; lastSeen: number; firstSeen: number; peakToday: number; peakTs: number }[]> {
+    const rows = await db.select().from(entityPresenceRegistry);
+    return rows.map(r => ({
+      dim:        r.dim,
+      entityName: r.entityName,
+      lastSeen:   Number(r.lastSeen),
+      firstSeen:  Number(r.firstSeen),
+      peakToday:  r.peakToday,
+      peakTs:     Number(r.peakTs),
+    }));
+  }
+
+  async upsertEntityPresence(rows: { dim: string; entityName: string; lastSeen: number; firstSeen: number; peakToday: number; peakTs: number }[]): Promise<void> {
+    if (!rows.length) return;
+    for (const r of rows) {
+      await db.insert(entityPresenceRegistry)
+        .values({ dim: r.dim, entityName: r.entityName, lastSeen: r.lastSeen, firstSeen: r.firstSeen, peakToday: r.peakToday, peakTs: r.peakTs })
+        .onConflictDoUpdate({
+          target: [entityPresenceRegistry.dim, entityPresenceRegistry.entityName],
+          set: {
+            lastSeen:  r.lastSeen,
+            peakToday: r.peakToday,
+            peakTs:    r.peakTs,
+            updatedAt: new Date(),
+          },
+        });
+    }
+  }
 }
 
 function computeNextDueAt(frequency: string, cronHour?: number): Date {
@@ -1986,5 +2021,6 @@ function computeNextDueAt(frequency: string, cronHour?: number): Date {
     }
   }
 }
+
 
 export const storage = new DatabaseStorage();

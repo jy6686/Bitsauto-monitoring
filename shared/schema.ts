@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum, json } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum, json, uniqueIndex, bigint } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1744,3 +1744,18 @@ export const incidentLifecycleEvents = pgTable("incident_lifecycle_events", {
   createdAt:  timestamp("created_at").defaultNow(),
 });
 export type IncidentLifecycleEvent = typeof incidentLifecycleEvents.$inferSelect;
+
+// ── Entity Presence Registry — persists across server restarts ────────────────
+// Stores idle entity state for all 4 dimensions (client, vendor, country, destination)
+// so the BitsEye 2 sidebar remains populated after a restart without waiting for calls.
+export const entityPresenceRegistry = pgTable("entity_presence_registry", {
+  id:         serial("id").primaryKey(),
+  dim:        varchar("dim",         { length: 32  }).notNull(),
+  entityName: varchar("entity_name", { length: 256 }).notNull(),
+  lastSeen:   bigint("last_seen",    { mode: "number" }).notNull().default(0),
+  firstSeen:  bigint("first_seen",   { mode: "number" }).notNull().default(0),
+  peakToday:  integer("peak_today").notNull().default(0),
+  peakTs:     bigint("peak_ts",      { mode: "number" }).notNull().default(0),
+  updatedAt:  timestamp("updated_at").defaultNow(),
+}, (t) => [uniqueIndex("epr_dim_name_uidx").on(t.dim, t.entityName)]);
+export type EntityPresenceRow = typeof entityPresenceRegistry.$inferSelect;
