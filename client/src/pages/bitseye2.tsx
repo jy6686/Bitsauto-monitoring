@@ -1,17 +1,16 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar,
 } from "recharts";
-import {
-  ComposableMap, Geographies, Geography, Marker,
-} from "react-simple-maps";
+import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import {
   Radio, Users, Wifi, Globe, Phone, GitBranch, Briefcase,
   BarChart2, ChevronDown, ChevronRight, RefreshCw,
   Activity, TrendingUp, Zap, ExternalLink, Map,
+  Search, Star, Maximize2, Minimize2,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -117,7 +116,7 @@ const GEO_TO_API: Record<string, string> = {
   'Syrian Arab Republic':     'SYRIA',
   'Lao PDR':                  'LAOS',
   'Myanmar':                  'MYANMAR',
-  'Côte d\'Ivoire':           'IVORY COAST',
+  "Côte d'Ivoire":            'IVORY COAST',
   'Congo, Dem. Rep.':         'DEM. REP. CONGO',
   'Tanzania, United Rep. of': 'TANZANIA',
 };
@@ -131,13 +130,61 @@ function getCountryColor(count: number): string {
   return '#7C3AED';
 }
 
+// ── Animated rolling counter ──────────────────────────────────────────────────
+function AnimatedNumber({ value }: { value: number }) {
+  const [display, setDisplay] = useState(value);
+  const displayRef = useRef(value);
+  const rafRef     = useRef<number | null>(null);
+
+  useEffect(() => {
+    const from = displayRef.current;
+    if (value === from) return;
+    let startTs: number | null = null;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    function tick(now: number) {
+      if (startTs === null) startTs = now;
+      const t    = Math.min((now - startTs) / 520, 1);
+      const ease = 1 - Math.pow(1 - t, 3);
+      const next = Math.round(from + (value - from) * ease);
+      displayRef.current = next;
+      setDisplay(next);
+      if (t < 1) rafRef.current = requestAnimationFrame(tick);
+    }
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [value]);
+
+  return <>{display}</>;
+}
+
+// ── Mini sparkline (sidebar entity rows) ─────────────────────────────────────
+function MiniSparkline({ data, color }: { data: number[]; color: string }) {
+  if (data.length < 3) return null;
+  const W = 36, H = 14;
+  const max   = Math.max(...data) || 1;
+  const min   = Math.min(...data);
+  const range = (max - min) || 1;
+  const pts   = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - ((v - min) / range) * (H - 2) - 1;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const tail  = data[data.length - 1] - data[Math.max(0, data.length - 4)];
+  const stroke = tail > 0 ? '#16A34A' : tail < 0 ? '#EF4444' : color;
+  return (
+    <svg width={W} height={H} style={{ flexShrink: 0, overflow: 'visible' }}>
+      <polyline points={pts} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" opacity={0.8} />
+    </svg>
+  );
+}
+
 // ── World Map ─────────────────────────────────────────────────────────────────
 function WorldMap({
   entities, height = 360, onCountryClick,
 }: {
   entities: EntityRow[]; height?: number; onCountryClick?: (name: string) => void;
 }) {
-  const [tooltip, setTooltip] = useState<{ name: string; data?: EntityRow } | null>(null);
+  const [tooltip, setTooltip]       = useState<{ name: string; data?: EntityRow } | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
   const countryMap = useMemo(() => {
@@ -154,7 +201,7 @@ function WorldMap({
     [entities],
   );
 
-  const totalActive    = entities.reduce((s, e) => s + e.active, 0);
+  const totalActive     = entities.reduce((s, e) => s + e.active, 0);
   const activeCountries = entities.filter(e => e.active > 0).length;
 
   return (
@@ -165,7 +212,6 @@ function WorldMap({
         setTooltipPos({ x: e.clientX - rect.left + 14, y: e.clientY - rect.top + 14 });
       }}
     >
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px 0', position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Map style={{ width: 13, height: 13, color: '#6B7280' }} />
@@ -191,10 +237,10 @@ function WorldMap({
         <Geographies geography={GEO_URL}>
           {({ geographies }) =>
             geographies.map(geo => {
-              const geoName = geo.properties.name as string ?? '';
-              const apiName = GEO_TO_API[geoName] ?? geoName.toUpperCase();
-              const data    = countryMap.get(apiName);
-              const count   = data?.active ?? 0;
+              const geoName  = (geo.properties.name as string) ?? '';
+              const apiName  = GEO_TO_API[geoName] ?? geoName.toUpperCase();
+              const data     = countryMap.get(apiName);
+              const count    = data?.active ?? 0;
               const isActive = count > 0;
               return (
                 <Geography
@@ -205,7 +251,7 @@ function WorldMap({
                   strokeWidth={isActive ? 1.2 : 0.35}
                   style={{
                     default: { outline: 'none' },
-                    hover: { outline: 'none', fill: isActive ? '#7C3AED' : '#CDD5E0', cursor: isActive ? 'pointer' : 'default' },
+                    hover:   { outline: 'none', fill: isActive ? '#7C3AED' : '#CDD5E0', cursor: isActive ? 'pointer' : 'default' },
                     pressed: { outline: 'none', fill: '#6D28D9' },
                   }}
                   onMouseEnter={() => setTooltip({ name: geoName, data })}
@@ -218,12 +264,12 @@ function WorldMap({
         </Geographies>
 
         {pulseMarkers.map(({ name, coords, count, cr }) => {
-          const r1 = count <= 2 ? 3 : count <= 10 ? 5 : count <= 30 ? 7 : 10;
+          const r1       = count <= 2 ? 3 : count <= 10 ? 5 : count <= 30 ? 7 : 10;
           const dotColor = cr >= 70 ? '#16A34A' : cr >= 40 ? '#F59E0B' : '#EF4444';
           return (
             <Marker key={name} coordinates={coords}>
               <circle r={r1 * 2} fill={dotColor} opacity={0.18} style={{ animation: `be2-pulse ${1.8 + (count % 5) * 0.2}s infinite` }} />
-              <circle r={r1} fill={dotColor} opacity={0.85} style={{ animation: `be2-pulse ${1.8 + (count % 5) * 0.2}s infinite` }} />
+              <circle r={r1}     fill={dotColor} opacity={0.85} style={{ animation: `be2-pulse ${1.8 + (count % 5) * 0.2}s infinite` }} />
               {count > 3 && (
                 <text textAnchor="middle" y={-(r1 + 5)} style={{ fontSize: 9, fontWeight: 700, fill: '#1F2937', paintOrder: 'stroke', stroke: '#fff', strokeWidth: 2 }}>
                   {count}
@@ -283,7 +329,7 @@ function fmtDuration(secs: number) {
 function LivePill({ count, color }: { count: number; color: string }) {
   return (
     <motion.span
-      key={count} initial={{ scale: count > 0 ? 1.25 : 1 }} animate={{ scale: 1 }} transition={{ duration: 0.2 }}
+      key={count} initial={{ scale: count > 0 ? 1.22 : 1 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 380, damping: 22 }}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 3,
         background: count > 0 ? `${color}15` : '#F3F4F6',
@@ -292,16 +338,17 @@ function LivePill({ count, color }: { count: number; color: string }) {
         color: count > 0 ? color : '#9CA3AF', minWidth: 26, justifyContent: 'center',
       }}
     >
-      {count > 0 && <span style={{ width: 5, height: 5, borderRadius: '50%', background: color, display: 'inline-block', animation: 'be2-pulse 2s infinite' }} />}
+      {count > 0 && <span style={{ width: 5, height: 5, borderRadius: '50%', background: color, display: 'inline-block', animation: 'be2-pulse 2.2s ease-in-out infinite' }} />}
       {count}
     </motion.span>
   );
 }
 
 // ── KPI Card ──────────────────────────────────────────────────────────────────
-function KpiCard({ label, value, sub, color, icon: Icon, delay = 0 }: {
-  label: string; value: string; sub?: string; color: string; icon: any; delay?: number;
+function KpiCard({ label, value, sub, color, icon: Icon, delay = 0, numericValue }: {
+  label: string; value: string; sub?: string; color: string; icon: any; delay?: number; numericValue?: number;
 }) {
+  const suffix = numericValue !== undefined ? value.replace(/^[\d.]+/, '') : '';
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay, duration: 0.28 }}
@@ -314,28 +361,50 @@ function KpiCard({ label, value, sub, color, icon: Icon, delay = 0 }: {
         </div>
         <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase' as const, letterSpacing: '0.07em' }}>{label}</span>
       </div>
-      <div style={{ fontSize: 26, fontWeight: 800, color, letterSpacing: '-0.02em', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 26, fontWeight: 800, color, letterSpacing: '-0.02em', lineHeight: 1 }}>
+        {numericValue !== undefined
+          ? <><AnimatedNumber value={Math.round(numericValue)} />{suffix}</>
+          : value
+        }
+      </div>
       {sub && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 3 }}>{sub}</div>}
     </motion.div>
   );
 }
 
 // ── Entity Card (grid view) ───────────────────────────────────────────────────
-function EntityCard({ entity, color, onClick, selected = false }: {
-  entity: EntityRow; color: string; onClick: () => void; selected?: boolean;
+function EntityCard({ entity, color, onClick, selected = false, pinned = false, onPin }: {
+  entity: EntityRow; color: string; onClick: () => void; selected?: boolean; pinned?: boolean; onPin?: () => void;
 }) {
+  const [hov, setHov] = useState(false);
   return (
     <motion.div
       whileHover={{ y: -2, boxShadow: '0 8px 20px rgba(0,0,0,0.09)' }}
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
       style={{
-        background: selected ? `${color}07` : '#fff', border: `1.5px solid ${selected ? color : '#E6EAF0'}`,
-        borderRadius: 14, padding: '14px 16px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+        background: selected ? `${color}07` : '#fff',
+        border: `1.5px solid ${selected ? color : '#E6EAF0'}`,
+        borderRadius: 14, padding: '14px 16px', cursor: 'pointer',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)', position: 'relative',
       }}
     >
+      {onPin && (hov || pinned) && (
+        <button
+          onClick={e => { e.stopPropagation(); onPin(); }}
+          title={pinned ? 'Unpin' : 'Pin to top'}
+          style={{ position: 'absolute', top: 8, right: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}
+        >
+          <Star style={{ width: 12, height: 12, color: pinned ? '#F59E0B' : '#D1D5DB', fill: pinned ? '#F59E0B' : 'none' }} />
+        </button>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, maxWidth: 165 }}>{entity.name}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, maxWidth: 155 }}>
+          {pinned && <span style={{ color: '#F59E0B', marginRight: 3, fontSize: 10 }}>★</span>}
+          {entity.name}
+        </span>
         <LivePill count={entity.active} color={color} />
       </div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
@@ -344,7 +413,7 @@ function EntityCard({ entity, color, onClick, selected = false }: {
       </div>
       <div style={{ background: '#F3F4F6', borderRadius: 99, height: 4, overflow: 'hidden' }}>
         <motion.div
-          initial={{ width: 0 }} animate={{ width: `${entity.connectRate}%` }} transition={{ duration: 0.55, ease: 'easeOut' }}
+          initial={{ width: 0 }} animate={{ width: `${entity.connectRate}%` }} transition={{ duration: 0.6, ease: 'easeOut' }}
           style={{ height: '100%', borderRadius: 99, background: entity.connectRate >= 70 ? '#16A34A' : entity.connectRate >= 45 ? '#F59E0B' : '#EF4444' }}
         />
       </div>
@@ -354,8 +423,8 @@ function EntityCard({ entity, color, onClick, selected = false }: {
 }
 
 // ── Concurrent Chart ──────────────────────────────────────────────────────────
-function ConcurrentChart({ points, color = '#2563EB', title, sub }: {
-  points: ConcurrentPoint[]; color?: string; title?: string; sub?: string;
+function ConcurrentChart({ points, color = '#2563EB', title, sub, height = 140 }: {
+  points: ConcurrentPoint[]; color?: string; title?: string; sub?: string; height?: number;
 }) {
   const gradId = `grad-${color.replace('#', '')}`;
   return (
@@ -365,8 +434,8 @@ function ConcurrentChart({ points, color = '#2563EB', title, sub }: {
         {sub && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{sub}</div>}
       </div>
       {points.length === 0
-        ? <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 13 }}>Building live history…</div>
-        : <ResponsiveContainer width="100%" height={140}>
+        ? <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 13 }}>Building live history…</div>
+        : <ResponsiveContainer width="100%" height={height}>
             <AreaChart data={points} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
@@ -379,8 +448,8 @@ function ConcurrentChart({ points, color = '#2563EB', title, sub }: {
               <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 10, fontSize: 12 }}
                 formatter={(val: any, name: string) => [val, name === 'active' ? 'Active' : 'Connected']} />
-              <Area type="monotone" dataKey="active"    stroke={color}   strokeWidth={2}   fill={`url(#${gradId})`} dot={false} />
-              <Area type="monotone" dataKey="connected" stroke="#16A34A" strokeWidth={1.5} fill="transparent"       dot={false} strokeDasharray="4 2" />
+              <Area type="monotone" dataKey="active"    stroke={color}   strokeWidth={2}   fill={`url(#${gradId})`} dot={false} isAnimationActive animationDuration={800} animationEasing="ease-out" />
+              <Area type="monotone" dataKey="connected" stroke="#16A34A" strokeWidth={1.5} fill="transparent"       dot={false} strokeDasharray="4 2" isAnimationActive animationDuration={800} animationEasing="ease-out" />
             </AreaChart>
           </ResponsiveContainer>
       }
@@ -389,13 +458,13 @@ function ConcurrentChart({ points, color = '#2563EB', title, sub }: {
 }
 
 // ── CPS Chart ─────────────────────────────────────────────────────────────────
-function CpsChart({ points }: { points: ConcurrentPoint[] }) {
+function CpsChart({ points, height = 100 }: { points: ConcurrentPoint[]; height?: number }) {
   const cpsData = useMemo(() =>
     points.slice(-20).map((p, i, arr) => {
       if (i === 0) return { label: p.label, cps: 0 };
-      const prev = arr[i - 1];
+      const prev   = arr[i - 1];
       const deltaMs = p.ts - prev.ts;
-      const cps = deltaMs > 0 ? parseFloat((Math.max(0, p.active - prev.active) / (deltaMs / 1000)).toFixed(2)) : 0;
+      const cps    = deltaMs > 0 ? parseFloat((Math.max(0, p.active - prev.active) / (deltaMs / 1000)).toFixed(2)) : 0;
       return { label: p.label, cps };
     }), [points]);
 
@@ -404,14 +473,14 @@ function CpsChart({ points }: { points: ConcurrentPoint[] }) {
       <div style={{ fontSize: 13, fontWeight: 700, color: '#1F2937', marginBottom: 2 }}>CPS Monitor</div>
       <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 10 }}>Calls per second · surge detection</div>
       {cpsData.length < 2
-        ? <div style={{ height: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 12 }}>Building CPS history…</div>
-        : <ResponsiveContainer width="100%" height={100}>
+        ? <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 12 }}>Building CPS history…</div>
+        : <ResponsiveContainer width="100%" height={height}>
             <BarChart data={cpsData} margin={{ top: 0, right: 4, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#9CA3AF' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 9, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 8, fontSize: 11 }} formatter={(v: any) => [`${v} /s`, 'CPS']} />
-              <Bar dataKey="cps" fill="#F59E0B" radius={[3, 3, 0, 0]} maxBarSize={20} />
+              <Bar dataKey="cps" fill="#F59E0B" radius={[3, 3, 0, 0]} maxBarSize={20} isAnimationActive animationDuration={600} />
             </BarChart>
           </ResponsiveContainer>
       }
@@ -419,7 +488,7 @@ function CpsChart({ points }: { points: ConcurrentPoint[] }) {
   );
 }
 
-// ── Top-N mini table (NOC Overview) ──────────────────────────────────────────
+// ── Top-N mini table ──────────────────────────────────────────────────────────
 function TopTable({ title, rows, color, onSeeAll }: {
   title: string; rows: { name: string; active: number }[]; color: string; onSeeAll: () => void;
 }) {
@@ -432,24 +501,24 @@ function TopTable({ title, rows, color, onSeeAll }: {
       {rows.length === 0
         ? <div style={{ fontSize: 12, color: '#D1D5DB', textAlign: 'center' as const, padding: '12px 0' }}>No active calls</div>
         : rows.map((r, i) => {
-          const pct = Math.round(r.active / (rows[0]?.active || 1) * 100);
-          return (
-            <div key={r.name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#D1D5DB', minWidth: 14 }}>{i + 1}</span>
-              <span style={{ fontSize: 12, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.name}</span>
-              <div style={{ width: 40, height: 3, background: '#F3F4F6', borderRadius: 99 }}>
-                <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 99 }} />
+            const pct = Math.round(r.active / (rows[0]?.active || 1) * 100);
+            return (
+              <div key={r.name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#D1D5DB', minWidth: 14 }}>{i + 1}</span>
+                <span style={{ fontSize: 12, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.name}</span>
+                <div style={{ width: 40, height: 3, background: '#F3F4F6', borderRadius: 99 }}>
+                  <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 99 }} />
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 700, color, minWidth: 20, textAlign: 'right' as const }}>{r.active}</span>
               </div>
-              <span style={{ fontSize: 11, fontWeight: 700, color, minWidth: 20, textAlign: 'right' as const }}>{r.active}</span>
-            </div>
-          );
-        })
+            );
+          })
       }
     </div>
   );
 }
 
-// ── Cross-dimension table (used in entity drilldown) ──────────────────────────
+// ── Cross-dimension table ─────────────────────────────────────────────────────
 function CrossTable({ title, rows, color, onRowClick }: {
   title: string; rows: CrossRow[]; color: string; onRowClick?: (name: string) => void;
 }) {
@@ -459,7 +528,7 @@ function CrossTable({ title, rows, color, onRowClick }: {
     <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 14, padding: '14px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 10 }}>{title}</div>
       {rows.map((r, i) => {
-        const pct = Math.round(r.active / max * 100);
+        const pct     = Math.round(r.active / max * 100);
         const crColor = r.connectRate >= 70 ? '#16A34A' : r.connectRate >= 45 ? '#F59E0B' : '#EF4444';
         return (
           <div
@@ -469,9 +538,7 @@ function CrossTable({ title, rows, color, onRowClick }: {
           >
             <span style={{ fontSize: 10, fontWeight: 700, color: '#D1D5DB', minWidth: 14 }}>{i + 1}</span>
             <span style={{ fontSize: 12, color: '#1F2937', flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.name}</span>
-            {/* Connect-rate dot */}
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: crColor, display: 'inline-block', flexShrink: 0 }} />
-            {/* Bar */}
             <div style={{ width: 44, height: 3, background: '#F3F4F6', borderRadius: 99, flexShrink: 0 }}>
               <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 99 }} />
             </div>
@@ -495,8 +562,57 @@ export default function BitsEye2Page() {
     new Set(['noc', 'clients', 'vendors', 'countries', 'destinations']),
   );
 
+  // ── Feature state ─────────────────────────────────────────────────────────
+  const [sidebarSearch, setSidebarSearch] = useState('');
+  const [isFullscreen, setIsFullscreen]   = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Pinned entities per dimension — persisted in localStorage
+  const [pins, setPins] = useState<Record<string, Set<string>>>(() => {
+    try {
+      const raw = localStorage.getItem('be2-pins');
+      if (raw) {
+        const obj = JSON.parse(raw) as Record<string, string[]>;
+        return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, new Set(v)]));
+      }
+    } catch {}
+    return { client: new Set<string>(), vendor: new Set<string>(), country: new Set<string>(), destination: new Set<string>() };
+  });
+
+  const togglePin = useCallback((dim: string, name: string) => {
+    setPins(prev => {
+      const dimSet = new Set(prev[dim] ?? []);
+      dimSet.has(name) ? dimSet.delete(name) : dimSet.add(name);
+      const next = { ...prev, [dim]: dimSet };
+      try {
+        localStorage.setItem('be2-pins', JSON.stringify(
+          Object.fromEntries(Object.entries(next).map(([k, v]) => [k, [...v]]))
+        ));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  // Local entity history for sparklines (accumulated across poll cycles)
+  const [entityHistLocal, setEntityHistLocal] = useState<Map<string, number[]>>(() => new Map());
+
   function toggleExpand(id: SectionId) {
     setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  // Fullscreen API
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
   }
 
   // ── Queries ───────────────────────────────────────────────────────────────
@@ -533,7 +649,6 @@ export default function BitsEye2Page() {
 
   const activeSec = SECTIONS.find(s => s.id === activeSection)!;
 
-  // Entity detail — fires only when drilled in
   const { data: entityDetail, isFetching: fetchDetail } = useQuery<EntityDetail>({
     queryKey: ['/api/bitseye/entity-detail', activeSec.dim, selectedEntity],
     queryFn: () =>
@@ -550,7 +665,31 @@ export default function BitsEye2Page() {
   const concPoints = concTrend?.points ?? [];
   const isFetching = fetchSum || fetchConc || fetchDetail;
 
-  // Convert entity history to chart points
+  // Accumulate local sparkline history on each poll cycle
+  useEffect(() => {
+    if (!clientSlice && !vendorSlice && !countrySlice && !destSlice) return;
+    setEntityHistLocal(prev => {
+      const next  = new Map(prev);
+      const pairs: [string, LiveSliceResponse | undefined][] = [
+        ['client', clientSlice], ['vendor', vendorSlice],
+        ['country', countrySlice], ['destination', destSlice],
+      ];
+      let changed = false;
+      for (const [dim, slice] of pairs) {
+        if (!slice) continue;
+        for (const ent of slice.entities) {
+          const key  = `${dim}:${ent.name}`;
+          const hist = next.get(key) ?? [];
+          if (hist[hist.length - 1] === ent.active && hist.length > 0) continue;
+          next.set(key, [...hist.slice(-7), ent.active]);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [clientSlice, vendorSlice, countrySlice, destSlice]);
+
+  // Entity history → chart points
   const entityHistoryPts: ConcurrentPoint[] = useMemo(() =>
     (entityDetail?.entityHistory ?? []).map(p => ({
       ts: p.ts,
@@ -559,22 +698,45 @@ export default function BitsEye2Page() {
     })), [entityDetail],
   );
 
-  // ── Navigate helper: cross-dim click ─────────────────────────────────────
+  // Cross-dim navigation
   function drillCross(dim: string, name: string) {
     const s = SECTIONS.find(s => s.dim === dim);
     if (s) { setActiveSection(s.id); setSelectedEntity(name); }
   }
 
+  // Search across all dims
+  const searchQuery = sidebarSearch.trim().toLowerCase();
+  const searchResults = useMemo(() => {
+    if (!searchQuery) return null;
+    const out: { dim: string; sec: typeof SECTIONS[0]; entity: EntityRow }[] = [];
+    for (const sec of SECTIONS) {
+      if (!sec.dim) continue;
+      const slice = dimToSlice[sec.dim];
+      if (!slice) continue;
+      for (const ent of slice.entities) {
+        if (ent.name.toLowerCase().includes(searchQuery)) {
+          out.push({ dim: sec.dim, sec, entity: ent });
+        }
+      }
+    }
+    return out;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, clientSlice, vendorSlice, countrySlice, destSlice]);
+
   // ── Sidebar ───────────────────────────────────────────────────────────────
   const sidebar = (
-    <div style={{ width: 220, flexShrink: 0, borderRight: '1px solid #E6EAF0', background: '#FAFBFC', display: 'flex', flexDirection: 'column', overflowY: 'auto' as const }}>
-      <div style={{ padding: '16px 14px 12px', borderBottom: '1px solid #E6EAF0' }}>
+    <div style={{ width: 232, flexShrink: 0, borderRight: '1px solid #E6EAF0', background: '#FAFBFC', display: 'flex', flexDirection: 'column', overflowY: 'auto' as const }}>
+      {/* Live counter header */}
+      <div style={{ padding: '16px 14px 10px', borderBottom: '1px solid #E6EAF0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16A34A', display: 'inline-block', animation: 'be2-pulse 2s infinite' }} />
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16A34A', display: 'inline-block', animation: 'be2-pulse 2.2s ease-in-out infinite' }} />
           <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase' as const, letterSpacing: '0.08em' }}>BitsEye 2 · Live</span>
         </div>
         <div style={{ fontSize: 22, fontWeight: 800, color: '#1F2937', letterSpacing: '-0.02em' }}>
-          {cs?.currentActive ?? liveSummary?.total ?? '—'}
+          {cs?.currentActive !== undefined || liveSummary?.total !== undefined
+            ? <AnimatedNumber value={cs?.currentActive ?? liveSummary?.total ?? 0} />
+            : '—'
+          }
           <span style={{ fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginLeft: 5 }}>active calls</span>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
@@ -583,66 +745,131 @@ export default function BitsEye2Page() {
         </div>
       </div>
 
-      <div style={{ flex: 1, padding: '6px 0' }}>
-        {SECTIONS.map(sec => {
-          const slice      = sec.dim ? dimToSlice[sec.dim] : undefined;
-          const total      = slice?.total ?? 0;
-          const isActive   = activeSection === sec.id;
-          const isExpanded = expanded.has(sec.id);
-          const Icon = sec.icon;
-          return (
-            <div key={sec.id}>
-              <motion.div
-                whileHover={{ background: '#F3F4F6' }}
-                onClick={() => {
-                  if (sec.href) { navigate(sec.href); return; }
-                  setActiveSection(sec.id); setSelectedEntity(null);
-                  if (sec.dim) toggleExpand(sec.id);
-                }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 7, padding: '8px 12px', cursor: 'pointer',
-                  background: isActive ? `${sec.color}0C` : 'transparent',
-                  borderLeft: `3px solid ${isActive ? sec.color : 'transparent'}`,
-                }}
-              >
-                <Icon style={{ width: 14, height: 14, color: isActive ? sec.color : '#6B7280', flexShrink: 0 }} />
-                <span style={{ fontSize: 12, fontWeight: isActive ? 700 : 500, color: isActive ? sec.color : '#374151', flex: 1, minWidth: 0 }}>{sec.label}</span>
-                {sec.href
-                  ? <ExternalLink style={{ width: 10, height: 10, color: '#D1D5DB' }} />
-                  : sec.dim
-                    ? <>
-                        <LivePill count={total} color={sec.color} />
-                        <ChevronDown style={{ width: 11, height: 11, color: '#9CA3AF', transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s', flexShrink: 0 }} />
-                      </>
-                    : null
-                }
-              </motion.div>
+      {/* Search box */}
+      <div style={{ padding: '8px 10px', borderBottom: '1px solid #F3F4F6' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#F3F4F6', borderRadius: 8, padding: '5px 8px' }}>
+          <Search style={{ width: 12, height: 12, color: '#9CA3AF', flexShrink: 0 }} />
+          <input
+            value={sidebarSearch}
+            onChange={e => setSidebarSearch(e.target.value)}
+            placeholder="Search entities…"
+            data-testid="input-sidebar-search"
+            style={{ border: 'none', background: 'none', outline: 'none', fontSize: 11, color: '#374151', width: '100%' }}
+          />
+          {sidebarSearch && (
+            <button onClick={() => setSidebarSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: '#9CA3AF' }}>
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
 
-              <AnimatePresence initial={false}>
-                {sec.dim && isExpanded && slice && (
-                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }} style={{ overflow: 'hidden' }}>
-                    {slice.entities.slice(0, 8).map(ent => (
-                      <motion.div
-                        key={ent.name} whileHover={{ background: '#F9FAFB' }}
-                        onClick={() => { setActiveSection(sec.id); setSelectedEntity(ent.name); }}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px 5px 30px', cursor: 'pointer',
-                          background: selectedEntity === ent.name && activeSection === sec.id ? `${sec.color}0C` : 'transparent',
-                        }}
-                      >
-                        <span style={{ fontSize: 11, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{ent.name}</span>
-                        <LivePill count={ent.active} color={sec.color} />
-                      </motion.div>
-                    ))}
-                    {slice.entities.length > 8 && (
-                      <div style={{ fontSize: 10, color: '#9CA3AF', padding: '2px 12px 4px 30px' }}>+{slice.entities.length - 8} more</div>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+      {/* Nav list */}
+      <div style={{ flex: 1, padding: '4px 0', overflowY: 'auto' as const }}>
+        {searchResults ? (
+          /* Search results */
+          <>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', padding: '6px 14px 3px', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
+              {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
             </div>
-          );
-        })}
+            {searchResults.length === 0 && (
+              <div style={{ fontSize: 12, color: '#D1D5DB', padding: '16px 14px' }}>No entities found</div>
+            )}
+            {searchResults.map(({ dim, sec, entity }) => (
+              <motion.div
+                key={`${dim}:${entity.name}`} whileHover={{ background: '#F3F4F6' }}
+                onClick={() => { setActiveSection(sec.id); setSelectedEntity(entity.name); setSidebarSearch(''); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', cursor: 'pointer' }}
+              >
+                <sec.icon style={{ width: 11, height: 11, color: sec.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{entity.name}</span>
+                <MiniSparkline data={entityHistLocal.get(`${dim}:${entity.name}`) ?? []} color={sec.color} />
+                <LivePill count={entity.active} color={sec.color} />
+              </motion.div>
+            ))}
+          </>
+        ) : (
+          /* Normal navigation */
+          SECTIONS.map(sec => {
+            const slice      = sec.dim ? dimToSlice[sec.dim] : undefined;
+            const total      = slice?.total ?? 0;
+            const isActive   = activeSection === sec.id;
+            const isExpanded = expanded.has(sec.id);
+            const Icon       = sec.icon;
+            const dimPins    = sec.dim ? (pins[sec.dim] ?? new Set<string>()) : new Set<string>();
+            const allEnts    = slice?.entities ?? [];
+            const pinnedEnts   = allEnts.filter(e => dimPins.has(e.name));
+            const unpinnedEnts = allEnts.filter(e => !dimPins.has(e.name));
+            const orderedEnts  = [...pinnedEnts, ...unpinnedEnts].slice(0, 10);
+
+            return (
+              <div key={sec.id}>
+                <motion.div
+                  whileHover={{ background: '#F3F4F6' }}
+                  onClick={() => {
+                    if (sec.href) { navigate(sec.href); return; }
+                    setActiveSection(sec.id); setSelectedEntity(null);
+                    if (sec.dim) toggleExpand(sec.id);
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 7, padding: '8px 12px', cursor: 'pointer',
+                    background: isActive ? `${sec.color}0C` : 'transparent',
+                    borderLeft: `3px solid ${isActive ? sec.color : 'transparent'}`,
+                  }}
+                >
+                  <Icon style={{ width: 14, height: 14, color: isActive ? sec.color : '#6B7280', flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, fontWeight: isActive ? 700 : 500, color: isActive ? sec.color : '#374151', flex: 1, minWidth: 0 }}>{sec.label}</span>
+                  {sec.href
+                    ? <ExternalLink style={{ width: 10, height: 10, color: '#D1D5DB' }} />
+                    : sec.dim
+                      ? <>
+                          <LivePill count={total} color={sec.color} />
+                          <ChevronDown style={{ width: 11, height: 11, color: '#9CA3AF', transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s', flexShrink: 0 }} />
+                        </>
+                      : null
+                  }
+                </motion.div>
+
+                <AnimatePresence initial={false}>
+                  {sec.dim && isExpanded && slice && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }} style={{ overflow: 'hidden' }}>
+                      {orderedEnts.map(ent => {
+                        const isPinned   = dimPins.has(ent.name);
+                        const sparkData  = entityHistLocal.get(`${sec.dim}:${ent.name}`) ?? [];
+                        const isSelected = selectedEntity === ent.name && activeSection === sec.id;
+                        return (
+                          <motion.div
+                            key={ent.name} whileHover={{ background: '#F0F1F3' }}
+                            onClick={() => { setActiveSection(sec.id); setSelectedEntity(ent.name); }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px 4px 26px', cursor: 'pointer',
+                              background: isSelected ? `${sec.color}0C` : 'transparent',
+                            }}
+                          >
+                            {/* Pin star */}
+                            <button
+                              onClick={e => { e.stopPropagation(); togglePin(sec.dim!, ent.name); }}
+                              title={isPinned ? 'Unpin' : 'Pin to top'}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
+                            >
+                              <Star style={{ width: 9, height: 9, color: isPinned ? '#F59E0B' : '#E5E7EB', fill: isPinned ? '#F59E0B' : 'none' }} />
+                            </button>
+                            <span style={{ fontSize: 11, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{ent.name}</span>
+                            <MiniSparkline data={sparkData} color={sec.color} />
+                            <LivePill count={ent.active} color={sec.color} />
+                          </motion.div>
+                        );
+                      })}
+                      {allEnts.length > 10 && (
+                        <div style={{ fontSize: 10, color: '#9CA3AF', padding: '2px 12px 4px 26px' }}>+{allEnts.length - 10} more</div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })
+        )}
       </div>
 
       <div style={{ padding: '8px 12px', borderTop: '1px solid #E6EAF0', fontSize: 10, color: '#9CA3AF' }}>
@@ -653,30 +880,31 @@ export default function BitsEye2Page() {
     </div>
   );
 
-  // ── NOC Overview ──────────────────────────────────────────────────────────
+  // ── NOC Overview panel ────────────────────────────────────────────────────
   const nocPanel = (
     <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', gap: 10 }}>
-        <KpiCard label="Active Channels" value={String(cs?.currentActive ?? liveSummary?.total ?? '—')}           color="#2563EB" icon={Activity}   delay={0.00} />
-        <KpiCard label="Connected"        value={String(liveSummary?.connected ?? cs?.currentConnected ?? '—')}  color="#16A34A" icon={TrendingUp} delay={0.05} />
-        <KpiCard label="Routing"          value={String(liveSummary?.routing ?? cs?.currentRouting ?? '—')}      color="#F59E0B" icon={Zap}        delay={0.10} />
+        <KpiCard label="Active Channels" value={String(cs?.currentActive ?? liveSummary?.total ?? 0)}           numericValue={cs?.currentActive ?? liveSummary?.total ?? 0}          color="#2563EB" icon={Activity}   delay={0.00} />
+        <KpiCard label="Connected"        value={String(liveSummary?.connected ?? cs?.currentConnected ?? 0)}   numericValue={liveSummary?.connected ?? cs?.currentConnected ?? 0}    color="#16A34A" icon={TrendingUp} delay={0.05} />
+        <KpiCard label="Routing"          value={String(liveSummary?.routing ?? cs?.currentRouting ?? 0)}       numericValue={liveSummary?.routing ?? cs?.currentRouting ?? 0}        color="#F59E0B" icon={Zap}        delay={0.10} />
         <KpiCard
           label="Connect Rate" value={liveSummary ? `${liveSummary.liveConnectRatio}%` : '—'}
+          numericValue={liveSummary?.liveConnectRatio}
           color={liveSummary ? (liveSummary.liveConnectRatio >= 70 ? '#16A34A' : liveSummary.liveConnectRatio >= 45 ? '#F59E0B' : '#EF4444') : '#9CA3AF'}
           icon={BarChart2} delay={0.15}
         />
         <KpiCard label="Avg Duration" value={fmtDuration(liveSummary?.avgCallAgeSecs ?? 0)} color="#7C3AED" icon={Radio}      delay={0.20} sub="live ACD proxy" />
-        <KpiCard label="Peak (4h)"    value={String(cs?.peakActive ?? '—')}                 color="#6B7280" icon={TrendingUp} delay={0.25} />
+        <KpiCard label="Peak (4h)"    value={String(cs?.peakActive ?? 0)} numericValue={cs?.peakActive ?? 0}    color="#6B7280" icon={TrendingUp} delay={0.25} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
-        <ConcurrentChart points={concPoints} title="Concurrent Call Stream" sub="5-min buckets · 4h window" />
-        <CpsChart points={concPoints} />
+        <ConcurrentChart points={concPoints} title="Concurrent Call Stream" sub="5-min buckets · 4h window" height={isFullscreen ? 180 : 140} />
+        <CpsChart points={concPoints} height={isFullscreen ? 180 : 100} />
       </div>
 
       <WorldMap
         entities={countrySlice?.entities ?? []}
-        height={280}
+        height={isFullscreen ? 360 : 280}
         onCountryClick={name => { setActiveSection('countries'); setSelectedEntity(name); }}
       />
 
@@ -689,9 +917,10 @@ export default function BitsEye2Page() {
   );
 
   // ── Entity dimension panel ────────────────────────────────────────────────
+  const activeDimPins = activeSec.dim ? (pins[activeSec.dim] ?? new Set<string>()) : new Set<string>();
+
   const entityPanel = (
     <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Breadcrumb */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
         <button
           onClick={() => setSelectedEntity(null)}
@@ -709,22 +938,20 @@ export default function BitsEye2Page() {
         {fetchDetail && <span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 4 }}>↻ refreshing…</span>}
       </div>
 
-      {/* ── Drilldown view ── */}
       {selectedEntity && entityDetail ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* KPI strip */}
           <div style={{ display: 'flex', gap: 10 }}>
-            <KpiCard label="Active"       value={String(entityDetail.active)}    color={activeSec.color} icon={Activity}   delay={0} />
-            <KpiCard label="Connected"    value={String(entityDetail.connected)} color="#16A34A"         icon={TrendingUp} delay={0.05} />
-            <KpiCard label="Routing"      value={String(entityDetail.routing)}   color="#F59E0B"         icon={Zap}        delay={0.10} />
+            <KpiCard label="Active"       value={String(entityDetail.active)}    numericValue={entityDetail.active}    color={activeSec.color} icon={Activity}   delay={0} />
+            <KpiCard label="Connected"    value={String(entityDetail.connected)} numericValue={entityDetail.connected} color="#16A34A"         icon={TrendingUp} delay={0.05} />
+            <KpiCard label="Routing"      value={String(entityDetail.routing)}   numericValue={entityDetail.routing}   color="#F59E0B"         icon={Zap}        delay={0.10} />
             <KpiCard
               label="Connect Rate" value={`${entityDetail.connectRate}%`}
+              numericValue={entityDetail.connectRate}
               color={entityDetail.connectRate >= 70 ? '#16A34A' : entityDetail.connectRate >= 45 ? '#F59E0B' : '#EF4444'}
               icon={BarChart2} delay={0.15}
             />
           </div>
 
-          {/* Concurrent trend */}
           <ConcurrentChart
             points={entityHistoryPts.length > 0 ? entityHistoryPts : concPoints}
             color={activeSec.color}
@@ -732,44 +959,21 @@ export default function BitsEye2Page() {
             sub={entityHistoryPts.length > 0 ? `${entityHistoryPts.length} snapshots · 45s interval` : 'Global chart shown — entity history building…'}
           />
 
-          {/* Cross-dimensional breakdown */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            {/* Left column */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {entityDetail.topClients.length > 0 && (
-                <CrossTable
-                  title="Top Clients"
-                  rows={entityDetail.topClients}
-                  color="#7C3AED"
-                  onRowClick={name => drillCross('client', name)}
-                />
+                <CrossTable title="Top Clients" rows={entityDetail.topClients} color="#7C3AED" onRowClick={name => drillCross('client', name)} />
               )}
               {entityDetail.topVendors.length > 0 && (
-                <CrossTable
-                  title="Top Vendors"
-                  rows={entityDetail.topVendors}
-                  color="#0891B2"
-                  onRowClick={name => drillCross('vendor', name)}
-                />
+                <CrossTable title="Top Vendors" rows={entityDetail.topVendors} color="#0891B2" onRowClick={name => drillCross('vendor', name)} />
               )}
             </div>
-            {/* Right column */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {entityDetail.topCountries.length > 0 && (
-                <CrossTable
-                  title="Top Countries"
-                  rows={entityDetail.topCountries}
-                  color="#059669"
-                  onRowClick={name => drillCross('country', name)}
-                />
+                <CrossTable title="Top Countries" rows={entityDetail.topCountries} color="#059669" onRowClick={name => drillCross('country', name)} />
               )}
               {entityDetail.topDestinations.length > 0 && (
-                <CrossTable
-                  title="Top Destinations"
-                  rows={entityDetail.topDestinations}
-                  color="#D97706"
-                  onRowClick={name => drillCross('destination', name)}
-                />
+                <CrossTable title="Top Destinations" rows={entityDetail.topDestinations} color="#D97706" onRowClick={name => drillCross('destination', name)} />
               )}
             </div>
           </div>
@@ -782,28 +986,37 @@ export default function BitsEye2Page() {
           )}
         </div>
       ) : selectedEntity ? (
-        /* Loading state */
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: '#9CA3AF', fontSize: 13 }}>
           Loading {selectedEntity}…
         </div>
       ) : (
-        /* Entity grid view */
         <>
           {activeSection === 'countries' && (
-            <WorldMap
-              entities={countrySlice?.entities ?? []}
-              height={300}
-              onCountryClick={setSelectedEntity}
-            />
+            <WorldMap entities={countrySlice?.entities ?? []} height={300} onCountryClick={setSelectedEntity} />
           )}
           <motion.div
             style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}
             variants={{ show: { transition: { staggerChildren: 0.04 } } }}
             initial="hidden" animate="show"
           >
-            {activeDim?.entities?.map(ent => (
+            {/* Pinned first */}
+            {activeDim?.entities?.filter(e => activeDimPins.has(e.name)).map(ent => (
+              <motion.div key={`pin-${ent.name}`} variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}>
+                <EntityCard
+                  entity={ent} color={activeSec.color}
+                  onClick={() => setSelectedEntity(ent.name)}
+                  pinned onPin={() => togglePin(activeSec.dim!, ent.name)}
+                />
+              </motion.div>
+            ))}
+            {/* Unpinned */}
+            {activeDim?.entities?.filter(e => !activeDimPins.has(e.name)).map(ent => (
               <motion.div key={ent.name} variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}>
-                <EntityCard entity={ent} color={activeSec.color} onClick={() => setSelectedEntity(ent.name)} />
+                <EntityCard
+                  entity={ent} color={activeSec.color}
+                  onClick={() => setSelectedEntity(ent.name)}
+                  pinned={false} onPin={activeSec.dim ? () => togglePin(activeSec.dim!, ent.name) : undefined}
+                />
               </motion.div>
             ))}
             {(!activeDim || activeDim.entities.length === 0) && (
@@ -817,11 +1030,11 @@ export default function BitsEye2Page() {
     </div>
   );
 
-  const rightPanel = activeSection === 'noc' ? nocPanel : activeSec.dim ? entityPanel : nocPanel;
+  const rightPanel = activeSection === 'noc' || isFullscreen ? nocPanel : activeSec.dim ? entityPanel : nocPanel;
 
   // ── Layout ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#F7F9FC' }}>
+    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#F7F9FC' }}>
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 20px', background: '#fff', borderBottom: '1px solid #E6EAF0', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -833,23 +1046,43 @@ export default function BitsEye2Page() {
             <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 500 }}>Live Traffic Visibility</div>
           </div>
           <span style={{ marginLeft: 8, display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: '#16A34A', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 99, padding: '2px 8px' }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16A34A', display: 'inline-block', animation: 'be2-pulse 2s infinite' }} />
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16A34A', display: 'inline-block', animation: 'be2-pulse 2.2s ease-in-out infinite' }} />
             LIVE
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {isFetching && <RefreshCw style={{ width: 14, height: 14, color: '#2563EB', animation: 'be2-spin 1s linear infinite' }} />}
-          <span style={{ fontSize: 11, color: '#D1D5DB' }}>30s refresh</span>
-          <a href="/bitseye" style={{ fontSize: 11, color: '#9CA3AF', textDecoration: 'none', padding: '4px 10px', border: '1px solid #E6EAF0', borderRadius: 6 }}>← BitsEye v1</a>
+          {!isFullscreen && <span style={{ fontSize: 11, color: '#D1D5DB' }}>30s refresh</span>}
+          {/* Wallboard / fullscreen toggle */}
+          <button
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Exit wallboard' : 'NOC Wallboard — fullscreen'}
+            data-testid="button-wallboard"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600,
+              color: isFullscreen ? '#2563EB' : '#6B7280',
+              background: isFullscreen ? '#EFF6FF' : '#F9FAFB',
+              border: `1px solid ${isFullscreen ? '#BFDBFE' : '#E6EAF0'}`,
+              borderRadius: 6, padding: '5px 10px', cursor: 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            {isFullscreen
+              ? <><Minimize2 style={{ width: 12, height: 12 }} /> Exit</>
+              : <><Maximize2 style={{ width: 12, height: 12 }} /> Wallboard</>
+            }
+          </button>
+          {!isFullscreen && (
+            <a href="/bitseye" style={{ fontSize: 11, color: '#9CA3AF', textDecoration: 'none', padding: '5px 10px', border: '1px solid #E6EAF0', borderRadius: 6 }}>← BitsEye v1</a>
+          )}
         </div>
       </div>
 
       {/* Body */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {sidebar}
+        {!isFullscreen && sidebar}
         <AnimatePresence mode="wait">
           <motion.div
-            key={activeSection + (selectedEntity ?? '')}
+            key={activeSection + (selectedEntity ?? '') + String(isFullscreen)}
             initial={{ opacity: 0, x: 6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }}
             transition={{ duration: 0.18 }}
             style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
@@ -860,8 +1093,11 @@ export default function BitsEye2Page() {
       </div>
 
       <style>{`
-        @keyframes be2-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-        @keyframes be2-spin  { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes be2-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50%       { opacity: 0.3; transform: scale(0.88); }
+        }
+        @keyframes be2-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
