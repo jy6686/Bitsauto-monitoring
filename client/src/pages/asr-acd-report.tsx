@@ -168,6 +168,28 @@ export default function AsrAcdReportPage() {
   const [submitted, setSubmitted] = useState<FilterState | null>(null);
   const [enabled, setEnabled]     = useState(false);
 
+  // ── Quick window helpers ───────────────────────────────────────────────────
+  const [relFrom, setRelFrom]       = useState("90");
+  const [relTo, setRelTo]           = useState("0");
+  const [activePreset, setActivePreset] = useState<string | null>(null);
+
+  function setQuickWindow(fromMinAgo: number, toMinAgo: number, preset?: string) {
+    const nowMs = Date.now();
+    setFilters(prev => ({
+      ...prev,
+      startTime: toDatetimeLocal(new Date(nowMs - fromMinAgo * 60_000)),
+      endTime:   toDatetimeLocal(new Date(nowMs - toMinAgo   * 60_000)),
+    }));
+    setActivePreset(preset ?? null);
+  }
+
+  function applyRelative() {
+    const from = Math.max(0, parseInt(relFrom) || 0);
+    const to   = Math.max(0, parseInt(relTo)   || 0);
+    if (from <= to) return; // start must be before end
+    setQuickWindow(from, to, `${from}→${to}`);
+  }
+
   const setF = (key: keyof FilterState) => (value: string | boolean) =>
     setFilters(prev => ({ ...prev, [key]: value }));
 
@@ -285,6 +307,119 @@ export default function AsrAcdReportPage() {
             <Badge variant="outline" className="text-xs text-muted-foreground mt-1 shrink-0">
               {data.cdrCount.toLocaleString()} CDRs · {new Date(data.generatedAt).toLocaleTimeString()}
             </Badge>
+          )}
+        </div>
+
+        {/* ── Time Window bar ── */}
+        <div className="rounded-lg border border-border bg-card px-4 py-3 flex flex-wrap items-center gap-3">
+          {/* Label */}
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Time window</span>
+
+          {/* Quick preset chips */}
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { label: 'Last 30 m',  from: 30,   to: 0,   key: '30m'   },
+              { label: 'Last 1 h',   from: 60,   to: 0,   key: '1h'    },
+              { label: 'Last 90 m',  from: 90,   to: 0,   key: '90m'   },
+              { label: 'Last 4 h',   from: 240,  to: 0,   key: '4h'    },
+              { label: 'Last 24 h',  from: 1440, to: 0,   key: '24h'   },
+            ] as const).map(p => (
+              <button
+                key={p.key}
+                data-testid={`button-preset-${p.key}`}
+                onClick={() => setQuickWindow(p.from, p.to, p.key)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md text-xs font-medium border transition-colors",
+                  activePreset === p.key
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+            {/* Today */}
+            <button
+              data-testid="button-preset-today"
+              onClick={() => {
+                const n = new Date();
+                const midnight = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+                const fromMin = Math.round((n.getTime() - midnight.getTime()) / 60_000);
+                setQuickWindow(fromMin, 0, 'today');
+              }}
+              className={cn(
+                "px-2.5 py-1 rounded-md text-xs font-medium border transition-colors",
+                activePreset === 'today'
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+              )}
+            >
+              Today
+            </button>
+            {/* Yesterday */}
+            <button
+              data-testid="button-preset-yesterday"
+              onClick={() => {
+                const n = new Date();
+                const yStart = new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1, 0, 0, 0);
+                const yEnd   = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 0, 0, 0);
+                setFilters(prev => ({ ...prev, startTime: toDatetimeLocal(yStart), endTime: toDatetimeLocal(yEnd) }));
+                setActivePreset('yesterday');
+              }}
+              className={cn(
+                "px-2.5 py-1 rounded-md text-xs font-medium border transition-colors",
+                activePreset === 'yesterday'
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+              )}
+            >
+              Yesterday
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div className="hidden sm:block h-5 w-px bg-border" />
+
+          {/* Relative offset input: "X min ago → Y min ago" */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs text-muted-foreground whitespace-nowrap">From</span>
+            <input
+              type="number"
+              min="1"
+              value={relFrom}
+              onChange={e => { setRelFrom(e.target.value); setActivePreset(null); }}
+              data-testid="input-rel-from"
+              className="w-16 h-7 rounded-md border border-input bg-background px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <span className="text-xs text-muted-foreground whitespace-nowrap">min ago →</span>
+            <input
+              type="number"
+              min="0"
+              value={relTo}
+              onChange={e => { setRelTo(e.target.value); setActivePreset(null); }}
+              data-testid="input-rel-to"
+              className="w-16 h-7 rounded-md border border-input bg-background px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <span className="text-xs text-muted-foreground whitespace-nowrap">min ago</span>
+            <button
+              onClick={applyRelative}
+              data-testid="button-apply-relative"
+              disabled={parseInt(relFrom) <= parseInt(relTo)}
+              className="px-2.5 py-1 rounded-md text-xs font-medium bg-primary text-primary-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+            >
+              Set
+            </button>
+          </div>
+
+          {/* Active window summary */}
+          {filters.startTime && filters.endTime && (
+            <span className="ml-auto text-xs text-muted-foreground hidden lg:block">
+              {new Date(filters.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {' → '}
+              {new Date(filters.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {' · '}
+              {Math.round((new Date(filters.endTime).getTime() - new Date(filters.startTime).getTime()) / 60_000)} min
+            </span>
           )}
         </div>
 
