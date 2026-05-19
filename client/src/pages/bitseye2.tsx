@@ -186,9 +186,9 @@ function AnimatedNumber({ value }: { value: number }) {
 }
 
 // ── Mini sparkline (sidebar entity rows) ─────────────────────────────────────
-function MiniSparkline({ data, color }: { data: number[]; color: string }) {
+function MiniSparkline({ data, color, idle = false }: { data: number[]; color: string; idle?: boolean }) {
   if (data.length < 3) return null;
-  const W = 36, H = 14;
+  const W = 38, H = 14;
   const max   = Math.max(...data) || 1;
   const min   = Math.min(...data);
   const range = (max - min) || 1;
@@ -197,11 +197,23 @@ function MiniSparkline({ data, color }: { data: number[]; color: string }) {
     const y = H - ((v - min) / range) * (H - 2) - 1;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
-  const tail  = data[data.length - 1] - data[Math.max(0, data.length - 4)];
-  const stroke = tail > 0 ? '#16A34A' : tail < 0 ? '#EF4444' : color;
+  const tail   = data[data.length - 1] - data[Math.max(0, data.length - 4)];
+  // Idle entities: always grey to signal "was active, now silent"
+  // Active entities: green if climbing, red if falling, section color if stable
+  const stroke = idle ? '#9CA3AF' : (tail > 0 ? '#16A34A' : tail < 0 ? '#EF4444' : color);
+  const opacity = idle ? 0.45 : 0.85;
+  // Last point pulse dot (only for active entities with history)
+  const lastPt = data.length >= 2 ? pts.split(' ').pop()! : null;
+  const [lx, ly] = lastPt ? lastPt.split(',').map(Number) : [W, H / 2];
   return (
     <svg width={W} height={H} style={{ flexShrink: 0, overflow: 'visible' }}>
-      <polyline points={pts} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" opacity={0.8} />
+      <polyline points={pts} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" opacity={opacity} />
+      {!idle && data[data.length - 1] > 0 && (
+        <circle cx={lx} cy={ly} r={2} fill={stroke} opacity={0.9}>
+          <animate attributeName="opacity" values="0.9;0.3;0.9" dur="2s" repeatCount="indefinite" />
+          <animate attributeName="r" values="2;3;2" dur="2s" repeatCount="indefinite" />
+        </circle>
+      )}
     </svg>
   );
 }
@@ -948,7 +960,7 @@ export default function BitsEye2Page() {
               >
                 <sec.icon style={{ width: 11, height: 11, color: sec.color, flexShrink: 0 }} />
                 <span style={{ fontSize: 11, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{entity.name}</span>
-                <MiniSparkline data={entityHistLocal.get(`${dim}:${entity.name}`) ?? []} color={sec.color} />
+                <MiniSparkline data={entityHistLocal.get(`${dim}:${entity.name}`) ?? []} color={sec.color} idle={entity.idle} />
                 <LivePill count={entity.active} color={sec.color} />
               </motion.div>
             ))}
@@ -1090,7 +1102,7 @@ export default function BitsEye2Page() {
                                   />
                                 );
                               })()}
-                              <MiniSparkline data={sparkData} color={sec.color} />
+                              <MiniSparkline data={sparkData} color={sec.color} idle={ent.idle} />
                               <LivePill count={ent.active} color={sec.color} />
                               {/* Expand sub-tree toggle */}
                               {cdCfg && (
