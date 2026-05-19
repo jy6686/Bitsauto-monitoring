@@ -270,6 +270,28 @@ const SCOPE_FILTER_MAP: Record<string, { type: 'entity' | 'route'; key: string }
   '@mgmt':       { type: 'route',  key: 'Management' },
 };
 
+// ── Scope descriptions — shown in @autocomplete panel ────────────────────────
+const SCOPE_DESCRIPTIONS: Record<string, string> = {
+  '@country':   'Live country entities and routing topology',
+  '@geo':       'Live country entities and routing topology',
+  '@client':    'Active client accounts and live traffic',
+  '@vendor':    'Carrier vendors and connection data',
+  '@dest':      'Routing destination sets',
+  '@live':      'Real-time NOC, live calls and alerts',
+  '@noc':       'Real-time NOC, live calls and alerts',
+  '@analytics': 'Revenue, margin and traffic analytics',
+  '@reports':   'Historical reports and KPI exports',
+  '@rpt':       'Historical reports and KPI exports',
+  '@tooling':   'SIP trace, RTP debug and test tools',
+  '@debug':     'SIP trace, RTP debug and test tools',
+  '@routing':   'Routing groups, LCR and flow simulation',
+  '@lcr':       'Routing groups, LCR and flow simulation',
+  '@fraud':     'Fraud detection, firewall and compliance',
+  '@fas':       'Fraud detection, firewall and compliance',
+  '@settings':  'Platform configuration and administration',
+  '@mgmt':      'Team management and access control',
+};
+
 // ── CommandBar ─────────────────────────────────────────────────────────────────
 export function CommandBar() {
   const [open, setOpen]   = useState(false);
@@ -496,13 +518,20 @@ export function CommandBar() {
               return (
                 <CommandItem key={sc} value={`scope-ac ${sc}`}
                   onSelect={() => setQuery(prefix + sc + ' ')}
-                  data-testid={`cmd-scope-${sc.slice(1)}`}>
-                  <span className="font-mono text-[11px] text-indigo-400 mr-2 flex-shrink-0">{sc}</span>
-                  <span className="flex-1 text-sm">{m?.key}</span>
+                  data-testid={`cmd-scope-${sc.slice(1)}`}
+                  className="items-start py-2">
+                  <span className="font-mono text-[11px] text-indigo-400 mr-3 flex-shrink-0 mt-0.5">{sc}</span>
+                  <span className="flex-1 flex flex-col gap-0.5 min-w-0">
+                    <span className="text-sm font-medium leading-none">{m?.key}</span>
+                    {SCOPE_DESCRIPTIONS[sc] && (
+                      <span className="text-[10px] text-muted-foreground/50 leading-none">{SCOPE_DESCRIPTIONS[sc]}</span>
+                    )}
+                  </span>
                   {chip && (
                     <span style={{
                       fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', flexShrink: 0,
                       padding: '1px 5px', borderRadius: 3, background: chip.bg, color: chip.fg,
+                      marginTop: 2,
                     }}>{chip.label}</span>
                   )}
                 </CommandItem>
