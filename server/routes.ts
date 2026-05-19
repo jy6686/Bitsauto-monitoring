@@ -11973,6 +11973,11 @@ export async function registerRoutes(
     client: 86_400_000, vendor: 86_400_000, country: 43_200_000, destination: 21_600_000,
   };
 
+  // Cross-dim topology cache — tracks which cross-dim entities co-occur with each entity.
+  // Only updated when entity is active; preserved when entity goes idle, enabling idle sub-tree.
+  // Structure: dim → entityName → crossDim → crossEntityName → lastCount
+  const crossDimCache = new Map<string, Map<string, Map<string, Map<string, number>>>>();
+
   let _snapshotRunning = false;
   async function snapshotActiveCalls(): Promise<void> {
     if (_snapshotRunning) return; // mutex — skip if previous cycle still in progress
@@ -12107,6 +12112,32 @@ export async function registerRoutes(
               dimMap.delete(name);
             }
           }
+
+          // ── crossDimCache: record co-occurring cross-dim entities for active entities ──
+          // Enables idle sub-tree: topology is remembered even when calls stop.
+          const getDimKeyLocal = (d: string, c: any): string | null => {
+            if (d === 'client')      return c.clientName || (c.accountId ? `Acct.${c.accountId}` : null);
+            if (d === 'vendor')      return c.vendor || c.connection || null;
+            if (d === 'country')     return c.destCountry || null;
+            if (d === 'destination') return c.destFull || c.destCountry || null;
+            return null;
+          };
+          const dimCrossCache = crossDimCache.get(dim) ?? new Map<string, Map<string, Map<string, number>>>();
+          for (const c of enrichedCalls) {
+            const key = getKey(c);
+            if (!key) continue;
+            const entityCross = dimCrossCache.get(key) ?? new Map<string, Map<string, number>>();
+            for (const cd of ['client', 'vendor', 'country', 'destination']) {
+              if (cd === dim) continue;
+              const crossKey = getDimKeyLocal(cd, c);
+              if (!crossKey) continue;
+              const cdMap = entityCross.get(cd) ?? new Map<string, number>();
+              cdMap.set(crossKey, (cdMap.get(crossKey) ?? 0) + 1);
+              entityCross.set(cd, cdMap);
+            }
+            dimCrossCache.set(key, entityCross);
+          }
+          crossDimCache.set(dim, dimCrossCache);
 
           entityPresenceCache.set(dim, presMap);
           entityConcurrentHistory.set(dim, dimMap);
@@ -13170,10 +13201,25 @@ export async function registerRoutes(
     }
 
     // Build cross-dimensional tables (skip the dimension we're already in)
-    const topClients      = dim !== 'client'      ? crossGroup('client')      : [];
-    const topVendors      = dim !== 'vendor'      ? crossGroup('vendor')      : [];
-    const topCountries    = dim !== 'country'     ? crossGroup('country')     : [];
-    const topDestinations = dim !== 'destination' ? crossGroup('destination') : [];
+    let topClients      = dim !== 'client'      ? crossGroup('client')      : [];
+    let topVendors      = dim !== 'vendor'      ? crossGroup('vendor')      : [];
+    let topCountries    = dim !== 'country'     ? crossGroup('country')     : [];
+    let topDestinations = dim !== 'destination' ? crossGroup('destination') : [];
+
+    // For idle entities: supplement empty cross-dim tables with last-known topology from crossDimCache.
+    // This enables persistent sub-tree — children remain visible at 0 calls when parent goes idle.
+    if (active === 0) {
+      const crossData = crossDimCache.get(dim)?.get(name);
+      if (crossData) {
+        const mkHist = (cdMap: Map<string, number>) =>
+          [...cdMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+            .map(([n]) => ({ name: n, active: 0, connected: 0, connectRate: 0 }));
+        if (topClients.length      === 0 && crossData.has('client'))      topClients      = mkHist(crossData.get('client')!);
+        if (topVendors.length      === 0 && crossData.has('vendor'))      topVendors      = mkHist(crossData.get('vendor')!);
+        if (topCountries.length    === 0 && crossData.has('country'))     topCountries    = mkHist(crossData.get('country')!);
+        if (topDestinations.length === 0 && crossData.has('destination')) topDestinations = mkHist(crossData.get('destination')!);
+      }
+    }
 
     // Per-entity concurrent history (last 48 snapshots ≈ 36 min at 45s)
     const dimMap      = entityConcurrentHistory.get(dim);

@@ -1181,10 +1181,12 @@ export default function BitsEye2Page() {
                                   </div>
                                   {subRows.length === 0 && !sidebarDetailFetching && (
                                     <div style={{ fontSize: 10, color: '#D1D5DB', padding: '2px 10px 4px 44px' }}>
-                                      No active {cdCfg.label.toLowerCase()}
+                                      {ent.idle ? `No ${cdCfg.label.toLowerCase()} history` : `No active ${cdCfg.label.toLowerCase()}`}
                                     </div>
                                   )}
-                                  {subRows.map((sub, idx) => (
+                                  {subRows.map((sub, idx) => {
+                                    const subIdle = sub.active === 0;
+                                    return (
                                     <motion.div
                                       key={sub.name}
                                       initial={{ opacity: 0, x: -6 }}
@@ -1193,14 +1195,15 @@ export default function BitsEye2Page() {
                                       whileHover={{ background: '#F0F1F3' }}
                                       onClick={() => { setActiveSection(cdCfg.targetSec); setSelectedEntity(sub.name); }}
                                       data-testid={`tree-sub-${sub.name}`}
-                                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px 3px 44px', cursor: 'pointer' }}
+                                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px 3px 44px', cursor: 'pointer', opacity: subIdle ? 0.7 : 1 }}
                                     >
                                       {/* Tree branch line */}
-                                      <div style={{ width: 8, height: 1, background: `${sec.color}33`, flexShrink: 0 }} />
-                                      <span style={{ fontSize: 10, color: '#6B7280', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{sub.name}</span>
+                                      <div style={{ width: 8, height: 1, background: subIdle ? '#D1D5DB' : `${sec.color}33`, flexShrink: 0 }} />
+                                      <span style={{ fontSize: 10, color: subIdle ? '#9CA3AF' : '#6B7280', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{sub.name}</span>
                                       <LivePill count={sub.active} color={sec.color} />
                                     </motion.div>
-                                  ))}
+                                    );
+                                  })}
                                 </motion.div>
                               )}
                             </AnimatePresence>
