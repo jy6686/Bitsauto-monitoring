@@ -10,9 +10,14 @@ import {
   LayoutDashboard, Zap, Map, BarChart3, Brain,
   SlidersHorizontal, Key, Mail, Building2, Wallet,
   HeartPulse, Mic, Bot, ClipboardList, ArrowRightLeft,
-  FileSpreadsheet, Rewind, Upload, Star, Package,
+  FileSpreadsheet, Rewind, Upload, Star, Package, Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// Trigger the CommandBar via keyboard event — avoids a direct import cycle
+function openCommandBar() {
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
+}
 
 // ── Domain taxonomy ────────────────────────────────────────────────────────────
 interface Module { href: string; label: string; desc: string; icon: React.ComponentType<{ className?: string }> }
@@ -274,15 +279,29 @@ export function AppNavShell() {
           })}
         </nav>
 
-        {/* Right: breadcrumb compact trail */}
-        <div className="hidden lg:flex items-center gap-1 text-[10px] text-muted-foreground/40 ml-4 flex-shrink-0">
+        {/* Right: breadcrumb + ⌘K chip */}
+        <div className="hidden lg:flex items-center gap-3 ml-4 flex-shrink-0">
           {activeDomain && (
-            <>
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/40">
               <span className={cn("font-semibold", activeDomain.color)}>{activeDomain.label}</span>
               <ChevronRight className="w-3 h-3" />
               <span className="text-muted-foreground/60">{meta.label}</span>
-            </>
+            </div>
           )}
+          {/* ⌘K trigger chip — makes command palette discoverable */}
+          <button
+            onClick={openCommandBar}
+            data-testid="nav-command-search"
+            className={cn(
+              "flex items-center gap-1.5 h-[26px] px-2.5 rounded-md border text-[10px] font-medium transition-colors",
+              "border-white/[0.1] text-muted-foreground/50 hover:text-muted-foreground hover:border-white/[0.2] hover:bg-white/[0.04]"
+            )}
+            aria-label="Open command search"
+          >
+            <Search className="w-3 h-3" />
+            <span>Search</span>
+            <kbd className="ml-1 text-[9px] opacity-60 font-mono">⌘K</kbd>
+          </button>
         </div>
       </div>
 
