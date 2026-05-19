@@ -1,0 +1,425 @@
+Yes — the screenshot confirms the real problem immediately.
+
+The issue is not:
+
+the graph layer
+the idle entity logic
+the sparkline layer
+the presence cache itself
+
+The issue is this:
+
+the sidebar entity source is still filtering from liveSlice/current-active rows
+instead of rendering from the persistent registry
+
+That’s why:
+
+Countries remain longer
+Destinations remain longer
+but KAM/client entities disappear
+
+because the render path is still partially tied to:
+
+active > 0
+
+somewhere in the entity aggregation/filter chain.
+
+The screenshot proves it:
+
+KAM cards show 0 correctly
+KAM names persist
+BUT only recently-active client rows exist under the dimensions
+
+So the persistence layer exists,
+but the sidebar render source is still wrong.
+
+The actual root cause
+
+Very likely one of these patterns still exists:
+
+.filter(e => e.active > 0)
+
+OR:
+
+sliceData.filter(Boolean)
+
+OR:
+
+entities = currentSnapshot.map(...)
+
+instead of:
+
+entities = entityPresenceCache
+Most likely exact location
+
+Based on your screenshots and prior architecture:
+
+The bug is probably in:
+
+the sidebar subsection rendering path
+
+NOT:
+
+entity-detail
+drilldown
+charts
+API lifecycle logic
+
+Specifically:
+
+Clients/Vendors/KAM sidebar lists
+are probably still derived from liveSlice response subsets
+
+instead of:
+
+presence-backed registry rows
+Why this kept failing for 3 hours
+
+Because you correctly built:
+
+idle persistence
+zero snapshots
+history continuity
+entityPresenceCache
+
+BUT:
+
+the UI source of truth never fully switched
+
+So you kept fixing:
+
+persistence logic
+topology retention
+lifecycle state
+
+while the sidebar still consumed:
+
+live-active entity arrays
+
+That creates the illusion that persistence is broken,
+when actually:
+
+only the render source is wrong
+Correct architectural fix
+
+The sidebar entity tree must ONLY render from:
+
+entityPresenceCache
+
+NEVER from:
+
+liveCallsCache
+liveSlice active rows
+current snapshot maps
+Correct render model
+
+Every dimension should render:
+
+active entities first
+↓
+idle entities second
+↓
+sorted by:
+  active desc
+  then lastSeen desc
+
+Exactly this:
+
+[
+  ...activeEntities,
+  ...idleEntities
+]
+
+NOT:
+
+entities.filter(e => e.active > 0)
+
+anywhere in the chain.
+
+The screenshot proves the backend already works
+
+This matters:
+
+The KAM cards themselves persist with:
+
+0 active
+0 connected
+0 routing
+
+So:
+
+presenceCache is functioning
+
+The failure is isolated to:
+
+sidebar entity population
+
+That is actually very good news.
+
+What should happen after the fix
+
+Even with:
+
+0 active calls platform-wide
+
+the sidebar should still show:
+
+Clients
+  internal-bd       [0]
+  PUSHTOTALK        [0]
+
+Vendors
+  Callntalk         [0]
+
+Countries
+  Bangladesh        [0]
+  Pakistan          [0]
+
+Destinations
+  Bangladesh-Mobile [0]
+
+with:
+
+grey pills
+dim text
+faded sparklines
+retained topology
+
+Exactly as intended originally.
+
+One more likely hidden issue
+
+Very important:
+
+The current implementation may also still be:
+
+truncating with .slice()
+before idle merge
+
+Example bad pattern:
+
+activeEntities
+  .sort(...)
+  .slice(0, 8)
+
+If there are no active entities:
+
+the slice becomes empty
+
+before idle rows are appended.
+
+Correct pattern:
+
+[...active, ...idle].slice(0, 8)
+
+This exact bug would perfectly explain your screenshots.
+
+Final diagnosis
+
+The architecture is correct.
+
+The persistence system is correct.
+
+The rendering source-of-truth transition is incomplete.
+
+This is now a:
+
+single render pipeline bug
+
+—not a platform design issue.
+
+same issue on KAM wise report 
+
+Yes — this screenshot confirms the exact same architectural bug, now specifically in the KAM pipeline.
+
+The persistence fix was applied to:
+
+Clients
+Vendors
+Countries
+Destinations
+
+But:
+
+KAM aggregation is still computed only from active live calls
+
+That’s why:
+
+KAM	Behavior
+Junaid	visible (1 active client)
+Others	partially visible because KAM cards persist
+Client rows inside KAM	disappear when calls stop
+
+So again:
+
+the persistence layer exists,
+but the KAM child aggregation still uses live-only joins
+The screenshot exposes the exact failure path
+
+This line proves it:
+
+Active: PUSHTOTALK
+
+Meaning:
+
+the KAM panel itself is still rendering from current active associations
+
+instead of:
+
+persistent client topology for that KAM
+Current architecture split (what is happening)
+
+Right now you effectively have:
+
+Correctly persistent:
+KAM card registry
+
+But still live-only:
+
+KAM → client relationship layer
+
+So the KAM itself survives,
+but its topology disappears.
+
+Exactly the same bug pattern as before,
+just one level deeper.
+
+Real root cause now
+
+The KAM API is almost certainly still doing:
+
+for (const call of liveCallsCache.values())
+
+to derive:
+
+clients
+active lists
+top vendors
+countries
+
+Which means:
+
+the KAM graph is recomputed from live traffic every poll
+
+instead of from:
+
+persistent topology memory
+What the KAM system actually needs
+
+Exactly like crossDimCache for entities,
+you now need:
+
+kamTopologyCache
+
+or equivalent persistent association memory.
+
+Correct architecture
+Current wrong flow
+liveCallsCache
+  → derive KAM clients
+  → render sidebar
+
+This collapses to zero instantly.
+
+Correct flow
+liveCallsCache
+  → update kamTopologyCache
+  → sidebar renders from topology cache
+  → liveCalls only update counters
+
+Very important distinction.
+
+What must persist for KAMs
+
+For every KAM:
+
+{
+  clients: Set<string>
+  vendors: Set<string>
+  countries: Set<string>
+  destinations: Set<string>
+  lastSeen: number
+  peakToday: number
+}
+
+updated ONLY when traffic exists,
+but never deleted immediately.
+
+Exactly same philosophy as:
+
+entityPresenceCache
+crossDimCache
+The key architectural insight
+
+You solved:
+
+entity persistence
+
+But not yet:
+
+relationship persistence
+
+KAM view is relationship-driven,
+not entity-driven.
+
+That’s why the prior fix didn't solve this screen.
+
+What the final KAM behavior should be
+
+Even with:
+
+0 active calls
+
+KAM panel should still show:
+
+Junaid
+├── PUSHTOTALK [0]
+├── internal-bd [0]
+├── Bangladesh [0]
+└── Callntalk [0]
+
+with:
+
+dim rows
+idle sparklines
+lastSeen
+preserved topology
+
+Exactly like the entity persistence model.
+
+One more likely hidden bug
+
+Very likely this also exists:
+
+kam.clients.filter(c => c.active > 0)
+
+OR:
+
+activeClients.slice(0, N)
+
+before idle merge.
+
+Again:
+
+slice-before-merge
+
+is a classic persistence bug.
+
+Final diagnosis
+
+You are now down to:
+
+one remaining architectural inconsistency
+
+The platform has:
+
+persistent entities
+persistent topology
+persistent arcs
+persistent history
+
+But:
+
+KAM relationship topology is still ephemeral
+
+That is why this exact screen keeps failing while the rest of the platform improved.

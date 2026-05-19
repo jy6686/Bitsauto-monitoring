@@ -12105,9 +12105,10 @@ export async function registerRoutes(
             }
           }
 
-          // Prune entities beyond their retention window
+          // Prune entities beyond their retention window.
+          // Entities with lastSeen=0 are bootstrapped (never seen with live calls) — never prune them.
           for (const [name, pres] of presMap.entries()) {
-            if (nowEnt - pres.lastSeen > retention) {
+            if (pres.lastSeen > 0 && nowEnt - pres.lastSeen > retention) {
               presMap.delete(name);
               dimMap.delete(name);
             }
@@ -12189,6 +12190,44 @@ export async function registerRoutes(
   }
   setTimeout(() => snapshotActiveCalls(), 8000);            // first run at startup
   setInterval(() => snapshotActiveCalls(), 45 * 1000);      // every 45 s — slightly under UI's 60s poll
+
+  // ── Presence cache bootstrap — runs 2 s after startup ───────────────────────
+  // Seeds entityPresenceCache['client'] with every registered KAM client so all
+  // known clients are visible in the sidebar immediately, even before their first
+  // call in this server session.  lastSeen=0 signals "bootstrapped, never yet seen
+  // live" — the pruning guard above skips those entries so they never get pruned.
+  // Once snapshotActiveCalls() sees a real call for the client, it overwrites the
+  // bootstrapped entry with live data (lastSeen, peakToday, etc.) and normal
+  // lifecycle takes over.
+  setTimeout(async () => {
+    try {
+      const nowMs   = Date.now();
+      const allAccs = await storage.getKamAccounts();
+      const clientPresMap = entityPresenceCache.get('client') ?? new Map<string, EntityPresence>();
+      let seeded = 0;
+      for (const acc of allAccs) {
+        // Prefer explicit clientName; fall back to accountNameCache (Sippy display name);
+        // fall back to Acct.<id> so every registered account always has an entry.
+        const resolvedName = acc.clientName
+          || (acc.accountId ? accountNameCache.get(String(acc.accountId)) : undefined)
+          || (acc.accountId ? `Acct.${acc.accountId}` : null);
+        if (resolvedName && !clientPresMap.has(resolvedName)) {
+          clientPresMap.set(resolvedName, {
+            lastSeen: 0, firstSeen: nowMs,
+            currentActive: 0, currentConnected: 0, currentRouting: 0,
+            connectRate: 0, peakToday: 0, peakTs: nowMs,
+          });
+          seeded++;
+        }
+      }
+      if (seeded > 0) {
+        entityPresenceCache.set('client', clientPresMap);
+        console.log(`[presence-bootstrap] seeded ${seeded} clients from KAM accounts registry`);
+      }
+    } catch (e: any) {
+      console.warn('[presence-bootstrap] error:', e.message);
+    }
+  }, 2000);
 
   // GET /api/sippy/live-graphs — live concurrent call history + breakdowns
   app.get('/api/sippy/live-graphs', (req: any, res) => {
