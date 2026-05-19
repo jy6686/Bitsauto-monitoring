@@ -1141,14 +1141,20 @@ function sumRows(rows: SippyAccountStatRow[], amountKey: 'revenue' | 'cost'): Si
   return { name: 'Total', totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount };
 }
 
-// formatSippyDate: converts a JS Date to the Sippy portal date format
-// e.g. "09:45:00.000 GMT Thu Apr 10 2026"
+// formatSippyPortalDate: converts a JS Date to the Sippy portal date format MM/DD/YYYY HH:MM:SS
+// e.g. "05/19/2026 09:45:00"
 function formatSippyPortalDate(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}.000 GMT `
-    + `${DAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${pad(d.getUTCDate())} ${d.getUTCFullYear()}`;
+  // Sippy portal expects MM/DD/YYYY HH:MM:SS (same format used by its own CDR pages).
+  // The previous "HH:MM:SS.000 GMT Www Mmm DD YYYY" format was unrecognised by the
+  // PHP portal and caused it to silently revert to its 90-minute default window.
+  const pad  = (n: number) => String(n).padStart(2, '0');
+  const mm   = pad(d.getUTCMonth() + 1);
+  const dd   = pad(d.getUTCDate());
+  const yyyy = d.getUTCFullYear();
+  const hh   = pad(d.getUTCHours());
+  const min  = pad(d.getUTCMinutes());
+  const ss   = pad(d.getUTCSeconds());
+  return `${mm}/${dd}/${yyyy} ${hh}:${min}:${ss}`;
 }
 
 export async function getSippyPerAccountStats(
