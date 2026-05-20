@@ -196,6 +196,75 @@ export function buildFasAlertEmail(opts: {
   };
 }
 
+// Severity → accent colour (inline CSS hex)
+const SEVERITY_COLOR: Record<string, string> = {
+  critical: '#ef4444',
+  high:     '#f97316',
+  medium:   '#f59e0b',
+  low:      '#3b82f6',
+};
+
+export function buildIncidentAlertEmail(opts: {
+  title:           string;
+  summary:         string;
+  severity:        string;
+  metric:          string;
+  entityName:      string;
+  entityType:      string;
+  metricValue?:    number | null;
+  threshold?:      number | null;
+  suggestedAction: string;
+  openedAt:        Date | string;
+}): { subject: string; bodyHtml: string } {
+  const color   = SEVERITY_COLOR[opts.severity.toLowerCase()] ?? '#6366f1';
+  const sev     = opts.severity.toUpperCase();
+  const metricLabel: Record<string, string> = {
+    asr_drop:     'ASR (Answer-Seizure Ratio)',
+    traffic_gone: 'Concurrent Calls',
+    cps_spike:    'Calls-Per-Second',
+  };
+  const ts = new Date(opts.openedAt).toUTCString();
+
+  return {
+    subject: `[${sev}] ${opts.title}`,
+    bodyHtml: baseTemplate(opts.title, `
+      <div style="display:inline-block;padding:4px 10px;border-radius:4px;background:${color}22;border:1px solid ${color};color:${color};font-size:12px;font-weight:bold;letter-spacing:.5px;margin-bottom:16px">${sev}</div>
+
+      <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#ccc">${opts.summary}</p>
+
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+        <tr style="border-bottom:1px solid #2a2a3e">
+          <td style="padding:8px 4px;color:#888;font-size:12px;width:36%">Entity</td>
+          <td style="padding:8px 4px;font-weight:bold;font-size:13px">${opts.entityName} <span style="color:#888;font-weight:normal;font-size:11px">(${opts.entityType})</span></td>
+        </tr>
+        <tr style="border-bottom:1px solid #2a2a3e">
+          <td style="padding:8px 4px;color:#888;font-size:12px">Metric</td>
+          <td style="padding:8px 4px;font-size:13px">${metricLabel[opts.metric] ?? opts.metric}</td>
+        </tr>
+        ${opts.metricValue != null ? `
+        <tr style="border-bottom:1px solid #2a2a3e">
+          <td style="padding:8px 4px;color:#888;font-size:12px">Current Value</td>
+          <td style="padding:8px 4px;font-weight:bold;color:${color};font-size:13px">${opts.metric === 'asr_drop' ? `${opts.metricValue}%` : opts.metric === 'cps_spike' ? `+${opts.metricValue}% above baseline` : `${opts.metricValue} idle cycles`}</td>
+        </tr>` : ''}
+        ${opts.threshold != null ? `
+        <tr style="border-bottom:1px solid #2a2a3e">
+          <td style="padding:8px 4px;color:#888;font-size:12px">Threshold</td>
+          <td style="padding:8px 4px;font-size:13px">${opts.metric === 'asr_drop' ? `< ${opts.threshold}%` : `> ${opts.threshold}`}</td>
+        </tr>` : ''}
+        <tr>
+          <td style="padding:8px 4px;color:#888;font-size:12px">Detected At</td>
+          <td style="padding:8px 4px;font-size:13px;font-family:monospace">${ts}</td>
+        </tr>
+      </table>
+
+      <div style="background:#1e2235;border-left:3px solid ${color};padding:12px 16px;border-radius:0 6px 6px 0;margin-top:8px">
+        <p style="margin:0;font-size:12px;color:#aaa;font-weight:bold;letter-spacing:.3px;text-transform:uppercase;margin-bottom:4px">Suggested Action</p>
+        <p style="margin:0;font-size:13px;color:#e0e0e0;line-height:1.5">${opts.suggestedAction}</p>
+      </div>
+    `),
+  };
+}
+
 export function buildWrongNumberAlertEmail(opts: {
   caller: string;
   callee: string;

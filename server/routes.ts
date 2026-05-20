@@ -12394,9 +12394,22 @@ export async function registerRoutes(
             updatedAt: new Date(now),
           } as any).catch(() => {});
 
-          // Fire email alert via existing mechanism (non-blocking)
-          fireAlertRules(rule.metric, metricValue, { entity: name, dim, label: rule.label ?? rule.metric })
-            .catch(() => {});
+          // Fire incident email via the HTML template (non-blocking, honours SMTP config)
+          emailSvc.sendAlertEmail(emailSvc.buildIncidentAlertEmail({
+            title,
+            summary,
+            severity,
+            metric:          rule.metric,
+            entityName:      name,
+            entityType:      dim,
+            metricValue,
+            threshold:       rule.threshold,
+            suggestedAction:
+              rule.metric === 'traffic_gone' ? 'Verify routing configuration and Sippy call routing for this entity.' :
+              rule.metric === 'asr_drop'     ? 'Review CDR quality data, vendor routing, and destination coverage.' :
+              'Investigate sudden call volume increase — possible route hijack or unplanned volume.',
+            openedAt: new Date(now),
+          })).catch(() => {});
 
           console.log(`[bitseye-alerts] ${severity.toUpperCase()} — ${title}`);
         }
@@ -12428,9 +12441,14 @@ export async function registerRoutes(
       const update: any = { status, updatedAt: new Date() };
       if (status === 'resolved') update.resolvedAt = new Date();
       await db.update(incidentsTable).set(update).where(eq(incidentsTable.id, id));
-      // Invalidate threshold engine cooldown so it can re-fire if condition recurs
-      for (const [k] of bitseyeAlertCooldown.entries()) {
-        if (k.includes(String(id))) bitseyeAlertCooldown.delete(k);
+      // Invalidate threshold engine cooldown — look up entityId+incidentType to reconstruct the key
+      if (status === 'resolved') {
+        const [resolved] = await db.select({ entityId: incidentsTable.entityId, incidentType: incidentsTable.incidentType })
+          .from(incidentsTable).where(eq(incidentsTable.id, id)).limit(1).catch(() => []);
+        if (resolved) {
+          const coolKey = `${resolved.incidentType}:${resolved.entityId}`;
+          bitseyeAlertCooldown.delete(coolKey);
+        }
       }
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
