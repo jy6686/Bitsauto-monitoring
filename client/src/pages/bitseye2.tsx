@@ -856,7 +856,7 @@ function EntityIntelligenceChart({
       fetch(`/api/bitseye/entity-history?dim=${dim}&entity=${encodeURIComponent(entity)}&span=${span}&type=${type}`)
         .then(r => r.json()),
     staleTime: span === 'live' ? 20_000 : 90_000,
-    refetchInterval: span === 'live' ? 30_000 : 300_000,
+    refetchInterval: span === 'live' ? 300_000 : 300_000,
     enabled: span !== 'live',  // live reads livePoints passed in — no fetch needed
   });
 
@@ -1570,37 +1570,37 @@ export default function BitsEye2Page() {
   const { data: liveSummary, isFetching: fetchSum } = useQuery<LiveSummary>({
     queryKey: ['/api/bitseye/live-summary'],
     queryFn: () => fetch('/api/bitseye/live-summary').then(r => r.json()),
-    staleTime: 25_000, refetchInterval: 30_000,
+    staleTime: 270_000, refetchInterval: 300_000,
   });
   const { data: concTrend, isFetching: fetchConc } = useQuery<ConcurrentTrend>({
     queryKey: ['/api/bitseye/concurrent-trend', 4],
     queryFn: () => fetch('/api/bitseye/concurrent-trend?hours=4&bucket=5').then(r => r.json()),
-    staleTime: 25_000, refetchInterval: 30_000,
+    staleTime: 270_000, refetchInterval: 300_000,
   });
   const { data: clientSlice } = useQuery<LiveSliceResponse>({
     queryKey: ['/api/bitseye/live-slice', 'client'],
     queryFn: () => fetch('/api/bitseye/live-slice?groupBy=client').then(r => r.json()),
-    staleTime: 25_000, refetchInterval: 30_000,
+    staleTime: 270_000, refetchInterval: 300_000,
   });
   const { data: vendorSlice } = useQuery<LiveSliceResponse>({
     queryKey: ['/api/bitseye/live-slice', 'vendor'],
     queryFn: () => fetch('/api/bitseye/live-slice?groupBy=vendor').then(r => r.json()),
-    staleTime: 25_000, refetchInterval: 30_000,
+    staleTime: 270_000, refetchInterval: 300_000,
   });
   const { data: countrySlice } = useQuery<LiveSliceResponse>({
     queryKey: ['/api/bitseye/live-slice', 'country'],
     queryFn: () => fetch('/api/bitseye/live-slice?groupBy=country').then(r => r.json()),
-    staleTime: 25_000, refetchInterval: 30_000,
+    staleTime: 270_000, refetchInterval: 300_000,
   });
   const { data: destSlice } = useQuery<LiveSliceResponse>({
     queryKey: ['/api/bitseye/live-slice', 'destination'],
     queryFn: () => fetch('/api/bitseye/live-slice?groupBy=destination').then(r => r.json()),
-    staleTime: 25_000, refetchInterval: 30_000,
+    staleTime: 270_000, refetchInterval: 300_000,
   });
   const { data: kamLive } = useQuery<KamLiveResponse>({
     queryKey: ['/api/bitseye/kam-live'],
     queryFn: () => fetch('/api/bitseye/kam-live').then(r => r.json()),
-    staleTime: 25_000, refetchInterval: 30_000,
+    staleTime: 270_000, refetchInterval: 300_000,
   });
   const { data: destLookup } = useQuery<{ results: DestLookupResult[] }>({
     queryKey: ['/api/bitseye/destination-lookup', destLookupQ],
@@ -1611,12 +1611,12 @@ export default function BitsEye2Page() {
   const { data: trafficEvents } = useQuery<{ events: TrafficEvent[]; ts: number }>({
     queryKey: ['/api/bitseye/traffic-events'],
     queryFn: () => fetch('/api/bitseye/traffic-events').then(r => r.json()),
-    staleTime: 40_000, refetchInterval: 45_000,
+    staleTime: 270_000, refetchInterval: 300_000,
   });
   const { data: sidebarEntityDetail, isFetching: sidebarDetailFetching } = useQuery<EntityDetail>({
     queryKey: ['/api/bitseye/entity-detail', sidebarExpanded?.dim, sidebarExpanded?.name],
     queryFn: () => fetch(`/api/bitseye/entity-detail?dim=${sidebarExpanded!.dim}&name=${encodeURIComponent(sidebarExpanded!.name)}`).then(r => r.json()),
-    staleTime: 25_000, refetchInterval: 30_000,
+    staleTime: 270_000, refetchInterval: 300_000,
     enabled: !!sidebarExpanded,
   });
 
@@ -1625,7 +1625,7 @@ export default function BitsEye2Page() {
   const { data: incidentRows } = useQuery<IncidentAlert[]>({
     queryKey: ['/api/bitseye/alerts'],
     queryFn: () => fetch('/api/bitseye/alerts').then(r => r.json()),
-    staleTime: 25_000, refetchInterval: 30_000,
+    staleTime: 270_000, refetchInterval: 300_000,
   });
   const { data: anomalyRows } = useQuery<AnomalyAlert[]>({
     queryKey: ['/api/anomalies'],
@@ -1664,7 +1664,7 @@ export default function BitsEye2Page() {
     queryKey: ['/api/bitseye/entity-detail', activeSec.dim, selectedEntity],
     queryFn: () =>
       fetch(`/api/bitseye/entity-detail?dim=${activeSec.dim}&name=${encodeURIComponent(selectedEntity!)}`).then(r => r.json()),
-    staleTime: 20_000, refetchInterval: 30_000,
+    staleTime: 270_000, refetchInterval: 300_000,
     enabled: !!selectedEntity && !!activeSec.dim,
   });
 
@@ -2610,7 +2610,7 @@ export default function BitsEye2Page() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {isFetching && <RefreshCw style={{ width: 14, height: 14, color: '#2563EB', animation: 'be2-spin 1s linear infinite' }} />}
-          {!isFullscreen && <span style={{ fontSize: 11, color: '#D1D5DB' }}>30s refresh</span>}
+          {!isFullscreen && <span style={{ fontSize: 11, color: '#D1D5DB' }}>5m refresh</span>}
 
           {/* Notification Center bell — always visible */}
           {!isFullscreen && (() => {
