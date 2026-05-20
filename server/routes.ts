@@ -12001,6 +12001,13 @@ export async function registerRoutes(
     client: 86_400_000, vendor: 86_400_000, country: 43_200_000, destination: 21_600_000,
   };
 
+  // ── BitsEye Alert Engine state ─────────────────────────────────────────────
+  // Cooldown map prevents alert storms: 30 min per (metric, dim, entity).
+  const bitseyeAlertCooldown  = new Map<string, number>(); // key: `${metric}:${dim}:${name}`
+  const bitseyeEntityIdleCycles = new Map<string, number>(); // key: `${dim}:${name}` → consecutive idle polls
+  let _cachedAlertRulesForEngine: typeof alertRulesTable.$inferSelect[] | null = null;
+  let _cachedAlertRulesTsEngine = 0;
+
   // Cross-dim topology cache — tracks which cross-dim entities co-occur with each entity.
   // Only updated when entity is active; preserved when entity goes idle, enabling idle sub-tree.
   // Structure: dim → entityName → crossDim → crossEntityName → lastCount
@@ -12213,6 +12220,11 @@ export async function registerRoutes(
         persistPresenceToDb().catch(() => {});
       }
 
+      // ── Run BitsEye threshold engine (after presence cache is updated) ─────
+      runBitsEyeThresholdEngine().catch(err =>
+        console.warn('[bitseye-alerts] engine error:', err.message)
+      );
+
       // ── Push NOC tick to all connected WebSocket clients ────────────────────
       broadcastNocTick({
         callCount:  liveCallsCache.calls.length,
@@ -12227,6 +12239,202 @@ export async function registerRoutes(
   }
   setTimeout(() => snapshotActiveCalls(), 8000);            // first run at startup
   setInterval(() => snapshotActiveCalls(), 45 * 1000);      // every 45 s — slightly under UI's 60s poll
+
+  // ── BitsEye Threshold Engine ──────────────────────────────────────────────
+  // Runs after each snapshotActiveCalls() cycle. Uses entityPresenceCache (live
+  // concurrent metrics) and cdrCache (rolling 1h CDRs) to detect operational
+  // anomalies and write incidents to the DB. Auto-resolves when metrics recover.
+  // Metrics supported: asr_drop | traffic_gone | cps_spike
+  async function runBitsEyeThresholdEngine(): Promise<void> {
+    // Cache alert rules from DB for 5 min to avoid per-cycle DB hits
+    if (!_cachedAlertRulesForEngine || Date.now() - _cachedAlertRulesTsEngine > 5 * 60_000) {
+      _cachedAlertRulesForEngine = await db.select().from(alertRulesTable);
+      _cachedAlertRulesTsEngine = Date.now();
+    }
+    const rules = (_cachedAlertRulesForEngine ?? []).filter((r: any) => r.enabled);
+    if (rules.length === 0) return;
+
+    const now = Date.now();
+    // Only run when the live cache is fresh (prevents false alerts from stale data)
+    const cacheAgeMs = now - (liveCallsCache as any).ts;
+    if ((liveCallsCache as any).ts === 0 || cacheAgeMs > 120_000) return;
+
+    // ── Compute rolling 1h ASR per (dim, entity) from cdrCache ──
+    const cutoff1h = now - 3_600_000;
+    const asrAccum = new Map<string, { total: number; answered: number }>();
+    for (const c of cdrCache.values()) {
+      const ts = sippy.parseSippyDate(c.startTime)?.getTime() ?? 0;
+      if (ts < cutoff1h) continue;
+      const pairs: [string, string | undefined][] = [
+        ['client', (c as any).clientName || accountNameCache.get(String((c as any).iAccount ?? ''))],
+        ['vendor', (c as any).vendor],
+      ];
+      for (const [dim, name] of pairs) {
+        if (!name) continue;
+        const key = `${dim}:${name}`;
+        const ex = asrAccum.get(key) ?? { total: 0, answered: 0 };
+        ex.total++;
+        if (((c as any).duration ?? 0) > 0) ex.answered++;
+        asrAccum.set(key, ex);
+      }
+    }
+
+    // ── Evaluate each tracked entity against all applicable rules ──
+    for (const [dim, presMap] of entityPresenceCache.entries()) {
+      for (const [name, pres] of presMap.entries()) {
+        if (pres.lastSeen === 0) continue; // bootstrapped placeholder — never had live traffic
+        const entityKey = `${dim}:${name}`;
+
+        // Update idle cycle counter
+        if (pres.currentActive === 0) {
+          bitseyeEntityIdleCycles.set(entityKey, (bitseyeEntityIdleCycles.get(entityKey) ?? 0) + 1);
+        } else {
+          bitseyeEntityIdleCycles.set(entityKey, 0);
+        }
+        const idleCycles = bitseyeEntityIdleCycles.get(entityKey) ?? 0;
+
+        // Compute 1h ASR for this entity
+        const asrData = asrAccum.get(entityKey);
+        const asr1h = asrData && asrData.total >= 10
+          ? Math.round(asrData.answered / asrData.total * 100)
+          : null;
+
+        // Concurrent spike: compare current vs 5-min rolling baseline
+        const hist = entityConcurrentHistory.get(dim)?.get(name) ?? [];
+        const baseline6 = hist.slice(-7, -1); // last ~4.5 min
+        const baselineAvg = baseline6.length >= 3
+          ? baseline6.reduce((s: number, p: any) => s + p.count, 0) / baseline6.length
+          : null;
+        const spikeRatio = baselineAvg && baselineAvg > 0
+          ? Math.round(pres.currentActive / baselineAvg * 100 - 100)
+          : null;
+
+        for (const rule of rules as any[]) {
+          // Carrier / entity scoping
+          if (rule.carrier && rule.carrier !== name && rule.carrier !== entityKey) continue;
+
+          // Metric applicability
+          let metricValue: number | null = null;
+          if (rule.metric === 'asr_drop') {
+            if (!['client', 'vendor'].includes(dim)) continue;
+            if (asr1h === null) continue;
+            metricValue = asr1h;
+          } else if (rule.metric === 'traffic_gone') {
+            if (pres.peakToday === 0) continue; // entity never had traffic today
+            metricValue = idleCycles; // number of consecutive idle 45s polls
+          } else if (rule.metric === 'cps_spike') {
+            if (spikeRatio === null) continue;
+            metricValue = spikeRatio;
+          } else continue;
+
+          const breached = rule.comparison === 'gt'
+            ? metricValue > rule.threshold
+            : metricValue < rule.threshold;
+
+          if (!breached) {
+            // Auto-resolve any open incident for this (metric, entity) now that it recovered
+            await db.update(incidentsTable)
+              .set({ status: 'resolved', resolvedAt: new Date(now), updatedAt: new Date(now) } as any)
+              .where(and(eq(incidentsTable.entityId, entityKey), eq(incidentsTable.incidentType, rule.metric), eq(incidentsTable.status, 'active')))
+              .catch(() => {});
+            continue;
+          }
+
+          // Cooldown: 30 min per (metric, entity)
+          const coolKey = `${rule.metric}:${entityKey}`;
+          const lastFired = bitseyeAlertCooldown.get(coolKey) ?? 0;
+          if (now - lastFired < 30 * 60_000) continue;
+
+          // Check for already-open incident
+          const hasOpen = await db.select({ id: incidentsTable.id }).from(incidentsTable)
+            .where(and(eq(incidentsTable.entityId, entityKey), eq(incidentsTable.incidentType, rule.metric), eq(incidentsTable.status, 'active')))
+            .limit(1).then((r: any[]) => r.length > 0).catch(() => false);
+          if (hasOpen) continue;
+
+          bitseyeAlertCooldown.set(coolKey, now);
+
+          // Severity
+          const humanDim = dim.charAt(0).toUpperCase() + dim.slice(1);
+          const severity: string =
+            rule.metric === 'traffic_gone' ? (idleCycles >= 8 ? 'critical' : 'high') :
+            rule.metric === 'asr_drop'     ? (metricValue < 20 ? 'critical' : metricValue < 35 ? 'high' : 'medium') :
+            (metricValue > 200 ? 'high' : 'medium');
+
+          const title =
+            rule.metric === 'traffic_gone'
+              ? `Traffic stopped: ${name} (${humanDim}) — idle ${idleCycles * 45}s`
+              : rule.metric === 'asr_drop'
+              ? `ASR degraded: ${name} — ${metricValue}% (threshold <${rule.threshold}%)`
+              : `Concurrent spike: ${name} — +${metricValue}% above baseline`;
+
+          const summary =
+            rule.metric === 'traffic_gone'
+              ? `${name} reached a peak of ${pres.peakToday} concurrent calls today but has been idle for ${idleCycles * 45}s.`
+              : rule.metric === 'asr_drop'
+              ? `${name} rolling 1h ASR is ${metricValue}%. Threshold: <${rule.threshold}%. Sample: ${asrData?.total ?? '?'} CDRs.`
+              : `${name} concurrent calls spiked ${metricValue}% above the recent ${Math.round(baselineAvg!)} call baseline.`;
+
+          await db.insert(incidentsTable).values({
+            entityType:      dim,
+            entityId:        entityKey,
+            entityName:      name,
+            incidentType:    rule.metric,
+            severity,
+            confidence:      85,
+            title,
+            summary,
+            reasons:         [title] as any,
+            suggestedAction:
+              rule.metric === 'traffic_gone' ? 'Verify routing configuration and Sippy call routing for this entity.' :
+              rule.metric === 'asr_drop'     ? 'Review CDR quality data, vendor routing, and destination coverage.' :
+              'Investigate sudden call volume increase — possible route hijack or unplanned volume.',
+            status:   'active',
+            source:   'bitseye_threshold_engine',
+            openedAt: new Date(now),
+            updatedAt: new Date(now),
+          } as any).catch(() => {});
+
+          // Fire email alert via existing mechanism (non-blocking)
+          fireAlertRules(rule.metric, metricValue, { entity: name, dim, label: rule.label ?? rule.metric })
+            .catch(() => {});
+
+          console.log(`[bitseye-alerts] ${severity.toUpperCase()} — ${title}`);
+        }
+      }
+    }
+  }
+
+  // ── BitsEye Alert API endpoints ───────────────────────────────────────────
+  // GET /api/bitseye/alerts — recent incidents from the threshold engine (last 24h)
+  app.get('/api/bitseye/alerts', async (_req: any, res: any) => {
+    try {
+      const { desc: drizzleDesc, gte: drizzleGte } = await import('drizzle-orm');
+      const cutoff = new Date(Date.now() - 24 * 3_600_000);
+      const rows = await db.select().from(incidentsTable)
+        .where(drizzleGte(incidentsTable.openedAt, cutoff))
+        .orderBy(drizzleDesc(incidentsTable.openedAt));
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/incidents/:id/status — acknowledge or resolve an incident
+  app.patch('/api/incidents/:id/status', async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status } = req.body as { status: 'acknowledged' | 'resolved' };
+      if (!['acknowledged', 'resolved'].includes(status)) {
+        return res.status(400).json({ error: 'status must be acknowledged or resolved' });
+      }
+      const update: any = { status, updatedAt: new Date() };
+      if (status === 'resolved') update.resolvedAt = new Date();
+      await db.update(incidentsTable).set(update).where(eq(incidentsTable.id, id));
+      // Invalidate threshold engine cooldown so it can re-fire if condition recurs
+      for (const [k] of bitseyeAlertCooldown.entries()) {
+        if (k.includes(String(id))) bitseyeAlertCooldown.delete(k);
+      }
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
 
   // ── Presence persistence: load from DB then supplement with KAM accounts ──────
   // Phase 1 (T+2s): reload persisted idle entities for ALL 4 dimensions from the

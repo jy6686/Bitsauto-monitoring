@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
+import { apiRequest } from "@/lib/queryClient";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar,
@@ -12,7 +13,8 @@ import {
   BarChart2, ChevronDown, ChevronRight, RefreshCw,
   Activity, TrendingUp, Zap, ExternalLink, Map as MapIcon,
   Search, Star, Maximize2, Minimize2,
-  AlertTriangle, Bell, BellOff, X as XIcon, Layers,
+  AlertTriangle, Bell, X as XIcon, Layers,
+  CheckCircle, Clock, Settings, Shield, Trash2, Plus, Eye, EyeOff,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -75,6 +77,11 @@ interface ConcurrentTrend {
     peakActive: number; currentActive: number; currentConnected: number;
     currentRouting: number; hasHistory: boolean;
   };
+}
+
+interface AlertRule {
+  id: number; metric: string; label: string | null; threshold: number;
+  comparison: string; carrier: string | null; enabled: boolean; emailEnabled: boolean;
 }
 
 // ── World Map constants ───────────────────────────────────────────────────────
@@ -1084,6 +1091,387 @@ function CrossTable({ title, rows, color, onRowClick }: {
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
+// ── NotificationCenter ────────────────────────────────────────────────────────
+// Slide-out drawer from the right side. Two tabs: active incidents + alert rules.
+function NotificationCenter({
+  open, onClose, incidents, alertRules, alertRulesLoading,
+  onResolve, onAcknowledge, onDeleteRule, onToggleRule, onAddRule,
+}: {
+  open: boolean;
+  onClose: () => void;
+  incidents: IncidentAlert[];
+  alertRules: AlertRule[];
+  alertRulesLoading: boolean;
+  onResolve: (id: number) => void;
+  onAcknowledge: (id: number) => void;
+  onDeleteRule: (id: number) => void;
+  onToggleRule: (id: number, enabled: boolean) => void;
+  onAddRule: (rule: { metric: string; threshold: number; comparison: string; label: string }) => void;
+}) {
+  const [tab, setTab] = useState<'alerts' | 'rules'>('alerts');
+  const [showAddRule, setShowAddRule] = useState(false);
+  const [newRule, setNewRule] = useState({ metric: 'asr_drop', comparison: 'lt', threshold: 30, label: '' });
+
+  const active   = incidents.filter(i => i.status === 'active');
+  const acked    = incidents.filter(i => i.status === 'acknowledged');
+  const resolved = incidents.filter(i => i.status === 'resolved').slice(0, 15);
+
+  const sevColor = (s: string) =>
+    s === 'critical' ? '#EF4444' : s === 'high' ? '#F59E0B' : s === 'medium' ? '#3B82F6' : '#9CA3AF';
+  const sevBg = (s: string) =>
+    s === 'critical' ? '#FEF2F2' : s === 'high' ? '#FFFBEB' : s === 'medium' ? '#EFF6FF' : '#F9FAFB';
+  const sevBorder = (s: string) =>
+    s === 'critical' ? '#FECACA' : s === 'high' ? '#FDE68A' : s === 'medium' ? '#BFDBFE' : '#E5E7EB';
+  const ageStr = (ts: string) => {
+    const ms = Date.now() - new Date(ts).getTime();
+    if (ms < 60_000) return 'just now';
+    if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m ago`;
+    return `${Math.round(ms / 3_600_000)}h ago`;
+  };
+
+  const METRIC_LABELS: Record<string, string> = {
+    asr_drop: 'ASR Drop', traffic_gone: 'Traffic Gone', cps_spike: 'CPS Spike',
+  };
+  const METRIC_DEFAULTS: Record<string, { comparison: string; threshold: number }> = {
+    asr_drop:     { comparison: 'lt', threshold: 30 },
+    traffic_gone: { comparison: 'gt', threshold: 4  },
+    cps_spike:    { comparison: 'gt', threshold: 150 },
+  };
+
+  if (!open) return null;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, zIndex: 998, background: 'rgba(0,0,0,0.18)' }}
+      />
+      {/* Drawer */}
+      <div
+        data-testid="notification-center"
+        style={{
+          position: 'fixed', top: 0, right: 0, bottom: 0, width: 380,
+          zIndex: 999, background: '#fff', borderLeft: '1px solid #E5E7EB',
+          boxShadow: '-8px 0 32px rgba(0,0,0,0.1)',
+          display: 'flex', flexDirection: 'column', fontFamily: 'inherit',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px 10px', borderBottom: '1px solid #F3F4F6', flexShrink: 0 }}>
+          <Shield style={{ width: 16, height: 16, color: '#2563EB', flexShrink: 0 }} />
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#111827', flex: 1 }}>Notification Center</span>
+          {active.length > 0 && (
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+              background: active.some(a => a.severity === 'critical') ? '#FEF2F2' : '#FFFBEB',
+              color:      active.some(a => a.severity === 'critical') ? '#B91C1C' : '#92400E',
+              border:     `1px solid ${active.some(a => a.severity === 'critical') ? '#FECACA' : '#FDE68A'}`,
+            }}>
+              {active.length} ACTIVE
+            </span>
+          )}
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#9CA3AF', display: 'flex' }}>
+            <XIcon style={{ width: 16, height: 16 }} />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid #F3F4F6', flexShrink: 0 }}>
+          {(['alerts', 'rules'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{
+              flex: 1, padding: '9px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: 'none', border: 'none',
+              color: tab === t ? '#2563EB' : '#6B7280',
+              borderBottom: `2px solid ${tab === t ? '#2563EB' : 'transparent'}`,
+              transition: 'all 0.12s',
+            }}>
+              {t === 'alerts' ? `Incidents${active.length > 0 ? ` (${active.length})` : ''}` : 'Alert Rules'}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 18px' }}>
+
+          {/* ── ALERTS TAB ── */}
+          {tab === 'alerts' && (
+            <>
+              {active.length === 0 && acked.length === 0 && resolved.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '48px 0', color: '#9CA3AF' }}>
+                  <CheckCircle style={{ width: 32, height: 32, margin: '0 auto 12px', color: '#D1FAE5' }} />
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>All clear</div>
+                  <div style={{ fontSize: 12, marginTop: 4 }}>No incidents detected in the last 24h</div>
+                </div>
+              )}
+
+              {active.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                    Active
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {active.map(inc => (
+                      <div key={inc.id} data-testid={`incident-card-${inc.id}`} style={{
+                        background: sevBg(inc.severity), border: `1px solid ${sevBorder(inc.severity)}`,
+                        borderRadius: 8, padding: '10px 12px',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+                          <span style={{
+                            fontSize: 9, fontWeight: 700, color: sevColor(inc.severity),
+                            background: '#fff', border: `1px solid ${sevBorder(inc.severity)}`,
+                            borderRadius: 4, padding: '2px 6px', flexShrink: 0, textTransform: 'uppercase',
+                          }}>{inc.severity}</span>
+                          {inc.entityName && (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#111827', flex: 1 }}>{inc.entityName}</span>
+                          )}
+                          <span style={{ fontSize: 10, color: '#9CA3AF', flexShrink: 0 }}>{ageStr(inc.openedAt)}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: '#374151', marginBottom: 8, lineHeight: 1.4 }}>{inc.title}</div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            onClick={() => onAcknowledge(inc.id)}
+                            data-testid={`button-ack-${inc.id}`}
+                            style={{
+                              fontSize: 10, fontWeight: 600, padding: '3px 10px', borderRadius: 5, cursor: 'pointer',
+                              background: '#F3F4F6', border: '1px solid #E5E7EB', color: '#374151',
+                              display: 'flex', alignItems: 'center', gap: 4,
+                            }}
+                          >
+                            <Eye style={{ width: 10, height: 10 }} /> Acknowledge
+                          </button>
+                          <button
+                            onClick={() => onResolve(inc.id)}
+                            data-testid={`button-resolve-${inc.id}`}
+                            style={{
+                              fontSize: 10, fontWeight: 600, padding: '3px 10px', borderRadius: 5, cursor: 'pointer',
+                              background: '#F0FDF4', border: '1px solid #BBF7D0', color: '#166534',
+                              display: 'flex', alignItems: 'center', gap: 4,
+                            }}
+                          >
+                            <CheckCircle style={{ width: 10, height: 10 }} /> Resolve
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {acked.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                    Acknowledged
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {acked.map(inc => (
+                      <div key={inc.id} style={{
+                        background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, padding: '8px 12px',
+                        display: 'flex', alignItems: 'center', gap: 8,
+                      }}>
+                        <Clock style={{ width: 12, height: 12, color: '#9CA3AF', flexShrink: 0 }} />
+                        <div style={{ flex: 1, fontSize: 12, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {inc.entityName && <span style={{ fontWeight: 600, color: '#374151' }}>{inc.entityName} · </span>}
+                          {inc.title}
+                        </div>
+                        <button onClick={() => onResolve(inc.id)} style={{
+                          fontSize: 10, padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
+                          background: '#F0FDF4', border: '1px solid #BBF7D0', color: '#166534', flexShrink: 0, fontWeight: 600,
+                        }}>
+                          Resolve
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {resolved.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                    Recently Resolved
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {resolved.map(inc => (
+                      <div key={inc.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid #F3F4F6' }}>
+                        <CheckCircle style={{ width: 11, height: 11, color: '#34D399', flexShrink: 0 }} />
+                        <div style={{ flex: 1, fontSize: 11, color: '#9CA3AF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {inc.entityName && <span style={{ fontWeight: 600, color: '#6B7280' }}>{inc.entityName} · </span>}
+                          {inc.title}
+                        </div>
+                        <span style={{ fontSize: 10, color: '#D1D5DB', flexShrink: 0 }}>{ageStr(inc.openedAt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── RULES TAB ── */}
+          {tab === 'rules' && (
+            <>
+              {alertRulesLoading ? (
+                <div style={{ textAlign: 'center', padding: '32px 0', color: '#9CA3AF', fontSize: 12 }}>Loading rules…</div>
+              ) : (
+                <>
+                  {alertRules.length === 0 && !showAddRule && (
+                    <div style={{ textAlign: 'center', padding: '32px 0', color: '#9CA3AF' }}>
+                      <Settings style={{ width: 28, height: 28, margin: '0 auto 10px', color: '#E5E7EB' }} />
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>No alert rules yet</div>
+                      <div style={{ fontSize: 12 }}>Add a rule to start detecting threshold breaches</div>
+                    </div>
+                  )}
+
+                  {/* Existing rules */}
+                  {alertRules.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                      {alertRules.map(rule => (
+                        <div key={rule.id} data-testid={`rule-card-${rule.id}`} style={{
+                          background: rule.enabled ? '#F8FAFF' : '#F9FAFB',
+                          border: `1px solid ${rule.enabled ? '#DBEAFE' : '#E5E7EB'}`,
+                          borderRadius: 8, padding: '10px 12px',
+                          display: 'flex', alignItems: 'center', gap: 10,
+                        }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: rule.enabled ? '#1D4ED8' : '#6B7280', marginBottom: 2 }}>
+                              {rule.label || METRIC_LABELS[rule.metric] || rule.metric}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#9CA3AF' }}>
+                              {METRIC_LABELS[rule.metric] || rule.metric}
+                              {' '}{rule.comparison === 'lt' ? '<' : '>'} {rule.threshold}
+                              {rule.metric === 'asr_drop' ? '%' : rule.metric === 'cps_spike' ? '%' : ' cycles'}
+                              {rule.carrier ? ` · ${rule.carrier}` : ' · all entities'}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => onToggleRule(rule.id, !rule.enabled)}
+                            data-testid={`button-toggle-rule-${rule.id}`}
+                            title={rule.enabled ? 'Disable rule' : 'Enable rule'}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: rule.enabled ? '#2563EB' : '#D1D5DB', display: 'flex' }}
+                          >
+                            {rule.enabled ? <Eye style={{ width: 14, height: 14 }} /> : <EyeOff style={{ width: 14, height: 14 }} />}
+                          </button>
+                          <button
+                            onClick={() => onDeleteRule(rule.id)}
+                            data-testid={`button-delete-rule-${rule.id}`}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#FCA5A5', display: 'flex' }}
+                          >
+                            <Trash2 style={{ width: 13, height: 13 }} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add rule form */}
+                  {showAddRule ? (
+                    <div style={{ background: '#F8FAFF', border: '1px solid #DBEAFE', borderRadius: 8, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#1D4ED8', marginBottom: 10 }}>New Alert Rule</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Metric</label>
+                          <select
+                            value={newRule.metric}
+                            onChange={e => {
+                              const m = e.target.value;
+                              const def = METRIC_DEFAULTS[m] ?? { comparison: 'lt', threshold: 30 };
+                              setNewRule(r => ({ ...r, metric: m, comparison: def.comparison, threshold: def.threshold }));
+                            }}
+                            data-testid="select-rule-metric"
+                            style={{ width: '100%', fontSize: 12, padding: '5px 8px', borderRadius: 6, border: '1px solid #DBEAFE', background: '#fff' }}
+                          >
+                            <option value="asr_drop">ASR Drop</option>
+                            <option value="traffic_gone">Traffic Gone</option>
+                            <option value="cps_spike">CPS Spike</option>
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Condition</label>
+                            <select
+                              value={newRule.comparison}
+                              onChange={e => setNewRule(r => ({ ...r, comparison: e.target.value }))}
+                              data-testid="select-rule-comparison"
+                              style={{ width: '100%', fontSize: 12, padding: '5px 8px', borderRadius: 6, border: '1px solid #DBEAFE', background: '#fff' }}
+                            >
+                              <option value="lt">Below</option>
+                              <option value="gt">Above</option>
+                            </select>
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Threshold</label>
+                            <input
+                              type="number"
+                              value={newRule.threshold}
+                              onChange={e => setNewRule(r => ({ ...r, threshold: Number(e.target.value) }))}
+                              data-testid="input-rule-threshold"
+                              style={{ width: '100%', fontSize: 12, padding: '5px 8px', borderRadius: 6, border: '1px solid #DBEAFE', boxSizing: 'border-box' }}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Label (optional)</label>
+                          <input
+                            type="text"
+                            value={newRule.label}
+                            onChange={e => setNewRule(r => ({ ...r, label: e.target.value }))}
+                            placeholder="e.g. Low ASR warning"
+                            data-testid="input-rule-label"
+                            style={{ width: '100%', fontSize: 12, padding: '5px 8px', borderRadius: 6, border: '1px solid #DBEAFE', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                          <button
+                            onClick={() => {
+                              onAddRule(newRule);
+                              setNewRule({ metric: 'asr_drop', comparison: 'lt', threshold: 30, label: '' });
+                              setShowAddRule(false);
+                            }}
+                            data-testid="button-save-rule"
+                            style={{
+                              flex: 1, fontSize: 12, fontWeight: 600, padding: '7px 0', borderRadius: 6, cursor: 'pointer',
+                              background: '#2563EB', border: 'none', color: '#fff',
+                            }}
+                          >
+                            Save Rule
+                          </button>
+                          <button
+                            onClick={() => setShowAddRule(false)}
+                            data-testid="button-cancel-rule"
+                            style={{
+                              fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 6, cursor: 'pointer',
+                              background: '#F3F4F6', border: '1px solid #E5E7EB', color: '#374151',
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowAddRule(true)}
+                      data-testid="button-add-rule"
+                      style={{
+                        width: '100%', fontSize: 12, fontWeight: 600, padding: '8px 0', borderRadius: 6, cursor: 'pointer',
+                        background: '#EFF6FF', border: '1px dashed #BFDBFE', color: '#2563EB',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      }}
+                    >
+                      <Plus style={{ width: 13, height: 13 }} /> Add Alert Rule
+                    </button>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function BitsEye2Page() {
   const [, navigate] = useLocation();
   const [activeSection, setActiveSection] = useState<SectionId>('noc');
@@ -1096,8 +1484,7 @@ export default function BitsEye2Page() {
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [isFullscreen, setIsFullscreen]       = useState(false);
   const [attentionMode, setAttentionMode]     = useState(false);
-  const [dismissedAlerts, setDismissedAlerts] = useState<Set<number>>(() => new Set());
-  const [alertBarOpen, setAlertBarOpen]       = useState(true);
+  const [alertsOpen, setAlertsOpen]           = useState(false);
   const [destLookupQ, setDestLookupQ]         = useState('');
   const [wallboardSlide, setWallboardSlide]   = useState(0);
   const [sidebarExpanded, setSidebarExpanded] = useState<{ dim: string; name: string; sectionId: string } | null>(null);
@@ -1212,15 +1599,42 @@ export default function BitsEye2Page() {
     enabled: !!sidebarExpanded,
   });
 
+  const qc = useQueryClient();
+
   const { data: incidentRows } = useQuery<IncidentAlert[]>({
-    queryKey: ['/api/incidents'],
-    queryFn: () => fetch('/api/incidents').then(r => r.json()),
-    staleTime: 30_000, refetchInterval: 60_000,
+    queryKey: ['/api/bitseye/alerts'],
+    queryFn: () => fetch('/api/bitseye/alerts').then(r => r.json()),
+    staleTime: 25_000, refetchInterval: 30_000,
   });
   const { data: anomalyRows } = useQuery<AnomalyAlert[]>({
     queryKey: ['/api/anomalies'],
     queryFn: () => fetch('/api/anomalies').then(r => r.json()),
     staleTime: 55_000, refetchInterval: 60_000,
+  });
+  const { data: alertRulesData = [], isLoading: alertRulesLoading } = useQuery<AlertRule[]>({
+    queryKey: ['/api/monitoring/alert-rules'],
+    queryFn: () => fetch('/api/monitoring/alert-rules').then(r => r.json()),
+    staleTime: 60_000, refetchInterval: 120_000,
+  });
+
+  const incidentStatusMut = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      apiRequest('PATCH', `/api/incidents/${id}/status`, { status }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/bitseye/alerts'] }),
+  });
+  const deleteRuleMut = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/monitoring/alert-rules/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/monitoring/alert-rules'] }),
+  });
+  const toggleRuleMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
+      apiRequest('PATCH', `/api/monitoring/alert-rules/${id}`, { enabled }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/monitoring/alert-rules'] }),
+  });
+  const addRuleMut = useMutation({
+    mutationFn: (body: { metric: string; threshold: number; comparison: string; label: string }) =>
+      apiRequest('POST', '/api/monitoring/alert-rules', { ...body, enabled: true, emailEnabled: false }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/monitoring/alert-rules'] }),
   });
 
   const activeSec = SECTIONS.find(s => s.id === activeSection)!;
@@ -1277,14 +1691,13 @@ export default function BitsEye2Page() {
   // ── Alert / Anomaly derived state ─────────────────────────────────────────
   const RANK = (s: string) => s === 'critical' ? 3 : s === 'high' ? 2 : s === 'medium' ? 1 : 0;
 
-  // Active (non-dismissed) incidents of severity critical or high
+  // Active incidents of severity critical or high (feeds attentionMode highlight)
   const activeAlerts = useMemo(() =>
     (incidentRows ?? []).filter(r =>
       r.status === 'active' &&
-      (r.severity === 'critical' || r.severity === 'high') &&
-      !dismissedAlerts.has(r.id)
+      (r.severity === 'critical' || r.severity === 'high')
     ),
-    [incidentRows, dismissedAlerts],
+    [incidentRows],
   );
 
   // Vendor name → worst unresolved anomaly in the last 4 h
@@ -2178,25 +2591,38 @@ export default function BitsEye2Page() {
           {isFetching && <RefreshCw style={{ width: 14, height: 14, color: '#2563EB', animation: 'be2-spin 1s linear infinite' }} />}
           {!isFullscreen && <span style={{ fontSize: 11, color: '#D1D5DB' }}>30s refresh</span>}
 
-          {/* Alert Bell — re-opens the alert bar */}
-          {!isFullscreen && (incidentRows ?? []).some(r => r.status === 'active' && (r.severity === 'critical' || r.severity === 'high')) && (
-            <button
-              onClick={() => { setAlertBarOpen(true); setDismissedAlerts(new Set()); }}
-              title="Show active alerts"
-              data-testid="button-alert-bell"
-              style={{
-                position: 'relative', display: 'flex', alignItems: 'center', gap: 5,
-                fontSize: 11, fontWeight: 600,
-                color: (incidentRows ?? []).some(r => r.status === 'active' && r.severity === 'critical') ? '#EF4444' : '#D97706',
-                background: (incidentRows ?? []).some(r => r.status === 'active' && r.severity === 'critical') ? '#FEF2F2' : '#FFFBEB',
-                border: `1px solid ${(incidentRows ?? []).some(r => r.status === 'active' && r.severity === 'critical') ? '#FECACA' : '#FDE68A'}`,
-                borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
-              }}
-            >
-              <Bell style={{ width: 12, height: 12 }} />
-              {activeAlerts.length > 0 ? activeAlerts.length : ''}
-            </button>
-          )}
+          {/* Notification Center bell — always visible */}
+          {!isFullscreen && (() => {
+            const activeCount = (incidentRows ?? []).filter(r => r.status === 'active').length;
+            const hasCrit = (incidentRows ?? []).some(r => r.status === 'active' && r.severity === 'critical');
+            const hasHigh = (incidentRows ?? []).some(r => r.status === 'active' && (r.severity === 'critical' || r.severity === 'high'));
+            return (
+              <button
+                onClick={() => setAlertsOpen(true)}
+                title="Open Notification Center"
+                data-testid="button-alert-bell"
+                style={{
+                  position: 'relative', display: 'flex', alignItems: 'center', gap: 5,
+                  fontSize: 11, fontWeight: 600,
+                  color:      hasCrit ? '#EF4444' : hasHigh ? '#D97706' : '#6B7280',
+                  background: hasCrit ? '#FEF2F2' : hasHigh ? '#FFFBEB' : '#F9FAFB',
+                  border: `1px solid ${hasCrit ? '#FECACA' : hasHigh ? '#FDE68A' : '#E6EAF0'}`,
+                  borderRadius: 6, padding: '5px 10px', cursor: 'pointer', transition: 'all 0.15s',
+                }}
+              >
+                <Bell style={{ width: 12, height: 12 }} />
+                {activeCount > 0 && (
+                  <span style={{
+                    background: hasCrit ? '#EF4444' : '#F59E0B',
+                    color: '#fff', borderRadius: 99,
+                    fontSize: 9, fontWeight: 800, padding: '0 5px', lineHeight: '14px', minWidth: 14, textAlign: 'center',
+                  }}>
+                    {activeCount}
+                  </span>
+                )}
+              </button>
+            );
+          })()}
 
           {/* Attention Mode toggle */}
           {!isFullscreen && (
@@ -2246,88 +2672,19 @@ export default function BitsEye2Page() {
         </div>
       </div>
 
-      {/* ── Sticky Alert Bar ── */}
-      <AnimatePresence>
-        {!isFullscreen && activeAlerts.length > 0 && alertBarOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22 }}
-            style={{ overflow: 'hidden', flexShrink: 0 }}
-          >
-            <div style={{
-              background: activeAlerts.some(a => a.severity === 'critical') ? '#FEF2F2' : '#FFFBEB',
-              borderBottom: `1px solid ${activeAlerts.some(a => a.severity === 'critical') ? '#FECACA' : '#FDE68A'}`,
-              padding: '0 20px',
-            }}>
-              {/* Header row */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0 4px' }}>
-                <AlertTriangle style={{ width: 13, height: 13, color: activeAlerts.some(a => a.severity === 'critical') ? '#EF4444' : '#D97706', flexShrink: 0 }} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: activeAlerts.some(a => a.severity === 'critical') ? '#B91C1C' : '#92400E', flex: 1 }}>
-                  {activeAlerts.length} active alert{activeAlerts.length !== 1 ? 's' : ''}
-                  {activeAlerts.some(a => a.severity === 'critical') ? ' — CRITICAL' : ' — HIGH'}
-                </span>
-                <button
-                  onClick={() => setDismissedAlerts(new Set(activeAlerts.map(a => a.id)))}
-                  style={{ fontSize: 10, color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' as const }}
-                >
-                  Dismiss all
-                </button>
-                <button
-                  onClick={() => setAlertBarOpen(false)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', color: '#9CA3AF' }}
-                >
-                  <XIcon style={{ width: 12, height: 12 }} />
-                </button>
-              </div>
-              {/* Alert rows — up to 5 */}
-              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 2, paddingBottom: 6 }}>
-                {activeAlerts.slice(0, 5).map(alert => {
-                  const isCrit = alert.severity === 'critical';
-                  const color  = isCrit ? '#EF4444' : '#F59E0B';
-                  const ageMs  = Date.now() - new Date(alert.openedAt).getTime();
-                  const ageStr = ageMs < 60_000 ? 'just now' : ageMs < 3_600_000 ? `${Math.round(ageMs / 60_000)}m ago` : `${Math.round(ageMs / 3_600_000)}h ago`;
-                  const canJump = !!alert.entityName;
-                  const dimMap: Record<string, SectionId> = { client: 'clients', vendor: 'vendors', country: 'countries', destination: 'destinations' };
-                  return (
-                    <div key={alert.id}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, borderRadius: 5, padding: '1px 0', cursor: canJump ? 'pointer' : 'default' }}
-                      onClick={() => {
-                        if (!canJump) return;
-                        setActiveSection(dimMap[alert.entityType] ?? 'vendors');
-                        setSelectedEntity(alert.entityName!);
-                        setAlertBarOpen(false);
-                      }}
-                      title={canJump ? `View live traffic for ${alert.entityName}` : undefined}
-                    >
-                      <span style={{
-                        fontSize: 9, fontWeight: 700, color, background: `${color}18`,
-                        border: `1px solid ${color}44`, borderRadius: 3, padding: '1px 5px',
-                        textTransform: 'uppercase' as const, letterSpacing: '0.04em', flexShrink: 0,
-                      }}>
-                        {alert.severity}
-                      </span>
-                      {alert.entityName && (
-                        <span style={{ fontSize: 11, fontWeight: 600, color: '#374151', flexShrink: 0 }}>{alert.entityName}</span>
-                      )}
-                      <span style={{ fontSize: 11, color: '#6B7280', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{alert.title}</span>
-                      <span style={{ fontSize: 10, color: '#9CA3AF', flexShrink: 0 }}>{ageStr}</span>
-                      <button
-                        onClick={e => { e.stopPropagation(); setDismissedAlerts(prev => new Set([...prev, alert.id])); }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, display: 'flex', color: '#D1D5DB', flexShrink: 0 }}
-                      >
-                        <XIcon style={{ width: 10, height: 10 }} />
-                      </button>
-                    </div>
-                  );
-                })}
-                {activeAlerts.length > 5 && (
-                  <div style={{ fontSize: 10, color: '#9CA3AF', paddingLeft: 2 }}>+{activeAlerts.length - 5} more — see Alerts page</div>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ── Notification Center drawer ── */}
+      <NotificationCenter
+        open={alertsOpen}
+        onClose={() => setAlertsOpen(false)}
+        incidents={incidentRows ?? []}
+        alertRules={alertRulesData}
+        alertRulesLoading={alertRulesLoading}
+        onResolve={id => incidentStatusMut.mutate({ id, status: 'resolved' })}
+        onAcknowledge={id => incidentStatusMut.mutate({ id, status: 'acknowledged' })}
+        onDeleteRule={id => deleteRuleMut.mutate(id)}
+        onToggleRule={(id, enabled) => toggleRuleMut.mutate({ id, enabled })}
+        onAddRule={rule => addRuleMut.mutate(rule)}
+      />
 
       {/* Body */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
