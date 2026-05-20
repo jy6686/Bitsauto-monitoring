@@ -23148,10 +23148,22 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             actions,
           });
 
+          const ESCALATION_WINDOWS_MS: Record<string, number> = { critical: 15 * 60_000, high: 60 * 60_000 };
+          const escalationWindow = ESCALATION_WINDOWS_MS[row.severity] ?? 0;
+          const nextEscalationMs = escalationWindow > 0 && row.state === 'active'
+            ? Math.max(0, new Date(row.startedAt).getTime() + escalationWindow - Date.now())
+            : null;
+
           enriched.push({
             ...inc, id: row.id, state: row.state,
             rootCause, timeline, actions,
             windowHash: hash, resolved: row.state === "resolved",
+            acknowledgedBy:  row.acknowledgedBy  ?? null,
+            acknowledgedAt:  row.acknowledgedAt   ?? null,
+            acknowledgeNote: row.acknowledgeNote  ?? null,
+            resolvedBy:      row.resolvedBy       ?? null,
+            resolutionNote:  row.resolutionNote   ?? null,
+            nextEscalationMs,
           });
         }
 
@@ -23179,6 +23191,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             estimatedImpactPerHr: r.estimatedImpactPerHr,
             startedAt: r.startedAt, lastSeenAt: r.lastSeenAt, resolved: true,
             windowHash: r.windowHash,
+            acknowledgedBy:  r.acknowledgedBy  ?? null,
+            acknowledgedAt:  r.acknowledgedAt   ?? null,
+            acknowledgeNote: r.acknowledgeNote  ?? null,
+            resolvedBy:      r.resolvedBy       ?? null,
+            resolutionNote:  r.resolutionNote   ?? null,
+            nextEscalationMs: null,
           });
         }
 
@@ -23210,7 +23228,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       try {
         const { validateTransition, applyTransition } = await import("./incidents/stateMachine");
         const id = Number(req.params.id);
-        const { toState, actor = "operator", note } = req.body;
+        const { toState, actor = "operator", note, acknowledgedBy, acknowledgeNote, resolvedBy, resolutionNote } = req.body;
         if (!toState) return res.status(400).json({ error: "toState required" });
 
         const inc = await storage.getConsoleIncident(id);
@@ -23226,6 +23244,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const resolvedAt = toState === "resolved" ? new Date() : (toState === "active" ? null : undefined);
         const updated = await storage.updateConsoleIncidentState(id, toState, resolvedAt);
         await storage.addLifecycleEvent({ incidentId: id, fromState, toState, actor, note });
+
+        // Persist ownership and notes for acknowledged/resolved transitions
+        if (toState === 'acknowledged') {
+          await storage.updateConsoleIncidentFields(id, {
+            acknowledgedBy:  acknowledgedBy  ?? (req as any).user?.claims?.sub ?? actor,
+            acknowledgedAt:  new Date(),
+            acknowledgeNote: acknowledgeNote ?? note ?? null,
+          } as any);
+        } else if (toState === 'resolved') {
+          await storage.updateConsoleIncidentFields(id, {
+            resolvedBy:     resolvedBy     ?? (req as any).user?.claims?.sub ?? actor,
+            resolutionNote: resolutionNote ?? note ?? null,
+          } as any);
+        }
 
         res.json({ success: true, incident: updated });
       } catch (e: any) { res.status(500).json({ error: e.message }); }

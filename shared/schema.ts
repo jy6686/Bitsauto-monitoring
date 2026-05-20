@@ -1729,6 +1729,11 @@ export const consoleIncidents = pgTable("console_incidents", {
   startedAt:            timestamp("started_at").notNull(),
   lastSeenAt:           timestamp("last_seen_at").notNull(),
   resolvedAt:           timestamp("resolved_at"),
+  acknowledgedBy:       varchar("acknowledged_by",  { length: 128 }),
+  acknowledgedAt:       timestamp("acknowledged_at"),
+  acknowledgeNote:      text("acknowledge_note"),
+  resolvedBy:           varchar("resolved_by",       { length: 128 }),
+  resolutionNote:       text("resolution_note"),
   createdAt:            timestamp("created_at").defaultNow(),
   updatedAt:            timestamp("updated_at").defaultNow(),
 });
