@@ -12,6 +12,28 @@ export type AlertEmailPayload = {
 let _transporter: nodemailer.Transporter | null = null;
 let _fromAddress = '';
 
+// ── Notification audit ring buffer (last 200 delivery attempts) ──────────────
+export type NotificationAuditEntry = {
+  ts:         number;
+  subject:    string;
+  recipients: string[];
+  status:     'sent' | 'retry_sent' | 'failed' | 'skipped';
+  attempts:   number;
+  error?:     string;
+};
+const _notificationAuditLog: NotificationAuditEntry[] = [];
+const AUDIT_MAX = 200;
+
+function _audit(entry: NotificationAuditEntry) {
+  _notificationAuditLog.unshift(entry);
+  if (_notificationAuditLog.length > AUDIT_MAX) _notificationAuditLog.length = AUDIT_MAX;
+}
+
+/** Returns a snapshot of the last 200 notification delivery attempts. */
+export function getNotificationAuditLog(): NotificationAuditEntry[] {
+  return [..._notificationAuditLog];
+}
+
 async function getTransporter(): Promise<{ transporter: nodemailer.Transporter; from: string } | null> {
   const settings = await storage.getSettings();
   if (!settings.alertEnabled) return null;
@@ -26,7 +48,11 @@ async function getTransporter(): Promise<{ transporter: nodemailer.Transporter; 
         user: settings.alertGmailUser,
         pass: settings.alertGmailAppPass,
       },
-    });
+      // Prevent indefinite hangs on network issues
+      connectionTimeout: 10_000,
+      socketTimeout:     12_000,
+      greetingTimeout:    8_000,
+    } as any);
     _fromAddress = settings.alertGmailUser;
   }
   return { transporter: _transporter!, from: settings.alertGmailUser };
@@ -58,38 +84,58 @@ export async function sendDirectEmail(opts: {
   }
 }
 
+const EMAIL_MAX_ATTEMPTS  = 2;
+const EMAIL_RETRY_DELAY   = 5_000; // ms between attempts
+
 export async function sendAlertEmail(payload: AlertEmailPayload): Promise<boolean> {
-  try {
-    const conn = await getTransporter();
-    if (!conn) return false;
+  const settings = await storage.getSettings();
+  const recipients = new Set<string>();
+  if (settings.alertAdminEmail) recipients.add(settings.alertAdminEmail);
+  if (payload.clientEmail) recipients.add(payload.clientEmail);
+  if (payload.includeWatcherRecipients) {
+    const watcherList = await storage.getWatcherRecipients();
+    for (const r of watcherList) { if (r.active && r.email) recipients.add(r.email); }
+  }
 
-    const settings = await storage.getSettings();
-    const recipients = new Set<string>();
-    if (settings.alertAdminEmail) recipients.add(settings.alertAdminEmail);
-    if (payload.clientEmail) recipients.add(payload.clientEmail);
-
-    // Optionally include all active watcher recipients
-    if (payload.includeWatcherRecipients) {
-      const watcherList = await storage.getWatcherRecipients();
-      for (const r of watcherList) {
-        if (r.active && r.email) recipients.add(r.email);
-      }
-    }
-
-    if (recipients.size === 0) return false;
-
-    await conn.transporter.sendMail({
-      from: `"Bitsauto Monitoring" <${conn.from}>`,
-      to: Array.from(recipients).join(', '),
-      subject: payload.subject,
-      html: payload.bodyHtml,
-    });
-    console.log(`[email] Alert sent: ${payload.subject} → ${Array.from(recipients).join(', ')}`);
-    return true;
-  } catch (err: any) {
-    console.error('[email] Failed to send alert:', err.message);
+  const recipList = Array.from(recipients);
+  if (recipList.length === 0) {
+    _audit({ ts: Date.now(), subject: payload.subject, recipients: [], status: 'skipped', attempts: 0, error: 'no recipients configured' });
     return false;
   }
+
+  let lastErr = '';
+  for (let attempt = 1; attempt <= EMAIL_MAX_ATTEMPTS; attempt++) {
+    try {
+      // Force transporter re-creation on retry (clears bad connection state)
+      if (attempt > 1) { _transporter = null; await new Promise(r => setTimeout(r, EMAIL_RETRY_DELAY)); }
+
+      const conn = await getTransporter();
+      if (!conn) {
+        _audit({ ts: Date.now(), subject: payload.subject, recipients: recipList, status: 'skipped', attempts: attempt, error: 'email not enabled or credentials missing' });
+        return false;
+      }
+
+      await conn.transporter.sendMail({
+        from:    `"Bitsauto Monitoring" <${conn.from}>`,
+        to:      recipList.join(', '),
+        subject: payload.subject,
+        html:    payload.bodyHtml,
+      });
+
+      const status = attempt > 1 ? 'retry_sent' : 'sent';
+      console.log(`[email] ${status} (attempt ${attempt}): ${payload.subject} → ${recipList.join(', ')}`);
+      _audit({ ts: Date.now(), subject: payload.subject, recipients: recipList, status, attempts: attempt });
+      return true;
+
+    } catch (err: any) {
+      lastErr = err.message ?? String(err);
+      console.warn(`[email] Attempt ${attempt}/${EMAIL_MAX_ATTEMPTS} failed: ${lastErr}`);
+    }
+  }
+
+  console.error(`[email] All ${EMAIL_MAX_ATTEMPTS} attempts failed for: ${payload.subject}`);
+  _audit({ ts: Date.now(), subject: payload.subject, recipients: recipList, status: 'failed', attempts: EMAIL_MAX_ATTEMPTS, error: lastErr });
+  return false;
 }
 
 export async function testEmailConfig(): Promise<{ ok: boolean; error?: string }> {

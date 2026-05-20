@@ -1591,7 +1591,15 @@ export default function DashboardPage() {
           </div>
 
           {/* Chart area — flex-grow fills remaining height */}
-          <div className="px-4 pt-3 pb-1 flex-1">
+          <div className="px-4 pt-3 pb-1 flex-1 relative">
+            {trafficHistLoading && !trafficHist && (
+              <div className="absolute inset-0 flex items-end gap-[3px] px-4 pb-2 pt-4 pointer-events-none z-10">
+                {Array.from({ length: 28 }, (_, i) => {
+                  const h = [40,55,35,65,50,70,45,60,38,72,55,48,62,35,58,44,67,52,40,75,48,56,42,63,37,69,50,44][i] ?? 50;
+                  return <div key={i} className="flex-1 rounded-sm bg-muted/30 animate-pulse" style={{ height: `${h}%`, animationDelay: `${i * 30}ms` }} />;
+                })}
+              </div>
+            )}
             <ResponsiveContainer width="100%" height={170}>
               <AreaChart data={trafficHist?.points ?? []} margin={{ top: 2, right: 2, bottom: 0, left: -22 }}>
                 <defs>

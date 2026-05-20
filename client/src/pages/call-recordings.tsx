@@ -60,6 +60,45 @@ const STATUS_CFG = {
   expired:    { label: "Expired",    color: "text-rose-400",    bg: "bg-rose-500/10 border-rose-500/25"     },
 };
 
+// ── Waveform helpers ──────────────────────────────────────────────────────────
+
+function getWaveformHeights(seed: string, count: number): number[] {
+  return Array.from({ length: count }, (_, i) => {
+    const c1 = seed.charCodeAt(i % seed.length) || 50;
+    const c2 = seed.charCodeAt((i + 3) % seed.length) || 30;
+    const raw = (c1 * 17 + c2 * 7 + i * 3) % 24 + 6;
+    return raw;
+  });
+}
+
+function CallWaveform({ callId, progress, active }: { callId: string; progress: number; active: boolean }) {
+  const COUNT = 48;
+  const H = 28;
+  const barW = 3;
+  const gap = 1;
+  const totalW = COUNT * (barW + gap);
+  const heights = getWaveformHeights(callId, COUNT);
+  return (
+    <svg width={totalW} height={H} className="flex-1 min-w-0 max-w-[220px]">
+      {heights.map((h, i) => {
+        const filled = active && (i / COUNT) * 100 < progress;
+        const y = (H - h) / 2;
+        return (
+          <rect
+            key={i}
+            x={i * (barW + gap)}
+            y={y}
+            width={barW}
+            height={h}
+            rx={1}
+            fill={filled ? "#3b82f6" : "rgba(148,163,184,0.18)"}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 // ── Inline audio player row ───────────────────────────────────────────────────
 
 function AudioPlayerRow({ rec, serverUrl }: { rec: Recording; serverUrl: string | null }) {
@@ -98,20 +137,15 @@ function AudioPlayerRow({ rec, serverUrl }: { rec: Recording; serverUrl: string 
               {playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 translate-x-px" />}
             </button>
           </div>
-          {/* Progress bar */}
-          <div className="flex-1 h-1.5 bg-muted/50 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-blue-500 rounded-full transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <span className="text-[11px] font-mono text-muted-foreground flex-shrink-0">
+          {/* Waveform visualisation */}
+          <CallWaveform callId={rec.callId} progress={progress} active={playing} />
+          <span className="text-[11px] font-mono text-muted-foreground flex-shrink-0 tabular-nums">
             {fmtDuration(rec.duration)}
           </span>
-          <span className="text-[11px] text-muted-foreground flex-shrink-0">{rec.codec}</span>
+          <span className="text-[10px] font-medium text-muted-foreground/70 flex-shrink-0 uppercase tracking-wide">{rec.codec}</span>
           {rec.encrypted && <span title="AES-256 encrypted"><Lock className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" /></span>}
           {!audioSrc && (
-            <span className="text-[10px] text-amber-400/80">
+            <span className="text-[10px] text-amber-400/80 italic">
               Configure a recording server in <strong>Settings → Call Recordings</strong> to enable playback
             </span>
           )}

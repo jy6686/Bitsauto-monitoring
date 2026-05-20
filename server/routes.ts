@@ -1316,6 +1316,11 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // GET /api/notifications/audit — in-memory delivery audit ring buffer (last 200)
+  app.get('/api/notifications/audit', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), (_req: any, res: any) => {
+    res.json({ entries: emailSvc.getNotificationAuditLog() });
+  });
+
   // GET /api/team — list all users + their roles (admin only)
   app.get('/api/team', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
