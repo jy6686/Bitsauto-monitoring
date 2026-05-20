@@ -1269,6 +1269,19 @@ export default function BitsEye2Page() {
                   <AnimatePresence initial={false}>
                     {isExpanded && (
                       <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }} style={{ overflow: 'hidden' }}>
+                        {/* All KAM row */}
+                        <motion.div
+                          whileHover={{ background: '#F0F1F3' }}
+                          onClick={() => { setActiveSection('kam'); setSelectedEntity(null); }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px 4px 26px', cursor: 'pointer',
+                            background: activeSection === 'kam' && !selectedEntity ? `${sec.color}0C` : 'transparent',
+                            borderLeft: activeSection === 'kam' && !selectedEntity ? `2px solid ${sec.color}` : '2px solid transparent',
+                          }}
+                        >
+                          <span style={{ fontSize: 11, fontWeight: 600, color: activeSection === 'kam' && !selectedEntity ? sec.color : '#6B7280', flex: 1 }}>All KAMs</span>
+                          <LivePill count={kamTotal} color={sec.color} />
+                        </motion.div>
                         {(kamLive?.kams ?? []).map(kam => (
                           <motion.div
                             key={kam.id} whileHover={{ background: '#F0F1F3' }}
@@ -1332,6 +1345,20 @@ export default function BitsEye2Page() {
                 <AnimatePresence initial={false}>
                   {sec.dim && isExpanded && slice && (
                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }} style={{ overflow: 'hidden' }}>
+                      {/* All [Section] row */}
+                      <motion.div
+                        whileHover={{ background: '#F0F1F3' }}
+                        onClick={() => { setActiveSection(sec.id); setSelectedEntity(null); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px 4px 26px', cursor: 'pointer',
+                          background: activeSection === sec.id && !selectedEntity ? `${sec.color}0C` : 'transparent',
+                          borderLeft: activeSection === sec.id && !selectedEntity ? `2px solid ${sec.color}` : '2px solid transparent',
+                        }}
+                        data-testid={`sidebar-all-${sec.id}`}
+                      >
+                        <span style={{ fontSize: 11, fontWeight: 600, color: activeSection === sec.id && !selectedEntity ? sec.color : '#6B7280', flex: 1 }}>All {sec.label}</span>
+                        <LivePill count={total} color={sec.color} />
+                      </motion.div>
                       {orderedEnts.map(ent => {
                         const isPinned      = dimPins.has(ent.name);
                         const sparkData     = entityHistLocal.get(`${sec.dim}:${ent.name}`) ?? [];
