@@ -872,7 +872,12 @@ function EntityIntelligenceChart({
     ? (livePoints.length > 0 ? `${livePoints.length} snapshots · 45s interval` : 'Building live history…')
     : span === 'daily' ? 'Last 24h · hourly buckets' : 'Last 72h · 6h buckets';
 
-  const isEmpty = chartData.length === 0;
+  // For historical spans: "no traffic" when all buckets are zero (CDR warmup or genuine idle)
+  const hasActivity = chartData.some(p => (p.value ?? 0) > 0);
+  // isEmpty: live span with no snapshots yet, OR hist span before first fetch completes
+  const isEmpty = span === 'live'
+    ? chartData.length === 0
+    : !hist && histFetching;
 
   return (
     <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 16, padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
@@ -919,40 +924,52 @@ function EntityIntelligenceChart({
       </div>
 
       {/* ── Chart area ── */}
-      {isEmpty
-        ? (
-          <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 13 }}>
-            {span === 'live' ? 'Building live history…' : histFetching ? 'Loading…' : 'No data for this period'}
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={140}>
-            <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={color} stopOpacity={0.22} />
-                  <stop offset="95%" stopColor={color} stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#9CA3AF' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-              <Tooltip
-                contentStyle={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 10, fontSize: 12 }}
-                formatter={(val: any, name: string) => [val, name === 'value' ? metricLabel : name === 'secondary' ? 'Connected' : name]}
-              />
-              <Area type="monotone" dataKey="value" stroke={color} strokeWidth={2}
-                fill={`url(#${gradId})`} dot={false} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-              {(type === 'calls') && (
-                <Area type="monotone" dataKey="secondary" stroke="#16A34A" strokeWidth={1.5}
-                  fill="transparent" dot={false} strokeDasharray="4 2" isAnimationActive animationDuration={600} animationEasing="ease-out" />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
-        )
-      }
+      {isEmpty ? (
+        <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 13 }}>
+          {span === 'live' ? 'Building live history…' : 'Loading historical data…'}
+        </div>
+      ) : !hasActivity && span !== 'live' ? (
+        <div style={{ height: 140, display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 12, gap: 4 }}>
+          <span style={{ fontSize: 20 }}>·</span>
+          <span>No traffic in this window</span>
+          <span style={{ fontSize: 10, color: '#E5E7EB' }}>CDR data may still be loading</span>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={140}>
+          <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor={color} stopOpacity={0.22} />
+                <stop offset="95%" stopColor={color} stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#9CA3AF' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+            <YAxis
+              tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false}
+              domain={type === 'asr' ? [0, 100] : ['auto', 'auto']}
+              tickFormatter={type === 'cost' ? (v: number) => `$${v}` : type === 'asr' ? (v: number) => `${v}%` : undefined}
+            />
+            <Tooltip
+              contentStyle={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 10, fontSize: 12 }}
+              formatter={(val: any, name: string) => {
+                const label = name === 'value' ? metricLabel : name === 'secondary' ? 'Connected' : name;
+                const display = type === 'cost' ? `$${Number(val).toFixed(2)}` : type === 'asr' ? `${val}%` : type === 'acd' ? `${val}s` : val;
+                return [display, label];
+              }}
+            />
+            <Area type="monotone" dataKey="value" stroke={color} strokeWidth={2}
+              fill={`url(#${gradId})`} dot={false} isAnimationActive={false} />
+            {(type === 'calls') && (
+              <Area type="monotone" dataKey="secondary" stroke="#16A34A" strokeWidth={1.5}
+                fill="transparent" dot={false} strokeDasharray="4 2" isAnimationActive={false} />
+            )}
+          </AreaChart>
+        </ResponsiveContainer>
+      )}
 
-      {/* ── Stats table — shown for daily/weekly spans ── */}
-      {stats && !isEmpty && (
+      {/* ── Stats table — shown for daily/weekly spans when there is real data ── */}
+      {stats && !isEmpty && hasActivity && (
         <div style={{ marginTop: 10, borderTop: '1px solid #F3F4F6', paddingTop: 8 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr 1fr 1fr', gap: '4px 12px', fontSize: 11 }}>
             <div style={{ color: '#9CA3AF', fontWeight: 600 }}></div>
@@ -1826,7 +1843,7 @@ export default function BitsEye2Page() {
             dim={activeSec.dim ?? 'client'}
             entity={selectedEntity}
             color={activeSec.color}
-            livePoints={entityHistoryPts.length > 0 ? entityHistoryPts : concPoints}
+            livePoints={entityHistoryPts}
           />
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -2114,15 +2131,18 @@ export default function BitsEye2Page() {
             style={{ flex: 1, padding: '12px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10, overflow: 'auto', alignContent: 'start' }}
           >
             {wbCurrent.data.length === 0 ? (
-              <div style={{ color: '#9CA3AF', fontSize: 13, gridColumn: '1 / -1', paddingTop: 20 }}>No active {wbCurrent.label.toLowerCase()} at this moment</div>
+              <div style={{ color: '#9CA3AF', fontSize: 13, gridColumn: '1 / -1', paddingTop: 20 }}>Connecting… no entity data yet</div>
             ) : (
-              wbCurrent.data.map(e => (
-                <div key={e.name} style={{ background: '#FAFBFC', border: `1.5px solid ${wbCurrent.color}22`, borderRadius: 8, padding: '10px 12px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{e.name}</div>
-                  <div style={{ fontSize: 30, fontWeight: 900, color: wbCurrent.color, lineHeight: 1 }}>{e.active}</div>
-                  <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 3 }}>{e.connectRate}% rate</div>
-                </div>
-              ))
+              wbCurrent.data.map(e => {
+                const isIdle = e.active === 0;
+                return (
+                  <div key={e.name} style={{ background: isIdle ? '#FAFBFC' : '#fff', border: `1.5px solid ${isIdle ? '#E5E7EB' : wbCurrent.color + '33'}`, borderRadius: 8, padding: '10px 12px', opacity: isIdle ? 0.6 : 1 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{e.name}</div>
+                    <div style={{ fontSize: 30, fontWeight: 900, color: isIdle ? '#9CA3AF' : wbCurrent.color, lineHeight: 1 }}>{e.active}</div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 3 }}>{isIdle ? 'idle' : `${e.connectRate}% rate`}</div>
+                  </div>
+                );
+              })
             )}
           </motion.div>
         </AnimatePresence>

@@ -12068,7 +12068,11 @@ export async function registerRoutes(
       }
 
       // ── Update per-entity concurrent history + persistent presence registry ──
-      {
+      // Guard: only update entity state when we trust this poll result.
+      // If enrichedCalls is empty but consecutiveZeros < ZERO_CONFIRM_COUNT, this is
+      // likely a transient session blip — keep previous entity state intact so entities
+      // don't flicker to idle after a single failed poll.
+      if (enrichedCalls.length > 0 || consecutiveZeros >= ZERO_CONFIRM_COUNT) {
         const nowEnt = Date.now();
         const dimGetters: [string, (c: any) => string | null][] = [
           ['client',      (c: any) => c.clientName || (c.accountId ? `Acct.${c.accountId}` : null)],
