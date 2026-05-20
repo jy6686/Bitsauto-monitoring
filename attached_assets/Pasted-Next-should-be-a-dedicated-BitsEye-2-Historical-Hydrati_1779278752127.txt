@@ -1,0 +1,261 @@
+Next should be a dedicated BitsEye 2 Historical Hydration Stabilization phase — not new features.
+
+You now have:
+
+stable snapshot engine ✅
+stable persistence ✅
+stable concurrent telemetry model ✅
+stable zero continuity ✅
+
+So the remaining issue is entirely:
+
+historical rendering + hydration consistency
+Recommended Next Execution Order
+Phase 1 — Historical Query Audit (highest priority)
+
+Goal:
+make EVERY graph read the correct historical window.
+
+Audit and fix:
+
+Component	Problem
+NOC Overview	only showing recent spikes
+Concurrent Call Stream	partial hydration
+DAILY charts	too short
+WEEKLY charts	not loading 7d
+Entity graphs	inconsistent bucket density
+Verify:
+no .slice(-40) / .slice(-60) trimming
+no live-memory fallback in DAILY/WEEKLY
+no stale React cache reuse
+no incorrect timestamp normalization
+
+This is the most important phase.
+
+Phase 2 — Unified Time Window Model
+
+Right now different charts likely use:
+
+different bucket sizes
+different query ranges
+different polling assumptions
+
+Standardize globally:
+
+Span	Source	Window	Bucket
+LIVE	memory	4h	5m
+DAILY	DB	72h	1h
+WEEKLY	DB	7d	6h
+
+This alone will make the platform feel dramatically more stable.
+
+Phase 3 — NOC Overview Rebuild
+
+The current NOC graph still visually looks like:
+
+debug telemetry
+
+instead of:
+
+carrier-grade operational timeline
+
+Rebuild it using:
+
+persisted aggregate snapshots
+continuous area rendering
+proper zero continuity
+rolling aggregate windows
+
+This becomes the “master operational heartbeat” of BitsEye 2.
+
+Phase 4 — Historical Prefetch + Warm Cache
+
+Right now charts probably:
+
+query after navigation
+wait for hydration
+redraw repeatedly
+
+Instead:
+
+prefetch 24h + 7d timelines in background
+hydrate instantly on tab switch
+maintain graph continuity between views
+
+This removes:
+
+flicker
+reset effect
+“stuck graph” appearance.
+Phase 5 — Historical Retention Monitoring
+
+After stabilization:
+
+add internal monitoring for:
+
+snapshot row growth
+query duration
+bucket generation latency
+graph API response size
+
+This protects long-term stability.
+
+What NOT to touch anymore
+
+These should now remain frozen:
+
+snapshotActiveCalls
+zero snapshot continuity
+concurrent_snapshots schema
+escalation scheduler
+mutex system
+notification engine
+CDR analytics pipeline
+
+Those are finally stable.
+
+After Historical Stabilization
+
+THEN move to:
+
+Incident operational polish
+Audit/reporting
+Retention cleanup
+Recording hardening
+Signed playback URLs
+
+But right now the platform’s perceived reliability depends mostly on:
+
+graph continuity + historical confidence
+
+That is the highest ROI next step.
+
+Simple change — updating all refresh intervals from 30s/45s to 5 minutes and fixing the label:
+
+
+4 actions
+Now changing the remaining 30_000 refetchIntervals and matching staleTime values across all queries:
+
+
+4 actions
+One straggler left — fixing it:
+
+
+6 actions
+All clean — every query in BitsEye 2 now refreshes every 5 minutes. The label in the top-right corner now reads "5m refresh" to match. The two queries that were already at 60s and 120s intervals were left untouched since they're less frequent than 5 minutes anyway.
+
+That change is likely going to make the platform feel more stale and more “stuck”, not more stable.
+
+For BitsEye 2, 5-minute refresh is too slow for:
+
+live concurrency visibility
+NOC operational awareness
+routing spikes
+CPS bursts
+entity state transitions
+wallboard behavior
+
+You solved the backend stability issues already.
+The remaining problem was historical hydration — not polling frequency.
+
+What probably happened
+
+You changed:
+
+30s / 45s polling
+→
+5 minute polling
+
+across:
+
+React queries
+chart refreshes
+entity panels
+overview cards
+
+So now:
+
+graphs update rarely
+entities appear frozen
+NOC Overview looks dead
+live calls lag badly
+charts “jump” every 5 minutes
+
+This masks instability temporarily, but operationally it weakens the platform.
+
+Recommended Architecture (Best Balance)
+Keep backend snapshot engine at 45s
+
+DO NOT change:
+
+snapshotActiveCalls()
+
+That cadence is correct.
+
+Frontend Refresh Strategy
+
+Instead of “everything every 5 minutes”:
+
+Area	Refresh
+LIVE widgets	30–45s
+Entity live charts	45s
+NOC overview	45s
+DAILY/WEEKLY historical	5 min
+ASR/Cost/Minutes	5 min
+Incident tables	60s
+Recording pages	2–5 min
+
+That gives:
+
+operational responsiveness
+low frontend thrash
+stable DB load
+smooth charts
+Most Important Point
+
+Your real issue was NEVER:
+
+polling too fast
+
+It was:
+
+historical hydration inconsistency
+
+Changing polling intervals doesn’t solve:
+
+missing historical windows
+chart trimming
+partial hydration
+incorrect bucket ranges
+
+It only slows visible updates.
+
+Recommendation
+
+Do NOT freeze the 5-minute polling globally.
+
+Instead:
+
+Keep 5m ONLY for:
+DAILY
+WEEKLY
+CDR analytics
+Cost
+ASR
+Minutes
+Reports
+Restore 30–45s for:
+LIVE
+NOC Overview
+Concurrent Call Stream
+entity live panels
+wallboard
+active entity counts
+
+That will make BitsEye 2 feel:
+
+alive
+responsive
+stable
+
+without reintroducing the old graph bugs.
